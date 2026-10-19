@@ -63,8 +63,11 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
     /// links that open without asking.
     private(set) var documents: Set<String> = []
     /// The documents the user chose (Open File..., the picker, a click, an approved link): these are
-    /// writable. A document an agent or script opened is writable only inside a user root.
+    /// writable. In the code editor, a document an agent or script opened is writable only inside a
+    /// user root; every markdown document is writable (``inWorkspace(_:)``).
     private(set) var granted: Set<String> = []
+    /// Documents the host opened read only on purpose (a chat transcript): never saved.
+    private(set) var readOnlyDocuments: Set<String> = []
     /// Markdown files `resolveLinks` found inside a granted document's folder: the page may open
     /// them in place (following a link it showed).
     private var linked: Set<String> = []
@@ -82,16 +85,18 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
     nonisolated static let listLimit = 50
 
     /// `userChose`: the user opened the tab's document (Open File..., the picker, a click), so it
-    /// is granted and writable; a document an agent or script opened is the page's to show, and
-    /// writable only inside a root the user chose.
-    init(kind: FilePageKind, file: URL?, userChose: Bool = true, host: any FilePageHosting, clock: any Clock<Duration> = ContinuousClock(),
-         libraries: URL?, images: any RemoteImageFetching) {
+    /// is granted and writable; in the code editor, a document an agent or script opened is the
+    /// page's to show, and writable only inside a root the user chose. `readOnly`: the host opens
+    /// the document read only whoever opened it (a chat transcript).
+    init(kind: FilePageKind, file: URL?, userChose: Bool = true, readOnly: Bool = false, host: any FilePageHosting,
+         clock: any Clock<Duration> = ContinuousClock(), libraries: URL?, images: any RemoteImageFetching) {
         self.kind = kind
         self.file = file.map(Self.canonical)
         if let file = self.file {
             shown.insert(file.path)
             documents.insert(file.path)
             if userChose { granted.insert(file.path) }
+            if readOnly { readOnlyDocuments.insert(file.path) }
         }
         self.host = host
         self.clock = clock
@@ -163,8 +168,12 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
         return URL(fileURLWithPath: path).standardizedFileURL
     }
 
-    /// Writable: a document the user granted, or a file inside a folder the user chose as a root.
+    /// Writable: every markdown document the page shows, whoever opened it and in whatever
+    /// workspace (user 2026-10-18: "All markdown viewers should be read-write"); in the code editor,
+    /// a document the user granted or a file inside a folder the user chose as a root. A file that
+    /// is binary, not UTF-8 or not writable stays read only either way (``FileDocument/read``).
     private func inWorkspace(_ url: URL) -> Bool {
+        if kind == .markdown { return true }
         let path = Self.canonical(url).path
         return granted.contains(path) || (host?.roots.contains(path) ?? false)
     }
@@ -197,7 +206,9 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
 
     private func snapshot(_ url: URL) async throws -> FileSnapshot {
         do {
-            return try await Self.read(url, inWorkspace: inWorkspace(url.resolvingSymlinksInPath()))
+            let file = try await Self.read(url, inWorkspace: inWorkspace(url.resolvingSymlinksInPath()))
+            guard file.readOnlyReason == nil, readOnlyDocuments.contains(file.url.path) else { return file }
+            return FileSnapshot(url: file.url, text: file.text, hash: file.hash, size: file.size, readOnlyReason: .transcript)
         } catch .notFound {
             throw PageError(code: kind.op("not_found"), message: url.path)
         } catch .notFile {
@@ -243,7 +254,7 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
         }
         if let reason = file.readOnlyReason {
             config["readOnly"] = true
-            if kind == .editor { config["readOnlyReason"] = .string(reason.rawValue) }
+            config["readOnlyReason"] = .string(reason.rawValue)
         }
         switch kind {
         case .markdown:
@@ -275,6 +286,7 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
         case .null?, nil: base = nil
         default: throw PageError.invalidParams("baseHash must be a string or null")
         }
+        guard !readOnlyDocuments.contains(file.path) else { throw PageError(code: kind.op("read_only"), message: file.path) }
         let workspace = inWorkspace(file)
         let result: FileSaveResult
         do {
