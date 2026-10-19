@@ -51,6 +51,9 @@ public nonisolated struct ActionInvocation: Sendable, Hashable {
     public var arguments: [String: ActionValue]
     /// In-app runs are the user's; the control socket sets its caller's.
     public var origin: ActionOrigin
+    /// The calling app preserved by the native provider, even during its user gesture.
+    /// Nil for direct native/CLI/page calls; attribution never grants execution authority.
+    public var callerApp: String?
     /// The run asked to change this client's view (`action.run` `focus: true`).
     public var focusRequested: Bool
     /// The context of the window whose key-down runs this (the key
@@ -67,6 +70,9 @@ public nonisolated struct ActionInvocation: Sendable, Hashable {
     /// other run. Its claim, like ``origin``: an action an agent may only ask a person for (Move to
     /// Cloud) asks in that chat instead of running.
     public var callerAgentSession: String?
+    /// `caller.terminal_id`: the terminal whose cmux CLI sent the run (an agent running in a
+    /// terminal), nil for any other run. Like ``callerAgentSession``, the caller's own claim.
+    public var callerTerminal: String?
     /// A split that opens a terminal even where a person's split opens the New Tab page (the chat
     /// header's Terminal, cx-00n1). In-app only: the control socket never sets it.
     public var opensTerminal = false

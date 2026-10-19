@@ -39,7 +39,7 @@ enum SidebarCardFeed {
                       settings: SettingsController? = nil) -> Task<Void, Never> {
         let cards = start(model: model, updater: updater, registry: registry)
         guard window != nil else { return cards }
-        let whatsNew = SidebarWhatsNewItemFeed.start(model: model, center: updater.whatsNew, settings: settings)
+        let whatsNew = SidebarWhatsNewItemFeed.start(model: model, settings: settings)
         return Task { await withTaskCancellationHandler { await cards.value } onCancel: { cards.cancel(); whatsNew.cancel() } }
     }
 

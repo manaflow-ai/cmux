@@ -40,11 +40,60 @@ public actor ErrorJournal {
         self.limits = limits
         flushTimer = DemandTimer(owner: "error-journal.flush", clock: clock)
         self.now = now
-        normalizer = ErrorNormalizer(maxBytes: limits.maxMessageBytes)
-        redactor = ErrorRedactor()
+        let normalizer = ErrorNormalizer(maxBytes: limits.maxMessageBytes)
+        let redactor = ErrorRedactor()
+        self.normalizer = normalizer
+        self.redactor = redactor
         var store = ErrorSegmentStore(directory: directory, segmentBytes: limits.segmentBytes)
-        table = store.load()
+        let snapshots = store.load()
+        var latestByOriginalFingerprint: [String: ErrorEntry] = [:]
+        var changed = false
+        for var entry in snapshots {
+            let original = entry
+            let template = redactor.redact(entry.template).utf8Prefix(limits.maxMessageBytes)
+            let sample = redactor.redact(entry.sample).utf8Prefix(limits.maxMessageBytes)
+            let topFrame = entry.topFrame.map { redactor.redact($0).utf8Prefix(256) }
+            let context = entry.context.mapValues {
+                redactor.redact($0).utf8Prefix(limits.maxContextValueBytes)
+            }
+            entry.template = template
+            entry.sample = sample
+            entry.topFrame = topFrame
+            entry.context = context
+            entry.fingerprint = ErrorFingerprint(
+                source: entry.source,
+                template: template,
+                topFrame: topFrame
+            ).hex
+            if entry != original { changed = true }
+            latestByOriginalFingerprint[original.fingerprint] = entry
+        }
+        var loaded: [String: ErrorEntry] = [:]
+        for originalFingerprint in latestByOriginalFingerprint.keys.sorted() {
+            guard let entry = latestByOriginalFingerprint[originalFingerprint] else { continue }
+            loaded[entry.fingerprint] = Self.mergeLoaded(loaded[entry.fingerprint], with: entry)
+        }
+        var migrationError: String?
+        if changed {
+            do { try store.compact(loaded.values.sorted { $0.lastMs < $1.lastMs }) }
+            catch { migrationError = String(describing: error) }
+        }
+        table = loaded
         self.store = store
+        lastWriteError = migrationError
+    }
+
+    private static func mergeLoaded(_ existing: ErrorEntry?, with incoming: ErrorEntry) -> ErrorEntry {
+        guard var merged = existing else { return incoming }
+        merged.count &+= incoming.count
+        merged.level = max(merged.level, incoming.level)
+        merged.firstMs = min(merged.firstMs, incoming.firstMs)
+        if incoming.lastMs >= merged.lastMs {
+            merged.lastMs = incoming.lastMs
+            merged.sample = incoming.sample
+            merged.context = incoming.context
+        }
+        return merged
     }
 
     /// Folds one occurrence into its entry and schedules the write.
@@ -96,18 +145,29 @@ public actor ErrorJournal {
     /// - Returns: How many entries were removed.
     @discardableResult
     public func clear(fingerprints: [String]? = nil) -> Int {
+        var candidate = table
         let removed: Int
         if let fingerprints {
-            removed = fingerprints.reduce(0) { $0 + (table.removeValue(forKey: $1) == nil ? 0 : 1) }
+            removed = fingerprints.reduce(0) { $0 + (candidate.removeValue(forKey: $1) == nil ? 0 : 1) }
         } else {
-            removed = table.count
-            table.removeAll()
+            removed = candidate.count
+            candidate.removeAll()
         }
-        dirty.removeAll()
-        do { try store.compact(table.values.sorted { $0.lastMs < $1.lastMs }) } catch {
-            lastWriteError = String(describing: error)
+        do {
+            try store.compact(candidate.values.sorted { $0.lastMs < $1.lastMs })
+            table = candidate
+            dirty.removeAll()
+            lastWriteError = nil
+            return removed
+        } catch {
+            let clearError = String(describing: error)
+            // A failed compaction can already have removed some old segments.
+            // Rewrite the authoritative pre-clear table so a relaunch cannot
+            // observe a partially cleared history while cleanup is retried.
+            try? store.compact(table.values.sorted { $0.lastMs < $1.lastMs })
+            lastWriteError = clearError
+            return 0
         }
-        return removed
     }
 
     /// Reads every source after its saved cursor, folds what it found, saves the cursors and
@@ -139,7 +199,8 @@ public actor ErrorJournal {
     private func fold(_ event: ErrorEvent) {
         var event = event
         let template = normalizer.template(redactor.redact(event.message))
-        var fingerprint = ErrorFingerprint(source: event.source, template: template, topFrame: event.topFrame).hex
+        let topFrame = event.topFrame.map { redactor.redact($0).utf8Prefix(256) }
+        var fingerprint = ErrorFingerprint(source: event.source, template: template, topFrame: topFrame).hex
         var templateText = template
         if table[fingerprint] == nil, !admitNew(source: event.source, at: event.date) {
             templateText = "too many distinct errors from \(event.source)"
@@ -162,7 +223,7 @@ public actor ErrorJournal {
         } else {
             table[fingerprint] = ErrorEntry(fingerprint: fingerprint, source: event.source, level: event.level,
                                             template: templateText, sample: sample,
-                                            topFrame: event.topFrame.map { redactor.redact($0).utf8Prefix(256) },
+                                            topFrame: topFrame,
                                             context: context, count: 1, firstMs: ms, lastMs: ms)
             evictIfNeeded()
         }
@@ -219,7 +280,10 @@ public actor ErrorJournal {
     }
 
     private func saveCursors(_ cursors: [String: String]) {
-        try? FileManager().createDirectory(at: directory, withIntermediateDirectories: true)
-        if let data = try? JSONEncoder().encode(cursors) { try? data.write(to: cursorsURL, options: .atomic) }
+        try? ErrorSegmentStore.protectDirectory(directory)
+        if let data = try? JSONEncoder().encode(cursors),
+           (try? data.write(to: cursorsURL, options: .atomic)) != nil {
+            try? ErrorSegmentStore.protectFile(cursorsURL)
+        }
     }
 }
