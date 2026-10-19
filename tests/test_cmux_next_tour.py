@@ -62,7 +62,7 @@ while True:
 FAKE_CLI = r'''#!/usr/bin/env python3
 import json, sys
 if "identify" in sys.argv:
-    print(json.dumps({"app": "cmux-next", "version": "0.0.0", "build": "1"}))
+    print(json.dumps({"app": "cmux-next", "version": "0.0.0", "build": "1", "bundle_id": "dev.cmux.test"}))
 if __import__("os").environ.get("FAKE_CLI_FAIL") and any(
     word in {"unsupported", "required"} for word in sys.argv
 ):
@@ -74,16 +74,18 @@ if __import__("os").environ.get("FAKE_CLI_FAIL") and any(
 FAKE_TOOLS = {
     "stat": "#!/bin/sh\necho root\n",
     "pkill": "#!/bin/sh\nexit 1\n",
+    "osascript": "#!/bin/sh\necho \"$*\" >> \"$FAKE_LOG.osascript\"\n",
     "sips": "#!/bin/sh\n# sips -s format jpeg IN --out OUT\ncp \"$4\" \"$6\"\n",
 }
 
 
 # A screen route through a prefix, the way `launchctl asuser` runs commands:
-# osascript reports a 1600x1000 display and screencapture writes an image.
+# osascript finds the app's window as id 4242 and screencapture writes an
+# image, logging its arguments to FAKE_CAPTURES.
 FAKE_ROUTE = r'''#!/bin/sh
 case "$1" in
-  osascript) echo "[1600, 1000]" ;;
-  /usr/sbin/screencapture) for last; do :; done; printf 'SCREEN' > "$last" ;;
+  osascript) echo 4242 ;;
+  /usr/sbin/screencapture) shift; echo "$*" >> "$FAKE_CAPTURES"; for last; do :; done; printf 'SCREEN' > "$last" ;;
   *) exec "$@" ;;
 esac
 '''
@@ -166,6 +168,13 @@ class AppWindowCaptureTests(unittest.TestCase):
         # No raw window image is left behind outside the published folders.
         self.assertEqual(sorted(path.name for path in out.iterdir()), ["app.log", "frames", "manifest.json", "shots"])
 
+    def test_the_tour_never_activates_the_app(self) -> None:
+        # Tours on one Mac run side by side and drive their apps through the
+        # socket, so none takes focus or the key window from another.
+        done, _ = self.run_tour()
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertFalse(Path(f"{self.log}.osascript").exists())
+
     def test_a_working_window_snapshot_never_probes_the_desktop(self) -> None:
         # A desktop capture shows whatever covers the window (permission
         # prompts, other jobs' windows), so it is only the fallback.
@@ -174,7 +183,8 @@ class AppWindowCaptureTests(unittest.TestCase):
         self.assertNotIn("no screen capture route", done.stdout)
 
     def test_without_a_window_snapshot_the_tour_uses_a_screen_route(self) -> None:
-        done, manifest = self.run_tour(screen_route=True, FAKE_SNAPSHOT_ERROR="unknown method")
+        done, manifest = self.run_tour(screen_route=True, FAKE_SNAPSHOT_ERROR="unknown method",
+                                       FAKE_CAPTURES=str(self.root / "captures.log"))
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         self.assertEqual(manifest["capture_mode"], "direct")
         self.assertEqual(manifest["frame_interval"], 0.5)
@@ -183,8 +193,14 @@ class AppWindowCaptureTests(unittest.TestCase):
             self.assertEqual(step["status"], "ok")
             self.assertEqual((out / step["shot"]).read_bytes(), b"SCREEN")
         self.assertTrue(manifest["frames"])
-        # Cropped to the window: 1000 - (100 + 600) from the top.
-        self.assertEqual(manifest["capture_rect"], [100, 300, 800, 600])
+        # That window alone, by its window server id, never a rectangle of the
+        # display: another tour's window over it on the same Mac stays out.
+        self.assertEqual(manifest["capture_window"], 4242)
+        captures = (self.root / "captures.log").read_text(encoding="utf-8").splitlines()
+        self.assertTrue(captures)
+        for argv in captures:
+            self.assertIn("-l4242", argv.split())
+            self.assertFalse(any(word.startswith("-R") for word in argv.split()), argv)
 
     def test_a_snapshot_error_is_recorded_on_each_step(self) -> None:
         _, manifest = self.run_tour(FAKE_SNAPSHOT_ERROR="no such window")
