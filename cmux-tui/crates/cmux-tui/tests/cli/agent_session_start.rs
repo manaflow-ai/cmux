@@ -17,6 +17,8 @@ use super::*;
 
 #[path = "agent_chat_notices.rs"]
 mod agent_chat_notices;
+#[path = "agent_input_hint.rs"]
+mod agent_input_hint;
 #[path = "agent_home_reopen.rs"]
 mod agent_home_reopen;
 #[path = "agents_cli_receipt.rs"]
