@@ -79,9 +79,6 @@ const OPERATION: &str = "workspace.open_url";
 const MAX_URL_BYTES: usize = 8192;
 /// Width of the column a link opens right of a lone dock.
 const NEW_COLUMN_WIDTH: f32 = crate::mux::LONE_DOCK_NEIGHBOR_WIDTH;
-/// The engine of a frontend browser tab the daemon makes (the app's
-/// default; the app owns the engine choice of the tabs it makes itself).
-const FRONTEND_ENGINE: &str = "webkit";
 
 pub(super) fn dispatch(
     mux: &Arc<Mux>,
@@ -508,7 +505,9 @@ impl Call<'_> {
 
     fn frontend_record(&self) -> FrontendBrowserRecord {
         FrontendBrowserRecord {
-            engine: FRONTEND_ENGINE.to_string(),
+            // The person's `browser.defaultEngine` (Chromium unless set to
+            // WebKit), as for a tab the person opens.
+            engine: crate::browser_profile_ops::default_engine(self.mux).to_string(),
             url: self.url.to_string(),
             title: None,
             favicon_url: None,
