@@ -1,6 +1,7 @@
 //! Typing into a terminal whose agent hooks report a live agent still sends
 //! the input, and the CLI points at `cmux agent message` on stderr. A
-//! terminal with no agent, and `--quiet`, get no hint.
+//! terminal with no agent, keys, and `--quiet` get no hint; control
+//! characters in the text never reach stderr.
 
 use super::super::*;
 
@@ -40,13 +41,37 @@ fn terminal_input_into_an_agent_suggests_agent_message() {
         "typing into an agent names the agent message command: {hint}"
     );
 
+    // Keys (enter, ctrl+c) submit or interrupt the agent; they are not a
+    // message, so they get no hint.
     let keys = cli(&server, &["terminal", &agent_terminal, "keys", "enter"]);
     assert_success(&keys);
-    assert!(
-        stderr(&keys).contains(&format!("cmux agent message {agent_terminal} ")),
-        "keys into an agent get the hint too: {}",
-        stderr(&keys)
+    assert!(!stderr(&keys).contains("agent message"), "keys get no hint: {}", stderr(&keys));
+
+    // Control characters never reach stderr: the command shows a placeholder.
+    let submit =
+        cli(&server, &["terminal", &agent_terminal, "write", "--text", "go\r\u{1b}]0;x\u{7}"]);
+    assert_success(&submit);
+    let hint = stderr(&submit);
+    assert!(hint.contains(&format!("cmux agent message {agent_terminal} '…'")), "{hint}");
+    assert!(!hint.contains('\u{1b}') && !hint.contains('\r'), "raw control characters: {hint:?}");
+
+    // The suggested command keeps the caller's route.
+    let routed = cli(
+        &server,
+        &["--machine", "current", "terminal", &agent_terminal, "write", "--text", "hi"],
     );
+    assert_success(&routed);
+    assert!(
+        stderr(&routed)
+            .contains(&format!("cmux --machine current agent message {agent_terminal} 'hi'")),
+        "{}",
+        stderr(&routed)
+    );
+
+    // --json stdout stays exactly the result.
+    let json = json_cli(&server, &["terminal", &agent_terminal, "write", "--text", "x"]);
+    assert_success(&json);
+    json_output(&json);
 
     let quiet = cli(&server, &["--quiet", "terminal", &agent_terminal, "write", "--text", "x"]);
     assert_success(&quiet);
