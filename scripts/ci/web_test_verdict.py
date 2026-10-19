@@ -34,7 +34,8 @@ imported without running a changed line. The head and base commits must be
 fetchable; the script runs `git fetch origin <sha>` unless --no-fetch.
 
 bun reads the PR head only inside test_touches_diff.py's sandbox (Linux user
-namespaces: no network, home directory hidden). Without one, the import graph
+namespaces: no network, no host processes, read-only but for its work directory,
+/tmp, /run, /dev/shm and the home directory hidden). Without one, the import graph
 is skipped ("can't analyse safely") unless --allow-unsandboxed vouches for the
 head. --coverage runs the head's test code. Both --coverage and
 --allow-unsandboxed are refused for a pull request from a fork.

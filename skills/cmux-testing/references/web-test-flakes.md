@@ -42,8 +42,13 @@ Each part also runs on its own:
 ## What runs
 
 - **The sandbox is the guarantee.** bun touches the PR head only in a Linux
-  user namespace (`unshare`): no network, your home directory hidden behind
-  an empty tmpfs, and an environment of just `PATH`, `LANG`, `LC_ALL`, `TERM`
+  user namespace (`unshare`): no network, its own PID namespace (no
+  `/proc/<pid>/root` back to the host), the whole filesystem read-only
+  except bun's own work directory (so it can't plant files in another
+  checkout), `/tmp`, `/var/tmp`, `/run`, `/dev/shm` and your home directory
+  hidden behind empty tmpfs mounts (so no tmux, D-Bus, docker or ssh-agent
+  sockets), and
+  an environment of just `PATH`, `LANG`, `LC_ALL`, `TERM`
   and a throwaway `HOME` and `TMPDIR`.
 - **No sandbox, no bundle.** On macOS, or wherever user namespaces are off,
   the import graph is skipped ("can't analyse safely"; the history still
