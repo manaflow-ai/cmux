@@ -93,11 +93,11 @@ extension ControlRouter {
         let executor = self.executor
         let progress = call.progress
         let wait = call.params["wait"]?.boolValue ?? true
-        let scope = ControlCommandScope(idempotencyKey: key)
+        let scope = progress.track(ControlCommandScope(idempotencyKey: key))
         let expired = ControlError.timeout(call.method, after: max(call.deadline - .now, .zero))
         let run = try await workQueue.run(connection: call.connection, method: call.method, deadline: call.deadline, countingFrom: call.engineStartMark) {
             // The request may have answered `not_run` already: then never run.
-            guard progress.begin() else { throw expired }
+            guard progress.begin(), scope.noting("handler") else { throw expired }
             if action.id == "tab.focus" { tabSwitchMark("run") }
             // The queue runs this from a run-loop block, where no task is current (cx-bpcj).
             return ControlCommandScope.$current.withValueInTask(scope) { executor.performActionTracked(request) }
@@ -157,8 +157,8 @@ extension ControlRouter {
         let failure: ActionWorkFailure?
         do {
             failure = try await ControlDeadline.shared.run(method: method, deadline: deadline) {
-                let tracked = await Self.firstFailure(of: run.work)
-                await Self.awaitIdle(scope)
+                let tracked = await scope.stage("work") { await Self.firstFailure(of: run.work) }
+                await scope.stage("daemon") { await Self.awaitIdle(scope) }
                 return tracked
             }
         } catch {
@@ -168,7 +168,7 @@ extension ControlRouter {
         if let failure = scope.failures.first { return .failure(Self.scopeError(failure, action: action, method: method)) }
         // No daemon command: the work queue's frame already published the
         // app-local change (selection, focus, settings).
-        let barriers = scope.barriers
+        let barriers = scope.snapshotBarriers()
         guard !barriers.isEmpty else { return .success(await snapshots.showing(scope.created, after: snapshots.current, replyBy: replyBy())) }
         guard let snapshot = await snapshots.snapshot(reflecting: Self.sequenceBarrier(barriers, in: snapshots.current.topology),
                                                       deadline: deadline) else {

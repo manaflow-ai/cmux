@@ -45,8 +45,8 @@ nonisolated enum LayerColor: String, CaseIterable {
 /// (`viewDidChangeEffectiveAppearance` and a display), with no layout pass unless a metric
 /// changed, and every layer color the hooks change blends on the render server from the color
 /// on screen (``ColorTransition``). No window capture, no image copy, no forced commit and no
-/// per-frame main-thread work; colors drawn in `draw(_:)` (text, terminal surfaces) switch at
-/// once.
+/// per-frame main-thread work. Terminal surfaces blend their own colors on the GPU with the same
+/// curve (`ghostty_surface_set_color_transition`); colors drawn in `draw(_:)` switch at once.
 ///
 /// Changes collect in a ``batch(_:)``: each scope asks for its region once (``request(_:roots:scope:animated:layout:)``)
 /// and defers its window and root appearances (``beforeHooks(_:)``). The batch then records the

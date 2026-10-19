@@ -226,6 +226,19 @@ public final class SidebarContainerView: NSView {
     override public func layout() {
         super.layout()
         PointerHover.refresh(in: window)
+        reportBackdropCover()
+    }
+
+    /// Tells the window's art the column the sidebar will cover once its slide ends, so a
+    /// painting moves its subject once, not with every frame of the slide
+    /// (``WindowMaterialView/setCover(_:for:)``).
+    private func reportBackdropCover() {
+        guard let window else { return }
+        let frame = convert(bounds, to: nil)
+        let width = model.isHidden || isHidden ? 0 : targetWidth
+        let x = side == .left ? frame.minX : frame.maxX - width
+        WindowMaterialView.backdrop(of: window)?.setCover(width > 0.5 ? CGRect(x: x, y: frame.minY, width: width, height: frame.height) : nil,
+                                                          for: "sidebar")
     }
 
     /// Sets every constraint and visibility for the model without animating.

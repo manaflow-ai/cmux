@@ -194,44 +194,49 @@ await requireBrowserLane("newtab-quiet-focus.test.ts", async () => {
       await page.close();
     });
 
-  // The location strip on the card's top edge takes the focused rim's tone, so the focused card and
-  // strip stay one outline instead of a bright card under a resting strip.
+  // The card's one rim goes round the location strip on its top edge (composerLocation.css): the
+  // card's rim layer reaches up over the strip, which draws no rim of its own, so the focused card
+  // and strip stay one outline in the focused tone instead of a bright card under a resting strip.
+  const tone = (shadow: string) => shadow.match(/(?:rgba?|color)\([^)]*\)/)![0];
   for (const theme of ["dark", "light"] as const)
     test(`${theme}: the location strip's edge follows the card's focus`, async () => {
       const page = await open(2, theme);
       const edge = () =>
-        page.evaluate(
-          () => getComputedStyle(document.getElementById("strip")!).boxShadow.match(/(?:rgba?|color)\([^)]*\)/)![0],
-        );
+        page.evaluate(() => {
+          const strip = document.getElementById("strip")!;
+          const card = document.getElementById("strip-composer")!;
+          const rim = getComputedStyle(card, "::before");
+          return {
+            shadow: rim.boxShadow,
+            // Where the rim layer starts, against the strip's top: 0 when it goes round the strip.
+            top: card.getBoundingClientRect().top + parseFloat(rim.top) - strip.getBoundingClientRect().top,
+            stripRim: getComputedStyle(strip).boxShadow,
+          };
+        });
       const rest = await edge();
       await page.focus("#strip-composer-field");
       const focused = await edge();
-      expect(focused, "the strip's edge steps with the card").not.toBe(rest);
-      const card = await page.evaluate(
-        () =>
-          getComputedStyle(document.getElementById("strip-composer")!, "::before").boxShadow.match(
-            /(?:rgba?|color)\([^)]*\)/,
-          )![0],
-      );
-      expect(focused, "the strip and the card draw one tone").toBe(card);
+      expect(Math.abs(focused.top), "the card's rim goes round the strip").toBeLessThan(0.5);
+      expect(focused.stripRim, "the strip draws no second rim").toBe("none");
+      expect(tone(focused.shadow), "the strip's edge steps with the card").not.toBe(tone(rest.shadow));
       await page.close();
     });
 
   // Queued prompts sit on the card's top edge as part of its outline, so their sides take the
-  // focused tone with the card instead of staying at rest over a lifted card.
+  // focused tone with the card's rim (its rim layer) instead of staying at rest over a lifted card.
   for (const theme of ["dark", "light"] as const)
     test(`${theme}: queued prompts' edge follows the card's focus`, async () => {
       const page = await open(2, theme);
-      const tone = (id: string) =>
-        page.evaluate(
-          (id) => getComputedStyle(document.getElementById(id)!).boxShadow.match(/(?:rgba?|color)\([^)]*\)/)![0],
-          id,
-        );
-      const rest = await tone("queue");
+      const edges = () =>
+        page.evaluate(() => ({
+          queue: getComputedStyle(document.getElementById("queue")!).boxShadow,
+          card: getComputedStyle(document.getElementById("queue-composer")!, "::before").boxShadow,
+        }));
+      const rest = await edges();
       await page.focus("#queue-composer-field");
-      const focused = await tone("queue");
-      expect(focused, "the queue's edge steps with the card").not.toBe(rest);
-      expect(focused, "the queue and the card draw one tone").toBe(await tone("queue-composer"));
+      const focused = await edges();
+      expect(tone(focused.queue), "the queue's edge steps with the card").not.toBe(tone(rest.queue));
+      expect(tone(focused.queue), "the queue and the card draw one tone").toBe(tone(focused.card));
       await page.close();
     });
 
