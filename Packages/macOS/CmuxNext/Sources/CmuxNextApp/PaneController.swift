@@ -344,12 +344,18 @@ final class PaneController: SurfacePresenter, PresentablePane {
             view.clearLaunchImage()
         }
         if let currentTabKey, currentTabKey != key { services.cache.withdraw(currentTabKey, by: self) }
+        DebugTabSwitch.mark(self, "withdraw")
         // May replace a stale surface, displacing the view shown here.
         let content = key.flatMap(content(for:))
+        DebugTabSwitch.mark(self, "content")
+        if let content { DebugTabSwitch.kind(self, content.switchKind) }
         currentTabKey = key
         if let key, content != nil { services.cache.present(key, by: self, presence: presence) }
+        DebugTabSwitch.mark(self, "reveal")
         if view.stripView.window != nil { view.stripView.syncFromModel() } // strip + content: one transaction (L4)
+        DebugTabSwitch.mark(self, "stripSync")
         view.show(content?.view)
+        DebugTabSwitch.mark(self, "view")
         // Terminals come in on their first frame (`LaunchSettle`); other
         // content (a page, an agent) is ready once shown.
         if let content, !content.isTerminal { LaunchReveal.shared.markReady(.pane) }

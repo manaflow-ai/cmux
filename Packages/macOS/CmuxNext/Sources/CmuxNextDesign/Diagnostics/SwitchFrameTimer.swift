@@ -9,15 +9,32 @@ import QuartzCore
 /// each missed. The update cycle commits once per frame, so a switch commits after the next vsync at
 /// the earliest (0: the first frame it could). The vsync grid is a display-link tick after the
 /// commit; a stalled (synthesized) tick waits for the next. Records between ``start()`` and ``stop()``.
+///
+/// Stages (tab-switch-fast): `input_ms` is the OS event's age when the intent began (a click or key;
+/// absent for a socket action), each ``mark(_:_:)`` adds `<stage>_ms` since the intent, `kind` names
+/// the content shown, and `confirm_ms` is when the daemon stored the selection (``confirmed()``,
+/// asynchronous: the switch never waits for it).
 @MainActor
 public final class SwitchFrameTimer {
-    private struct Pending { var start: CFTimeInterval, applied: CFTimeInterval, commit: (CFTimeInterval, CFTimeInterval)? = nil }
+    private struct Started {
+        var start: CFTimeInterval
+        var input: CFTimeInterval?
+        var stages: [String: CFTimeInterval] = [:]
+        var kind = "unknown"
+    }
+    private struct Pending { var started: Started, applied: CFTimeInterval, commit: (CFTimeInterval, CFTimeInterval)? = nil }
 
     public private(set) var isRecording = false
     /// One row per timed switch (milliseconds and frame counts).
     public private(set) var samples: [[String: Double]] = []
-    private var started: [ObjectIdentifier: CFTimeInterval] = [:]
+    /// The content kind each row of ``samples`` showed (`terminal`, `chromium`, `webkit`, `page`, ...).
+    public private(set) var kinds: [String] = []
+    /// Daemon confirm latency of each switch that was shown (ms), in order.
+    public private(set) var confirms: [Double] = []
+    private var started: [ObjectIdentifier: Started] = [:]
     private var pending: [Pending] = []
+    /// Switches shown and not yet confirmed by the daemon (their intent times).
+    private var unconfirmed: [CFTimeInterval] = []
     /// One probe per window that showed a switch while recording (a switch outside a window is not timed).
     private var probes: [ObjectIdentifier: CommitProbe] = [:]
     private let capacity = 1_024
@@ -28,29 +45,57 @@ public final class SwitchFrameTimer {
     }
 
     public func start() {
-        (started, pending, samples, isRecording) = ([:], [], [], true)
+        (started, pending, samples, kinds, confirms, unconfirmed, isRecording) = ([:], [], [], [], [], [], true)
     }
 
     public func stop() {
-        (started, pending, isRecording) = ([:], [], false)
+        (started, pending, unconfirmed, isRecording) = ([:], [], [], false)
         for probe in probes.values { probe.remove() }
         probes = [:]
         client?.deactivate()
     }
 
     /// A switch intent for `key`; the latest one counts (an intent that never shows leaves no sample).
-    public func began(_ key: ObjectIdentifier) {
-        started[key] = CACurrentMediaTime()
+    /// `inputTimestamp` is the triggering event's `NSEvent.timestamp` (same clock as `CACurrentMediaTime`).
+    public func began(_ key: ObjectIdentifier, inputTimestamp: TimeInterval? = nil) {
+        let now = CACurrentMediaTime()
+        // Only an event from this switch's own input (not one left over from a launch or a menu).
+        let input = inputTimestamp.flatMap { now - $0 >= 0 && now - $0 < 1 ? $0 : nil }
+        started[key] = Started(start: now, input: input)
+    }
+
+    /// The switch of `key` reached `stage` (`focus`, `strip`, `content`, `view`, ...).
+    public func mark(_ key: ObjectIdentifier, _ stage: String) {
+        guard isRecording, started[key] != nil else { return }
+        started[key]?.stages[stage] = CACurrentMediaTime()
+    }
+
+    /// The content kind the switch of `key` shows.
+    public func setKind(_ key: ObjectIdentifier, _ kind: String) {
+        guard isRecording, started[key] != nil else { return }
+        started[key]?.kind = kind
     }
 
     /// `key` shows its new selection in `window`: the transaction open now carries it to the screen.
     public func shown(_ key: ObjectIdentifier, in window: NSWindow?) {
-        guard isRecording, let start = started.removeValue(forKey: key), let window, let host = window.contentView?.layer else { return }
-        pending.append(Pending(start: start, applied: CACurrentMediaTime()))
+        guard isRecording, let switched = started.removeValue(forKey: key), let window, let host = window.contentView?.layer else { return }
+        pending.append(Pending(started: switched, applied: CACurrentMediaTime()))
+        unconfirmed.append(switched.start)
         let probe = probes[ObjectIdentifier(window)] ?? CommitProbe { [weak self] in self?.committed(at: ($0, $1)) }
         probes[ObjectIdentifier(window)] = probe
         probe.mark(in: host)
         client?.activate()
+    }
+
+    /// The daemon stored the selections shown before `requested` (a window record write landed).
+    public func confirmed(requestedAt requested: CFTimeInterval) {
+        guard isRecording else { return }
+        let now = CACurrentMediaTime()
+        unconfirmed.removeAll { start in
+            guard start <= requested else { return false }
+            if confirms.count < capacity { confirms.append((now - start) * 1_000) }
+            return true
+        }
     }
 
     /// The commit that displayed a probe ran: it carried every switch shown before it.
@@ -67,10 +112,15 @@ public final class SwitchFrameTimer {
         pending.removeAll { switched in
             guard let times = switched.commit, times.1 <= tick.timestamp else { return false }
             let late = { (time: CFTimeInterval) in max(0, ((vsync(after: time) - vsync(after: switched.applied)) / refresh).rounded() - 1) }
+            let start = switched.started.start
             if samples.count < capacity {
-                samples.append(["apply_ms": (switched.applied - switched.start) * 1_000, "commit_ms": (times.0 - switched.start) * 1_000,
-                                "commit_end_ms": (times.1 - switched.start) * 1_000, "late_vsyncs": late(times.0),
-                                "late_end_vsyncs": late(times.1), "refresh_ms": refresh * 1_000])
+                var row = ["apply_ms": (switched.applied - start) * 1_000, "commit_ms": (times.0 - start) * 1_000,
+                           "commit_end_ms": (times.1 - start) * 1_000, "late_vsyncs": late(times.0),
+                           "late_end_vsyncs": late(times.1), "refresh_ms": refresh * 1_000]
+                if let input = switched.started.input { row["input_ms"] = (start - input) * 1_000 }
+                for (stage, time) in switched.started.stages { row[stage + "_ms"] = (time - start) * 1_000 }
+                samples.append(row)
+                kinds.append(switched.started.kind)
             }
             return true
         }
