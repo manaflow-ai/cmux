@@ -24,9 +24,10 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     /// busy or paused only for an agent turn with `working` on, or with
     /// `progress` on.
     public var activity: StatusIndicatorState
-    /// The bar under the row, when `progress` is on: a measured fraction or an error only. An
-    /// indeterminate report draws no bar; the status icon already says the workspace works
-    /// (Lawrence 2026-10-13: a full-width line under every busy row read as noise, #20409).
+    /// The bar under the row, when `progress` is on: a measured fraction or
+    /// an error only. An indeterminate report draws no bar; the status glyph
+    /// already says the workspace works (Lawrence 2026-10-13 and 2026-10-18:
+    /// the full-width line under every busy row read as a stray underline).
     public var progress: SidebarProgress?
     /// The agent-working indicator slot (WORKING-AND-LOADING-INDICATORS).
     public var showsWorking: Bool
@@ -152,13 +153,6 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
         return block.isEmpty ? nil : block
     }
 
-    /// The progress a row draws as a bar: a value or an error. A connecting placeholder keeps its
-    /// dimmed indeterminate bar (its only sign of life).
-    static func bar(_ ws: SidebarWorkspace) -> SidebarProgress? {
-        guard let progress = ws.progress else { return nil }
-        return progress.value != nil || progress.isError || ws.rowState == .placeholder ? progress : nil
-    }
-
     static func activity(_ state: StatusIndicatorState, working: Bool, progress: Bool) -> StatusIndicatorState {
         switch state {
         case .idle, .waiting, .error, .success: state
@@ -187,6 +181,13 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
         calendar.isDate(date, inSameDayAs: now)
             ? date.formatted(date: .omitted, time: .shortened)
             : date.formatted(.dateTime.month(.abbreviated).day())
+    }
+
+    /// The progress a row draws as a bar: a value or an error. A connecting
+    /// placeholder keeps its dimmed indeterminate bar (its only sign of life).
+    static func bar(_ ws: SidebarWorkspace) -> SidebarProgress? {
+        guard let progress = ws.progress else { return nil }
+        return progress.value != nil || progress.isError || ws.rowState == .placeholder ? progress : nil
     }
 
     static func nonEmpty(_ text: String?) -> String? {
