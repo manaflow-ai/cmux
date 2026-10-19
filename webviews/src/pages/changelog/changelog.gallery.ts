@@ -3,8 +3,15 @@ import { changelogPageEntry } from "../../gallery/format";
 import { sampleNotes } from "./mockProvider";
 import { realNightlies } from "./realNightlyFixtures";
 import nightly3913596493801 from "./fixtures/nightly-3913596493801-span.json";
+import nightlyNext50 from "./fixtures/nightly-next-50.json";
 import type { ReleaseNotes } from "./types";
 import { journalNotes } from "./whatsNewFixtures";
+
+/** The 50 nightlies the nightly-next notes index listed on 2026-10-19 (3839629140701 to
+    3917159104301), each as signed and published; a build that carries structured items drops
+    its duplicate `changes` list, which the page never reads when `items` is there. */
+const nightlies = nightlyNext50 as ReleaseNotes[];
+const span = (from: string, to: string) => `#/?from=1.0.0-nightly.${from}&to=1.0.0-nightly.${to}`;
 
 const manyNotes = Array.from({ length: 18 }, (_, index) => ({
   build: `37203579${String(6000 + index)}`,
@@ -38,6 +45,31 @@ export default changelogPageEntry({
     "pages/changelog/ReleaseParts.tsx",
   ],
   variants: {
+    "range-small": {
+      note: "An update of one nightly with three changes (3889441310601 to 3889579838401), as published.",
+      notes: nightlies,
+      route: span("3889441310601", "3889579838401"),
+    },
+    "range-medium": {
+      note: "An update of ten nightlies and 92 changes (3911762409401 to 3913596493801), from today's feed.",
+      notes: nightlies,
+      route: span("3911762409401", "3913596493801"),
+    },
+    "range-huge": {
+      note: "An update across 49 nightlies and about 1,600 commits (3839629140701 to 3917159104301): five rows per section, every change folded, internal work as one line.",
+      notes: nightlies,
+      route: span("3839629140701", "3917159104301"),
+    },
+    "range-internal-only": {
+      note: "An update whose only nightly changed nothing a person would notice (3916817696501): Maintenance and fixes.",
+      notes: nightlies,
+      route: span("3916797756901", "3916817696501"),
+    },
+    "range-summary-only": {
+      note: "One nightly whose notes carry summary lines only, no What's New document or highlights (3909307839101).",
+      notes: nightlies,
+      route: span("3909161799401", "3909307839101"),
+    },
     "nightly-3913596493801": {
       note: "The update from 1.0.0-nightly.3911762409401 to 3913596493801 (2026-10-18): the ten signed notes of that span as published, perf-split commits, cut titles and bead ids included.",
       notes: nightly3913596493801 as ReleaseNotes[],

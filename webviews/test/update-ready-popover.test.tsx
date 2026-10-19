@@ -105,3 +105,67 @@ test("the Updated card names the short build, says What's new in this build and 
   const buttons = [...host.querySelectorAll("button")].map((b) => b.textContent || b.getAttribute("aria-label"));
   expect(buttons).toEqual(["Close", "See What's New"]);
 });
+
+// Notes published before the pipeline's readable rules (#21873) reach the card and popup as they
+// were written: a digest title cut with "…", a work-stream line, and each title repeated as its
+// description (nightly 3917159104301 and earlier). The surfaces read them as the page does.
+test("the popup and the card read notes published before the readable rules as the page does", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { UpdateReadyHighlights, UpdatedCard } = await import("../src/pages/changelog/UpdateSurfaces");
+  const { createStrings } = await import("../src/pages/shared/i18n");
+  const table = (await import("../src/pages/changelog/generated/strings.json")).default;
+  const data = {
+    version: "1.0.0-nightly.3917159104301",
+    build: "3917159104301",
+    fromVersion: "1.0.0-nightly.3917061587901",
+    fromBuild: "3917061587901",
+    date: "2026-10-19",
+    source: "whatsNew" as const,
+    language: "en",
+    items: [
+      {
+        id: "summary-2",
+        title: "Cmux NEXT perf-fanout: a restored New Tab page reads no tab…",
+        summary: "Cmux NEXT perf-fanout: a restored New Tab page reads no tab list in its pane's snapshot",
+        category: "improved" as const,
+      },
+      {
+        id: "summary-1",
+        title: "Export-backdrop-art reads each entry's subject box and…",
+        summary: "Export-backdrop-art reads each entry's subject box and exports it",
+        category: "improved" as const,
+      },
+      {
+        id: "summary-0",
+        title: "Keep the Mac awake while agents work",
+        summary: "Keep the Mac awake while agents work",
+        category: "fixed" as const,
+      },
+    ],
+    moreCount: 0,
+    changelog: { from: "1.0.0-nightly.3917061587901", to: "1.0.0-nightly.3917159104301" },
+  };
+  act(() => root?.unmount());
+  root = createRoot(host);
+  await act(async () =>
+    root!.render(
+      <UpdateReadyHighlights data={data} strings={createStrings(table)} actions={{ openChangelog: () => undefined }} />,
+    ),
+  );
+  const items = [...host.querySelectorAll(".wn-pop-list li")].map((li) => li.textContent);
+  expect(items).toEqual([
+    "1Export-backdrop-art reads each entry's subject box and exports it",
+    "2Keep the Mac awake while agents work",
+  ]);
+  act(() => root?.unmount());
+  root = createRoot(host);
+  await act(async () =>
+    root!.render(
+      <UpdatedCard data={data} strings={createStrings(table)} actions={{ openChangelog: () => undefined }} />,
+    ),
+  );
+  expect(host.querySelector(".wn-card-headline")?.textContent).toBe(
+    "Export-backdrop-art reads each entry's subject box and exports it",
+  );
+  expect(host.querySelector(".wn-card-line")?.textContent).toBe("+1 more");
+});

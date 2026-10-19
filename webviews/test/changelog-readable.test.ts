@@ -4,7 +4,8 @@
 // published.
 import { expect, test } from "bun:test";
 import span from "../src/pages/changelog/fixtures/nightly-3913596493801-span.json";
-import { mergedView, readableChanges } from "../src/pages/changelog/model";
+import nightlies from "../src/pages/changelog/fixtures/nightly-next-50.json";
+import { changeItems, mergedView, readableChanges } from "../src/pages/changelog/model";
 import { readableChange, shortTitle } from "../src/pages/changelog/readableChange";
 import type { ReleaseNotes } from "../src/pages/changelog/types";
 
@@ -96,10 +97,36 @@ test("All Changes drops a change reverted in the span and reads a pull request a
   expect(internal).toBe(1);
 });
 
+// The 49-nightly update (3839629140701 to 3917159104301, gallery range-huge) showed "(hq#1957)"
+// and "(review)" in New and All Changes, and "Feat-cmux-next base reds…" and "Compile fixes…" as
+// changes a person would notice.
+test("tracker and review references come off a title", () => {
+  expect(readableChange("cmux-next: workspace name source and revision, like tab names (hq#1957)")).toMatchObject({
+    title: "Workspace name source and revision, like tab names",
+    internal: false,
+  });
+  expect(readableChange("cmux-next: the stage log keeps its first 16 and newest 32 entries (review)").title).toBe(
+    "The stage log keeps its first 16 and newest 32 entries",
+  );
+});
+
+test("base reds, branch names and compile fixes are internal work", () => {
+  expect(readableChange("fix: feat-cmux-next base reds in react-apps-check and cmux-next checks").internal).toBe(true);
+  expect(readableChange("cmux-next: compile fixes (replay entry shadowing Location trail content name)").internal).toBe(
+    true,
+  );
+});
+
 // The page reads notes published before the pipeline's rules (scripts/cmux-next/release-notes.py
-// summary_entry and short_title) the same way the pipeline reads new ones.
+// summary_entry and short_title) the same way the pipeline reads new ones: every subject of the
+// medium span and of the 50 nightlies the gallery shows.
 test("the page and the pipeline read every subject of the span alike", () => {
-  const subjects = [...new Set((span as ReleaseNotes[]).flatMap((n) => n.changes))];
+  const subjects = [
+    ...new Set([
+      ...(span as ReleaseNotes[]).flatMap((n) => n.changes),
+      ...(nightlies as ReleaseNotes[]).flatMap((n) => changeItems(n).map((c) => c.title)),
+    ]),
+  ];
   const script = `
 import importlib.util, json, sys
 spec = importlib.util.spec_from_file_location("notes", sys.argv[1])

@@ -1,0 +1,114 @@
+// The pre-publish check of a nightly's notes (nightly.yml check-release-notes, Leo 2026-10-18):
+// what the What's New page shows for the last 1 and 10 nightlies and what the update card shows
+// for the build, before the notes are uploaded. The fixture is the 50 nightlies the nightly-next
+// notes index listed on 2026-10-19, as published.
+import { expect, test } from "bun:test";
+import fixture from "../src/pages/changelog/fixtures/nightly-next-50.json";
+import { checkNightlyNotes } from "../src/pages/changelog/notesCheck";
+import type { ReleaseNotes, WhatsNewEntry } from "../src/pages/changelog/types";
+
+const nightlies = fixture as ReleaseNotes[];
+
+function at(build: string): { notes: ReleaseNotes; previous: ReleaseNotes[] } {
+  const index = nightlies.findIndex((n) => n.build === build);
+  return { notes: nightlies[index]!, previous: nightlies.slice(index + 1, index + 10) };
+}
+
+function digestEntry(id: string, title: string, summary = title): WhatsNewEntry {
+  return { id, category: "improved", title: { en: title }, summary: { en: summary } };
+}
+
+function withEntries(notes: ReleaseNotes, entries: WhatsNewEntry[]): ReleaseNotes {
+  return { ...notes, whatsNew: { ...notes.whatsNew!, entries } };
+}
+
+test("3917159104301 as published fails on its cut digest title; the page and card show it whole", () => {
+  const { notes, previous } = at("3917159104301");
+  const defects = checkNightlyNotes(notes, previous);
+  expect(defects).toEqual([
+    {
+      kind: "truncated",
+      where: "notes",
+      text: "Export-backdrop-art reads each entry's subject box and…",
+    },
+  ]);
+});
+
+test("notes as the current pipeline writes them pass, alone and with the nine nightlies before them", () => {
+  const { notes, previous } = at("3917159104301");
+  const fixed = withEntries(notes, [
+    { ...notes.whatsNew!.entries[0]!, category: "fixed" },
+    digestEntry("summary-1", "Export-backdrop-art reads each entry's subject box and exports it"),
+  ]);
+  expect(checkNightlyNotes(fixed, previous)).toEqual([]);
+});
+
+test("a leaked bead id, a cut title and internal work in the build's own lines fail", () => {
+  const { notes, previous } = at("3917159104301");
+  const bad: ReleaseNotes = {
+    ...withEntries(notes, [
+      digestEntry("summary-0", "Keep the Mac awake while agents work (cx-ab12)"),
+      digestEntry("summary-1", "perf-gate: a switch budget of 0 sidebar row configures"),
+    ]),
+    summary: [
+      { group: "fixed", title: "Keep the Mac awake while agents work (cx-ab12)" },
+      { group: "changed", title: "Tabs reopen where they were..." },
+    ],
+  };
+  const kinds = checkNightlyNotes(bad, previous).map((d) => `${d.where} ${d.kind} ${d.text}`);
+  expect(kinds).toContain("notes bead Keep the Mac awake while agents work (cx-ab12)");
+  expect(kinds).toContain("notes internal perf-gate: a switch budget of 0 sidebar row configures");
+  expect(kinds).toContain("notes truncated Tabs reopen where they were...");
+});
+
+test("a reviewed entry the page would show twice, or with its title as its description, fails", () => {
+  const { notes, previous } = at("3917159104301");
+  const twice = withEntries(notes, [
+    { ...digestEntry("tabs", "Tabs reopen where they were", "Tabs reopen where they were"), category: "new" },
+    { ...digestEntry("tabs-again", "Tabs reopen where they were", "After a relaunch."), category: "new" },
+  ]);
+  const defects = checkNightlyNotes(twice, previous).map((d) => `${d.where} ${d.kind} ${d.text}`);
+  expect(defects).toContain("notes duplicate Tabs reopen where they were");
+});
+
+test("a defect only an older nightly has is not this build's to fix", () => {
+  const { notes, previous } = at("3917159104301");
+  const fixed = withEntries(notes, [{ ...notes.whatsNew!.entries[0]!, category: "fixed" }]);
+  const older = previous.map((n, i) =>
+    i === 0 ? { ...n, highlights: [{ id: "old", title: "An old highlight cut short…", body: "" }] } : n,
+  );
+  expect(checkNightlyNotes(fixed, older)).toEqual([]);
+});
+
+test("every one of the 50 published nightlies shows clean on the page and the card", () => {
+  for (const [index, notes] of nightlies.entries()) {
+    const shown = checkNightlyNotes(notes, nightlies.slice(index + 1, index + 10)).filter((d) => d.where !== "notes");
+    expect([notes.build, shown]).toEqual([notes.build, []]);
+  }
+});
+
+// The nightly job runs the check as `bun scripts/cmux-next/check-release-notes.ts NOTES PREVIOUS…`.
+test("the command fails with one annotation per defect, and passes clean notes", async () => {
+  const { mkdtempSync, writeFileSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const dir = mkdtempSync(`${tmpdir()}/notes-check-`);
+  const { notes, previous } = at("3917159104301");
+  const files = [notes, ...previous].map((n) => {
+    const path = `${dir}/${n.build}.json`;
+    writeFileSync(path, JSON.stringify(n));
+    return path;
+  });
+  const script = `${import.meta.dir}/../../scripts/cmux-next/check-release-notes.ts`;
+  const bad = Bun.spawnSync([process.execPath, script, ...files]);
+  expect(bad.exitCode).toBe(1);
+  expect(bad.stdout.toString()).toContain(
+    "::error title=Release notes::3917159104301 notes: a cut title: Export-backdrop-art reads each entry's subject box and…",
+  );
+  const fixed = withEntries(notes, [{ ...notes.whatsNew!.entries[0]!, category: "fixed" }]);
+  writeFileSync(files[0]!, JSON.stringify(fixed));
+  const good = Bun.spawnSync([process.execPath, script, ...files]);
+  expect([good.exitCode, good.stdout.toString()]).toEqual([
+    0,
+    "3917159104301: notes, page (1 and 10 nightlies) and card read clean\n",
+  ]);
+});
