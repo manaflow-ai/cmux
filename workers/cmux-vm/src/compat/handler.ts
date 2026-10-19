@@ -127,7 +127,7 @@ const handle = (request: Request, options: { readonly publicSnapshotIds: Readonl
 
 type OwnedVmVisitor = <C, V>(caller: Named<C, Principal>, vm: Named<V, VmId>, owns: TenantOwnsResource<C, V>, row: OwnedResource) => Effect.Effect<Response, unknown, unknown>;
 type OwnedSnapshotVisitor = <C, V>(caller: Named<C, Principal>, snapshot: Named<V, SnapshotId>, owns: TenantOwnsResource<C, V>, row: OwnedResource) => Effect.Effect<Response, unknown, unknown>;
-const withOwnedVmCompat = (principal: Principal, upstreamId: string, visit: OwnedVmVisitor): Effect.Effect<Response, unknown, OwnershipStore> => Effect.gen(function* () {
+const withOwnedVmCompat = (principal: Principal, upstreamId: string, visit: OwnedVmVisitor): Effect.Effect<Response, unknown, unknown> => Effect.gen(function* () {
   const store = yield* OwnershipStore;
   const row = yield* store.findByUpstream(principal.tenantId, "vm", upstreamId);
   if (Option.isNone(row)) return notFound();
@@ -135,7 +135,7 @@ const withOwnedVmCompat = (principal: Principal, upstreamId: string, visit: Owne
   if (Option.isNone(parsed)) return notFound();
   return yield* name(principal, <C>(caller: Named<C, Principal>) => name(parsed.value, <V>(vm: Named<V, VmId>) => tenantOwnsVm(caller, vm).pipe(Effect.flatMap((owns) => owns === null ? Effect.succeed(notFound()) : visit(caller, vm, owns, row.value)))));
 });
-const withOwnedSnapshotCompat = (principal: Principal, upstreamId: string, visit: OwnedSnapshotVisitor): Effect.Effect<Response, unknown, OwnershipStore> => Effect.gen(function* () {
+const withOwnedSnapshotCompat = (principal: Principal, upstreamId: string, visit: OwnedSnapshotVisitor): Effect.Effect<Response, unknown, unknown> => Effect.gen(function* () {
   const store = yield* OwnershipStore;
   const row = yield* store.findByUpstream(principal.tenantId, "snapshot", upstreamId);
   if (Option.isNone(row)) return notFound();
@@ -248,7 +248,7 @@ const createVm = (request: Request, principal: Principal, upstream: CompatUpstre
 const vmResource = (request: Request, parts: ReadonlyArray<string>, principal: Principal, upstream: CompatUpstreamService, ownership: OwnershipStoreService, identities: IdentityStoreService, audit: AuditStoreService, usage: { readonly record: (event: import("../metering/recorder.ts").UsageEvent) => Effect.Effect<void> }, now: Date) => {
 
   const id = parts[0];
-  if (id === undefined) return notFound();
+  if (id === undefined) return Effect.succeed(notFound());
   return withOwnedVmCompat(principal, id, (caller, vm, owns, row) => Effect.gen(function* () {
   if (parts[1] === "networks") return notFound();
   const suffix = parts.slice(1).join("/");
@@ -269,7 +269,7 @@ const vmResource = (request: Request, parts: ReadonlyArray<string>, principal: P
   }
   let snapshotReservation: string | null = null;
   if (parts[1] === "snapshot" && request.method === "POST") {
-    const decision = yield* name(principal, <C>(caller: Named<C, Principal>) => tenantMayCreate(caller, "snapshot"));
+    const decision = yield* tenantMayCreate(caller, "snapshot");
     if (decision._tag === "not_entitled") return error(402, "PAYMENT_REQUIRED", "This team is not entitled to create snapshots");
     if (decision._tag === "over_quota") return error(429, "QUOTA_EXCEEDED", "This team has reached its snapshot quota");
     snapshotReservation = decision.proof.reservationId;
