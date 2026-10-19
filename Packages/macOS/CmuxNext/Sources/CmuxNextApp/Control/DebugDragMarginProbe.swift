@@ -13,14 +13,15 @@ enum DragMarginProbe {
     nonisolated(unsafe) static var needs = 0 // crash-allow: probe only, never landed
     nonisolated(unsafe) static var structural = 0 // crash-allow: probe only, never landed
     nonisolated(unsafe) static var needStacks: [String: Int] = [:] // crash-allow: probe only, never landed
-    nonisolated(unsafe) static var structuralStacks: [String: Int] = [:] // crash-allow: probe only, never landed
+    nonisolated(unsafe) static var structuralStacks: [String: Int] = [:]
+    nonisolated(unsafe) static var movableFlags: [String: Int] = [:] // crash-allow: probe only, never landed // crash-allow: probe only, never landed
     nonisolated(unsafe) private static var installed = false // crash-allow: probe only, never landed
     nonisolated(unsafe) private static var originalNeeds: IMP? // crash-allow: probe only, never landed
     nonisolated(unsafe) private static var originalReset: IMP? // crash-allow: probe only, never landed
     nonisolated(unsafe) private static var originalStructural: IMP? // crash-allow: probe only, never landed
 
     static func reset() {
-        resets = 0; needs = 0; structural = 0; needStacks = [:]; structuralStacks = [:]
+        resets = 0; needs = 0; structural = 0; needStacks = [:]; structuralStacks = [:]; movableFlags = [:]
     }
 
     private static func stackKey() -> String {
@@ -46,7 +47,10 @@ enum DragMarginProbe {
                 if flag, Thread.isMainThread {
                     if recording {
                         needs += 1
-                        if needStacks.count < 300 { needStacks[stackKey(), default: 0] += 1 }
+                        if let window = me as? NSWindow {
+                            movableFlags["movableByBackground=\(window.isMovableByWindowBackground) movable=\(window.isMovable) transparent=\(window.titlebarAppearsTransparent)", default: 0] += 1
+                        }
+                        if needs <= 40 { needStacks[stackKey(), default: 0] += 1 }
                     }
                 }
                 guard let original = originalNeeds else { return } // crash-allow: probe only
@@ -71,7 +75,7 @@ enum DragMarginProbe {
                 if Thread.isMainThread {
                     if recording {
                         structural += 1
-                        if structuralStacks.count < 300 { structuralStacks[stackKey(), default: 0] += 1 }
+                        if structural <= 40 { structuralStacks[stackKey(), default: 0] += 1 }
                     }
                 }
                 guard let original = originalStructural else { return } // crash-allow: probe only
@@ -82,7 +86,7 @@ enum DragMarginProbe {
     }
 
     @MainActor static var json: JSONValue {
-        ["resets": JSONValue(resets), "needs": JSONValue(needs), "structural": JSONValue(structural),
+        ["flags": .array(movableFlags.map { .string("\($0.value)x \($0.key)") }), "resets": JSONValue(resets), "needs": JSONValue(needs), "structural": JSONValue(structural),
          "need_stacks": .array(needStacks.sorted { $0.value > $1.value }.prefix(40).map { .string("\($0.value)x \($0.key)") }),
          "structural_stacks": .array(structuralStacks.sorted { $0.value > $1.value }.prefix(40).map { .string("\($0.value)x \($0.key)") })]
     }
