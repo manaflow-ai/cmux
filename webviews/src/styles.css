@@ -33,11 +33,11 @@
   --cmux-diff-fg-dark: var(--cmux-app-text, #fff);
   --cmux-diff-selection-bg-light: var(--cmux-text-selection, #abd8ff);
   --cmux-diff-selection-bg-dark: var(--cmux-text-selection, #3f638b);
-  --cmux-diff-ui-font-family: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+  --cmux-diff-ui-font-family: var(--cmux-font-ui, system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif);
   /* 13 px UI text, the classic viewer's size (its 2x screenshots). */
   --cmux-diff-ui-font-size: 13px;
   --cmux-diff-ui-line-height: 18px;
-  --cmux-diff-code-font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  --cmux-diff-code-font-family: var(--cmux-font-code, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace);
   --cmux-diff-font-size: 10px;
   --cmux-diff-line-height: 20px;
   --cmux-diff-bg: var(--cmux-diff-bg-light);

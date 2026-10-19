@@ -140,6 +140,7 @@ extension SettingsSchema {
         "status.inferCommandBusyAfter",
         "terminal.fontFamily",
         "terminal.fontSize",
+        "appearance.fonts.ui", "appearance.fonts.code", "appearance.fonts.chatSize",
         "sidebar.sectionLook",
         "sidebar.topBandMaxShare",
         "sidebar.bottomBandMaxShare",
