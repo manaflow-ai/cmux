@@ -341,7 +341,10 @@ function outputsOf(page, json) {
 
 /** What a page's tables are made from: its catalogs, the settings schema when it reads keys from it, and this script. */
 function inputsOf(page) {
-  return [fileURLToPath(import.meta.url), ...[...page.catalogs.map((c) => c.file), ...(page.inputs ?? [])].map((f) => path.join(repo, f))];
+  return [
+    fileURLToPath(import.meta.url),
+    ...[...page.catalogs.map((c) => c.file), ...(page.inputs ?? [])].map((f) => path.join(repo, f)),
+  ];
 }
 
 const mtime = (file) => {
@@ -360,14 +363,24 @@ const mtime = (file) => {
  * builds run strict). `ifStale` skips a page whose outputs are all newer than its inputs.
  * Returns the number of failed pages.
  */
-export function writeStrings({ check = false, bestEffort = false, ifStale = false, only = [], log = console.error } = {}) {
+export function writeStrings({
+  check = false,
+  bestEffort = false,
+  ifStale = false,
+  only = [],
+  log = console.error,
+} = {}) {
   let failed = 0;
   for (const [name, page] of Object.entries(PAGES)) {
     if (only.length && !only.includes(name)) continue;
     if (ifStale && !check) {
       const target = path.join(repo, page.out);
       const outs = page.splitLocales
-        ? [target, path.join(path.dirname(target), "localeLoaders.ts"), ...LOCALES.map((l) => path.join(path.dirname(target), "locales", `${l}.json`))]
+        ? [
+            target,
+            path.join(path.dirname(target), "localeLoaders.ts"),
+            ...LOCALES.map((l) => path.join(path.dirname(target), "locales", `${l}.json`)),
+          ]
         : [target];
       const oldest = Math.min(...outs.map((f) => mtime(f) ?? -Infinity));
       const newest = Math.max(...inputsOf(page).map((f) => mtime(f) ?? Infinity));

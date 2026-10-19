@@ -27,6 +27,8 @@ test("no strings table gen-strings.mjs writes is tracked", () => {
 test("every strings table gen-strings.mjs writes is ignored", () => {
   const files = outputs();
   // check-ignore --no-index tests the path rules alone, so a tracked copy still counts as ignored here.
-  const ignored = git("check-ignore", "--no-index", "--", ...files).trim().split("\n");
+  const ignored = git("check-ignore", "--no-index", "--", ...files)
+    .trim()
+    .split("\n");
   expect(ignored.sort()).toEqual([...files].sort());
 });
