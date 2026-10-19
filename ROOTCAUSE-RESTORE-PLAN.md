@@ -227,6 +227,8 @@ after Xcode reported `BUILD SUCCEEDED`.
 ## Exact-head validation update (2026-10-19)
 
 The current repair worktree head is
+[`ceaa0b9428b0dc1c0296f3c75cf9c08f679dabd0`](https://github.com/danielraffel/cmux/commit/ceaa0b9428b0dc1c0296f3c75cf9c08f679dabd0).
+The code head for the implementation change is
 [`63814044655fcac6f862ca86ee88fb346e6a2112`](https://github.com/danielraffel/cmux/commit/63814044655fcac6f862ca86ee88fb346e6a2112).
 The earlier provider repair remains at
 [`bd24baf383ba3ef3249866d58f93d454182b9a2f`](https://github.com/danielraffel/cmux/commit/bd24baf383ba3ef3249866d58f93d454182b9a2f),
@@ -326,6 +328,14 @@ until the agent exits, plus the bounded persistence, provider-routing, and
 Subrouter recovery coverage. The package runner also printed an initial legacy
 XCTest summary of zero tests before executing the Swift Testing suites; the
 authoritative result is the final 883-test Swift Testing run.
+
+The tagged runtime dogfood attempt used
+`CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag rootcause-restore
+--launch`. The repository guard refused before build/launch because this
+checkout has no authenticated dev credential file at
+`~/.secrets/cmuxterm-dev.env`. No guard was bypassed and no second app instance
+was launched; live copied-fixture dogfood remains pending that credential
+setup.
 
 ## M5S wait-point sample (2026-10-19)
 
