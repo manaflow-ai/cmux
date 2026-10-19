@@ -3,7 +3,7 @@
    markdown/theme.css comes last). Defaults sit at zero specificity (`:where(:root)`) so settings
    and theme.css always win. The shared base (page colors, one background) is shared/pageBase.css. */
 :where(:root) {
-  --cmux-md-font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  --cmux-md-font-family: var(--cmux-font-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif);
   --cmux-md-font-size: 16px;
   --cmux-md-font-weight: 400;
   --cmux-md-line-height: 1.6;
