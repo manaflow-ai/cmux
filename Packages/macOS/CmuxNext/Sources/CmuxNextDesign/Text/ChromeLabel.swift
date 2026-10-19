@@ -164,7 +164,7 @@ open class ChromeLabel: NSView {
 
     // MARK: Layout
 
-    override open var isFlipped: Bool { true }
+    nonisolated override open var isFlipped: Bool { true }
 
     /// The text's shape settings (not its color).
     var shape: LabelText.Shape {
@@ -199,7 +199,7 @@ open class ChromeLabel: NSView {
 
     /// The left and right 2 pt of the frame are the text's padding, outside the alignment rect
     /// (as a label field's): the intrinsic size and the baselines are of the text itself.
-    override open var alignmentRectInsets: NSEdgeInsets { NSEdgeInsets(top: 0, left: LabelText.padding, bottom: 0, right: LabelText.padding) }
+    nonisolated override open var alignmentRectInsets: NSEdgeInsets { NSEdgeInsets(top: 0, left: LabelText.padding, bottom: 0, right: LabelText.padding) }
 
     /// A wrapping label with more than one line breaks its lines at its preferred width, else at
     /// its current width (its intrinsic height follows the width layout gives it); nil: one line.
@@ -270,7 +270,7 @@ open class ChromeLabel: NSView {
     /// selected row's color and its plain one) swaps images and draws each weight once.
     private var images: [Int: CGImage] = [:]
 
-    override open var wantsUpdateLayer: Bool { true }
+    nonisolated override open var wantsUpdateLayer: Bool { true }
 
     override open func updateLayer() {
         guard let layer else { return }

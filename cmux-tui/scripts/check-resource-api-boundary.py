@@ -2508,12 +2508,20 @@ def _operation_catalog(
             "deleted",
             "recoverable",
             "extra",
+            "platform",
+            "capabilities",
         }
         if (
             set(machine_fields) != expected_machine_fields
             or machine_fields.get("name", {}).get("required") is not True
             or machine_fields.get("origin", {}).get("type", {}).get("values")
-            != ["local"]
+            != ["local", "cloud", "ssh", "server"]
+            or machine_fields.get("platform") != {"required": False, "type": {"kind": "nullable", "value": {"kind": "ref", "name": "MachinePlatform"}}}
+            or machine_fields.get("capabilities") != {"required": False, "type": {"kind": "array", "items": {"kind": "primitive", "name": "string"}}}
+            or types.get("MachinePlatform") != {
+                "kind": "object", "extra": False,
+                "fields": {key: {"required": False, "type": {"kind": "nullable", "value": {"kind": "primitive", "name": "string"}}} for key in ("os", "arch")},
+            }
             or machine_fields.get("status", {}).get("type", {}).get("values")
             != ["running", "connecting", "sleeping", "stopped", "unavailable"]
         ):
@@ -2521,7 +2529,7 @@ def _operation_catalog(
                 diagnostics,
                 path,
                 text,
-                "MachineSnapshot must describe only the endpoint's local machine",
+                "MachineSnapshot must keep the native owner and bounded remote catalog metadata contract",
                 "MachineSnapshot",
             )
 
