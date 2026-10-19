@@ -31,6 +31,10 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
     /// Settings toggle `agent.suggestedTasks` is on; ``AcpmuxHost`` reads it at each daemon start, so a running
     /// daemon keeps the value it started with.
     public var offersSessionTools = false
+    /// Whether the daemon's local sessions get the session tools (`start_session`, `list_sessions`,
+    /// `read_session`, `send_to_session`). Off, the daemon this app spawns gets ``sessionToolsKey``
+    /// `0`. On while the Debug Settings toggle `agent.sessionTools` is on (the default).
+    public var sessionTools = true
 
     /// The Computer Use variables (AgentActivitySocketSource.Configuration).
     /// The spawn environment drops all three when inherited and takes only
@@ -39,6 +43,8 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
     public static let computerUseHostKey = "CMUX_NEXT_CUA_SOCKET_HOST_AUTH_TOKEN"
     /// acpmux `agent_tools::OFFER_TOOLS_ENV`: `1` gives sessions `offer_session`.
     public static let offerToolsKey = "ACPMUX_OFFER_TOOLS"
+    /// acpmux `agent_tools::SESSION_TOOLS_ENV`: `0` takes the session tools away from sessions.
+    public static let sessionToolsKey = "ACPMUX_SESSION_TOOLS"
 
     /// The build-session kill switch (cx-9ettq): with either set, acpmux
     /// starts no agent and the Chief host does not start. A GUI test job sets
