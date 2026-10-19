@@ -75,7 +75,8 @@ const CODE_LIKE =
     three or more hyphenated parts ("export-backdrop-art"; not "two-finger-swipe", "cmd-shift-t",
     "up-to-date" or "per-tab-zoom"), a pull request number ("#21369", "#N"; not "#1") and a repair
     after a squash ("lost in the Chief Dock squash"; not "squash commits from the review pane"). */
-const TOOL_NAME = /(?<!\S)(?!(?:[a-z0-9]+-)*(?:to|by|of|and|in|the|a|an|on|for|or|at|with|up|not|per|one|two|three|four|five|six|seven|eight|nine|ten|cmd|command|shift|ctrl|control|alt|option|opt|fn|[a-z]|\d+)(?![a-z0-9]))[a-z][a-z0-9]*(?:-[a-z0-9]+){2,}(?=[\s,.;:!?)]|$)/i;
+const TOOL_NAME =
+  /(?<!\S)(?!(?:[a-z0-9]+-)*(?:to|by|of|and|in|the|a|an|on|for|or|at|with|up|not|per|one|two|three|four|five|six|seven|eight|nine|ten|cmd|command|shift|ctrl|control|alt|option|opt|fn|[a-z]|\d+)(?![a-z0-9]))[a-z][a-z0-9]*(?:-[a-z0-9]+){2,}(?=[\s,.;:!?)]|$)/i;
 const PR_NUMBER = /(?<!\S)#(?:N|\d{3,})(?![\w-])/;
 const SQUASH_REPAIR = /\bsquash(?:ed)? (?:merge|commit)\b|\bsquash$/i;
 const CONVENTIONAL = /^(?<type>[A-Za-z-]+)(?:\((?<scope>[^)]*)\))?!?:\s*(?<rest>.+)$/;

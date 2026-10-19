@@ -146,6 +146,8 @@ function readableItem(item: ReleaseItem, changes: ChangeItem[], machine: boolean
           .map((c) => readableChange(c.title).title)
           .find((text) => !text.endsWith("…") && stemOf(text).startsWith(stem) && text.length > stem.length);
     full = whole ?? full.slice(0, -1).trim();
+    // The cut title may have dropped the words that mark the line internal ("… the Chief Dock squash").
+    if (machine && readableChange(full).internal) return undefined;
   }
   let summary = !echoes ? item.summary : lineWhole ? capitalized(titleTail(line, full)) : "";
   let title = full;
