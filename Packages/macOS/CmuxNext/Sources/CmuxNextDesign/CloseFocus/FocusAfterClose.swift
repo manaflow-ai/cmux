@@ -105,12 +105,25 @@ public nonisolated enum FocusAfterClose {
 
     /// The workspace a window shows after `shown` left it: the next one
     /// below in the sidebar's visual order, else the one above. `old` is
-    /// the visual order before, `surviving` the workspaces the window
-    /// still lists.
-    public static func workspace<ID: Hashable>(shown: ID?, old: [ID], surviving: [ID]) -> ID? {
+    /// the order before (a window's members, in the order they joined it,
+    /// or the sidebar model's), `surviving` the workspaces the window still
+    /// lists. `orders`, the sidebar's row orders before the close, most
+    /// preferred first (the rows as drawn, then the model's rows), are
+    /// tried in turn: the first that lists `shown` and has a surviving
+    /// neighbor among `old` picks it. So a drawn row hands off to a drawn
+    /// row (folder sorting and a filter apply; a collapsed group's members
+    /// only when no drawn row is left), and a list row never to a
+    /// workspace no row lists (a pinned tile) while a row is left. `old`
+    /// decides last.
+    public static func workspace<ID: Hashable>(shown: ID?, old: [ID], surviving: [ID], orders: [[ID]] = []) -> ID? {
         let live = Set(surviving)
         guard let shown else { return surviving.first }
         if live.contains(shown) { return shown }
+        let members = Set(old)
+        for order in orders where order.contains(shown) {
+            let rows = order.filter { $0 == shown || members.contains($0) }
+            if let next = neighbor(of: shown, in: rows, preferNext: true, where: live.contains) { return next }
+        }
         return neighbor(of: shown, in: old, preferNext: true, where: live.contains) ?? surviving.first
     }
 }
