@@ -265,17 +265,24 @@ import Testing
         #expect(h.ledger.rows.count == 1)
     }
 
-    /// A row from a session recovery cannot reach (a reinstalled server) neither blocks
-    /// the current session's update nor is selected as its owner.
-    @Test func aRowFromAnUnreachableSessionDoesNotBlock() async throws {
+    /// An unreachable session may be a live server on this machine still running the updater,
+    /// so its row blocks without being selected as the owner. Once the ledger's seven-day read
+    /// bound stops returning it, the current session may update.
+    @Test func aRowFromAnUnreachableSessionBlocksUntilItAgesOut() async throws {
         let h = Harness()
         let foreign = try AgentCLIUpdateIntent(key: "orphan-intent", rootKey: "orphan-root", machine: h.owner.machine,
             session: "session_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", cli: .codex, profiles: ["work-profile"])
         h.ledger.rows[foreign.key] = try .init(intent: foreign, receipt: nil)
         let (actions, registry) = h.make()
+        do {
+            _ = try await actions.runSettings(id: "work-profile", context: gesture("blocked"), registry: registry)
+            Issue.record("another session's recorded update did not block")
+        } catch {}
+        #expect(h.owner.starts.isEmpty && h.resolutions == 0)
+        h.ledger.rows[foreign.key] = nil // past the age bound, the ledger no longer returns it
         _ = try await actions.runSettings(id: "work-profile", context: gesture("current-session"), registry: registry)
         #expect(h.owner.starts.map(\.1) == ["current-session"])
-        #expect(h.resolutions == 0)
+        #expect(h.ledger.rows.keys.contains("current-session"))
     }
 
     /// Nothing starts before the ledger records; a failed record leaves no job that blocks.
