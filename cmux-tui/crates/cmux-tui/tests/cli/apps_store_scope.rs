@@ -1,4 +1,4 @@
-//! Request context crosses the actual daemon and partitions outer idempotency replay.
+//! Request context reaches the current owner before any idempotency replay.
 use super::*;
 
 /// `cmux.host.link.get` answers the hub socket from the link agent's
@@ -22,6 +22,7 @@ fn write_scope_app(apps: &Apps) {
         r#"#!/usr/bin/python3
 import json, sys
 sent = 0
+cache = {}
 for line in sys.stdin:
     request = json.loads(line)
     if request.get("type") == "scope.probe":
@@ -31,11 +32,24 @@ for line in sys.stdin:
         continue
     with open(sys.argv[1], "a") as calls:
         calls.write(line)
-    sent += 1
-    result = {"scope": request.get("expected_scope"), "sent": sent}
+    scope = request.get("expected_scope")
+    with open(sys.argv[2]) as current:
+        active = current.read()
+    if scope is not None and scope != active:
+        print(json.dumps({"type": "result", "id": request["id"], "ok": False, "error": {"code": "credential.session_changed", "message": "scope changed"}}), flush=True)
+        continue
+    key = (scope, request.get("idempotency_key"))
+    if scope is not None and key in cache:
+        result = cache[key]
+    else:
+        sent += 1
+        result = {"scope": scope, "sent": sent}
+        if scope is not None:
+            cache[key] = result
     print(json.dumps({"type": "result", "id": request["id"], "ok": True, "result": result, "expected_scope": request.get("expected_scope")}), flush=True)
 "#,
     );
+    std::fs::write(apps.dir.join("scope-current"), "a".repeat(64)).unwrap();
     let app = apps.dir.join("first-party/scope");
     std::fs::create_dir_all(&app).unwrap();
     let catalog = json!({"family": "scope", "operations": [{
@@ -53,7 +67,7 @@ for line in sys.stdin:
                 "darwin-arm64": "scope-probe", "darwin-x64": "scope-probe",
                 "linux-arm64": "scope-probe", "linux-x64": "scope-probe"
             }, "instances": "machine", "hosts": ["local"], "lifecycle": {"start": "onDemand"},
-            "args": [apps.dir.join("scope-ops.jsonl").to_string_lossy()]}
+            "args": [apps.dir.join("scope-ops.jsonl").to_string_lossy(), apps.dir.join("scope-current").to_string_lossy()]}
         }),
     );
 }
@@ -70,11 +84,19 @@ fn cloud_scope_real_daemon_forwards_context_and_separates_replay() {
     assert_eq!(ok(&control)["value"]["sent"], 1, "{control}");
     let first = "a".repeat(64);
     let second = "b".repeat(64);
-    for (scope, sent) in [(&first, 2), (&second, 3), (&first, 2)] {
+    for (scope, sent) in [(&first, 2), (&second, 3), (&second, 3)] {
+        std::fs::write(apps.dir.join("scope-current"), scope).unwrap();
         let reply = app.rpc(json!({"cmd": "apps-run-scoped", "app": "cmux/scope", "op": "scope.write",
             "args": {}, "idempotency_key": "same-intent", "origin": "user", "expected_scope": scope}));
         assert_eq!(ok(&reply)["value"], json!({"scope": scope, "sent": sent}), "{reply}");
     }
+    let stale = app.rpc(json!({"cmd": "apps-run-scoped", "app": "cmux/scope", "op": "scope.write",
+        "args": {}, "idempotency_key": "same-intent", "origin": "user", "expected_scope": first}));
+    assert_eq!(
+        error_code(&stale),
+        "credential.session_changed",
+        "cached results must reach the current owner: {stale}"
+    );
     let invalid = app.rpc(json!({"cmd": "apps-run-scoped", "app": "cmux/scope", "op": "scope.write",
         "args": {}, "idempotency_key": "invalid", "origin": "user", "expected_scope": "not-a-scope"}));
     assert_eq!(invalid["ok"], false, "{invalid}");
