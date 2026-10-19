@@ -387,7 +387,8 @@ public actor WorkstreamPersistence {
     private func loadPage(
         endingBefore endOffset: UInt64? = nil,
         limit: Int,
-        deadlineNanoseconds: UInt64?
+        deadlineNanoseconds: UInt64?,
+        oversizedRowRecoveryDepth: Int = 0
     ) throws -> (page: Page, exceededBudget: Bool) {
         guard limit > 0 else {
             return (Page(items: [], hasMoreBefore: false, startOffset: nil), false)
@@ -498,11 +499,12 @@ public actor WorkstreamPersistence {
                 fileHandle: fh,
                 deadlineNanoseconds: deadlineNanoseconds
             ) {
-                if result.foundNewline {
+                if result.foundNewline, oversizedRowRecoveryDepth == 0 {
                     let older = try loadPage(
                         endingBefore: result.offset,
                         limit: max(1, limit - out.count),
-                        deadlineNanoseconds: deadlineNanoseconds
+                        deadlineNanoseconds: deadlineNanoseconds,
+                        oversizedRowRecoveryDepth: oversizedRowRecoveryDepth + 1
                     )
                     out = older.page.items + out
                     exceededBudget = exceededBudget || older.exceededBudget
