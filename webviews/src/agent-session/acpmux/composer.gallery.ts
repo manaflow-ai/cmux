@@ -374,6 +374,16 @@ export default agentPaneEntry({
       note: "A turn running: Send becomes Stop.",
       snapshot: chat(working, { isWorking: true }),
     },
+    // Leo 2026-10-18: the empty prompt mid-turn teaches its keys, as Claude's "↵ to send, ⌘↵ to
+    // queue for later" does.
+    "working-hint-steer": {
+      note: "A turn running for an agent that steers: the empty prompt says ↵ queues and ⌘↵ steers.",
+      snapshot: steering(true),
+    },
+    "working-hint-interrupt": {
+      note: "The same for an agent that cannot steer: the empty prompt says ↵ queues and ⌘↵ interrupts.",
+      snapshot: steering(false),
+    },
     "working-stop": {
       note: "Play: stop a running turn; the circular control returns to Send after the host acknowledges cancellation.",
       snapshot: chat(working, { isWorking: true }),
@@ -593,9 +603,9 @@ export default agentPaneEntry({
       ),
       checks: {
         anchorMovePx: {
-          value: 100,
+          value: 78,
           reason:
-            "The attached image's 96 px thumbnail row (an 80 px thumbnail under the 16 px inset; Leo, 2026-10-14) opens above the prompt, the same growth a pasted image makes.",
+            "The attached image's compact thumbnail row (a 64 px thumbnail 8 px under the top, the text 6 px under it; Leo, 2026-10-18) opens above the prompt, the same growth a pasted image makes.",
         },
         layoutShiftMax: { value: 0.07, reason: "The thumbnail row the capture adds above the prompt." },
       },
