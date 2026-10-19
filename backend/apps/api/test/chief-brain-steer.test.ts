@@ -65,7 +65,8 @@ describe("a message sent while a Cloud Chief turn runs joins that turn", { timeo
     const conv = testEnv.CONVERSATION_DO.get(testEnv.CONVERSATION_DO.idFromName(chief.main_conversation))
     const runs = async () => (await http("GET", `/v1/chiefs/${chief.id}/runs?conversation=${chief.main_conversation}`, token)).json.value.runs as Array<any>
     const send = async (key: string, text: string) => expect((await op(token, "message.send", { conversation: chief.main_conversation, client_msg_id: key, parts: [{ type: "text", text }] }, key)).ok).toBe(true)
-    await send("a0", `SLOW tell me about ${"releases ".repeat(25)}`)
+    // A long slow answer (about 7 s of fake streaming), so all three notes come during that one call.
+    await send("a0", `SLOW tell me about ${"releases ".repeat(100)}`)
     for (let i = 0; i < 300 && !(await runs()).some((r) => r.status === "running"); i++) [await fireAlarm(conv), await new Promise((r) => setTimeout(r, 20))]
     // Three notes, each its own wake (and its own steer), while the slow call streams.
     for (const k of ["a1", "a2", "a3"]) {
