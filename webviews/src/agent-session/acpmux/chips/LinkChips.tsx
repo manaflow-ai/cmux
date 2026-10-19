@@ -7,7 +7,8 @@
 import { useEffect, useRef, useState, type PointerEvent, type ReactNode } from "react";
 import { callChipHost } from "./host";
 import { FileDoc, Folder, Globe, Lock } from "../conversation/icons";
-import { usePathInfo, useSiteInfo } from "./linkStore";
+import { useLab } from "../labs";
+import { usePathInfo, useSiteInfo, useSourceIcon } from "./linkStore";
 import { isDeniedPath, pathName, textLinks } from "./paths";
 import { HOVER_INTENT } from "../../../ui/hoverIntent";
 import { AnchoredCard } from "../../../ui/Tooltip";
@@ -43,13 +44,16 @@ function HostPathChip({ path, label, written }: { path: string; label?: ReactNod
   );
 }
 
-/// A web chip: the site's favicon when cmux has one, else `icon` (GitHub, arXiv) or a globe; the
-/// link text; the full URL in the tooltip. The anchor keeps the host's link-click path.
+/// A web chip: the site's favicon when cmux has one, else `icon` (GitHub, arXiv), else the site's own
+/// icon fetched by the host (labs sourceIcons, as Thread details sources), else a globe; the link
+/// text; the full URL in the tooltip. The anchor keeps the host's link-click path.
 export function UrlChip({ href, icon, children }: { href: string; icon?: ReactNode; children: ReactNode }) {
   const t = useT();
   const site = useSiteInfo(href);
-  const mark = site?.icon ? (
-    <img className="cv-chip__icon cv-chip__favicon" src={site.icon} alt="" width={14} height={14} />
+  const fetched = useSourceIcon(href, useLab("sourceIcons") && !icon);
+  const favicon = site?.icon ?? (icon ? undefined : fetched);
+  const mark = favicon ? (
+    <img className="cv-chip__icon cv-chip__favicon" src={favicon} alt="" width={14} height={14} />
   ) : (
     (icon ?? <Globe size={15} strokeWidth={1.1} className="cv-chip__icon" />)
   );
