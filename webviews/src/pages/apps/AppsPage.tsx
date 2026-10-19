@@ -11,7 +11,7 @@ import type { AppsSnapshot, AppsStore } from "./store";
 import type { CatalogApp } from "./types";
 
 export function AppsPage({ store, strings }: { store: AppsStore; strings: Strings }) {
-  const snap = useSyncExternalStore(store.subscribe, store.getSnapshot);
+  const snap = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
   const { t } = strings;
   return (
     <div className="apps-page">
