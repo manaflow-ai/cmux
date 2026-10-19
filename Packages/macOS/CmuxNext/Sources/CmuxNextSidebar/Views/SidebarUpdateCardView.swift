@@ -79,6 +79,12 @@ final class SidebarUpdateCardView: NSView {
     /// Set by the hover owner (`PointerHover`, cx-3wu5).
     private(set) var isHovered = false
     private var pointerHover: PointerHover?
+    /// Shows and hides the card with its entrance and exit (``SidebarCardTransition``).
+    private(set) lazy var presence = SidebarCardPresence(self, policy: motionPolicy)
+    /// The motion settings the card's transitions follow (`Motion.policy`; tests set their own before the first card).
+    var motionPolicy: @MainActor () -> MotionPolicy = { Motion.policy }
+    /// The card plays its exit: the slot keeps it in place until it has gone.
+    var isLeaving: Bool { presence.isLeaving }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -109,8 +115,9 @@ final class SidebarUpdateCardView: NSView {
     /// and measured before the first hover, and closed when the card goes.
     func configure(_ card: SidebarUpdateCard?) {
         guard card != self.card else { return }
+        let previous = self.card, wasShowing = !isHidden && !isLeaving
         self.card = card
-        isHidden = card == nil
+        presence.setShown(card != nil)
         guard let card else {
             // The card went away: its page goes too (a web page per window
             // kept loaded with no staged update, cx-asynu).
@@ -120,6 +127,11 @@ final class SidebarUpdateCardView: NSView {
             return
         }
         if highlights == nil { highlights = surfaces?.island(.ready) }
+        // Restart to Update becoming Installing… crossfades instead of popping.
+        if let previous, wasShowing, previous.title != card.title || previous.detail != card.detail
+            || previous.buttonTitle != card.buttonTitle || previous.isEnabled != card.isEnabled {
+            presence.transition.crossfade(layer)
+        }
         titleLabel.stringValue = card.title
         detailLabel.stringValue = card.detail ?? ""
         detailLabel.isHidden = card.detail == nil
@@ -177,6 +189,7 @@ final class SidebarUpdateCardView: NSView {
         }
         checkbox.frame = NSRect(x: pad, y: y + Metrics.space2, width: width, height: SidebarUpdateCheckbox.height)
         button.frame = NSRect(x: pad, y: checkbox.frame.maxY + Metrics.space3, width: width, height: SidebarUpdateButton.height)
+        presence.didLayout()
     }
 
     override func updateLayer() {
