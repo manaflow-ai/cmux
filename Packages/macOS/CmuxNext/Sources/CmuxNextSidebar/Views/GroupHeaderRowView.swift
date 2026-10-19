@@ -132,7 +132,7 @@ final class GroupHeaderRowView: SidebarRowView {
         badge.configure(collapsed && unread > 0 ? .count(unread) : .none)
         setAccessibilityElement(true)
         setAccessibilityRole(.disclosureTriangle)
-        setAccessibilityLabel("\(group.name.isEmpty ? Strings.unnamedGroup : group.name), \(Strings.groupCount(row.childCount))")
+        setAccessibilityLabel("\(group.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Strings.unnamedGroup : group.name), \(Strings.groupCount(row.childCount))")
         setAccessibilityHelp(collapsed ? GroupEditorStrings.expand : GroupEditorStrings.collapse)
         setAccessibilityExpanded(!collapsed)
         needsLayout = true

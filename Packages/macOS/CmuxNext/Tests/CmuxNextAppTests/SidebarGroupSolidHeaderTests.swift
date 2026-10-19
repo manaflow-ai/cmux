@@ -98,18 +98,25 @@ import Testing
         #expect(drawn.minX >= bar.minX && drawn.maxX <= bar.maxX, "the line \(drawn) is not under the bar \(bar)")
     }
 
-    /// Turning the setting on or off redraws an open sidebar's lines, without a relaunch.
+    /// Turning the setting on or off moves an open sidebar's lines, without a relaunch: the
+    /// render reloads the list (Reduce Motion, so the move lands in this turn).
     @Test func turningTheJoinOnAndOffMovesTheLine() throws {
+        Motion.reduceMotionOverride = true
+        defer { Motion.reduceMotionOverride = nil }
         let sidebar = Self.sidebar(minimal: false)
         #expect(try Self.overlap(sidebar, name: "").overlap < 0, "the default has no cut")
-        sidebar.design.sidebarSections.groupLineJoinsHeader = true
-        sidebar.renderNow()
-        sidebar.layoutSubtreeIfNeeded()
-        #expect(try Self.overlap(sidebar, name: "").overlap >= 0, "turning the join on left the cut")
-        sidebar.design.sidebarSections.groupLineJoinsHeader = false
-        sidebar.renderNow()
-        sidebar.layoutSubtreeIfNeeded()
-        #expect(abs(try Self.overlap(sidebar, name: "").overlap + SidebarStyle.groupLineCut) < 0.01, "turning the join off kept it joined")
+        for joined in [true, false] {
+            sidebar.design.sidebarSections.groupLineJoinsHeader = joined
+            sidebar.renderNow()
+            #expect(sidebar.list.groupLineJoinsHeader == joined, "the list did not get the setting \(joined)")
+            sidebar.layoutSubtreeIfNeeded()
+            let overlap = try Self.overlap(sidebar, name: "").overlap
+            if joined {
+                #expect(overlap >= 0, "turning the join on left a \(-overlap) pt cut")
+            } else {
+                #expect(abs(overlap + SidebarStyle.groupLineCut) < 0.01, "turning the join off left the line \(overlap) pt into the bar")
+            }
+        }
     }
 
     /// VoiceOver reads an unnamed group's header as a group, not ", 2 workspaces".
