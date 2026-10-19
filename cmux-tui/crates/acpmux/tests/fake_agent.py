@@ -211,8 +211,8 @@ def run_hostname(rid, sid):
 
 def run_gh_pr_create(rid, sid):
     """"gh-pr-create": opens two pull requests as Claude Code and codex-acp report them (the
-    command only on the tool call, the URL only in its result), shows the first again, and
-    views a third that it did not open."""
+    command only on the tool call, the URL only in its result), views a third that it did not
+    open, shows the first again, greps for "gh pr create", and chains a view after a create."""
     calls = [
         ("pr-1", "gh pr create --fill", {"command": "gh pr create --fill"},
          "https://github.com/manaflow-ai/cmux/pull/7\n"),
@@ -222,6 +222,12 @@ def run_gh_pr_create(rid, sid):
          '{"url":"https://github.com/manaflow-ai/cmux/pull/9"}'),
         ("pr-3", "gh pr create --fill", {"command": "gh pr create --fill"},
          "a pull request for branch \"b\" already exists:\nhttps://github.com/manaflow-ai/cmux/pull/7"),
+        # Mentions gh pr create but runs grep: not counted.
+        ("grep-1", "grep -rn 'gh pr create' notes", {"command": "grep -rn 'gh pr create' notes"},
+         "https://github.com/manaflow-ai/cmux/pull/10"),
+        # gh pr create is not its whole command: the view's pull/11 is not counted.
+        ("pr-4", "gh pr create --fill && gh pr view 11", {"command": "gh pr create --fill && gh pr view 11 --json url -q .url"},
+         "https://github.com/manaflow-ai/cmux/pull/7\nhttps://github.com/manaflow-ai/cmux/pull/11"),
     ]
     for tid, title, raw, out in calls:
         update(sid, {"sessionUpdate": "tool_call", "toolCallId": tid, "title": title, "kind": "execute",
