@@ -68,8 +68,9 @@ public final class AgentCursorInputBridge {
         let event: AutomationInputEvent
         let typing: AgentTyping?
         do {
-            (data: let plain, typing: typing) = try Self.splitTyping(data)
-            event = try AutomationInputEvent.decode(plain)
+            let split = try Self.splitTyping(data)
+            typing = split.typing
+            event = try AutomationInputEvent.decode(split.data)
         } catch {
             counts.rejected += 1
             Self.log.error("automation.input rejected: \(String(describing: error), privacy: .public)")
