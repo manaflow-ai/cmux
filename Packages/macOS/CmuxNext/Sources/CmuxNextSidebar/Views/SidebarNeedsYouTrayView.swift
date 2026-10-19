@@ -66,7 +66,9 @@ final class SidebarNeedsYouTrayView: NSView {
         }
         footnote.isHidden = footnoteText == nil
         footnote.configure(title: footnoteText ?? "", reason: "", detail: "", failed: false, quiet: true)
-        footnote.onClick = tray.firstUnread.map { first in { [weak self] in self?.onOpen?(first) } }
+        // The line goes to the first session the tray has no room for, else to the first finished unread one.
+        let next = tray.items.count > Self.shownItems ? tray.items[Self.shownItems].id : tray.firstUnread
+        footnote.onClick = next.map { first in { [weak self] in self?.onOpen?(first) } }
         setAccessibilityLabel(Strings.needsYouSummary(blocked: tray.items.count, unread: tray.unread))
         tint()
         needsLayout = true

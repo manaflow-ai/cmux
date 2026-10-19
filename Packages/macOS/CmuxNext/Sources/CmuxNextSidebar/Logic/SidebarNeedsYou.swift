@@ -66,9 +66,9 @@ public nonisolated struct SidebarNeedsYou: Hashable, Sendable {
                 case let .workspace(ws):
                     visit(ws)
                 case let .group(group):
-                    let members = SidebarLayout.workspaceIDs(group.members)
-                    for (member, _) in SidebarLayout.treeOrder(members, parents: tree.parents) {
-                        if case let .workspace(ws) = group.members[member] { visit(ws) }
+                    let members = group.members // computed: read once
+                    for (member, _) in SidebarLayout.treeOrder(SidebarLayout.workspaceIDs(members), parents: tree.parents) {
+                        if case let .workspace(ws) = members[member] { visit(ws) }
                     }
                 case .item:
                     break
