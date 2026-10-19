@@ -443,7 +443,7 @@ impl Workspaces for DaemonWorkspaces {
                 .workspace;
             if groups {
                 // Best effort: a sidebar group never fails the subagent's start.
-                if let Err(e) = group_workspace(&mut client, workspace.clone(), &key) {
+                if let Err(e) = group_workspace(&mut client, workspace, &key) {
                     eprintln!("optchat: subagent workspace {key} stays ungrouped: {e}");
                 }
             }

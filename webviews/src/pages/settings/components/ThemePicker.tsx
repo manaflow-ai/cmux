@@ -1,7 +1,10 @@
 // One theme choice of the Theme section: a button with the theme's swatch and name, and a popover
-// to search every bundled theme. The highlighted row (the pointer or the arrow keys) previews in the
-// section's hero and live in the app (onPreview) until the popover closes; a right-click pins a row's
-// preview so it stays while the pointer moves on. Return or a click picks; Escape reverts.
+// to search every bundled theme. The row the arrow keys highlight previews at once in the section's
+// hero and live in the app (onPreview) until the popover closes. A row the pointer only passes over
+// does not: the preview follows the pointer once it rests on a row for DWELL_MS, so sweeping down
+// the list no longer flashes every theme across the whole app (the "loud" hover, Lawrence
+// 2026-10-18) or reloads every terminal's config per row. A right-click pins a row's preview so it
+// stays while the pointer moves on. Return or a click picks; Escape reverts.
 import { useEffect, useRef, useState } from "react";
 import { Combobox } from "../../../ui/Combobox";
 import { Popover } from "../../../ui/Popover";
@@ -11,6 +14,8 @@ import { Icon } from "../icons";
 import { t } from "../strings";
 
 const CONFIG = "\u0000config";
+/** How long the pointer rests on a row before that row previews. */
+export const DWELL_MS = 450;
 
 export function ThemePicker({
   value,
@@ -46,16 +51,34 @@ export function ThemePicker({
   // The right-clicked theme: previewed whenever no row is highlighted.
   const [pinned, setPinned] = useState<string | null>(null);
   // A live preview is showing in the app; it must end even if the picker goes away while open.
-  const showing = useRef(false);
+  const showing = useRef<string | null>(null);
+  // The pending pointer-rest preview; any other preview, a pick or a close cancels it.
+  const dwell = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cancelDwell = () => {
+    if (dwell.current !== null) clearTimeout(dwell.current);
+    dwell.current = null;
+  };
   const preview = (name: string | null) => {
-    showing.current = name !== null;
+    cancelDwell();
+    // The same theme again is no new preview: no bridge round trip, no hero re-render.
+    if (name === showing.current) return;
+    showing.current = name;
     onPreview(name);
   };
   const end = useRef(() => {});
   end.current = () => {
-    if (showing.current) preview(null);
+    cancelDwell();
+    if (showing.current !== null) preview(null);
   };
   useEffect(() => () => end.current(), []);
+  const highlight = (name: string | undefined, by: "keyboard" | "pointer" | "none") => {
+    const target = name && name !== CONFIG ? name : pinned;
+    if (by === "keyboard") return preview(target);
+    // The pointer passing over, or the list re-highlighting its first row while typing: wait for a rest.
+    cancelDwell();
+    if (target === showing.current) return;
+    dwell.current = setTimeout(() => preview(target), DWELL_MS);
+  };
   const typed = query.trim().toLowerCase();
   const label = (name: string) => (custom(name) ? t("settingsPage.theme.custom", name) : name);
   const shown = [CONFIG, ...names.filter((name) => name.toLowerCase().includes(typed))].filter(
@@ -67,6 +90,7 @@ export function ThemePicker({
     setPinned(null);
   };
   const close = () => {
+    cancelDwell();
     dismiss();
     preview(null);
   };
@@ -77,6 +101,7 @@ export function ThemePicker({
   // Write first, then end the preview: the app goes from the preview to the same saved theme,
   // never back to the old one in between.
   const pick = (name: string) => {
+    cancelDwell();
     dismiss();
     const chosen = name === CONFIG ? null : names.includes(name) ? name : undefined;
     if (chosen === undefined) return preview(null);
@@ -112,7 +137,7 @@ export function ThemePicker({
           onQuery={setQuery}
           onSubmit={pick}
           onCancel={close}
-          onHighlight={(name) => preview(name && name !== CONFIG ? name : pinned)}
+          onHighlight={highlight}
           label={t("settingsWindow.themeSearch")}
           placeholder={t("settingsWindow.themeSearch")}
           inputClassName="field theme-search"

@@ -22,6 +22,7 @@ import {
   type MarkdownFile,
   type MarkdownConflict,
   type MarkdownLook,
+  type MarkdownReadOnlyReason,
   type MarkdownSaveResult,
 } from "./host";
 
@@ -35,6 +36,8 @@ export interface MarkdownState {
   mode: MarkdownMode;
   status: SaveStatus;
   readOnly: boolean;
+  /** Why the file is read only (null while it is not). */
+  readOnlyReason: MarkdownReadOnlyReason | null;
   conflict: MarkdownConflict | null;
   /** The source mode's text. */
   source: string;
@@ -85,6 +88,7 @@ export class MarkdownStore {
     mode: "rich",
     status: "saved",
     readOnly: false,
+    readOnlyReason: null,
     conflict: null,
     source: "",
     revision: 0,
@@ -210,6 +214,7 @@ export class MarkdownStore {
       phase: "ready",
       config,
       readOnly,
+      readOnlyReason: readOnly ? (config.readOnlyReason ?? "outside") : null,
       source: text,
       status: "saved",
       revision: this.state.revision + 1,
@@ -442,9 +447,11 @@ export class MarkdownStore {
         hash: file.hash,
         githubRepository: file.githubRepository,
         readOnly,
+        readOnlyReason: file.readOnlyReason,
         assetBase: file.assetBase,
       },
       readOnly,
+      readOnlyReason: readOnly ? (file.readOnlyReason ?? "outside") : null,
       source: file.text,
       status: "saved",
       conflict: null,
