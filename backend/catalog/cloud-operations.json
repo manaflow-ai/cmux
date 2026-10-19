@@ -7567,6 +7567,17 @@
             "name": "TeamRole"
           }
         },
+        "authority_version": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "primitive",
+              "name": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            }
+          }
+        },
         "sso_required": {
           "required": true,
           "type": {
@@ -62097,6 +62108,17 @@
               },
               "role": {
                 "$ref": "#/$defs/TeamRole"
+              },
+              "authority_version": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
               },
               "sso_required": {
                 "type": "boolean"

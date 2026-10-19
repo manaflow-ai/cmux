@@ -200,4 +200,20 @@ describe("user.teams.list (cx-5xew)", { timeout: 60_000 }, () => {
     expect(ensured.frames.some((frame: { t: string }) => frame.t === "result")).toBe(true)
     expect(await authorityOf(token, team)).toBe(first)
   })
+
+  it("keeps membership incarnations out of subscriber event rows", async () => {
+    const t = await rolesTeam(), member = await t.join("Member", STACK_MEMBER)
+    const observed = await inDO(teamStub(t.team), async (instance) => {
+      const engine = instance.bind(t.team), frames: Array<unknown> = []
+      engine.submit({ identity: "system:team", kind: "system" }, { t: "op", op: "team.member.provision",
+        params: { user: member.user, role: "admin", display_name: "Member" }, idempotency_key: crypto.randomUUID(), origin: "script"
+      }, (_target: string, frame: unknown) => frames.push(frame))
+      return { frames, incarnation: engine.rows.get("member_authority", member.user)?.row.incarnation }
+    })
+    expect(typeof observed.incarnation).toBe("string")
+    expect(observed.frames.some((frame: any) => frame.t === "event")).toBe(true)
+    const publicFrames = JSON.stringify(observed.frames)
+    expect(publicFrames).not.toContain('"member_authority"')
+    expect(publicFrames).not.toContain('"incarnation"')
+  })
 })
