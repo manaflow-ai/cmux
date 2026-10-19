@@ -109,9 +109,16 @@ final class FeedCoordinator: @unchecked Sendable {
             let continuation = cutoverPacked + (workstreamValue - legacyCutover)
             return Int(min(continuation, UInt64(Int.max)))
         }
-        guard notifications > 0 else { return Int(workstreamValue) }
+        // A zero notification revision means the notification journal has not
+        // finished loading yet. Returning the raw workstream byte count here
+        // would drop from the legacy packed namespace and can make an older
+        // phone discard the first post-upgrade invalidation. Reserve the top
+        // low-lane value while the notification revision is unknown; the
+        // append-only workstream generation still advances the high lane.
         let high = workstreamValue
-        let low = UInt64(max(0, notifications)) & 0xFFFF_FFFF
+        let low = notifications > 0
+            ? UInt64(notifications) & 0xFFFF_FFFF
+            : UInt64.max & 0xFFFF_FFFF
         return Int((high << 32) | low)
     }
 

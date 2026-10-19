@@ -59,6 +59,21 @@ struct FeedCoordinatorTests {
         #expect(after > before)
     }
 
+    @Test("Mobile Feed keeps the packed namespace while notification history is loading")
+    func mobileFeedRevisionWithUnknownNotificationsRemainsPacked() {
+        let withNotifications = FeedCoordinator.combinedMobileFeedRevision(
+            workstream: 12,
+            notifications: 7
+        )
+        let whileLoading = FeedCoordinator.combinedMobileFeedRevision(
+            workstream: 12,
+            notifications: 0
+        )
+
+        #expect(whileLoading > withNotifications)
+        #expect(whileLoading == ((12 << 32) | 0xFFFF_FFFF))
+    }
+
     @Test("Mobile Feed excludes sparse records before they become rows")
     func mobileFeedRenderabilityGate() {
         let emptyAssistant = WorkstreamItem(
