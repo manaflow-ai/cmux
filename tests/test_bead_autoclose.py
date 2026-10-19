@@ -170,6 +170,24 @@ class BeadAutocloseTests(unittest.TestCase):
         self.assertEqual(calls, [["workflow", "run", "pr-status.yml", "-R", "manaflow-ai/cmux",
                                   "--ref", "main", "-f", "pr=10", "-f", "bead=cx-created"]])
 
+    def test_a_failed_link_keeps_the_bead_and_never_creates_a_second(self):
+        root = Path(self.temporary.name)
+        (root / "open.json").write_text(json.dumps([{
+            "id": "pr-node", "number": 10, "title": "feat: automatic bead",
+            "url": "https://github.com/manaflow-ai/cmux/pull/10", "baseRefName": "feat-cmux-next",
+        }]))
+        failing = self.gh_log.parent / "failing-bin"
+        failing.mkdir()
+        self.write(failing / "gh", "#!/bin/sh\ncase \"$1\" in workflow) echo 'HTTP 403' >&2; exit 1;; esac\n"
+                   f"exec {self.bin / 'gh'} \"$@\"\n")
+        env = {"PATH": f"{failing}{os.pathsep}{self.env['PATH']}", "BEADS_BD_COMMAND": str(self.fake_bd)}
+        first = self.run_script("--since", "2026-10-10T00:00:00Z", **env)
+        self.assertEqual(first.returncode, 1, first.stdout)
+        self.assertIn("linking it on the PR failed", first.stdout)
+        second = self.run_script("--since", "2026-10-10T00:00:00Z", **env)
+        self.assertEqual(second.returncode, 0, second.stderr)
+        self.assertEqual(len(self.bd_calls("create")), 1)
+
     def test_a_second_run_does_not_repeat_comments_or_closes(self):
         # The search starts at (or before) the last merge handled, so it sees that merge again.
         first = self.run_script("--since", "2026-10-10T00:00:00Z", BEADS_BD_COMMAND=str(self.fake_bd))
