@@ -6,6 +6,7 @@ version = 4
 name = "acpmux"
 version = "0.1.0"
 dependencies = [
+ "acpmux-build-id",
  "anyhow",
  "base64",
  "clap",
@@ -47,6 +48,10 @@ dependencies = [
  "windows-sys 0.61.2",
  "zeroize",
 ]
+
+[[package]]
+name = "acpmux-build-id"
+version = "0.1.0"
 
 [[package]]
 name = "adler2"
@@ -1490,6 +1495,7 @@ name = "cmux-tui"
 version = "0.1.0"
 dependencies = [
  "acpmux",
+ "acpmux-build-id",
  "anyhow",
  "async-trait",
  "base64",
