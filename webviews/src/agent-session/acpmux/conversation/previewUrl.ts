@@ -8,7 +8,8 @@
 // frame loads nothing until the reader clicks "Load preview". That click is the reader's consent to
 // the address the card shows, so the frame then loads that address (`previewFrameUrl`): the same
 // loopback host and port, its path and query, no fragment. The frame stays sandboxed without
-// forms and takes no input.
+// forms and takes no input, except a component gallery stage (`isGalleryFrame`): one live
+// component, drawn at its own size and usable in place.
 import type { AcpmuxRow } from "../model";
 import { stripAnsi } from "./toolOutput";
 
@@ -69,4 +70,17 @@ export function turnPreviewUrl(user: AcpmuxRow, turn: readonly AcpmuxRow[]): str
 export function previewFrameUrl(url: string): string {
   const parsed = new URL(url);
   return `${parsed.origin}${parsed.pathname}${parsed.search}`;
+}
+
+/// A component gallery stage on loopback (`bun run dev` serves `/gallery/frame.html?entry=<id>`,
+/// the live gallery `/live/frame.html`; src/gallery/env.ts names the query): one state of one
+/// component. Its card draws it at full size and lets the reader use it in place, instead of a
+/// scaled thumbnail that opens a tab.
+export function isGalleryFrame(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return parsed.pathname.endsWith("/frame.html") && Boolean(parsed.searchParams.get("entry"));
+  } catch {
+    return false;
+  }
 }
