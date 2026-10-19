@@ -123,8 +123,11 @@ impl Client {
 
     /// One prompt, to its turn's end; the agent's reply (the echo of all it got).
     async fn prompt(&mut self, id: &str, text: &str) -> String {
-        self.ok("session/prompt", json!({"sessionId": id, "prompt": [{"type": "text", "text": text}]}))
-            .await;
+        self.ok(
+            "session/prompt",
+            json!({"sessionId": id, "prompt": [{"type": "text", "text": text}]}),
+        )
+        .await;
         self.replies(id).await.pop().unwrap_or_default()
     }
 
@@ -165,7 +168,10 @@ async fn announcements_supersede_reach_late_sessions_and_record_acks() {
 
     // The person posts a rule: their account is its author.
     let b1 = app
-        .ok(ANNOUNCE, json!({"key": "builds", "body": "Builds run on huge-blue.", "account": "leo"}))
+        .ok(
+            ANNOUNCE,
+            json!({"key": "builds", "body": "Builds run on huge-blue.", "account": "leo"}),
+        )
         .await;
     assert_eq!(b1["post"]["author"]["kind"], "person", "{b1}");
     assert_eq!(b1["post"]["author"]["account"], "leo", "{b1}");
@@ -182,7 +188,10 @@ async fn announcements_supersede_reach_late_sessions_and_record_acks() {
 
     // Superseding: a new post on the key replaces the old one.
     let b2 = app
-        .ok(ANNOUNCE, json!({"key": "builds", "body": "Builds run on the fleet.", "account": "leo"}))
+        .ok(
+            ANNOUNCE,
+            json!({"key": "builds", "body": "Builds run on the fleet.", "account": "leo"}),
+        )
         .await;
     let b2_id = b2["post"]["id"].as_str().unwrap().to_owned();
     assert_eq!(b2["post"]["supersedes"], b1_id.as_str(), "{b2}");
@@ -225,8 +234,12 @@ async fn announcements_supersede_reach_late_sessions_and_record_acks() {
     let acks: Vec<&str> =
         rule["acks"].as_array().unwrap().iter().filter_map(|a| a["sessionId"].as_str()).collect();
     assert_eq!(acks, [c.as_str()], "{rule}");
-    let delivered: Vec<&str> =
-        rule["delivered"].as_array().unwrap().iter().filter_map(|a| a["sessionId"].as_str()).collect();
+    let delivered: Vec<&str> = rule["delivered"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|a| a["sessionId"].as_str())
+        .collect();
     assert!(delivered.contains(&a.as_str()) && delivered.contains(&c.as_str()), "{rule}");
     let e = sc.refused(ACK, json!({"postId": "nope"})).await;
     assert_eq!(e["data"]["reason"], "forum.not_found", "{e}");

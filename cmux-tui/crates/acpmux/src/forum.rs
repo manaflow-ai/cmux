@@ -117,9 +117,17 @@ pub struct Mark {
 enum Record {
     Post(Post),
     #[serde(rename_all = "camelCase")]
-    Delivered { post_id: String, session_id: String, at: u64 },
+    Delivered {
+        post_id: String,
+        session_id: String,
+        at: u64,
+    },
     #[serde(rename_all = "camelCase")]
-    Ack { post_id: String, session_id: String, at: u64 },
+    Ack {
+        post_id: String,
+        session_id: String,
+        at: u64,
+    },
 }
 
 /// One post with its marks, as the Rules view shows it.
@@ -278,7 +286,9 @@ impl Forum {
         idx.into_iter()
             .map(|i| &s.posts[i])
             .filter(|p| !p.retired && p.author.session_id() != Some(session))
-            .filter(|p| !s.delivered.get(&p.id).is_some_and(|m| m.iter().any(|m| m.session_id == session)))
+            .filter(|p| {
+                !s.delivered.get(&p.id).is_some_and(|m| m.iter().any(|m| m.session_id == session))
+            })
             .cloned()
             .collect()
     }
@@ -324,7 +334,10 @@ impl Forum {
     /// Every session the post was delivered to.
     pub fn delivered_to(&self, post_id: &str) -> Vec<String> {
         let s = self.lock();
-        s.delivered.get(post_id).map(|m| m.iter().map(|m| m.session_id.clone()).collect()).unwrap_or_default()
+        s.delivered
+            .get(post_id)
+            .map(|m| m.iter().map(|m| m.session_id.clone()).collect())
+            .unwrap_or_default()
     }
 }
 

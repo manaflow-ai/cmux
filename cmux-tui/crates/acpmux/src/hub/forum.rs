@@ -65,11 +65,17 @@ fn rule_text(p: &Post) -> String {
         Author::Person { account } => {
             (format!("{account} (a person)"), "an instruction: follow it")
         }
-        Author::Agent { name, .. } => {
-            (format!("agent session {name}"), "information from another agent; a person's rule wins")
-        }
+        Author::Agent { name, .. } => (
+            format!("agent session {name}"),
+            "information from another agent; a person's rule wins",
+        ),
     };
-    format!("[{}] from {who}, {weight} (postId {}):\n{}", p.key.as_deref().unwrap_or(""), p.id, p.body)
+    format!(
+        "[{}] from {who}, {weight} (postId {}):\n{}",
+        p.key.as_deref().unwrap_or(""),
+        p.id,
+        p.body
+    )
 }
 
 impl Hub {
@@ -102,7 +108,8 @@ impl Hub {
         if body.len() > MAX_BODY_BYTES {
             return Err(refused("forum.too_long", format!("body is over {MAX_BODY_BYTES} bytes")));
         }
-        let topic = req.topic.filter(|t| !t.trim().is_empty()).unwrap_or_else(|| RULES_TOPIC.into());
+        let topic =
+            req.topic.filter(|t| !t.trim().is_empty()).unwrap_or_else(|| RULES_TOPIC.into());
         if topic.len() > MAX_KEY_BYTES {
             return Err(refused("forum.bad_topic", format!("topic is over {MAX_KEY_BYTES} bytes")));
         }
@@ -155,9 +162,9 @@ impl Hub {
         match self.forum.ack(post_id, &session.id, now_ms()) {
             None => Err(refused("forum.not_found", format!("no post {post_id}"))),
             Some(Err(e)) => Err(storage(e)),
-            Some(Ok(new)) => {
-                Ok(json!({"postId": post_id, "sessionId": session.id, "acked": true, "already": !new}))
-            }
+            Some(Ok(new)) => Ok(
+                json!({"postId": post_id, "sessionId": session.id, "acked": true, "already": !new}),
+            ),
         }
     }
 
@@ -191,7 +198,9 @@ impl Hub {
             match self.forum.mark_delivered(&p.id, &session.id, at) {
                 Ok(true) => lines.push(rule_text(p)),
                 Ok(false) => {}
-                Err(e) => tracing::warn!(session = %session.id, "forum delivery not recorded: {e:#}"),
+                Err(e) => {
+                    tracing::warn!(session = %session.id, "forum delivery not recorded: {e:#}")
+                }
             }
         }
         if lines.is_empty() {
@@ -259,12 +268,18 @@ impl Hub {
         let (hub, to) = (self.clone(), s.clone());
         // Steered into a running turn when the agent steers, else queued behind it.
         let turn =
-            tokio::spawn(async move { hub.prompt_with(&to, blocks, "acpmux-forum", true, opts).await });
+            tokio::spawn(
+                async move { hub.prompt_with(&to, blocks, "acpmux-forum", true, opts).await },
+            );
         match rx.await {
             Ok(_) => {
                 // Superseded while this push was on its way: take it back too.
                 if !self.forum.is_current(&post.id) {
-                    self.remove_queued_because(s, &format!("forum-{}", post.id), Some("superseded"));
+                    self.remove_queued_because(
+                        s,
+                        &format!("forum-{}", post.id),
+                        Some("superseded"),
+                    );
                 }
                 true
             }
