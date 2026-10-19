@@ -161,6 +161,7 @@ pub struct HostRelay<R, W> {
     /// A relay call read a wake and dropped it ([`Self::next_step`]).
     wake_dropped: bool,
     expected_scope: Option<String>,
+    native_link: Option<super::NativeLink>,
     /// A parent invalidation interrupts a relay and takes priority over already queued work.
     scope_invalidated: bool,
 }
@@ -197,6 +198,7 @@ impl<R: BufRead, W: Write> HostRelay<R, W> {
             frame_overflow: false,
             wake_dropped: false,
             expected_scope: None,
+            native_link: None,
             scope_invalidated: false,
         }
     }
@@ -524,11 +526,18 @@ impl<R: BufRead, W: Write> ControlPlane for HostRelay<R, W> {
     }
 
     fn session(&mut self) -> Result<SessionStatus, RelayError> {
+        self.native_link = None;
         let answer = self.exchange(json!({ "type": "relay.session" }))?;
+        self.native_link =
+            super::NativeLink::decode(answer.get("native_link"), answer["scope"].as_str())?;
         Ok(SessionStatus {
             signed_in: answer["signed_in"].as_bool().unwrap_or(false),
             team: answer["team"].as_str().map(str::to_owned),
             scope: answer["scope"].as_str().map(str::to_owned),
         })
+    }
+
+    fn native_link(&self) -> Option<super::NativeLink> {
+        self.native_link.clone()
     }
 }

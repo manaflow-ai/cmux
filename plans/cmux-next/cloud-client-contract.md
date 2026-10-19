@@ -291,10 +291,34 @@ destructive op or one with `mcp.expose: never` needs origin user (the person's c
 the app), and every other op needs the scope its risk names (cmux-tui-core `apps/serves.rs`). The app types (`cmux-app.d.ts`) must come from `cmux-cloud`'s own schemas (what it
 answers: `{machine, revision}`, no `expected_revision`, no credential), not from the backend rows.
 OPEN: `gen-cmux-global.ts` types every backend row from the backend catalog and reads no
-`serves`, so this needs a generator change (owner: app platform). The same generator gives
-`cloud.machine.link_token` the app scope `cloud:execute` (its `scopeFor` reads only the risk, not
-`mcp.expose`, `principals` or "never consumed by an app"); it must be in the app global's `never`
-list before any route sends app `cloud.*` calls to the backend.
+`serves`, so this needs a generator change (owner: app platform).
+`cloud.machine.link_token` is in the generated app global's `never` list and has no app scope.
+The daemon's scope table and served-op routing independently refuse it, including for an app
+holding every Cloud grant class. Only the owned link broker may mint dial tokens.
+
+### 2.1a Selected-team Native hub
+
+The verified parent's `relay.session` answer can carry local routing metadata alongside its
+current opaque credential scope:
+
+```json
+{"native_link":{"version":1,"scope":"<same 64-character scope>","socket":"/private/path/native.sock"}}
+```
+
+The scope must equal the freshly checked session scope. The socket is an absolute Unix path,
+at most 103 UTF-8 bytes, without control characters or `..`. It identifies the parent's owned
+Native child; it grants no permission and contains no key or dial token. The broker and receiver
+still check the original install, team, mesh, peers, grants and requested services.
+
+`socket: null` means that team's Native link is unavailable. Once a server has seen a Native
+binding, losing or omitting it cannot restore the daemon's global hub. A changed binding retires
+old carriers, forwards, pending file work and cached results before another operation. Global
+registration events cannot respawn a Native carrier through the global hub. The daemon still
+supplies the trusted CLI binary and private state/socket directories; a Native link works when
+the global registration is absent. None of this metadata appears in public session responses.
+
+The server consumer is implemented. The parent publisher and selected-team Native lifecycle
+still need to be connected; earlier parents retain the legacy route until Native is selected.
 
 ### 2.2 What of today's server code survives (9.1k lines)
 

@@ -78,6 +78,12 @@ pub trait ControlPlane {
 
     fn session(&mut self) -> Result<SessionStatus, RelayError>;
 
+    /// Routing metadata from the last checked session, kept off public session responses.
+    /// Once a server sees a Native binding, losing it cannot select the global hub again.
+    fn native_link(&self) -> Option<super::NativeLink> {
+        None
+    }
+
     /// Every transport refreshes session authority before any operation or replay.
     /// Older transports without a scope fail closed.
     fn request_scope(&mut self, _: bool) -> Result<Option<String>, RelayError> {

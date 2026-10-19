@@ -148,6 +148,35 @@ fn cloud_scope_native_unavailable_never_falls_back_to_a_live_global_hub() {
     assert_eq!(spawner.spawns(), 0);
 }
 
+fn host_details(hub: Value) -> Value {
+    json!({"binary": "/opt/cmux/bin/cmux-tui", "hub_socket": hub,
+        "state_dir": "/tmp/cmux-test/state", "socket_dir": "/tmp/cmux-test", "device_name": "test-mac"})
+}
+
+#[test]
+fn cloud_scope_native_hub_works_without_a_global_registration() {
+    let (mut server, _, spawner) = server(native(json!(NATIVE)));
+    server.host_frame(&json!({"t": "host.event", "op": "cmux.host.link.changed", "data": host_details(Value::Null)}));
+    server.handle(&connect("native-only")).unwrap();
+    assert!(spawner.log().commands[0].args.windows(2).any(|a| a == ["--socket", NATIVE]));
+}
+
+#[test]
+fn cloud_scope_global_hub_events_cannot_respawn_a_native_carrier_through_the_global_hub() {
+    let (mut server, _, spawner) = server(native(json!(NATIVE)));
+    server.handle(&connect("native-before-event")).unwrap();
+    server.host_frame(&json!({"t": "host.event", "op": "cmux.host.link.changed", "data": host_details(json!("/tmp/foreign-hub.sock"))}));
+    server.handle(&connect("native-after-event")).unwrap();
+    assert_eq!(
+        spawner.spawns(),
+        1,
+        "a global registration change is irrelevant to this Native carrier"
+    );
+    assert!(
+        spawner.log().commands.iter().all(|c| c.args.windows(2).any(|a| a == ["--socket", NATIVE]))
+    );
+}
+
 #[test]
 fn cloud_scope_malformed_or_cross_scope_native_hubs_fail_before_backend_io() {
     let mut cross_scope = native(json!(NATIVE));

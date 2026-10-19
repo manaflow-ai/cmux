@@ -23,9 +23,16 @@ impl<C: ControlPlane> Server<C> {
                     .relay_error(error));
             }
         };
-        if current != self.session_scope {
+        let native = self.control_plane.native_link();
+        let native = if self.attach.native_link.is_some() {
+            Some(native.unwrap_or(crate::api::NativeLink::Unavailable))
+        } else {
+            native
+        };
+        if current != self.session_scope || native != self.attach.native_link {
             self.forget_scope();
             self.session_scope = current.clone();
+            self.attach.native_link = native;
         }
         if request.expected_scope.as_ref().is_some_and(|s| Some(s) != current.as_ref()) {
             return Err(changed());
@@ -62,6 +69,9 @@ impl<C: ControlPlane> Server<C> {
     }
 
     pub(super) fn forget_scope(&mut self) {
+        if self.attach.native_link.is_some() {
+            self.attach.native_link = Some(crate::api::NativeLink::Unavailable);
+        }
         self.session_scope = None;
         self.ledger.clear();
         self.projection.clear();
