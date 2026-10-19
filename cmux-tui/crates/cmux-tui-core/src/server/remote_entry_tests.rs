@@ -437,3 +437,6 @@ impl crate::remote_relay_state::RevocationClock for FixedClock {
 fn good_check_time(mux: &Mux, install: &str) -> Option<Instant> {
     mux.remote_relay().revocation.lock().unwrap().good_check_time(install)
 }
+
+#[path = "remote_entry_token_time_tests.rs"]
+mod token_issue_time;
