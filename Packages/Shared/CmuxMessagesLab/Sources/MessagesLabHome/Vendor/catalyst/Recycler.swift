@@ -112,7 +112,12 @@ final class RowRecycler: UIScrollView, TranscriptList {
         CATransaction.begin(); CATransaction.setDisableActions(true)
         for a in attrs {
             let i = a.indexPath.item
-            let k = key(i)
+            // cmux-classic: two rows with one key (a slip in a row derivation) each keep a cell: the
+            // second takes its index as part of its key. Before, it replaced the first in `next` and
+            // that cell was never hidden or reused again: a stale copy of the row stayed on screen,
+            // one more after each pass.
+            var k = key(i)
+            if next[k] != nil { k += "\u{0}\(i)" }
             let cell: RowCell
             if let c = visible.removeValue(forKey: k) {
                 cell = c
