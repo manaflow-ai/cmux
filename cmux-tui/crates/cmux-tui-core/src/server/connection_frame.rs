@@ -80,6 +80,8 @@ pub(super) fn handle_connection_frame(
     if let Some(keep_open) = agent_session_attach::try_handle(mux, client, message, writer)
         .or_else(|| agent_transfer::try_handle(mux, client, message, writer))
         .or_else(|| agent_inventory::try_handle(mux, client, message, writer))
+        .or_else(|| agent_cli_job::try_handle(mux, client, message, writer))
+        .or_else(|| agent_cli_intents::try_handle(mux, client, message, writer))
         .or_else(|| agent_inventory::watch::try_handle(mux, client, message, writer))
     {
         return keep_open;
