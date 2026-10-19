@@ -16,8 +16,6 @@ import { useSyncExternalStore } from "react";
 /// - `codeWrap`: remember one wrap choice for every code card in the pane.
 /// - `planProgress`: keep the running plan's current step above the composer.
 /// - `shortcutsHelp`: show the chat's live keys from its menu.
-/// - `chatViewer`: changes and files open in one viewer beside the transcript, inside the chat,
-///   instead of a new column or a tab over the chat (Lucas 2026-10-19, on by default).
 ///
 /// Set one in the Debug Settings window, for new agent tabs. An explicit boolean in `"labs"` in
 /// `agent-pane/layout.json` wins (the app pushes the file live to every chat), then the app's
@@ -36,7 +34,6 @@ export const LABS = [
   "codeWrap",
   "planProgress",
   "shortcutsHelp",
-  "chatViewer",
 ] as const;
 export type Lab = (typeof LABS)[number];
 const defaults: Partial<Record<Lab, boolean>> = {
@@ -46,7 +43,6 @@ const defaults: Partial<Record<Lab, boolean>> = {
   renderPreview: true,
   renderExpand: true,
   tableScroll: true,
-  chatViewer: true,
 };
 
 const attribute = (lab: Lab) => `data-lab-${lab.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)}`;
