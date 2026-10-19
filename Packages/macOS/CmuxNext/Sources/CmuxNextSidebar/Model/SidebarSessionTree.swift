@@ -1,3 +1,4 @@
+public import Foundation
 public import Observation
 
 /// A workspace row's pull requests in the session tree (`sidebar.sessionTree`, Claude desktop's
