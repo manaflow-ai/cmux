@@ -41,7 +41,7 @@ on:
         default: "3"
         type: string
       suites:
-        description: "What to run: fling, golden (the golden interactions), or both"
+        description: "What to run: fling, golden (the golden interactions), both, or instant (Cmd-N/T/D/Shift-D key to frame, idle and loaded)"
         required: false
         default: fling,golden
         type: string
@@ -54,8 +54,8 @@ concurrency:
   # One bench at a time: every run uses the same tag, socket and console session. A
   # golden-only run (a pull request's) has a tag and a group per ref, where a newer push
   # supersedes the older run and other branches' runs never cancel its build.
-  group: ${{ inputs.suites == 'golden' && format('cmux-next-frame-pacing-golden-{0}', inputs.ref) || 'cmux-next-frame-pacing' }}
-  cancel-in-progress: ${{ inputs.suites == 'golden' }}
+  group: ${{ (inputs.suites == 'golden' || inputs.suites == 'instant') && format('cmux-next-frame-pacing-{0}-{1}', inputs.suites, inputs.ref) || 'cmux-next-frame-pacing' }}
+  cancel-in-progress: ${{ inputs.suites == 'golden' || inputs.suites == 'instant' }}
 
 env:
   SUITES: ${{ inputs.suites || 'fling,golden' }}
@@ -84,11 +84,11 @@ jobs:
           REF_INPUT: ${{ inputs.ref }}
         run: |
           tag=frame-pacing
-          if [ "$SUITES_INPUT" = golden ]; then
+          if [ "$SUITES_INPUT" = golden ] || [ "$SUITES_INPUT" = instant ]; then
             slug="$(printf '%s' "$REF_INPUT" | tr '[:upper:]' '[:lower:]' | sed -E -e 's/[^a-z0-9]+/-/g' | cut -c1-32 | sed -E -e 's/^-+//' -e 's/-+$//')"
             # The checksum keeps two refs that share a 32-character prefix on their own tags.
             sum="$(printf '%s' "$REF_INPUT" | cksum | cut -d' ' -f1)"
-            tag="golden-${slug:-feat}-${sum}"
+            tag="$SUITES_INPUT-${slug:-feat}-${sum}"
           fi
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
@@ -230,6 +230,7 @@ jobs:
             scripts/select-ci-xcode.sh
             scripts/ci/xcode-pins.txt
             scripts/ci/frame-pacing
+            scripts/cmux-next/instant-new-surfaces-bench.py
             scripts/lib/stop-cmux-tui-owners.sh
           sparse-checkout-cone-mode: false
           persist-credentials: false
@@ -273,6 +274,18 @@ jobs:
         continue-on-error: true
         timeout-minutes: 10
         run: scripts/ci/frame-pacing/console-session.sh scripts/ci/frame-pacing/golden.sh "$RUNNER_TEMP/frame-pacing"
+
+      # Cmd-N, Cmd-T, Cmd-D, Cmd-Shift-D through the real key path: key to visible frame and to
+      # the daemon's confirm, idle and with every core busy (instant-new-surfaces). Warning only.
+      - name: Instant create bench
+        if: steps.gui.outputs.taken == 'true' && contains(env.SUITES, 'instant')
+        continue-on-error: true
+        timeout-minutes: 15
+        run: |
+          app="$(ls -d "$RUNNER_TEMP"/frame-pacing/app/*.app | head -1)"
+          scripts/ci/frame-pacing/console-session.sh /usr/bin/python3 scripts/cmux-next/instant-new-surfaces-bench.py \
+            --tag "$CMUX_TAG" --app "$app" --runs 10 --out "$RUNNER_TEMP/frame-pacing/out" \
+            --json "$RUNNER_TEMP/frame-pacing/out/instant-new-surfaces.json"
 
       # Warning only: exits 1 (an annotation and a red step) when an animation did not run.
       - name: Judge the golden interactions
