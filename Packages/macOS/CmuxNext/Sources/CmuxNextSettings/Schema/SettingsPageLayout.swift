@@ -128,6 +128,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
                 group("settings.group.freeModel"),
                 // What this Mac does while agents work (keep awake).
                 group("settings.group.sessions"),
+                // The Chief pet floating over every app, and its character.
+                group("settings.group.chiefPet"),
             ],
             // Harnesses lists every harness; Your Agents (BRING-YOUR-OWN-HARNESS) adds, checks and
             // removes the ones you added.
