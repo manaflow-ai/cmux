@@ -4,13 +4,15 @@ import CmuxNextDesign
 /// "Sized for <device> · 118×38" with Take over, in the bottom-trailing corner of a terminal whose grid another view
 /// sets and does not fit this one (plans/cmux-next/sync-ux/DESIGN.md 2.6). The grid stays where the
 /// owner put it (padded or cropped by the host); the chip says why, and Take over gives this view
-/// the grid with the same claim a focus click makes. Hidden while this view sets the grid or the
-/// grid fits it. Styled like ``TerminalStatusBanner``; only the button takes clicks.
+/// the grid: a new claim, after setting the terminal to last active when its policy picks by size
+/// or rank. Hidden while this view sets the grid or the grid fits it. Styled like
+/// ``TerminalStatusBanner``; only the button takes clicks.
 final class TerminalSizedForChip: NSView {
     private let label = ThemedLabel(labelWithString: "")
     private let button: NSButton
     private let stack = NSStackView()
-    var onTakeOver: (@MainActor () -> Void)?
+    /// Called with ``TerminalSizedFor/takeOverSetsLatest`` of the shown notice.
+    var onTakeOver: (@MainActor (Bool) -> Void)?
     private(set) var shown: TerminalSizedFor?
 
     init() {
@@ -30,7 +32,6 @@ final class TerminalSizedForChip: NSView {
         button.setAccessibilityLabel(title)
         button.target = self
         button.action = #selector(takeOver)
-        // A stack drops a hidden Take over from the layout (a policy no claim can win).
         stack.setViews([label, button], in: .leading)
         stack.orientation = .horizontal
         stack.alignment = .centerY
@@ -89,8 +90,6 @@ final class TerminalSizedForChip: NSView {
             return
         }
         let text = Self.text(for: sizedFor)
-        button.isHidden = !sizedFor.canTakeOver
-        stack.edgeInsets.right = sizedFor.canTakeOver ? 4 : 12
         label.stringValue = text
         setAccessibilityLabel(text)
         if isHidden, let layer {
@@ -107,12 +106,18 @@ final class TerminalSizedForChip: NSView {
         isHidden = false
     }
 
-    @objc private func takeOver() { onTakeOver?() }
+    @objc private func takeOver() {
+        guard let shown else { return }
+        onTakeOver?(shown.takeOverSetsLatest)
+    }
 
     /// "Sized for Maya's iPhone · 54×44", "Sized for another window · 150×42".
     static func text(for sizedFor: TerminalSizedFor, strings: ModuleResourceBundle = .terminal) -> String {
         let cols = sizedFor.grid.columns
         let rows = sizedFor.grid.rows
+        if sizedFor.fixedSize {
+            return strings.text("terminal.sizedFor.fixed", defaultValue: "Fixed size · \(cols)×\(rows)")
+        }
         if sizedFor.sameDevice {
             return strings.text("terminal.sizedFor.anotherWindow", defaultValue: "Sized for another window · \(cols)×\(rows)")
         }

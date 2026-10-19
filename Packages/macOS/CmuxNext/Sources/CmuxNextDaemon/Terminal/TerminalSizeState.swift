@@ -48,20 +48,24 @@ public struct TerminalSizeState: Decodable, Sendable, Hashable {
     public var rows: Int
     public var owners: [String]
     public var policy: Policy?
+    /// Why the grid has this size: `latest`, `smallest`, `largest`, `priority`, `fixed`, `held` or
+    /// `priority-fallback` (no ranked view counts, so the grid follows activity).
+    public var reason: String?
     public var participants: [Participant]
 
     public init(generation: UInt64, cols: Int, rows: Int, owners: [String], policy: Policy? = nil,
-                participants: [Participant]) {
+                reason: String? = nil, participants: [Participant]) {
         self.generation = generation
         self.cols = cols
         self.rows = rows
         self.owners = owners
         self.policy = policy
+        self.reason = reason
         self.participants = participants
     }
 
     enum CodingKeys: String, CodingKey {
-        case generation, cols, rows, owners, policy, participants
+        case generation, cols, rows, owners, policy, reason, participants
     }
 
     public init(from decoder: any Decoder) throws {
@@ -71,20 +75,26 @@ public struct TerminalSizeState: Decodable, Sendable, Hashable {
         rows = try container.decode(Int.self, forKey: .rows)
         owners = try container.decodeIfPresent([String].self, forKey: .owners) ?? []
         policy = try container.decodeIfPresent(Policy.self, forKey: .policy)
+        reason = try container.decodeIfPresent(String.self, forKey: .reason)
         participants = try container.decodeIfPresent([Participant].self, forKey: .participants) ?? []
     }
 
-    /// What view `me` shows about the grid: nil while it sets the grid itself, when nobody does,
-    /// or when the grid already fits it (nothing is padded or cropped, so nothing needs saying).
+    /// What view `me` shows about the grid: nil while it sets the grid itself, when nobody does
+    /// (outside `fixed`), or when the grid already fits it (nothing is padded or cropped, so
+    /// nothing needs saying).
     public func notice(for me: String?) -> TerminalSizeNotice? {
-        guard let me, let mine = participants.first(where: { $0.id == me }), !owners.contains(me),
-              let ownerID = owners.first, let owner = participants.first(where: { $0.id == ownerID })
-        else { return nil }
+        guard let me, let mine = participants.first(where: { $0.id == me }), !owners.contains(me) else { return nil }
         if let viewport = mine.viewport, viewport.cols == cols, viewport.rows == rows { return nil }
+        guard let ownerID = owners.first, let owner = participants.first(where: { $0.id == ownerID }) else {
+            // A fixed grid has no owner; the view still says why it is padded or cropped.
+            guard policy?.mode == "fixed" else { return nil }
+            return TerminalSizeNotice(ownerName: nil, ownerKind: nil, sameDevice: false, cols: cols, rows: rows,
+                                      mode: policy?.mode, reason: reason, fixedSize: true)
+        }
         let sameDevice = owner.deviceKind == mine.deviceKind && owner.deviceName != nil
             && owner.deviceName == mine.deviceName
         return TerminalSizeNotice(ownerName: owner.deviceName ?? owner.displayName, ownerKind: owner.deviceKind,
-                                  sameDevice: sameDevice, cols: cols, rows: rows, mode: policy?.mode)
+                                  sameDevice: sameDevice, cols: cols, rows: rows, mode: policy?.mode, reason: reason)
     }
 }
 
@@ -96,16 +106,30 @@ public struct TerminalSizeNotice: Sendable, Hashable {
     public var sameDevice: Bool
     public var cols: Int
     public var rows: Int
-    /// The policy that chose the owner; Take over needs `latest` (or `priority`) to win by activity.
+    /// The policy that chose the owner (nil from a daemon that does not say: last active).
     public var mode: String?
+    /// The size state's `reason`.
+    public var reason: String?
+    /// The grid is fixed: no view sets it.
+    public var fixedSize: Bool
 
-    public init(ownerName: String?, ownerKind: String?, sameDevice: Bool, cols: Int, rows: Int, mode: String?) {
+    public init(ownerName: String?, ownerKind: String?, sameDevice: Bool, cols: Int, rows: Int, mode: String?,
+                reason: String? = nil, fixedSize: Bool = false) {
         self.ownerName = ownerName
         self.ownerKind = ownerKind
         self.sameDevice = sameDevice
         self.cols = cols
         self.rows = rows
         self.mode = mode
+        self.reason = reason
+        self.fixedSize = fixedSize
+    }
+
+    /// A claim alone moves the grid only under last active, or under `priority` while no ranked
+    /// view counts (`priority-fallback`). Otherwise Take over sets the terminal to last active first.
+    public var takeOverSetsLatest: Bool {
+        guard let mode, mode != "latest" else { return false }
+        return !(mode == "priority" && reason == "priority-fallback")
     }
 }
 

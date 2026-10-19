@@ -84,6 +84,12 @@ extension TerminalAttachment {
     private struct SizeStateEvent: Decodable {
         var surface: SurfaceID?
         var state: TerminalSizeState
+        /// This connection's participant, when it is in the state.
+        var selfParticipant: String?
+        enum CodingKeys: String, CodingKey {
+            case surface, state
+            case selfParticipant = "self_participant"
+        }
     }
 
     private struct SurfaceScoped: Decodable {
@@ -163,7 +169,7 @@ extension TerminalAttachment {
             case "size-state":
                 let event = try decoder.decode(SizeStateEvent.self, from: line)
                 guard scoped(event.surface) else { return nil }
-                return DecodedAttachLine(event: .sizeState(event.state, participant: nil))
+                return DecodedAttachLine(event: .sizeState(event.state, participant: event.selfParticipant))
             case "detached":
                 let scope = try decoder.decode(SurfaceScoped.self, from: line)
                 guard scoped(scope.surface) else { return nil }

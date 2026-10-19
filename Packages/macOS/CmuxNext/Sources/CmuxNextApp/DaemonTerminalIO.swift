@@ -129,6 +129,11 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
         driver.focused()
     }
 
+    /// Take over from the "Sized for" chip: always a new claim (see `TerminalAttachMachine`).
+    func takeOverSize(setLatest: Bool) async {
+        driver.takeOver(setLatest: setLatest)
+    }
+
     /// A click in a disconnected view re-attaches it.
     func reconnectRequested() async {
         driver.reconnect()
@@ -240,7 +245,7 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     static func sizedFor(_ notice: TerminalSizeNotice) -> TerminalSizedFor {
         TerminalSizedFor(deviceName: notice.ownerName, deviceKind: notice.ownerKind, sameDevice: notice.sameDevice,
                          grid: TerminalGridSize(columns: notice.cols, rows: notice.rows),
-                         canTakeOver: notice.mode.map { ["latest", "priority"].contains($0) } ?? true)
+                         fixedSize: notice.fixedSize, takeOverSetsLatest: notice.takeOverSetsLatest)
     }
 
     static func connection(_ status: TerminalLinkStatus) -> TerminalConnectionStatus {

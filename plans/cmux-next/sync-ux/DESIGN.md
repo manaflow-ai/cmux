@@ -279,10 +279,15 @@ same way; docs/shared-terminal-sizing.md "Showing the bounds" is the detailed co
 - a 1 pt border in the split divider color on sides that face unused space, and a faint diagonal
   hatch outside the grid;
 - one chip outside the grid's bottom-right corner: `Sized for <device name> · 118×38`
-  (`· 12 cols hidden` when cropped), and a **Take over** button in the same chip. Take over sends
-  `note-size-activity` under `latest` and `priority`; under `smallest`, `largest` or `fixed` it sets
-  the terminal override to `latest` and then notes activity, in one action, so the click always
-  gives this view the grid;
+  (`· 12 cols hidden` when cropped), and a **Take over** button in the same chip. Under `latest`, and
+  under `priority` while no ranked view counts (`reason: priority-fallback`), Take over is this
+  view's claim (`set-client-sizing` exclusive after a `resize-attached-view` report; the daemon
+  counts a claim as activity, the same effect as `note-size-activity`). Under `smallest`, `largest`,
+  `fixed` or a ranked `priority` it first sets the terminal override to `latest`
+  (`set-size-policy {surface, policy: {mode: latest}}`) and then claims, in one action on one
+  connection, so the click always gives this view the grid. Take over always sends, even when the
+  view believes it holds the grid (a claim that did not win changes nothing on the wire). A `fixed`
+  grid has no owner: the chip says `Fixed size · 118×38`;
 - the chip shows only while the view does not own the grid or another device is attached; a view
   that owns the grid draws nothing extra.
 - Motion: the border and hatch move with the grid on `move`; under Reduce Motion they jump. No HUD.
@@ -291,9 +296,9 @@ same way; docs/shared-terminal-sizing.md "Showing the bounds" is the detailed co
 
 | Phase | What | Status |
 | --- | --- | --- |
-| S1 | Reducer default `latest`; handheld attach is not activity; phone deferral only in `priority`; tie rule; fixtures updated (red under the old rules, green under the new); daemon socket tests updated | this lane, landing |
+| S1 | Reducer default `latest`; handheld attach is not activity; phone deferral only in `priority`; tie rule; fixtures updated (red under the old rules, green under the new); daemon socket tests updated | landed |
 | S2 | Policy persistence in the workspace document, `terminal.sizing.defaultPolicy` setting, growth hysteresis | next |
-| S3 | CmuxNext Mac app: list `shared-sizing-v1`, decode `size-state`, note activity on focus click, bounds overlay and chip with Take over, size menu in the tab context menu | next |
+| S3 | CmuxNext Mac app: list `shared-sizing-v1` with device kind `mac` and the computer name, decode `size-state` (with `self_participant` and `reason`), claim on focus click, chip with Take over (all five modes) | chip and Take over landed with this design; still open: the border and hatch overlay, `· N cols hidden`, the size menu in the tab context menu, `open-device-kinds-v1` |
 | S4 | Hand-off lease (1.5 s owner idle) with an injected clock | after S3 |
 | S5 | cnx-ios on the same protocol: `set-client-info` identity fields, `resize-attached-view` instead of `resize-surface`, visibility through `set-size-counts`, chip and take-over (owner: cnx-ios lane) | follow-up bead |
 

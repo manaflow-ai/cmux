@@ -144,11 +144,12 @@ public actor TerminalAttachment: TerminalByteChannel {
                     surface = named
                 }
                 guard let decoded = Self.decodeAttachLine(name: name, line: line, surface: surface),
-                      var event = sequencer.value.withLock({ $0.admit(decoded) })
+                      let event = sequencer.value.withLock({ $0.admit(decoded) })
                 else { return }
-                if case .sizeState(let state, _) = event {
-                    guard let named = Self.admitSizeState(state, control: control) else { return }
-                    event = named
+                if case .sizeState(let state, let selfParticipant) = event {
+                    // Pushed under the same lock that orders generations (see admitSizeState).
+                    Self.admitSizeState(state, selfParticipant: selfParticipant, control: control, queue: queue)
+                    return
                 }
                 if case .closed = event {
                     queue.finish(event)
@@ -197,20 +198,21 @@ public actor TerminalAttachment: TerminalByteChannel {
         #if DEBUG
         if NewTerminalTrace.shared.isArmed { NewTerminalTrace.shared.mark(.attachReplied, surface: target.surface.rawValue) }
         #endif
-        let firstSizeState = control.withLock { control -> TerminalChannelEvent? in
+        control.withLock { control in
             control.lease = response.lease
             control.lastReported = size
             control.hidesInPlace = identity.supports(DaemonCapabilities.shared.sharedSizing)
-            control.participant = response.participant
-            // The reply's state, or a newer one that arrived before it, now with the participant.
+            if let participant = response.participant { control.participant = participant }
+            // The reply's state, or a newer one held before the participant was known, now with it.
+            // Pushed inside the lock: a newer stream state admitted meanwhile cannot go first.
+            guard let participant = control.participant else { return }
             let held = control.heldSizeState
             control.heldSizeState = nil
             let newest = [response.sizeState, held].compactMap { $0 }.max { $0.generation < $1.generation }
-            guard let newest, control.sizeGeneration.map({ newest.generation > $0 }) ?? true else { return nil }
+            guard let newest, control.sizeGeneration.map({ newest.generation > $0 }) ?? true else { return }
             control.sizeGeneration = newest.generation
-            return .sizeState(newest, participant: response.participant)
+            queue.pushWithoutWaiting(.sizeState(newest, participant: participant))
         }
-        if let firstSizeState { queue.push(firstSizeState) }
         if claimGeometry {
             _ = try await DaemonConnection.perform(
                 SetClientSizingRequest(surface: self.surface, enabled: true, exclusive: true), on: transport)
@@ -222,17 +224,21 @@ public actor TerminalAttachment: TerminalByteChannel {
         #endif
     }
 
-    /// Passes `state` on with this view's participant, newest generation only. Before the attach
-    /// reply names the participant it is held, and the reply passes on the newer of the two.
-    private nonisolated static func admitSizeState(_ state: TerminalSizeState, control: Mutex<Control>) -> TerminalChannelEvent? {
+    /// Passes `state` on with this view's participant, newest generation only. The participant is
+    /// the event's `self_participant`, else the attach reply's; with neither the state is held,
+    /// and the reply passes on the newer of the two. Pushed under the control lock, so states
+    /// reach the view in generation order whichever thread admits them.
+    private nonisolated static func admitSizeState(_ state: TerminalSizeState, selfParticipant: String?,
+                                                   control: Mutex<Control>, queue: TerminalEventQueue) {
         control.withLock { control in
+            if let selfParticipant { control.participant = selfParticipant }
             guard let participant = control.participant else {
                 if control.heldSizeState.map({ state.generation > $0.generation }) ?? true { control.heldSizeState = state }
-                return nil
+                return
             }
-            guard control.sizeGeneration.map({ state.generation > $0 }) ?? true else { return nil }
+            guard control.sizeGeneration.map({ state.generation > $0 }) ?? true else { return }
             control.sizeGeneration = state.generation
-            return .sizeState(state, participant: participant)
+            queue.pushWithoutWaiting(.sizeState(state, participant: participant))
         }
     }
 
@@ -312,6 +318,16 @@ public actor TerminalAttachment: TerminalByteChannel {
             fireAndForget(ResizeAttachedViewRequest(surface: surface, lease: lease, cols: report.cols, rows: report.rows))
         }
         fireAndForget(SetClientSizingRequest(surface: surface, enabled: true, exclusive: true))
+    }
+
+    /// Take over ("Sized for" chip): under a policy that picks by size (`setLatest`) the terminal's
+    /// policy becomes last active first, then this view reports `size` and claims, which the
+    /// daemon counts as activity. Sent in this order on one connection.
+    public nonisolated func takeOver(reporting size: CellSize, setLatest: Bool) {
+        if setLatest, control.withLock({ $0.hidesInPlace }) {
+            fireAndForget(SetSizePolicyRequest(surface: surface, policy: .init(mode: "latest")))
+        }
+        claimGeometry(reporting: size)
     }
 
     /// Asks the host for a fresh READY + history on this attach (the view's

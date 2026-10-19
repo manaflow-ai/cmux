@@ -76,7 +76,7 @@ public final class TerminalHostView: NSView {
         // The same re-attach a click in the disconnected terminal starts.
         retryButton.onRetry = { [weak self] in self?.current?.session?.surfaceClicked() }
         addSubview(sizedForChip, positioned: .above, relativeTo: banner)
-        sizedForChip.onTakeOver = { [weak self] in self?.current?.session?.takeOverSize() }
+        sizedForChip.onTakeOver = { [weak self] setLatest in self?.current?.session?.takeOverSize(setLatest: setLatest) }
         // A config reload can change window-padding-x.
         configObserver = NotificationCenter.default.addObserver(forName: GhosttyRuntime.configDidChange, object: nil, queue: .main) { [weak self] _ in
             // main-proof: observer registered with queue: .main (OperationQueue.main runs on the main thread)

@@ -163,6 +163,8 @@ public final class TerminalSession {
                     await io.resize(cols: grid.columns, rows: grid.rows, pixelWidth: width, pixelHeight: height)
                 case .focusGained:
                     await io.focusGained()
+                case .takeOverSize(let setLatest):
+                    await io.takeOverSize(setLatest: setLatest)
                 case .reconnect:
                     await io.reconnectRequested()
                 case .resync:
@@ -326,14 +328,17 @@ public final class TerminalSession {
             model.hasExited = status == .exited
             surfaceView.updateReflowPreview()
             view.showStatus(status)
+            // A disconnected or exited view no longer knows who sets the grid.
+            if status != .connected { view.showSizedFor(nil) }
         case .sizedFor(let sizedFor):
-            view.showSizedFor(sizedFor)
+            view.showSizedFor(model.connection == .connected ? sizedFor : nil)
         }
     }
 
-    /// Take over: this view sets the grid again (the same claim focus makes).
-    func takeOverSize() {
-        input.focusGained()
+    /// Take over ("Sized for" chip): this view sets the grid, always with a new claim; under a
+    /// policy that picks by size the terminal becomes last active first.
+    func takeOverSize(setLatest: Bool) {
+        input.takeOverSize(setLatest: setLatest)
     }
 
     /// A click in the surface: a disconnected terminal re-attaches.

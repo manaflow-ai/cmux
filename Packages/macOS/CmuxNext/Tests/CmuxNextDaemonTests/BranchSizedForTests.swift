@@ -6,7 +6,8 @@ import Testing
 /// a Mac view and a phone-kind view, each naming its device in `set-client-info`. Under the
 /// default policy (last active) the phone's attach does not take the grid, the view that does not
 /// set the grid learns who does ("Sized for <device>"), and a claim (focus, Take over) moves the
-/// grid and the notice.
+/// grid and the notice. Under a policy that picks by size, the Mac's Take over sets the terminal to
+/// last active and takes the grid back.
 @Suite(.enabled(if: RealBinary.isBranchBuild, "needs the same-tree cmux-tui (scripts/cmux-next/pin-cmux-tui.sh fetch)"),
        .timeLimit(.minutes(2)), .liveDaemon)
 struct BranchSizedForTests {
@@ -36,14 +37,16 @@ struct BranchSizedForTests {
             // The phone only attached: the Mac keeps the grid, and the phone is told.
             let glance = await Self.notice(in: &phoneEvents) { $0 != nil }
             #expect(glance == TerminalSizeNotice(ownerName: "Studio", ownerKind: "mac", sameDevice: false,
-                                                 cols: 100, rows: 30, mode: "latest"),
+                                                 cols: 100, rows: 30, mode: "latest", reason: "latest"),
                     "the phone's attach took the grid or the phone was not told: \(String(describing: glance))")
 
+            #expect(glance?.takeOverSetsLatest == false, "under last active a claim alone moves the grid")
+
             // The phone takes over: the grid is the phone's, the Mac is told, the phone's notice clears.
-            phone.claimGeometry(reporting: CellSize(cols: 50, rows: 20))
+            phone.takeOver(reporting: CellSize(cols: 50, rows: 20), setLatest: false)
             let macTold = await Self.notice(in: &macEvents) { $0 != nil }
             #expect(macTold == TerminalSizeNotice(ownerName: "Pocket", ownerKind: "iphone", sameDevice: false,
-                                                  cols: 50, rows: 20, mode: "latest"),
+                                                  cols: 50, rows: 20, mode: "latest", reason: "latest"),
                     "the Mac was not told the phone sets the grid: \(String(describing: macTold))")
             let phoneCleared = await Self.notice(in: &phoneEvents) { $0 == nil }
             #expect(phoneCleared == nil)
@@ -52,6 +55,23 @@ struct BranchSizedForTests {
             mac.claimGeometry(reporting: CellSize(cols: 100, rows: 30))
             let macCleared = await Self.notice(in: &macEvents) { $0 == nil }
             #expect(macCleared == nil)
+
+            // Fit everyone: the phone's smaller screen sets the grid, and no claim can move it.
+            _ = try await h.connection.request(SetSizePolicyRequest(surface: surface, policy: .init(mode: "smallest")))
+            let fitted = await Self.notice(in: &macEvents) { $0 != nil }
+            #expect(fitted?.ownerName == "Pocket" && fitted?.mode == "smallest",
+                    "smallest did not give the phone the grid: \(String(describing: fitted))")
+            #expect(fitted?.takeOverSetsLatest == true, "Take over under smallest must set last active first")
+            let phoneOwns = await Self.notice(in: &phoneEvents) { $0 == nil }
+            #expect(phoneOwns == nil)
+
+            // The Mac's Take over: the terminal becomes last active and the Mac sets the grid again.
+            mac.takeOver(reporting: CellSize(cols: 100, rows: 30), setLatest: true)
+            let tookOver = await Self.notice(in: &macEvents) { $0 == nil }
+            #expect(tookOver == nil)
+            let phoneToldAgain = await Self.notice(in: &phoneEvents) { $0?.ownerName == "Studio" }
+            #expect(phoneToldAgain?.mode == "latest" && phoneToldAgain?.cols == 100,
+                    "the Mac's Take over did not set last active and take the grid: \(String(describing: phoneToldAgain))")
         }
     }
 

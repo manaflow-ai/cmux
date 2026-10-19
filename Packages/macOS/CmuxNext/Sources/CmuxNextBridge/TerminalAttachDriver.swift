@@ -11,6 +11,8 @@ public nonisolated protocol TerminalAttachLink: AnyObject, Sendable {
     func sendInput(_ data: Data)
     /// Reports `size`, then claims canonical geometry.
     func sendClaim(reporting size: CellSize)
+    /// Take over: optionally sets the terminal's policy to last active, then reports `size` and claims.
+    func sendTakeOver(reporting size: CellSize, setLatest: Bool)
     /// The view hid or shows again; hidden, it keeps its lease and claim and stops counting toward the grid.
     func sendHidden(_ hidden: Bool)
     /// Asks for a fresh READY + history on this attach.
@@ -114,6 +116,8 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
     public func setVisible(_ visible: Bool) { send(.visibility(visible)) }
     /// The surface gained keyboard focus.
     public func focused() { send(.focused) }
+    /// Take over from the "Sized for" chip.
+    public func takeOver(setLatest: Bool) { send(.takeOver(setLatest: setLatest)) }
     /// The terminal or the daemon connection is back: a disconnected view
     /// re-attaches.
     public func reconnect() { send(.reconnect) }
@@ -168,6 +172,7 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
             startAttempt(attempt, size: size, delay: failedReconnects)
         case .send(let ref, let data): ref.link.sendInput(data)
         case .claim(let ref, let size): ref.link.sendClaim(reporting: size)
+        case .takeOver(let ref, let size, let setLatest): ref.link.sendTakeOver(reporting: size, setLatest: setLatest)
         case .hide(let ref): ref.link.sendHidden(true)
         case .unhide(let ref): ref.link.sendHidden(false)
         case .detach(let ref): ref.link.detachNow()
@@ -285,5 +290,6 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
 extension TerminalAttachment: TerminalAttachLink {
     public nonisolated func sendInput(_ data: Data) { enqueueInput(data) }
     public nonisolated func sendClaim(reporting size: CellSize) { claimGeometry(reporting: size) }
+    public nonisolated func sendTakeOver(reporting size: CellSize, setLatest: Bool) { takeOver(reporting: size, setLatest: setLatest) }
     public nonisolated func sendSnapshotRequest(reason: SnapshotRequestReason) { requestSnapshot(reason: reason) }
 }
