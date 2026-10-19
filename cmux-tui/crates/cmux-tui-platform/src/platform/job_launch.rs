@@ -77,6 +77,7 @@ fn process_launch(_pid: u32, _env_keys: &[&str]) -> Option<JobLaunch> {
 
 /// Parses a `KERN_PROCARGS2` buffer: argc (native `i32`), the executable path,
 /// NUL padding, `argc` arguments, then the environment, each NUL-terminated.
+#[cfg(any(target_os = "macos", test))]
 pub(crate) fn parse_procargs2(bytes: &[u8], env_keys: &[&str]) -> Option<JobLaunch> {
     let argc = usize::try_from(i32::from_ne_bytes(bytes.get(..4)?.try_into().ok()?)).ok()?;
     let mut cursor = 4;
