@@ -146,6 +146,13 @@ test("Sentry scrubs escaped JSON credentials and namespaced query keys", () => {
       response_status: 503,
       content_type: "application/json",
       auth_method: "pkce",
+      provider_account_id: "provider-account-secret",
+      request_body: "request-body-secret",
+      response_body: "response-body-secret",
+      prompt_text: "prompt-text-secret",
+      output_text: "output-text-secret",
+      content_text: "content-text-secret",
+      auth_data: "auth-data-secret",
     },
   } as Event);
 
@@ -160,6 +167,13 @@ test("Sentry scrubs escaped JSON credentials and namespaced query keys", () => {
     "query-signature-secret",
     "fragment-code-secret",
     "fragment-signature-secret",
+    "provider-account-secret",
+    "request-body-secret",
+    "response-body-secret",
+    "prompt-text-secret",
+    "output-text-secret",
+    "content-text-secret",
+    "auth-data-secret",
   ]) {
     expect(serialized).not.toContain(secret);
   }
