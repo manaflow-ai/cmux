@@ -1224,6 +1224,7 @@ check_no_self_hosted_fleet_runners() {
   # these workflows, may name glaeda-gui-std-xcode-26.6.
   local gui_owned_selector="vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('[\"pull_request\",\"push\",\"workflow_dispatch\"]'), github.event_name) && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && 'glaeda-gui-std-xcode-26.6'"
   local gui_autofix_selector="vars.CI_PR_POOL_OWNED == '1' && 'glaeda-gui-std-xcode-26.6'"
+  local gui_fork_pr_branch="github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || "
   local hits="" line content content_without_allowed
   # Inspect runner-selection lines only: runs-on:, matrix `os:`, and scalar list
   # items (`  - <label>`, which covers dispatch runner dropdowns and multi-line
@@ -1238,10 +1239,14 @@ check_no_self_hosted_fleet_runners() {
       # Repository identity is a trust predicate, never a runner label.
       content="${content/"$next_repository_guard"/}"
     fi
+    # A pull request workflow keeps the exemption only while its fork pull
+    # request branch comes first on the line; base autofix runs on push only.
     case "${line%%:*}" in
       "$ROOT_DIR/.github/workflows/cmux-next.yml")
-        content="${content//"$gui_owned_selector"/}" ;;
-      "$ROOT_DIR/.github/workflows/cmux-next-base-autofix.yml"|"$ROOT_DIR/.github/workflows/cmux-next-pr-autofix.yml")
+        if [[ "${content%%"$gui_owned_selector"*}" == *"$gui_fork_pr_branch"* ]]; then content="${content//"$gui_owned_selector"/}"; fi ;;
+      "$ROOT_DIR/.github/workflows/cmux-next-pr-autofix.yml")
+        if [[ "${content%%"$gui_autofix_selector"*}" == *"$gui_fork_pr_branch"* ]]; then content="${content//"$gui_autofix_selector"/}"; fi ;;
+      "$ROOT_DIR/.github/workflows/cmux-next-base-autofix.yml")
         content="${content//"$gui_autofix_selector"/}" ;;
     esac
     content_without_allowed="$(printf '%s\n' "$content" | sed -E "s/$fork_branch//g; s/($allowed)//g")"
@@ -1610,7 +1615,7 @@ CASES
       /^    runs-on:.*(macos|MACOS_RUNNER)/ { mac[job]=1 }
       END {
         for (j in mac) {
-          if (gate[j] !~ /^    if: \$\{\{ github\.event_name == .workflow_dispatch. && /) exit 1
+          if (gate[j] !~ /^    if: \$\{\{ github\.event_name == .workflow_dispatch. && / || gate[j] ~ /\|\|/) exit 1
           n++
         }
         exit n == 0
