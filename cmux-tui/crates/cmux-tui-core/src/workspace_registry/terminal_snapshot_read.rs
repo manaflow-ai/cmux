@@ -5,12 +5,6 @@ use super::*;
 impl WorkspaceRegistry {
     /// Returns the canonical, non-tombstoned terminal placement projection.
     /// Runtime surface ids and renderer process ids are intentionally absent.
-    /// The terminal registry revision alone: one `meta` row, no scan of
-    /// `terminal_hosts`. `identify` and `list-workspaces` report only this.
-    pub fn terminal_revision(&self) -> anyhow::Result<u64> {
-        current_terminal_revision(&self.connection.get())
-    }
-
     pub fn terminal_snapshot(&self) -> anyhow::Result<TerminalRegistrySnapshot> {
         let revision = current_terminal_revision(&self.connection.get())?;
         let db = self.connection.get();
