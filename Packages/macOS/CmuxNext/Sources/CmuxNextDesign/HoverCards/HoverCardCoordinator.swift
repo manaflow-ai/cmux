@@ -145,8 +145,10 @@ public final class HoverCardCoordinator {
         let onCard = card?.contains(now) == true
         // A held mouse button (a press, a drag, a selection) gives no target a card, as in Chrome.
         let hit = onCard || mouseButtonDown() ? nil : hitTest()
-        // Between a source's targets (not on the card): a card that hides on leave waits for the next.
-        let bridging = !onCard && hit == nil && !mouseButtonDown() && bridges(at: now)
+        // On the card, or between a source's targets: a card that hides on leave waits (on the
+        // card it stays while the pointer rests there; Lawrence 2026-10-19: the card touches its
+        // tab, and moving onto it must not dismiss it).
+        let bridging = hit == nil && !mouseButtonDown() && (onCard || bridges(at: now))
         send(.hit(hit?.target, moved: true, aiming: aiming, bridging: bridging))
     }
 
@@ -176,8 +178,10 @@ public final class HoverCardCoordinator {
         if machine.phase == .idle, machine.lastHit == nil {
             guard let window, window.frame.contains(currentPointer()) else { return }
         }
-        let hit = pointerIsOnCard() ? nil : hitTest()
-        send(.hit(hit?.target, moved: false))
+        let onCard = pointerIsOnCard()
+        let hit = onCard ? nil : hitTest()
+        // Content moving under a pointer resting on the card keeps the card.
+        send(.hit(hit?.target, moved: false, bridging: onCard))
         // A pinned card whose target went away (closed while not hovered).
         if let active = machine.activeTarget, owners[active.id]?.source?.hoverCardAnchor(for: active.id) == nil {
             send(.targetRemoved(active.id))
@@ -199,7 +203,8 @@ public final class HoverCardCoordinator {
     public func unsuppress(_ reason: HoverSuppression) {
         send(.unsuppress(reason))
         guard !mouseButtonDown() else { return }
-        send(.hit(pointerIsOnCard() ? nil : hitTest()?.target, moved: false))
+        let onCard = pointerIsOnCard()
+        send(.hit(onCard ? nil : hitTest()?.target, moved: false, bridging: onCard))
     }
 
     public func targetRemoved(_ id: HoverTargetID) {
