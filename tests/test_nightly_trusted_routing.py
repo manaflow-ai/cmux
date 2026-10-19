@@ -123,6 +123,29 @@ class NightlyTrustedRouting(unittest.TestCase):
         self.assertNotEqual(group('nightly-next', '39124573091'), group('nightly-next', '39124573100'))
         self.assertNotEqual(group('main'), group('nightly-next', '39124573091'))
 
+    def test_next_pushes_share_one_build_slot_that_the_newest_push_takes(self):
+        # Every nightly-next push built its own head, so pushes queued for the trusted
+        # runner and each intermediate head got a full build (2026-10-18: three pushes
+        # in three minutes, three 90-minute builds). One job-level group keeps one build
+        # waiting at most, the newest; a running build always finishes.
+        job = DOC['jobs']['build-nightly-app']
+        def group(branch, event='push', run_id='1'):
+            context = {'github.ref': f'refs/heads/{branch}', 'github.event_name': event, 'github.run_id': run_id}
+            return re.sub(r'\$\{\{(.*?)\}\}',
+                          lambda match: str(evaluate(parse_expression(match[1]), context)),
+                          job['concurrency']['group'])
+        self.assertEqual(group('nightly-next', run_id='1'), group('nightly-next', run_id='2'))
+        self.assertNotEqual(group('nightly-next', 'workflow_dispatch', '1'), group('nightly-next', 'workflow_dispatch', '2'))
+        self.assertNotEqual(group('main', run_id='1'), group('main', run_id='2'))
+        self.assertNotEqual(group('main'), group('nightly-next'))
+        self.assertFalse(job['concurrency']['cancel-in-progress'])
+
+    def test_a_build_replaced_by_a_newer_next_push_is_not_reported_as_a_failure(self):
+        script = next(step for step in DOC['jobs']['report-nightly-failure']['steps']
+                      if step.get('name') == 'Open or update the nightly failure issue')['with']['script']
+        self.assertIn("results['build-nightly-app']?.result === 'cancelled'", script)
+        self.assertIn("heads/nightly-next", script)
+
     def test_runner_guard_accepts_only_the_complete_nightly_capability_tuple(self):
         source = (ROOT / 'tests/test_ci_self_hosted_guard.sh').read_text()
         function = re.search(r'^check_no_self_hosted_fleet_runners\(\) \{\n.*?^\}',
