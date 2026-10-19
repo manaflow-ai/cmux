@@ -87,10 +87,17 @@ final class SignalSocket: @unchecked Sendable {
     }
 }
 
-struct ICEServerConfig: Codable, Sendable {
-    var urls: [String]
-    var username: String?
-    var credential: String?
+/// One ICE server (STUN or TURN), as WebRTC configures it.
+public struct ICEServerConfig: Codable, Sendable, Equatable {
+    public var urls: [String]
+    public var username: String?
+    public var credential: String?
+
+    public init(urls: [String], username: String? = nil, credential: String? = nil) {
+        self.urls = urls
+        self.username = username
+        self.credential = credential
+    }
 }
 
 private struct ICEAnswer: Codable {

@@ -117,6 +117,44 @@ for UIKit. Drive everything else from `ScreenSession`:
   input-to-frame log (Documents/perf.log). It is off by default.
 - **Threads.** `ScreenSession` and every view are main-actor.
 
+## Signaling: pairing rooms or the device hub
+
+`ScreenStreamViewer` and `ScreenStreamHost` (CmuxVNCWebRTC) reach each other
+through a `ScreenSignaling`: `send(_:)`, `messages()` (`ScreenSignal`:
+`hello`, `peerJoined`, `peerLeft`, `offer`, `answer`, `candidate`, `bye`),
+`iceServers()` and `close()`. Two implementations:
+
+- `RoomSignaling(pairing:role:)`: a pairing link's room on the
+  cmux-vnc-signal Worker. `ScreenStreamViewer(pairing:)` and
+  `ScreenStreamHost(pairing:…).run()` use it exactly as before: the room is
+  reopened when it drops and a connected stream outlives it.
+- `TicketSignaling(ticket:signalURL:signer:iceServers:expectedPeerKey:)`: one
+  device hub session (docs/device-hub/PROTOCOL.md). It opens
+  `signalURL?ticket=<jws>` with the device headers from a
+  `ScreenTicketSigner` (the app's Secure Enclave key), signs this side's DTLS
+  fingerprint into every offer and answer (`fpSig` over
+  `"<sid>|<role>|<fingerprint>"`, the `a=fingerprint:` values joined with
+  `,`), and verifies the peer's against the ticket's `peerKey`. A missing or
+  wrong `fpSig` aborts the session (`ScreenSignalingError`, `bye`, socket
+  closed). `iceServers` is the session's list: the ticket's cmux relay and
+  the user's relays. The ticket admits once, so the session ends with the
+  socket (`endsSessionOnClose`).
+
+```swift
+let signaling = try TicketSignaling(ticket: push.ticket, signalURL: push.signalURL, signer: signer,
+                                    iceServers: relays, expectedPeerKey: push.peer.signingKey)
+// Viewer:
+let viewer = ScreenStreamViewer(signaling: signaling)
+try await viewer.connect()
+// Host (a `view` session ignores all input but the display choice and refresh):
+let host = ScreenStreamHost(name: "Studio", viewOnly: push.scope == "view", backend: { ScreenCaptureBackend(log: log) })
+try await host.serve(signaling)
+```
+
+`ScreenStreamHost.disconnectViewer()` sends `bye` on a device hub session.
+`ICEServerConfig` (urls, username, credential) is public for building the
+list. `ScreenSession` still connects through pairing rooms only.
+
 ## Tests
 
 `swift test` in this folder runs the tests that need no device. The UI target

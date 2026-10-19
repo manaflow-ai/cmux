@@ -99,9 +99,12 @@ public protocol ScreenBackend: AnyObject, Sendable {
     func stop()
 }
 
-/// The Mac side of a screen stream: holds the room open, answers each
-/// viewer with the screen as a WebRTC video track (hardware H.264), and
-/// hands the viewer's input to the backend. One viewer at a time.
+/// The Mac side of a screen stream: answers a viewer with the screen as a
+/// WebRTC video track (hardware H.264) and hands the viewer's input to the
+/// backend. One viewer at a time. Signaling is a pairing link's room
+/// (``run()``, held open and reopened) or one device hub session
+/// (``serve(_:)`` with a ``TicketSignaling``). A view-only host (a device
+/// hub `view` session) never passes input to the backend.
 public final class ScreenStreamHost: @unchecked Sendable {
     // @unchecked: `session` is behind `lock`; a session's fields are touched
     // from its own tasks and the backend's callback queue.
@@ -139,11 +142,18 @@ public final class ScreenStreamHost: @unchecked Sendable {
         case sourceFailed(String)
     }
 
-    public let pairing: VNCPairing
+    /// The room ``run()`` holds open; nil for a host that serves device hub sessions.
+    public let pairing: VNCPairing?
+    /// The name the viewer shows for this Mac.
+    public let name: String
+    /// A `view` scope session: input from the viewer is ignored (only the display choice and refresh pass).
+    public let viewOnly: Bool
     private let makeBackend: @Sendable () -> any ScreenBackend
     private let log: @Sendable (String) -> Void
     private let lock = NSLock()
     private var session: Session?
+    /// The device hub session ``serve(_:)`` is serving, for `bye` on disconnect.
+    private var ticketSignaling: (any ScreenSignaling)?
     /// Called from the host's tasks with each `Event` (any thread).
     public var onEvent: (@Sendable (Event) -> Void)? {
         get { lock.withLock { eventSink } }
@@ -151,9 +161,21 @@ public final class ScreenStreamHost: @unchecked Sendable {
     }
     private var eventSink: (@Sendable (Event) -> Void)?
 
-    public init(pairing: VNCPairing, backend: @escaping @Sendable () -> any ScreenBackend,
+    public init(pairing: VNCPairing, viewOnly: Bool = false, backend: @escaping @Sendable () -> any ScreenBackend,
                 log: @escaping @Sendable (String) -> Void = { print($0) }) {
         self.pairing = pairing
+        name = pairing.name
+        self.viewOnly = viewOnly
+        makeBackend = backend
+        self.log = log
+    }
+
+    /// A host for device hub sessions (``serve(_:)``); no room.
+    public init(name: String, viewOnly: Bool = false, backend: @escaping @Sendable () -> any ScreenBackend,
+                log: @escaping @Sendable (String) -> Void = { print($0) }) {
+        pairing = nil
+        self.name = name
+        self.viewOnly = viewOnly
         makeBackend = backend
         self.log = log
     }
@@ -164,11 +186,13 @@ public final class ScreenStreamHost: @unchecked Sendable {
         self.init(pairing: pairing, backend: { VNCLoopbackBackend(target: target, credentials: credentials, log: log) }, log: log)
     }
 
+    /// Holds the pairing room open until cancelled (nothing to do without a pairing).
     public func run() async {
+        guard let pairing else { return }
         var delay = 1.0
         while !Task.isCancelled {
             do {
-                try await serveRoom()
+                try await serve(RoomSignaling(pairing: pairing, role: "host"))
                 delay = 1
             } catch {
                 log("room connection lost: \(error); retrying in \(Int(delay)) s")
@@ -180,28 +204,48 @@ public final class ScreenStreamHost: @unchecked Sendable {
         endSession()
     }
 
-    /// Ends the current viewer's session (it may connect again with the link).
+    /// Ends the current viewer's session (it may connect again with the link;
+    /// a device hub session gets `bye` and ends for good).
     public func disconnectViewer() {
         endSession()
+        guard let signaling = lock.withLock({ ticketSignaling }) else { return }
+        Task {
+            try? await signaling.send(.bye)
+            signaling.close()
+        }
     }
 
     private func emit(_ event: Event) {
         lock.withLock { eventSink }?(event)
     }
 
-    private func serveRoom() async throws {
-        let socket = SignalSocket(pairing: pairing, role: "host")
-        defer { socket.close() }
-        for try await message in socket.messages() {
-            switch message.type {
-            case "hello":
-                log("waiting for a viewer in room \(pairing.room.prefix(8))…")
+    /// Serves one signaling connection until it closes. A session that is
+    /// its signaling (``ScreenSignaling/endsSessionOnClose``, a device hub
+    /// ticket) ends with it: on `bye`, on a close, and on an error such as a
+    /// fingerprint that does not verify.
+    public func serve(_ signaling: any ScreenSignaling) async throws {
+        if signaling.endsSessionOnClose { lock.withLock { ticketSignaling = signaling } }
+        defer {
+            signaling.close()
+            if signaling.endsSessionOnClose {
+                lock.withLock { if ticketSignaling === signaling { ticketSignaling = nil } }
+                endSession()
+            }
+        }
+        for try await signal in signaling.messages() {
+            switch signal {
+            case .hello:
+                log(pairing.map { "waiting for a viewer in room \($0.room.prefix(8))…" } ?? "waiting for the viewer…")
                 emit(.waiting)
-            case "offer":
-                guard let sdp = message.sdp else { continue }
-                try await accept(offer: sdp, socket: socket)
-            case "candidate": await lock.withLock({ session?.link })?.add(candidate: message)
-            case "peer-left":
+            case let .offer(sdp):
+                try await accept(offer: sdp, signaling: signaling)
+            case let .candidate(candidate): await lock.withLock({ session?.link })?.add(candidate: candidate.message)
+            case .bye:
+                log("the session ended")
+                endSession()
+                return
+            case .peerJoined, .answer: break
+            case .peerLeft:
                 // The viewer's room connection dropped. A connected session
                 // lives on (WebRTC reports its own end); a half-open one ends.
                 let current = lock.withLock { session }
@@ -211,23 +255,28 @@ public final class ScreenStreamHost: @unchecked Sendable {
                     log("viewer left")
                     endSession()
                 }
-            default: break
             }
         }
     }
 
-    private func accept(offer sdp: String, socket: SignalSocket) async throws {
+    private func accept(offer sdp: String, signaling: any ScreenSignaling) async throws {
         endSession()
-        let link = try VNCPeerLink(iceServers: try await SignalSocket.iceServers(pairing), preferStreamRelays: false)
+        let link = try VNCPeerLink(iceServers: try await signaling.iceServers(), preferStreamRelays: false)
         let session = Session(link: link, backend: makeBackend())
         lock.withLock { self.session = session }
         session.tasks.append(Task { [weak self] in
             for await event in link.events {
                 switch event {
-                case let .candidate(message): try? await socket.send(message)
+                case let .candidate(message): try? await signaling.send(.candidate(ScreenICECandidate(message)))
                 case .open: self?.start(session)
                 case let .message(data): self?.handleInput(data, session: session)
-                case .closed: self?.endSession(ifCurrent: session)
+                case .closed:
+                    self?.endSession(ifCurrent: session)
+                    // A device hub session is this connection: tell the other side, then let it go.
+                    if signaling.endsSessionOnClose {
+                        try? await signaling.send(.bye)
+                        signaling.close()
+                    }
                 case let .path(local, remote):
                     self?.log("path: this Mac \(local) ↔ viewer \(remote)\(local == "relay" || remote == "relay" ? " (TURN relay)" : " (direct)")")
                 case .video: break
@@ -235,7 +284,7 @@ public final class ScreenStreamHost: @unchecked Sendable {
             }
         })
         let answer = try await link.answer(offer: sdp, video: session.video)
-        try await socket.send(SignalMessage(type: "answer", sdp: answer))
+        try await signaling.send(.answer(answer))
         log("viewer offered; streaming answer sent")
     }
 
@@ -294,24 +343,34 @@ public final class ScreenStreamHost: @unchecked Sendable {
     private func sendDisplays(_ session: Session) {
         let (sizes, current) = session.lock.withLock { (session.displays, session.current) }
         let message = ScreenHostMessage(t: "displays", displays: sizes.map { .init(w: Int($0.width), h: Int($0.height)) },
-                                        current: current, name: pairing.name)
+                                        current: current, name: name)
         if let data = try? JSONEncoder().encode(message) { _ = session.link.sendText(String(decoding: data, as: UTF8.self)) }
     }
 
     private func handleInput(_ data: Data, session: Session) {
         guard let input = try? JSONDecoder().decode(ScreenInput.self, from: data) else { return }
-        if input.t == "display", let index = input.i {
-            session.backend.select(display: index)
-            return
-        }
         if input.t == "quality", let quality = input.s.flatMap(ScreenQuality.init(rawValue:)) {
             session.lock.withLock { session.quality = quality }
             log("quality: \(quality.rawValue)")
             applyQuality(session)
             return
         }
-        session.backend.handle(input)
+        deliver(input, to: session.backend)
     }
+
+    /// Hands one viewer message to the backend: the display choice always,
+    /// input only when the session is not view-only.
+    func deliver(_ input: ScreenInput, to backend: any ScreenBackend) {
+        if input.t == "display" {
+            if let index = input.i { backend.select(display: index) }
+            return
+        }
+        guard !viewOnly || Self.viewOnlyMessages.contains(input.t) else { return }
+        backend.handle(input)
+    }
+
+    /// What a view-only viewer may still send: a request for a fresh frame (no input reaches the Mac).
+    static let viewOnlyMessages: Set<String> = ["refresh"]
 
     private func applyQuality(_ session: Session) {
         let (quality, height) = session.lock.withLock { () -> (ScreenQuality, Int) in
@@ -467,10 +526,11 @@ public final class ScreenStreamViewer: @unchecked Sendable {
     public var onState: (@Sendable (String?) -> Void)?
     public var onPath: (@Sendable (String) -> Void)?
 
-    private let pairing: VNCPairing
+    /// The signaling for each attempt (0 first); nil when there is no other.
+    private let makeSignaling: @Sendable (Int) -> (any ScreenSignaling)?
     private let lock = NSLock()
     private var link: VNCPeerLink?
-    private var socket: SignalSocket?
+    private var socket: (any ScreenSignaling)?
     private var tasks: [Task<Void, Never>] = []
     /// libwebrtc removes a track's renderers when its wrapper is released: keep it.
     private var track: VideoTrackBox?
@@ -480,8 +540,19 @@ public final class ScreenStreamViewer: @unchecked Sendable {
     /// TURN relay only (ICE transport policy `relay`): for checking the relay path. Off by default.
     private let relayOnly: Bool
 
-    public init(pairing: VNCPairing, relayOnly: Bool = false) {
-        self.pairing = pairing
+    /// A pairing link's room, reopened whenever it drops.
+    public convenience init(pairing: VNCPairing, relayOnly: Bool = false) {
+        self.init(relayOnly: relayOnly) { _ in RoomSignaling(pairing: pairing, role: "viewer") }
+    }
+
+    /// One device hub session (``TicketSignaling``): its ICE servers, and
+    /// the session ends when the signaling does (it is never reopened).
+    public convenience init(signaling: any ScreenSignaling, relayOnly: Bool = false) {
+        self.init(relayOnly: relayOnly) { attempt in attempt == 0 ? signaling : nil }
+    }
+
+    init(relayOnly: Bool, makeSignaling: @escaping @Sendable (Int) -> (any ScreenSignaling)?) {
+        self.makeSignaling = makeSignaling
         self.relayOnly = relayOnly
     }
 
@@ -490,14 +561,15 @@ public final class ScreenStreamViewer: @unchecked Sendable {
     /// connection is reopened quietly, and the Mac's room going away and
     /// coming back does not touch the running stream.
     public func connect() async throws {
-        let ice = try await SignalSocket.iceServers(pairing)
+        guard let first = makeSignaling(0) else { throw RFBError.transport("signaling: none") }
+        let ice = try await first.iceServers()
         let link = try VNCPeerLink(iceServers: ice, relayOnly: relayOnly, preferStreamRelays: false)
         lock.withLock { self.link = link }
         let opened = OpenSignal()
         let peerTask = Task { [weak self] in
             for await event in link.events {
                 switch event {
-                case let .candidate(message): try? await self?.lock.withLock({ self?.socket })?.send(message)
+                case let .candidate(message): try? await self?.lock.withLock({ self?.socket })?.send(.candidate(ScreenICECandidate(message)))
                 case .open:
                     self?.lock.withLock { self?.isOpen = true }
                     opened.fire(nil)
@@ -515,10 +587,11 @@ public final class ScreenStreamViewer: @unchecked Sendable {
                 }
             }
         }
-        let signalTask = Task { [weak self] in
+        let signalTask = Task { [weak self, makeSignaling] in
             var delay = 1.0
-            while !Task.isCancelled, let self {
-                let socket = SignalSocket(pairing: pairing, role: "viewer")
+            var attempt = 0
+            var next: (any ScreenSignaling)? = first
+            while !Task.isCancelled, let self, let socket = next {
                 lock.withLock { self.socket = socket }
                 do {
                     for try await message in socket.messages() {
@@ -527,14 +600,20 @@ public final class ScreenStreamViewer: @unchecked Sendable {
                     }
                 } catch {
                     guard lock.withLock({ isOpen }) else {
-                        opened.fire(RFBError.transport("signaling: \(error.localizedDescription)"))
+                        let detail = (error as? ScreenSignalingError)?.description ?? error.localizedDescription
+                        opened.fire(RFBError.transport("signaling: \(detail)"))
                         return
                     }
                 }
                 socket.close()
+                attempt += 1
+                next = makeSignaling(attempt)
+                guard next != nil else { break }
                 try? await Task.sleep(for: .seconds(delay)) // room reconnect backoff
                 delay = min(delay * 2, 15)
             }
+            // A session's only signaling ended before the channel opened: connect() fails now, not at its deadline.
+            if let self, !lock.withLock({ self.isOpen }) { opened.fire(RFBError.transport("signaling ended")) }
         }
         lock.withLock { tasks = [peerTask, signalTask] }
         do {
@@ -548,25 +627,30 @@ public final class ScreenStreamViewer: @unchecked Sendable {
         }
     }
 
-    private func handleSignal(_ message: SignalMessage, link: VNCPeerLink, opened: OpenSignal) async throws {
-        switch message.type {
-        case "hello" where message.peer == true, "peer-joined":
+    private func handleSignal(_ message: ScreenSignal, link: VNCPeerLink, opened: OpenSignal) async throws {
+        switch message {
+        case .hello(peerPresent: true), .peerJoined:
             // One offer per session; the host's room reconnecting is not a new viewer.
             guard lock.withLock({ () -> Bool in
                 defer { offered = true }
                 return !offered
             }) else { return }
             let sdp = try await link.offer(label: "input", receiveVideo: true, unorderedLabel: "pointer")
-            try await lock.withLock({ socket })?.send(SignalMessage(type: "offer", sdp: sdp))
-        case "answer":
-            if let sdp = message.sdp { try await link.accept(answer: sdp) }
-        case "candidate":
-            await link.add(candidate: message)
-        case "peer-left":
+            try await lock.withLock({ socket })?.send(.offer(sdp))
+        case let .answer(sdp):
+            try await link.accept(answer: sdp)
+        case let .candidate(candidate):
+            await link.add(candidate: candidate.message)
+        case .peerLeft:
             guard !lock.withLock({ isOpen }) else { return }
             opened.fire(RFBError.transport("the Mac's host left"))
             link.close()
-        default:
+        case .bye:
+            // The session is over (the host left it, or the hub ended it). Once
+            // open, closing the link reports it through onState.
+            if !lock.withLock({ isOpen }) { opened.fire(RFBError.transport("the session ended")) }
+            link.close()
+        case .hello, .offer:
             break
         }
     }
@@ -608,7 +692,7 @@ public final class ScreenStreamViewer: @unchecked Sendable {
     }
 
     public func close() {
-        let (link, socket, tasks) = lock.withLock { () -> (VNCPeerLink?, SignalSocket?, [Task<Void, Never>]) in
+        let (link, socket, tasks) = lock.withLock { () -> (VNCPeerLink?, (any ScreenSignaling)?, [Task<Void, Never>]) in
             defer { self.tasks.removeAll() }
             return (self.link, self.socket, self.tasks)
         }
