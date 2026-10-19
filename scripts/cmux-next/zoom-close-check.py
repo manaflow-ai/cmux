@@ -33,6 +33,16 @@ static    (every scenario) the rects a gesture does not move keep their pixels i
 travel    (trace) the moving pane's travel curve: time to 90 % of it, time until 1 pt is left,
             overshoot past the target, and the largest frame-to-frame change of its per-frame
             step (smoothness), all from the first frame it moved.
+live      (trace, every scenario) each pane whose presented rect moves is laid out at it in every
+            frame: its host frame is the presented rect (`held`: samples where it is not), and its
+            content's size changes in every sample its rect's size does (`frozen`: samples where it
+            did not; `end_jump`: the content's last size change as a share of its whole change, a
+            layout held and then resized once at rest is 1.0).
+header    (trace) the zooming pane's tab strip shows whole in every sample (share 1.0), and every
+            other moving pane's too.
+work      (work.json) main-thread time per display frame: the layout step and the whole tick,
+            p50 / p95 / max ms (`debug.motion` work: `layout` the layout's step, `clock` the tick).
+perf-*    scenarios with a busy terminal: live, header and work only.
 reduce scenarios (OUT dir recorded with --reduce-motion): frames between the
             first changed frame and the final one (one-step: <= 1).
 
@@ -318,6 +328,58 @@ def check_zoom(name, directory, frames, colors, scale, zooming_in):
     return result, failures
 
 
+def check_live(directory, colors, focus_pane=None):
+    """The live-layout, header and frame-time checks (module doc: live, header, work)."""
+    samples = [s for s in trace_samples(directory) if s.get("panes")]
+    rows = {}
+    for sample in samples:
+        for row in sample["panes"]:
+            if len(row) >= 14:
+                rows.setdefault(row[0], []).append(row)
+    result, failures = {}, []
+    if samples and not rows:
+        return {"live": "no laid-out fields in the trace (an older build)"}, []
+    live = {}
+    for pane, series in rows.items():
+        shown = [r[1:5] for r in series]
+        if max((abs(a[k] - b[k]) for a, b in zip(shown, shown[1:]) for k in range(4)), default=0) < 1:
+            continue
+        held = sum(1 for r in series if r[3] > 1 and any(abs(r[1 + k] - r[7 + k]) > 0.5 for k in range(4)))
+        frozen, changes = 0, []
+        for a, b in zip(series, series[1:]):
+            size_moved = abs(a[3] - b[3]) > 0.5 or abs(a[4] - b[4]) > 0.5
+            content_moved = abs(a[11] - b[11]) > 0.25 or abs(a[12] - b[12]) > 0.25
+            if content_moved:
+                changes.append(abs(a[11] - b[11]) + abs(a[12] - b[12]))
+            if size_moved and not content_moved:
+                frozen += 1
+        total = sum(changes)
+        end_jump = round(changes[-1] / total, 3) if total > 0 else None
+        header = min((r[13] for r in series if r[11] > 1 and r[12] > 1), default=None)
+        live[colors.get(pane, pane[-6:])] = {"samples": len(series), "held": held, "frozen": frozen, "content_steps": len(changes),
+                                              "end_jump": end_jump, "header_min": header}
+        label = colors.get(pane, pane[-6:])
+        if held:
+            failures.append(f"{label}: laid out away from its presented rect in {held} samples (a held frame)")
+        if frozen:
+            failures.append(f"{label}: content did not follow its rect in {frozen} samples")
+        if end_jump is not None and len(changes) > 1 and end_jump > 0.5:
+            failures.append(f"{label}: content jumped at the end ({end_jump * 100:.0f}% of its change in one step)")
+        if header is not None and header < 0.999 and (focus_pane is None or pane == focus_pane):
+            failures.append(f"{label}: its tab strip showed only {header * 100:.0f}% in a frame")
+    result["live"] = live
+    work = (load(os.path.join(directory, "work.json"), {}) or {}).get("work") or {}
+    budget = {name: work[name] for name in ("layout", "clock") if isinstance(work.get(name), dict)}
+    result["work"] = budget
+    # Frame pacing while anything moves: a main thread over budget skips display frames.
+    times = [s["t"] for s in samples]
+    gaps = sorted(b - a for a, b in zip(times, times[1:]))
+    if gaps:
+        result["frame_gap_ms"] = {"samples": len(times), "p50": round(gaps[len(gaps) // 2], 2), "max": round(gaps[-1], 2),
+                                  "over_12_5": sum(1 for g in gaps if g > 12.5), "over_25": sum(1 for g in gaps if g > 25)}
+    return result, failures
+
+
 def check_close(name, directory, frames, colors, scale):
     before, _ = panes_of(load(os.path.join(directory, "before.json")))
     after, _ = panes_of(load(os.path.join(directory, "after.json")))
@@ -393,7 +455,7 @@ def check_close(name, directory, frames, colors, scale):
             break
         holes += 1
     result["hole_samples"] = holes
-    if holes and not opts.reduce:
+    if holes and gone and not opts.reduce:
         failures.append(f"{holes} frame(s) show the closed pane's space empty before its neighbours move")
     result["moving_edges"] = len(shares)
     result["travel"] = max((travel_curve(edges[key]) or {} for key in shares), key=lambda m: abs(m.get("travel_pt") or 0), default=None)
@@ -413,7 +475,15 @@ def main():
     report, failed = {}, False
     for name in sorted(os.listdir(opts.dir)):
         directory = os.path.join(opts.dir, name)
-        if not os.path.isdir(directory) or not os.path.exists(os.path.join(directory, "frames.json")):
+        if not os.path.isdir(directory) or not os.path.exists(os.path.join(directory, "trace.json")):
+            continue
+        if name.startswith("perf"):
+            result, failures = check_live(directory, load(os.path.join(directory, "colors.json"), {}) or colors,
+                                          zoom_pane(trace_samples(directory)) if "zoom" in name else None)
+            result["failures"] = failures
+            report[name] = result
+            failed = failed or bool(failures)
+            print(f"{'FAIL' if failures else 'ok':4} {name}: " + "; ".join(failures or [json.dumps(result.get('work'))[:160]]), flush=True)
             continue
         frames, scale = (None, None) if opts.source == "window" else video_frames(directory)
         source = "video" if frames else "window"
@@ -428,10 +498,13 @@ def main():
             continue
         local = load(os.path.join(directory, "colors.json"), {}) or colors
         scale = scale or panes_of(load(os.path.join(directory, "before.json")))[1]
-        if "close" in name:
+        if "close" in name or "split" in name:
             result, failures = check_close(name, directory, frames, local, scale)
         else:
             result, failures = check_zoom(name, directory, frames, local, scale, zooming_in="unzoom" not in name)
+        live, live_failures = check_live(directory, local, zoom_pane(trace_samples(directory)) if "zoom" in name else None)
+        result.update(live)
+        failures = failures + live_failures
         if opts.reduce:
             steps = result.get("moving_frames", 0)
             result["reduce_steps"] = steps
