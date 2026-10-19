@@ -258,20 +258,19 @@ struct RapidWorkspaceCreateTests {
         await Self.wait(within: .seconds(30)) { sidebar.allWorkspaces.contains { $0.title == "grouped" && $0.rowState == .live } }
         let grouped = try #require(sidebar.allWorkspaces.first { $0.title == "grouped" }?.id.rawValue)
         await Self.wait(within: .seconds(10)) { state.workspaceID == grouped }
-        bridge.groupFlow.newGroup(of: [SidebarWorkspaceID(grouped)], name: "Accounts", byUser: false)
-        func group() -> SidebarGroup? {
-            sidebar.sections.flatMap(\.nodes).lazy.compactMap { node -> SidebarGroup? in
-                if case let .group(group) = node, group.name == "Accounts" { return group }
-                return nil
-            }.first
+        // One document change, as a group made in the sidebar sends: the group, first in the list.
+        let doc = try #require(SidebarDocStore.current)
+        await Self.wait(within: .seconds(30)) {
+            SidebarDocWiring.item(workspace: grouped, services.machines).map { doc.records.items[$0] != nil } ?? false
         }
+        let item = try #require(SidebarDocWiring.item(workspace: grouped, services.machines))
+        let section = try #require(doc.records.items[item]?.section)
+        try doc.sendChecked(ops: [["op": "group.create", "id": GroupID.make().rawValue, "name": "Accounts", "color": GroupColor.grey.rawValue,
+                                   "items": [item], "to": ["section": section, "index": 0]]], title: "Group", undoable: false)
         func groupFirst() -> Bool {
             guard case let .group(first)? = sidebar.sections.first(where: { !$0.nodes.isEmpty && $0.machine != nil })?.nodes.first else { return false }
             return first.name == "Accounts" && first.workspaces.map(\.id.rawValue) == [grouped]
         }
-        await Self.wait(within: .seconds(30)) { group()?.workspaces.map(\.id.rawValue) == [grouped] }
-        // Then first in the list (the group's place follows its workspace's, which the setting gave).
-        if !groupFirst(), let id = group()?.id { bridge.handle(.reorderGroup(id, index: 0)) }
         await Self.wait(within: .seconds(30)) { groupFirst() }
         services.windows.select(loose, in: state)
         await Self.wait(within: .seconds(10)) { state.workspaceID == loose }
