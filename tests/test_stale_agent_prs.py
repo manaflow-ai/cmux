@@ -91,14 +91,19 @@ class ClassifyTests(unittest.TestCase):
         v = module.classify(pr(base="claude/base"), now=NOW, score=LANDED, successor=None, stale_days=14, landed_idle_days=3, live_branches={"claude/base"}, applied=True)
         self.assertEqual(v.action, "keep")
 
+    def test_recent_draft_is_left_alone_even_when_landed(self):
+        draft = pr(idle=5)
+        draft["isDraft"] = True
+        self.assertEqual(classify(draft, score=LANDED).action, "keep")
+
     def test_full_line_share_without_reverse_apply_is_only_listed(self):
         v = classify(pr(idle=5), score=module.Score(present=10, total=10), applied=False)
         self.assertEqual((v.action, v.reason), ("list", "mostly landed 100%"))
 
     def test_security_drafts_and_dead_stacks_are_listed_never_closed(self):
-        draft = pr()
+        draft = pr(idle=20)
         draft["isDraft"] = True
-        for reason, p in {"security": pr(title="fix: ACL check in relay"), "stacked on deleted claude/base": pr(base="claude/base"), "draft": draft}.items():
+        for reason, p in {"security": pr(title="fix: ACL check in relay"), "stacked on deleted claude/base": pr(base="claude/base"), "stale draft": draft}.items():
             with self.subTest(reason=reason):
                 v = classify(p, score=LANDED)
                 self.assertEqual((v.action, v.reason), ("list", reason))

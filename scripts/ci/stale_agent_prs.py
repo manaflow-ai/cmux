@@ -25,7 +25,8 @@ Verdicts:
   but the lines haven't all landed. A lead, not proof.
 - list "stale, red or conflicting": no push and no human comment for
   STALE_DAYS, and its checks are red or it conflicts with its base.
-- list "draft", "security", or "stacked on deleted X" when a stacked PR's base branch
+- list "stale draft" (a draft idle for STALE_DAYS), "security", or
+  "stacked on deleted X" when a stacked PR's base branch
   is gone: never closed by this script. A stacked PR whose base still exists
   is left to its base PR.
 - skip: a keep label (KEEP_LABELS), a last human comment that hands a
@@ -277,6 +278,9 @@ def classify(pr: dict, *, now: dt.datetime, score: Score | None, successor: int 
     reason = list_only_reason(pr, live_branches)
     if reason == "stacked":
         pass  # base branch still exists: its own PR decides
+    elif reason == "draft":
+        if idle >= stale_days:
+            verdict.action, verdict.reason = "list", "stale draft"
     elif reason:
         verdict.action, verdict.reason = "list", reason
     elif applied and idle >= landed_idle_days:
