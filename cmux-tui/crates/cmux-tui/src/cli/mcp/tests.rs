@@ -1287,3 +1287,18 @@ mod agent_wait;
 
 mod catalog;
 mod machine_catalog;
+
+/// The tools the acpmux session server's instructions point agents at
+/// (`acpmux::session_mcp::CMUX_TOOLS`) stay tools of this server.
+#[test]
+fn the_session_servers_instructions_name_real_cmux_tools() {
+    let mut server = Server::new(Fake::with_actions(), None);
+    let listed =
+        server.handle(&json!({"jsonrpc": "2.0", "id": "l", "method": "tools/list"})).unwrap();
+    let tools = listed["result"]["tools"].as_array().cloned().unwrap();
+    let rules = acpmux::session_mcp::instructions(false);
+    for name in acpmux::session_mcp::CMUX_TOOLS {
+        assert!(rules.contains(name), "the instructions no longer name {name}");
+        assert!(tools.iter().any(|tool| tool["name"] == name), "cmux mcp serve has no {name}");
+    }
+}
