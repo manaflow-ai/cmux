@@ -7,6 +7,25 @@ import Testing
 @MainActor
 @Suite("Mobile shell agent feed state")
 struct MobileShellAgentFeedStateTests {
+    @Test("Background snapshot decoding preserves payloads and cancellation")
+    func backgroundSnapshotDecoding() async throws {
+        let payload: [String: Any] = ["revision": 7, "items": [
+            row(id: "whole-seconds"),
+            row(id: "fractional-seconds", createdAt: "2026-08-14T11:00:00.123Z")
+        ]]
+        let data = try JSONSerialization.data(withJSONObject: payload)
+        let expected = try MobileAgentFeedListResponse.decode(data)
+        #expect(try await MobileShellComposite.decodeAgentFeedSnapshot(data) == expected)
+
+        // This task cannot start on MainActor until the current actor turn
+        // suspends, so cancellation is established before decoding starts.
+        let cancelled = Task { @MainActor in
+            try await MobileShellComposite.decodeAgentFeedSnapshot(data)
+        }
+        cancelled.cancel()
+        await #expect(throws: CancellationError.self) { try await cancelled.value }
+    }
+
     private func response(
         revision: Int,
         rows: [[String: Any]]

@@ -61,6 +61,7 @@ const MAX_RPC_STDIN_LINE_BYTES: usize = 16 * 1024 * 1024;
 const MAX_CLIENT_RELAY_ROUTES: usize = 4;
 const DETACHED_TERM_GRACE: Duration = Duration::from_millis(500);
 const DETACHED_KILL_GRACE: Duration = Duration::from_secs(1);
+const FORWARD_CLEANUP_TIMEOUT: Duration = Duration::from_secs(2);
 
 pub fn is_remote_invocation(args: &[String]) -> bool {
     crate::cli::is_remote_invocation(args)
@@ -994,6 +995,7 @@ fn reachable_unix_route(_: &Url) -> bool {
 
 fn run_forward(args: &[String]) -> anyhow::Result<()> {
     let flags = parse_connect_flags(args)?;
+    let owner = flags.exit_with_parent.then(current_parent_process_id);
     let workspace_root = flags
         .forward_workspace
         .clone()
@@ -1030,6 +1032,14 @@ fn run_forward(args: &[String]) -> anyhow::Result<()> {
             LocalPortForward::bind(connected.runtime.multiplexer().clone(), route, listen).await?;
         println!("{}", forward.webview_url(&scheme)?);
         let mut finished = connected.runtime.subscribe_finished();
+        let parent_exit = async {
+            if let Some(owner) = owner {
+                wait_for_parent_exit(owner).await;
+            } else {
+                std::future::pending::<()>().await;
+            }
+        };
+        tokio::pin!(parent_exit);
         let mut wait_error = None;
         if !crate::shutdown_requested() && !*finished.borrow() {
             tokio::select! {
@@ -1040,10 +1050,15 @@ fn run_forward(args: &[String]) -> anyhow::Result<()> {
                     }
                 }
                 _ = finished.changed() => {}
+                _ = &mut parent_exit => {}
             }
         }
         forward.shutdown().await;
-        let _ = client.request(WorkspaceRequest::CloseRoute { route }).await;
+        let _ = tokio::time::timeout(
+            FORWARD_CLEANUP_TIMEOUT,
+            client.request(WorkspaceRequest::CloseRoute { route }),
+        )
+        .await;
         if let Some(error) = wait_error {
             return Err(error.into());
         }
@@ -2066,7 +2081,21 @@ fn print_admin_response(action: &str, response: AdminResponse, json: bool) -> an
 /// hosted ingress on branded machine domains requires.
 /// `wireguard-hub`: `remote connect --wireguard-hub` and `wg hub` exist, so the
 /// app may reach private-network machines through a shared in-process tunnel.
-pub const PROBE_CAPABILITIES: &[&str] = &["direct-ws-user-agent", "wireguard-hub", "browser-proxy"];
+/// `cloud-browser-network`: Cloud browser proxy routes preserve the guest
+/// machine's network and loopback context.
+/// `ssh-payload-download`: a remote platform's build that the app does not
+/// bundle is downloaded once, checked against the bundled manifest and cached,
+/// so the app's packager may ship only its checksum.
+/// `ssh-payload-macos-from-client`: a Mac host gets this client's own build or
+/// its slice of a universal binary, so the packager may ship no macOS payload.
+pub const PROBE_CAPABILITIES: &[&str] = &[
+    "direct-ws-user-agent",
+    "wireguard-hub",
+    "browser-proxy",
+    "cloud-browser-network",
+    "ssh-payload-download",
+    "ssh-payload-macos-from-client",
+];
 
 fn run_probe(args: &[String]) -> anyhow::Result<()> {
     let value = serde_json::json!({
@@ -3004,6 +3033,20 @@ mod tests {
     fn probe_capabilities_include_direct_ws_user_agent() {
         assert!(PROBE_CAPABILITIES.contains(&"direct-ws-user-agent"));
         assert!(PROBE_CAPABILITIES.contains(&"wireguard-hub"));
+    }
+
+    #[test]
+    fn probe_capabilities_include_ssh_payload_download() {
+        // The app's packager bundles Linux SSH payloads only for a client
+        // without this capability (scripts/install-cmux-tui-client.sh).
+        assert!(PROBE_CAPABILITIES.contains(&"ssh-payload-download"));
+    }
+
+    #[test]
+    fn probe_capabilities_include_ssh_payload_macos_from_client() {
+        // The app's packager bundles macOS SSH payloads only for a client
+        // without this capability (scripts/install-cmux-tui-client.sh).
+        assert!(PROBE_CAPABILITIES.contains(&"ssh-payload-macos-from-client"));
     }
 
     #[test]
@@ -5487,6 +5530,28 @@ mod tests {
         assert!(
             remote_browser_proxy::parse_connect_authority_with_loopback("127.0.0.1:3000", false)
                 .is_err()
+        );
+    }
+
+    #[test]
+    fn cloud_browser_proxy_keeps_remote_hosts_on_guest_network() {
+        assert_eq!(
+            remote_browser_proxy::parse_connect_authority_with_options(
+                "example.com:443",
+                true,
+                true,
+            )
+            .unwrap(),
+            ("example.com".into(), 443)
+        );
+        assert_eq!(
+            remote_browser_proxy::parse_connect_authority_with_options(
+                "cmux-loopback.localtest.me:3000",
+                true,
+                true,
+            )
+            .unwrap(),
+            ("127.0.0.1".into(), 3000)
         );
     }
 }

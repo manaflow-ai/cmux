@@ -13,6 +13,11 @@ import CMUXDebugLog
 /// browser can navigate (bare domains, localhost) opens embedded subject to
 /// the same host check; anything else falls back to an external URL when it
 /// parses at all.
+///
+/// Scheme-less text is a web link only when its host is `localhost`, an IP
+/// address with a port, or a dotted name under a public top-level domain.
+/// Anything else (`build-fleet/ORG-BACKUP.md`) is a path that named no file,
+/// so it resolves to nothing rather than a browser at a bogus host.
 public struct TerminalLinkRouter: Sendable {
     private let hostNormalizer: any BrowserHostNormalizing
 
@@ -45,6 +50,15 @@ public struct TerminalLinkRouter: Sendable {
             logDebugEvent("link.resolve result=external(absolutePath) url=\(trimmed)")
             #endif
             return .external(URL(fileURLWithPath: trimmed))
+        }
+
+        if !Self.hasExplicitScheme(trimmed),
+           let webURL = hostNormalizer.navigableWebURL(trimmed),
+           !isLinkableSchemelessHost(webURL) {
+            #if DEBUG
+            logDebugEvent("link.resolve result=nil (schemeless non-public host) url=\(webURL)")
+            #endif
+            return nil
         }
 
         // Foundation parses `localhost:8000` as a custom URL scheme. Let the
@@ -101,5 +115,31 @@ public struct TerminalLinkRouter: Sendable {
         logDebugEvent("link.resolve result=external(fallback) url=\(fallback)")
         #endif
         return .external(fallback)
+    }
+
+    /// Whether the text starts with a URL scheme (`https:`, `mailto:`). A
+    /// colon before a digit is a port (`localhost:8000`), not a scheme.
+    private static func hasExplicitScheme(_ text: String) -> Bool {
+        guard let colon = text.firstIndex(of: ":"), colon != text.startIndex else { return false }
+        let scheme = text[..<colon]
+        guard let first = scheme.first, first.isASCII, first.isLetter,
+              scheme.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || "+-.".contains($0)) }) else {
+            return false
+        }
+        let next = text.index(after: colon)
+        return next == text.endIndex || !text[next].isNumber
+    }
+
+    /// Whether a scheme-less link's host can be a web host: localhost, an IP
+    /// address with a port, or a dotted name under a public top-level domain.
+    private func isLinkableSchemelessHost(_ url: URL) -> Bool {
+        guard let host = url.host?.lowercased(), !host.isEmpty else { return false }
+        if host == "localhost" || host.hasSuffix(".localhost") { return true }
+        let labels = host.split(separator: ".", omittingEmptySubsequences: false)
+        let isIPv4 = labels.count == 4 && labels.allSatisfy { !$0.isEmpty && $0.allSatisfy(\.isNumber) }
+        if isIPv4 || host.contains(":") { return url.port != nil }
+        guard labels.count >= 2, let last = labels.last, !last.isEmpty,
+              !labels.contains(where: \.isEmpty) else { return false }
+        return hostNormalizer.isPublicTopLevelDomain(String(last))
     }
 }

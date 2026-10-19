@@ -143,7 +143,7 @@ struct DetectedSSHSession: Equatable, Sendable {
         var uploadedRemotePaths: [String] = []
         do {
             try operation.throwIfCancelled()
-            try prepareRemotePasteDirectory()
+            let remoteHomeDirectory = try prepareRemotePasteDirectory()
             for localURL in fileURLs {
                 try operation.throwIfCancelled()
                 let normalizedLocalURL = localURL.standardizedFileURL
@@ -156,9 +156,12 @@ struct DetectedSSHSession: Equatable, Sendable {
                     ])
                 }
 
-                let remotePath = remotePastePolicy.remotePath(for: normalizedLocalURL)
+                let remotePath = remotePastePolicy.remotePath(
+                    for: normalizedLocalURL,
+                    homeDirectory: remoteHomeDirectory
+                )
                 uploadedRemotePaths.append(remotePath)
-                let result = try Self.runProcess(
+                let result = try runProcess(
                     executable: "/usr/bin/scp",
                     arguments: scpArguments(localPath: normalizedLocalURL.path, remotePath: remotePath),
                     timeout: 45,
@@ -202,8 +205,8 @@ struct DetectedSSHSession: Equatable, Sendable {
         }
     }
 
-    private func prepareRemotePasteDirectory() throws {
-        let result = try Self.runProcess(
+    private func prepareRemotePasteDirectory() throws -> String {
+        let result = try runProcess(
             executable: "/usr/bin/ssh",
             arguments: sshArguments(command: "sh -c \(Self.shellSingleQuoted(remotePastePolicy.maintenanceScript()))"),
             timeout: 12
@@ -226,10 +229,21 @@ struct DetectedSSHSession: Equatable, Sendable {
                 NSLocalizedDescriptionKey: message,
             ])
         }
+        guard let remoteHomeDirectory = remotePastePolicy.remoteHomeDirectory(
+            fromMaintenanceOutput: result.stdout
+        ) else {
+            throw NSError(domain: "cmux.detected-ssh.drop", code: 5, userInfo: [
+                NSLocalizedDescriptionKey: String(
+                    localized: "detectedSSH.fileDrop.error.uploadFailed",
+                    defaultValue: "Couldn't upload the file to the remote session. Check that the remote host is reachable, then try again."
+                ),
+            ])
+        }
+        return remoteHomeDirectory
     }
 
     private func finalizeRemotePasteFile(_ remotePath: String) throws {
-        let result = try Self.runProcess(
+        let result = try runProcess(
             executable: "/usr/bin/ssh",
             arguments: sshArguments(command: "sh -c \(Self.shellSingleQuoted(remotePastePolicy.finalizeScript(for: remotePath)))"),
             timeout: 8
@@ -361,7 +375,7 @@ struct DetectedSSHSession: Equatable, Sendable {
         guard !remotePaths.isEmpty else { return }
         let cleanupScript = remotePastePolicy.cleanupScript(for: remotePaths)
         let cleanupCommand = "sh -c \(Self.shellSingleQuoted(cleanupScript))"
-        _ = try? Self.runProcess(
+        _ = try? runProcess(
             executable: "/usr/bin/ssh",
             arguments: sshArguments(command: cleanupCommand),
             timeout: 8
@@ -382,14 +396,15 @@ struct DetectedSSHSession: Equatable, Sendable {
         let stderr: String
     }
 
-    private static func runProcess(
+    /// Runs an SSH transfer subprocess with a deadline and optional cancellation, capturing its output.
+    private func runProcess(
         executable: String,
         arguments: [String],
         timeout: TimeInterval,
         operation: TerminalImageTransferOperation? = nil
     ) throws -> CommandResult {
 #if DEBUG
-        if let runProcessOverrideForTesting {
+        if let runProcessOverrideForTesting = Self.runProcessOverrideForTesting {
             let result = try runProcessOverrideForTesting(executable, arguments, timeout, operation)
             return CommandResult(status: result.status, stdout: result.stdout, stderr: result.stderr)
         }
@@ -403,6 +418,16 @@ struct DetectedSSHSession: Equatable, Sendable {
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
+
+        process.environment = SSHAgentSocketResolver()
+            .environmentForIdentityAgent(in: sshOptions)
+
+#if DEBUG
+        cmuxDebugLog(
+            "terminal.remotePasteProcess.start " +
+                "executable=\(executable) args=\(arguments.joined(separator: " | "))"
+        )
+#endif
 
         try operation?.throwIfCancelled()
         try process.run()
@@ -450,6 +475,13 @@ struct DetectedSSHSession: Equatable, Sendable {
             data: stderrPipe.fileHandleForReading.readDataToEndOfFileOrEmpty(),
             encoding: .utf8
         ) ?? ""
+#if DEBUG
+        cmuxDebugLog(
+                "terminal.remotePasteProcess.end " +
+                "executable=\(executable) status=\(process.terminationStatus) " +
+                "stdout=\(Self.processOutputSnippet(stdout)) stderr=\(Self.processOutputSnippet(stderr))"
+        )
+#endif
         if operation?.isCancelled == true {
             throw TerminalImageTransferExecutionError.cancelled
         }
@@ -469,6 +501,14 @@ struct DetectedSSHSession: Equatable, Sendable {
             .first
             .map(String.init)?
             .lowercased()
+    }
+
+    /// Escapes line breaks and limits captured output to 240 characters for process diagnostics.
+    private static func processOutputSnippet(_ output: String) -> String {
+        let normalized = output
+            .replacingOccurrences(of: "\n", with: "\\n")
+            .replacingOccurrences(of: "\r", with: "\\r")
+        return String(normalized.prefix(240))
     }
 
     private static func scpRemoteDestination(_ destination: String) -> String {
@@ -518,7 +558,7 @@ struct DetectedSSHSession: Equatable, Sendable {
 
 enum TerminalSSHSessionDetector {
     private static let noArgumentFlags = Set("46AaCfGgKkMNnqsTtVvXxYy")
-    private static let nonInteractiveFlags = Set("nTGV")
+    private static let nonInteractiveFlags = Set("nNGV")
     private static let valueArgumentFlags = Set("BbcDEeFIiJLlmOopQRSWw")
 
     struct ProcessSnapshot: Equatable {
@@ -569,7 +609,8 @@ enum TerminalSSHSessionDetector {
                   let arguments = argumentsByPID[candidate.pid] else {
                 continue
             }
-            if case .ssh = transport, !isInteractiveSSHArguments(arguments) {
+            if case .ssh = transport,
+               !isInteractiveSSHArguments(arguments, allowsForcedTTYRemoteCommand: true) {
                 continue
             }
             guard let session = parseCommandLine(arguments, for: transport) else {
@@ -668,16 +709,52 @@ enum TerminalSSHSessionDetector {
         }
     }
 
-    private static func isInteractiveSSHArguments(_ arguments: [String]) -> Bool {
+    private static func isInteractiveSSHArguments(
+        _ arguments: [String],
+        allowsForcedTTYRemoteCommand: Bool = false
+    ) -> Bool {
         guard !arguments.isEmpty else { return false }
         var index = RemoteShellSessionParsing.normalizedExecutableName(arguments[0]) == "ssh" ? 1 : 0
+        var directTTY: Bool?
+        var requestTTYSeen = false
+        var requestTTYForced = false
+        var requestTTYDisabled = false
+
+        func processSSHOption(_ rawOption: String) -> Bool {
+            if let option = Self.parsedSSHOption(rawOption), option.key == "requesttty" {
+                // OpenSSH takes the first RequestTTY value from the command
+                // line. Direct -t/-T flags are resolved separately below and
+                // override this setting regardless of their argv position.
+                guard !requestTTYSeen else { return true }
+                requestTTYSeen = true
+                requestTTYForced = option.value == "yes" || option.value == "force"
+                requestTTYDisabled = option.value == "no" || option.value == "false"
+                return true
+            }
+            return !Self.isNonInteractiveSSHOption(rawOption)
+        }
+
+        func allowsSession(destinationIndex: Int) -> Bool {
+            if directTTY == false || (directTTY == nil && requestTTYDisabled) {
+                return false
+            }
+            let forcedTTY = directTTY == true || (directTTY == nil && requestTTYForced)
+            return (allowsForcedTTYRemoteCommand && forcedTTY) ||
+                destinationIndex == arguments.count - 1
+        }
+
         while index < arguments.count {
             let argument = arguments[index]
             if argument == "--" {
-                return index + 2 >= arguments.count
+                guard index + 1 < arguments.count else { return false }
+                return allowsSession(destinationIndex: index + 1)
             }
             if !argument.hasPrefix("-") || argument == "-" {
-                return index == arguments.count - 1
+                // OpenSSH normally runs a remote command without a terminal,
+                // but `ssh -tt host command` is still an interactive PTY
+                // session. This is how local panes commonly enter tmux over
+                // SSH, so keep the forced-PTY lane eligible for paste upload.
+                return allowsSession(destinationIndex: index)
             }
 
             if argument.count > 2,
@@ -686,7 +763,7 @@ enum TerminalSSHSessionDetector {
                 // -W host:port is a stream forward, not an interactive shell.
                 if option == "W" { return false }
                 if option == "o",
-                   isNonInteractiveSSHOption(String(argument.dropFirst(2))) {
+                   !processSSHOption(String(argument.dropFirst(2))) {
                     return false
                 }
                 index += 1
@@ -698,7 +775,7 @@ enum TerminalSSHSessionDetector {
                 if option == "W" { return false }
                 if option == "o",
                    index + 1 < arguments.count,
-                   isNonInteractiveSSHOption(arguments[index + 1]) {
+                   !processSSHOption(arguments[index + 1]) {
                     return false
                 }
                 index += 2
@@ -712,32 +789,57 @@ enum TerminalSSHSessionDetector {
             if flags.contains(where: { nonInteractiveFlags.contains($0) }) {
                 return false
             }
+            for flag in flags {
+                switch flag {
+                case "t":
+                    directTTY = true
+                case "T":
+                    directTTY = false
+                default:
+                    break
+                }
+            }
             index += 1
         }
         return false
     }
 
-    private static func isNonInteractiveSSHOption(_ rawOption: String) -> Bool {
-        let parts = rawOption
-            .split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
-        let key = parts.first?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
+    private static func parsedSSHOption(_ rawOption: String) -> (key: String, value: String?)? {
+        let trimmedOption = rawOption.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedOption.isEmpty else { return nil }
+        let parts: [Substring]
+        if trimmedOption.contains("=") {
+            parts = trimmedOption.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+        } else {
+            parts = trimmedOption.split(
+                maxSplits: 1,
+                omittingEmptySubsequences: true,
+                whereSeparator: { $0.isWhitespace }
+            )
+        }
+        guard let keyPart = parts.first else { return nil }
+        let key = keyPart.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !key.isEmpty else { return nil }
         let value = parts.count == 2
             ? parts[1].trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
             : nil
-        if key == "remotecommand" {
+        return (key: key, value: value)
+    }
+
+    private static func isNonInteractiveSSHOption(_ rawOption: String) -> Bool {
+        guard let option = parsedSSHOption(rawOption) else { return false }
+        if option.key == "remotecommand" {
             // `RemoteCommand=none` is OpenSSH's explicit request for the
             // normal interactive shell and is safe to resume.
-            return value != "none"
+            return option.value != "none"
         }
-        if key == "requesttty" {
-            return value == "no" || value == "false"
+        if option.key == "requesttty" {
+            return option.value == "no" || option.value == "false"
         }
-        if key == "stdinnull" {
-            return value == "yes" || value == "true"
+        if option.key == "stdinnull" {
+            return option.value == "yes" || option.value == "true"
         }
-        return key == "sessiontype" && value == "none"
+        return option.key == "sessiontype" && option.value == "none"
     }
 
     static func commandLineArguments(forPID pid: Int32) -> [String]? {

@@ -99,7 +99,7 @@ RED = {"failure", "timed_out"}
 # Jobs that only read other jobs' results. Their names as the jobs API reports
 # them; tests/test_ci_classify_failures.py derives each from its workflow.
 GATE_JOBS = frozenset({
-    "ci-status", "tests", "CI timing", "linux-preflight", "macOS admission gate",
+    "ci-status", "CI timing", "linux-preflight", "macOS admission gate",
     "macos / macOS status", "guards / Guard status", "web / Web status",
 })
 MAX_EVIDENCE_CHARS = 300

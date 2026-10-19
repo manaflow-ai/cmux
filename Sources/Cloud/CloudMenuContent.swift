@@ -5,7 +5,7 @@ import Foundation
 /// Everything a Cloud menu needs to decide what to show, as one value.
 struct CloudMenuContext {
     enum Account {
-        /// Cloud is off (feature flag, managed policy): no Cloud rows at all.
+        /// Cloud is unavailable under managed policy: no Cloud rows at all.
         case unavailable
         case signedOut(isSigningIn: Bool)
         case signedIn(CloudMenuAccount)

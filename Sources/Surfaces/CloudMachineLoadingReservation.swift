@@ -1,4 +1,5 @@
 import CmuxCloud
+import CmuxFoundation
 import CmuxSurfaceCatalogModel
 import Foundation
 
@@ -6,7 +7,22 @@ import Foundation
 /// The factory checks the claim before any native pane mutation, so cancellation
 /// cannot turn a delayed adoption into an ordinary new-terminal insertion.
 struct CloudMachineLoadingReservation: Sendable {
-    @TaskLocal static var current: CloudMachineLoadingReservation?
+    /// The claim bound by the enclosing ``withCurrent(_:isolation:operation:)``.
+    static var current: Self? { boundReservation?.value }
+
+    // UUID fields give this value a run-time size; bind it by reference so
+    // macOS 14's back-deployed TaskLocal fallback cannot abort.
+    @TaskLocal private static var boundReservation: TaskLocalReference<CloudMachineLoadingReservation>?
+
+    /// Runs `operation` with `reservation` as ``current``; `nil` clears an
+    /// enclosing claim.
+    static func withCurrent<T>(
+        _ reservation: Self?,
+        isolation: isolated (any Actor)? = #isolation,
+        operation: () async throws -> T
+    ) async rethrows -> T {
+        try await $boundReservation.withReferencedValue(reservation, isolation: isolation, operation: operation)
+    }
 
     let workspaceID: UUID
     let panelID: UUID
@@ -51,7 +67,21 @@ struct CloudMachineLoadingReservation: Sendable {
 /// pane shows "Starting display…" immediately and the projection that follows
 /// adopts it instead of opening a second pane.
 struct CloudDisplayPaneReservation: Sendable {
-    @TaskLocal static var current: CloudDisplayPaneReservation?
+    /// The reservation bound by the enclosing ``withCurrent(_:isolation:operation:)``.
+    static var current: Self? { boundReservation?.value }
+
+    // UUID fields give this value a run-time size; bind it by reference so
+    // macOS 14's back-deployed TaskLocal fallback cannot abort.
+    @TaskLocal private static var boundReservation: TaskLocalReference<CloudDisplayPaneReservation>?
+
+    /// Runs `operation` with `reservation` as ``current``.
+    static func withCurrent<T>(
+        _ reservation: Self?,
+        isolation: isolated (any Actor)? = #isolation,
+        operation: () async throws -> T
+    ) async rethrows -> T {
+        try await $boundReservation.withReferencedValue(reservation, isolation: isolation, operation: operation)
+    }
 
     /// The display the guest created; only that resource may adopt the pane.
     let resource: SurfaceResourceID
