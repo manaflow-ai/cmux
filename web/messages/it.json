@@ -2181,6 +2181,7 @@
           "canonicalAgentScratch": "Use a cmux-owned scratch directory for native agent panels, organized per session."
         },
         "app": {
+          "equalizeSplitsOnDividerDoubleClick": "Se attivo, un doppio clic su un divisore rende uguali le dimensioni dei pannelli nella sua riga o colonna. Le altre righe e colonne mantengono le proprie dimensioni.",
           "confirmQuit": "Controlla quando cmux chiede conferma prima di uscire. Le build DEV escono sempre immediatamente indipendentemente da questa impostazione. Il vecchio app.warnBeforeQuit è ancora accettato come fallback booleano.",
           "windowTitleTemplate": "Template opzionale per il titolo NSWindow. Se vuoto, conserva il comportamento predefinito esistente del titolo di cmux, incluso il fallback alla directory corrente. Segnaposto supportati: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
           "devWindowDisplay": "Nome del display usato solo nelle build DEBUG quando si aprono nuove finestre. Un valore vuoto usa il valore predefinito del sistema.",

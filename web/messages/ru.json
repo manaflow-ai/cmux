@@ -2181,6 +2181,7 @@
           "canonicalAgentScratch": "Use a cmux-owned scratch directory for native agent panels, organized per session."
         },
         "app": {
+          "equalizeSplitsOnDividerDoubleClick": "Если включено, двойной щелчок по разделителю выравнивает размеры панелей в его строке или столбце. Размеры остальных строк и столбцов сохраняются.",
           "confirmQuit": "Управляет тем, когда cmux запрашивает подтверждение перед выходом. DEV-сборки всегда завершаются сразу независимо от этой настройки. Устаревший app.warnBeforeQuit по-прежнему принимается как булевый запасной вариант.",
           "windowTitleTemplate": "Необязательный шаблон заголовка NSWindow. Пустое значение сохраняет существующее стандартное поведение заголовка cmux, включая откат к текущему каталогу. Поддерживаемые заполнители: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
           "devWindowDisplay": "Имя дисплея, используемое только в DEBUG-сборках при открытии новых окон. Пустое значение использует системное значение по умолчанию.",

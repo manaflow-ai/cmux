@@ -31,6 +31,7 @@ public struct AppSection: View {
     @State private var firstClick: DefaultsValueModel<Bool>
     @State private var focusHistoryIncludesPanesAndTabs: DefaultsValueModel<Bool>
     @State private var equalizeSplitsOnCreate: DefaultsValueModel<Bool>
+    @State private var equalizeSplitsOnDividerDoubleClick: DefaultsValueModel<Bool>
     @State private var fileDrop: DefaultsValueModel<FileDropDefaultBehavior>
     @State private var preferredEditor: DefaultsValueModel<String>
     @State private var openSupported: DefaultsValueModel<Bool>
@@ -106,6 +107,7 @@ public struct AppSection: View {
         _firstClick = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.focusPaneOnFirstClick))
         _focusHistoryIncludesPanesAndTabs = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.focusHistoryIncludesPanesAndTabs))
         _equalizeSplitsOnCreate = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.equalizeSplitsOnCreate))
+        _equalizeSplitsOnDividerDoubleClick = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.equalizeSplitsOnDividerDoubleClick))
         _fileDrop = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.fileDropDefaultBehavior))
         _preferredEditor = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.preferredEditor))
         _openSupported = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.openSupportedFilesInCmux))
@@ -176,7 +178,7 @@ public struct AppSection: View {
             mainCard
         }
         .task {
-            startSettingsObservation([language, appIcon, placement, inheritDir, minimalMode, keepWorkspaceOpen, firstClick, focusHistoryIncludesPanesAndTabs, equalizeSplitsOnCreate, fileDrop, preferredEditor, openSupported, openMarkdown, globalFontMagnification, markdownFontSize, markdownFontFamily, markdownMaxWidth, canvasPaneGap, canvasSnapping, fileEditorWordWrap, fileEditorSyntaxHighlighting, fileEditorLineNumbers, fileEditorIndentGuides, fileEditorCurrentLineHighlight, fileEditorTabWidth, iMessage, reorder, dockBadge, menuBarOnly, showInMenuBar, paneRing, paneFlash, paneFlashDoubleBlink, paneFlashOnTyping, paneFlashThemeColor, desktopNotifications, agentPermissionPrompt, agentTurnComplete, agentIdleReminder, soundName, soundWhenFocused, soundCommand, customSoundFile, soundOverrides, telemetry, confirmQuit, warnCloseTab, warnCloseAgentSession, warnCloseX, warnCloseWorkspace, alwaysConfirmCloseWorkspace, warnCloseWindow, hideCloseButton, renameSelects, paletteAllSurfaces])
+            startSettingsObservation([language, appIcon, placement, inheritDir, minimalMode, keepWorkspaceOpen, firstClick, focusHistoryIncludesPanesAndTabs, equalizeSplitsOnCreate, equalizeSplitsOnDividerDoubleClick, fileDrop, preferredEditor, openSupported, openMarkdown, globalFontMagnification, markdownFontSize, markdownFontFamily, markdownMaxWidth, canvasPaneGap, canvasSnapping, fileEditorWordWrap, fileEditorSyntaxHighlighting, fileEditorLineNumbers, fileEditorIndentGuides, fileEditorCurrentLineHighlight, fileEditorTabWidth, iMessage, reorder, dockBadge, menuBarOnly, showInMenuBar, paneRing, paneFlash, paneFlashDoubleBlink, paneFlashOnTyping, paneFlashThemeColor, desktopNotifications, agentPermissionPrompt, agentTurnComplete, agentIdleReminder, soundName, soundWhenFocused, soundCommand, customSoundFile, soundOverrides, telemetry, confirmQuit, warnCloseTab, warnCloseAgentSession, warnCloseX, warnCloseWorkspace, alwaysConfirmCloseWorkspace, warnCloseWindow, hideCloseButton, renameSelects, paletteAllSurfaces])
             await soundAgentCache.loadIfNeeded { await hostActions.notificationSoundAgentOptions() }
             if languageAtAppear == nil { languageAtAppear = language.current }; if telemetryAtAppear == nil { telemetryAtAppear = telemetry.current }
         }
@@ -349,6 +351,22 @@ public struct AppSection: View {
                 .labelsHidden()
                 .controlSize(.small)
                 .accessibilityIdentifier("SettingsEqualizeSplitsOnCreateToggle")
+            }
+            SettingsCardDivider()
+
+            // Equalize Splits on Divider Double-Click
+            SettingsCardRow(
+                configurationReview: .json("app.equalizeSplitsOnDividerDoubleClick"),
+                String(localized: "settings.app.equalizeSplitsOnDividerDoubleClick", defaultValue: "Equalize Splits on Divider Double-Click"),
+                subtitle: String(localized: "settings.app.equalizeSplitsOnDividerDoubleClick.subtitle", defaultValue: "Double-clicking a divider makes the panes in its row or column equal in size.")
+            ) {
+                Toggle("", isOn: Binding(
+                    get: { equalizeSplitsOnDividerDoubleClick.current },
+                    set: { equalizeSplitsOnDividerDoubleClick.set($0) }
+                ))
+                .labelsHidden()
+                .controlSize(.small)
+                .accessibilityIdentifier("SettingsEqualizeSplitsOnDividerDoubleClickToggle")
             }
             SettingsCardDivider()
 
