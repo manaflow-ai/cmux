@@ -634,7 +634,7 @@ class BaseReds(unittest.TestCase):
         controller.push = lambda sha, ref: None
         controller.find_run = lambda workflow, branch, match, since: {"id": 5, "html_url": "https://probe"}
         controller.wait_run = lambda run_id, timeout: {"status": "completed", "conclusion": "cancelled"}
-        controller.failed_jobs = lambda run_id: ["cmux-next swift test"]
+        controller.failed_jobs = lambda run_id, detail=False: ["cmux-next swift test"]
         controller.probe_base()
         self.assertNotIn("rerun", [call.args[0] for call in controller.gh.gh.call_args_list])
         self.assertNotIn("failed", controller.base_probe_result)
@@ -652,7 +652,7 @@ class BaseReds(unittest.TestCase):
         controller.push = lambda sha, ref: pushed.append((sha, ref))
         controller.find_run = lambda workflow, branch, match, since: {"id": 5, "html_url": "https://probe"}
         controller.wait_run = lambda run_id, timeout: {"status": "completed"}
-        controller.failed_jobs = lambda run_id: [f"{nb.CHECKS_JOB}: Type scale"]
+        controller.failed_jobs = lambda run_id, detail=False: [f"{nb.CHECKS_JOB}: Type scale"]
         with mock.patch.object(nb.time, "sleep"):
             controller.probe_base()
         self.assertEqual(pushed, [("b" * 40, "next-batch/local-1-base")])

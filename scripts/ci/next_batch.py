@@ -38,6 +38,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import base_red_excuse  # noqa: E402
 import merge_main_resolver as mmr  # noqa: E402
 
 TOOLS_ROOT = Path(__file__).resolve().parents[2]
@@ -1069,22 +1070,41 @@ class Controller:
         return sorted({job["name"] for job in jobs
                        if job.get("conclusion") == "success" and any(job["name"].endswith(name) for name in HEAVY_CHECKS)})
 
-    def failed_jobs(self, run_id: int, reds: frozenset[str] = RED) -> list[str]:
-        """Red jobs, with CHECKS_JOB as `CHECKS_JOB: <check>` for each red check in it."""
+    def failed_jobs(self, run_id: int, reds: frozenset[str] = RED, detail: bool = False) -> list[str]:
+        """Red jobs, with CHECKS_JOB as `CHECKS_JOB: <check>` for each red check in it.
+
+        `detail` (comparing with the base) splits every other red job too, into
+        `<job>: step <name>`, `<job>: test <name>` and, when no test failed,
+        `<job>: error <line>`: a job red on the base then excuses only the same
+        failures, never a stack that breaks another test in it."""
         jobs = self.gh.api(f"repos/{self.args.repo}/actions/runs/{run_id}/jobs?per_page=100&filter=latest")["jobs"]
         failed: set[str] = set()
         for job in jobs:
             if (job.get("conclusion") or "") in reds:
-                failed |= self.expand_job(job["name"], job["id"])
+                failed |= self.expand_job(job["name"], job["id"], job if detail else None)
         return sorted(failed)
 
-    def expand_job(self, name: str, job_id: int | str) -> set[str]:
-        if not name.endswith(CHECKS_JOB):
-            return {name}
+    def job_log(self, job_id: int | str) -> str | None:
         # The job's log, readable while the rest of its run still goes.
-        log = self.gh.gh("api", "--allow-escape-sequences", f"repos/{self.args.repo}/actions/jobs/{job_id}/logs",
-                         check=False).stdout
-        return {f"{name}: {check}" for check in red_subchecks(log)} or {name}
+        got = self.gh.gh("api", "--allow-escape-sequences", f"repos/{self.args.repo}/actions/jobs/{job_id}/logs",
+                         check=False)
+        return got.stdout if got.returncode == 0 else None
+
+    def expand_job(self, name: str, job_id: int | str, job: dict | None = None) -> set[str]:
+        if name.endswith(CHECKS_JOB):
+            log = self.job_log(job_id) or ""
+            return {f"{name}: {check}" for check in red_subchecks(log)} or {name}
+        if job is None:
+            return {name}
+        log = self.job_log(job_id)
+        if log is None:
+            return {name}
+        steps, tests, errors = base_red_excuse.signature(job, log)
+        parts = {f"{name}: step {step}" for step in steps} | {f"{name}: test {test}" for test in tests}
+        if not tests:
+            parts |= {f"{name}: error {error}" for error in errors}
+        # Nothing comparable: the bare name matches only a base job that had nothing comparable either.
+        return parts or {name}
 
     def wait_base_tree(self) -> None:
         """Wait (once a batch) for the base's own cmux-tui artifacts runs.
@@ -1101,10 +1121,16 @@ class Controller:
         except RuntimeError as error:
             log(f"could not list the base's cmux-tui runs: {error}")
             return
+        deadline = time.monotonic() + 60 * 60  # in all, not per run
         for run in runs:
-            if run.get("head_branch") == BASE and run.get("status") != "completed":
+            left = int(deadline - time.monotonic())
+            if run.get("head_branch") == BASE and run.get("status") != "completed" and left > 0:
                 log(f"waiting for the base's cmux-tui tree: {run.get('html_url')}")
-                self.wait_run(run["id"], timeout=60 * 60)
+                try:
+                    self.wait_run(run["id"], timeout=left)
+                except RuntimeError as error:
+                    log(f"could not wait for the base's cmux-tui run: {error}")
+                    return
 
     def start_base_probe(self) -> None:
         if self.base_probe is None:
@@ -1124,17 +1150,26 @@ class Controller:
             self.base_probe_result["url"] = heavy["html_url"]
             self.base_probe_result["run"] = heavy["id"]
             log(f"base probe: {heavy['html_url']}")
+            if self.base_probe_stop.is_set():
+                # The batch ended while this looked for its run: stop_base_probe had no run to cancel.
+                self.gh.gh("run", "cancel", str(heavy["id"]), "-R", self.args.repo, check=False)
+                if not getattr(self.args, "keep_branches", False):
+                    self.delete_branch(branch)
+                return
             run = self.wait_run(heavy["id"], timeout=180 * 60)
             if run["status"] != "completed":
                 raise RuntimeError("the base probe did not finish")
-            failed = self.failed_jobs(heavy["id"])
+            failed = self.failed_jobs(heavy["id"], detail=True)
             if self.base_probe_stop.is_set() or run.get("conclusion") == "cancelled":
                 return  # the batch ended and cancelled it: no rerun, no result
             if failed:
                 self.gh.gh("run", "rerun", str(heavy["id"]), "--failed", "-R", self.args.repo, check=False)
                 time.sleep(30)
-                if self.wait_run(heavy["id"], timeout=120 * 60)["status"] == "completed":
-                    failed = self.failed_jobs(heavy["id"])
+                if self.wait_run(heavy["id"], timeout=120 * 60)["status"] != "completed":
+                    # The first attempt's list still holds its flakes: record nothing (push-run fallback).
+                    log("base probe: its rerun did not finish; no result")
+                    return
+                failed = self.failed_jobs(heavy["id"], detail=True)
             self.base_probe_result["failed"] = set(failed)
             log("base probe: " + (", ".join(failed) or "green"))
         except Exception as error:  # the base runs' own record is the fallback
@@ -1158,7 +1193,7 @@ class Controller:
         log("base probe gave no result; falling back to the base's push run")
         runs = self.gh.runs(HEAVY_WORKFLOW, f"head_sha={base_sha}&event=push&per_page=10")
         done = [run for run in runs if run["status"] == "completed" and run["head_branch"] == BASE]
-        self.base_failures = set(self.failed_jobs(done[0]["id"], OUTRIGHT_RED)) if done else set()
+        self.base_failures = set(self.failed_jobs(done[0]["id"], OUTRIGHT_RED, detail=True)) if done else set()
         return self.base_failures
 
     def stop_base_probe(self) -> None:
@@ -1335,14 +1370,14 @@ class Controller:
         validation.build = self.fleet_build(branch, sha, f"nb-{self.batch_id}-{len(self.validations)}")
         log(f"{name}: fleet build " + ("ok" if validation.build.get("ok") else f"failed: {validation.build.get('error')}"))
         run = self.wait_run(heavy["id"], timeout=180 * 60)
-        failed = self.failed_jobs(heavy["id"]) if run["status"] == "completed" else ["(timed out waiting)"]
+        failed = self.failed_jobs(heavy["id"], detail=True) if run["status"] == "completed" else ["(timed out waiting)"]
         if failed and run["status"] == "completed" and not validation.rerun:
             # One rerun of the failed jobs before blaming a PR: flakes are not culprits.
             validation.rerun = True
             self.gh.gh("run", "rerun", str(heavy["id"]), "--failed", "-R", self.args.repo, check=False)
             time.sleep(30)
             run = self.wait_run(heavy["id"], timeout=120 * 60)
-            failed = self.failed_jobs(heavy["id"])
+            failed = self.failed_jobs(heavy["id"], detail=True)
         inherited = self.failing_on_base(base_sha) if failed else set()
         validation.inherited = sorted(set(failed) & inherited)
         validation.heavy_failed = sorted(set(failed) - inherited)
@@ -1510,6 +1545,8 @@ class Controller:
         reason = (f"cmux-next batch {self.run_url} validated this exact head in stack "
                   f"{validation.stack.head[:12]}: these passed there: {passed}, and the fleet production build")
         deadline = time.monotonic() + 30 * 60
+        # Each --override call follows a refusal that waivable() just approved;
+        # a later refusal is judged again, so a lane that turns red meanwhile is never waived unchecked.
         override = False
         while True:
             command = [str(helper), ref, *(["--override", reason] if override else []), "--squash",
@@ -1520,10 +1557,10 @@ class Controller:
                 return "landed" + (" (override: own heavy check red, batch green)" if override else "")
             line = next((item for item in output.splitlines() if item.startswith("not green")), output[-300:])
             pending = re.search(r"is (queued|in_progress|waiting|pending|requested)/", line) or "has not run" in line
-            heavy_red = self.waivable(line, validation)
-            if heavy_red and not override:
+            if not override and self.waivable(line, validation):
                 override = True  # the batch ran that tier on this head's stack
                 continue
+            override = False
             if pending and time.monotonic() < deadline:
                 time.sleep(120)
                 continue
@@ -1609,6 +1646,15 @@ class Controller:
             log(f"could not update the sticky issue: {error}")
 
     # -- the whole batch
+    def cleanup(self) -> None:
+        """Delete the batch's branches and stop its base probe."""
+        for validation in self.validations:
+            if validation.branch and not self.args.keep_branches:
+                self.delete_branch(validation.branch)
+        self.stop_base_probe()
+        if self.base_probe_result.get("branch") and not self.args.keep_branches:
+            self.delete_branch(self.base_probe_result["branch"])
+
     def run(self) -> int:
         only = {int(item) for item in re.split(r"[\s,#]+", self.args.prs) if item} if self.args.prs else None
         eligible, skipped = select(open_prs(self.gh), now(), only)
@@ -1628,39 +1674,38 @@ class Controller:
         candidates = eligible
         culprits: list[PullRequest] = []
         landed: list[tuple[PullRequest, str]] = []
-        while candidates:
-            validation = self.validate(candidates, "batch" if not culprits else f"rerun {len(culprits)}")
-            for pr, blocking in validation.stack.dropped:
-                self.report_drop(pr, blocking)
-            if not validation.stack.included:
-                break
-            if validation.green:
-                landed = self.land(validation)
-                if any(text.startswith("landed") for _, text in landed):
-                    self.after_landing()
-                break
-            if not validation.heavy_failed and not validation.stack.error:
-                # Every tier passed and only the fleet build failed: the
-                # compiles already ran, so blame the fleet, not a PR.
-                log("fleet build failed on a green stack; not bisecting, not landing")
-                break
-            if len(culprits) >= MAX_CULPRITS:
-                log("too many culprits in one batch; stopping")
-                break
-            included = validation.stack.included
-            culprit = included[0] if len(included) == 1 else self.bisect(validation)
-            prefix = next((v for v in reversed(self.validations)
-                           if v.stack.included and v.stack.included[-1].number == culprit.number and not v.green), None)
-            self.report_culprit(culprit, validation, prefix)
-            culprits.append(culprit)
-            log(f"culprit #{culprit.number}")
-            candidates = [pr for pr in included if pr.number != culprit.number]
-        for validation in self.validations:
-            if validation.branch and not self.args.keep_branches:
-                self.delete_branch(validation.branch)
-        self.stop_base_probe()
-        if self.base_probe_result.get("branch") and not self.args.keep_branches:
-            self.delete_branch(self.base_probe_result["branch"])
+        try:
+            while candidates:
+                validation = self.validate(candidates, "batch" if not culprits else f"rerun {len(culprits)}")
+                for pr, blocking in validation.stack.dropped:
+                    self.report_drop(pr, blocking)
+                if not validation.stack.included:
+                    break
+                if validation.green:
+                    landed = self.land(validation)
+                    if any(text.startswith("landed") for _, text in landed):
+                        self.after_landing()
+                    break
+                if not validation.heavy_failed and not validation.stack.error:
+                    # Every tier passed and only the fleet build failed: the
+                    # compiles already ran, so blame the fleet, not a PR.
+                    log("fleet build failed on a green stack; not bisecting, not landing")
+                    break
+                if len(culprits) >= MAX_CULPRITS:
+                    log("too many culprits in one batch; stopping")
+                    break
+                included = validation.stack.included
+                culprit = included[0] if len(included) == 1 else self.bisect(validation)
+                prefix = next((v for v in reversed(self.validations)
+                               if v.stack.included and v.stack.included[-1].number == culprit.number and not v.green), None)
+                self.report_culprit(culprit, validation, prefix)
+                culprits.append(culprit)
+                log(f"culprit #{culprit.number}")
+                candidates = [pr for pr in included if pr.number != culprit.number]
+        finally:
+            # Also when a batch raises (a 502 GitHub never retried): under serve the
+            # process lives on, and a leaked probe would keep its heavy run going.
+            self.cleanup()
         text = self.report(eligible, skipped, landed, culprits)
         write_summary(text)
         self.post_sticky(text)
