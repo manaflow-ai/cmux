@@ -36,6 +36,11 @@ fn hub() -> Arc<Hub> {
             "fakecodex": {"argv": ["python3", FAKE], "family": "codex"},
             "fakeclaude-nosearch": {"argv": ["python3", FAKE_CLAUDE], "kind": "claude-stdio",
                 "env": {"ENABLE_TOOL_SEARCH": "false"}},
+            // Another provider, as the `cmux` profile's open-source model router.
+            "fakeclaude-router": {"argv": ["python3", FAKE_CLAUDE], "kind": "claude-stdio",
+                "env": {"ANTHROPIC_BASE_URL": "http://127.0.0.1:9/router"}},
+            "fakecodex-router": {"argv": ["python3", FAKE], "family": "codex",
+                "env": {"OPENAI_BASE_URL": "http://127.0.0.1:9/v1"}},
         },
         "defaultHarness": "fake",
         "permissionPolicy": "approve-all",
@@ -202,11 +207,23 @@ async fn local_sessions_get_the_browser_and_cua_tools_and_skills() {
     // off and gets code mode, never every schema in every turn.
     let off = local.new_session("fakeclaude-nosearch").await;
     assert_eq!(local.ask(&off, "env: ENABLE_TOOL_SEARCH").await, "ENABLE_TOOL_SEARCH=false");
-    let argv: Vec<String> = serde_json::from_str(&local.ask(&off, "hi").await).unwrap();
-    let at = argv.iter().position(|a| a == "--mcp-config").expect("--mcp-config");
+    let off_argv: Vec<String> = serde_json::from_str(&local.ask(&off, "hi").await).unwrap();
+    let at = off_argv.iter().position(|a| a == "--mcp-config").expect("--mcp-config");
     let off_config: Value =
-        serde_json::from_str(&std::fs::read_to_string(&argv[at + 1]).unwrap()).unwrap();
+        serde_json::from_str(&std::fs::read_to_string(&off_argv[at + 1]).unwrap()).unwrap();
     assert_eq!(off_config["mcpServers"]["cmux"]["args"], json!(["mcp", "serve"]), "{off_config}");
+    // Fail safe: a session sent to another provider gets code mode and no
+    // forced tool search (that provider may not forward deferred tools).
+    let routed = local.new_session("fakeclaude-router").await;
+    assert_eq!(local.ask(&routed, "env: ENABLE_TOOL_SEARCH").await, "ENABLE_TOOL_SEARCH=");
+    let routed_argv: Vec<String> = serde_json::from_str(&local.ask(&routed, "hi").await).unwrap();
+    let at = routed_argv.iter().position(|a| a == "--mcp-config").expect("--mcp-config");
+    let routed_config: Value =
+        serde_json::from_str(&std::fs::read_to_string(&routed_argv[at + 1]).unwrap()).unwrap();
+    assert_eq!(routed_config["mcpServers"]["cmux"]["args"], json!(["mcp", "serve"]));
+    let codex_routed = local.new_session("fakecodex-router").await;
+    let listed: Value = serde_json::from_str(&local.ask(&codex_routed, "mcp").await).unwrap();
+    assert_eq!(cmux_args(&listed), json!(["mcp", "serve"]), "{listed}");
     assert_eq!(config["mcpServers"]["cmux-sessions"]["args"], json!(["offer-mcp"]), "{config}");
     assert!(!argv.iter().any(|a| a == "--strict-mcp-config"), "the user's servers stay: {argv:?}");
     let at = argv.iter().position(|a| a == "--plugin-dir").expect("--plugin-dir");
