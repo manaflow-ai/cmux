@@ -22,11 +22,11 @@ extension TerminalSurface {
     @MainActor
     func enqueueRestoredRuntimeSurfaceCreation(for view: any TerminalSurfaceNativeViewing) {
         guard !restoredRuntimeSurfaceStartQueued else { return }
-        // Keep the logical admission queued even while the model is attached
-        // to cmux's hidden bootstrap window. The callback below re-checks
-        // visibility before entering Ghostty, and a later portal/window reveal
-        // retries the native admission. This preserves restore ordering and
-        // keeps session state resident without hidden renderer fan-out.
+        // A restored model can be attached to cmux's hidden bootstrap window
+        // before its pane is presented. Keep the model resident, but do not
+        // spend a scheduler slot on a native surface until the pane is visible.
+        // Headless test hosts have no window and retain direct semantics.
+        guard (rendererPortalVisible || view.window == nil), rendererWindowVisible else { return }
         restoredRuntimeSurfaceStartQueued = true
         let surfaceId = id
         restoreSpawnScheduler.scheduleRestoredSurfaceSpawn(
@@ -43,10 +43,10 @@ extension TerminalSurface {
             // turn a hidden restore admission into a native Ghostty surface;
             // the next portal/window reveal retries through the visibility
             // hook in TerminalSurface+Renderer.
-            // Non-portal/headless hosts (including the startup-policy test
-            // harness) retain their direct admission semantics. A real
-            // portal-owned pane must be visible before Ghostty is entered.
-            guard self.rendererPortalVisible || !view.paneGeometryIsPortalOwned,
+            // A pane may hide during the inter-spawn cooldown. Do not turn
+            // that admission into a hidden native surface; the visibility
+            // transition retries through TerminalSurface+Renderer.
+            guard self.rendererPortalVisible || view.window == nil,
                   self.rendererWindowVisible else { return }
             self.createSurface(for: view, source: .scheduledRestore)
         }

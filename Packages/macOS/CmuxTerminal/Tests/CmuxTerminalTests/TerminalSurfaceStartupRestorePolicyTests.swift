@@ -34,6 +34,10 @@ struct TerminalSurfaceStartupRestorePolicyTests {
         #expect(scheduler.scheduledSurfaceIds.isEmpty)
 
         surface.admitStartupRestoreRuntime()
+        // The startup admission is logical state only until the restored pane
+        // is presented. Mark the test host visible before draining the native
+        // spawn so this test does not model hidden bootstrap fan-out.
+        surface.setRendererPortalVisible(true)
 
         #expect(surface.debugRuntimeSurfaceCreateAttemptCountForTesting() == 0)
         #expect(scheduler.scheduledSurfaceIds == [surface.id])
