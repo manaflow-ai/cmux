@@ -4,11 +4,14 @@
 // exception: after Load preview it draws at its own size and takes input, so the reader can use
 // the component in the chat.
 import { afterEach, beforeEach, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { PreviewCard } from "./PreviewCard";
-import { isGalleryFrame } from "./previewUrl";
+import { layoutConversation } from "../model";
+import { GALLERY_FRAME_HEIGHT, isGalleryFrame, PREVIEW_FRAME_HEIGHT, previewFrameHeight } from "./previewUrl";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -61,6 +64,49 @@ test("a gallery stage is recognized by its frame path and entry", () => {
   expect(isGalleryFrame("http://localhost:5173/gallery/?entry=x")).toBe(false);
   expect(isGalleryFrame("http://localhost:3000/admin")).toBe(false);
   expect(isGalleryFrame("not a url")).toBe(false);
+});
+
+test("only the gallery's own mounts on loopback are live stages", () => {
+  // The address comes from reply text, so any page ending in frame.html must not take input.
+  expect(isGalleryFrame("http://localhost:4210/latest/frame.html?entry=x")).toBe(true);
+  expect(isGalleryFrame("http://localhost:4210/wt/my-branch/frame.html?entry=x")).toBe(true);
+  expect(isGalleryFrame("http://0.0.0.0:4200/gallery/frame.html?entry=x")).toBe(true);
+  expect(isGalleryFrame("http://localhost:3000/frame.html?entry=x")).toBe(false);
+  expect(isGalleryFrame("http://localhost:3000/admin/frame.html?entry=x")).toBe(false);
+  expect(isGalleryFrame("http://localhost:3000/gallery/admin/frame.html?entry=x")).toBe(false);
+  expect(isGalleryFrame("http://localhost:3000/wt/a/b/frame.html?entry=x")).toBe(false);
+  expect(isGalleryFrame("http://localhost:3000/x/gallery/frame.html?entry=x")).toBe(false);
+  expect(isGalleryFrame("https://example.com/gallery/frame.html?entry=x")).toBe(false);
+  expect(isGalleryFrame("http://localhost.example.com/gallery/frame.html?entry=x")).toBe(false);
+});
+
+test("loading a gallery stage does not move the transcript: placeholder, frame and estimate agree", () => {
+  const stage = "http://127.0.0.1:5173/gallery/frame.html?entry=agent-pane.preview-card";
+  const page = "http://127.0.0.1:3000/admin";
+  expect(previewFrameHeight(stage)).toBe(GALLERY_FRAME_HEIGHT);
+  expect(previewFrameHeight(page)).toBe(PREVIEW_FRAME_HEIGHT);
+  const dir = path.join(import.meta.dir, "..");
+  const styles = readFileSync(path.join(dir, "styles.css"), "utf8");
+  const conversation = readFileSync(path.join(dir, "conversation/conversation.css"), "utf8");
+  expect(styles).toContain(`.acpmux-turn-preview-frame--live{height:${GALLERY_FRAME_HEIGHT}px;`);
+  expect(styles).toContain(`.acpmux-turn-preview-frame{position:relative;height:${PREVIEW_FRAME_HEIGHT}px;`);
+  expect(conversation).toMatch(
+    new RegExp(`\\.acpmux-turn-preview-unloaded--live \\{\\s*height: ${GALLERY_FRAME_HEIGHT}px;`),
+  );
+  expect(conversation).toMatch(new RegExp(`\\.acpmux-turn-preview-unloaded \\{[^}]*height: ${PREVIEW_FRAME_HEIGHT}px;`));
+  // The placeholder takes the live height before the click.
+  root = createRoot(container);
+  act(() => root!.render(<PreviewCard url={stage} onOpen={() => {}} />));
+  expect(container.querySelector(".acpmux-turn-preview-unloaded")!.classList.contains("acpmux-turn-preview-unloaded--live")).toBe(true);
+  // The virtualizer's estimate: the 58px head, the frame, and 14px below (model.ts).
+  const heights = layoutConversation(
+    [
+      { id: "preview-a", kind: "preview", text: stage },
+      { id: "preview-b", kind: "preview", text: page },
+    ] as never,
+    600,
+  ).heights;
+  expect([...heights]).toEqual([58 + GALLERY_FRAME_HEIGHT + 14, 58 + PREVIEW_FRAME_HEIGHT + 14]);
 });
 
 test("a gallery stage loads live: full size, focusable, and a click stays in the chat", () => {
