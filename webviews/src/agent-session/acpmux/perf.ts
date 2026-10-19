@@ -170,6 +170,8 @@ export class AcpmuxPerf {
   private lastMark: number | undefined;
   /** Pixel extent of each run of mounted rows at the last commit. */
   mounted: MountedSpan[] = [];
+  /// The layout extent, excluding animated overflow that can enlarge scrollHeight.
+  contentHeight = 0;
   private commitWaiters: ((now: number) => void)[] = [];
   readonly typing: TypingSample[] = [];
   private agentMarks: Partial<Record<AgentMark, number>> = {};

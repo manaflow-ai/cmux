@@ -101,6 +101,71 @@
   background: color-mix(in srgb, var(--agent-text) 13%, var(--acpmux-base));
 }
 
+/* Prompt labs keep their controls with the bubble (Lucas 2026-10-18). */
+:root[data-lab-prompt-collapse="on"] .cv-user__prompt.is-clamped {
+  max-height: 8lh;
+  overflow: hidden;
+}
+:root[data-lab-prompt-collapse="on"] .cv-user__prompt.is-clamped.is-long {
+  mask-image: linear-gradient(to bottom, black calc(100% - 2lh), transparent);
+}
+:root[data-lab-prompt-collapse="on"] .cv-user__expand {
+  display: block;
+  border: 0;
+  padding: 4px 0 0;
+  background: none;
+  color: var(--cv-text-muted);
+  font: inherit;
+  font-size: var(--text-detail);
+  line-height: 20px;
+  cursor: pointer;
+}
+:root[data-lab-prompt-collapse="on"] .cv-user__expand:hover {
+  color: var(--cv-text);
+}
+:root[data-lab-prompt-collapse="on"] .cv-user__expand:focus-visible {
+  outline: 1.5px solid var(--cv-text-muted);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+/* Time and actions share one baseline, even for older dates (Lucas 2026-10-18). */
+:root[data-lab-message-times="on"] .cv-user:has(> .cv-user__time) {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: 8px;
+  align-items: center;
+  justify-items: end;
+}
+:root[data-lab-message-times="on"] .cv-user > :not(.cv-user__time, .cv-user__actions) {
+  grid-column: 1 / -1;
+}
+:root[data-lab-message-times="on"] .cv-user > .cv-user__actions {
+  grid-column: 2;
+}
+:root[data-lab-message-times="on"] .cv-user__time {
+  grid-column: 1;
+  min-width: 0;
+  max-width: 100%;
+  margin-top: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--cv-text-muted);
+  font-size: var(--text-detail);
+  line-height: 20px;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+}
+:root[data-lab-message-times="on"] .cv-user__time:last-child {
+  grid-column: 1 / -1;
+  padding-inline-end: 2px;
+}
+:root[data-lab-message-times="on"] .cv-user:hover .cv-user__time,
+:root[data-lab-message-times="on"] .cv-user:focus-within .cv-user__time {
+  opacity: 1;
+  pointer-events: auto;
+}
+
 /* The images a prompt sent, above its bubble: thumbnails on a checker, so a dark screenshot reads. */
 .cv-user__images {
   display: flex;
@@ -792,10 +857,17 @@ pre.cv-math-source {
   opacity: 0;
 }
 /* Not on hover: a prompt has Copy under its bubble and an answer in its turn's footer, so a hover
-   showed two or three Copy buttons per turn. Keyboard focus and a selected range still show it. */
-.acpmux-row:focus-within .acpmux-row__copy,
+   showed two or three Copy buttons per turn. Keyboard focus and a selected range still show it.
+   Only keyboard focus (the row's tab stop or the button itself), not any focus inside the row: a
+   click on a prompt's Edit focused its editor, and Copy then sat on the prompt's corner (Lucas
+   2026-10-17). Never over an open prompt editor. */
+.acpmux-row:focus-visible .acpmux-row__copy,
+.acpmux-row .acpmux-row__copy:focus-visible,
 .acpmux-row[data-transcript-selected="true"] .acpmux-row__copy {
   opacity: 1;
+}
+.acpmux-row:has(.cv-user__edit) .acpmux-row__copy {
+  visibility: hidden;
 }
 @media (prefers-reduced-motion: no-preference) {
   .acpmux-row .acpmux-row__copy {
@@ -1164,6 +1236,19 @@ pre.cv-math-source {
   line-height: 20px;
   overflow: hidden;
 }
+/* A thought as one quiet line (Debug thought style "brain", ThoughtFold.tsx): a brain and the
+   thought's first line on the tool rows' rhythm; opened, the line reads "Thoughts" and the whole
+   text sits under a left rule in the transcript's own color, so it reads a layer below the
+   answer without fading out. */
+.cv-thought-fold.is-streaming .cv-thought-fold__line {
+  color: var(--cv-text-muted);
+}
+.cv-thought-fold__body {
+  margin: 2px 0 8px 7.5px;
+  padding-left: 14.5px;
+  border-left: 1px solid var(--cv-rule);
+  color: var(--cv-text);
+}
 .cv-tool.is-toggle {
   cursor: pointer;
   user-select: none;
@@ -1246,7 +1331,7 @@ pre.cv-math-source {
   margin: 4px 0 8px;
 }
 .cv-tool-images .cv-img {
-  max-width: min(100%, 360px);
+  max-width: min(100%, 300px);
   max-height: 220px;
   margin: 0;
   object-fit: contain;
@@ -1623,6 +1708,14 @@ pre.cv-math-source {
 .cv-code-plain__line {
   min-height: 20px;
 }
+:root[data-lab-code-wrap="on"] .cv-code-plain.is-wrapped {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+:root[data-lab-code-wrap="on"] .cv-codeblock__action[aria-pressed="true"] {
+  background: color-mix(in srgb, var(--cv-fg) 12%, transparent);
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--cv-strong-rule);
+}
 /* The highlighted card waits underneath the plain one until Pierre has painted, then fades in
  * over it; the plain card leaves when that fade ends. */
 .cv-code-handoff {
@@ -1725,12 +1818,12 @@ pre.cv-math-source {
 }
 
 /* Images (Markdown.tsx): a data URL image fits the column; a web image is a link. */
-/* A reply's image: as wide as the column at most, and no taller than a screenful's share, so a tall
- * screenshot does not push the reply off the page; the viewer shows it whole. */
+/* A reply's image: a preview at most 300px on each side, at its own ratio, so a screenshot reads
+ * at a glance without pushing the reply off the page; a click shows it whole in the viewer. */
 .cv-img {
   display: block;
-  max-width: 100%;
-  max-height: 360px;
+  max-width: min(100%, 300px);
+  max-height: 300px;
   height: auto;
   object-fit: contain;
   margin: 6px 0;
@@ -2012,6 +2105,32 @@ pre.cv-math-source {
 .acpmux-render-card-head .acpmux-review-changes {
   height: 24px;
 }
+/* A page from history, waiting for Run: the space it will take, one click target (Lucas 2026-10-19). */
+.acpmux-render-card-gate {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 112px;
+  border: 0;
+  background: transparent;
+  color: var(--agent-text);
+  font: inherit;
+  font-weight: 500;
+  cursor: default;
+}
+.acpmux-render-card-gate:hover { background: color-mix(in srgb, currentColor 5%, transparent); }
+.acpmux-render-card-gate:focus-visible { outline: 2px solid var(--agent-accent); outline-offset: -2px; }
+.acpmux-render-card-gate-icon {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--agent-accent);
+  color: var(--agent-on-accent, #fff);
+}
 .acpmux-render-card-title {
   flex: 1;
   min-width: 0;
@@ -2026,6 +2145,50 @@ pre.cv-math-source {
   width: 100%;
   border: 0;
   background: transparent;
+}
+
+:root[data-lab-live-render="on"] .acpmux-render-confirm {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--agent-border);
+  font-size: var(--text-detail);
+}
+:root[data-lab-live-render="on"] .acpmux-render-card--panel {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+:root[data-lab-live-render="on"] .acpmux-render-confirm-draft {
+  flex: 1 1 180px;
+  min-width: 0;
+}
+:root[data-lab-live-render="on"] .acpmux-render-confirm-origin {
+  display: block;
+  color: var(--agent-muted);
+  margin-bottom: 4px;
+}
+:root[data-lab-live-render="on"] .acpmux-render-confirm-label {
+  display: block;
+  margin-bottom: 2px;
+  font-weight: 600;
+  color: var(--agent-text);
+}
+:root[data-lab-live-render="on"] .acpmux-render-confirm-text {
+  display: block;
+  max-height: 240px;
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  unicode-bidi: plaintext;
+}
+:root[data-lab-live-render="on"] .acpmux-render-note {
+  display: block;
+  padding: 4px 12px;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
 }
 
 /* A message that could not be drawn (MessageBoundary.tsx): a note over its plain source text. */
@@ -2475,6 +2638,59 @@ pre.cv-math-source {
   margin-top: 0;
 }
 
+/* Live pages sit directly in the message column (Lucas 2026-10-18). */
+:root[data-lab-live-render="on"] .acpmux-render-card {
+  width: 100%;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+:root[data-lab-live-render="on"] .acpmux-render-confirm {
+  flex-wrap: wrap;
+  align-items: flex-start;
+  padding: 6px 0;
+  border: 0;
+  color: var(--agent-muted);
+}
+:root[data-lab-live-render="on"] .acpmux-render-confirm-text.is-expanded {
+  -webkit-line-clamp: unset;
+}
+:root[data-lab-live-render="on"] .acpmux-render-confirm-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-inline-start: auto;
+}
+:root[data-lab-live-render="on"] .acpmux-render-confirm-actions > button {
+  min-height: 24px;
+}
+:root[data-lab-live-render="on"] .acpmux-render-confirm-actions .is-primary {
+  color: var(--agent-on-accent, var(--acpmux-base));
+}
+:root[data-lab-live-render="on"] .acpmux-render-cancel {
+  background: transparent;
+  box-shadow: none;
+}
+
+/* Keep a wide table inside flex/grid replies, including nested Markdown (Lucas 2026-10-19). */
+:root[data-lab-table-scroll="on"] .cv-md { min-width:0; max-width:100%; }
+:root[data-lab-table-scroll="on"] .cv-table-wrap { min-width:0; max-width:100%; overscroll-behavior-x:contain; }
+:root[data-lab-table-scroll="on"] .cv-table :is(th,td) { min-width:128px; max-width:256px; overflow-wrap:anywhere; }
+:root[data-lab-table-scroll="on"] .cv-table-wrap:focus-visible { outline:1px solid var(--cv-muted); outline-offset:2px; }
+
+.acpmux-render-card { position:relative; }
+.acpmux-render-enlarge { position:absolute; top:4px; right:4px; z-index:1; opacity:0; background:var(--agent-surface); border-radius:5px; }
+.acpmux-render-card:hover > .acpmux-render-enlarge,
+.acpmux-render-card:focus-within > .acpmux-render-enlarge { opacity:1; }
+@media (hover:none) { .acpmux-render-enlarge { opacity:1; } }
+.acpmux-render-dialog { z-index:var(--layer-overlay); position:fixed; inset:4vh 4vw; width:92vw; height:92vh; max-width:none; box-sizing:border-box; display:flex; flex-direction:column; padding:16px; border:1px solid var(--agent-border); border-radius:12px; background:var(--agent-accent-text, Canvas); color:var(--agent-text); overflow:hidden; }
+.acpmux-render-dialog-head { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:12px; font-size:13px; }
+.acpmux-render-dialog-body { min-height:0; overflow:auto; flex:1; }
+
+/* The side panel fills a fixed parent; the dialog follows the measured document height. */
+.acpmux-render-dialog .acpmux-artifact-frame { flex:none; }
 /* A steer under its bubble (SteerMark.tsx): "Steering" until the agent reads it, then "Steered". */
 .cv-user__steer-label {
   color: var(--cv-text);

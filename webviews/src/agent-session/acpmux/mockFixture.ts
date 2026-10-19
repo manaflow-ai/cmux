@@ -6,6 +6,8 @@
 // pullRequest) are what the pane will read once the daemon reports them; acpmux does not send
 // them yet.
 
+import { translate } from "./i18n";
+
 export type MockSession = {
   sessionId: string;
   title: string;
@@ -621,6 +623,98 @@ export const workedTurn: SeedStep[] = [
   { ago: START - 86_000, mux: "turn_result", msg: { status: "completed" } },
 ];
 
+/// The mock streams this same page when asked to render a demo (Lucas 2026-10-18).
+export function liveRenderDemoHTML(): string {
+  return `<title>Choose an approach</title><style>
+.options{display:flex;flex-direction:column}
+.options button{display:grid;grid-template-columns:16px minmax(0,1fr) auto;align-items:center;gap:var(--cmux-space-2);padding:var(--cmux-space-2);text-align:left;background:transparent;border:0;border-radius:0;box-shadow:none;color:var(--cmux-text)}
+.options button+button{border-top:0.5px solid var(--cmux-border)}
+.options button:hover{background:var(--cmux-control-hover)}
+.options button[aria-pressed=true]{background:var(--cmux-control)}
+.options svg{opacity:0}
+.options button[aria-pressed=true] svg{opacity:1}
+.options .copy{min-width:0}
+.options strong{display:block;font-size:var(--cmux-size-body);font-weight:600}
+.options .description{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--cmux-muted);font-size:var(--cmux-size-detail);line-height:1.4}
+.options small{background:transparent;font-size:var(--cmux-size-detail);color:var(--cmux-muted);white-space:nowrap}
+</style><div class="options">
+<button data-option="A" aria-pressed="false"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="m3 8 3 3 7-7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="copy"><strong>Patch the caller</strong><span class="description">Fastest fix, retry logic stays local.</span></span><small>Low effort</small></button>
+<button data-option="B" aria-pressed="false"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="m3 8 3 3 7-7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="copy"><strong>Extract a retry policy</strong><span class="description">One shared policy, easy to test.</span></span><small>Medium effort</small></button>
+<button data-option="C" aria-pressed="false"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="m3 8 3 3 7-7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="copy"><strong>Add a job queue</strong><span class="description">Durable retries, more moving parts.</span></span><small>High effort</small></button>
+</div><script>
+const rows = [...document.querySelectorAll('button')];
+function choose(option) { rows.forEach(row => row.setAttribute('aria-pressed', String(row.dataset.option === option))); }
+cmux.state.get().then(value => choose(value && value.chosen)).catch(() => {});
+rows.forEach(row => { row.onclick = () => {
+  const option = row.dataset.option;
+  choose(option);
+  cmux.state.set({chosen: option}).catch(() => {});
+  cmux.sendPrompt('Go with option ' + option + ': ' + row.querySelector('strong').textContent + '.').catch(() => {});
+}; });
+</script>`;
+}
+
+/// A small interactive SVG exercises cold and warm component starts (Lucas 2026-10-19).
+export function liveReactDemoSource(): string {
+  return `function App() {
+  const [count, setCount] = React.useState(0);
+  return <button onClick={() => setCount(count + 1)}>
+    <svg width="32" height="24" viewBox="0 0 32 24"><path d="M2 22 L10 14 L18 18 L30 2" fill="none" stroke="currentColor" /></svg>
+    <output>{count}</output>
+  </button>;
+}`;
+}
+
+/// An extra worked turn for the live-render lab, added only by the mock's lab branch.
+export function liveRenderTurn(): SeedStep[] {
+  const html = liveRenderDemoHTML();
+  const component = `// title: Retry backoff
+function App() {
+  const [base, setBase] = React.useState(200);
+  const delays = [0, 1, 2, 3].map(at => base * 2 ** at);
+  return <div>
+    <label style={{display: 'flex', alignItems: 'center', gap: 'var(--cmux-space-3)'}}>
+      <span style={{whiteSpace: 'nowrap'}}>Base delay</span>
+      <input type="range" min="50" max="1000" step="50" value={base} onChange={event => setBase(Number(event.target.value))} style={{flex: 1, minWidth: 0, accentColor: 'var(--cmux-muted)'}} />
+      <output style={{minWidth: 60, textAlign: 'right', color: 'var(--cmux-muted)', fontVariantNumeric: 'tabular-nums'}}>{base} ms</output>
+    </label>
+    <div role="img" aria-label={'Retry delays: ' + delays.join(', ') + ' milliseconds'} style={{display: 'grid', gridTemplateColumns: 'auto 1fr auto', alignItems: 'center', gap: 'var(--cmux-space-2) var(--cmux-space-3)', margin: 'var(--cmux-space-3) 0'}}>
+      {delays.map((delay, at) => <React.Fragment key={at}>
+        <span style={{color: 'var(--cmux-muted)', fontSize: 'var(--cmux-size-caption)'}}>Attempt {at + 1}</span>
+        <span style={{height: 8, borderRadius: 4, background: 'var(--cmux-control)'}}>
+          <span style={{display: 'block', height: '100%', width: Math.max(2, delay / 8000 * 100) + '%', borderRadius: 4, background: 'var(--cmux-muted)', transition: 'width 120ms ease-out'}} />
+        </span>
+        <span style={{minWidth: 64, textAlign: 'right', color: 'var(--cmux-muted)', fontSize: 'var(--cmux-size-caption)', fontVariantNumeric: 'tabular-nums'}}>{delay} ms</span>
+      </React.Fragment>)}
+    </div>
+    <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--cmux-space-2)'}}>
+      <small style={{color: 'var(--cmux-muted)'}}>{${JSON.stringify(translate("render.demoBackoffFooter"))}}</small>
+      <button onClick={() => cmux.prefill('Use exponential retry backoff with a base of ' + base + ' ms and delays of ' + delays.join(', ') + ' ms.').catch(() => {})}>Use these values</button>
+    </div>
+  </div>;
+}`;
+  return [
+    { ago: 60_000, mux: "user_message", msg: { text: "Help me choose a retry strategy, then tune the backoff." } },
+    { ago: 59_000, mux: "turn_started" },
+    {
+      ago: 58_000,
+      update: {
+        sessionUpdate: "tool_call",
+        toolCallId: "live-render-approach",
+        kind: "other",
+        title: "mcp__cmux__render",
+        status: "completed",
+        rawInput: { html },
+      },
+    },
+    {
+      ago: 57_000,
+      update: text("```cmux-react\n" + component + "\n```"),
+    },
+    { ago: 56_000, mux: "turn_result", msg: { status: "completed" } },
+  ];
+}
+
 /// The permission request a session needing input waits on.
 export const PERMISSION_OPTIONS = [
   { optionId: "allow_once", name: "Allow", kind: "allow_once" },
@@ -773,4 +867,37 @@ export function sessionHistory(session: MockSession): SeedStep[] {
     });
   else if (session.status !== "running") steps.push({ ago: at, mux: "turn_result", msg: { status: "completed" } });
   return steps;
+}
+
+/// A realistic kit page streams mostly markup, with charts activated on close (Lucas 2026-10-19).
+export function liveRenderShowcaseHTML(): string {
+  // l10n-allow: agent-authored mock render content, not pane UI
+  return `<style>.trend{color:var(--cmux-success)}.forecast{justify-content:space-between}.charts{grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr))}</style>
+<main class="stack">
+<section><h2>Build performance</h2><p class="muted">The cache rollout cut build time this week. Here is the last seven days.</p></section>
+<div class="grid">
+<div class="panel stat"><small>Median build</small><strong>42.8 s</strong><small class="trend">18% faster this week</small></div>
+<div class="panel stat"><small>Cache hit rate</small><strong>94.2%</strong><small>Across 1,248 builds</small></div>
+<div class="panel stat"><small>Time saved</small><strong>6.4 h</strong><small>Compared with last week</small></div>
+</div>
+<div class="grid charts">
+<section><h3>Build duration</h3><div id="duration"></div><small>Median seconds per day</small></section>
+<section><h3>Builds by target</h3><div id="targets"></div><small>Successful and retried builds</small></section>
+</div>
+<section><h3>Cache coverage</h3><div id="coverage"></div></section>
+<section><h3>Slowest targets</h3><table><thead><tr><th>Target</th><th data-numeric>Median</th><th data-numeric>Cache hits</th><th>Status</th></tr></thead><tbody>
+<tr><td>macOS app</td><td data-numeric>48.1 s</td><td data-numeric>92.4%</td><td><span class="badge">Improving</span></td></tr>
+<tr><td>Webviews</td><td data-numeric>32.6 s</td><td data-numeric>97.1%</td><td><span class="badge">Stable</span></td></tr>
+<tr><td>Agent host</td><td data-numeric>24.9 s</td><td data-numeric>95.3%</td><td><span class="badge">Stable</span></td></tr>
+</tbody></table></section>
+<section class="panel stack"><div class="row forecast"><h3>Estimate the next rollout</h3><fieldset class="segmented" aria-label="Build environment"><label><input type="radio" name="env" value="local" checked>Local</label><label><input type="radio" name="env" value="ci">CI</label></fieldset></div>
+<label class="row">Daily builds <input id="volume" type="range" min="50" max="500" step="25" value="200" style="flex:1"><output id="estimate">200 builds / 1.0 h saved</output></label></section>
+<div class="row"><button data-variant="primary" data-cmux-prompt="Investigate the slowest macOS build steps and suggest a focused improvement.">Investigate slow builds</button><button data-cmux-prefill="Draft a cache rollout plan for the remaining build targets.">Draft rollout plan</button></div>
+</main><script>
+cmux.chart('#duration',{type:'line',height:200,labels:['Mon','Tue','Wed','Thu','Fri','Sat','Sun'],series:[{name:'This week',values:[58,56,51,49,46,44,42.8]},{name:'Last week',values:[65,63,61,60,57,55,52]}]});
+cmux.chart('#targets',{type:'bar',height:200,labels:['macOS','Webviews','Host'],series:[{name:'Passed',values:[420,510,318]},{name:'Retried',values:[24,12,18]}]});
+cmux.chart('#coverage',{type:'donut',height:180,labels:['Cache hits','Cache misses'],series:[{name:'Builds',values:[1176,72]}]});
+function update(){const n=Number(document.querySelector('#volume').value);const ci=document.querySelector('[name=env]:checked').value==='ci';document.querySelector('#estimate').textContent=n+' builds / '+(n*(ci?24:18)/3600).toFixed(1)+' h saved';}
+document.querySelector('#volume').addEventListener('input',update);document.querySelectorAll('[name=env]').forEach(el=>el.addEventListener('change',update));
+</script>`;
 }
