@@ -235,6 +235,7 @@ import { FolderChoice, showsFolderChoice } from "./FolderChoice";
 import { type FolderAsk, StartFolderAsk, WorktreeFailure, confirmFolder, newWorktree, pickFolder } from "./startFolder";
 import { MissingFolder, chooseChatFolder } from "./missingFolder";
 import { LiveChatChoice } from "./LiveChatChoice";
+import { WatchBanner } from "./WatchBanner";
 import { HandoffReviewMessage } from "./handoff/ReviewMessage";
 import { handoffStrings } from "./handoff/strings";
 import type { HandoffReviewInput } from "./handoff/review";
@@ -5335,6 +5336,11 @@ function AcpmuxPane() {
             let accept: (taken: true) => void = () => undefined;
             const taken = new Promise<true>((resolve) => (accept = resolve));
             const send = async () => {
+              // Replying to a View Only chat takes it over first (`takeOver`); while the app that
+              // runs it still does, the pane asks how, and the composer keeps the message.
+              if (snapshot.summary?.watching && !(await directClient.current?.takeOver())) {
+                throw new Error("watch.notTakenOver");
+              }
               if (projectDraft && !snapshot.sessionId)
                 // The chat's start is part of this send: a trust refusal there asks the folder's
                 // question, keeps this prompt (with its send's gesture) and sends it after Trust
@@ -5434,7 +5440,8 @@ function AcpmuxPane() {
           onOpenInWindow={quick ? openInWindow : undefined}
           prompt={prompt}
           handle={composerRef}
-          // No prompt goes while a picked folder waits for the user's answer.
+          // No prompt goes while a picked folder waits for the user's answer, or while the chat only
+          // shows a session another app runs (WatchBanner).
           blocked={pendingFolder ? {} : trustAsk.blocked}
           accessory={<DictationMic dictation={dictation} />}
           onImportFile={importFile}
@@ -5570,6 +5577,7 @@ function AcpmuxPane() {
               load={(params) => callNative<AllChatsPage | undefined>("chats.page", params)}
               onOpen={(key) => void callNative("chats.open", { key }).catch(() => undefined)}
               onOpenInTerminal={(key) => void callNative("chats.openInTerminal", { key }).catch(() => undefined)}
+              onViewOnly={(key) => void callNative("chats.watch", { key }).catch(() => undefined)}
             />
           ) : showNewTab && shownTemplate(newTab) !== "classic" ? (
             <NewTabScreen
@@ -5773,6 +5781,19 @@ function AcpmuxPane() {
                   <LiveChatChoice
                     {...snapshot.liveChat}
                     onChoose={(choice) => void callNative("chat.adoptLive", { choice }).catch(() => undefined)}
+                  />
+                )}
+                {snapshot.summary?.watching && !snapshot.liveTakeOver && (
+                  <WatchBanner
+                    family={snapshot.summary.watching}
+                    onTakeOver={() => void directClient.current?.takeOver().catch(() => undefined)}
+                    onContinue={() => void directClient.current?.continueWatched().catch(() => undefined)}
+                  />
+                )}
+                {snapshot.summary?.watching && snapshot.liveTakeOver && (
+                  <LiveChatChoice
+                    {...snapshot.liveTakeOver}
+                    onChoose={(choice) => void directClient.current?.takeOver(choice).catch(() => undefined)}
                   />
                 )}
                 {!reviewing && snapshot.handoff?.error && (
