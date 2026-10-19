@@ -543,3 +543,75 @@ mod acp {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::Transcript;
+    use serde_json::{Value, json};
+
+    fn update(seq: u64, update: Value) -> Value {
+        json!({"seq": seq, "dir": "in", "kind": "session/update",
+            "msg": {"method": "session/update", "params": {"update": update}}})
+    }
+
+    fn mux(seq: u64, kind: &str, msg: Value) -> Value {
+        json!({"seq": seq, "dir": "mux", "kind": kind, "msg": msg})
+    }
+
+    fn transcript(events: &[Value]) -> Transcript {
+        let mut transcript = Transcript::default();
+        for event in events {
+            transcript.apply(event);
+        }
+        transcript
+    }
+
+    #[test]
+    fn a_tool_call_left_running_by_an_ended_turn_does_not_hold_the_read() {
+        let mut events = vec![
+            mux(1, "user_message", json!({"text": "run it"})),
+            update(2, json!({"sessionUpdate": "tool_call", "toolCallId": "t1", "kind": "execute", "status": "in_progress"})),
+            mux(3, "turn_result", json!({"status": "cancelled"})),
+        ];
+        for seq in 4..10 {
+            events.push(mux(seq, "user_message", json!({"text": format!("prompt {seq}")})));
+        }
+        let transcript = transcript(&events);
+        let page = transcript.page("c", 1, 2, false, 9);
+        assert_eq!(page["items"][0]["role"], "tool");
+        assert_eq!(page["items"][0]["partial"], Value::Null);
+        assert_eq!(page["next_after"], 3, "{page}");
+        assert_eq!(page["has_more"], true);
+    }
+
+    #[test]
+    fn a_tool_call_in_a_running_turn_still_holds_the_read() {
+        let events = vec![
+            update(2, json!({"sessionUpdate": "tool_call", "toolCallId": "t1", "kind": "execute", "status": "in_progress"})),
+            update(3, json!({"sessionUpdate": "agent_message_chunk", "content": {"text": "still going"}})),
+            update(4, json!({"sessionUpdate": "tool_call", "toolCallId": "t2", "kind": "read", "status": "completed"})),
+        ];
+        let page = transcript(&events).page("c", 1, 10, false, 4);
+        assert_eq!(page["items"][0]["partial"], true);
+        assert_eq!(page["next_after"], 1, "{page}");
+    }
+
+    #[test]
+    fn only_agent_message_provenance_marks_a_prompt_as_another_agents() {
+        let events = vec![
+            mux(1, "user_message", json!({"text": "hi", "_meta": {"provenance": {"kind": "agent_message", "from": "chat-a", "fromName": "A", "msgId": "m1"}}})),
+            mux(2, "user_message", json!({"text": "resume", "_meta": {"provenance": {"kind": "auto_resume", "promptId": "p", "attempt": 1, "turnId": "t"}}})),
+            mux(3, "user_message", json!({"text": "result", "_meta": {"provenance": {"kind": "offer_result", "offerId": "o", "childSessionId": "c2", "title": "x"}}})),
+        ];
+        let page = transcript(&events).page("c", 0, 10, false, 3);
+        let items = page["items"].as_array().unwrap();
+        assert_eq!(items[0]["origin"], "agent_message");
+        assert_eq!(items[0]["from"], "chat-a");
+        assert_eq!(items[0]["from_name"], "A");
+        assert_eq!(items[0]["message_id"], "m1");
+        for item in &items[1..] {
+            assert_eq!(item["origin"], Value::Null, "{item}");
+            assert_eq!(item["from"], Value::Null, "{item}");
+        }
+    }
+}
