@@ -10,8 +10,18 @@ extension Motion {
     /// strength after a blink or pulse (`AttentionHighlightLook`).
     public static func attentionRestingOpacity(_ settings: AttentionSettings,
                                                look: AttentionHighlightLook = AttentionHighlightLook.tunable.value) -> Float {
-        guard settings.style != .none, settings.persists else { return 0 }
-        return settings.style == .steady ? look.steadyOpacity : look.restingOpacity
+        let style = attentionStyle(settings)
+        guard style != .none, settings.persists else { return 0 }
+        return style == .steady ? look.steadyOpacity : look.restingOpacity
+    }
+
+    /// The style the ring draws: static status indicators (cx-sya4n) turn a blink or pulse
+    /// into the steady ring, for its animation and its rest alike.
+    static func attentionStyle(_ settings: AttentionSettings) -> AttentionStyle {
+        guard settings.style != .none, DesignSettings.shared.statusIndicator.animation == .static else {
+            return settings.style
+        }
+        return .steady
     }
 
     /// How far the steady ring's arrival pulse rises over its rest, and how long it takes:
@@ -28,7 +38,7 @@ extension Motion {
         guard animatesFades, settings.style != .none else { return nil }
         // Static status indicators (cx-sya4n): the steady ring, no blink or pulse.
         var settings = settings
-        if DesignSettings.shared.statusIndicator.animation == .static { settings.style = .steady }
+        settings.style = attentionStyle(settings)
         let rest = attentionRestingOpacity(settings, look: look)
         let peak = look.peakOpacity
         guard animatesLoops else {
