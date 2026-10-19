@@ -326,6 +326,15 @@ disappearance. No unmount, repair, or reboot has been attempted because active
 worktrees and the rescore job still have open ownership that must be resolved
 first.
 
+A bounded `lsof /Volumes/Atelier` now returns, but it reports **229 PIDs across
+24 paths** holding the volume. The largest groups are shells in
+`pulp-windows-arm-module-timeout` (45), `pulp-forge-distortion-extract-20261018`
+(40), `agent-worktrees/nodal-followup-20261018` (28), and the current
+`cmux-rootcause-20261019` workspace (16). This explains why an unmount cannot
+yet be treated as a routine repair. These are candidates for session-by-session
+retirement after ownership is confirmed; broad termination would risk active
+work and is not justified by the inventory alone.
+
 OWC's current [Express 1M2 troubleshooting guide](https://eshop.macsales.com/manuals/OWC-Express-1M2-troubleshooting-guide)
 recommends isolating the enclosure on a direct USB-C/Thunderbolt port, removing
 other external drives, and running First Aid from the bottom of the Disk Utility
