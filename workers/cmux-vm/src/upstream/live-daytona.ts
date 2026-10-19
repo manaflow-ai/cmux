@@ -49,7 +49,9 @@ const MAX_MEMORY_MIB = 8192;
 const MAX_DISK_MIB = 10240;
 const DEFAULT_EXEC_TIMEOUT_MS = 30_000;
 const SNAPSHOT_TIMEOUT_MS = 120_000;
-const SNAPSHOT_POLL_MS = 250;
+const SNAPSHOT_INITIAL_POLL_MS = 500;
+const SNAPSHOT_MAX_POLL_MS = 5_000;
+const SNAPSHOT_MAX_POLLS = 32;
 const encoder = new TextEncoder();
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
@@ -275,7 +277,7 @@ export function makeDaytonaUpstreamClient(config: DaytonaClientConfig): Upstream
     return Effect.gen(function* () {
       yield* action("resizeVm.stop", id, "stop");
       yield* waitForVmState("resizeVm.stop", id, "stopped");
-      const resized = yield* resize;
+      const resized = yield* resize.pipe(Effect.tapError(() => action("resizeVm.start", id, "start").pipe(Effect.ignore)));
       yield* action("resizeVm.start", id, "start");
       return yield* waitForVmState("resizeVm.start", id, "running").pipe(Effect.as(resized));
     });
@@ -287,22 +289,24 @@ export function makeDaytonaUpstreamClient(config: DaytonaClientConfig): Upstream
 
   const waitForVmState = (operation: string, id: UpstreamId, expected: string): Effect.Effect<UpstreamVm, UpstreamError> => {
     const deadline = Date.now() + SNAPSHOT_TIMEOUT_MS;
-    const poll = (): Effect.Effect<UpstreamVm, UpstreamError> =>
+    const poll = (attempt: number, delayMs: number): Effect.Effect<UpstreamVm, UpstreamError> =>
       getSandbox(operation, id).pipe(
         Effect.flatMap(({ vm }) =>
           vm.state === expected
             ? Effect.succeed(vm)
-            : Date.now() >= deadline
+            : Date.now() >= deadline || attempt >= SNAPSHOT_MAX_POLLS
               ? Effect.fail(new UpstreamError({ operation, status: 504 }))
-              : Effect.sleep(SNAPSHOT_POLL_MS).pipe(Effect.zipRight(poll())),
+              : ["error", "build_failed", "destroyed", "archived"].includes(vm.state)
+                ? Effect.fail(new UpstreamError({ operation, status: 409 }))
+                : Effect.sleep(delayMs).pipe(Effect.zipRight(poll(attempt + 1, Math.min(SNAPSHOT_MAX_POLL_MS, delayMs * 2)))),
         ),
       );
-    return poll();
+    return poll(0, SNAPSHOT_INITIAL_POLL_MS);
   };
 
   const waitForSnapshot = (name: string): Effect.Effect<UpstreamId, UpstreamError> => {
     const deadline = Date.now() + SNAPSHOT_TIMEOUT_MS;
-    const poll = (): Effect.Effect<UpstreamId, UpstreamError> =>
+    const poll = (attempt: number, delayMs: number): Effect.Effect<UpstreamId, UpstreamError> =>
       send("snapshotVm", mainUrl(`/snapshots/${encodeURIComponent(name)}`), { method: "GET" }, true).pipe(
         Effect.flatMap((response) => readJson("snapshotVm", response)),
         Effect.flatMap((value) => {
@@ -310,15 +314,15 @@ export function makeDaytonaUpstreamClient(config: DaytonaClientConfig): Upstream
           const id = typeof record.id === "string" ? record.id : null;
           const state = typeof record.state === "string" ? record.state : null;
           if (id !== null && (state === "active" || state === "ready" || state === "completed")) return Effect.succeed(upstreamId(id));
-          if (state === "error" || state === "failed" || Date.now() >= deadline) return Effect.fail(new UpstreamError({ operation: "snapshotVm", status: 502 }));
-          return Effect.sleep(SNAPSHOT_POLL_MS).pipe(Effect.zipRight(poll()));
+          if (["error", "failed", "build_failed", "destroyed", "archived"].includes(state ?? "") || Date.now() >= deadline || attempt >= SNAPSHOT_MAX_POLLS) return Effect.fail(new UpstreamError({ operation: "snapshotVm", status: 502 }));
+          return Effect.sleep(delayMs).pipe(Effect.zipRight(poll(attempt + 1, Math.min(SNAPSHOT_MAX_POLL_MS, delayMs * 2))));
         }),
         Effect.catchIf(
           (error) => error.status === 404 && Date.now() < deadline,
-          () => Effect.sleep(SNAPSHOT_POLL_MS).pipe(Effect.zipRight(poll())),
+          () => Effect.sleep(delayMs).pipe(Effect.zipRight(poll(attempt + 1, Math.min(SNAPSHOT_MAX_POLL_MS, delayMs * 2)))),
         ),
       );
-    return poll();
+    return poll(0, SNAPSHOT_INITIAL_POLL_MS);
   };
 
   const decodeBase64 = (value: string): Uint8Array | null => {
@@ -380,7 +384,8 @@ export function makeDaytonaUpstreamClient(config: DaytonaClientConfig): Upstream
     createVm: (caller, spec, { source }) =>
       Effect.gen(function* () {
         if (!sizeIsValid(spec.size)) return yield* Effect.fail(new UpstreamError({ operation: "createVm", status: 400 }));
-        if (spec.maxRunSeconds !== undefined) return yield* Effect.fail(new UpstreamError({ operation: "createVm.maxRunSeconds", status: 409 }));
+        if (spec.maxRunSeconds !== undefined) return yield* Effect.fail(new UpstreamError({ operation: "createVm.maxRunSeconds", status: 409, unsupported: "Daytona cannot enforce maxRunSeconds without destroying the sandbox" }));
+        if (spec.autoDeleteSeconds !== undefined) return yield* Effect.fail(new UpstreamError({ operation: "createVm.autoDeleteSeconds", status: 409, unsupported: "Daytona auto-delete semantics are not compatible with this API" }));
         if (spec.autoDeleteSeconds !== undefined) return yield* Effect.fail(new UpstreamError({ operation: "createVm.autoDeleteSeconds", status: 409 }));
         const sourceId = source === undefined ? null : yield* idOf(source.owns);
         const requested = sizeBody(spec.size);

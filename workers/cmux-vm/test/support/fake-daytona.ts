@@ -103,6 +103,9 @@ export function makeFakeDaytona() {
     const match = /^\/sandbox\/([^/]+)(?:\/(start|stop|resize|snapshot|toolbox-proxy-url))?$/.exec(path);
     if (path === "/sandbox" && request.method === "POST") {
       const body = jsonObject(await json(request));
+      if (typeof body.snapshot === "string" && ("cpu" in body || "memory" in body || "disk" in body)) {
+        return Response.json({ message: "resources cannot be set with a snapshot" }, { status: 400 });
+      }
       const resources = snapshotResources(typeof body.snapshot === "string" ? body.snapshot : undefined);
       const sandbox: FakeSandbox = {
         id: `sbx-${nextId++}`,
