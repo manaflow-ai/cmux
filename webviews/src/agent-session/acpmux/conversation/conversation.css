@@ -2470,14 +2470,14 @@ pre.cv-math-source {
 .cv-plan[data-ended] .cv-plan__item[data-status="in_progress"] .cv-plan__mark {
   border-color: var(--cv-text-muted);
 }
+/* Static status indicators and Reduce Motion: the arc holds still. */
 @media (prefers-reduced-motion: no-preference) {
-  .cv-plan:not([data-ended]) .cv-plan__item[data-status="in_progress"] .cv-plan__mark {
+  :root:not([data-status-indicators="static"])
+    .cv-plan:not([data-ended])
+    .cv-plan__item[data-status="in_progress"]
+    .cv-plan__mark {
     animation: cv-plan-spin 0.9s linear infinite;
   }
-}
-/* Static status indicators (or Reduce Motion, above): the arc holds still. */
-:root[data-status-indicators="static"] .cv-plan__item[data-status="in_progress"] .cv-plan__mark {
-  animation: none;
 }
 @keyframes cv-plan-spin {
   to {

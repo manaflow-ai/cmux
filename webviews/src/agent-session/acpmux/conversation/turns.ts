@@ -415,7 +415,7 @@ function settledWithoutSummary(user: AcpmuxRow, turn: AcpmuxRow[], expanded: Rea
     { id, version: version * 2 + (open ? 1 : 0), at: user.at, kind: WORKED, previous },
     ...(open ? work.map((row) => ({ ...row, id: isEdit(row) ? `${row.id}${FOLDED}` : row.id, settled: true })) : []),
     ...before.filter(staysOut).map(endedPlan),
-    ...(final >= 0 ? rows.slice(final) : []),
+    ...(final >= 0 ? rows.slice(final).map(endedPlan) : []),
     ...editsCard(edits),
   ];
 }

@@ -109,6 +109,8 @@ await requireBrowserLane("static-status-loops.test.ts", async () => {
     const running = await loops(p);
     await p.close();
     expect(running.length).toBeGreaterThanOrEqual(10);
+    // The todo list's spinner among them, so the Static and Reduce Motion checks cover it.
+    expect(running.some((loop) => loop.endsWith("cv-plan-spin"))).toBe(true);
   });
 
   test("Static status indicators stop every pane loop", async () => {
