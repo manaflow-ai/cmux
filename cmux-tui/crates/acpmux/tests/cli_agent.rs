@@ -1,8 +1,13 @@
 //! `acpmux cli-agent`: a plain CLI as an ACP agent, end to end over stdio.
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+// The programs it runs (cat, sh, sleep) are stand-ins on the bare system PATH.
+const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader, Write};
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::time::{Duration, Instant};
 
 struct Agent {
@@ -12,7 +17,13 @@ struct Agent {
 
 impl Agent {
     fn start(args: &[&str]) -> Agent {
-        let mut child = Command::new(env!("CARGO_BIN_EXE_acpmux"))
+        static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let scratch = std::path::Path::new(env!("CARGO_TARGET_TMPDIR"))
+            .join(format!("acpmux-cli-agent-{}-{n}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&scratch);
+        std::fs::create_dir_all(&scratch).unwrap();
+        let mut child = daemon_env::command(&scratch, daemon_env::Agents::StandIn, &[])
             .arg("cli-agent")
             .args(args)
             .stdin(Stdio::piped())
