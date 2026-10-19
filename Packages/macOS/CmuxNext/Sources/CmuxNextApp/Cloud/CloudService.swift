@@ -380,18 +380,6 @@ final class CloudService {
         logger.info("deleted machine \(machineID, privacy: .public)")
     }
 
-    func pauseMachine(_ machineID: String) async throws {
-        try await api.pauseMachine(machineID)
-        await refresh()
-        logger.info("paused machine \(machineID, privacy: .public)")
-    }
-
-    func resumeMachine(_ machineID: String) async throws {
-        try await api.resumeMachine(machineID)
-        await refresh()
-        logger.info("resumed machine \(machineID, privacy: .public)")
-    }
-
     func renameMachine(_ machineID: String, to name: String) async throws {
         try await api.renameMachine(machineID, to: name.isEmpty ? nil : name)
         machines.session(machineID)?.machine.displayName = name.isEmpty ? nil : name
