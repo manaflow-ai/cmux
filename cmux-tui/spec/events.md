@@ -665,8 +665,10 @@ someone in a subscribed Cloud conversation started or stopped typing (the
 owner's `conversation-typing` broadcast: a Cloud Chief's reply, or another
 person), only to the person's connections that echoed
 `cloud-conversation-typing-v1`. A frame without a participant or a boolean
-`on` is dropped. Ephemeral: never stored or replayed; the owner turns a
-closed socket's typing off.
+`on` is dropped. Ephemeral: never stored or replayed. The owner turns the
+sender's typing off when the sender's socket closes; when the daemon's own
+socket for the conversation ends, the daemon sends `on: false` for everyone
+that socket heard typing, because their `off` can no longer come on it.
 
 ### terminal-registry-changed
 

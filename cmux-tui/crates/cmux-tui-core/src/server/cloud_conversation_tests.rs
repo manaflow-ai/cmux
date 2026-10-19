@@ -672,9 +672,8 @@ fn the_owners_typing_reaches_the_socket_subscribers_that_asked_for_it() {
             .to_string(),
     );
     run(&mux, client, json!({"cmd":"cloud-conversation-subscribe","conversation":CONV})).unwrap();
-    let live = |event: &Value| {
-        event["event"] == "cloud-subscription-state" && event["state"] == "live"
-    };
+    let live =
+        |event: &Value| event["event"] == "cloud-subscription-state" && event["state"] == "live";
     assert!(page.event_within(Duration::from_secs(10), live).is_some(), "the socket went live");
     // The old connection hears the stream (its silence below is the capability).
     assert!(old.event_within(Duration::from_secs(10), live).is_some(), "the old one hears it");
@@ -696,12 +695,20 @@ fn the_owners_typing_reaches_the_socket_subscribers_that_asked_for_it() {
             break;
         }
     }
-    let expected = |on: bool| {
-        json!({"event":"cloud-conversation-typing","conversation":CONV,"participant":CHIEF,"on":on})
-    };
+    let expected = |on: bool| json!({"event":"cloud-conversation-typing","conversation":CONV,"participant":CHIEF,"on":on});
     assert_eq!(seen, vec![expected(true), expected(false)]);
     // Nothing else came: the dropped frames were before the two that passed.
     assert!(page.event_within(Duration::from_millis(300), is_typing).is_none());
+
+    // The Chief types again and the socket drops: its `off` could only come
+    // on that socket, so the daemon turns it off for the page.
+    wire.push_text(typing(CONV, json!(true)));
+    let on = page.event_within(Duration::from_secs(10), is_typing);
+    assert_eq!(on, Some(expected(true)));
+    let _next = backend.wire();
+    wire.push_close(None);
+    let off = page.event_within(Duration::from_secs(10), is_typing);
+    assert_eq!(off, Some(expected(false)));
     assert!(old.event_within(Duration::from_millis(300), is_typing).is_none());
     mux.cloud_conversations().unwrap().shutdown();
 }

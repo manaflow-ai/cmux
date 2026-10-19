@@ -252,7 +252,15 @@ pub(crate) struct StreamState {
     /// A snapshot or an event reached clients since the last
     /// [`StreamState::take_progress`].
     progressed: bool,
+    /// The participants this socket heard typing `on` and not yet `off`: the
+    /// owner sends their `off` only on a socket, so a socket that ends turns
+    /// them off for the clients ([`StreamState::typing_ended`]).
+    typing: std::collections::BTreeSet<String>,
 }
+
+/// At most this many participants are kept typing per socket (an owner that
+/// sends more is not a real conversation's).
+const MAX_TYPING: usize = 256;
 
 impl StreamState {
     pub(crate) fn new(target: Target, backoff: SnapshotBackoff) -> Self {
@@ -261,7 +269,14 @@ impl StreamState {
         let mirror = StreamMirror::with_reducer(PositionOnly, "daemon-proxy", Value::Null)
             .without_rows()
             .with_snapshot_backoff(backoff);
-        Self { target, mirror, user: None, subscribed: false, progressed: false }
+        Self {
+            target,
+            mirror,
+            user: None,
+            subscribed: false,
+            progressed: false,
+            typing: std::collections::BTreeSet::new(),
+        }
     }
 
     /// True once after a snapshot or an event reached clients: the stream
@@ -441,7 +456,7 @@ impl StreamState {
 
     /// The owner's `conversation-typing {conversation, participant, on}` of
     /// this conversation; any other shape is dropped.
-    fn on_typing(&self, frame: &Value) -> Vec<StreamAction> {
+    fn on_typing(&mut self, frame: &Value) -> Vec<StreamAction> {
         let Target::Conversation(conversation) = &self.target else { return Vec::new() };
         if frame.get("conversation").and_then(Value::as_str) != Some(conversation.as_str()) {
             return Vec::new();
@@ -452,12 +467,36 @@ impl StreamState {
         else {
             return Vec::new();
         };
+        if on {
+            if self.typing.len() >= MAX_TYPING && !self.typing.contains(participant) {
+                return Vec::new();
+            }
+            self.typing.insert(participant.to_string());
+        } else {
+            self.typing.remove(participant);
+        }
         vec![StreamAction::Emit(CloudEvent::Typing {
             conversation: conversation.clone(),
             participant: participant.to_string(),
             on,
             account: None,
         })]
+    }
+
+    /// The socket ended: everyone it heard typing stops, because no `off`
+    /// for them can come on it any more (the next socket hears only new
+    /// typing).
+    pub(crate) fn typing_ended(&mut self) -> Vec<CloudEvent> {
+        let Target::Conversation(conversation) = &self.target else { return Vec::new() };
+        std::mem::take(&mut self.typing)
+            .into_iter()
+            .map(|participant| CloudEvent::Typing {
+                conversation: conversation.clone(),
+                participant,
+                on: false,
+                account: None,
+            })
+            .collect()
     }
 
     fn mine(&self, frame: &Value) -> bool {
