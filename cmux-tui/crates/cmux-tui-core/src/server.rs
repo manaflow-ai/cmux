@@ -891,6 +891,10 @@ enum Command {
         bytes: Option<String>,
         #[serde(default)]
         paste: bool,
+        /// `send-expect-foreground-v1`: write only while the terminal's foreground executable is
+        /// still this one (`process-info`'s `foreground_executable`), checked just before the write.
+        #[serde(default)]
+        expect_foreground: Option<String>,
     },
     ReadScreen {
         surface: SurfaceId,

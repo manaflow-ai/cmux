@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "d6685d20764871f0c31c501adbdac32317c2aaba05737cf58233a0e372edd691";
+pub const ir_sha256 = "b9de83a94651f5ac6d007f8791ea2596bf6eea68a46cb6618a58ef9fdf79f78b";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -8098,6 +8098,7 @@ pub fn selectWorkspace(client: anytype, request: SelectWorkspaceRequest) !wire.D
 
 pub const SendRequest = struct {
     bytes: wire.Field(Base64) = .absent,
+    expect_foreground: wire.Field([]const u8) = .absent,
     paste: ?bool = null,
     surface: wire.Field(Id) = .absent,
     terminal_id: wire.Field([]const u8) = .absent,
@@ -8125,6 +8126,7 @@ pub fn send(client: anytype, request: SendRequest) !wire.Decoded(SendResult) {
             .since = 5,
             .capability = null,
             .fields = &.{
+                .{ .name = "expect_foreground", .since = null, .capability = "send-expect-foreground-v1" },
                 .{ .name = "paste", .since = 7, .capability = null },
                 .{ .name = "terminal_id", .since = null, .capability = "terminal-input-while-creating-v1" },
             },

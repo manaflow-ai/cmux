@@ -28243,6 +28243,11 @@ Result<Json> Codec<SendRequest>::encode(const SendRequest& value) {
         if (!encoded) return std::move(encoded).error();
         object.emplace("bytes", std::move(encoded).value());
     }
+    if (!value.expect_foreground.is_absent()) {
+        auto encoded = encode_value(value.expect_foreground);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("expect_foreground", std::move(encoded).value());
+    }
     if (value.paste) {
         auto encoded = encode_value(*value.paste);
         if (!encoded) return std::move(encoded).error();
@@ -28278,6 +28283,16 @@ Result<SendRequest> Codec<SendRequest>::decode(const Json& value) {
             auto decoded = decode_value<Base64>(*field_bytes);
             if (!decoded) return std::move(decoded).error();
             result.bytes = Field<Base64>(std::move(decoded).value());
+        }
+    }
+    const Json* field_expect_foreground = value.find("expect_foreground");
+    if (field_expect_foreground) {
+        if (field_expect_foreground->is_null()) {
+            result.expect_foreground = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_expect_foreground);
+            if (!decoded) return std::move(decoded).error();
+            result.expect_foreground = Field<std::string>(std::move(decoded).value());
         }
     }
     const Json* field_paste = value.find("paste");
@@ -40622,7 +40637,8 @@ constexpr std::array<CommandFieldRequirement, 2> kCommand198FieldRequirements{{
 constexpr std::array<CommandFieldRequirement, 1> kCommand202FieldRequirements{{
     {"key", 9U, ""},
 }};
-constexpr std::array<CommandFieldRequirement, 2> kCommand209FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 3> kCommand209FieldRequirements{{
+    {"expect_foreground", 0U, "send-expect-foreground-v1"},
     {"paste", 7U, ""},
     {"terminal_id", 0U, "terminal-input-while-creating-v1"},
 }};

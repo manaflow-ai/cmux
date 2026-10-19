@@ -184,8 +184,18 @@ pub(super) fn handle_command_with_cancellation(
         Command::ApplyLayout { workspace, name, layout, cols, rows } => {
             cmd_panes::apply_layout(mux, actor, workspace, name, layout, cols, rows)
         }
-        Command::Send { surface, terminal_id, text, bytes, paste } => {
-            cmd_terminal_io::send(mux, client, writer, surface, terminal_id, text, bytes, paste)
+        Command::Send { surface, terminal_id, text, bytes, paste, expect_foreground } => {
+            cmd_terminal_io::send(
+                mux,
+                client,
+                writer,
+                surface,
+                terminal_id,
+                text,
+                bytes,
+                paste,
+                expect_foreground,
+            )
         }
         Command::ReadScreen { surface } => cmd_terminal_io::read_screen(mux, surface),
         Command::ClearHistory { surface, fallback_key } => {

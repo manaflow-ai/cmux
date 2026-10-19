@@ -1420,6 +1420,7 @@ CLI mapping: verb `apply-layout`; flags `[--workspace <id>] [--name <name>] [--c
 | since | protocol 5 |
 | `paste` field | protocol 7 additive extension |
 | `terminal_id` field | `terminal-input-while-creating-v1` additive extension |
+| `expect_foreground` field | `send-expect-foreground-v1` additive extension |
 
 Writes input to a PTY surface. `text`, when present, is UTF-8 encoded and written as bytes. `bytes`, when present, is standard base64 decoded and written as raw bytes. If both are present, v5 writes `text` first and `bytes` second. If neither is present, v5 returns success and writes nothing.
 
@@ -1434,6 +1435,14 @@ Params:
 | `text` | `string` | default null | Written before `bytes` when both are present |
 | `bytes` | `Base64` | default null | Decoded with standard base64 |
 | `paste` | `boolean` | default false | Protocol 7; conditionally wraps the combined non-empty payload when DEC mode 2004 is enabled |
+| `expect_foreground` | `string` | default null | `send-expect-foreground-v1`; needs `surface`; write only while the foreground executable is this one |
+
+With `send-expect-foreground-v1`, `expect_foreground` names the executable the caller saw in the
+foreground (`process-info`'s `foreground_executable`, compared byte for byte). Right before the write the
+server reads the surface's foreground process-group leader again; when it is a different executable, or
+cannot be read, the request fails with `foreground changed: ...` and writes nothing. A reply typed to an
+agent therefore never runs as a shell command after that agent exited. It needs `surface`: with
+`terminal_id` the request fails with `bad request`. A server without the capability ignores the field.
 
 With `terminal-input-while-creating-v1`, `terminal_id` addresses the terminal by its host id. A
 `split`, `new-pane`, `new-pane-right` or `new-tab` that names a caller-minted `terminal_id` makes that id

@@ -66,6 +66,10 @@ pub(super) fn paste_image(
 }
 
 #[allow(clippy::too_many_arguments)] // the `send` command's fields, plus the connection
+/// `send-expect-foreground-v1`: `send` takes `expect_foreground`.
+pub(super) const SEND_EXPECT_FOREGROUND_CAPABILITY: &str = "send-expect-foreground-v1";
+
+#[allow(clippy::too_many_arguments)]
 pub(super) fn send(
     mux: &Arc<Mux>,
     client: u64,
@@ -75,9 +79,13 @@ pub(super) fn send(
     text: Option<String>,
     bytes: Option<String>,
     paste: bool,
+    expect_foreground: Option<String>,
 ) -> anyhow::Result<Value> {
     let surface = match (surface, terminal_id) {
         (Some(surface), None) => surface,
+        (None, Some(_)) if expect_foreground.is_some() => {
+            anyhow::bail!("bad request: expect_foreground needs surface, not terminal_id")
+        }
         (None, Some(terminal_id)) => {
             return super::creating_input::send_to_terminal(
                 mux,
@@ -95,6 +103,16 @@ pub(super) fn send(
     require_pty(&surface)?;
     // Bytes queued for this terminal while it was being created go first.
     mux.wait_for_creating_input_flush(&surface);
+    // A reply meant for the program that asked must not reach the shell that took the foreground
+    // back after it exited: checked here, right before the write, not a round trip earlier.
+    if let Some(expected) = expect_foreground {
+        let found = surface.process_id().and_then(platform::foreground_process_name);
+        if found.as_deref() != Some(expected.as_str()) {
+            return Err(DeliveryClassifiedError::known_not_delivered(anyhow::anyhow!(
+                "foreground changed: the expected program no longer runs in the foreground"
+            )));
+        }
+    }
     if paste {
         let mut payload = text.unwrap_or_default().into_bytes();
         if let Some(b64) = bytes {

@@ -554,6 +554,7 @@ fn blocking_wait_cannot_overtake_input_queued_behind_a_clear_barrier() {
                 text: Some("input".to_string()),
                 bytes: None,
                 paste: false,
+                expect_foreground: None,
             },
         ),
         (2, Command::WaitFor { surface: 2, pattern: "never".to_string(), timeout_ms: 60_000 }),

@@ -111,10 +111,22 @@ fn a_reply_reaches_the_program_that_still_runs() {
 fn expect_foreground_needs_a_live_surface() {
     let server = HeadlessServer::start("send-expect-foreground-terminal-id");
     let (terminal, _) = terminal(&server);
+    let host_id = json_socket_request(
+        &server.socket,
+        serde_json::json!({"id": 1, "cmd": "resolve-terminal", "terminal_id": terminal}),
+    )["terminal_id"]
+        .as_str()
+        .expect("host terminal id")
+        .to_string();
+    let plain = raw_request(
+        &server,
+        serde_json::json!({"id": 4, "cmd": "send", "terminal_id": host_id, "text": ""}),
+    );
+    assert_eq!(plain["ok"], true, "send by terminal_id failed on its own: {plain}");
     let refused = raw_request(
         &server,
         serde_json::json!({
-            "id": 4, "cmd": "send", "terminal_id": terminal, "text": "x",
+            "id": 5, "cmd": "send", "terminal_id": host_id, "text": "",
             "expect_foreground": "sleep",
         }),
     );
