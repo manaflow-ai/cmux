@@ -44,12 +44,16 @@ export const canFork = (snapshot: AcpmuxSnapshot) =>
 export const forksAnyTurn = (family: string | undefined) => family === "claude" || family === "codex";
 
 /// Every turn a fork can start from, newest first: its seq and the prompt that began it (on one
-/// line). A steer later in the turn does not rename it; a turn begun without text (an image only)
-/// is left out rather than shown under another turn's prompt.
-export function forkablePrompts(rows: readonly { kind: string; seq?: number; text?: string }[]) {
+/// line). A steer later in the turn does not rename it, nor does a prompt that failed or is still
+/// pending; a turn begun without text (an image only) is left out rather than shown under another
+/// turn's prompt.
+export function forkablePrompts(
+  rows: readonly { kind: string; seq?: number; text?: string; failed?: boolean; pending?: boolean }[],
+) {
   const prompts: { seq: number; text: string }[] = [];
   let prompt: string | undefined;
   for (const row of rows) {
+    if (row.kind === "user" && (row.failed || row.pending)) continue;
     if (row.kind === "user" && prompt === undefined) prompt = row.text?.trim().replace(/\s+/g, " ") ?? "";
     else if (row.kind === "turnSummary") {
       if (row.seq !== undefined && prompt) prompts.push({ seq: row.seq, text: prompt });
@@ -60,9 +64,15 @@ export function forkablePrompts(rows: readonly { kind: string; seq?: number; tex
 }
 
 /// The chat menu's Fork submenu's earlier turns: up to eight, newest first, after From here (the
-/// latest turn).
-export function earlierForkPrompts(rows: readonly { kind: string; seq?: number; text?: string }[]) {
-  return forkablePrompts(rows).slice(1, 9);
+/// latest turn). The latest turn is left out by its seq, not by position: an image-only latest turn
+/// is not in `forkablePrompts`, so the first entry is then an earlier turn.
+export function earlierForkPrompts(
+  rows: readonly { kind: string; seq?: number; text?: string; failed?: boolean; pending?: boolean }[],
+) {
+  const latest = latestForkSeq(rows);
+  return forkablePrompts(rows)
+    .filter((prompt) => prompt.seq !== latest)
+    .slice(0, 8);
 }
 
 /// The latest completed turn's summary event: the one turn a fork goes through unless the chat
