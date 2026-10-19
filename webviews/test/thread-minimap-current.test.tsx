@@ -64,9 +64,10 @@ dom.window.HTMLElement.prototype.scrollTo = function (this: HTMLElement, options
   this.scrollTop = top;
 } as typeof HTMLElement.prototype.scrollTo;
 
-const { act } = await import("react");
+const { act, createRef, useLayoutEffect } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
+const { ThreadMinimap } = await import("../src/agent-session/acpmux/threadMinimap/ThreadMinimap");
 
 afterAll(() => {
   dom.window.close();
@@ -85,6 +86,56 @@ const turns = Array.from({ length: TURNS }, (_, index) => [
 ]).flat();
 
 const scale = (tick: Element) => tick.querySelector<HTMLElement>(".acpmux-minimap__bar")!.style.transform;
+
+test("a tick click and a next-turn command during commit use the new geometry", async () => {
+  const root = createRoot(dom.window.document.getElementById("root")!);
+  const scroller = createRef<HTMLElement>();
+  scroller.current = dom.window.document.createElement("div");
+  const rows = [
+    row("commit-first", "user", "First"),
+    row("commit-second", "user", "Second"),
+    row("commit-third", "user", "Third"),
+  ];
+  const draw = (top: number, duringCommit: boolean) => {
+    const layout = {
+      tops: Float64Array.from([0, top, 2000]),
+      heights: Float64Array.from([top, 2000 - top, 1000]),
+      totalHeight: 3000,
+    };
+    function CommitClick() {
+      useLayoutEffect(() => {
+        if (!duringCommit) return;
+        dom.window.document.querySelector<HTMLButtonElement>('[data-tick="1"]')!.click();
+        scroller.current!.scrollTop = 0;
+        dom.window.dispatchEvent(new dom.window.Event("cmux-acpmux-nextTurn"));
+      });
+      return null;
+    }
+    return act(async () =>
+      root.render(
+        <>
+          <ThreadMinimap
+            rows={rows}
+            getLayout={() => layout}
+            scroller={scroller}
+            scrollTop={0}
+            viewportHeight={VIEWPORT}
+            width={1040}
+          />
+          <CommitClick />
+        </>,
+      ),
+    );
+  };
+  try {
+    await draw(800, false);
+    jumps.length = 0;
+    await draw(1200, true);
+    expect(jumps).toEqual([1200, 1200]);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
 
 test("the minimap draws the turn being read longer than the others, in the accent", async () => {
   const root = createRoot(dom.window.document.getElementById("root")!);
@@ -114,6 +165,39 @@ test("the minimap draws the turn being read longer than the others, in the accen
     scroller.scrollTop = 0;
     await act(async () => void scroller.dispatchEvent(new dom.window.Event("scroll")));
     expect(check()).toBe(0);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("a kept minimap tick jumps using the latest geometry after a reply changes", async () => {
+  const { layoutConversation, transcriptRowWidth } = await import("../src/agent-session/acpmux/model");
+  const root = createRoot(dom.window.document.getElementById("root")!);
+  const expanded = new Set<string>();
+  const onToggleActivity = () => {};
+  const draw = async (rows: AcpmuxRow[]) => {
+    await act(async () =>
+      root.render(<VirtualTranscript rows={rows} onToggleActivity={onToggleActivity} expanded={expanded} />),
+    );
+  };
+  try {
+    await draw(turnView(turns, expanded));
+    const changed = turns.map((one, index) =>
+      index === 1
+        ? {
+            ...one,
+            version: 2,
+            text: "A much longer answer.\n\n".repeat(30),
+          }
+        : one,
+    );
+    const rows = turnView(changed, expanded);
+    await draw(rows);
+    const target = rows.findIndex((one) => one.id === "t4-user");
+    const expected = layoutConversation(rows, transcriptRowWidth(1040)).tops[target];
+    jumps.length = 0;
+    await act(async () => dom.window.document.querySelector<HTMLButtonElement>('[data-tick="4"]')!.click());
+    expect(jumps).toEqual([expected]);
   } finally {
     await act(async () => root.unmount());
   }
