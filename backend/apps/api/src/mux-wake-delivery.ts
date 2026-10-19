@@ -107,12 +107,14 @@ export const settleWake = (sql: SqlStorage, w: Pick<Wake, "conversation" | "seq"
  * now due again FIRST_RETRY_MS from `now` (its send starts at once; the alarm resends it only if that send dies).
  * Without this a message that came while an earlier wake's RPC was in flight waited for the alarm (about 30 s).
  */
-export const nextWaiting = (sql: SqlStorage, w: Pick<Wake, "conversation" | "seq">, now: number): { conversation: string; seq: number; reason: string } | null => {
+export const nextWaiting = (sql: SqlStorage, w: Pick<Wake, "conversation" | "seq">, now: number): { conversation: string; seq: number; reason: string; at: number } | null => {
   table(sql)
-  const r = sql.exec<{ seq: number; reason: string }>(`SELECT seq, reason FROM mux_wake_delivery WHERE conversation = ? AND seq > ? ORDER BY seq LIMIT 1`, w.conversation, w.seq).toArray()[0]
+  const r = sql.exec<{ seq: number; reason: string; first_at: number }>(`SELECT seq, reason, first_at FROM mux_wake_delivery WHERE conversation = ? AND seq > ? ORDER BY seq LIMIT 1`, w.conversation, w.seq).toArray()[0]
   if (!r) return null
-  sql.exec(`UPDATE mux_wake_delivery SET next_at = ? WHERE conversation = ? AND seq = ?`, now + FIRST_RETRY_MS, w.conversation, r.seq)
-  return { conversation: w.conversation, seq: Number(r.seq), reason: String(r.reason) }
+  // Every newer row too: the alarm must not send one of them while the chain is still on an older one (order kept).
+  sql.exec(`UPDATE mux_wake_delivery SET next_at = MAX(next_at, ?) WHERE conversation = ? AND seq >= ?`, now + FIRST_RETRY_MS, w.conversation, r.seq)
+  // `at`: when MuxDO took it (Run.timing mux_at; the brain ignores a value older than 60 s).
+  return { conversation: w.conversation, seq: Number(r.seq), reason: String(r.reason), at: Number(r.first_at) }
 }
 
 /** The undelivered wakes due now, grouped by conversation in seq order (at most `limit`). */
