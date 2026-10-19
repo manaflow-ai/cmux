@@ -1050,6 +1050,7 @@
       }
     },
     "changelog.page.internalChange": {
+      "comment": "Changelog page, under All Changes: one more change left out as internal work (CI, tests, refactors) that people would not notice.",
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -1181,6 +1182,7 @@
       }
     },
     "changelog.page.internalChanges": {
+      "comment": "Changelog page, under All Changes: how many more changes were left out as internal work (CI, tests, refactors); %@ is the count, always 2 or more.",
       "extractionState": "manual",
       "localizations": {
         "en": {
