@@ -94,8 +94,9 @@ mod terminal_metadata;
 pub use cmux_tui_util::terminal_respawn_text;
 mod workspace_registry;
 
+/// The executable terminal hosts run from (the cmux-tui-platform crate).
 #[cfg(unix)]
-use cmux_tui_platform::host_exe;
+pub use cmux_tui_platform::host_exe;
 pub mod layout;
 /// OS primitives; the cmux-tui-platform crate, re-exported at the old paths.
 pub use cmux_tui_platform::platform;
