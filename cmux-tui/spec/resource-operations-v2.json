@@ -28323,6 +28323,17 @@
             },
             "description": "When present, exact name bytes are preserved, including empty, whitespace, and Unicode."
           },
+          "engine": {
+            "required": false,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "webkit",
+                "cef"
+              ]
+            },
+            "description": "The engine the app renders the tab with when the tab becomes an app-rendered (frontend) tab. Absent is the person's browser.defaultEngine setting: webkit for webkit, else cef (Chromium, the setting's default). A cmux-browser provider renders its own tabs and ignores it."
+          },
           "width_px": {
             "required": false,
             "type": {
