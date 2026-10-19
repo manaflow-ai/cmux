@@ -277,6 +277,22 @@ class MainFixEvidenceTests(unittest.TestCase):
             self.validate()
 
 class InstalledHelperRegression(unittest.TestCase):
+    def test_help_prints_usage_without_querying_github(self):
+        with tempfile.TemporaryDirectory() as directory:
+            gh = Path(directory) / "gh"
+            gh.write_text("#!/bin/sh\necho gh-called >&2\nexit 2\n")
+            gh.chmod(0o755)
+            for flag in ("--help", "-h"):
+                result = subprocess.run(
+                    [str(ROOT / "scripts/gh-merge-green"), flag],
+                    env={**os.environ, "PATH": directory + os.pathsep + os.environ["PATH"], "GH_MERGE_GREEN_NO_AUTO_UPDATE": "1"},
+                    capture_output=True,
+                    text=True,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn("gh-merge-green OWNER/REPO#PR", result.stdout)
+                self.assertNotIn("gh-called", result.stderr)
+
     def test_main_fix_from_symlink_resolves_checked_in_validator(self):
         with tempfile.TemporaryDirectory() as directory:
             directory = Path(directory)

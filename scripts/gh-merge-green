@@ -29,6 +29,17 @@ refuse() {
 
 trap on_error ERR
 
+case "${1:-}" in
+  -h|--help)
+    printf '%s\n' \
+      'usage: gh-merge-green OWNER/REPO#PR [--main-fix] [--override "reason"] [--trust-fork-head SHA] [gh pr merge flags...]' \
+      '       gh-merge-green --revert OWNER/REPO#PR' \
+      'Merges only when the PR head'"'"'s required-in-practice checks are green.' \
+      "$repair_note"
+    exit 0
+    ;;
+esac
+
 [ "$#" -gt 0 ] || refuse \
   'not green: missing OWNER/REPO#NUMBER' \
   'pass the pull request reference, for example OWNER/REPO#123'
