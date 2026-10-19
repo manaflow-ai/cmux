@@ -1104,7 +1104,8 @@
             "rows" : [
               "phone.allowConnections",
               "phone.startSessions",
-              "phone.keepAwake"
+              "phone.keepAwake",
+              "phone.cloudReplica"
             ],
             "title" : {
               "key" : "settings.group.phone",
@@ -4015,7 +4016,7 @@
       },
       "help" : {
         "key" : "settings.phone.allowConnections.help",
-        "text" : "So your phone can find this Mac, cmux registers with its servers this Mac's name, device ID and platform, the app's bundle ID, version and build channel, the Mac's relay address and connection key, and your account and team IDs. Workspace names, folders, full paths and terminal output go only over the encrypted link to your phone. None of that, and no branch name or repo URL, is sent to cmux servers."
+        "text" : "So your phone can find this Mac, cmux registers with its servers this Mac's name, device ID and platform, the app's bundle ID, version and build channel, the Mac's relay address and connection key, and your account and team IDs. Workspace names, folders, full paths and terminal output go only over the encrypted link to your phone. None of that, and no branch name or repo URL, is sent to cmux servers. Exception: while “Show This Mac's Workspaces on Your Phone While It's Off” is on, cmux servers store each workspace's ID, resource ID, short ID, name, name revision, group, color, icon, pinned state, unread mark, unread count and whether it is active."
       },
       "kept_on_reset_all" : false,
       "key" : "phone.allowConnections",
@@ -4166,6 +4167,57 @@
       "title" : {
         "key" : "settings.phone.keepAwake",
         "text" : "Keep Mac Awake for Your Phone"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.phone",
+        "text" : "Phone Access"
+      },
+      "help" : {
+        "key" : "settings.phone.cloudReplica.help",
+        "text" : "cmux stores this Mac's workspace names, colors and unread counts so your phone can show them while the Mac is off. A workspace name can be a folder's name. No paths, tab titles or terminal output. Turning this off deletes the copy."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "phone.cloudReplica",
+      "keywords" : [
+        "iphone",
+        "mobile",
+        "phone",
+        "cloud",
+        "offline",
+        "workspaces",
+        "sync",
+        "privacy"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "phone",
+        "cloudReplica"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "machines",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.phone.cloudReplica",
+        "text" : "Show This Mac's Workspaces on Your Phone While It's Off"
       },
       "validation" : "portable"
     },
