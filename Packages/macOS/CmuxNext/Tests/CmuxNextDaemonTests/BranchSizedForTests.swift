@@ -83,12 +83,13 @@ struct BranchSizedForTests {
 
     /// The first size state whose notice (and state) matches `wanted`; `.some(nil)` is a cleared
     /// notice. Returns the matched notice, or a sentinel notice naming the end of the stream.
-    private static func notice(
+    /// Nonisolated: the iterator stays in this task's region while `next()` runs (the target's
+    /// default isolation is the main actor).
+    private nonisolated static func notice(
         in events: inout AsyncStream<TerminalChannelEvent>.Iterator,
-        isolation: isolated (any Actor)? = #isolation,
         where wanted: (TerminalSizeNotice?, TerminalSizeState) -> Bool
     ) async -> TerminalSizeNotice? {
-        while let event = await events.next(isolation: isolation) {
+        while let event = await events.next() {
             switch event {
             case .sizeState(let state, let participant):
                 let notice = state.notice(for: participant)
