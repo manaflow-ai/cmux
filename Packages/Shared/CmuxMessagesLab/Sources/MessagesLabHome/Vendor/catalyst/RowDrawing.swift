@@ -196,9 +196,9 @@ enum RowDraw {
             }
         case let .notice(s):
             // As the unsent notice below (ask 9, HostHooks.swift).
+            // cmux: at the typing bubble's left edge, the row above it (Layout), not centered.
             let f = HomeFonts.system(ofSize: 11) // HomeFonts (cx-qpqs)
-            let w = TextDraw.width(s, font: f)
-            TextDraw.line(s, font: f, color: Fixture.secondaryText, x: m.centerX + 0.1 - w / 2, baseline: top + 12, in: ctx)
+            TextDraw.line(s, font: f, color: Fixture.secondaryText, x: noticeLeft, baseline: top + 12, in: ctx)
         case let .unsent(outgoing):
             let s = outgoing ? Strings.unsentMine : Strings.unsentTheirs
             let f = HomeFonts.system(ofSize: 11) // HomeFonts (cx-qpqs)
@@ -258,6 +258,8 @@ enum RowDraw {
     /// as a layer whose top RowCell snaps to a whole device pixel (tools/evidence/ANIMATIONS.md section 6,
     /// cx-3cb typing-pixels; before: 20.14, 4.31, 43.69 x 27.19 from a capsule fit with a blur bias).
     static let typingBubble = CGRect(x: 20, y: margin + 4.335, width: 44, height: 27)
+    /// cmux: the host status line's left edge (row coordinates): the typing bubble's, a point in.
+    static var noticeLeft: CGFloat { typingBubble.minX + 1 }
     /// The point the typing bubble grows from (row coordinates): Messages' fitted scale centre,
     /// 19.1 pt left of and 8.7 pt above the bubble's centre (tools/evidence/ANIMATIONS.md section 6).
     static var typingAnchor: CGPoint { CGPoint(x: typingBubble.midX - 19.07, y: typingBubble.midY - 8.71) }

@@ -31,6 +31,9 @@ protocol ChatIntents: AnyObject {
     func takeAttachments(from pasteboard: NSPasteboard) -> Bool
     /// While dragging: whether a drop would be taken (types only).
     func acceptsAttachments(from pasteboard: NSPasteboard) -> Bool
+    /// A click on the status line (the Chief's "working on" line): `rect` is its text in `view`'s
+    /// coordinates, where the turn's details open.
+    func statusLineClicked(_ rect: CGRect, in view: NSView)
     /// The field's text changed (the host clears its notice).
     func draftChanged()
     /// A link card was clicked (it opens too): a domain-only card may fetch its preview now.

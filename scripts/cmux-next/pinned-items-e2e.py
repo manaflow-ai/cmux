@@ -240,8 +240,9 @@ try:
     check("the main menu reads Pin Workspace for an unpinned workspace", "error" not in (menu or {"error": 1}), json.dumps(menu))
     pinned = wait("Gamma tile", lambda: item_for(ws["Gamma"]))
     check("user pin from the main menu makes a tile", bool(pinned))
-    check("user pin shows an undo toast", bool(wait("pin toast", toasts, 5)), json.dumps(toasts()))
-    shot("2-pin-undo-toast")
+    # A pin is not destructive: no toast (Lawrence 2026-10-18), only the undo step.
+    check("user pin shows no toast", not wait("pin toast", toasts, 2), json.dumps(toasts()))
+    shot("2-pin-no-toast")
     key("z", ["command"])
     check("Cmd-Z undoes the user's pin", wait("Gamma unpinned", lambda: item_for(ws["Gamma"]) is None, 5) is True)
 
