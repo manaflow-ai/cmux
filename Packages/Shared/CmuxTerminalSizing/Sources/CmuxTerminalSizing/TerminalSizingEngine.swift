@@ -154,8 +154,8 @@ public struct TerminalSizingEngine: Sendable {
             entry.participant.viewport.map { Sized(entry: entry, viewport: $0) }
         }
         // Ties happen only between handhelds whose attach was not activity
-        // (activity 0): the later attached one wins, as in the Rust twin
-        // (`max_by_key` keeps the last maximum).
+        // (activity 0): the later entry wins, as in the Rust twin (`max_by_key`
+        // keeps the last maximum). An attach again replaces its entry in place.
         func newest(_ list: [Sized]) -> Sized? {
             list.enumerated().max { ($0.element.entry.activity, $0.offset) < ($1.element.entry.activity, $1.offset) }?.element
         }

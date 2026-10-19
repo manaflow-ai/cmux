@@ -76,6 +76,145 @@
       ]
     },
     {
+      "name": "latest: a phone alone takes the grid on attach",
+      "initial": {
+        "cols": 80,
+        "rows": 24
+      },
+      "steps": [
+        {
+          "op": "attach",
+          "participant": {
+            "id": "phone",
+            "user_id": "u1",
+            "device_kind": "iphone",
+            "viewport": {
+              "cols": 54,
+              "rows": 44
+            }
+          }
+        },
+        {
+          "op": "expect",
+          "cols": 54,
+          "rows": 44,
+          "owners": [
+            "phone"
+          ],
+          "reason": "latest"
+        }
+      ]
+    },
+    {
+      "name": "latest: two phones attach and neither typed: the later attach wins",
+      "initial": {
+        "cols": 80,
+        "rows": 24
+      },
+      "steps": [
+        {
+          "op": "attach",
+          "participant": {
+            "id": "phone-a",
+            "user_id": "u1",
+            "device_kind": "iphone",
+            "viewport": {
+              "cols": 54,
+              "rows": 44
+            }
+          }
+        },
+        {
+          "op": "attach",
+          "participant": {
+            "id": "phone-b",
+            "user_id": "u1",
+            "device_kind": "iphone",
+            "viewport": {
+              "cols": 60,
+              "rows": 40
+            }
+          }
+        },
+        {
+          "op": "expect",
+          "cols": 60,
+          "rows": 40,
+          "owners": [
+            "phone-b"
+          ],
+          "reason": "latest"
+        }
+      ]
+    },
+    {
+      "name": "latest: a phone that attaches again keeps its place: the other phone still wins until one types",
+      "initial": {
+        "cols": 80,
+        "rows": 24
+      },
+      "steps": [
+        {
+          "op": "attach",
+          "participant": {
+            "id": "phone-a",
+            "user_id": "u1",
+            "device_kind": "iphone",
+            "viewport": {
+              "cols": 54,
+              "rows": 44
+            }
+          }
+        },
+        {
+          "op": "attach",
+          "participant": {
+            "id": "phone-b",
+            "user_id": "u1",
+            "device_kind": "iphone",
+            "viewport": {
+              "cols": 60,
+              "rows": 40
+            }
+          }
+        },
+        {
+          "op": "attach",
+          "participant": {
+            "id": "phone-a",
+            "user_id": "u1",
+            "device_kind": "iphone",
+            "viewport": {
+              "cols": 50,
+              "rows": 46
+            }
+          }
+        },
+        {
+          "op": "expect",
+          "cols": 60,
+          "rows": 40,
+          "owners": [
+            "phone-b"
+          ],
+          "reason": "latest"
+        },
+        {
+          "op": "activity",
+          "id": "phone-a"
+        },
+        {
+          "op": "expect",
+          "cols": 50,
+          "rows": 46,
+          "owners": [
+            "phone-a"
+          ],
+          "reason": "latest"
+        }
+      ]
+    },
+    {
       "name": "initial size is held until someone reports",
       "initial": {
         "cols": 80,

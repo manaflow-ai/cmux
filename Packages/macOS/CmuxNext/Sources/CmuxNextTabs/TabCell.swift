@@ -199,13 +199,20 @@ final class TabCell {
         layoutLayers()
     }
 
-    /// A rename (here, on another device, by an agent) crossfades the title in
+    /// The name this Mac's inline rename just committed: its echo is direct manipulation (DESIGN.md
+    /// 1.4 rule 4), already drawn by the editor, so it swaps without the crossfade. The next title
+    /// change clears it.
+    var directTitle: String?
+
+    /// A rename (on another device, by an agent) crossfades the title in
     /// place on `crossfade` (plans/cmux-next/sync-ux/DESIGN.md 1.4 rule 6): the
     /// tab's width comes from the strip's layout, not from the text, so nothing
     /// else moves. A cell's first title and an untitled tab swap at once; the
     /// fade is at most `crossfade` under Reduce Motion and none when fades are off.
     private func crossfadeRename(from old: String?) {
-        guard let old, !old.isEmpty, !item.title.isEmpty else { return }
+        let direct = directTitle
+        directTitle = nil
+        guard let old, !old.isEmpty, !item.title.isEmpty, item.title != direct else { return }
         let seconds = Motion.duration(.crossfade)
         guard seconds > 0 else { return }
         let transition = Motion.crossfadeAction

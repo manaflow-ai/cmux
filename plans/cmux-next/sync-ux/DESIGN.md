@@ -159,8 +159,8 @@ rule. The entry is separate from the subagent-prototype search/toggles work in t
 
 - Reducer: `cmux-tui/crates/cmux-terminal-sizing` (Rust) and `Packages/Shared/CmuxTerminalSizing`
   (Swift), identical, replayed against `schemas/terminal-sizing/fixtures.json` by Rust
-  (`cmux-mobile-core`), Swift and Kotlin (`cmux-mobile-ffi`). Modes `latest`, `smallest` (default),
-  `largest`, `priority`, `fixed`; participants with user, device kind, device id, `via` (relay),
+  (`cmux-mobile-core`), Swift and Kotlin (`cmux-mobile-ffi`). Modes `latest`, `smallest` (the default
+  before this design), `largest`, `priority`, `fixed`; participants with user, device kind, device id, `via` (relay),
   viewport, counts override; `held` when nobody counts.
 - Daemon: one engine per terminal runtime (`cmux-tui-core/src/mux/terminal_sizing.rs`), policy =
   per-terminal override, else workspace default, else the reducer default; both in memory only (lost
@@ -219,8 +219,14 @@ Default **Last active** (`latest`), user-selectable per terminal (override) and 
    grid; typing on the Mac takes it back.
 4. Viewers that stop counting (hidden tab, app in background, locked phone, preview with
    `counts:false`) never own the grid; the owner then falls to the most recently active counting view.
-5. Ties between handhelds whose attach was not activity: the later attached one wins (both
-   languages break ties the same way).
+5. Ties between handhelds whose attach was not activity: the later entry wins (both languages
+   break ties the same way). An attach again (a reconnect) replaces the entry in place and resets a
+   handheld's activity to 0: a phone that typed and then reconnects gives the grid back to the
+   desktop that attached last, until it types again.
+6. A client must name its device kind (`set-client-info` before the attach, or the relay
+   sub-view's identity). A client with no kind is `unknown` and is treated as a desktop, so its
+   attach is activity. The Mac's phone relay and cnx-ios do not send a kind yet: phase S3 and the
+   iOS follow-up fix that, not the reducer.
 
 Why not keep `smallest`: in the common case (one person, Mac plus phone or two Macs) it makes the
 best screen the worst one whenever another device is open, and the iOS rules that "make smallest

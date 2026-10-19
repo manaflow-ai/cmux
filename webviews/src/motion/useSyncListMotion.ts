@@ -1,7 +1,8 @@
 // Draws the sync motion model (syncMotion.ts) on a DOM list. One hook per list:
 //
 //   const motion = useSyncListMotion(listRef, rows, { snapshot });
-//   motion.items.map(({ row, exiting }) => <li data-sync-id={row.id} key={row.id}>…</li>)
+//   motion.items.map(({ key, row, exiting }) =>
+//     <li key={key} data-sync-id={row.id} data-sync-exiting={exiting || undefined}>…</li>)
 //
 // - Moves: FLIP. Each row's layout place (relative to the list, without its running slide) is
 //   kept between commits; after a commit a row that changed place starts from where it is DRAWN
@@ -28,7 +29,11 @@ import {
 
 type Place = { x: number; y: number; width: number; height: number };
 
-export type SyncListItem<R extends SyncRow> = { row: R; exiting: boolean };
+/** `key` is the React key: a fading copy of a row has its own, so a row that comes back while its
+ * old copy fades out mounts fresh instead of reusing the fading node. */
+export type SyncListItem<R extends SyncRow> = { key: string; row: R; exiting: boolean };
+
+const exitKey = (id: string) => `${id}\u0000exit`;
 
 export type SyncListMotion<R extends SyncRow> = {
   /** The rows to draw, in order, with rows that are fading out still in place. */
@@ -106,10 +111,11 @@ export function useSyncListMotion<R extends SyncRow>(
   );
 
   const items = useMemo(() => {
-    const out: SyncListItem<R>[] = rows.map((row) => ({ row, exiting: false }));
+    const out: SyncListItem<R>[] = rows.map((row) => ({ key: row.id, row, exiting: false }));
     const live = new Set(rows.map((row) => row.id));
     for (const [id, gone] of [...exiting].sort((a, b) => a[1].index - b[1].index))
-      if (!live.has(id)) out.splice(Math.min(gone.index, out.length), 0, { row: gone.row, exiting: true });
+      if (!live.has(id))
+        out.splice(Math.min(gone.index, out.length), 0, { key: exitKey(id), row: gone.row, exiting: true });
     return out;
   }, [rows, exiting]);
 
@@ -118,18 +124,43 @@ export function useSyncListMotion<R extends SyncRow>(
     const root = list.current;
     if (!root) return;
     if (getComputedStyle(root).position === "static") root.style.position = "relative";
-    const elements = new Map(rowsOf(root).map((element) => [element.dataset.syncId ?? "", element] as const));
-    // A render that only adds or drops a fading row (the exit state) starts its fade and nothing
-    // else: the slides of the change itself keep running.
-    if (drawnPlan.current === plan) {
-      startExits(elements);
-      return;
+    // Live rows by id, fading copies by their exit key.
+    const elements = new Map(
+      rowsOf(root).map((element) => {
+        const id = element.dataset.syncId ?? "";
+        return [element.dataset.syncExiting === "true" ? exitKey(id) : id, element] as const;
+      }),
+    );
+    // A row that came back while its old copy faded out: the copy is gone (items drops it), so
+    // its fade and its exit entry go too.
+    const back = [...exiting.keys()].filter((id) => rows.some((row) => row.id === id));
+    if (back.length > 0) {
+      for (const id of back) {
+        running.current.get(exitKey(id))?.cancel();
+        running.current.delete(exitKey(id));
+      }
+      setExiting((current) => {
+        const next = new Map(current);
+        for (const id of back) next.delete(id);
+        return next;
+      });
     }
+    // Fading copies mounted by the last exit state start their fade in every render.
+    startExits(elements);
+    // A render that only adds or drops a fading row (the exit state) does nothing else: the
+    // slides of the change itself keep running.
+    if (drawnPlan.current === plan) return;
     drawnPlan.current = plan;
     const previousRows = drawnRows.current;
     drawnRows.current = rows;
     const viewport = options.viewport?.current ?? scrollerOf(root);
-    const origin = root.getBoundingClientRect();
+    // Places are in the list's content box: what `position: absolute` in the list means, so a
+    // fading copy lands where its row was, scrolled or not, border or not.
+    const box = root.getBoundingClientRect();
+    const origin = {
+      left: box.left + root.clientLeft - root.scrollLeft,
+      top: box.top + root.clientTop - root.scrollTop,
+    };
     const clip = viewport.getBoundingClientRect();
     // Reads first: drawn shifts, then layout places (drawn box less its running slide).
     const shifts = new Map([...elements].map(([id, element]) => [id, drawnShift(element)] as const));
@@ -215,9 +246,10 @@ export function useSyncListMotion<R extends SyncRow>(
   }
 
   function startExits(elements: Map<string, HTMLElement>) {
-    for (const [id, element] of elements) {
-      const gone = exiting.get(id);
-      if (element.dataset.syncExiting !== "true" || !gone || running.current.has(id)) continue;
+    for (const [id, gone] of exiting) {
+      const key = exitKey(id);
+      const element = elements.get(key);
+      if (!element || running.current.has(key)) continue;
       Object.assign(element.style, {
         position: "absolute",
         left: `${gone.place.x}px`,
@@ -230,9 +262,9 @@ export function useSyncListMotion<R extends SyncRow>(
         easing: "ease-out",
         fill: "forwards",
       });
-      track(id, fade);
+      track(key, fade);
       fade.onfinish = () => {
-        running.current.delete(id);
+        running.current.delete(key);
         setExiting((current) => {
           const next = new Map(current);
           next.delete(id);

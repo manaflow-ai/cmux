@@ -365,8 +365,7 @@ impl TerminalSizingEngine {
         self.activity_clock += 1;
         let mut participant = participant;
         participant.viewport = participant.viewport.map(TerminalGridSize::clamped);
-        let activity =
-            if participant.device_kind.is_handheld() { 0 } else { self.activity_clock };
+        let activity = if participant.device_kind.is_handheld() { 0 } else { self.activity_clock };
         let entry = Entry { participant, activity };
         match self.index(&entry.participant.id) {
             Some(index) => self.entries[index] = entry,
@@ -503,8 +502,9 @@ impl TerminalSizingEngine {
             return (self.held, Vec::new(), TerminalSizingReason::Held);
         }
         // Ties happen only between handhelds whose attach was not activity
-        // (activity 0); the later attached one wins. `max_by_key` keeps the
-        // last maximum in attach order; the Swift twin breaks ties the same way.
+        // (activity 0): the later entry wins. `max_by_key` keeps the last
+        // maximum; an attach again replaces its entry in place, so it keeps its
+        // place. The Swift twin breaks ties the same way.
         fn newest<'a>(list: impl Iterator<Item = &'a &'a Entry>) -> &'a Entry {
             // crash-allow: callers pass a non-empty list
             list.max_by_key(|entry| entry.activity).expect("non-empty")

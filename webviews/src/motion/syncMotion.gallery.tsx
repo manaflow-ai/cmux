@@ -34,9 +34,9 @@ function ClientList({ device, rows, batch }: { device: Device; rows: SyncRow[]; 
   const motion = useSyncListMotion(list, rows, batch);
   return (
     <ul ref={list} className={`sm-list sm-list-${device}`} data-sync-list="" aria-label="Workspaces">
-      {motion.items.map(({ row, exiting }) => (
+      {motion.items.map(({ key, row, exiting }) => (
         <li
-          key={row.id}
+          key={key}
           className="sm-row"
           data-sync-id={row.id}
           data-sync-exiting={exiting ? "true" : undefined}
