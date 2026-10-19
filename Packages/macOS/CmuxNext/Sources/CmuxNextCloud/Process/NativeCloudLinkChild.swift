@@ -61,7 +61,68 @@ package actor NativeCloudLinkChild {
         guard epoch == generation else { throw CancellationError() }
     }
 
-    private func launch(epoch: UInt64) async throws -> String { throw POSIXError(.EOPNOTSUPP) }
+    private func launch(epoch: UInt64) async throws -> String {
+        let startup = try await prepare()
+        try check(epoch)
+        guard !startup.bytes.isEmpty, startup.bytes.count <= 4096,
+              let bundle = Bundle(url: bundleURL) else { throw POSIXError(.EACCES) }
+        let executable = try NativeCloudExecutable(bundle: bundle, publisher: publisher)
+        let (parent, inherited) = try NativeBrokerDescriptor.pair()
+        defer { Darwin.close(parent) }
+        let input = FileHandle(fileDescriptor: inherited, closeOnDealloc: true)
+        defer { try? input.close() }
+        let process = ChildProcess(executable: executable.binary,
+            arguments: ["link", "serve", "--native-cloud-broker-fd", "0", "--state-dir", directory.path],
+            environment: ["HOME": home.path])
+        child = process
+        do {
+            try process.start(inheritedInput: input)
+            try input.close()
+            guard let pid = process.pid, let started = NativeCloudProcessStart(pid: pid) else { throw POSIXError(.EACCES) }
+            // task-owner: bounded startup task; cancellation stops the owned child and closes its peer.
+            let received = Task.detached { try NativeBrokerDescriptor.receive(parent) }
+            var fd: Int32? = try await received.value
+            defer { if let fd { Darwin.close(fd) } }
+            try check(epoch)
+            guard let descriptor = fd else { throw POSIXError(.EPROTO) }
+            try executable.verify(descriptor: descriptor, child: process, started: started)
+            let transport = NativeBrokerStream(descriptor: descriptor)
+            fd = nil; stream = transport
+            try await startup.recheck()
+            try check(epoch)
+            try executable.verify(descriptor: descriptor, child: process, started: started)
+            var bytes = startup.bytes; bytes.append(0x0A)
+            let payload = bytes
+            try await withDeadline(.seconds(5), label: "Native key handoff") { try await transport.send(payload) }
+            let ready: Ready = try await process.firstLine(within: .seconds(10), label: "Native link startup") { line in
+                try? JSONDecoder().decode(Ready.self, from: Data(line.utf8))
+            }
+            try check(epoch)
+            guard ready.event == "link-ready", ready.native, ready.pid == pid, ready.wg_public_key == startup.publicKey,
+                  ready.socket.hasPrefix("/"), ready.socket.utf8.count <= 103 else { throw POSIXError(.EPROTO) }
+            try executable.verify(descriptor: descriptor, child: process, started: started)
+            socket = ready.socket
+            // task-owner: serving; cancelled with the child in stop() and on any protocol/identity failure.
+            serving = Task { [weak self, reply] in
+                do {
+                    try await Self.serve(transport, reply: reply) { [weak self] in
+                        guard let self else { throw CancellationError() }
+                        try await self.check(epoch)
+                        try executable.verify(descriptor: descriptor, child: process, started: started)
+                    }
+                } catch { }
+                await self?.ended(epoch: epoch)
+            }
+            return ready.socket
+        } catch {
+            process.terminateProcessOnly()
+            if child === process {
+                child = nil; socket = nil
+                await stream?.close(); stream = nil
+            }
+            throw error
+        }
+    }
 
     private static func serve(_ transport: NativeBrokerStream,
                               reply: @Sendable (Data) async throws -> Data,
