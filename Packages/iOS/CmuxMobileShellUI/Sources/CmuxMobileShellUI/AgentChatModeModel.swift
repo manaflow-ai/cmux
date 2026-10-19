@@ -151,6 +151,11 @@ final class AgentChatModeModel {
     /// lifecycle pushes can share a revision, so this is intentionally
     /// separate from transcript sequence cursors.
     private var latestVersionBySession: [String: Int] = [:]
+    /// Monotonic token for controls reads. A read starts when a session is
+    /// selected, but a user change can be acknowledged before that read
+    /// returns; the token prevents the older snapshot from overwriting the
+    /// acknowledged controls (or a newer descriptor) afterward.
+    private var controlsRequestTokens: [String: Int] = [:]
     private var pendingSendsBySession: [String: [QueuedSend]] = [:]
     /// The prompt currently crossing the RPC boundary. Keep it visible until
     /// the authoritative transcript appends the corresponding user message so
@@ -274,12 +279,16 @@ final class AgentChatModeModel {
             errorMessage = "Enter a name for this session."
             return
         }
+        let generation = sourceGeneration
         do {
             try await source.rename(sessionID: sessionID, title: trimmed)
+            guard !Task.isCancelled, generation == sourceGeneration else { return }
             if let descriptor = try? await source.session(sessionID: sessionID) {
+                guard !Task.isCancelled, generation == sourceGeneration else { return }
                 upsert(descriptor)
             }
         } catch {
+            guard !Task.isCancelled, generation == sourceGeneration else { return }
             errorMessage = error.localizedDescription
         }
     }
@@ -292,10 +301,13 @@ final class AgentChatModeModel {
               let source,
               deletingSessionIDs.insert(sessionID).inserted else { return }
         defer { deletingSessionIDs.remove(sessionID) }
+        let generation = sourceGeneration
         do {
             try await source.delete(sessionID: sessionID)
+            guard !Task.isCancelled, generation == sourceGeneration else { return }
             removeSessionLocally(sessionID)
         } catch {
+            guard !Task.isCancelled, generation == sourceGeneration else { return }
             errorMessage = error.localizedDescription
         }
     }
@@ -308,9 +320,13 @@ final class AgentChatModeModel {
               let source,
               exportingSessionIDs.insert(sessionID).inserted else { return nil }
         defer { exportingSessionIDs.remove(sessionID) }
+        let generation = sourceGeneration
         do {
-            return try await source.exportTranscript(sessionID: sessionID)
+            let transcript = try await source.exportTranscript(sessionID: sessionID)
+            guard !Task.isCancelled, generation == sourceGeneration else { return nil }
+            return transcript
         } catch {
+            guard !Task.isCancelled, generation == sourceGeneration else { return nil }
             errorMessage = error.localizedDescription
             return nil
         }
@@ -343,6 +359,7 @@ final class AgentChatModeModel {
               let source,
               launchingSessionIDs.insert(sessionID).inserted else { return }
         defer { launchingSessionIDs.remove(sessionID) }
+        let generation = sourceGeneration
         do {
             let result: ChatSessionLaunchResult
             switch action {
@@ -353,12 +370,13 @@ final class AgentChatModeModel {
             case .reopen:
                 result = try await source.reopen(sessionID: sessionID)
             }
+            guard !Task.isCancelled, generation == sourceGeneration else { return }
             pendingLaunchSelections[sessionID] = result
             await refresh()
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, generation == sourceGeneration else { return }
             selectPendingLaunchIfAvailable()
         } catch {
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, generation == sourceGeneration else { return }
             errorMessage = error.localizedDescription
         }
     }
@@ -585,6 +603,7 @@ final class AgentChatModeModel {
         transcriptRevisions = [:]
         historyResetTokens = [:]
         latestVersionBySession = [:]
+        controlsRequestTokens = [:]
         usageRevisions = [:]
         pendingSendsBySession = [:]
         inFlightSendsBySession = [:]
@@ -704,6 +723,8 @@ final class AgentChatModeModel {
         guard let source else { return }
         let generation = sourceGeneration
         sessionTasks[session.id]?.cancel()
+        controlsRequestTokens[session.id, default: 0] &+= 1
+        let controlsRequestToken = controlsRequestTokens[session.id]!
         // The host-wide stream already carries transcript events for this
         // session with their revisions intact. A second per-session stream
         // would discard those revisions and could replay an old update after
@@ -720,11 +741,15 @@ final class AgentChatModeModel {
         Task { [weak self] in
             guard let self else { return }
             if let controls = try? await source.controls(sessionID: session.id),
+               !Task.isCancelled,
+               generation == self.sourceGeneration,
+               self.controlsRequestTokens[session.id] == controlsRequestToken,
                self.selectedSessionID == session.id {
                 self.controlsBySession[session.id] = controls
-                var descriptor = session
-                descriptor.controls = controls
-                self.upsert(descriptor)
+                if var descriptor = self.sessions.first(where: { $0.id == session.id }) {
+                    descriptor.controls = controls
+                    self.upsert(descriptor)
+                }
             }
         }
     }
@@ -736,14 +761,20 @@ final class AgentChatModeModel {
               selectedSession?.state != .ended,
               updatingControlsSessionIDs.insert(sessionID).inserted else { return }
         defer { updatingControlsSessionIDs.remove(sessionID) }
+        // Invalidate a controls read that may have started during selection.
+        // The host acknowledgement below is newer than that snapshot.
+        controlsRequestTokens[sessionID, default: 0] &+= 1
+        let generation = sourceGeneration
         do {
             let acknowledged = try await source.updateControls(controls, sessionID: sessionID)
+            guard !Task.isCancelled, generation == sourceGeneration else { return }
             controlsBySession[sessionID] = acknowledged
             if var descriptor = sessions.first(where: { $0.id == sessionID }) {
                 descriptor.controls = acknowledged
                 upsert(descriptor)
             }
         } catch {
+            guard !Task.isCancelled, generation == sourceGeneration else { return }
             errorMessage = error.localizedDescription
         }
     }
@@ -1447,6 +1478,7 @@ final class AgentChatModeModel {
             historyReloadTasks[sessionID] = nil
             sessions.removeAll { $0.id == sessionID }
             controlsBySession[sessionID] = nil
+            controlsRequestTokens[sessionID] = nil
             messagesBySession[sessionID] = nil
             terminalBlocksBySession[sessionID] = nil
             usageBySession[sessionID] = nil
