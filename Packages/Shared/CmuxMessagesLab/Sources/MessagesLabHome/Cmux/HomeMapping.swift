@@ -70,12 +70,20 @@ enum HomeMapping {
         let mentions = item.parts.contains { if case let .text(_, m) = $0 { return !m.isEmpty } else { return false } }
         let format: MessageFormat = isAgent(item.author, summary) && !mentions ? .markdown : .plain
         var message = Message(id: messageID, senderId: item.author.rawValue, sentAt: Instant.format(item.createdAt),
-                parts: parts, replyTo: replyTo(item, roots: roots), status: status(item, me: me, summary: summary), edits: nil,
+                parts: parts, replyTo: replyTo(item, roots: roots), status: status(item, me: me, summary: summary),
+                edits: edits(item),
                 retractedAt: item.isRetracted ? Instant.format(item.editedAt ?? item.createdAt) : nil,
                 reactions: item.reactions.map { reaction($0, partIndex: projectedIndex($0.partIndex, owners)) }, format: format)
         // ThreadMode.tree: the message a nested reply answers (HomeMapping+Tree.swift).
         message.parent = parent(item, roots: roots)
         return message
+    }
+
+    /// An edited message's "Edited" under it (MessagesLab shows it for any recorded edit; HomeStore
+    /// keeps only when, not the old text). nil: never edited, or retracted.
+    static func edits(_ item: TranscriptItem) -> [Message.Edit]? {
+        guard let at = item.editedAt, !item.isRetracted else { return nil }
+        return [Message.Edit(text: "", at: Instant.format(at))]
     }
 
     /// The item's parts as MessagesLab shows them, and for each one the

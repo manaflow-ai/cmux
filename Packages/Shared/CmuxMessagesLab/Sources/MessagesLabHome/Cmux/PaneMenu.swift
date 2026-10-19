@@ -44,7 +44,12 @@ extension ChatController {
             menu.addItem(MenuAction(title: Strings.menuAttachSticker, symbol: MenuSymbols.attachSticker) { [weak self] in self?.showPicker(for: hit) })
         }
         menu.addItem(.separator())
-        // cmux: no Edit or Undo Send (HomeOp has no edit or unsend).
+        // cmux: Edit on my text the owner can take an edit of (`HomeOp.editMessage`), in its own
+        // group as Messages (macOS 27 context-menu-outgoing); no Undo Send.
+        if hit.row.outgoing, hit.row.part.plainText != nil, intents?.editableText(ref.messageId) != nil {
+            menu.addItem(MenuAction(title: Strings.menuEdit) { [weak self] in self?.beginEdit(hit) })
+            menu.addItem(.separator())
+        }
         if case let .text(text, _) = hit.row.part {
             menu.addItem(MenuAction(title: Strings.menuCopy) { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(text, forType: .string) })
         }

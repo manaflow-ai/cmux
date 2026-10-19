@@ -38,7 +38,12 @@ and render-server field animation, blurred header and native scrolling.
     `Vendor/catalyst/HostHooks.swift` is vendored and no `hostHooks` callback
     is set in Home. Home uses ask 9's status line for the Chief's live run
     (`HomeLiveLine` dispatches `.setNotice`); its own `cmuxNotice` row stays
-    hidden while that line shows. A later landing adopts the other hooks (glue:
+    hidden while that line shows. Edit (ask 8) is Home's own glue, not the
+    hook: `Cmux/PaneEdit.swift` ports Host.swift's beginEdit/closeEditor onto
+    the vendored InlineEditor, the menu's Edit and Up in an empty field open
+    it, and the saved text goes to HomeStore as `HomeOp.editMessage`
+    (`ChatIntents.editableText`/`edit`); "Edited" comes back with the
+    message (`HomeMapping.edits`). A later landing adopts the other hooks (glue:
     PaneMenu, ChatController.clicked, HomeProjection id helpers). TranscriptAccess
     stays at bd65bbf, so its 1d45940 selection report (`noteHostFocus` from
     select/deselectBubble) is not in Home; the adopting landing calls

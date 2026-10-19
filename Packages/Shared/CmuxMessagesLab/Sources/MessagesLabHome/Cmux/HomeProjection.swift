@@ -621,6 +621,36 @@ final class HomeProjection: @preconcurrency ChatIntents {
         }
     }
 
+    /// My message the owner holds (a sequence), not retracted, with one text part
+    /// (MessagesLab's editor edits one text), while the owner takes ops (H17, as
+    /// tapbacks). The daemon takes an author's edit at any age (`message.edit`).
+    func editableText(_ id: ID) -> String? {
+        guard isSendEnabled, let item = item(id), item.author == me, item.messageID != nil, item.seq != nil,
+              !item.isRetracted, item.delivery == .committed else { return nil }
+        let texts = item.parts.compactMap { if case let .text(t, _) = $0 { t } else { nil } }
+        return texts.count == 1 ? texts.first : nil
+    }
+
+    /// The editor saved: the message's text part gets `text` (its other parts stay), as
+    /// `HomeOp.editMessage`. An unchanged or empty text sends nothing. Mentions index the
+    /// old text, so a changed text drops them. A refusal goes to `onRefusal`, as a tapback's.
+    func edit(_ id: ID, text: String) {
+        let new = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !new.isEmpty, let old = editableText(id), old != new, let item = item(id), let message = item.messageID else { return }
+        let parts = item.parts.map { p -> MessagePart in if case .text = p { .text(new) } else { p } }
+        let intent = HomeIntent(op: .editMessage(message: message, conversation: conversation, parts: parts))
+        let homeStore = self.homeStore
+        // task-owner: one op; ends with the owner's answer
+        Task { [weak self] in
+            do {
+                _ = try await homeStore.perform(intent.op, key: intent.key)
+            } catch let rejection as HomeRejection {
+                guard let self, !self.stopped else { return }
+                self.onRefusal(intent, rejection)
+            } catch {}
+        }
+    }
+
     func rowsPlaced() {
         video.place()
     }

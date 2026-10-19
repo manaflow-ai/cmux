@@ -302,8 +302,9 @@ extension TranscriptDocumentView {
 /// projection of HomeStore (the single writer), so `install` takes the
 /// adapter's conversation, there is no pager, responder or write-through
 /// source, and the user's changes leave through `intents` instead of being
-/// dispatched (send, tapback); the wake timer is the host's scheduler; edit
-/// and undo send are not offered in the pane;
+/// dispatched (send, tapback, edit); the wake timer is the host's scheduler;
+/// Edit is the host's (`intents.editableText`, PaneEdit.swift), undo send is
+/// not offered in the pane;
 /// the attachment intake (picker, paste, drop) is the host's (`intents`),
 /// the chips, morph and bubbles MessagesLab's.
 final class ChatController: NSObject, NSTextViewDelegate {
@@ -338,6 +339,8 @@ final class ChatController: NSObject, NSTextViewDelegate {
     private(set) var inKeystrokeFrame = false
     private(set) var start: CFTimeInterval = CACurrentMediaTime()
     private(set) var picker: TapbackPickerView?
+    /// The inline editor over my bubble (PaneEdit.swift), nil when none is open.
+    var editor: InlineEditor?
     private var pickerDim: PickerDimView?
     private var pickerKeys: Any?
     /// The pressed bubble lifted above the dim, and the picker's emoji bubble (PaneMenu).
@@ -591,6 +594,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
 
     func escape() {
         if picker != nil { closePicker(); return }
+        if editor != nil { closeEditor(); return }
         // In the field a working agent stops first (one Esc), as before threads; then the
         // thread view. The pane's Esc monitor (focus on the transcript) only closes the view.
         if isWorking { onStop?(); return }
@@ -647,6 +651,8 @@ final class ChatController: NSObject, NSTextViewDelegate {
     func clicked(_ p: CGPoint) {
         guard let demo else { return }
         if picker != nil { closePicker(); return }
+        // A click off the editor cancels the edit, as Messages' does.
+        if editor != nil { closeEditor(); return }
         if let id = demo.compose.chip(at: p) { dispatch(.removeDraftAttachment(id)); return }
         if thread.clicked(p) { return }
         // cmux: a click on the header strip or the field's edge gives the field the keyboard too.

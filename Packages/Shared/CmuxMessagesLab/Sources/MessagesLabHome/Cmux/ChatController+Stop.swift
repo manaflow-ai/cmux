@@ -22,6 +22,8 @@ extension ChatController {
     }
 
     func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+        // Up in an empty field edits my last message (PaneEdit.swift).
+        if commandSelector == #selector(NSResponder.moveUp(_:)) { return editLastMessage() }
         guard commandSelector == #selector(NSResponder.cancelOperation(_:)), isWorking, picker == nil else { return false }
         onStop?()
         return true

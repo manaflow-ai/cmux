@@ -722,7 +722,12 @@ the placeholder until the next re-render), then the turn's images, then the per-
 workspace, resume notes). Our three marks sit on the `<chat>` header, the
 view's end and the delta's end, so a turn reads the whole previous input. An
 edit or retraction of a logged message is logged as a note (`edit of <id>:
-<text>`, `retracted <id>`; a queued one takes the edit or leaves the queue). A re-render happens past 8,000 delta bytes when the
+<text>`, `retracted <id>`; a queued one takes the edit or leaves the queue). An
+edit of a message the Chief would answer that no one but the Chief wrote after
+redoes the conversation from it (Codex parity, `brain/inbox.rs`
+`redo_after_edit`): the Chief's later messages are retracted from the chat, the
+log keeps them, and a `redo of <id>` note starts a turn that answers the edit
+(tests/edit_redo.rs). A re-render happens past 8,000 delta bytes when the
 compactor folded over the front, past 32,000 bytes, or with no frozen view
 (optchat-core `turn_input`, shared with the Cloud brain). Claude Code's own system message after our blocks (deferred
 tools and the rest, below) stays uncached each request: 3,400 tokens with the

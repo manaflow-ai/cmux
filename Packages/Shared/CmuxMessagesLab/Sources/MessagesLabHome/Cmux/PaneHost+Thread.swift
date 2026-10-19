@@ -77,7 +77,7 @@ final class PaneThread {
     func install() {
         guard monitors.isEmpty else { return }
         if let m = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown, handler: { [weak self] e in
-            guard let self, let controller = self.controller, self.isLive(e), controller.picker == nil else { return e }
+            guard let self, let controller = self.controller, self.isLive(e), controller.picker == nil, controller.editor == nil else { return e }
             let host = controller.host
             let p = host.convert(e.locationInWindow, from: nil)
             guard host.bounds.contains(p), self.clicked(p) else { return e }
@@ -86,7 +86,7 @@ final class PaneThread {
         }) { monitors.append(m) }
         if let m = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: { [weak self] e in
             // Only while the key focus is in this pane (a terminal, the sidebar or the palette keep their Esc).
-            guard e.keyCode == 53, let self, let controller = self.controller, self.isLive(e), controller.picker == nil,
+            guard e.keyCode == 53, let self, let controller = self.controller, self.isLive(e), controller.picker == nil, controller.editor == nil,
                   let focus = controller.window?.firstResponder as? NSView, focus.isDescendant(of: controller.host),
                   focus !== self.field else { return e }
             return self.escape() ? nil : e

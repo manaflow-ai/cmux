@@ -18,6 +18,12 @@ protocol ChatIntents: AnyObject {
     func send() -> String?
     /// A tapback from the picker or the context menu.
     func react(_ ref: PartRef, _ kind: Reaction.Kind)
+    /// Edit (the message menu, Up in an empty field): the whole text of my message `id` when the
+    /// owner can take an edit of it, else nil (no Edit).
+    func editableText(_ id: ID) -> String?
+    /// The inline editor saved `text` over my message `id`: it goes to the owner as an edit, and
+    /// the edited message comes back from HomeStore (the bubble changes only then).
+    func edit(_ id: ID, text: String)
     /// Tapbacks are offered (false offline: H17).
     var canReact: Bool { get }
     /// The owner can take a reply (MessagesLab's `.reply`: swipe-to-reply,

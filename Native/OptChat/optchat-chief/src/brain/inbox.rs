@@ -139,11 +139,74 @@ impl Brain {
             key: Some(format!("{key}:{change}")),
             ..optchat_host::NewMessage::new(optchat_core::Kind::Note, &text)
         };
-        if let Err(e) = self.chat.append_with(&[entry], |_| Vec::new()) {
-            (self.log)(&format!(
+        match self.chat.append_with(&[entry], |_| Vec::new()) {
+            // Logged now (a replayed update is logged once, and redoes nothing again).
+            Ok(appended) if appended.fresh.first() == Some(&true) && message.retracted_at.is_none() => {
+                self.redo_after_edit(&main, message, target, &format!("{key}:{change}"));
+            }
+            Ok(_) => {}
+            Err(e) => (self.log)(&format!(
                 "logging the change of message {target} failed: {e}"
+            )),
+        }
+    }
+
+    /// An edit redoes the conversation from the edited message (Codex parity,
+    /// Lawrence 2026-10-19): when no one but the Chief wrote after it, the
+    /// Chief's later messages are retracted from the chat and a turn answers
+    /// the edited text. The log keeps everything (it is append-only); a note
+    /// says the replies after line `target` left the chat. An edit of a message
+    /// someone answered, or one the Chief would not wake for, is only its
+    /// `edit of` note, read by the next turn.
+    fn redo_after_edit(&mut self, main: &str, message: &Message, target: u64, key: &str) {
+        let Some(summary) = self.summary.as_ref() else {
+            return;
+        };
+        let chief = self.settings.membership.participant.clone();
+        if !chief_wakes(&self.settings.membership.rule(false), summary, message, |id| {
+            self.mux_messages.contains(id)
+        }) {
+            return;
+        }
+        let Some(daemon) = self.daemon.as_mut() else {
+            return;
+        };
+        let later = match daemon.snapshot(main, PAGE) {
+            Ok((_, messages)) => messages,
+            Err(e) => {
+                (self.log)(&format!("reading the messages after edited line {target} failed: {e}"));
+                return;
+            }
+        };
+        let later: Vec<&Message> = later
+            .iter()
+            .filter(|m| m.seq > message.seq && m.retracted_at.is_none())
+            .collect();
+        if later.iter().any(|m| m.author != chief) {
+            return;
+        }
+        for m in &later {
+            self.state.outbox.push(super::op_entry(
+                main.to_owned(),
+                &format!("{key}:redo:{}", m.id),
+                Op::MessageRetract {
+                    message_id: m.id.clone(),
+                },
             ));
         }
+        (self.log)(&format!(
+            "message {target} was edited: {} later Chief message(s) retracted, a turn answers the edit",
+            later.len()
+        ));
+        self.save();
+        self.flush_outbox();
+        self.queue(
+            format!(
+                "redo of {target}: the edit replaced the message, and the {} Chief message(s) after it left the chat; answer it as edited",
+                later.len()
+            ),
+            Source::Note,
+        );
     }
 
     /// The queued item of main-conversation message `message` (not logged
