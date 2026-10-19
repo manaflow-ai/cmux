@@ -184,20 +184,24 @@ public nonisolated final class TunableStore: Observable, Sendable {
         }
     }
 
-    private func mutate(_ keys: [String], persist: Bool = true, _ body: (inout [String: TunableValue]) -> Void) {
-        func apply(_ remaining: ArraySlice<String>) {
-            guard let key = remaining.first else {
-                registrar.withMutation(of: self, keyPath: \.revision) {
-                    state.withLock { state in
-                        body(&state.overrides)
-                        state.revision += 1
-                    }
+    /// One observation mutation per key, nested, with `body` inside the last one. A method, not a
+    /// recursive local function that captures `body` (Swift 6.3.3's SendNonSendable pass crashed
+    /// now and then on such captures in Release).
+    private func apply(_ remaining: ArraySlice<String>, _ body: (inout [String: TunableValue]) -> Void) {
+        guard let key = remaining.first else {
+            registrar.withMutation(of: self, keyPath: \.revision) {
+                state.withLock { state in
+                    body(&state.overrides)
+                    state.revision += 1
                 }
-                return
             }
-            registrar.withMutation(of: self, keyPath: keyPath(key)) { apply(remaining.dropFirst()) }
+            return
         }
-        apply(keys[...])
+        registrar.withMutation(of: self, keyPath: keyPath(key)) { apply(remaining.dropFirst(), body) }
+    }
+
+    private func mutate(_ keys: [String], persist: Bool = true, _ body: (inout [String: TunableValue]) -> Void) {
+        apply(keys[...], body)
         guard persist else { return }
         guard let snapshot = state.withLock({ $0.loading ? nil : $0.overrides }) else { return }
         writer.withLock { $0?.write(snapshot) }

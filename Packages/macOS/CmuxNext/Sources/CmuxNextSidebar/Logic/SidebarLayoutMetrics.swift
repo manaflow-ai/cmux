@@ -43,8 +43,8 @@ public nonisolated struct SidebarLayoutMetrics: Hashable, Sendable {
         self.emptySectionHeight = emptySectionHeight
     }
 
-    /// Minimal mode's metrics (`sidebar.minimal`): shorter rows, tab rows and group headers (a
-    /// group header draws as a thin line there, `SidebarRow.isThinHeader`).
+    /// Minimal mode's metrics (`sidebar.minimal`): shorter rows, tab rows and group headers. A
+    /// group header keeps its solid bar in the group's color, only shorter (Lawrence 2026-10-18).
     public var minimal: SidebarLayoutMetrics {
         var m = self
         let step = (rowHeight * 0.17).rounded()
