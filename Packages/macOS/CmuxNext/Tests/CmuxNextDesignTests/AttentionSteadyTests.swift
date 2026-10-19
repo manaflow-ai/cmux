@@ -58,4 +58,26 @@ import Testing
         #expect((values.min() ?? 0) >= rest, "the ring dropped out: \(values)")
         #expect((values.max() ?? 0) > rest)
     }
+
+    /// The static look (cx-sya4n) turns a blink or pulse into the steady ring: the ring then
+    /// rests at the steady strength the swell ends on, so it does not snap down to the faint
+    /// rest when the animation is removed.
+    @Test func staticLookRestsWhereItsSteadySwellEnds() {
+        let design = DesignSettings.shared
+        let before = design.statusIndicator
+        Motion.reduceMotionOverride = false
+        defer {
+            design.statusIndicator = before
+            Motion.reduceMotionOverride = nil
+        }
+        design.statusIndicator.animation = .static
+        for style in [AttentionStyle.blink, .pulse] {
+            var settings = AttentionSettings()
+            settings.style = style
+            let rest = Motion.attentionRestingOpacity(settings, look: .subtle)
+            #expect(rest == AttentionHighlightLook.subtle.steadyOpacity, "\(style) rests at \(rest)")
+            let values = opacities(Motion.attentionAnimation(settings, look: .subtle))
+            #expect(values.last == rest, "\(style) swell ends at \(String(describing: values.last)), rests at \(rest)")
+        }
+    }
 }
