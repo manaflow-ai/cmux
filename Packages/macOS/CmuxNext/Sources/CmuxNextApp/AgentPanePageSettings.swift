@@ -31,6 +31,8 @@ final class AgentPanePageSettings {
     func follow(_ settings: SettingsController, push: @escaping () -> Void) {
         for task in [previewObservation, editedFilesObservation, zoomObservation, composerObservation, reasoningSliderObservation, sidebarPreviewVariantObservation, diffColorsObservation] { task?.cancel() }  // a new controller replaces, never adds
         self.settings = settings
+        // `sessions.promptSuggestions`: the pages, and the next acpmux daemon this app starts.
+        AgentPaneSuggestedTasks.shared.setting = { settings.snapshot.sessions.promptSuggestions }
         previewObservation = observe({ settings.snapshot.previewFeatures }, push: push) { $0.previewFeatures = $1 }
         editedFilesObservation = observe({ settings.snapshot.agentPaneEditedFiles }, push: push) { $0.editedFiles = $1 }
         zoomObservation = observe({ settings.snapshot.agentPaneZoom }, push: push) { $0.zoom = $1 }
@@ -38,11 +40,9 @@ final class AgentPanePageSettings {
             for await value in ObservationStream({ settings.snapshot.agentPaneComposer }) {
                 guard let self else { return }
                 // The reasoning slider is the Debug Settings toggle's, not cmux.json's.
-                let reasoningSlider = composer.reasoningSlider
-                let reasoningSliderStyle = composer.reasoningSliderStyle
-                composer = value
-                composer.reasoningSlider = reasoningSlider
-                composer.reasoningSliderStyle = reasoningSliderStyle
+                var next = value
+                (next.reasoningSlider, next.reasoningSliderStyle) = (composer.reasoningSlider, composer.reasoningSliderStyle)
+                composer = next
                 push()
             }
         }
