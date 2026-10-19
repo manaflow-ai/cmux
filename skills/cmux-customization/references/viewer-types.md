@@ -20,7 +20,7 @@ appear in the schema is not a license to add a guessed `templates.<viewer>` obje
 The current schema exposes only the knobs listed above. Markdown fonts, theme,
 line-height, syntax highlighting and image behavior, plus file-preview backend
 selection, size limits and video autoplay, do not have cmux settings yet. Viewer navigation shortcuts
-are schema-backed under `shortcuts.bindings.diffViewerScroll*` and are shared by
+are schema-backed under `shortcuts.bindings.diffViewer*` (for example `diffViewerNextHunk`) and are shared by
 the Markdown and diff viewers; see the [shortcut action reference](../../cmux-settings/references/shortcut-actions.md)
 and [keyboard shortcut skill](../../cmux-keyboard-shortcuts/SKILL.md) before
 changing them. Explain the remaining boundary and point to the schema or the

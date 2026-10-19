@@ -14,8 +14,8 @@ no `vm.*` socket method on the CLI, and no `cmux rpc`.
   or `cmux action run <id> …` with the same flags. `--wait` waits for the action's
   work to finish. `--json` prints the result object.
 - **Target:** `--target machine:vm-…`. Without it, a machine action applies to the
-  focused cloud workspace's machine. `cmux cloud copy-machine-id` copies an id to
-  the clipboard.
+  focused cloud workspace's machine. The copy actions (machine id, link, port)
+  are menu-only: the CLI never writes the clipboard.
 - **Results** are action results. No action returns command output, a file, a
   listing or a URL on stdout, even with `--json`. Read and list actions show
   their result to the person in an app toast with a Copy button.
@@ -39,9 +39,6 @@ cmux cloud restore-machine --target machine:vm-… --snapshot <snapshot-id>
 cmux cloud promote-machine-to-template --target machine:vm-…
 cmux cloud hand-off-machine --target machine:vm-…
 cmux cloud kill-machine --target machine:vm-…
-cmux cloud copy-machine-id --target machine:vm-…
-cmux cloud copy-machine-link --target machine:vm-… --port <n>
-cmux cloud copy-machine-port --target machine:vm-… --port <n>
 cmux cloud pause-machine --target machine:vm-…
 cmux cloud resume-machine --target machine:vm-…
 cmux cloud delete-snapshot --target machine:vm-… --snapshot <snapshot-id>
@@ -74,7 +71,7 @@ for the public-key argument's flag.
 ```bash
 cmux cloud network-list
 cmux cloud firewall-list | firewall-get | firewall-create | firewall-delete   # --path <rule-id>, or JSON for create
-cmux cloud tunnel-attach | tunnel-detach | tunnel-rotate-key                 # --path <network-id>; this Mac
+cmux cloud tunnel-attach | tunnel-detach | tunnel-rotate-key                 # attach/detach: --path <network-id>; rotate-key: a public key (see cmux action describe); this Mac
 cmux cloud domain-list
 cmux cloud publication-list
 cmux cloud move          # Move to Cloud: an agent chat tab, optional --machine
@@ -123,7 +120,7 @@ and `vm ls`. See [guest operations](guest.md).
 | `vm pull\|download` | read the file in a terminal on the machine; `file-read` only shows it to the person in a toast |
 | `vm layout export\|apply`, `vm env set\|ls\|rm` from the Mac | `cmux layout …` and `cmux env …` inside the machine |
 | `vm open`, `vm shell`, `vm tui`, `vm desktop`, `surface open\|new-terminal` | `cmux cloud open-machine`, `cmux cloud new-terminal-on-machine` |
-| `vm open <id> <port>`, `vm ports` | `cmux cloud machine-ports`, `cmux cloud copy-machine-link --port <n>` |
+| `vm open <id> <port>`, `vm ports` | `cmux cloud machine-ports`; copy the link from the machine's menu (Copy Machine Link) |
 | `vm ssh`, `vm scp` | `cmux cloud ssh`, `cmux cloud prepare-scp` |
 | `vm pause`, `vm resume` | `cmux cloud pause-machine`, `cmux cloud resume-machine` |
 | `vm wait`, `vm restart`, `vm stats`, `vm base open\|reset`, `vm prompt` | none |

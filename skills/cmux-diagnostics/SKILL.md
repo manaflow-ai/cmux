@@ -26,7 +26,7 @@ Add `--include-context` only when the app identity and the caller terminal recor
 3. **Agent hooks**: `cmux agent hook status` lists each provider as installed, partial or absent. Install with `cmux agent hook install codex` (or another provider; bare `install` covers every provider found on PATH) only after the user agrees. Providers load hooks at start, so restart the agent inside a cmux terminal afterwards.
 4. **Notification path**: `cmux notify --title "cmux diagnostic test"`, only when the user is ready for a visible test notification.
 
-The script no longer checks per-provider hook config markers, `~/.cmuxterm/*-hook-sessions.json` session stores, or `cmux-settings validate`. Those belonged to the Swift CLI's hooks; `cmux agent hook status` replaces the first, and the new `cmux` has no config validator yet.
+The script no longer checks per-provider hook config markers, `~/.cmuxterm/*-hook-sessions.json` session stores, or `cmux-settings validate`. Those belonged to the Swift CLI's hooks; `cmux agent hook status` replaces the first, and `cmux settings validate` replaces the second.
 
 ## Interpretation
 

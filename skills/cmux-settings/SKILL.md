@@ -31,7 +31,6 @@ app uses:
 cmux settings get diff.layout
 cmux settings set diff.layout split          # VALUE is parsed as JSON, else stored as a string
 cmux settings reset diff.layout              # remove the key, so the default applies (unset is the same)
-cmux settings open-json                      # open cmux-next.json
 cmux settings reload-configuration
 ```
 
@@ -50,10 +49,12 @@ also returns `setting_user_only`.
      schemas/settings/settings-schema.json | rg -i 'dock|badge'
    ```
    Outside a checkout, `cmux settings get` with no path prints the current
-   values.
+   values; `cmux settings list [--section S]` lists every key with its value,
+   and `cmux settings list --keys` needs no app.
 2. Set it with `cmux settings set <key> <value>`. JSON literals must be valid
    JSON (`true`, `16`, `'"split"'`, `'["localhost"]'`).
-3. Read it back with `cmux settings get <key>`.
+3. Read it back with `cmux settings get <key>`. `cmux settings validate [FILE]`
+   reports schema problems in the file without the app.
 4. Tell the user it applied live, and that `cmux settings reset <key>` reverts it.
 
 For a viewer-specific question, read [the viewer matrix](../cmux-customization/references/viewer-types.md)
@@ -76,8 +77,9 @@ first; do not invent keys the schema does not list.
 [references/all-keys.md](references/all-keys.md) target classic cmux: the helper
 defaults to `~/.config/cmux/cmux.json`, its key list comes from
 `web/data/cmux.schema.json`, and its `set`, `unset`, `undo`, `--preview` and
-`validate` need a CLI with `config validate` named by `CMUX_CLI_BIN`, which the
-Rust `cmux` does not have. Use it only for classic cmux, and pass
+`validate` need a CLI whose `config validate` checks classic `cmux.json`, named
+by `CMUX_CLI_BIN`; the Rust `cmux config validate` checks `cmux-next.json`
+against the cmux-next schema instead. Use it only for classic cmux, and pass
 `--file ~/.config/cmux/cmux-next.json` if you read the cmux-next file with it.
 
 ## Rules

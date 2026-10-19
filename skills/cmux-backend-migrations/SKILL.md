@@ -22,7 +22,7 @@ Every deploy refuses to run while its environment lacks a migration in `backend/
 
 ## Write
 
-1. Edit `backend/db/schema/index.ts`, run `bun run db:generate`, and copy the generated SQL
+1. Edit `backend/db/schema/index.ts`, run `bun run db:generate` in `backend/db`, and copy the generated SQL
    into the migration below; commit the Drizzle snapshot with it
    ([backend/db/drizzle/README.md](../../backend/db/drizzle/README.md);
    `test-pg/drizzle-schema.test.ts` checks the schema matches). Add

@@ -87,7 +87,7 @@ show their result to the person in a toast, not on stdout),
 only). These have no CLI path: `vm route|tree|wait|restart|stats|prompt`,
 `vm open <m>:port/<n>`, `vm terminal …` against a machine from the Mac,
 `vm layout|env` from the Mac, domain publishing, and `vm ls --json`. Copy a port
-link with `cmux cloud copy-machine-link --target machine:vm-… --port 3000`. The
+link from the machine's menu (Copy Machine Link): the copy actions are menu-only. The
 [command reference](references/commands.md#old-vm-verbs-and-their-replacements)
 maps every old verb.
 

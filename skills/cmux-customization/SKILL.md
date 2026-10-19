@@ -21,26 +21,27 @@ after that.
 | Want to change | Edit |
 |---|---|
 | App preferences (appearance, sidebar, notifications, browser routing, diff, files, Computer Use) | `cmux settings set <key> <value>`; keys come from `schemas/settings/settings-schema.json` (see [cmux-settings](../cmux-settings/SKILL.md)). `files.textEditor` and `computerUse.*` are user-only: the person changes them |
-| Custom actions, surface tab bar buttons, Command Palette entries | `actions` and `ui.surfaceTabBar.buttons` in `cmux-next.json` |
+| Custom actions and Command Palette entries | `actions` in `cmux-next.json` (types `command` and `agent` only) |
 | Terminal rendering (fonts, themes, cursor style, copy-on-select, shell integration) | Ghostty config, usually `~/.config/ghostty/config`; `terminal.fontFamily`, `terminal.fontSize` and `appearance.theme` override it in cmux settings |
 | Bring fonts, colors and terminal behavior over from another terminal | Not supported: `cmux import` was removed with the Swift CLI. Copy the values into Ghostty config by hand. |
 | Workspace names, descriptions, colors, read state | cmux CLI app actions (`cmux workspace set-color --target ws_… --color blue`), see [../cmux/references/windows-workspaces.md](../cmux/references/windows-workspaces.md) |
 | Agent hooks (agent state in the sidebar) | `cmux agent hook install [provider…]`; `cmux agent hook status` to check |
 
 Not yet supported in cmux-next, even though classic cmux read them:
-`workspaceCommand` and `workspace` action types (reported and skipped by the
-action parser), `commands` workspace layouts, `ui.newWorkspace.*` plus-button
-wiring, Dock files (`.cmux/dock.json`, `~/.config/cmux/dock.json`) and
+`text`, `workspaceCommand` and `workspace` action types (reported and skipped by
+the action parser, so `submit` is never read), `commands` workspace layouts,
+`ui.newWorkspace.*` plus-button wiring (`action`, `contextMenu`, `rightClick`),
+`ui.surfaceTabBar.buttons` (the tab bar buttons were removed), Dock files (`.cmux/dock.json`, `~/.config/cmux/dock.json`) and
 project-local `.cmux/cmux.json`. Say so instead of writing them. The recipes in
 [references/examples.md](references/examples.md) that use them are classic-only.
 
 If a request can be handled by Ghostty config, say so and use Ghostty config instead of inventing cmux UI settings.
 
-Key surfaces: `actions` (reusable, can appear in Cmd+Shift+P, surface tab bars, shortcuts, and the plus-button right-click menu; `type: "text"` pastes a snippet into the focused terminal and does not submit it unless `submit: true`), `ui.newWorkspace.action` (replaces the plus-button click) and `ui.newWorkspace.contextMenu` (right-click menu; `ui.newWorkspace.rightClick` is an accepted alias but new examples use `contextMenu`), `ui.surfaceTabBar.buttons` (replaces default tab bar buttons; include built-ins like `cmux.newTerminal`, `cmux.newBrowser`, `cmux.splitRight`, `cmux.splitDown` only when they should stay visible; copy built-ins `cmux.copyWorkingDirectory`, `cmux.copyProjectRoot`, and `cmux.copyScreen` also work here and in `actions`), and `commands` (workspace definitions with split layouts).
+Key surface: `actions`, named entries with `type: "command"` (`command`) or `type: "agent"` (`agent`, optional `args`), plus optional `title`, `tooltip`, `icon` and `target` (`newTabInCurrentPane` or `currentTerminal`). Each registers as `cmuxConfig.<name>` for the Command Palette, shortcuts and `cmux action run`.
 
 ## Workflow
 
-1. Inspect the existing file (`cmux settings open-json` opens it).
+1. Inspect the existing file.
 
    ```bash
    test -f ~/.config/cmux/cmux-next.json && sed -n '1,220p' ~/.config/cmux/cmux-next.json
@@ -54,7 +55,7 @@ Key surfaces: `actions` (reusable, can appear in Cmd+Shift+P, surface tab bars, 
    ```
 
 3. For app settings, use `cmux settings set <key> <value>` and read it back with `cmux settings get <key>`.
-4. For actions and tab bar wiring, edit the JSONC by hand and preserve unrelated sections.
+4. For actions, edit the JSONC by hand and preserve unrelated sections.
 5. `cmux settings reload-configuration` (the app also reloads on save).
 6. Verify the configured entrypoint exists: confirm the action ID and where it should appear.
 
@@ -66,7 +67,7 @@ until the schema and runtime implement it.
 
 ## Example: Command Palette action
 
-Appears in Cmd+Shift+P unless `palette` is false.
+Appears in Cmd+Shift+P as `cmuxConfig.codex-new-tab`.
 
 ```json
 {
@@ -75,9 +76,8 @@ Appears in Cmd+Shift+P unless `palette` is false.
       "type": "agent",
       "agent": "codex",
       "title": "Codex",
-      "subtitle": "Start Codex in this workspace",
-      "target": "newTabInCurrentPane",
-      "palette": true
+      "tooltip": "Start Codex in this workspace",
+      "target": "newTabInCurrentPane"
     }
   }
 }
@@ -90,7 +90,7 @@ Before choosing a preset, template, starter config, or known workflow pattern, r
 - App settings: read each key back with `cmux settings get <key>`.
 - Keep valid JSONC, no duplicate keys.
 - `cmux settings reload-configuration` when the app is running.
-- Confirm the exact user-facing result: action title, shortcut, palette entry, or tab bar placement.
+- Confirm the exact user-facing result: action title, shortcut, or palette entry.
 
 ## Rules
 

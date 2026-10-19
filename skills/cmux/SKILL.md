@@ -46,7 +46,7 @@ Every action in the app's registry is also a verb: `cmux action list --noun work
 
 ## Settings
 
-cmux-next settings live in `~/.config/cmux/cmux-next.json`. With the app running, `cmux settings get [PATH]`, `cmux settings set PATH VALUE` and `cmux settings reset PATH` read and write it; `cmux settings open-json` opens it. Keys come from `schemas/settings/settings-schema.json`, not classic `cmux.json`; see [cmux-settings](../cmux-settings/SKILL.md) before editing.
+cmux-next settings live in `~/.config/cmux/cmux-next.json`. With the app running, `cmux settings get [PATH]`, `cmux settings set PATH VALUE` and `cmux settings reset PATH` read and write it; `cmux settings validate` checks it without the app. Keys come from `schemas/settings/settings-schema.json`, not classic `cmux.json`; see [cmux-settings](../cmux-settings/SKILL.md) before editing.
 
 Terminal rendering (cursor style, scrollback) belongs in Ghostty config; font family, font size and theme default to Ghostty config and can be overridden in cmux settings.
 

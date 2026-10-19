@@ -29,7 +29,7 @@ applies to the focused cloud workspace's machine.
 | Cloud files (list, read, write, create directory, remove, details) | `cmux cloud files-list\|file-read\|file-write\|file-mkdir\|file-remove\|file-stat --path <p>` |
 | Networks, firewall rules and tunnels | `cmux cloud network-list`, `firewall-list\|get\|create\|delete`, `tunnel-attach\|detach\|rotate-key` |
 | Move to Cloud / Bring Back Local (agent chat tab) | `cmux cloud move`, `cmux cloud bring-back` |
-| Copy Machine ID / Link / Port | `cmux cloud copy-machine-id`, `copy-machine-link --port <n>`, `copy-machine-port --port <n>` |
+| Copy Machine ID / Link / Port | Menu only: the CLI never writes the clipboard |
 | Cloud Diagnostics… | `cmux cloud diagnostics` |
 | Team Picker | `cmux cloud team-picker` |
 | Sign In / Sign Out | `cmux cloud sign-in`, `cmux cloud sign-out` |

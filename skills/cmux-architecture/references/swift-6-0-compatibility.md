@@ -10,8 +10,9 @@ cmux-next: `Packages/macOS/CmuxNext/Package.swift` declares
 Xcode releases still differ. The nightly compiles Release with the Xcode pinned
 for the macOS 26 pool in `scripts/ci/xcode-pins.txt`, and a newer local Xcode
 accepts code that it rejects (for example `isolated deinit` on a class isolated
-only by `.defaultIsolation(MainActor.self)`, or `Bundle.module` in nonisolated
-code). Before relying on such code, run:
+only by `.defaultIsolation(MainActor.self)`). Xcode 26 releases also differ from
+each other: Xcode 26.3 rejects `Bundle.module` in nonisolated code that 26.6
+accepts. Before relying on such code, run:
 
 ```bash
 scripts/cmux-next/check-release-compile.sh
