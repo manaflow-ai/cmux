@@ -27,8 +27,8 @@ import Testing
             arguments: [.init(name: "cli", title: "CLI", kind: .string, isRequired: true)],
             targets: [], requiresMask: 0, requires: [], isBound: true, isDebugOnly: false, mainMenu: nil)
         router.snapshots.publish { $0.catalog = ControlCatalog(actions: [action], debugActionsAvailable: false) }
-        return (ActionAppOps(control: { method, params throws(AppHostCapabilityError) in
-            try await router.appControl(method, params)
+        return (ActionAppOps(control: { method, params, app throws(AppHostCapabilityError) in
+            try await router.appControl(method, params, callerApp: app)
         }), executor)
     }
 
