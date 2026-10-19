@@ -58,19 +58,25 @@ struct BranchSizedForTests {
 
             // Fit everyone: the phone's smaller screen sets the grid, and no claim can move it.
             _ = try await h.connection.request(SetSizePolicyRequest(surface: surface, policy: .init(mode: "smallest")))
-            let fitted = await Self.notice(in: &macEvents) { $0 != nil }
-            #expect(fitted?.ownerName == "Pocket" && fitted?.mode == "smallest",
+            let fitted = await Self.notice(in: &macEvents) { notice, _ in notice?.mode == "smallest" }
+            #expect(fitted?.ownerName == "Pocket" && fitted?.cols == 50,
                     "smallest did not give the phone the grid: \(String(describing: fitted))")
             #expect(fitted?.takeOverSetsLatest == true, "Take over under smallest must set last active first")
-            let phoneOwns = await Self.notice(in: &phoneEvents) { $0 == nil }
+            let phoneOwns = await Self.notice(in: &phoneEvents) { notice, state in
+                notice == nil && state.policy?.mode == "smallest"
+            }
             #expect(phoneOwns == nil)
 
             // The Mac's Take over: the terminal becomes last active and the Mac sets the grid again.
             mac.takeOver(reporting: CellSize(cols: 100, rows: 30), setLatest: true)
-            let tookOver = await Self.notice(in: &macEvents) { $0 == nil }
+            let tookOver = await Self.notice(in: &macEvents) { notice, state in
+                notice == nil && state.policy?.mode == "latest"
+            }
             #expect(tookOver == nil)
-            let phoneToldAgain = await Self.notice(in: &phoneEvents) { $0?.ownerName == "Studio" }
-            #expect(phoneToldAgain?.mode == "latest" && phoneToldAgain?.cols == 100,
+            let phoneToldAgain = await Self.notice(in: &phoneEvents) { notice, state in
+                notice?.ownerName == "Studio" && state.policy?.mode == "latest"
+            }
+            #expect(phoneToldAgain?.cols == 100,
                     "the Mac's Take over did not set last active and take the grid: \(String(describing: phoneToldAgain))")
         }
     }
@@ -81,11 +87,19 @@ struct BranchSizedForTests {
         in events: inout AsyncStream<TerminalChannelEvent>.Iterator,
         where wanted: (TerminalSizeNotice?) -> Bool
     ) async -> TerminalSizeNotice? {
+        await notice(in: &events) { notice, _ in wanted(notice) }
+    }
+
+    /// Like ``notice(in:where:)``, matching on the size state too (its policy).
+    private static func notice(
+        in events: inout AsyncStream<TerminalChannelEvent>.Iterator,
+        where wanted: (TerminalSizeNotice?, TerminalSizeState) -> Bool
+    ) async -> TerminalSizeNotice? {
         while let event = await events.next() {
             switch event {
             case .sizeState(let state, let participant):
                 let notice = state.notice(for: participant)
-                if wanted(notice) { return notice }
+                if wanted(notice, state) { return notice }
             case .closed(let reason):
                 return TerminalSizeNotice(ownerName: "stream closed: \(reason)", ownerKind: nil, sameDevice: false,
                                           cols: 0, rows: 0, mode: nil)

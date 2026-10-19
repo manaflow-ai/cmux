@@ -229,7 +229,7 @@ public actor TerminalAttachment: TerminalByteChannel {
     /// and the reply passes on the newer of the two. Pushed under the control lock, so states
     /// reach the view in generation order whichever thread admits them.
     private nonisolated static func admitSizeState(_ state: TerminalSizeState, selfParticipant: String?,
-                                                   control: Mutex<Control>, queue: TerminalEventQueue) {
+                                                   control: borrowing Mutex<Control>, queue: TerminalEventQueue) {
         control.withLock { control in
             if let selfParticipant { control.participant = selfParticipant }
             guard let participant = control.participant else {
