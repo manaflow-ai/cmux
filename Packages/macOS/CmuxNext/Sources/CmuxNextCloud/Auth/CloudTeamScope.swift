@@ -17,8 +17,9 @@ package actor CloudTeamScope {
         package let generation: UInt64
         package let recheck: @Sendable () async throws -> Void
         package let sessionToken: @Sendable () async throws -> String
+        package let call: @Sendable (_ path: String, _ body: Data) async throws -> Data
     }
-    package enum Failure: Error, Equatable { case changed, unavailable, notMember, ssoRequired, invalidIdentity }
+    package enum Failure: Error, Equatable { case changed, unavailable, notMember, ssoRequired, invalidIdentity, invalidRequest }
 
     private let identity: MacInstallIdentity
     private let transport: any InstallAuthTransport
@@ -65,6 +66,9 @@ package actor CloudTeamScope {
         }, sessionToken: { [weak self] in
             guard let self else { throw Failure.changed }
             return try await self.credential(selected, context)
+        }, call: { [weak self] path, body in
+            guard let self else { throw Failure.changed }
+            return try await self.call(selected, context, team: found.id, path: path, body: body)
         })
     }
 
@@ -88,6 +92,18 @@ package actor CloudTeamScope {
         _ = try StackSessionIdentity(token, context: context)
         try await check(selected, context)
         return token
+    }
+
+    /// The snapshot retains its original owner transport and team across every approval step.
+    private func call(_ selected: Selection, _ context: NativeInstallContext, team: String, path: String, body: Data) async throws -> Data {
+        let path = path.hasPrefix("/") ? path : "/" + path
+        guard ["/v1/read", "/v1/ops"].contains(path), body.count <= 1_048_576 else { throw Failure.invalidRequest }
+        let bearer = try await credential(selected, context)
+        var headers = identity.requestHeaders
+        headers["x-cmux-team"] = team
+        let reply = try await transport.post(path, json: body, bearer: bearer, headers: headers)
+        try await check(selected, context)
+        return reply.body
     }
 
     private struct Envelope: Decodable { let op: String; let value: Listing }

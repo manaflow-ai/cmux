@@ -16,6 +16,8 @@ import os
 final class CloudService {
     let configuration: CloudConfiguration
     let auth: CloudAuth
+    @ObservationIgnored let cloudTeam: CloudTeamSelection
+    @ObservationIgnored let teamScope: CloudTeamScope
     @ObservationIgnored let api: CloudAPIClient
     @ObservationIgnored let paths: CloudPaths
     @ObservationIgnored private(set) var hub: CloudTunnelHub?
@@ -69,6 +71,7 @@ final class CloudService {
         self.machines = machines
         configuration = CloudConfiguration.current(isDebugBuild: isDebugBuild)
         auth = CloudAuth(configuration: configuration)
+        cloudTeam = CloudTeamSelection(auth: auth, configuration: configuration)
         paths = CloudPaths.standard(bundleID: configuration.bundleID)
         let auth = auth
         api = CloudAPIClient(
@@ -88,21 +91,23 @@ final class CloudService {
             apiBaseURL: configuration.ownerAPIBaseURL(), accessToken: { [auth] in try await auth.tokens().access }, identity: installIdentity,
             presence: HandPresenceKeyStore(directory: paths.root.appendingPathComponent("install", isDirectory: true)))
         let identity = installIdentity
+        let transport = InstallHTTPTransport(baseURL: configuration.ownerAPIBaseURL())
+        let selection = cloudTeam
+        let scope = CloudTeamScope(identity: identity, transport: transport,
+            selection: { try await selection.current() }, session: { try await auth.tokens().access })
+        teamScope = scope
         let launcher = configuration.linkSource == .appServer ? CloudLinkLauncher.forApp(build: LaunchIdentity.current().build) : nil
         link = CloudLinkLifecycle(launcher: launcher, installID: { [identity] in await identity.installID() },
                                   connection: { [machines] in machines.local.connection })
-        let transport = InstallHTTPTransport(baseURL: configuration.ownerAPIBaseURL())
         let clientHeaders = identity.requestHeaders
         credentialProvider = CloudCredentialProvider(relay: CloudCredentialRelay(
             post: { path, body, bearer in try await transport.post(path, json: body, bearer: bearer, headers: clientHeaders) },
-            token: { try await identity.installToken() },
+            token: { try await scope.token() },
             invalidate: { await identity.invalidate() },
-            // The team is the backend team the relay bills: the install
-            // token's team claim (never the Stack team id) (cx-i6g4).
             session: { [auth] in
-                guard await MainActor.run(body: { auth.isSignedIn }) else { return CloudCredentialRelay.Session(signedIn: false, team: nil) }
-                let token = try? await identity.installToken()
-                return CloudCredentialRelay.Session(signedIn: true, team: token.flatMap(MacInstallIdentity.team(ofToken:)))
+                let snapshot = try? await scope.snapshot()
+                return CloudCredentialRelay.Session(signedIn: await auth.isSignedIn, team: snapshot?.team,
+                    account: snapshot?.account, generation: snapshot?.generation ?? 0)
             },
             allowedOps: { await CloudCredentialRelay.bundledServedOps() }
         ))
@@ -121,18 +126,6 @@ final class CloudService {
         link.isSignedIn = { [weak self] in self?.auth.isSignedIn ?? false }
     }
 
-    /// `cmux-<host>`, as the old app named its link device. Reads the kernel
-    /// hostname (`gethostname`): `ProcessInfo.hostName` resolves through DNS
-    /// and blocked the main thread for 35 s on launch.
-    static var deviceName: String {
-        let name = MacName.kernelHostName()
-        let host = name.isEmpty ? "mac" : name
-        let cleaned = host.lowercased().map { $0.isLetter || $0.isNumber ? $0 : "-" }
-        return "cmux-" + String(String(cleaned).prefix(40))
-    }
-
-    func localDeviceID() throws -> String { try paths.loadOrCreateDeviceID() }
-
     var isSignedIn: Bool { auth.isSignedIn }
 
     /// Why Cloud cannot run in this build, or nil.
@@ -144,16 +137,6 @@ final class CloudService {
         if case .localOnly = configuration.backend, configuration.linkSource == .legacy { return CloudStrings.localBackend }
         if binary == nil { return CloudStrings.noClient }
         return nil
-    }
-
-    /// Whether a Cloud API request may go out: not turned off by the
-    /// organization, the managed team present (P17-3), not a local-only
-    /// backend. (A missing cmux-tui client blocks machines, not the API.)
-    var mayCallCloud: Bool {
-        if policyDisabled { return false }
-        if auth.managedTeamID != nil, auth.teamID == nil { return false }
-        if case .localOnly = configuration.backend, configuration.linkSource == .legacy { return false }
-        return true
     }
 
     func start() {
@@ -207,15 +190,12 @@ final class CloudService {
         })
     }
 
-    /// Set while an administrator turned Cloud off (`DisabledFeatures`).
-    private(set) var policyDisabled = false
-
     /// Turning Cloud off disconnects every machine and keeps its workspaces
     /// (their terminals show "Turned off by your organization"); the VMs
     /// keep running. Turning it on again reconnects from a fresh list.
     func applyPolicy(disabled: Bool) {
         guard disabled != policyDisabled else { return }
-        policyDisabled = disabled
+        cloudTeam.policyDisabled = disabled
         if disabled {
             for session in machines.cloud {
                 session.daemon.policyBlock.set(true)
@@ -415,16 +395,5 @@ final class CloudService {
     /// ``CloudLinkLifecycle/ensureLinkReport()``, for the DEBUG socket method.
     func ensureLinkReport() async -> JSONValue { await link.ensureLinkReport() }
 
-    /// Registers (or reuses) this Mac's install for the signed-in user and
-    /// mints one token. A failure is logged: the relay mints again when it
-    /// needs a token, and the hub path does not depend on it.
-    private func installSignedIn() async {
-        guard let stackUser = auth.user?.id, mayCallCloud else { return }
-        let auth = auth
-        do {
-            try await installIdentity.signedIn(stackUser: stackUser, session: { try await auth.tokens().access })
-        } catch {
-            logger.error("install registration failed: \(String(describing: error), privacy: .public)")
-        }
-    }
+
 }

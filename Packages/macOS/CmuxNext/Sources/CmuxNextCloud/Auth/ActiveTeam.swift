@@ -36,7 +36,10 @@ public final class ActiveTeam {
     /// `RestrictToManagedTeam` with `ManagedTeam` (enterprise P17-3): the
     /// only team this device may use, or nil. The account's other teams are
     /// neither listed nor selectable, and without that team there is none.
-    public var managedTeamID: String?
+    public var managedTeamID: String? {
+        didSet { if managedTeamID != oldValue { generation &+= 1 } }
+    }
+    package private(set) var generation: UInt64 = 0
     /// True while a switch is being saved.
     public private(set) var isSwitching = false
 
@@ -101,12 +104,15 @@ public final class ActiveTeam {
         isSwitching = true
         defer { isSwitching = false }
         try await source.selectTeam(id: id)
+        generation &+= 1
     }
 
     /// Re-reads the account's teams (one left or joined elsewhere).
     public func refresh() async {
         guard source.isAuthenticated else { return }
+        let before = id
         await source.refreshTeams()
+        if before != id { generation &+= 1 }
     }
 
     nonisolated static func allowedTeams(_ teams: [CMUXAuthTeam], managed: String?) -> [CMUXAuthTeam] {

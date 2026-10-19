@@ -11,6 +11,7 @@ actor CloudTeamScopeWorld: InstallAuthTransport {
     private var mode = "valid"
     private var beforeReply: (@Sendable () async -> Void)?
     private(set) var listings = 0
+    private(set) var operationTeams: [String] = []
 
     func selection() -> CloudTeamScope.Selection { selected }
     func select(_ team: String?) {
@@ -21,6 +22,13 @@ actor CloudTeamScopeWorld: InstallAuthTransport {
 
     func post(_ path: String, json: Data, bearer: String?, headers: [String: String]) async throws -> (status: Int, body: Data) {
         let body = try JSONSerialization.jsonObject(with: json) as? [String: Any]
+        if body?["op"] as? String == "feed.answer" {
+            guard path == "/v1/ops", bearer == NativeDeviceTestWorld.session(), let team = headers["x-cmux-team"] else {
+                throw MacTeamAuthOwner.Failure.invalidRequest
+            }
+            operationTeams.append(team)
+            return (200, Data(#"{"ok":true,"value":{}}"#.utf8))
+        }
         guard body?["op"] as? String == "user.teams.list" else {
             return try await owner.post(path, json: json, bearer: bearer, headers: headers)
         }

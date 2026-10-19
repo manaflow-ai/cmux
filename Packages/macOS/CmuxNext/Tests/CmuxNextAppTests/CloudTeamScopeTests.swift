@@ -101,4 +101,26 @@ import Testing
         await #expect(throws: MacInstallIdentity.Failure.signedOut) { try await snapshot.recheck() }
         await #expect(throws: MacInstallIdentity.Failure.signedOut) { try await snapshot.sessionToken() }
     }
+
+    @Test func approvalStepsKeepTheirOriginalTeamAndRefuseAfterSelectionChanges() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (world, _, scope) = try await setup(root)
+        let snapshot = try await scope.snapshot(), body = Data(#"{"op":"feed.answer","params":{}}"#.utf8)
+        _ = try await snapshot.call("v1/ops", body)
+        #expect(await world.operationTeams == [CloudTeamScopeWorld.shared])
+        await world.select("tenant_b")
+        await #expect(throws: CloudTeamScope.Failure.changed) { try await snapshot.call("v1/ops", body) }
+        #expect(await world.operationTeams == [CloudTeamScopeWorld.shared])
+    }
+
+    @Test(arguments: ["https://other.test/v1/ops", "v1/ops?target=other", "v1/auth/token"])
+    func snapshotCallsCannotRedirectTheSessionToAnotherRoute(path: String) async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (world, _, scope) = try await setup(root)
+        let snapshot = try await scope.snapshot()
+        await #expect(throws: CloudTeamScope.Failure.invalidRequest) { try await snapshot.call(path, Data()) }
+        #expect(await world.operationTeams.isEmpty)
+    }
 }
