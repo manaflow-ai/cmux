@@ -243,20 +243,53 @@ impl Mux {
         }
         let restored_ids = restore.iter().map(|member| member["id"].clone()).collect::<Vec<_>>();
         let mut reopened = Reopened::default();
-        match target {
-            RestoreTarget::Here => {
-                for member in &restore {
-                    self.restore_member_here(&mutation.actor, member, pane, &mut reopened)?;
-                }
-            }
-            RestoreTarget::NewWorkspace => {
-                self.restore_in_new_workspace(mutation, &record, &restore, &mut reopened)?;
-            }
+        // The new workspace's starter tab, while it is open.
+        let mut starter = None;
+        let opened = match target {
+            RestoreTarget::Here => restore.iter().try_for_each(|member| {
+                self.restore_member_here(&mutation.actor, member, pane, &mut reopened)
+            }),
+            RestoreTarget::NewWorkspace => self.restore_in_new_workspace(
+                mutation,
+                &record,
+                &restore,
+                &mut reopened,
+                &mut starter,
+            ),
+        };
+        // All or nothing: when a member cannot reopen, or the commit fails,
+        // what this call opened closes again and every member stays.
+        let opened_tabs = reopened.tabs.clone();
+        let committed = opened.and_then(|()| {
+            self.commit_restore(
+                mutation,
+                OPERATION,
+                &fingerprint,
+                stash_id,
+                &restored_ids,
+                reopened,
+            )
+        });
+        if committed.is_err() {
+            self.roll_back_restore(mutation, &opened_tabs, starter);
         }
+        committed
+    }
+
+    /// The commit of a restore: `restored_ids` leave the stash.
+    fn commit_restore(
+        &self,
+        mutation: &WorkspaceMutation,
+        operation: &str,
+        fingerprint: &Value,
+        stash_id: &str,
+        restored_ids: &[Value],
+        reopened: Reopened,
+    ) -> anyhow::Result<StateCommit> {
         self.commit_state(
             mutation,
-            OPERATION,
-            &fingerprint,
+            operation,
+            fingerprint,
             None,
             StateEffects::EVENTS_ONLY,
             |transaction, _| {
@@ -284,6 +317,45 @@ impl Mux {
                 ))
             },
         )
+    }
+
+    /// Close what a failed restore opened: the tabs `tabs` names and the
+    /// new workspace's `starter` while they are still open, as a session end
+    /// (never recorded in Recently Closed), under a key of their own. A close
+    /// that fails is logged; the restore's own error is what the caller sees.
+    fn roll_back_restore(
+        self: &Arc<Self>,
+        mutation: &WorkspaceMutation,
+        tabs: &[String],
+        starter: Option<SurfaceId>,
+    ) {
+        let surfaces = self.with_state(|state| {
+            let mut surfaces = state
+                .resource_indexes
+                .tab_ids
+                .iter()
+                .filter(|(_, public)| tabs.contains(&public.to_string()))
+                .map(|(surface, _)| *surface)
+                .collect::<Vec<_>>();
+            surfaces.extend(starter.filter(|starter| state.pane_of(*starter).is_some()));
+            surfaces
+        });
+        if surfaces.is_empty() {
+            return;
+        }
+        let close = WorkspaceMutation::new(
+            format!("stash-restore-rollback-{}", crate::workspace_registry::new_uuid_v4()),
+            mutation.origin.clone(),
+            mutation.actor.clone(),
+        );
+        let closed = close.and_then(|close| {
+            self.close_tabs_for(surfaces, true, Some(CloseReason::SessionEnd), &close)
+        });
+        if let Err(error) = closed {
+            eprintln!(
+                "cmux-tui: stash.restore could not close the pages of a failed restore: {error:#}"
+            );
+        }
     }
 
     /// Restore one member `here`. With no pane named, as closed history
@@ -337,22 +409,20 @@ impl Mux {
 
     /// One new workspace named after the stash holding `restore` in order.
     /// It starts with a shell (every new workspace does), which closes once
-    /// the pages are in, unrecorded (`session_end`).
-    ///
-    /// Known limitation: the starter close commits under a key derived from
-    /// the request's, before the restore's own commit. A retry after a
-    /// failure between the two creates another workspace whose starter close
-    /// conflicts with the first one's receipt.
+    /// the pages are in, unrecorded (`session_end`). `opened_starter` names
+    /// that shell while it is open, so a failed restore closes it too.
     fn restore_in_new_workspace(
         self: &Arc<Self>,
         mutation: &WorkspaceMutation,
         record: &Value,
         restore: &[Value],
         reopened: &mut Reopened,
+        opened_starter: &mut Option<SurfaceId>,
     ) -> anyhow::Result<()> {
         let actor = &mutation.actor;
         let name = record["name"].as_str().map(str::to_string);
         let starter = self.new_workspace_as(actor, name, None)?.id;
+        *opened_starter = Some(starter);
         let pane =
             self.with_state(|state| state.pane_of(starter)).context("new workspace has no pane")?;
         let (workspace, screen) = self.public_screen_of_pane(pane)?;
@@ -364,11 +434,11 @@ impl Mux {
             reopened.tabs.push(self.public_tab_of(surface)?);
         }
         if !restore.is_empty() {
-            // A key of its own, derived from the request's, so the close
-            // never collides with the restore's receipt.
-            let derived = Sha256::digest(format!("stash.restore.starter\u{0}{}", mutation.id));
+            // A key of its own for each attempt: a retry after a failed one
+            // closes its own starter, never conflicting with the first's
+            // receipt, and a replay of the restore never gets here.
             let starter_close = WorkspaceMutation::new(
-                format!("stash-starter-{derived:x}"),
+                format!("stash-starter-{}", crate::workspace_registry::new_uuid_v4()),
                 mutation.origin.clone(),
                 mutation.actor.clone(),
             )?;
@@ -378,6 +448,7 @@ impl Mux {
                 Some(CloseReason::SessionEnd),
                 &starter_close,
             )?;
+            *opened_starter = None;
         }
         Ok(())
     }
