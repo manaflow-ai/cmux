@@ -366,8 +366,46 @@ export async function scheduleAttemptRetention(input: {
     eq(runAttempts.leaseGeneration, input.leaseGeneration),
     inArray(runAttempts.status, ["succeeded", "failed", "cancelled"]),
   )).returning())[0];
-  if (!attempt) throw new RunLeaseConflictError("stale or expired attempt lease");
-  return attempt;
+  if (attempt) return attempt;
+  if (input.providerVmId) {
+    const orphan = await adoptFencedAttemptVm({ ...input, providerVmId: input.providerVmId });
+    if (orphan) return orphan;
+  }
+  throw new RunLeaseConflictError("stale or expired attempt lease");
+}
+
+/**
+ * A cancel (or a replacement lease) can fence a worker while its createVm is
+ * still in flight. That worker then learns the VM id only after it can no
+ * longer write, so no row would point at the VM and the reaper would never
+ * destroy it. Record the id for immediate cleanup, but only when no lease ever
+ * stored a VM for this attempt: then nothing else owns the VM (the create is
+ * idempotent per attempt), and a VM the reaper already destroyed and cleared
+ * is never handed back to it. The fenced worker's other state is not written.
+ */
+async function adoptFencedAttemptVm(input: {
+  readonly runId: string;
+  readonly attemptId: string;
+  readonly leaseGeneration: number;
+  readonly providerVmId: string;
+}): Promise<typeof runAttempts.$inferSelect | undefined> {
+  const nowAt = now();
+  return (await cloudDb().update(runAttempts).set({
+    providerVmId: input.providerVmId,
+    terminalRetainUntil: nowAt,
+    cleanupLeaseToken: null,
+    cleanupLeaseExpiresAt: null,
+    updatedAt: nowAt,
+  }).where(and(
+    eq(runAttempts.id, input.attemptId),
+    eq(runAttempts.runId, input.runId),
+    gt(runAttempts.leaseGeneration, input.leaseGeneration),
+    inArray(runAttempts.status, ["succeeded", "failed", "cancelled"]),
+    isNull(runAttempts.providerVmId),
+    isNull(runAttempts.terminalRetainUntil),
+    isNull(runAttempts.cleanupLeaseToken),
+    sql`not exists (select 1 from run_events where run_events.attempt_id = ${input.attemptId} and run_events.payload->>'providerVmId' is not null)`,
+  )).returning())[0];
 }
 
 type LeaseInput = { readonly runId: string; readonly attemptId: string; readonly leaseToken: string; readonly leaseGeneration: number };
