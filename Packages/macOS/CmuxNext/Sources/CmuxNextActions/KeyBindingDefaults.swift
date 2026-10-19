@@ -179,7 +179,9 @@ public nonisolated struct KeyBindingDefaults {
             bind(Shortcut.spaceKey, [], "paletteKey.submit", when(empty, .has(K.paletteTogglesInPlace), .not(menu))),
             bind(Shortcut.tabKey, [], "paletteKey.openActions", open),
             bind(Shortcut.tabKey, [.shift], "paletteKey.closeActions", open),
-            // Decision K1: no Cmd-K in the palette; Tab opens the Actions menu.
+            // Tab opens the Actions menu; Cmd-K shows or hides it too (Copy Session ID on a
+            // Go to Workspace row), and on an action row edits its shortcut.
+            bind("k", [.command], "paletteKey.toggleActions", open),
             bind(Shortcut.escapeKey, [], "paletteKey.escape", open),
             bind(Shortcut.rightArrowKey, [], "paletteKey.enterRow", when(tree, .not(menu), .has(K.paletteCaretAtEnd))),
             bind(Shortcut.leftArrowKey, [], "paletteKey.leaveLevel", when(tree, .not(menu), .has(K.paletteCaretAtStart))),
