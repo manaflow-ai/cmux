@@ -20,7 +20,8 @@ a cold build. A dir is never removed when:
   - a build touched it within --min-idle-minutes (longer than the tour's
     timeout, so a tour still building elsewhere on this Mac is safe),
   - a tour holds its tag (media_tag_lock.py in --lock-dir): it may be about
-    to build into the dir it left idle,
+    to build into the dir it left idle. The prune takes the tag's lock itself
+    while it deletes, so a tour that asks for the tag meanwhile waits,
   - it is a symlink or not a directory, or its name is not cmux-ci-media-<tag>.
 
 Nothing outside cmux-ci-media-* is listed, so other tags' DerivedData is never
@@ -99,23 +100,25 @@ def is_open(path: Path, opened: list[str]) -> bool:
     return any(entry in exact or entry.startswith(tuple(prefixes)) for entry in opened)
 
 
-def tag_held(path: Path, lock_dir: Path) -> bool:
-    """Whether a tour holds this dir's tag right now (media_tag_lock.py): it may be about to build into it."""
+def claim_tag(path: Path, lock_dir: Path) -> int | None:
+    """Take this dir's tag lock (media_tag_lock.py) without waiting, or None when a tour holds it or the lock
+    cannot be opened. The caller keeps the returned fd until the dir is gone: a tour that asks for the tag in
+    the meantime waits, so it never builds into a dir that is being removed."""
     tag = path.name[len(PREFIX):]
     for side in ("-base", "-head"):
         if tag.endswith(side):
             tag = tag[: -len(side)]
     try:
-        fd = os.open(lock_dir / f"{tag}.lock", os.O_RDONLY | os.O_NOFOLLOW)
+        lock_dir.mkdir(parents=True, exist_ok=True)
+        fd = os.open(lock_dir / f"{tag}.lock", os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o644)
     except OSError:
-        return False
+        return None
     try:
         fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except OSError:
-        return True
-    finally:
         os.close(fd)
-    return False
+        return None
+    return fd
 
 
 def allocated_gib(path: Path) -> float:
@@ -186,16 +189,19 @@ def main() -> int:
         if is_open(path, opened):
             print(f"{path.name}: open in a process; keeping it")
             continue
-        if tag_held(path, args.lock_dir):
+        claim = claim_tag(path, args.lock_dir)
+        if claim is None:
             # Tours of other tags run beside this one; that tour holds its tag before it builds into it.
-            print(f"{path.name}: a tour holds its tag; keeping it")
+            print(f"{path.name}: a tour holds its tag (or its lock cannot be opened); keeping it")
             continue
-        size = allocated_gib(path)
         try:
+            size = allocated_gib(path)
             shutil.rmtree(path)
         except OSError as error:
             print(f"{path.name}: could not remove ({error}); keeping it")
             continue
+        finally:
+            os.close(claim)
         remaining -= 1
         freed += size
         print(f"{path.name}: removed ({size:.1f} GiB)")
