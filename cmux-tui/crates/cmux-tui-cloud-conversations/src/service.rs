@@ -195,8 +195,13 @@ struct Subscription {
     idle_since: Option<Instant>,
     /// The shared socket's current state, which a later subscriber is told.
     state: SocketState,
-    /// Frames a client asked the driver to send on the socket (`run.live.get`).
+    /// Frames a client asked the driver to send on the socket (`run.live.get`,
+    /// `typing`).
     outbox: Vec<String>,
+    /// The client whose `cloud-conversation-typing` is on: the indicator is
+    /// sent again after a reconnect (the owner turned it off when the old
+    /// socket closed), and turned off when that client's connection closes.
+    typing_by: Option<u64>,
 }
 
 /// One `cloud-subscription-state`: the state, its reason and the account of
@@ -715,6 +720,7 @@ impl CloudConversations {
                         idle_since: None,
                         state: initial,
                         outbox: Vec::new(),
+                        typing_by: None,
                     },
                 );
                 (true, reply)
@@ -770,13 +776,14 @@ impl CloudConversations {
     /// `cloud-conversation-typing` (`cloud-conversation-typing-v1`): the
     /// lease's participant is typing (`on`) or stopped, as the owner's
     /// ephemeral `typing {on, conversation}` frame on the conversation's
-    /// shared socket, the frame the web and iOS clients send; the owner
+    /// shared socket (the owner's `onFrame`, conversation-do.ts); the owner
     /// broadcasts it as `conversation-typing` and turns it off when the socket
     /// closes. Any client of this daemon may send it while some client
     /// subscribes the conversation (a Chief brain reads and writes on two
     /// connections), else `not_subscribed`. The newest state replaces one
-    /// that has not gone out yet; it goes out once the socket is live.
-    pub fn typing(&self, conversation: &str, on: bool) -> Result<Value, CloudError> {
+    /// that has not gone out yet; it goes out once the socket is live, again
+    /// after a reconnect while on, and off when `client` closes while on.
+    pub fn typing(&self, client: u64, conversation: &str, on: bool) -> Result<Value, CloudError> {
         require_conversation(conversation)?;
         let target = Target::Conversation(conversation.to_string());
         let mut subscriptions =
@@ -789,10 +796,8 @@ impl CloudConversations {
                 "subscribe to the cloud conversation first",
             ));
         };
-        subscription.outbox.retain(|frame| !is_typing_frame(frame));
-        subscription
-            .outbox
-            .push(json!({"t": "typing", "on": on, "conversation": conversation}).to_string());
+        subscription.typing_by = on.then_some(client);
+        queue_typing(subscription, conversation, on);
         Ok(subscription.state.reply(&target))
     }
 
@@ -834,9 +839,17 @@ impl CloudConversations {
         {
             let mut subscriptions =
                 self.inner.subscriptions.lock().unwrap_or_else(PoisonError::into_inner);
-            for subscription in subscriptions.values_mut() {
+            for (target, subscription) in subscriptions.iter_mut() {
                 if subscription.clients.remove(&client) && subscription.clients.is_empty() {
                     subscription.idle_since = Some(Instant::now());
+                }
+                // Its indicator ends with it (another subscriber may keep
+                // the socket, so the owner's close-time off would not come).
+                if subscription.typing_by == Some(client)
+                    && let Target::Conversation(conversation) = target
+                {
+                    subscription.typing_by = None;
+                    queue_typing(subscription, conversation, false);
                 }
             }
         }
@@ -1021,6 +1034,18 @@ impl Inner {
         }
     }
 
+    /// A socket of `target` went live: an indicator that is on goes out again
+    /// (the owner turned it off when the previous socket closed).
+    fn resend_typing(&self, target: &Target) {
+        let Target::Conversation(conversation) = target else { return };
+        let mut subscriptions = self.subscriptions.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(subscription) = subscriptions.get_mut(target)
+            && subscription.typing_by.is_some()
+        {
+            queue_typing(subscription, conversation, true);
+        }
+    }
+
     /// The frames clients asked to send on `target`'s socket, taken.
     fn take_outbox(&self, target: &Target) -> Vec<String> {
         let mut subscriptions = self.subscriptions.lock().unwrap_or_else(PoisonError::into_inner);
@@ -1072,10 +1097,15 @@ enum Ended {
     Unauthenticated,
 }
 
-/// A pending `typing` frame of `cloud-conversation-typing` (the outbox holds
-/// at most one: the newest state wins).
-fn is_typing_frame(frame: &str) -> bool {
-    serde_json::from_str::<Value>(frame).is_ok_and(|frame| frame["t"] == "typing")
+/// Queues the owner's `typing` frame; the outbox holds at most one, the
+/// newest state.
+fn queue_typing(subscription: &mut Subscription, conversation: &str, on: bool) {
+    subscription.outbox.retain(|frame| {
+        !serde_json::from_str::<Value>(frame).is_ok_and(|frame| frame["t"] == "typing")
+    });
+    subscription
+        .outbox
+        .push(json!({"t": "typing", "on": on, "conversation": conversation}).to_string());
 }
 
 fn run_driver(inner: &Arc<Inner>, target: Target) {
@@ -1203,6 +1233,7 @@ fn pump(
                         StreamAction::Live => {
                             *backoff = inner.options.backoff_min;
                             reporter.report("live", None, account);
+                            inner.resend_typing(target);
                         }
                         StreamAction::Forbidden => return Ended::Forbidden,
                     }

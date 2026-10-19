@@ -7021,9 +7021,10 @@ event. It answers the subscription's state, like `cloud-conversation-subscribe`.
 participant (the person, or the Chief of a chief lease) is typing (`on: true`)
 or stopped (`on: false`) in a Cloud conversation. The daemon sends the owner's
 ephemeral `{t:"typing", on, conversation}` frame on the conversation's shared
-socket, the frame the web and iOS clients send on their own sockets; the owner
-broadcasts it to the other members as `conversation-typing` and turns it off
-when the socket closes. Nothing is stored. Any trusted client of the daemon
+socket (the owner takes it from any member's socket); the owner broadcasts it
+to the other members as `conversation-typing` and turns it off when the socket
+closes. Nothing is stored. While on, the daemon sends it again on each new
+socket after a reconnect, and sends it off when the sending connection closes. Any trusted client of the daemon
 with the lease may send it while some client subscribes the conversation (a
 Chief brain subscribes on one connection and writes on another), else
 `cloud_conversation_rejected` `not_subscribed`. The newest state replaces one

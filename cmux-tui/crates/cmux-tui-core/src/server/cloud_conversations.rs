@@ -424,7 +424,7 @@ pub(super) fn live(mux: &Mux, client: u64, params: TargetParams) -> anyhow::Resu
 /// `cloud-conversation-typing`: the lease's participant is typing or
 /// stopped, as the owner's `typing` frame on the shared socket.
 pub(super) fn typing(mux: &Mux, client: u64, params: TypingParams) -> anyhow::Result<Value> {
-    Ok(lease_user(mux, client)?.typing(&params.conversation, params.on)?)
+    Ok(lease_user(mux, client)?.typing(client, &params.conversation, params.on)?)
 }
 
 pub(super) fn unsubscribe(

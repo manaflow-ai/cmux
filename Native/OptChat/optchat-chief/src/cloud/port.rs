@@ -83,7 +83,7 @@ impl<R: Rpc> ConversationPort for CloudPort<R> {
     }
 
     /// The owner's `typing` frame on the conversation's shared socket
-    /// (`cloud-conversation-typing`, the frame web and iOS send). A daemon
+    /// (`cloud-conversation-typing`). A daemon
     /// without the command says `typing_unsupported`, once, not every turn.
     fn typing(&mut self, conversation: &str, on: bool) -> Result<(), OpError> {
         match self.rpc.call(
@@ -91,7 +91,9 @@ impl<R: Rpc> ConversationPort for CloudPort<R> {
             json!({"conversation": conversation, "on": on}),
         ) {
             Ok(_) => Ok(()),
-            Err(OpError::Rejected(why)) if why.contains("unknown variant `cloud-conversation-typing`") => {
+            Err(OpError::Rejected(why))
+                if why.contains("unknown variant `cloud-conversation-typing`") =>
+            {
                 Err(OpError::Rejected("typing_unsupported".into()))
             }
             Err(e) => Err(e),

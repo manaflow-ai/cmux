@@ -599,15 +599,16 @@ fn typing_goes_out_as_the_owners_typing_frame_on_the_shared_socket() {
         seen.iter()
             .any(|event| event["event"] == "cloud-subscription-state" && event["state"] == "live")
     });
-    let typing_frames = || -> Vec<Value> {
+    let typing_frames = |wire: &crate::cloud_conversations::testing::ScriptedWire| -> Vec<Value> {
         wire.sent()
             .iter()
             .filter_map(|frame| serde_json::from_str::<Value>(frame).ok())
             .filter(|frame| frame["t"] == "typing")
             .collect()
     };
+    let frame = |on: bool| json!({"t":"typing","on":on,"conversation":CONV});
     let writer_client = mux.control_clients.register(ClientTransport::Unix, writer());
-    for (n, on) in [true, false].into_iter().enumerate() {
+    for (n, on) in [true, false, true].into_iter().enumerate() {
         let sent = run(
             &mux,
             writer_client,
@@ -615,15 +616,25 @@ fn typing_goes_out_as_the_owners_typing_frame_on_the_shared_socket() {
         )
         .unwrap();
         assert_eq!(sent["conversation"], CONV, "{sent}");
-        wait_until("the typing frame", || typing_frames().len() > n);
+        wait_until("the typing frame", || typing_frames(&wire).len() > n);
     }
-    assert_eq!(
-        typing_frames(),
-        vec![
-            json!({"t":"typing","on":true,"conversation":CONV}),
-            json!({"t":"typing","on":false,"conversation":CONV}),
-        ]
+    assert_eq!(typing_frames(&wire), vec![frame(true), frame(false), frame(true)]);
+
+    // The socket drops while on: the owner turned it off at the close, so the
+    // next socket sends it again once live.
+    let second = backend.wire();
+    wire.push_close(None);
+    second.push_text(
+        json!({"t":"welcome","principal":{"user":ME},"streams":[format!("conv:{CONV}")]})
+            .to_string(),
     );
+    wait_until("the typing frame on the new socket", || !typing_frames(&second).is_empty());
+    assert_eq!(typing_frames(&second), vec![frame(true)]);
+    // The sender's connection closes while on; the subscriber keeps the
+    // socket, so the daemon turns it off.
+    disconnect_client(&mux, writer_client, false);
+    wait_until("the typing off", || typing_frames(&second).len() > 1);
+    assert_eq!(typing_frames(&second), vec![frame(true), frame(false)]);
     mux.cloud_conversations().unwrap().shutdown();
 }
 
