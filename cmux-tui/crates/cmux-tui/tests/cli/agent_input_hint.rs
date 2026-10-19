@@ -40,7 +40,7 @@ fn terminal_input_into_an_agent_suggests_agent_message() {
         "typing into an agent names the agent message command: {hint}"
     );
 
-    let keys = cli(&server, &["terminal", &agent_terminal, "keys", "Enter"]);
+    let keys = cli(&server, &["terminal", &agent_terminal, "keys", "enter"]);
     assert_success(&keys);
     assert!(
         stderr(&keys).contains(&format!("cmux agent message {agent_terminal} ")),
