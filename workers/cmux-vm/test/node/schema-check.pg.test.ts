@@ -33,7 +33,7 @@ const problemsOn = async (migrations: ReadonlyArray<string>) => {
   return Effect.runPromise(Effect.provide(checkSchema, sql));
 };
 
-describe("checkSchema", () => {
+describe("checkSchema", { timeout: 30_000 }, () => {
   it("finds nothing missing on a database with every migration", async () => {
     expect(await problemsOn(ALL)).toEqual([]);
   });

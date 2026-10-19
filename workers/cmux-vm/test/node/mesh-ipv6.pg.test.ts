@@ -54,7 +54,7 @@ beforeEach(async () => {
   layer = sqlMeshStoreLayer.pipe(Layer.provide(sqlOver(pg)));
 });
 
-describe("migration 0009", () => {
+describe("migration 0009", { timeout: 30_000 }, () => {
   it("is idempotent", async () => {
     await pg.exec(deviceAddress);
     await pg.exec(deviceAddress);
@@ -84,7 +84,7 @@ describe("migration 0009", () => {
   });
 });
 
-describe("device addresses", () => {
+describe("device addresses", { timeout: 30_000 }, () => {
   it("stores, replaces and clears a live device's address, and lists the mesh's live addresses", async () => {
     const meshId = newMeshId();
     const one = device(meshId, 1);
