@@ -14,7 +14,7 @@ fn user_team_reference_survives_the_generated_client() {
          "stack_team": "stack-team-one", "role": "member", "sso_required": false},
         {"id": "team_bbbbbbbbbbbbbbbbbbbb", "display_name": "Team", "kind": "stack",
          "stack_team": "stack-team-two", "role": "admin", "sso_required": true}
-    ], "incomplete": false});
+    ], "incomplete": false, "revision": "0"});
     assert_eq!(roundtrip(listing.clone()), listing);
 }
 
@@ -25,6 +25,6 @@ fn user_team_reference_remains_optional_for_personal_and_older_listings() {
          "role": "owner", "sso_required": false},
         {"id": "team_aaaaaaaaaaaaaaaaaaaa", "display_name": "Old team", "kind": "stack",
          "role": "member", "sso_required": false}
-    ], "incomplete": true});
+    ], "incomplete": true, "revision": "0"});
     assert_eq!(roundtrip(listing.clone()), listing);
 }
