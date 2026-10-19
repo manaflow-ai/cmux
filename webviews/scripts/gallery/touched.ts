@@ -118,7 +118,10 @@ export function closure(roots: string[], read: (file: string) => string | undefi
 }
 
 /** Import hops from `roots` to every reachable file (roots are 0), breadth first. */
-export function distances(roots: string[], read: (file: string) => string | undefined = readSource): Map<string, number> {
+export function distances(
+  roots: string[],
+  read: (file: string) => string | undefined = readSource,
+): Map<string, number> {
   const seen = new Map<string, number>();
   let frontier = [...new Set(roots)];
   for (let hops = 0; frontier.length; hops++) {
@@ -188,7 +191,10 @@ export function touchedEntries(
     const covered = entry.covers.flatMap((cover) => coverFiles(cover, src));
     const roots = [entry.file, ...covered];
     const hops = distances(roots, read);
-    const own = new Set([...roots, ...roots.flatMap((root) => importsOf(root, read)).filter((f) => f.endsWith(".css"))]);
+    const own = new Set([
+      ...roots,
+      ...roots.flatMap((root) => importsOf(root, read)).filter((f) => f.endsWith(".css")),
+    ]);
     const folders = new Set(roots.map((root) => path.dirname(root)));
     const entryText = read(entry.file) ?? "";
     const hits = new Set<string>();
