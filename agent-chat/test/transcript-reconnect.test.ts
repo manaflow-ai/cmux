@@ -21,7 +21,7 @@ const page = () => ({
   send(payload: string) { messages.push(JSON.parse(payload)); return 1; },
 }) as unknown as Parameters<typeof handleSessionMessage>[0];
 const ws = page();
-const history = () => messages.findLast((message) => message.kind === "history");
+const history = () => [...messages].reverse().find((message) => message.kind === "history");
 const texts = (events: any[] | undefined) => (events ?? []).map((event) => event.text).filter(Boolean);
 async function until(check: () => boolean, label: string) {
   const deadline = Date.now() + 5_000;
