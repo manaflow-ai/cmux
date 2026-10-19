@@ -32,7 +32,7 @@ export function renderChartSource(): string {
         if (!el.isConnected) { cleanup(); return; }
         var width = Math.max(180, el.clientWidth || 500), left = 42, right = width - 12, top = 12, bottom = height - 48;
         var svg = node('svg', { width: '100%', height: height, viewBox: '0 0 ' + width + ' ' + height, role: 'img', 'aria-label': options.title || series.map(function (s) { return s.name; }).join(', ') });
-        svg.style.cssText = 'display:block;overflow:visible;font:11px var(--cmux-font);color:var(--cmux-muted)';
+        svg.style.cssText = 'display:block;overflow:visible;font:var(--cmux-size-caption) var(--cmux-font);color:var(--cmux-muted)';
         el.replaceChildren(svg);
         function add(tag, attrs, text) { var n = node(tag, attrs, text); svg.append(n); return n; }
         function color(i) { return 'var(--cmux-chart-' + (i % 6 + 1) + ')'; }

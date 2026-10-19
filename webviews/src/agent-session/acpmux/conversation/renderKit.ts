@@ -8,7 +8,7 @@ export const RENDER_KIT_CSS = `
 :where(html,body){background:transparent}
 :where(body){margin:4px 0;font:var(--cmux-chat-size)/1.625 var(--cmux-font);color:var(--cmux-text)}
 :where(h1,h2,h3,h4){font-weight:600;line-height:1.3;letter-spacing:-.015em;margin:0 0 8px}
-:where(h1){font-size:20px}:where(h2){font-size:17px}:where(h3){font-size:15px}:where(h4){font-size:13px}
+:where(h1){font-size:calc(var(--cmux-size-heading) * 1.18)}:where(h2){font-size:var(--cmux-size-heading)}:where(h3){font-size:var(--cmux-size-title)}:where(h4){font-size:var(--cmux-size-body)}
 :where(p,ul,ol,pre,figure,table,details){margin:0 0 12px}:where(ul,ol){padding-left:20px}:where(li+li){margin-top:4px}
 :where(strong){font-weight:600}:where(small,figcaption){font-size:var(--cmux-size-detail);color:var(--cmux-muted)}
 :where(a){color:var(--cmux-accent);text-underline-offset:3px}:where(code,kbd,pre){font-family:var(--cmux-font-mono)}
@@ -25,7 +25,7 @@ export const RENDER_KIT_CSS = `
 :where(progress,meter){accent-color:var(--cmux-accent);height:6px;width:100%}:where(figure){margin-inline:0}:where(figcaption){margin-top:8px}:where(svg text){font-family:inherit}
 :where(.stack){display:flex;flex-direction:column;gap:16px}:where(.row){display:flex;align-items:center;flex-wrap:wrap;gap:8px}:where(.grid){display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,160px),1fr));gap:12px}:where(.stack>*,.row>*,.grid>*){margin-block:0;min-width:0}
 :where(.panel){padding:16px;border:.5px solid var(--cmux-border);border-radius:var(--cmux-radius);background:var(--cmux-surface)}
-:where(.stat){display:flex;flex-direction:column;gap:2px;font-variant-numeric:tabular-nums}:where(.stat strong){font-size:26px;font-weight:600;letter-spacing:-.025em;line-height:1.25}:where(.stat small){font-size:var(--cmux-size-detail)}
+:where(.stat){display:flex;flex-direction:column;gap:2px;font-variant-numeric:tabular-nums}:where(.stat strong){font-size:calc(var(--cmux-size-heading) * 1.53);font-weight:600;letter-spacing:-.025em;line-height:1.25}:where(.stat small){font-size:var(--cmux-size-detail)}
 :where(.badge){display:inline-flex;align-items:center;padding:2px 6px;border-radius:4px;background:var(--cmux-control);color:var(--cmux-muted);font-size:var(--cmux-size-caption);font-weight:500}:where(.muted){color:var(--cmux-muted)}
 :where(.segmented){display:inline-flex;gap:2px;padding:2px;background:var(--cmux-control);border:.5px solid var(--cmux-border);border-radius:var(--cmux-radius)}:where(.segmented label){position:relative;padding:3px 10px;border-radius:4px;cursor:default}:where(.segmented label:has(input:checked)){background:var(--cmux-canvas)}:where(.segmented input){position:absolute;opacity:0;width:1px;height:1px}:where(.segmented label:has(input:focus-visible)){outline:2px solid var(--cmux-accent)}
 :where([data-cmux-chart]:not(:has(svg))){min-height:220px}

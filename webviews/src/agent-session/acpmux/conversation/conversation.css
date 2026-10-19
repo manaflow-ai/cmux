@@ -2686,7 +2686,7 @@ pre.cv-math-source {
 .acpmux-render-card:focus-within > .acpmux-render-enlarge { opacity:1; }
 @media (hover:none) { .acpmux-render-enlarge { opacity:1; } }
 .acpmux-render-dialog { z-index:var(--layer-overlay); position:fixed; inset:4vh 4vw; width:92vw; height:92vh; max-width:none; box-sizing:border-box; display:flex; flex-direction:column; padding:16px; border:1px solid var(--agent-border); border-radius:12px; background:var(--agent-accent-text, Canvas); color:var(--agent-text); overflow:hidden; }
-.acpmux-render-dialog-head { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:12px; font-size:13px; }
+.acpmux-render-dialog-head { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:12px; font-size:var(--text-body); }
 .acpmux-render-dialog-body { min-height:0; overflow:auto; flex:1; }
 
 /* The side panel fills a fixed parent; the dialog follows the measured document height. */
