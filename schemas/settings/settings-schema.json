@@ -3450,7 +3450,7 @@
       },
       "help" : {
         "key" : "settings.updates.showWhatsNew.help",
-        "text" : "After an update, a What's New item shows at the top of the sidebar until you open it."
+        "text" : "After an update, a card at the bottom of the sidebar links to What's New until you open or dismiss it."
       },
       "kept_on_reset_all" : false,
       "key" : "updates.showWhatsNew",
@@ -15742,7 +15742,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : 1300,
+      "default" : 300,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.sidebar",
@@ -25702,7 +25702,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "a2febf5078a355a95c02807514e9307b3a3e2cdd4835e0f879cf575a15956e72",
+  "schema_hash" : "d6b4021aa242d181a74871e4f6d4598272d8f7652c223f671d8f791fa7059a3f",
   "sections" : [
     {
       "id" : "general",
