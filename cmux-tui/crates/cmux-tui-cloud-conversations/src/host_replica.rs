@@ -278,8 +278,8 @@ struct State {
     purge_unconfirmed: bool,
     /// The driver thread runs (the capability is advertised only then).
     running: bool,
-    /// The last ask: (`expires_at`, reason, when in Unix ms).
-    asked: Option<(u64, &'static str, u64)>,
+    /// The last ask: (reason, when in Unix ms).
+    asked: Option<(&'static str, u64)>,
     /// The last lease generation given; only goes up.
     generations: u64,
 }
@@ -594,7 +594,10 @@ impl Driver {
                 if refused {
                     // No app connection may have heard the ask: ask again until a lease comes.
                     self.inner.wait(seen, Some(self.inner.options.reask));
-                    self.inner.need("unauthenticated");
+                    // A new lease or a clear woke the wait: it is not refused any more.
+                    if self.inner.signal.load(Ordering::Acquire) == seen {
+                        self.inner.need("unauthenticated");
+                    }
                 } else {
                     self.inner.wait(seen, None);
                 }
@@ -637,7 +640,7 @@ impl Driver {
                     // Wait for a new lease (or a clear) before trying again. A purge
                     // of a host this install may no longer reach has nothing to keep:
                     // a refused or removed host's replica is the backend's to drop.
-                    {
+                    let retry_purge = {
                         let mut state = self.inner.lock();
                         state.phase = blocked;
                         let same =
@@ -651,6 +654,14 @@ impl Driver {
                         } else if same {
                             state.blocked = Some(lease.generation);
                         }
+                        // A purge still pending after another publisher took the socket
+                        // (4000) tries again after a backoff; a refused token waits for a
+                        // new lease like any other (see `current`).
+                        state.purge && same && blocked == Phase::Replaced
+                    };
+                    if retry_purge {
+                        self.inner.wait(seen, Some(backoff));
+                        backoff = (backoff * 2).min(self.inner.options.backoff_max);
                     }
                 }
             }
@@ -661,7 +672,9 @@ impl Driver {
     fn current(&self) -> Option<Use> {
         let state = self.inner.lock();
         let lease = state.lease.as_ref()?;
-        if state.blocked == Some(lease.generation) && !state.purge {
+        // A pending purge retries a replaced socket, never a refused token.
+        let retries = state.purge && state.phase != Phase::Unauthenticated;
+        if state.blocked == Some(lease.generation) && !retries {
             return None;
         }
         let ws_origin = lease.url("", true);

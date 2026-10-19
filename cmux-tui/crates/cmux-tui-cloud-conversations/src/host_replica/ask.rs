@@ -7,11 +7,11 @@ use super::super::stream::CloudEvent;
 use super::Inner;
 
 impl Inner {
-    /// Asks the app for a new lease: once per lease and reason, and again
-    /// after `reask` (an app connection may have missed it). An `expiring`
-    /// ask also waits `reask` after the last `expiring` ask of any lease, so
-    /// a Mac clock ahead of the cloud's (every new token then reads as
-    /// expiring) asks at that pace, not in a loop.
+    /// Asks the app for a new lease: once per reason, and again after
+    /// `reask` (an app connection may have missed it). The pace holds across
+    /// leases, so a Mac clock ahead of the cloud's (every new token reads as
+    /// expiring) or a cloud that refuses every new token (401) asks at that
+    /// pace, not in a loop of token mints.
     pub(super) fn need(&self, reason: &'static str) {
         let now = (self.options.now_ms)();
         let reask = u64::try_from(self.options.reask.as_millis()).unwrap_or(u64::MAX);
@@ -20,14 +20,13 @@ impl Inner {
             let Some(expires_at) = state.lease.as_ref().map(|lease| lease.expires_at) else {
                 return;
             };
-            if let Some((asked_expiry, asked_reason, at)) = state.asked {
-                let same = asked_expiry == expires_at && asked_reason == reason;
-                let paced = reason == "expiring" && asked_reason == "expiring";
-                if (same || paced) && now.saturating_sub(at) < reask {
-                    return;
-                }
+            if let Some((asked_reason, at)) = state.asked
+                && asked_reason == reason
+                && now.saturating_sub(at) < reask
+            {
+                return;
             }
-            state.asked = Some((expires_at, reason, now));
+            state.asked = Some((reason, now));
             expires_at
         };
         let sink = self.sink.lock().unwrap_or_else(PoisonError::into_inner).clone();

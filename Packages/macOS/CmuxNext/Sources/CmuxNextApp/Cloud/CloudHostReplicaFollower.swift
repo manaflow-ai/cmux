@@ -138,14 +138,17 @@ final class CloudHostReplicaFollower {
             return
         }
         if renew { await identity.invalidate() }
-        try await lease(client, user: user)
+        // No lease went (no Cloud origin): a purge without a token cannot run.
+        guard try await lease(client, user: user) else { return }
         _ = try await client.clear(purge: true)
         if let daemon { defaults.set(Int(daemon), forKey: Self.purgeAskedKey) }
     }
 
-    private func lease(_ client: CloudHostReplicaClient, user: String) async throws {
+    /// Gives the daemon this account's install token; false when no lease went.
+    @discardableResult
+    private func lease(_ client: CloudHostReplicaClient, user: String) async throws -> Bool {
         let token = try await identity.installToken()
-        guard let origin = HomeCloudLease.origin(apiBaseURL) else { return }
+        guard let origin = HomeCloudLease.origin(apiBaseURL) else { return false }
         let expiresAt = HomeCloudLease.expiry(ofJWT: token) ?? HomeCloudLease.fallbackExpiry(now: Date())
         // The daemon takes 1-64 Unicode scalars (cloud-host-replica-set).
         let name = await MacName().computerName().trimmingCharacters(in: .whitespacesAndNewlines)
@@ -154,5 +157,6 @@ final class CloudHostReplicaFollower {
         defaults.removeObject(forKey: Self.purgeAskedKey)
         _ = try await client.set(CloudHostReplicaSetRequest(apiBaseURL: origin, installToken: token, expiresAt: expiresAt,
                                                             clientVersion: clientVersion, hostName: hostName))
+        return true
     }
 }

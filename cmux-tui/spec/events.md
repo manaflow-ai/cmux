@@ -525,9 +525,10 @@ in plans/cmux-next/home-cloud-proxy.md section 5. `cloud-host-replica-needed`
 (`reason`: `expiring` or `unauthenticated`, `expires_at?`) asks the verified
 app for a new `cloud-host-replica-set` lease (spec/commands.md); only the
 verified app connection hears it. A refused token is asked for again every 30
-seconds until a new lease comes, and `expiring` asks come at most every 30
-seconds (a Mac clock ahead of the cloud's would otherwise find every new token
-expiring). `account` is the cloud user
+seconds until a new lease comes, also while a purge waits for one. Asks with
+the same `reason` come at most every 30 seconds across leases (a Mac clock
+ahead of the cloud's would otherwise find every new token expiring, and a cloud
+that refuses every new token would otherwise cause a loop of token mints). `account` is the cloud user
 id (the JWT `sub`) of the lease the daemon used for the upstream socket that
 produced the event, absent when that lease has no readable `sub`; a client
 drops an event whose `account` is present and differs from the account
