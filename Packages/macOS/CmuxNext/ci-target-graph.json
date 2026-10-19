@@ -1129,6 +1129,8 @@
       "kind": "test",
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextWorkspaceNamingTests",
       "targets": [
+        "CmuxNextBridge",
+        "CmuxNextDaemon",
         "CmuxNextWorkspaceNaming"
       ],
       "packages": [],
