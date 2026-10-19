@@ -95,6 +95,17 @@
       "title" : "Chat Folders",
       "type" : "array"
     },
+    "agents.defaultPermissionMode" : {
+      "default" : "fullAccess",
+      "description" : "What a new chat may do without asking. Picking a mode in a chat sets it too, until you change this setting again.",
+      "enum" : [
+        "fullAccess",
+        "standard",
+        "ask"
+      ],
+      "title" : "Permission Mode for New Chats",
+      "type" : "string"
+    },
     "AllowedSignInMethods" : {
       "description" : "Sign-in methods the app offers.",
       "items" : {
@@ -2343,12 +2354,6 @@
       ],
       "title" : "Hide Bands Until Hover",
       "type" : "string"
-    },
-    "sidebar.nowPlaying.enabled" : {
-      "default" : true,
-      "description" : "A player for what is playing, at the bottom of the sidebar and on the new chat page.",
-      "title" : "Show Now Playing",
-      "type" : "boolean"
     },
     "sidebar.numbering" : {
       "default" : "allItems",
