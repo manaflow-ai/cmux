@@ -29,6 +29,8 @@ extension SettingsSchema {
         // The diff page's display keys (looks only, diff-host S4).
         .union(DiffViewerSettingsSchema.keys)
         .union(MarkdownViewerSettingsSchema.keys) // the markdown viewer's text size (looks only)
+        // The code editor's looks and editing behavior (diff-host S7); `editor.importFrom` is the person's.
+        .union(EditorSettingsSchema.agentSettableKeys)
         .union(PanePlacementSettingsSchema.agentSettableKeys) // where new panes open (layout choices, like layout.dockColumnMode)
         .union(WorkspaceListSettingsSchema.agentSettableKeys) // new workspace position, computer headers (list shape)
         // Sizes and cmux-browser's own keys: cmux-browser writes them from its UI as `script`
@@ -215,6 +217,8 @@ extension SettingsSchema {
         "browser.openTerminalLinksInCmuxBrowser": .privacy,
         // The app that opens your files from a menu: an agent must not pick what runs them.
         "files.textEditor": .userOnly,
+        // Which of the person's editor settings files cmux reads (VS Code, Zed...).
+        "editor.importFrom": .userOnly,
         "browser.hostsToOpenInEmbeddedBrowser": .privacy,
         "browser.urlsToAlwaysOpenExternally": .privacy,
         // Whether attached photos and videos send their location.
