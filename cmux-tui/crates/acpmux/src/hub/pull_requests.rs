@@ -8,8 +8,10 @@
 //! `gh pr create && gh pr view 9`, does not. Of its output only the last line that is nothing but
 //! a pull request URL is kept, which is what gh prints on success; a failed call (gh exits 1 when
 //! the branch already has one, printing its URL) records nothing. Harnesses report the command on the tool call and its output on later updates
-//! (Claude Code, codex-acp), so such a call is remembered until it ends (`Session::pr_creates`).
+//! (Claude Code, codex-acp), so such a call and the URL it printed are remembered until it ends
+//! (`Session::pr_creates`); the URL counts only when the call completes.
 
+use std::collections::HashMap;
 use std::sync::LazyLock;
 
 use regex::Regex;
@@ -203,29 +205,35 @@ fn printed_url(output: &str) -> Option<&str> {
 /// Notes a `tool_call` or `tool_call_update` into `m`: a shell call that runs `gh pr create` is
 /// remembered, and the pull request URL its output prints joins `m.pull_requests`.
 pub(super) fn absorb(session: &Session, update: &Value, m: &mut SessionMeta) {
-    let Some(id) = update.get("toolCallId").and_then(Value::as_str) else {
-        return;
-    };
     let mut calls = session.pr_creates.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(url) = track(&mut calls, update)
+        && m.pull_requests.len() < MAX_PULL_REQUESTS
+        && !m.pull_requests.contains(&url)
+    {
+        m.pull_requests.push(url);
+    }
+}
+
+/// Follows one update of a `gh pr create` call in `calls` (its id, and the URL it printed so far):
+/// the URL to record once the call completes. A failed call records none, though it printed one
+/// before failing ("a pull request for branch ... already exists: URL").
+fn track(calls: &mut HashMap<String, Option<String>>, update: &Value) -> Option<String> {
+    let id = update.get("toolCallId").and_then(Value::as_str)?;
     let execute = update.get("kind").and_then(Value::as_str) == Some("execute");
     if execute && script(update).is_some_and(|s| is_gh_pr_create(&s)) {
-        calls.insert(id.to_owned());
+        calls.entry(id.to_owned()).or_default();
     }
-    if !calls.contains(id) {
-        return;
+    let printed = calls.get_mut(id)?;
+    if let Some(url) = printed_url(&output_text(update)) {
+        *printed = Some(url.to_owned());
     }
-    let status = update.get("status").and_then(Value::as_str);
-    // A failed gh opened nothing; "a pull request for branch ... already exists: URL" names one
-    // it did not open now.
-    if status != Some("failed")
-        && let Some(url) = printed_url(&output_text(update))
-        && m.pull_requests.len() < MAX_PULL_REQUESTS
-        && !m.pull_requests.iter().any(|p| p == url)
-    {
-        m.pull_requests.push(url.to_owned());
-    }
-    if matches!(status, Some("completed" | "failed")) {
-        calls.remove(id);
+    match update.get("status").and_then(Value::as_str) {
+        Some("completed") => calls.remove(id).flatten(),
+        Some("failed") => {
+            calls.remove(id);
+            None
+        }
+        _ => None,
     }
 }
 
@@ -292,8 +300,14 @@ mod tests {
         );
         assert!(calls.is_empty());
         // Another call's updates are not a gh pr create.
-        assert_eq!(track(&mut calls, &json!({"toolCallId": "t2", "status": "completed",
-            "rawOutput": {"stdout": "https://github.com/o/r/pull/6\n"}})), None);
+        assert_eq!(
+            track(
+                &mut calls,
+                &json!({"toolCallId": "t2", "status": "completed",
+            "rawOutput": {"stdout": "https://github.com/o/r/pull/6\n"}})
+            ),
+            None
+        );
     }
 
     #[test]
