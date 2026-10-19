@@ -4,13 +4,15 @@ and check that its description carries the evidence that tier needs before merge
 
 The policy is docs/ci/risk-tiers.md. In short:
 
-  low     docs, tests, skills, plans, CI and tooling. Needs green CI.
-  medium  app UI and anything this file cannot place. Also needs a screenshot or clip
-          under `## Proof` (compared against cmux-design-references when one exists).
-  high    the daemon and its protocol, persistence and migrations, the typing path,
-          remote access, updates, signing and release, vendored pins. Also needs
-          `Review:` naming a reviewed commit and `Runtime test:` naming a run that
-          executed the change.
+  low     docs, tests, skills, plans, and scripts/ tooling. Needs green CI.
+  medium  app UI, SDK bindings, workflows that don't route checks, anything this file cannot
+          place, and a runtime change (daemon, persistence, remote, typing path, agent backend)
+          of RUNTIME_LINES lines or fewer. Also needs a screenshot or clip under `## Proof`
+          (compared against cmux-design-references when one exists), or `Not UI: <why>`.
+  high    at any size: signing, release, update, migrations, defaults, protocol data, vendored
+          pins, merge gates and check routing. A runtime change over RUNTIME_LINES lines. Taking
+          back a change merged in the last week (recent_reverts). Also needs `Review:` naming a
+          reviewed commit and `Runtime test:` naming a run that executed the change.
 
 A pull request takes the highest tier of any file it changes. A medium pull request
 that changes more than LARGE_LINES lines outside tests becomes high. A file nothing
@@ -46,15 +48,12 @@ NEXT = "Packages/macOS/CmuxNext/Sources/"
 # Ordered: the first matching rule wins, so specific high paths sit above broad low ones.
 # Each rule is (tier, reason, patterns). Patterns are fnmatch globs on the repo path.
 # A pattern starting with "re:" is a regular expression searched in the path.
-RELEASE_WORDS = r"re:^(scripts|\.github/workflows)/(.*/)?([^/]*[-_])?(sign|codesign|notari[sz]\w*|appcast|sparkle|release|publish|deploy)([-_.][^/]*)?$"
+RELEASE_WORDS = (
+    r"re:(^|/)(scripts|\.github/workflows)/(.*/)?([^/]*[-_])?"
+    r"(sign(ing)?|codesign|notari[sz]\w*|appcast|sparkle|release|publish|deploy|nightly|promote|rollback)([-_.][^/]*)?$"
+)
 RULES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
-    ("low", "test", (
-        "*/Tests/*", "*/tests/*", "tests/*", "*/test/*", "*_test.*", "*.test.*", "*Tests.swift",
-    )),
-    # Scripts that only mention a release: notes, benchmarks, end-to-end probes, compile checks.
-    ("low", "CI and tooling", (
-        r"re:^scripts/.*(release[-_]notes|[-_]perf[-_]|[-_]e2e\.|release-compile|derived-data)",
-    )),
+    # First, so a gate named like a test (select_package_tests.py) is never graded low.
     # The merge gates and the workflows that decide which checks a pull request runs: one line
     # here can skip the tests every other pull request relies on (feat-cmux-next PRs stopped
     # running swift test through such a line), so any size is high.
@@ -64,18 +63,29 @@ RULES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
         ".github/workflows/ci-guards.yml", ".github/workflows/ci-macos.yml", ".github/workflows/cmux-tui.yml",
         "scripts/ci/risk_tier.py", "scripts/gh-merge-green", "scripts/ci/base_red_excuse.py",
         "scripts/ci/revert_pr.py", "scripts/ci/cmux_next_route.py", "scripts/ci/select_package_tests.py",
+        "scripts/ci/merge_freeze.py", "scripts/ci/main_fix_evidence.py", "scripts/ci/vercel_merge_gate.py",
+        "scripts/merge-main.sh", "scripts/cmux-next/check-no-godfiles.sh",
+    )),
+    ("low", "test", (
+        "*/Tests/*", "*/tests/*", "tests/*", "tests_v2/*", "*/test/*", "*_test.*", "*_tests.*",
+        "*/tests.rs", "*.test.*", "*Tests.swift",
+    )),
+    # Scripts that only mention a release: notes, benchmarks, end-to-end probes, compile checks.
+    ("low", "CI and tooling", (
+        r"re:^scripts/.*(release[-_]notes|[-_]perf[-_]|[-_]e2e\.|release-compile|derived-data)",
     )),
     ("high", "signing, release or update path", (
         "*.entitlements", ".github/workflows/nightly*.yml", RELEASE_WORDS, NEXT + "CmuxNextUpdater/*",
+        "scripts/ci/lib/*",
     )),
     # Stored data and contracts other builds read, and defaults every user gets: any size is high.
     ("high", "migration, default or protocol contract", (
         "*/migrations/*", "*migration*.swift", "*Migration*.swift", "*/migrate/*",
         "web/convex/schema*", "schemas/defaults/*", "schemas/*/migrations/*",
-        "cmux-tui/spec/*", "plans/cmux-next/daemon-capabilities.json",
+        "cmux-tui/spec/*.json", "cmux-tui/spec/*.jsonl", "plans/cmux-next/daemon-capabilities.json",
     )),
     ("high", "vendored pin or package graph", (
-        "ghostty", "ghostty-next", "vendor/*", ".gitmodules",
+        "ghostty", "ghostty-next", "ghostty.h", "homebrew-cmux", ".xcode-version", "vendor/*", ".gitmodules",
         "Packages/Shared/CmuxGhosttyKit/Package.swift", "scripts/cmux-next/cef-manifest.json",
         "scripts/cmux-next/cmux-tui.pin", "Packages/*/Package.swift", "Packages/*/Package.resolved",
         "*/Package.resolved",
@@ -86,7 +96,7 @@ RULES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     # Generated SDK bindings and UI-only crates under cmux-tui/ ship outside the daemon.
     ("medium", "SDK bindings or UI crate", (
         "cmux-tui/bindings/*", "cmux-tui/crates/cmux-motion/*", "cmux-tui/crates/cmux-theme-tokens/*",
-        "cmux-tui/crates/cmux-palette-ranker/*",
+        "cmux-tui/crates/cmux-palette-ranker/*", "Native/OptChat/*/inspector/*",
     )),
     # Runtime: high once the change is big enough to hide a behavior change (RUNTIME_LINES), medium
     # for a small one, which a reviewer can read whole.
@@ -100,6 +110,7 @@ RULES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
         NEXT + "CmuxNextCrashReporting/*", NEXT + "CmuxNextCLIInstall/*",
         NEXT + "CmuxNextComputerUse/*", NEXT + "CmuxNextBrowserHost/*",
         NEXT + "CmuxNextBrowserImport/*", NEXT + "CmuxNextBrowserAutomation/*", NEXT + "CmuxNextCloud/*",
+        "Native/OptChat/*",
     )),
     ("runtime", "terminal input and rendering", (
         NEXT + "CmuxNextTerminal/*", NEXT + "CmuxNextTerminalGeometry/*", NEXT + "CmuxNextFocus/*",
@@ -125,7 +136,7 @@ GENERATED = (
     "*.sha256", "schemas/settings-export/*", "schemas/settings/settings-schema.json",
 )
 
-PROOF_HEADING = re.compile(r"^##+\s*(proof|screenshots?|evidence)\b", re.I | re.M)
+PROOF_HEADING = re.compile(r"^##+\s*(proof|screenshots?|evidence|demo|videos?|recordings?)\b", re.I | re.M)
 # An embedded image or video, an uploaded attachment, or a link to a media file. A bare URL
 # ("CI only, see https://...") is not proof.
 LINK = re.compile(

@@ -306,13 +306,13 @@ graphql_workflow_response() {
 graphql_check_runs_response() {
   local owner="${repo%/*}" name="${repo#*/}" response
   response=$(gh api graphql \
-    -f query='query($owner:String!,$name:String!,$expr:String!){repository(owner:$owner,name:$name){object(expression:$expr){... on Commit{checkSuites(first:100){nodes{id app{slug} checkRuns(first:100){nodes{databaseId name status conclusion} pageInfo{hasNextPage}}} pageInfo{hasNextPage}}}}}}' \
+    -f query='query($owner:String!,$name:String!,$expr:String!){repository(owner:$owner,name:$name){object(expression:$expr){... on Commit{checkSuites(first:100){nodes{id app{slug} checkRuns(first:100){nodes{databaseId name status conclusion completedAt} pageInfo{hasNextPage}}} pageInfo{hasNextPage}}}}}}' \
     -f owner="$owner" -f name="$name" -f expr="$sha" 2>/dev/null) || return 1
   if jq -e '.errors? and (.errors | length > 0)' >/dev/null 2>&1 <<<"$response"; then
     return 1
   fi
   jq -e 'any(.data.repository.object.checkSuites.pageInfo.hasNextPage; . == true) or any(.data.repository.object.checkSuites.nodes[].checkRuns.pageInfo.hasNextPage; . == true)' <<<"$response" >/dev/null 2>&1 && return 1
-  jq '[{check_runs: [.data.repository.object.checkSuites.nodes[] as $suite | $suite.checkRuns.nodes[] | . + {id:(.databaseId // 0),status:(.status // "")|ascii_downcase,conclusion:(.conclusion // "")|ascii_downcase,app:{slug:$suite.app.slug},check_suite:{id:$suite.id}}]}]' <<<"$response" 2>/dev/null
+  jq '[{check_runs: [.data.repository.object.checkSuites.nodes[] as $suite | $suite.checkRuns.nodes[] | . + {id:(.databaseId // 0),status:(.status // "")|ascii_downcase,conclusion:(.conclusion // "")|ascii_downcase,completed_at:(.completedAt // null),app:{slug:$suite.app.slug},check_suite:{id:$suite.id}}]}]' <<<"$response" 2>/dev/null
 }
 graphql_pr_files_response() {
   local owner="${repo%/*}" name="${repo#*/}" response
@@ -475,6 +475,52 @@ while IFS=$'\t' read -r name st co; do
       ;;
   esac
 done <<<"$runs"
+
+# `risk evidence` passes while advisory (before ENFORCE_FROM in the base's risk-tier.yml), and a
+# verdict from then stays green until the pull request is re-graded. After the cutover, only a
+# verdict that finished after it counts, and a pull request with no verdict at all is refused.
+# GH_MERGE_GREEN_NOW overrides the clock for tests.
+risk_enforce_from() {
+  python3 -c '
+import base64, json, re, sys
+raw = sys.stdin.read()
+try:
+    data = json.loads(raw)
+except Exception:
+    parts = re.split(r"\r?\n\r?\n", raw, maxsplit=1)
+    try:
+        data = json.loads(parts[1])
+    except Exception:
+        sys.exit(0)
+try:
+    text = base64.b64decode(data["content"]).decode() if data.get("encoding") == "base64" else ""
+except Exception:
+    sys.exit(0)
+match = re.search(r"ENFORCE_FROM:\s*[\x22\x27]?(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ)", text)
+if match:
+    print(match.group(1))
+' <<<"$workflow_response"
+}
+if [ "$base" = feat-cmux-next ] && workflow_on_base risk-tier.yml; then
+  enforce_from=$(risk_enforce_from || true)
+  now=${GH_MERGE_GREEN_NOW:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}
+  if [ -n "$enforce_from" ] && [[ ! "$now" < "$enforce_from" ]]; then
+    risk_completed=$(jq -r '
+      (map(.check_runs) | add) | map(select(.name == "risk evidence"))
+      | sort_by(.id // 0) | last | (.completed_at // "")
+      ' <<<"$check_runs_json" 2>/dev/null || true)
+    if [ -z "$risk_completed" ] || [ "$risk_completed" = null ]; then
+      refuse \
+        "not green: no finished 'risk evidence' check on $sha; it is required since $enforce_from" \
+        "edit the description or push to grade the pull request (docs/ci/risk-tiers.md), then retry"
+    fi
+    if [[ "$risk_completed" < "$enforce_from" ]]; then
+      refuse \
+        "not green: 'risk evidence' on $sha finished at $risk_completed, while it was advisory (before $enforce_from)" \
+        "edit the description or push to re-grade the pull request (docs/ci/risk-tiers.md), then retry"
+    fi
+  fi
+fi
 
 # Pull requests into feat-cmux-next also run the branch's dedicated cmux-next
 # workflow. Its Release and native app checks are separate check runs, so the

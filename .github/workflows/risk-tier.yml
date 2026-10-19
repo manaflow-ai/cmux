@@ -85,12 +85,13 @@ jobs:
           done
           grep -qx "$LABEL" <<<"$current" || gh pr edit "$NUMBER" --repo "$REPO" --add-label "$LABEL"
       # Advisory until ENFORCE_FROM, so pull requests already in flight can add their evidence:
-      # until then a missing item is a warning and the check passes.
+      # until then a missing item is a warning and the check passes. gh-merge-green reads this
+      # value from the base and, after it, refuses a verdict that finished before it.
       - name: Require the tier's evidence
         if: steps.grade.outputs.ready != 'true'
         env:
           TIER: ${{ steps.grade.outputs.tier }}
-          ENFORCE_FROM: "2026-10-21T00:00:00Z"
+          ENFORCE_FROM: "2026-10-24T00:00:00Z"
         run: |
           if [ "$(date -u +%s)" -lt "$(date -u -d "$ENFORCE_FROM" +%s)" ]; then
             echo "::warning::risk:$TIER needs more evidence in the description; this is advisory until $ENFORCE_FROM, then it blocks merge. The job summary lists it."

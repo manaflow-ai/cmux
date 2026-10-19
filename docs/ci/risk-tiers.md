@@ -25,17 +25,17 @@ changes. A file it can't place is medium, so a new directory is never graded low
 High comes from four places:
 
 - **Always, at any size.** One line here can break shipping or every other merge:
-  - signing, release, publish, update and entitlements
-  - migrations, `schemas/defaults/` (the defaults every user gets), `cmux-tui/spec/`, `plans/cmux-next/daemon-capabilities.json`
-  - vendored pins and `Package.resolved`
-  - the merge gates and check routing: `CODEOWNERS`, `gh-merge-green`, this classifier, `cmux-next.yml`, `ci.yml`, `ci-guards.yml`, `ci-macos.yml`, `cmux-tui.yml`, `merge-*.yml`, `cmux_next_route.py`. One line in `cmux-next.yml` stopped feat-cmux-next PRs from running `swift test`.
-- **A runtime change over 40 lines.** That's 40 changed lines outside tests and generated files, summed across `cmux-tui/` (daemon, acpmux), `backend/`, `schemas/`, `daemon/`, `server/`, `services/`, `workers/`, and the NEXT targets `Daemon*`, `Control`, `Server*`, `Remote*`, `Mobile`, `Bridge`, `Accounts`, `AppPermissions`, `History`, `Cloud`, `BrowserImport`, `BrowserAutomation`, `BrowserHost`, `ComputerUse`, `CrashReporting`, `CLIInstall` and the terminal input path. A smaller change there is medium, because a reviewer can read it whole.
+  - signing, release, publish, deploy, nightly, promote and rollback scripts and workflows (in any `scripts/` directory), `scripts/ci/lib/`, update and entitlements
+  - migrations, `schemas/defaults/` (the defaults every user gets), the `cmux-tui/spec/` JSON (its Markdown is docs), `plans/cmux-next/daemon-capabilities.json`
+  - vendored pins and `Package.resolved`, `ghostty.h`, `homebrew-cmux`, `.xcode-version`
+  - the merge gates and check routing: `CODEOWNERS`, `gh-merge-green`, this classifier, `cmux-next.yml`, `ci.yml`, `ci-guards.yml`, `ci-macos.yml`, `cmux-tui.yml`, `merge-*.yml`, `cmux_next_route.py`, and the helpers `gh-merge-green` calls (`merge_freeze.py`, `main_fix_evidence.py`, `vercel_merge_gate.py`), `merge-main.sh` and the god-file check. One line in `cmux-next.yml` stopped feat-cmux-next PRs from running `swift test`.
+- **A runtime change over 40 lines.** That's 40 changed lines outside tests and generated files, summed across `cmux-tui/` (daemon, acpmux), `backend/`, `schemas/`, `daemon/`, `server/`, `services/`, `workers/`, and the NEXT targets `Daemon*`, `Control`, `Server*`, `Remote*`, `Mobile`, `Bridge`, `Accounts`, `AppPermissions`, `History`, `Cloud`, `BrowserImport`, `BrowserAutomation`, `BrowserHost`, `ComputerUse`, `CrashReporting`, `CLIInstall`, the terminal input path, and the OptChat agent backend (`Native/OptChat/`, except its inspector UI). A smaller change there is medium, because a reviewer can read it whole.
 - **Taking back a change another pull request merged in the last 7 days.** That means deleting most of what it added, and putting back most of what it replaced. The check names the pull request. One stale-base squash (50a0c607aee, #21194) undid #21199, #21234, #21369, #21384 and #21446 this way, and graded only medium by path. If it's on purpose, say so in the description; the review covers it.
 - **A medium change over 1,000 lines** outside tests and generated files.
 
 ## What the description needs
 
-Medium, under `## Proof`: an embedded image or video, an uploaded attachment, or a link to an
+Medium, under `## Proof` (or `## Screenshots`, `## Demo`, `## Video`, `## Recording`): an embedded image or video, an uploaded attachment, or a link to an
 image or video file. A link to a CI run isn't proof. When nothing user-visible changes, write
 `Not UI: <why>` in a sentence instead.
 
@@ -48,6 +48,8 @@ Runtime test: AgentQueueTests/aFailedTurnHoldsTheQueue() in https://github.com/m
 
 - `Review:` names a commit on this pull request that an independent reviewer read
   ([cmux-review](../../skills/cmux-review/SKILL.md)). The author's own agent doesn't count.
+  A `Review:` commit older than the head says the later commits went unreviewed; re-review
+  anything beyond a merge of the base.
 - `Runtime test:` names the test, and the run URL where it executed this change, or the commit of
   this pull request that a tagged build or a Testbox ran. Pull requests here
   skip `cmux-next swift test`, so dispatch it: `gh workflow run cmux-next.yml --ref <branch>`
@@ -56,11 +58,11 @@ Runtime test: AgentQueueTests/aFailedTurnHoldsTheQueue() in https://github.com/m
 
 The check re-runs when the description is edited, so adding the lines turns it green.
 
-Until 2026-10-21 00:00 UTC the check is advisory: a missing item is a warning and the check
-passes, so pull requests already in flight have time to add their evidence. After that it blocks
-merge. A check that passed while advisory stays green until the pull request's next push,
-description edit or label change re-grades it; at the cutover, re-run `risk evidence` on open pull
-requests, for example with `gh run rerun`.
+Until 2026-10-24 00:00 UTC (`ENFORCE_FROM` in `risk-tier.yml`) the check is advisory: a missing
+item is a warning and the check passes, so pull requests already in flight have time to add their
+evidence. After that it blocks merge. A verdict from the advisory window doesn't count after the
+cutover: `gh-merge-green` reads `ENFORCE_FROM` from the base and refuses a `risk evidence` check
+that finished before it, or one that never ran. Edit the description (or push) to re-grade.
 
 ## Ship risky behavior dark
 

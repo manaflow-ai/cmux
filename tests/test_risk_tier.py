@@ -89,7 +89,7 @@ class ClassifyTests(unittest.TestCase):
     def test_merge_gates_and_check_routing_are_high_at_any_size(self):
         for path in (".github/CODEOWNERS", ".github/workflows/risk-tier.yml", "scripts/ci/risk_tier.py",
                      "scripts/gh-merge-green", ".github/workflows/cmux-next.yml", ".github/workflows/ci.yml",
-                     "scripts/ci/cmux_next_route.py"):
+                     "scripts/ci/cmux_next_route.py", "scripts/ci/select_package_tests.py"):
             with self.subTest(path=path):
                 self.assertEqual(self.tier(path, lines={path: 1}), "high")
 
