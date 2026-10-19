@@ -251,7 +251,7 @@ impl Surface {
             cell_width: cell_pixels.0,
             cell_height: cell_pixels.1,
         };
-        let pty = cmux_pty::open(initial_geometry.pty_size()?)?;
+        let pty = cmux_pty::open(initial_geometry.pty_size())?;
 
         let launch = match opts.command.clone().filter(|argv| !argv.is_empty()) {
             Some(argv) => {
@@ -272,8 +272,12 @@ impl Surface {
         // (launchd, ssh, cron strip COLORTERM). Set before extra_env so a
         // caller can still override it.
         cmd.env("COLORTERM", "truecolor");
+        // A daemon-local PTY never starts through login(1): its close ends
+        // only the direct child, which would be login, not the shell.
         for (k, v) in &launch.env {
-            cmd.env(k, v);
+            if !crate::login_shell::is_marker(k) {
+                cmd.env(k, v);
+            }
         }
         let cwd = opts.cwd.clone().or_else(platform::default_terminal_cwd);
         if let Some(cwd) = cwd.as_deref() {

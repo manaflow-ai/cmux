@@ -126,9 +126,8 @@ struct AgentLanesTests {
         let lanes = AgentLaneStore()
         lanes.lanes = ["op-broke": AgentActivityLane(id: "op-broke", name: "op-broke", title: "op-broke", peer: nil, parent: nil,
                                                      state: .failed, since: nil, error: "Credit balance too low", workspaceID: nil)]
-        let center = WhatsNewCenter(currentVersion: "0", defaults: UserDefaults(suiteName: "cnc-lanes-\(UUID().uuidString)")!, sources: [])
         let model = SidebarModel()
-        let feed = SidebarWhatsNewItemFeed.start(model: model, center: center, settings: settings, lanes: lanes)
+        let feed = SidebarWhatsNewItemFeed.start(model: model, settings: settings, lanes: lanes)
         defer { feed.cancel() }
         let lanesItem = { model.transientTopItems.first { $0.item.id == SidebarTransientItem.lanesID } }
 
