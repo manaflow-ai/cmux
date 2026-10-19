@@ -189,3 +189,40 @@ async fn compact_ends_its_prompt_and_reports_the_compaction() {
         "{msgs:?}"
     );
 }
+
+/// A `/compact` that fails: the compacting status, then a status clearing it
+/// with a failed `compact_result`, and the same zero-turn success result. The
+/// failed status is the turn's output, so the result ends the prompt rather
+/// than read as startup noise, and the chat gets a failed `compaction`.
+#[tokio::test]
+async fn a_failed_compact_ends_its_prompt() {
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    let prompt = Message::request(
+        5,
+        method::SESSION_PROMPT,
+        json!({"sessionId": "acp-1", "prompt": [{"type": "text", "text": "/compact"}]}),
+    );
+    let Outbound::Lines(_) = t.outbound(&prompt).await else { panic!() };
+    let lines = [
+        json!({"type": "system", "subtype": "status", "status": "compacting", "session_id": "s"}),
+        json!({"type": "system", "subtype": "status", "status": null, "compact_result": "failed", "session_id": "s"}),
+        json!({"type": "result", "subtype": "success", "is_error": false, "num_turns": 0, "duration_api_ms": 0, "local_command": "compact", "result": ""}),
+    ];
+    let mut states = Vec::new();
+    let mut ended = false;
+    for line in &lines {
+        for m in t.inbound(line).await {
+            match m {
+                Message::Notification { params, .. } => {
+                    if let Some(u) = params.as_ref().and_then(|p| p.get("update")) {
+                        states.push(u["state"].clone());
+                    }
+                }
+                Message::Response { id, result: Some(_), .. } if id == 5 => ended = true,
+                _ => {}
+            }
+        }
+    }
+    assert!(ended, "a failed /compact left its prompt open: {states:?}");
+    assert_eq!(states, [json!("running"), json!("failed")]);
+}
