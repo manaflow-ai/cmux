@@ -1,3 +1,6 @@
+import type { NativeLinkAuthority } from "./cloud-connect.ts"
+import { vmApiConnection } from "./cloud-vm-api-config.ts"
+import type { NativeDialPermit, NativeDialReply, NativeDialTarget } from "./cloud-native-dial.ts"
 import type { OwnerFrame, Principal } from "@cmux/ownership"
 import type { ReadResult } from "./owner-do.ts"
 import { personalTeamIdFor } from "./domains/user.ts"
@@ -193,7 +196,29 @@ export class CloudDO extends CloudIdle {
     // Review P3-b: never sign an iss this deployment cannot name.
     const environment = this.envTag()
     if (!environment) return { ok: false, code: "owner.unreachable", message: "this deployment has no Cloud environment tag" }
-    return mintLinkToken({ entity, rows, p: principal, params, request, environment, keys }, () => this.teamConnectServices(entity), () => this.audit)
+    return mintLinkToken({ entity, rows, p: principal, params, request, environment, keys, native: this.nativeLinkAuthority(entity) }, () => this.teamConnectServices(entity), () => this.audit)
+  }
+
+  private nativeLinkAuthority(entity: string): NativeLinkAuthority {
+    const team = this.env.TEAM_DO.get(this.env.TEAM_DO.idFromName(entity)) as unknown as {
+      authorizeCloudDial(e: string, p: Principal, target: NativeDialTarget, proof: unknown, services: ReadonlyArray<string>): Promise<NativeDialReply>
+      recheckCloudDial(e: string, p: Principal, permit: NativeDialPermit): Promise<boolean>
+    }
+    return {
+      authorize: async (row, p, proof, services) => {
+        try {
+          const connection = vmApiConnection(this.env)
+          const driver = connection && row.network ? await this.driverFor(row) : null
+          const found = driver ? await driver.peek(row.provider_name) : null
+          if (!connection || !row.network || !found || found.tag.cmux_next_team !== entity || found.tag.cmux_next_machine !== row.id) {
+            return { ok: false, code: "auth.forbidden", message: "no matching owned network allocation" }
+          }
+          return await team.authorizeCloudDial(entity, p, { vm: found.id, origin: connection.origin, network: row.network }, proof, services)
+        } catch { return { ok: false, code: "owner.unreachable", message: "current network authorization is unavailable" } }
+      },
+      recheck: (p, permit) => vmApiConnection(this.env)?.origin === permit.origin
+        ? team.recheckCloudDial(entity, p, permit).catch(() => false) : Promise.resolve(false)
+    }
   }
 
   /**

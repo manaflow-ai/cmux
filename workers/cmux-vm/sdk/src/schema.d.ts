@@ -2016,6 +2016,8 @@ export interface components {
             /** @description SHA-256 identity of this projection, including public keys and ACL version. Changes when peers or keys change at the same ACL version; not an ordering, freshness or authorization proof. */
             policyDigest: string;
             peers: components["schemas"]["OverlayPeer"][];
+            /** @description The requesting device's current VM service permissions from the same compiled policy and identity snapshot. Absence is unsupported, never permission. Public address transport rules are excluded; reachability does not grant a daemon session. */
+            vms?: components["schemas"]["Peer"][];
             /**
              * maxLength(128)
              * @description The tenant that owns this device. Account identity binding must require it and match its authoritative team-to-tenant mapping and both public keys.
@@ -2231,6 +2233,8 @@ export interface components {
             /** @description SHA-256 identity of this projection, including public keys and ACL version. Changes when peers or keys change at the same ACL version; not an ordering, freshness or authorization proof. */
             policyDigest: string;
             peers: components["schemas"]["OverlayPeer"][];
+            /** @description The requesting device's current VM service permissions from the same compiled policy and identity snapshot. Absence is unsupported, never permission. Public address transport rules are excluded; reachability does not grant a daemon session. */
+            vms?: components["schemas"]["Peer"][];
             /**
              * maxLength(128)
              * @description The Native tenant that owns this mesh. A backend binding must match its authoritative tenant mapping and both public keys; an opaque mesh id alone is insufficient.

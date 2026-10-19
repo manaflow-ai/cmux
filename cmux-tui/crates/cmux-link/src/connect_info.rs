@@ -57,7 +57,8 @@ pub struct Gateway {
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LinkTokenGrant {
     pub token: String,
-    pub expires_at: String,
+    /// Integer Unix milliseconds, as returned by `cloud.machine.link_token`.
+    pub expires_at: i64,
     pub host: String,
     pub epoch: u64,
     pub services: Vec<Service>,

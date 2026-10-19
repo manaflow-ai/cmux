@@ -12,13 +12,14 @@ export interface MeshOptions { lostCreate?: boolean; lostAttach?: boolean; lostM
 
 /** Real owner, ledger, guard, Native client and bind. Only external Native HTTP is replaced. */
 export const withMeshMachine = async (options: MeshOptions, run: (world: {
-  team: string; tenant: string; calls: string[]; creates: () => number; bindFile: () => Record<string, any> | undefined;
+  team: string; tenant: string; user: string; session: string; calls: string[]; creates: () => number; bindFile: () => Record<string, any> | undefined;
   create: () => ReturnType<CloudDO["submit"]>; retry: () => Promise<void>; restart: (change?: Partial<Env>) => Promise<void>;
   connect: () => Promise<unknown>; owner: () => CloudDO; pendingMachine: () => Promise<string>; remove: (id: string) => ReturnType<CloudDO["submit"]>;
   setMeshes: (values: Array<ReturnType<typeof mesh>>) => void; setNetworkHook: (hook: () => Promise<void>) => void; setAttachHook: (hook: () => Promise<void>) => void;
   meshKeys: string[];
   meshIntent: () => Record<string, unknown> | undefined; replaceMeshIntent: (value: unknown) => void;
   setMeshCreateHook: (hook: () => Promise<void>) => void;
+  setNativeRead: (read: (request: Request) => Promise<Response | undefined>) => void;
 }) => Promise<void>) => {
   const t = await mirroredTeam("Cloud machine mesh")
   const e = { ...(env as Env), CLOUD_ALLOWED_TEAMS: t.team, CLOUD_VM_TRANSPORT: "vm-api", CLOUD_VM_API_ORIGIN: "https://vm.test", CLOUD_VM_API_SERVICE_KEY: "test-machine-mesh-key", CLOUD_VM_API_IMAGE: "cloud-agent", CLOUD_VM_API_IMAGE_REVISION: "v1" }
@@ -28,8 +29,13 @@ export const withMeshMachine = async (options: MeshOptions, run: (world: {
   const meshKeys: string[] = [], meshCreations = new Map<string, ReturnType<typeof mesh>>()
   let meshCreateHook: (() => Promise<void>) | undefined
   let networkHook: (() => Promise<void>) | undefined, attachHook: (() => Promise<void>) | undefined
+  let nativeRead: ((request: Request) => Promise<Response | undefined>) | undefined
+  const fallback = globalThis.fetch
   const spy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const r = new Request(input, init), url = new URL(r.url)
+    if (url.origin !== e.CLOUD_VM_API_ORIGIN) return fallback(input, init)
+    const custom = await nativeRead?.(r)
+    if (custom) return custom
     expect(url.origin).toBe(e.CLOUD_VM_API_ORIGIN)
     expect(r.headers.get("x-cmux-team-id")).toBe(t.stackTeam)
     expect(r.headers.get("authorization")).toBe(`Bearer ${e.CLOUD_VM_API_SERVICE_KEY}`)
@@ -62,7 +68,8 @@ export const withMeshMachine = async (options: MeshOptions, run: (world: {
       if (options.lostAttach && attaches === 1) throw new Error("test lost attachment answer test-machine-mesh-key")
       return Response.json({ meshId: MESH, vmId: VM, ipv4: "10.128.0.5", attachedAt: mesh().createdAt, ...options.member })
     }
-    if (url.pathname === "/v1/vms" && r.method === "GET") return Response.json({ items: vm ? [vm] : [], nextCursor: null })
+    const lookup = () => vm && options.badVmLookup ? { ...vm, labels: { ...vm.labels, cmux_next_machine: "other-machine" } } : vm
+    if (url.pathname === "/v1/vms" && r.method === "GET") return Response.json({ items: vm ? [lookup()] : [], nextCursor: null })
     if (url.pathname === "/v1/vms" && r.method === "POST") {
       const body = await r.json() as { displayName: string; labels: Record<string, string> }
       creates++
@@ -72,7 +79,7 @@ export const withMeshMachine = async (options: MeshOptions, run: (world: {
     }
     if (r.method === "DELETE") { vm = undefined; return new Response(null, { status: 204 }) }
     if (r.method === "PUT") { bind = JSON.parse(await r.text()); return new Response(null, { status: 204 }) }
-    return vm ? Response.json(options.badVmLookup ? { ...vm, labels: { ...vm.labels, cmux_next_machine: "other-machine" } } : vm) : new Response(null, { status: 404 })
+    return vm ? Response.json(lookup()) : new Response(null, { status: 404 })
   })
   try {
     const key = await vmKey()
@@ -82,7 +89,8 @@ export const withMeshMachine = async (options: MeshOptions, run: (world: {
       const initialize = async () => { expect((await owner.readOp(t.team, p, "cloud.machine.list", {})).ok).toBe(true) }
       await initialize()
       const submit = (op: string, params: unknown) => owner.submit(t.team, p, { t: "op", op, params, idempotency_key: crypto.randomUUID(), origin: "user" })
-      await run({ team: t.team, tenant: t.stackTeam, calls, meshKeys, creates: () => creates, bindFile: () => bind,
+      await run({ team: t.team, tenant: t.stackTeam, user: t.user, session: t.token, calls, meshKeys, creates: () => creates, bindFile: () => bind,
+        setNativeRead: (read) => { nativeRead = read },
         meshIntent: () => {
           if (!state.storage.sql.exec("SELECT 1 FROM sqlite_master WHERE type='table' AND name='cloud_mesh_creation'").toArray().length) return undefined
           const row = state.storage.sql.exec<{ data: string }>("SELECT data FROM cloud_mesh_creation WHERE id=1").toArray()[0]

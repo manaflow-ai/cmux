@@ -2583,6 +2583,9 @@ pub mod types {
             skip_serializing_if = "::std::option::Option::is_none"
         )]
         pub tenant_id: ::std::option::Option<DeviceOverlayPolicyTenantId>,
+        ///The requesting device's current VM service permissions from the same compiled policy and identity snapshot. Absence is unsupported, never permission. Public address transport rules are excluded; reachability does not grant a daemon session.
+        #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
+        pub vms: ::std::vec::Vec<Peer>,
         ///The device's WireGuard public key, base64. The private key never leaves the device.
         #[serde(rename = "wgPublicKey")]
         pub wg_public_key: DeviceOverlayPolicyWgPublicKey,
@@ -7269,6 +7272,9 @@ pub mod types {
         ///The Native tenant that owns this mesh. A backend binding must match its authoritative tenant mapping and both public keys; an opaque mesh id alone is insufficient.
         #[serde(rename = "tenantId")]
         pub tenant_id: OverlayServerPolicyTenantId,
+        ///The requesting device's current VM service permissions from the same compiled policy and identity snapshot. Absence is unsupported, never permission. Public address transport rules are excluded; reachability does not grant a daemon session.
+        #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
+        pub vms: ::std::vec::Vec<Peer>,
         ///The device's WireGuard public key, base64. The private key never leaves the device.
         #[serde(rename = "wgPublicKey")]
         pub wg_public_key: OverlayServerPolicyWgPublicKey,

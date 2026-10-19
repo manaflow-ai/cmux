@@ -1552,6 +1552,7 @@ export interface CloudOps {
     readonly params: {
       readonly host: HostId
       readonly services: ReadonlyArray<"daemon" | "ssh">
+      readonly native_proof?: ServerNetworkProof
     }
     readonly result: {
       readonly token: string
