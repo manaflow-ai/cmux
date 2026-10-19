@@ -2,13 +2,14 @@
 // file renders it: a toolbar (file, save status, rich text or source), the conflict banner, and the
 // editor or the source text. The editor mounts through a callback ref. Cmd/Ctrl chords (Cmd-S)
 // come from the app's key dispatcher as page commands, never from page key handlers.
-import { lazy, Suspense, useSyncExternalStore, type ChangeEvent, type ReactNode } from "react";
+import { lazy, Suspense, useRef, useState, useSyncExternalStore, type ChangeEvent, type ReactNode } from "react";
 import type { Strings } from "../shared/i18n";
 import { Toolbar, ToolbarButton, ToolbarGroup, ToolbarToggleGroup } from "../../ui/Toolbar";
 import type { LinkOverlays } from "./overlays";
 import { L } from "./strings";
 import type { MarkdownReadOnlyReason } from "./host";
 import type { MarkdownMode, MarkdownStore } from "./store";
+import type { ReadingSettingsActions } from "./ReadingSettings";
 
 /** The note that says why a file is read only. */
 const READ_ONLY_NOTE: Record<MarkdownReadOnlyReason, string> = {
@@ -21,6 +22,8 @@ const READ_ONLY_NOTE: Record<MarkdownReadOnlyReason, string> = {
 
 // The hover card and link popover load after the page (their Base UI parts are not on the open path).
 const LinkOverlayHost = lazy(() => import("./linkOverlays").then((module) => ({ default: module.LinkOverlayHost })));
+// The Reading Settings popover loads on its first open.
+const ReadingSettings = lazy(() => import("./ReadingSettings").then((module) => ({ default: module.ReadingSettings })));
 
 export interface MarkdownPageProps {
   store: MarkdownStore;
@@ -34,6 +37,8 @@ export interface MarkdownPageProps {
   /** The link history (the same as the `back` and `forward` page commands). */
   onBack?(): void;
   onForward?(): void;
+  /** The Reading Settings popover's writes (no popover button without them). */
+  reading?: ReadingSettingsActions;
 }
 
 function fileName(path: string): string {
@@ -48,8 +53,11 @@ export function MarkdownPage({
   overlays,
   onBack,
   onForward,
+  reading,
 }: MarkdownPageProps) {
   const state = useSyncExternalStore(store.subscribe, store.getState);
+  const [readingOpen, setReadingOpen] = useState(false);
+  const readingAnchor = useRef<HTMLSpanElement | null>(null);
   const { t } = strings;
 
   if (state.phase === "empty" && emptyState) return emptyState();
@@ -121,8 +129,32 @@ export function MarkdownPage({
             options={modes.map((mode) => ({ value: mode, label: t(mode === "rich" ? L.rich : L.source) }))}
             onValueChange={(mode) => store.setMode(mode as MarkdownMode)}
           />
+          {reading ? (
+            <span className="md-reading-anchor" ref={readingAnchor}>
+              <ToolbarButton
+                className="md-reading-button"
+                label={t(L.readingButton)}
+                pressed={readingOpen}
+                onPress={() => setReadingOpen((open) => !open)}
+              >
+                Aa
+              </ToolbarButton>
+            </span>
+          ) : null}
         </Toolbar>
       </header>
+      {reading && readingOpen ? (
+        <Suspense fallback={null}>
+          <ReadingSettings
+            open={readingOpen}
+            onOpenChange={setReadingOpen}
+            anchor={readingAnchor.current}
+            settings={state.look.settings}
+            strings={strings}
+            actions={reading}
+          />
+        </Suspense>
+      ) : null}
       {state.conflict ? (
         <div className="md-banner" role="alert">
           <span>{t(state.conflict.deleted ? L.conflictDeleted : L.conflictChanged)}</span>

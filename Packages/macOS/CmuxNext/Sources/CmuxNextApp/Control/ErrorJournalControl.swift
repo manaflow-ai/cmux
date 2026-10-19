@@ -19,7 +19,7 @@ struct ErrorJournalControl: Sendable {
         return [
             ControlMethod.async("errors.list") { call in try await control.list(call.params) }
                 .withDeadline(.fixed(.seconds(12))),
-            ControlMethod.async("errors.clear") { call in await control.clear(call.params) },
+            ControlMethod.async("errors.clear") { call in try await control.clear(call.params) },
         ]
     }
 
@@ -44,10 +44,21 @@ struct ErrorJournalControl: Sendable {
         ])
     }
 
-    func clear(_ params: [String: JSONValue]) async -> JSONValue {
+    func clear(_ params: [String: JSONValue]) async throws -> JSONValue {
         let fingerprints = params["fingerprints"]?.arrayValue?.compactMap(\.stringValue)
         let removed = await journal.clear(fingerprints: fingerprints)
-        return .object(["removed": .number(Double(removed))])
+        let writeError = await journal.writeError
+        if let writeError {
+            throw ControlError(
+                code: "operation_failed",
+                message: writeError,
+                data: ["removed": .number(Double(removed)), "write_error": .string(writeError)]
+            )
+        }
+        return .object([
+            "removed": .number(Double(removed)),
+            "write_error": .null,
+        ])
     }
 
     static func query(_ params: [String: JSONValue], now: Date) throws -> ErrorQuery {

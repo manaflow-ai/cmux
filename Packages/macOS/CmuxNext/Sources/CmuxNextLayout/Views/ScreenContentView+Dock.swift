@@ -36,8 +36,7 @@ extension ScreenContentView {
             let overlapping = front.filter { $0.intersection(host.frame).width > 0.5 && $0.intersection(host.frame).height > 0.5 }
             if !overlapping.isEmpty { covers[ObjectIdentifier(host)] = overlapping.reversed() }
             guard !host.isHidden && host.alphaValue > 0.99 else { continue }
-            // A host a spring rect reveals hides only what shows of it, not its whole (final-size) frame.
-            front.append(host.revealRect.map(host.frame.intersection) ?? host.frame)
+            front.append(host.frame)
         }
         return covers
     }
@@ -71,14 +70,13 @@ extension ScreenContentView {
     /// outer edge beside an overlay (under the rim and the column the strip
     /// stays, so the glass has content to refract).
     /// `clip` is that range (`PaneArrival.stripClip`, which follows a dock
-    /// growing in); a pane growing in from an edge is also masked to
-    /// `revealing`, the part its spring shows.
+    /// growing in).
     /// Any part under a pane in front (`above`, from `panesAbove()`) is cut off too: a pane over one
     /// whole side narrows the clip; one over a corner or the middle (a zoom growing over a grid) is a
-    /// cutout, which only a Chromium page reads (its child window draws above every view; a view
-    /// under the pane in front is hidden by the view order).
-    func clipToStrip(_ host: PaneHostView, scrolls: Bool, clip: CGRect?, revealing: CGRect? = nil, above: [ObjectIdentifier: [CGRect]]) {
-        var visible = revealing.map(host.frame.intersection) ?? host.frame
+    /// cutout the mask leaves out (the pane in front has transparent padding) and a Chromium page
+    /// reads (its child window draws above every view).
+    func clipToStrip(_ host: PaneHostView, scrolls: Bool, clip: CGRect?, above: [ObjectIdentifier: [CGRect]]) {
+        var visible = host.frame
         if scrolls, let clip { visible = visible.intersection(clip) }
         var cutouts: [CGRect] = []
         for cover in above[ObjectIdentifier(host)] ?? [] {
@@ -89,11 +87,9 @@ extension ScreenContentView {
                 visible = rest
             }
         }
-        // A split's presented rect is the content itself: rounded as at rest.
         let changed = visible == host.frame && cutouts.isEmpty
             ? host.setStripClip(nil)
-            : host.setStripClip(visible.isNull ? .zero : visible.offsetBy(dx: -host.frame.minX, dy: -host.frame.minY),
-                                cornerRadius: revealing == nil ? 0 : host.cornerRadius, cutouts: cutouts)
+            : host.setStripClip(visible.isNull ? .zero : visible.offsetBy(dx: -host.frame.minX, dy: -host.frame.minY), cutouts: cutouts)
         // A clip can change while the pane stays put (a dock growing over it): the window's
         // Chromium pages re-read their clip shapes, which carry this mask.
         if changed { context.stripClipsDidChange() }

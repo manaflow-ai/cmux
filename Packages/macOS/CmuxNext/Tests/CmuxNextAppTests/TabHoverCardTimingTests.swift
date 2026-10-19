@@ -5,9 +5,9 @@ import CmuxNextResources
 import Testing
 
 /// Leo 2026-10-14: tab previews behave like a browser's. A card opens after the hover card delay
-/// (`sidebar.hoverCards.delay`, Chrome's by default, cx-23e1f) on a tab; with one open, another
+/// (`sidebar.hoverCards.delay`, `HoverCardTiming.showDelay` by default, cx-23e1f) on a tab; with one open, another
 /// tab takes it over at once; leaving the tab hides it at once, also onto the card's own area
-/// (nothing on the card takes the pointer); a tab reached within Chrome's reshow window (a gap
+/// (nothing on the card takes the pointer); a tab reached within the reshow window (a gap
 /// between tabs) shows its card at once. The delays run on a manual clock the test moves.
 @MainActor @Suite(.serialized) struct TabHoverCardTimingTests {
     private struct Strip {
@@ -127,7 +127,7 @@ import Testing
         s.move(to: CGPoint(x: s.strip.bounds.midX, y: s.strip.bounds.minY - 120))
         #expect(!s.showsAny, "the card stayed after the pointer left the strip")
         try await s.clock.waitForSleeper()
-        s.clock.advance(by: .milliseconds(400))
+        s.clock.advance(by: HoverCardTiming.reshowWindow + .milliseconds(100))
         try await Self.settle()
         s.move(to: try s.center("c"))
         #expect(!s.showsAny, "past the grace, a new hover showed at once")
@@ -167,7 +167,7 @@ import Testing
         // Resting on the New Tab page tab past the grace: the card goes.
         s.move(to: try s.center("b"))
         try await s.clock.waitForSleeper()
-        s.clock.advance(by: .milliseconds(400))
+        s.clock.advance(by: HoverCardTiming.reshowWindow + .milliseconds(100))
         try await Self.settle(until: { !s.showsAny })
         #expect(!s.showsAny, "the card stayed on a tab that has none")
     }
