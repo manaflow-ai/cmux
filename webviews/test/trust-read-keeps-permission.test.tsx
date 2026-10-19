@@ -40,13 +40,18 @@ afterAll(() => {
   }
 });
 
-/// A trust source whose reads wait until the test answers them.
+/// A trust source whose reads and saves wait until the test answers them.
 function heldSource() {
   const reads: ((value: unknown) => void)[] = [];
+  const saves: (() => void)[] = [];
   return {
     source: {
       get: () => new Promise((resolve) => reads.push(resolve)),
-      set: async () => {},
+      set: () => new Promise<void>((resolve) => saves.push(resolve)),
+    },
+    saved: async () => {
+      const save = saves.shift()!;
+      await act(async () => save());
     },
     answer: async (level: string, cwd = "/Users/you/src/cmux") => {
       const read = reads.shift()!;
@@ -95,4 +100,22 @@ test("an open trust question holds the asks until it is answered", async () => {
   await trust.answer("unknown", cwd);
   expect(shown!.ask?.state).toBe("ask");
   expect(shown!.holdsAsks).toBe(true);
+});
+
+// Review of #22054 (greptile): an answer saved in one chat's folder dropped the read another
+// folder had in flight, so that folder showed no question and Send went on.
+test("an answer saved for another folder leaves this folder's read standing", async () => {
+  const trust = heldSource();
+  const first = "/Users/you/src/answered";
+  const second = "/Users/you/src/next";
+  await act(async () => root.render(<Probe source={trust.source} sessionId="chat-4" cwd={first} />));
+  await trust.answer("unknown", first);
+  expect(shown!.ask?.state).toBe("ask");
+  // Trust in the first chat, then switch before the save lands.
+  await act(async () => shown!.trust());
+  await act(async () => root.render(<Probe source={trust.source} sessionId="chat-5" cwd={second} />));
+  await trust.saved();
+  await trust.answer("unknown", second);
+  expect(shown!.ask).toEqual({ cwd: second, state: "ask" });
+  expect(shown!.blocked).toEqual({ reason: "trust.answerFirst" });
 });
