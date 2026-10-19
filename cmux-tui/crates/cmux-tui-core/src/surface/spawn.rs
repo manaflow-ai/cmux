@@ -477,7 +477,7 @@ impl Surface {
             cell_width: cell_pixels.0,
             cell_height: cell_pixels.1,
         };
-        let master = BackendMaster::new(side.clone(), initial_geometry.pty_size()?);
+        let master = BackendMaster::new(side.clone(), initial_geometry.pty_size());
         let reader = master.try_clone_reader()?;
         let writer = master.take_writer()?;
         let command = vec![side.terminal.clone()];

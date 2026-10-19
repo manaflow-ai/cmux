@@ -55,6 +55,25 @@ enum FilePageHandlers {
                 try page(.editor, context, invocation).send(command: command, arguments: arguments)
             })
         }
+        // Copies the defaults taken from another editor into cmux.json, as the person's own keys.
+        registry.bind("fileEditor.importEditorSettings", run: { invocation in
+            let settings = try SettingsHandlers.requireSettings(context)
+            let look = services.viewers.editorPages.look
+            let writer = SettingWriter(invocation.origin)
+            registry.track(Task { @MainActor in
+                guard let from = look.importedFrom?.name else { return ActionWorkFailure(FilePageStrings.noEditorSettings) }
+                do {
+                    let written = try await settings.copyEditorSettings(look.importedSection, by: writer)
+                    if let window = services.windows.active?.window {
+                        _ = CmuxToastCenter.shared.show(CmuxToast(id: "editor-settings-copied",
+                                                                  message: FilePageStrings.editorSettingsCopied(written, from: from)), in: window)
+                    }
+                    return nil
+                } catch {
+                    return ActionWorkFailure(error.localizedDescription)
+                }
+            })
+        })
         // The word wrap toggle is the `editor.wordWrap` setting (PAGE-PREFS); the page follows its look.
         registry.bind("toggleFileEditorWordWrap", run: { invocation in
             _ = try page(.editor, context, invocation)

@@ -142,6 +142,9 @@ type Props = {
   catalogRefresh?: CatalogRefreshState;
   /** Joined host catalog supplied by the app root; direct tests keep using the daemon catalog. */
   pickerCatalog?: PickerCatalog;
+  /** A mode pick before the chat has a session is held (a New Tab's start, a harness switch
+   * running): only then is a pending chat's start mode a live menu, else an inert chip. */
+  holdsModePick?: boolean;
 };
 
 export type ComposerPermissionGrant = {
@@ -178,6 +181,7 @@ export function ComposerPickers({
   showPlan = true,
   catalogRefresh,
   pickerCatalog,
+  holdsModePick = false,
 }: Props) {
   const t = useT();
   // Context usage rides on the model chip's tooltip, unless the person hid it (composerSettings.ts);
@@ -546,6 +550,23 @@ export function ComposerPickers({
           ?.name ??
         startMode.modeId)
       : undefined;
+  // Until the chat reports its modes, the start mode acpmux answered is a live menu (not an inert
+  // chip) where a pick is held (`holdsModePick`): the harness's last mode catalog for the rows,
+  // checked at the start mode, never at the mode its last chat showed, and named as acpmux named
+  // it. A start in Plan keeps the inert chip: Plan is never an access row.
+  const pendingAccessModes: Choice[] = (() => {
+    if (!holdsModePick || !startMode || startMode.borrowed || isPlan(startMode.modeId)) return [];
+    const known = (harnessProfiles.get(chipHarness)?.modes?.availableModes ?? [])
+      .filter((choice) => !isPlan(choice.id))
+      .map((choice) => ({
+        id: choice.id,
+        name: (choice.id === startMode.modeId ? startMode.name : undefined) || choice.name || choice.id,
+        description: choice.description,
+      }));
+    if (known.some((choice) => choice.id === startMode.modeId)) return known;
+    const description = unrestricted(startMode.modeId) ? t(PICKER_LABELS.fullAccessWarning) : undefined;
+    return [{ id: startMode.modeId, name: startModeName ?? startMode.modeId, description }, ...known];
+  })();
   useEffect(() => {
     if (!awaiting && chipHarness && summary?.sessionId && effortShown)
       rememberLastChips(chipHarness, { effort: effortShown });
@@ -667,15 +688,15 @@ export function ComposerPickers({
       ) : (
         !reported && pendingEffort && <PendingChip kind="effort" label={pendingEffort} />
       )}
-      {modes.length === 0 && !hasGrants && startMode && startModeName && (
+      {modes.length === 0 && !hasGrants && startMode && startModeName && pendingAccessModes.length === 0 && (
         <PendingChip kind="mode" label={startModeName} modeId={startMode.borrowed ? undefined : startMode.modeId} />
       )}
       {/* Granted folder trust and chat allowance stay revocable when the harness offers no modes. */}
-      {(modes.length > 0 || hasGrants) && (
+      {(modes.length > 0 || hasGrants || pendingAccessModes.length > 0) && (
         <AccessMenu
           label={t(PICKER_LABELS.mode)}
-          modes={modes}
-          current={mode?.id}
+          modes={modes.length > 0 ? modes : pendingAccessModes}
+          current={mode?.id ?? (pendingAccessModes.length > 0 ? startMode?.modeId : undefined)}
           sessionId={summary?.sessionId}
           warning={t(PICKER_LABELS.fullAccessWarning)}
           permissionAccess={permissionAccess}
@@ -1355,9 +1376,10 @@ export const PlusIcon = () => (
     <path d="M8 2.75v10.5M2.75 8h10.5" />
   </Icon>
 );
+/** Send's arrow: iMessage's bold arrow.up, a heavier stroke than the bar's other glyphs. */
 export const ArrowUpIcon = () => (
   <Icon>
-    <path d="M8 13.4V2.8M3.4 7.3 8 2.7l4.6 4.6" />
+    <path d="M8 12.9V3.4M3.9 7.5 8 3.4l4.1 4.1" strokeWidth={2.1} />
   </Icon>
 );
 export const StopIcon = () => (
