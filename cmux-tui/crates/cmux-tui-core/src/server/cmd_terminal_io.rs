@@ -65,7 +65,6 @@ pub(super) fn paste_image(
     .handle(mux, client)
 }
 
-#[allow(clippy::too_many_arguments)] // the `send` command's fields, plus the connection
 /// `send-expect-foreground-v1`: `send` takes `expect_foreground`.
 pub(super) const SEND_EXPECT_FOREGROUND_CAPABILITY: &str = "send-expect-foreground-v1";
 
