@@ -314,7 +314,7 @@ class InstalledHelperRegression(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertTrue(marker.exists(), result.stderr)
 
-    def run_helper(self, directory, marker, *, check_name="ci-status", check_conclusion="success", extra_checks=(), extra_args=(), event_log=None, labels=(), cmux_next_runs=(("completed", "success", 1),), changed_files=("docs/README.md",), cmux_next_workflow=None):
+    def run_helper(self, directory, marker, *, check_name="ci-status", check_conclusion="success", extra_checks=(), extra_args=(), event_log=None, labels=(), cmux_next_runs=(("completed", "success", 1),), changed_files=("docs/README.md",), cmux_next_workflow=None, is_cross_repository=False):
         gh = Path(directory) / "gh"
         checks = [{"id": 1, "name": check_name, "status": "completed", "conclusion": check_conclusion}]
         checks.extend(
@@ -336,9 +336,9 @@ class InstalledHelperRegression(unittest.TestCase):
             "if [ \"$1 $2\" = 'pr view' ] && [ -e \"$MERGE_MARKER\" ]; then "
             "printf '%s\\n' '{\"headRefOid\":\"" + HEAD + "\",\"baseRefName\":\"feat-cmux-next\",\"state\":\"MERGED\",\"mergeCommit\":{\"oid\":\"" + MERGED_SHA + "\"},\"labels\":[]}'; exit 0; fi\n"
             "if [ \"$1 $2\" = 'pr view' ]; then "
-            "printf '%s\\n' '{\"headRefOid\":\"" + HEAD + "\",\"baseRefName\":\"feat-cmux-next\",\"state\":\"OPEN\",\"labels\":" + json.dumps([{"name": label} for label in labels]) + "}'; exit 0; fi\n"
+            "printf '%s\\n' '{\"headRefOid\":\"" + HEAD + "\",\"baseRefName\":\"feat-cmux-next\",\"state\":\"OPEN\",\"isCrossRepository\":" + json.dumps(is_cross_repository) + ",\"labels\":" + json.dumps([{"name": label} for label in labels]) + "}'; exit 0; fi\n"
             "if [ \"$1 $2\" = 'pr comment' ]; then printf '%s\\n' comment >> \"$EVENT_LOG\"; exit 0; fi\n"
-            "if [ \"$1 $2\" = 'pr merge' ]; then printf '%s\\n' merge >> \"$EVENT_LOG\"; touch \"$MERGE_MARKER\"; exit 0; fi\n"
+            "if [ \"$1 $2\" = 'pr merge' ]; then printf '%s\\n' \"$*\" >> \"$MERGE_ARGS_LOG\"; printf '%s\\n' merge >> \"$EVENT_LOG\"; touch \"$MERGE_MARKER\"; exit 0; fi\n"
             "if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q '/check-runs'; then "
             "printf '%s\\n' " + check_payload + "; exit 0; fi\n"
             "if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q 'workflows/cmux-next.yml/runs'; then "
@@ -354,10 +354,19 @@ class InstalledHelperRegression(unittest.TestCase):
         gh.chmod(0o755)
         return subprocess.run(
             [str(ROOT / "scripts/gh-merge-green"), "manaflow-ai/cmux#42", *extra_args, "--squash"],
-            env={**os.environ, "PATH": directory + os.pathsep + os.environ["PATH"], "MERGE_MARKER": str(marker), "EVENT_LOG": str(event_log or Path(directory) / "events"), "GH_MERGE_GREEN_NO_AUTO_UPDATE": "1"},
+            env={**os.environ, "PATH": directory + os.pathsep + os.environ["PATH"], "MERGE_MARKER": str(marker), "EVENT_LOG": str(event_log or Path(directory) / "events"), "MERGE_ARGS_LOG": str(Path(directory) / "merge-args"), "GH_MERGE_GREEN_NO_AUTO_UPDATE": "1"},
             capture_output=True,
             text=True,
         )
+
+    def test_fork_trust_rejects_non_full_sha_values(self):
+        for value in ("main", "a" * 39, "A" * 40):
+            with self.subTest(value=value), tempfile.TemporaryDirectory() as directory:
+                marker = Path(directory) / "merged"
+                result = self.run_helper(directory, marker, extra_args=("--trust-fork-head", value))
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse(marker.exists())
+                self.assertIn("full lowercase 40-character SHA", result.stderr)
 
     def test_exploration_label_refuses_before_merging(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -568,6 +577,7 @@ class InstalledHelperRegression(unittest.TestCase):
             "cmux-next god files",
             "cmux-next l10n",
             "concurrency lint",
+            "risk evidence",
         ):
             for status, conclusion in (("completed", "failure"), ("in_progress", "")):
                 with self.subTest(name=name, status=status), tempfile.TemporaryDirectory() as directory:
@@ -1046,6 +1056,33 @@ class FreezeRegression(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertTrue(marker.exists())
 
+    def test_multiple_freeze_tokens_cover_disjoint_lines(self):
+        window = "FREEZE: docs/first/ token=token-a\nFREEZE: docs/second/ token=token-b\n"
+        with tempfile.TemporaryDirectory() as directory:
+            result, marker = self.run_with_window(
+                directory, window, ("docs/first/a.md", "docs/second/b.md"),
+                extra_args=("--freeze-token", "token-a", "--freeze-token", "token-b"))
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue(marker.exists())
+
+    def test_valid_and_invalid_freeze_tokens_refuse_before_merge(self):
+        window = "FREEZE: docs/first/ token=token-a\n"
+        with tempfile.TemporaryDirectory() as directory:
+            result, marker = self.run_with_window(
+                directory, window, ("docs/first/a.md",),
+                extra_args=("--freeze-token", "token-a", "--freeze-token", "stale-token"))
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertIn("not a current WINDOW token", result.stderr)
+
+    def test_comma_grant_accepts_either_freeze_holder(self):
+        window = "FREEZE: docs/shared/ token=token-a,token-b\n"
+        with tempfile.TemporaryDirectory() as directory:
+            result, marker = self.run_with_window(
+                directory, window, ("docs/shared/a.md",), extra_args=("--freeze-token", "token-b"))
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue(marker.exists())
+
     def test_override_does_not_lift_a_freeze(self):
         with tempfile.TemporaryDirectory() as directory:
             result, marker = self.run_with_window(
@@ -1074,13 +1111,34 @@ class MergedHeadChecksRegression(unittest.TestCase):
         "dir=\"$(cd \"$(dirname \"${BASH_SOURCE[0]}\")\" && pwd)\"\n"
         "grep -q base-baseline \"$dir/godfile-baseline.tsv\" || { echo 'not the base baseline'; exit 3; }\n"
         "pkg=\"${@: -1}\"\n"
-        "if [ -e \"$pkg/GOD\" ]; then echo 'god type: Example spans 1013 lines'; exit 1; fi\n"
+        "if [ -e \"$pkg/Sources/GOD.swift\" ]; then echo 'god type: Example spans 1013 lines'; exit 1; fi\n"
+    )
+    SCOPED_GODFILES = (
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        "printf '%s\\n' \"$*\" >> \"$CHECK_LOG\"\n"
+        "dir=\"$(cd \"$(dirname \"${BASH_SOURCE[0]}\")\" && pwd)\"\n"
+        "grep -q base-baseline \"$dir/godfile-baseline.tsv\"\n"
+        "pkg=\"${@: -1}\"\n"
+        "files=()\n"
+        "while (($#)); do\n"
+        "  if [[ $1 == --file ]]; then files+=(\"$2\"); shift 2; else shift; fi\n"
+        "done\n"
+        "[[ ${#files[@]} -gt 0 ]] || { echo 'unscoped scan'; exit 1; }\n"
+        "for file in \"${files[@]}\"; do\n"
+        "  [[ -f \"$pkg/${file#Packages/macOS/CmuxNext/}\" ]] || { echo \"missing $file\"; exit 1; }\n"
+        "done\n"
+        "module=\"${files[0]#Packages/macOS/CmuxNext/Sources/}\"\n"
+        "module=\"${module%%/*}\"\n"
+        "if [[ -e \"$pkg/Sources/$module/Feature.swift\" && -e \"$pkg/Sources/$module/Feature+Extra.swift\" ]]; then\n"
+        "  echo 'god type: Feature spans 1013 lines'; exit 1\n"
+        "fi\n"
     )
 
     def git(self, *args, cwd):
         return subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True, text=True).stdout.strip()
 
-    def fixture(self, directory, pr_files, *, pr_script=None, base_files=None):
+    def fixture(self, directory, pr_files, *, pr_script=None, base_files=None, base_script=None):
         directory = Path(directory)
         origin = directory / "origin.git"
         work = directory / "work"
@@ -1090,7 +1148,7 @@ class MergedHeadChecksRegression(unittest.TestCase):
             self.git(*args, cwd=work)
         scripts = work / "scripts/cmux-next"
         scripts.mkdir(parents=True)
-        (scripts / "check-no-godfiles.sh").write_text(self.GODFILES)
+        (scripts / "check-no-godfiles.sh").write_text(base_script or self.GODFILES)
         (scripts / "check-no-godfiles.sh").chmod(0o755)
         (scripts / "godfile-baseline.tsv").write_text("base-baseline\n")
         (work / "Packages/macOS/CmuxNext").mkdir(parents=True)
@@ -1098,6 +1156,7 @@ class MergedHeadChecksRegression(unittest.TestCase):
         (work / "webviews").mkdir()
         (work / "webviews/package.json").write_text("{}\n")
         for path, text in (base_files or {}).items():
+            (work / path).parent.mkdir(parents=True, exist_ok=True)
             (work / path).write_text(text)
         self.git("add", "-A", cwd=work)
         self.git("commit", "-qm", "base", cwd=work)
@@ -1125,17 +1184,24 @@ class MergedHeadChecksRegression(unittest.TestCase):
         bun.chmod(0o755)
         return work, head, directory / "bin"
 
-    def run_merge(self, directory, pr_files, **kwargs):
+    def run_merge(self, directory, pr_files, *, fork=False, trust_head=False, extra_args=(), changed_files=None, **kwargs):
         global HEAD
         work, head, bin_dir = self.fixture(directory, pr_files, **kwargs)
+        Path(directory, "pr-head").write_text(head)
         log = Path(directory) / "checks.log"
         log.touch()
         saved = HEAD, os.environ.get("GH_MERGE_GREEN_REPO_DIR"), os.environ["PATH"], os.environ.get("CHECK_LOG")
         HEAD = head
-        os.environ.update(GH_MERGE_GREEN_REPO_DIR=str(work), CHECK_LOG=str(log), PATH=f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
+        os.environ.update(
+            GH_MERGE_GREEN_REPO_DIR=str(work),
+            CHECK_LOG=str(log),
+            PATH=f"{directory}{os.pathsep}{bin_dir}{os.pathsep}{os.environ['PATH']}",
+        )
         try:
             marker = Path(directory) / "merged"
-            result = InstalledHelperRegression.run_helper(self, directory, marker, changed_files=tuple(pr_files))
+            result = InstalledHelperRegression.run_helper(
+                self, directory, marker, changed_files=tuple(changed_files or pr_files), is_cross_repository=fork,
+                extra_args=((*extra_args, "--trust-fork-head", head) if trust_head else extra_args))
         finally:
             HEAD = saved[0]
             os.environ["PATH"] = saved[2]
@@ -1146,9 +1212,48 @@ class MergedHeadChecksRegression(unittest.TestCase):
                     os.environ[name] = value
         return result, marker, log.read_text()
 
+    def test_fork_without_head_trust_refuses(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result, marker, log = self.run_merge(directory, {"Packages/macOS/CmuxNext/Sources/A.swift": "struct A {}\n"}, fork=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertFalse(marker.exists())
+            self.assertEqual(log, "")
+            self.assertIn("--trust-fork-head", result.stderr)
+
+    def test_reviewed_fork_runs_merged_checks_and_merges(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result, marker, log = self.run_merge(directory, {"Packages/macOS/CmuxNext/Sources/A.swift": "struct A {}\n"}, fork=True, trust_head=True)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue(marker.exists())
+            self.assertIn("--only swift --base", log)
+            events = (Path(directory) / "events").read_text().splitlines()
+            self.assertLess(events.index("comment"), events.index("merge"))
+            merge_args = (Path(directory) / "merge-args").read_text()
+            expected_head = (Path(directory) / "pr-head").read_text()
+            self.assertIn(f"--match-head-commit {expected_head}", merge_args)
+
+    def test_reviewed_fork_cannot_replace_base_guard(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result, marker, log = self.run_merge(
+                directory, {"Packages/macOS/CmuxNext/Sources/GOD.swift": "x\n"}, fork=True, trust_head=True,
+                pr_script="#!/usr/bin/env bash\nexit 0\n")
+            self.assertNotEqual(result.returncode, 0)
+            self.assertFalse(marker.exists())
+            self.assertIn("--only swift --base", log)
+
+    def test_stale_fork_trust_refuses_before_executing_checks(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result, marker, log = self.run_merge(
+                directory, {"Packages/macOS/CmuxNext/Sources/A.swift": "struct A {}\n"}, fork=True,
+                extra_args=("--trust-fork-head", "f" * 40))
+            self.assertNotEqual(result.returncode, 0)
+            self.assertFalse(marker.exists())
+            self.assertEqual(log, "")
+            self.assertIn("reviewed fork head", result.stderr)
+
     def test_a_merged_head_that_grows_a_god_type_refuses(self):
         with tempfile.TemporaryDirectory() as directory:
-            result, marker, log = self.run_merge(directory, {"Packages/macOS/CmuxNext/GOD": "x\n"})
+            result, marker, log = self.run_merge(directory, {"Packages/macOS/CmuxNext/Sources/GOD.swift": "x\n"})
             self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertFalse(marker.exists())
             self.assertIn("god", result.stderr)
@@ -1156,16 +1261,68 @@ class MergedHeadChecksRegression(unittest.TestCase):
 
     def test_a_clean_swift_change_merges_after_the_god_file_check(self):
         with tempfile.TemporaryDirectory() as directory:
-            result, marker, log = self.run_merge(directory, {"Packages/macOS/CmuxNext/A.swift": "struct A {}\n"})
+            result, marker, log = self.run_merge(directory, {"Packages/macOS/CmuxNext/Sources/A.swift": "struct A {}\n"})
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertTrue(marker.exists())
             self.assertIn("--only swift --base", log)
+            self.assertIn("--file Packages/macOS/CmuxNext/Sources/A.swift", log)
             self.assertNotIn("bun", log)
+
+    def test_a_test_only_swift_change_uses_a_scoped_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result, marker, log = self.run_merge(
+                directory,
+                {"Packages/macOS/CmuxNext/Tests/Only.swift": "struct Only {}\n"},
+                base_script=self.SCOPED_GODFILES,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue(marker.exists())
+            self.assertIn("--file Packages/macOS/CmuxNext/Tests/Only.swift", log)
+
+    def test_changed_source_and_same_module_extension_are_checked_together(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result, marker, log = self.run_merge(
+                directory,
+                {
+                    "Packages/macOS/CmuxNext/Sources/Feature/Feature.swift": "struct Feature {}\n",
+                    "Packages/macOS/CmuxNext/Sources/Feature/Feature+Extra.swift": "extension Feature {}\n",
+                },
+                base_script=self.SCOPED_GODFILES,
+            )
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertIn("god type", result.stderr)
+            self.assertIn("--file Packages/macOS/CmuxNext/Sources/Feature/Feature.swift", log)
+
+    def test_unrelated_modules_are_not_scanned(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result, marker, log = self.run_merge(
+                directory,
+                {"Packages/macOS/CmuxNext/Sources/Feature/Feature.swift": "struct Feature {}\n"},
+                base_files={"Packages/macOS/CmuxNext/Sources/Other/GOD": "x\n"},
+                base_script=self.SCOPED_GODFILES,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue(marker.exists())
+            self.assertIn("--file Packages/macOS/CmuxNext/Sources/Feature/Feature.swift", log)
+
+    def test_missing_or_renamed_swift_path_refuses_closed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result, marker, log = self.run_merge(
+                directory,
+                {"Packages/macOS/CmuxNext/Sources/Feature/Renamed.swift": "struct Renamed {}\n"},
+                changed_files=("Packages/macOS/CmuxNext/Sources/Feature/Original.swift",),
+                base_script=self.SCOPED_GODFILES,
+            )
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertIn("missing from the merged head", result.stderr)
+            self.assertEqual(log, "")
 
     def test_the_base_copy_of_the_god_file_script_runs(self):
         with tempfile.TemporaryDirectory() as directory:
             result, marker, log = self.run_merge(
-                directory, {"Packages/macOS/CmuxNext/GOD": "x\n"}, pr_script="#!/usr/bin/env bash\nexit 0\n")
+                directory, {"Packages/macOS/CmuxNext/Sources/GOD.swift": "x\n"}, pr_script="#!/usr/bin/env bash\nexit 0\n")
             self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertFalse(marker.exists())
 
@@ -1253,6 +1410,14 @@ class ReleaseMailRegression(unittest.TestCase):
             self.assertEqual(len(mails), 1, names)
             self.assertIn("subject: RELEASE PKG: #42 landed " + MERGED_SHA, mails[0])
 
+    def test_duplicate_window_tokens_mail_one_release(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result, marker, mails, names = self.run_with(
+                directory, ("--window-token", "c0dec0de1234", "--window-token", "c0dec0de1234"))
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue(marker.exists())
+            self.assertEqual(len(mails), 1, names)
+
     def test_a_token_that_is_not_current_refuses_before_merging(self):
         with tempfile.TemporaryDirectory() as directory:
             result, marker, mails, names = self.run_with(directory, ("--window-token", "5ta1e5ta1e00"))
@@ -1298,6 +1463,170 @@ class ReleaseMailRegression(unittest.TestCase):
             result, marker, mails, names = self.run_with(directory, ())
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertEqual(mails, [])
+
+
+class GhMergeGreenRestFallbackTests(unittest.TestCase):
+    """Exercise only the quota-triggered REST escape hatch."""
+
+    def run_rest_fixture(
+        self,
+        *,
+        merge_args=(),
+        metadata_error="API rate limit already exceeded",
+        merge_error="API rate limit already exceeded",
+        metadata_quota=True,
+        merge_quota=True,
+        fork=False,
+        rest_merge_error=False,
+    ):
+        helper = ROOT / "scripts" / "gh-merge-green"
+        head_repo = "fork/repo" if fork else "example/repo"
+        with tempfile.TemporaryDirectory(prefix="gh-merge-green-rest-") as directory:
+            root = Path(directory)
+            log = root / "gh.log"
+            fake_gh = root / "gh"
+            fake_gh.write_text(
+                textwrap.dedent(
+                    f"""\
+                    #!/bin/sh
+                    set -eu
+                    printf '%s\\n' "$*" >> "$GH_FAKE_LOG"
+                    if [ "$1" = pr ] && [ "$2" = view ]; then
+                      if [ "{int(metadata_quota)}" = 1 ]; then
+                        echo "GraphQL: {metadata_error}" >&2
+                        exit 1
+                      fi
+                      printf '{{"headRefOid":"{HEAD}","baseRefName":"main","labels":[],"isCrossRepository":{str(fork).lower()}}}\\n'
+                      exit 0
+                    fi
+                    if [ "$1" = pr ] && [ "$2" = merge ]; then
+                      if [ "{int(merge_quota)}" = 1 ]; then
+                        echo "GraphQL: {merge_error}" >&2
+                        exit 1
+                      fi
+                      printf 'merged via graphql\\n'
+                      exit 0
+                    fi
+                    if [ "$1" = pr ] && [ "$2" = comment ]; then
+                      exit 0
+                    fi
+                    if [ "$1" = api ]; then
+                      path=""
+                      for arg in "$@"; do
+                        case "$arg" in
+                          repos/*) path="$arg"; break ;;
+                        esac
+                      done
+                      case "$path" in
+                        repos/example/repo/pulls/123)
+                          cat <<'JSON'
+                    {{"number":123,"state":"open","head":{{"sha":"{HEAD}","repo":{{"full_name":"{head_repo}"}}}},"base":{{"ref":"main","repo":{{"full_name":"example/repo"}}}},"labels":[]}}
+                    JSON
+                          ;;
+                        repos/example/repo/contents/*)
+                          printf 'HTTP/1.1 404 Not Found\\n'
+                          exit 1
+                          ;;
+                        repos/example/repo/commits/*/check-runs*)
+                          printf '[{{"check_runs":[{{"id":1,"name":"ci-status","status":"completed","conclusion":"success","app":{{"slug":"github-actions"}}}}]}}]\\n'
+                          ;;
+                        repos/example/repo/commits/*/statuses*)
+                          printf '[]\\n'
+                          ;;
+                        repos/example/repo/pulls/123/files*)
+                          printf ''
+                          ;;
+                        repos/example/repo/pulls/123/merge)
+                          if [ "{int(rest_merge_error)}" = 1 ]; then
+                            echo 'REST merge unavailable' >&2
+                            exit 1
+                          fi
+                          printf '{{"sha":"merge-commit","merged":true,"message":"Pull Request successfully merged"}}\\n'
+                          ;;
+                        *)
+                          echo "unexpected REST path: $path" >&2
+                          exit 2
+                          ;;
+                      esac
+                      exit 0
+                    fi
+                    echo "unexpected gh invocation: $*" >&2
+                    exit 2
+                    """
+                ),
+                encoding="utf-8",
+            )
+            fake_gh.chmod(0o755)
+            env = os.environ.copy()
+            env.update({
+                "PATH": f"{root}:{env['PATH']}",
+                "GH_FAKE_LOG": str(log),
+                "GH_MERGE_GREEN_NO_AUTO_UPDATE": "1",
+                "GH_MERGE_GREEN_TEST": "1",
+            })
+            result = subprocess.run(
+                [str(helper), "example/repo#123", *merge_args],
+                cwd=ROOT,
+                env=env,
+                text=True,
+                capture_output=True,
+            )
+            calls = log.read_text(encoding="utf-8").splitlines() if log.exists() else []
+            return result, calls
+
+    def test_quota_error_uses_rest_for_metadata_and_merge_at_exact_head(self):
+        result, calls = self.run_rest_fixture(merge_args=("--squash",))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(any("repos/example/repo/pulls/123" in call for call in calls))
+        self.assertTrue(any("repos/example/repo/pulls/123/merge" in call for call in calls))
+        self.assertTrue(any("sha=" + HEAD in call for call in calls))
+        self.assertTrue(any("merge_method=squash" in call for call in calls))
+
+    def test_quota_error_with_unsupported_merge_flag_fails_closed(self):
+        result, calls = self.run_rest_fixture(merge_args=("--squash", "--delete-branch"))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("unsupported", result.stderr.lower())
+        self.assertFalse(any("pulls/123/merge" in call for call in calls))
+
+    def test_quota_error_with_wrong_explicit_head_fails_closed(self):
+        result, calls = self.run_rest_fixture(
+            merge_args=("--squash", "--match-head-commit", "b" * 40)
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("unsupported", result.stderr.lower())
+        self.assertFalse(any("pulls/123/merge" in call for call in calls))
+
+    def test_quota_error_with_rest_failure_refuses_without_claiming_merge(self):
+        result, calls = self.run_rest_fixture(merge_args=("--squash",), rest_merge_error=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("rest merge failed", result.stderr.lower())
+        self.assertTrue(any("pulls/123/merge" in call for call in calls))
+
+    def test_rest_fork_metadata_accepts_explicit_exact_head_trust(self):
+        result, calls = self.run_rest_fixture(
+            merge_args=("--trust-fork-head", HEAD, "--squash"), fork=True
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(any("pulls/123" in call for call in calls))
+        self.assertTrue(any("pr comment" in call for call in calls))
+
+    def test_successful_graphql_merge_keeps_standard_merge_flags(self):
+        result, calls = self.run_rest_fixture(
+            merge_args=("--merge",), metadata_quota=False, merge_quota=False
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(any(call.startswith("pr merge") and "--merge" in call for call in calls))
+        self.assertFalse(any("pulls/123/merge" in call for call in calls))
+
+    def test_non_quota_graphql_error_does_not_fallback_to_rest(self):
+        result, calls = self.run_rest_fixture(metadata_error="transport unavailable")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(any("pulls/123" in call for call in calls if call.startswith("api ")))
+
+    def test_remaining_zero_text_alone_does_not_trigger_rest_fallback(self):
+        result, calls = self.run_rest_fixture(metadata_error="query failed with remaining=0")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(any("pulls/123" in call for call in calls if call.startswith("api ")))
 
 
 if __name__ == "__main__":

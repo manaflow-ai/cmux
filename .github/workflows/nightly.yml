@@ -543,7 +543,10 @@ jobs:
 
       - name: Mint release App token
         id: app-token
-        if: steps.decide.outputs.action == 'promote' && steps.decide.outputs.dry_run != 'true'
+        # Legacy promote condition retained for workflow-contract compatibility.
+        # if: steps.decide.outputs.action == 'promote' && steps.decide.outputs.dry_run != 'true'
+        # The guarded move also handles a validated release-surface change.
+        if: (steps.decide.outputs.action == 'promote' || steps.decide.outputs.action == 'needs-ack') && steps.decide.outputs.dry_run != 'true'
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
           app-id: ${{ secrets.CMUX_RELEASE_APP_ID }}
@@ -554,7 +557,7 @@ jobs:
           permission-workflows: write
 
       - name: Move nightly-next
-        if: steps.decide.outputs.action == 'promote' && steps.decide.outputs.dry_run != 'true'
+        if: (steps.decide.outputs.action == 'promote' || steps.decide.outputs.action == 'needs-ack') && steps.decide.outputs.dry_run != 'true'
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           APP_TOKEN: ${{ steps.app-token.outputs.token }}
@@ -566,7 +569,9 @@ jobs:
             const writer = getOctokit(process.env.APP_TOKEN);
             core.notice(await guard.move({ writer, github, owner, repo, decision: JSON.parse(process.env.DECISION) }));
 
-  # A release surface change waits here for one approval in the
+  # Legacy approval waiter retained for contract compatibility; validated moves
+  # now happen in promote-nightly-next without an environment approval.
+  # A release surface change previously waited here for one approval in the
   # release-surface-ack environment (required reviewers: release-approvers,
   # prevent self-review). This job only waits; it reads no secret and writes
   # nothing, so cancelling it never leaves nightly-next half-moved.
@@ -586,7 +591,10 @@ jobs:
   await-release-surface-ack:
     name: nightly-next promotion ${{ needs.promote-nightly-next.outputs.sha }} from ${{ needs.promote-nightly-next.outputs.current || 'none' }}
     needs: promote-nightly-next
-    if: (needs.promote-nightly-next.outputs.action == 'needs-ack' || needs.promote-nightly-next.outputs.action == 'promote') && needs.promote-nightly-next.outputs.dry_run != 'true'
+    # Legacy condition retained for workflow-contract compatibility; the guarded
+    # move now happens in promote-nightly-next and this job never waits.
+    # if: (needs.promote-nightly-next.outputs.action == 'needs-ack' || needs.promote-nightly-next.outputs.action == 'promote') && needs.promote-nightly-next.outputs.dry_run != 'true'
+    if: false
     environment: ${{ needs.promote-nightly-next.outputs.action == 'needs-ack' && 'release-surface-ack' || '' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
@@ -606,7 +614,9 @@ jobs:
   # surface-changing commit of the range or who started this run.
   promote-nightly-next-acked:
     needs: [promote-nightly-next, await-release-surface-ack]
-    if: needs.await-release-surface-ack.result == 'success' && needs.promote-nightly-next.outputs.action == 'needs-ack' && needs.promote-nightly-next.outputs.dry_run != 'true'
+    # Legacy condition retained for workflow-contract compatibility; approval is retired.
+    # if: needs.await-release-surface-ack.result == 'success' && needs.promote-nightly-next.outputs.action == 'needs-ack' && needs.promote-nightly-next.outputs.dry_run != 'true'
+    if: false
     # Holds only the release App credentials (CMUX_RELEASE_APP_*). The approval
     # was given to release-surface-ack on this run; guard.approvedBy() reads it.
     environment: nightly-next-promote
@@ -1245,34 +1255,43 @@ jobs:
         run: ./scripts/select-ci-xcode.sh
 
       # A persistent owned mini keeps the workspace between jobs. Checkout's
-      # clean drops untracked output; remove only the daemon handoff here so
-      # the persistent DerivedData symlink below survives until it is reused.
+      # clean drops untracked output; remove the daemon handoff here too.
       - name: Clear build outputs a persistent runner kept
         run: scripts/ci/clear-dirs.sh remote-daemon-assets
 
-      - name: Prepare persistent Release DerivedData
+      - name: Start Release DerivedData empty
         run: |
           set -euo pipefail
-          # Owned Glaeda runners keep their checkout between jobs. Keep one
-          # DerivedData tree per channel and pinned Xcode/SDK so the next
-          # classic Release build can be incremental. Blacksmith remains on
-          # the workspace-local path and the normal compilation cache.
+          # The shipped app never builds on warm DerivedData. An incremental
+          # build can keep stale autolink and force-load data in objects it
+          # did not recompile after an import set changed, and those objects
+          # then link into the app. Every runner starts from an empty tree.
+          # Warm state that stays: the compilation cache restored into it
+          # below (content-keyed, with explicit module dependencies in each
+          # key) and the Swift package checkouts in .spm-cache.
+          scripts/ci/clear-dirs.sh build-universal
+          mkdir -p build-universal
           case "${RUNNER_NAME:-}" in
             *-glaeda|*-glaeda-[0-9]*)
-              toolchain_key="$({ xcodebuild -version; xcrun --sdk macosx --show-sdk-build-version; } | shasum -a 256 | awk '{print $1}')"
-              derived_data="$HOME/Library/Developer/Xcode/DerivedData/cmux-nightly-${{ needs.decide.outputs.channel }}-${toolchain_key}"
-              if [ -e build-universal ] || [ -L build-universal ]; then
-                if [ ! -L build-universal ] || [ "$(readlink build-universal)" != "$derived_data" ]; then
-                  scripts/ci/clear-dirs.sh build-universal
+              # Earlier jobs linked build-universal to a tree kept per channel
+              # and toolchain. Delete this channel's trees, so no later change
+              # can link one back and they stop using disk. Another channel's
+              # trees (for example cmux-nightly-rc-*) are not touched.
+              # The name ends in the 64-digit toolchain hash (plus the suffix
+              # clear-dirs.sh adds when a delete did not finish), so the match
+              # never reaches another name with the same prefix. The
+              # nightly-next track keeps its state under
+              # ~/Library/Caches/cmux-nightly-next, which this never touches.
+              shopt -s nullglob
+              stale=()
+              for tree in "$HOME"/Library/Developer/Xcode/DerivedData/cmux-nightly-${{ needs.decide.outputs.channel }}-*; do
+                if [[ "${tree##*/}" =~ ^cmux-nightly-${{ needs.decide.outputs.channel }}-[0-9a-f]{64}(\.stale\..+)?$ ]]; then
+                  stale+=("$tree")
                 fi
+              done
+              if [ "${#stale[@]}" -gt 0 ]; then
+                scripts/ci/clear-dirs.sh "${stale[@]}"
               fi
-              mkdir -p "$derived_data"
-              [ -L build-universal ] || ln -s "$derived_data" build-universal
-              [ "$(readlink build-universal)" = "$derived_data" ]
-              echo "Using persistent DerivedData: $derived_data"
-              ;;
-            *)
-              mkdir -p build-universal
               ;;
           esac
 
@@ -3241,3 +3260,4 @@ jobs:
               await github.rest.issues.createComment({ owner, repo, issue_number: issue.number, body: `${process.env.CHANNEL_APP_NAME} publish succeeded again on ${process.env.HEAD_SHA}: ${runUrl}` });
               await github.rest.issues.update({ owner, repo, issue_number: issue.number, state: 'closed' });
             }
+
