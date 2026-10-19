@@ -2,8 +2,11 @@
 @testable import CmuxNextNowPlaying
 import CmuxNextSettings
 import CmuxNextSidebar
+import CoreGraphics
 import Foundation
+import ImageIO
 import Testing
+import UniformTypeIdentifiers
 
 /// The New Tab page's Now Playing player, host side: the page's controls decode to commands and
 /// reach the App's handler (anything else is refused), the track goes to the page as the JSON
@@ -54,5 +57,28 @@ import Testing
         #expect(json["labels"] == .object(["play": .string("Play"), "pause": .string("Pause"),
                                            "previous": .string("Previous Track"), "next": .string("Next Track")]))
         #expect(AgentPageEvent.nowPlaying(nil).value == .null, "nothing playing is not null for the page")
+    }
+
+    /// cmux's own player hands over the file's embedded art as is (often a multi-MB JPEG); the page
+    /// gets it redrawn as a small PNG, since every track change goes to every agent page.
+    @Test func largeArtworkReachesThePageAsASmallPNG() throws {
+        let side = 1200
+        let context = try #require(CGContext(data: nil, width: side, height: side, bitsPerComponent: 8, bytesPerRow: 0,
+                                             space: CGColorSpaceCreateDeviceRGB(),
+                                             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.setFillColor(CGColor(red: 0.2, green: 0.4, blue: 0.8, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: side, height: side))
+        let out = NSMutableData()
+        let destination = try #require(CGImageDestinationCreateWithData(out, UTType.jpeg.identifier as CFString, 1, nil))
+        CGImageDestinationAddImage(destination, try #require(context.makeImage()), nil)
+        #expect(CGImageDestinationFinalize(destination))
+
+        let url = try #require(NewTabNowPlaying.artworkURL(out as Data))
+        let prefix = "data:image/png;base64,"
+        #expect(url.hasPrefix(prefix))
+        let png = try #require(Data(base64Encoded: String(url.dropFirst(prefix.count))))
+        let image = try #require(CGImageSourceCreateWithData(png as CFData, nil).flatMap { CGImageSourceCreateImageAtIndex($0, 0, nil) })
+        #expect(image.width == NewTabNowPlaying.artworkSide && image.height == NewTabNowPlaying.artworkSide)
+        #expect(NewTabNowPlaying.artworkURL(Data([1, 2, 3])) == nil, "bytes that are not an image became artwork")
     }
 }
