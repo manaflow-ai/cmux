@@ -44,6 +44,9 @@ import { audited, auditableVmId, withCaller, withOwnedVm } from "./common.ts";
 import { UsageRecorder } from "../metering/recorder.ts";
 import { upstreamIdOf } from "../proofs/tenant-owns-resource.ts";
 import { IdentityStore } from "../compat/identity-store.ts";
+import { CompatUpstream } from "../upstream/compat.ts";
+import { parseIdentityId } from "../lib/ids.ts";
+import { tenantOwnsIdentity } from "../proofs/tenant-owns-resource.ts";
 
 const KNOWN_STATES: ReadonlyArray<VmState> = ["starting", "running", "pausing", "paused", "stopped"];
 
@@ -617,8 +620,17 @@ export const vmsHandlers = HttpApiBuilder.group(CmuxVmApi, "vms", (handlers) =>
             const upstream = yield* UpstreamClient;
             const store = yield* OwnershipStore;
             const identityStore = yield* IdentityStore;
+            const compatUpstream = yield* CompatUpstream;
             // "gone" (already deleted upstream) still forgets the VM here.
             const now = new Date(yield* Clock.currentTimeMillis);
+            const grants = yield* identityStore.listGrantsForVm(caller.value.tenantId, vm.value).pipe(Effect.mapError(() => unavailable()));
+            for (const grant of grants) {
+              const identity = parseIdentityId(grant.identityCmuxId);
+              if (Option.isSome(identity)) {
+                const identityOwns = yield* tenantOwnsIdentity(caller, identity).pipe(Effect.mapError(() => unavailable()));
+                if (identityOwns !== null) yield* compatUpstream.forwardGrant(identityOwns, proofs.owns, { request: new Request("https://vm.test", { method: "DELETE" }), template: "/v5/identities/{identity}/permissions/vm/{vm}", operation: "v1.vm.delete.revokeGrant" }).pipe(Effect.ignore);
+              }
+            }
             yield* identityStore.revokeGrantsForVm(caller.value.tenantId, vm.value, now).pipe(Effect.mapError(() => unavailable()));
             yield* upstream.deleteVm(vm, proofs).pipe(Effect.mapError(() => unavailable()));
             yield* store

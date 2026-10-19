@@ -11,10 +11,12 @@ import type { VmId } from "../../src/lib/ids.ts";
 import { keyHasScope } from "../../src/proofs/key-has-scope.ts";
 import { tenantOwnsVm } from "../../src/proofs/tenant-owns-resource.ts";
 import { UpstreamClient } from "../../src/upstream/client.ts";
+import { CompatUpstream } from "../../src/upstream/compat.ts";
 
 export const misuse = (principal: Principal, vmA: VmId, vmB: VmId) =>
   Effect.gen(function* () {
     const upstream = yield* UpstreamClient;
+    const compat = yield* CompatUpstream;
 
     yield* name(principal, vmA, vmB, (caller, a, b) =>
       Effect.gen(function* () {
@@ -49,6 +51,10 @@ export const misuse = (principal: Principal, vmA: VmId, vmB: VmId) =>
         yield* upstream.listFiles(a, { owns: ownsA, scope: write }, "/");
         // @ts-expect-error a create needs a TenantMayCreate proof
         yield* upstream.createVm(caller, { cmuxId: vmA, idleTimeoutSeconds: 300, environment: "local" }, { scope: write });
+        // @ts-expect-error the compatibility forwarder requires a minted VM ownership proof
+        yield* compat.forwardVm(a, { request: new Request("https://vm.test"), template: "/v5/vms/{id}", operation: "misuse" });
+        // @ts-expect-error a tenant VM proof cannot authorize an identity forward
+        yield* compat.forwardIdentity(ownsA, { request: new Request("https://vm.test"), template: "/v5/identities/{id}", operation: "misuse" });
       }),
     );
 

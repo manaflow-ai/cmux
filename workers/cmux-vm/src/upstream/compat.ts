@@ -1,7 +1,7 @@
 import { Context, Data, Effect, Layer, Redacted } from "effect";
 import { type Named } from "@gdp-ts/core";
 import type { Principal } from "../domain/principal.ts";
-import type { ResourceId } from "../lib/ids.ts";
+import type { IdentityId, SnapshotId, VmId } from "../lib/ids.ts";
 import type { TenantMayCreate } from "../proofs/tenant-may-create.ts";
 import type { KeyHasScope } from "../proofs/key-has-scope.ts";
 import { upstreamIdOf, type TenantOwnsResource } from "../proofs/tenant-owns-resource.ts";
@@ -20,7 +20,12 @@ export interface CompatRequest {
 }
 
 export interface CompatUpstreamService {
-  readonly forwardOwned: <C, R extends ResourceId>(proof: TenantOwnsResource<C, R>, input: CompatRequest) => Effect.Effect<Response, CompatUpstreamError>;
+  readonly forwardVm: <C, R extends VmId>(proof: TenantOwnsResource<C, R>, input: CompatRequest) => Effect.Effect<Response, CompatUpstreamError>;
+  readonly forwardSnapshot: <C, R extends SnapshotId>(proof: TenantOwnsResource<C, R>, input: CompatRequest) => Effect.Effect<Response, CompatUpstreamError>;
+  readonly forwardIdentity: <C, R extends IdentityId>(proof: TenantOwnsResource<C, R>, input: CompatRequest) => Effect.Effect<Response, CompatUpstreamError>;
+  readonly forwardGrant: <C, I extends IdentityId, V extends VmId>(identityProof: TenantOwnsResource<C, I>, vmProof: TenantOwnsResource<C, V>, input: CompatRequest) => Effect.Effect<Response, CompatUpstreamError>;
+  readonly forwardCreatedVm: <C>(caller: Named<C, Principal>, proof: TenantMayCreate<C, "vm">, upstreamId: string, input: CompatRequest) => Effect.Effect<Response, CompatUpstreamError>;
+  readonly discardCreatedVm: <C>(caller: Named<C, Principal>, proof: TenantMayCreate<C, "vm">, upstreamId: string) => Effect.Effect<void, CompatUpstreamError>;
   readonly forwardCreate: <C, K extends "vm" | "snapshot">(
     caller: Named<C, Principal>,
     proof: TenantMayCreate<C, K>,
@@ -35,6 +40,7 @@ const pathFor = (template: string, upstreamId: string): string => {
   if (!template.includes("{id}")) throw new Error("compat route template must contain {id}");
   return template.replace("{id}", encodeURIComponent(upstreamId));
 };
+const pathForGrant = (template: string, identityId: string, vmId: string): string => template.replace("{identity}", encodeURIComponent(identityId)).replace("{vm}", encodeURIComponent(vmId));
 
 const copyHeaders = (request: Request, authorization: string): Headers => {
   const headers = new Headers();
@@ -68,7 +74,12 @@ export const makeCompatUpstream = (config: UpstreamConfig): CompatUpstreamServic
       catch: () => new CompatUpstreamError({ operation: input.operation, status: null }),
     });
   return {
-    forwardOwned: (proof, input) => forward({ ...input, template: pathFor(input.template, upstreamIdOf(proof)) }, input.identityAccessToken === undefined ? providerAuth : `Bearer ${input.identityAccessToken}`),
+    forwardVm: (proof, input) => forward({ ...input, template: pathFor(input.template, upstreamIdOf(proof)) }, input.identityAccessToken === undefined ? providerAuth : `Bearer ${input.identityAccessToken}`),
+    forwardSnapshot: (proof, input) => forward({ ...input, template: pathFor(input.template, upstreamIdOf(proof)) }, input.identityAccessToken === undefined ? providerAuth : `Bearer ${input.identityAccessToken}`),
+    forwardIdentity: (proof, input) => forward({ ...input, template: pathFor(input.template, upstreamIdOf(proof)) }, input.identityAccessToken === undefined ? providerAuth : `Bearer ${input.identityAccessToken}`),
+    forwardGrant: (identityProof, vmProof, input) => forward({ ...input, template: pathForGrant(input.template, upstreamIdOf(identityProof), upstreamIdOf(vmProof)) }, providerAuth),
+    forwardCreatedVm: (_caller, _proof, upstreamId, input) => forward({ ...input, template: pathFor(input.template, upstreamId) }, providerAuth),
+    discardCreatedVm: (_caller, _proof, upstreamId) => forward({ request: new Request("https://compat.invalid", { method: "DELETE" }), template: `/v5/vms/${encodeURIComponent(upstreamId)}`, operation: "discardCreatedVm" }, providerAuth).pipe(Effect.asVoid),
     forwardCreate: (_caller, _proof, input) => forward(input, providerAuth),
     forwardAuthorized: (_caller, _proof, input) => forward(input, providerAuth),
   };

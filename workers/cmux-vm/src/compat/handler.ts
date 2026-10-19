@@ -1,4 +1,4 @@
-/* oxlint-disable gdp-ts/no-type-assertion, gdp-ts/no-proof-assertion */
+/* oxlint-disable gdp-ts/no-type-assertion */
 import { name, type Named } from "@gdp-ts/core";
 import { Clock, Effect, Layer, Option } from "effect";
 import { authenticateCompat } from "../auth/middleware.ts";
@@ -8,7 +8,7 @@ import { SessionVerifier, TeamMembership } from "../auth/credentials.ts";
 import { actorRef, type Principal } from "../domain/principal.ts";
 import type { Scope } from "../domain/scopes.ts";
 import { TenantLimits } from "../limits/service.ts";
-import { IdentityId, newIdentityId, newSnapshotId, newVmId, parseIdentityId, parseSnapshotId, parseVmId, UpstreamId, type ResourceId, UserId } from "../lib/ids.ts";
+import { IdentityId, newIdentityId, newSnapshotId, newVmId, parseIdentityId, parseSnapshotId, parseVmId, UpstreamId, UserId, type ResourceKind } from "../lib/ids.ts";
 import { keyHasScope } from "../proofs/key-has-scope.ts";
 import { tenantMayCreate } from "../proofs/tenant-may-create.ts";
 import { Entitlements } from "../proofs/tenant-may-create.ts";
@@ -70,8 +70,6 @@ const findResourceRefs = (value: unknown): ReadonlyArray<{ readonly kind: "vm" |
   walk(value);
   return found;
 };
-type OwnedVmResult = { readonly caller: Named<never, Principal>; readonly vm: Named<never, import("../lib/ids.ts").VmId>; readonly owns: TenantOwnsResource<never, ResourceId>; readonly row: OwnedResource };
-type OwnedSnapshotResult = { readonly caller: Named<never, Principal>; readonly snapshot: Named<never, import("../lib/ids.ts").SnapshotId>; readonly owns: TenantOwnsResource<never, ResourceId>; readonly row: OwnedResource };
 const scopeFor = (method: string, parts: ReadonlyArray<string>): Scope | null => {
   if (parts[0] === "vms") {
     if (parts.length === 1) return method === "GET" ? "vm:read" : "vm:write";
@@ -118,8 +116,8 @@ const handle = (request: Request, options: { readonly publicSnapshotIds: Readonl
   if (scope === null) return notAvailable();
   if (!principal.scopes.has(scope)) return forbidden(`This credential lacks the ${scope} scope`);
   if (parts[0] === "vms" && parts.length === 1 && request.method === "POST") return yield* createVm(request, principal, upstream, ownership, audit, usage, now, options.publicSnapshotIds);
-  if (parts[0] === "vms" && parts.length === 1 && request.method === "GET") return yield* listVms(principal, upstream, ownership);
-  if (parts[0] === "snapshots" && parts.length === 1 && request.method === "GET") return yield* listSnapshots(principal, upstream, ownership);
+  if (parts[0] === "vms" && parts.length === 1 && request.method === "GET") return yield* listVms(request, principal, upstream, ownership);
+  if (parts[0] === "snapshots" && parts.length === 1 && request.method === "GET") return yield* listSnapshots(request, principal, upstream, ownership);
   if (parts[0] === "identities" && parts.length === 1) return yield* identityCollection(request, principal, upstream, ownership, audit, now);
   if (parts[0] === "identities") return yield* identityResource(request, parts.slice(1), principal, upstream, ownership, identities, audit, now);
   if (parts[0] === "snapshots" && parts[1] !== undefined) return yield* snapshotResource(request, parts[1], principal, upstream, ownership, audit, now);
@@ -127,45 +125,63 @@ const handle = (request: Request, options: { readonly publicSnapshotIds: Readonl
   return notAvailable();
 }).pipe(Effect.catchAll(() => Effect.succeed(unavailable())));
 
-const ownedVm = (principal: Principal, upstreamId: string): Effect.Effect<OwnedVmResult | null, unknown, OwnershipStore> => Effect.gen(function* () {
+const ownedVm = (principal: Principal, upstreamId: string) => Effect.gen(function* () {
   const store = yield* OwnershipStore;
   const row = yield* store.findByUpstream(principal.tenantId, "vm", upstreamId);
   if (Option.isNone(row)) return null;
   const parsed = parseVmId(row.value.cmuxId);
   if (Option.isNone(parsed)) return null;
-  return yield* name(principal, (caller) => name(parsed.value, (vm) => tenantOwnsVm(caller, vm).pipe(Effect.map((owns) => owns === null ? null : { caller: caller as unknown as Named<never, Principal>, vm: vm as unknown as Named<never, import("../lib/ids.ts").VmId>, owns: owns as unknown as TenantOwnsResource<never, ResourceId>, row: row.value }))));
+  return yield* name(principal, (caller) => name(parsed.value, (vm) => tenantOwnsVm(caller, vm).pipe(Effect.map((owns) => owns === null ? null : { caller, vm, owns, row: row.value }))));
 });
-const ownedSnapshot = (principal: Principal, upstreamId: string): Effect.Effect<OwnedSnapshotResult | null, unknown, OwnershipStore> => Effect.gen(function* () {
+const ownedSnapshot = (principal: Principal, upstreamId: string) => Effect.gen(function* () {
   const store = yield* OwnershipStore;
   const row = yield* store.findByUpstream(principal.tenantId, "snapshot", upstreamId);
   if (Option.isNone(row)) return null;
   const parsed = parseSnapshotId(row.value.cmuxId);
   if (Option.isNone(parsed)) return null;
-  return yield* name(principal, (caller) => name(parsed.value, (snapshot) => tenantOwnsSnapshot(caller, snapshot).pipe(Effect.map((owns) => owns === null ? null : { caller: caller as unknown as Named<never, Principal>, snapshot: snapshot as unknown as Named<never, import("../lib/ids.ts").SnapshotId>, owns: owns as unknown as TenantOwnsResource<never, ResourceId>, row: row.value }))));
+  return yield* name(principal, (caller) => name(parsed.value, (snapshot) => tenantOwnsSnapshot(caller, snapshot).pipe(Effect.map((owns) => owns === null ? null : { caller, snapshot, owns, row: row.value }))));
+});
+const allOwnedRows = (principal: Principal, kind: ResourceKind, ownership: OwnershipStoreService) => Effect.gen(function* () {
+  const rows: OwnedResource[] = [];
+  let after: { readonly createdAt: Date; readonly cmuxId: string } | null = null;
+  while (true) {
+    const page = yield* ownership.listPage(principal.tenantId, kind, { limit: 1000, after, only: principal.resourceAllowlist, labels: null });
+    rows.push(...page);
+    if (page.length < 1000) break;
+    const last = page.at(-1);
+    if (last === undefined) break;
+    after = { createdAt: last.createdAt, cmuxId: last.cmuxId };
+  }
+  return rows;
 });
 
-const listVms = (principal: Principal, upstream: CompatUpstreamService, ownership: OwnershipStoreService) => Effect.gen(function* () {
-  const rows = yield* ownership.listPage(principal.tenantId, "vm", { limit: 10_000, after: null, only: principal.resourceAllowlist, labels: null });
+const listVms = (request: Request, principal: Principal, upstream: CompatUpstreamService, ownership: OwnershipStoreService) => Effect.gen(function* () {
+  const rows = yield* allOwnedRows(principal, "vm", ownership);
   const vms: unknown[] = [];
   for (const row of rows) {
     const parsed = parseVmId(row.cmuxId);
     if (Option.isNone(parsed)) continue;
-    const result = yield* name(principal, (caller) => name(parsed.value, (vm) => tenantOwnsVm(caller, vm).pipe(Effect.flatMap((owns) => owns === null ? Effect.succeed(null) : upstream.forwardOwned(owns as unknown as import("../proofs/tenant-owns-resource.ts").TenantOwnsResource<never, import("../lib/ids.ts").ResourceId>, { request: new Request("https://vm.test", { method: "GET" }), template: "/v5/vms/{id}", operation: "list_vms" }).pipe(Effect.flatMap((response) => response.ok ? Effect.promise(() => response.json() as Promise<unknown>) : Effect.succeed(null)))))));
+    const result = yield* name(principal, (caller) => name(parsed.value, (vm) => tenantOwnsVm(caller, vm).pipe(Effect.flatMap((owns) => owns === null ? Effect.succeed(null) : upstream.forwardVm(owns, { request: new Request("https://vm.test", { method: "GET" }), template: "/v5/vms/{id}", operation: "list_vms" }).pipe(Effect.flatMap((response) => response.ok ? Effect.promise(() => response.json() as Promise<unknown>) : Effect.succeed(null)))))));
     if (result !== null) vms.push(result);
   }
   const stateCount = (state: string) => vms.filter((vm) => typeof vm === "object" && vm !== null && Reflect.get(vm, "state") === state).length;
-  return Response.json({ vms, totalCount: vms.length, runningCount: stateCount("running"), startingCount: stateCount("starting"), pausingCount: stateCount("pausing"), pausedCount: stateCount("paused"), stoppedCount: stateCount("stopped") });
+  const offset = Math.max(0, Number(request.url ? new URL(request.url).searchParams.get("offset") ?? "0" : "0") || 0);
+  const limit = Math.min(100, Math.max(0, Number(new URL(request.url).searchParams.get("limit") ?? "100") || 100));
+  return Response.json({ vms: vms.slice(offset, offset + limit), totalCount: vms.length, runningCount: stateCount("running"), startingCount: stateCount("starting"), pausingCount: stateCount("pausing"), pausedCount: stateCount("paused"), stoppedCount: stateCount("stopped") });
 });
-const listSnapshots = (principal: Principal, upstream: CompatUpstreamService, ownership: OwnershipStoreService) => Effect.gen(function* () {
-  const rows = yield* ownership.listPage(principal.tenantId, "snapshot", { limit: 10_000, after: null, only: principal.resourceAllowlist, labels: null });
+const listSnapshots = (request: Request, principal: Principal, upstream: CompatUpstreamService, ownership: OwnershipStoreService) => Effect.gen(function* () {
+  const rows = yield* allOwnedRows(principal, "snapshot", ownership);
   const snapshots: unknown[] = [];
   for (const row of rows) {
     const parsed = parseSnapshotId(row.cmuxId);
     if (Option.isNone(parsed)) continue;
-    const value = yield* name(principal, (caller) => name(parsed.value, (snapshot) => tenantOwnsSnapshot(caller, snapshot).pipe(Effect.flatMap((owns) => owns === null ? Effect.succeed(null) : upstream.forwardOwned(owns as unknown as import("../proofs/tenant-owns-resource.ts").TenantOwnsResource<never, import("../lib/ids.ts").ResourceId>, { request: new Request("https://vm.test", { method: "GET" }), template: "/v5/snapshots/{id}", operation: "list_snapshots" }).pipe(Effect.flatMap((response) => response.ok ? Effect.promise(() => response.json() as Promise<unknown>) : Effect.succeed(null)))))));
+    const value = yield* name(principal, (caller) => name(parsed.value, (snapshot) => tenantOwnsSnapshot(caller, snapshot).pipe(Effect.flatMap((owns) => owns === null ? Effect.succeed(null) : upstream.forwardSnapshot(owns, { request: new Request("https://vm.test", { method: "GET" }), template: "/v5/snapshots/{id}", operation: "list_snapshots" }).pipe(Effect.flatMap((response) => response.ok ? Effect.promise(() => response.json() as Promise<unknown>) : Effect.succeed(null)))))));
     if (value !== null) snapshots.push(value);
   }
-  return Response.json({ snapshots, totalCount: snapshots.length });
+  const params = new URL(request.url).searchParams;
+  const offset = Math.max(0, Number(params.get("offset") ?? "0") || 0);
+  const limit = Math.min(100, Math.max(0, Number(params.get("limit") ?? "100") || 100));
+  return Response.json({ snapshots: snapshots.slice(offset, offset + limit), totalCount: snapshots.length });
 });
 
 const createVm = (request: Request, principal: Principal, upstream: CompatUpstreamService, ownership: OwnershipStoreService, audit: AuditStoreService, usage: { readonly record: (event: import("../metering/recorder.ts").UsageEvent) => Effect.Effect<void> }, now: Date, publicSnapshotIds: ReadonlyArray<string>) => Effect.gen(function* () {
@@ -178,6 +194,11 @@ const createVm = (request: Request, principal: Principal, upstream: CompatUpstre
     const claim = yield* limits.begin(principal.tenantId, scopedKey, yield* fingerprint(["v5.createVm", yield* Effect.promise(() => request.clone().text())]));
     if (claim.state === "mismatch") return error(409, "CONFLICT", "This Idempotency-Key was already used with a different request");
     if (claim.state === "in_progress") return error(409, "CONFLICT", "A request with this Idempotency-Key is still running; retry shortly");
+    if (claim.state === "resume" && claim.progress.phase === "done") {
+      const parsed = parseVmId(claim.progress.vmId);
+      if (Option.isNone(parsed)) return notFound();
+      return yield* name(principal, (caller) => name(parsed.value, (vm) => tenantOwnsVm(caller, vm).pipe(Effect.flatMap((owns) => owns === null ? Effect.succeed(notFound()) : upstream.forwardVm(owns, { request: new Request(request.url, { method: "GET" }), template: "/v5/vms/{id}", operation: "create_vm.replay" }).pipe(Effect.map(copyResponse), Effect.mapError((failure) => providerError(failure.status)))))));
+    }
   }
   const body = (yield* Effect.promise(() => request.clone().json().catch(() => ({})))) as Record<string, unknown>;
   const snapshotId = typeof body.snapshotId === "string" ? body.snapshotId : null;
@@ -209,9 +230,9 @@ const createVm = (request: Request, principal: Principal, upstream: CompatUpstre
       if (!response.ok) { yield* limits.release(principal.tenantId, decision.proof.reservationId).pipe(Effect.ignore); return providerError(response.status); }
       const data = yield* Effect.promise(() => parseJson(response));
       const providerId = stringField(data, "id");
-      if (providerId === null) return unavailable();
+      if (providerId === null) { yield* limits.release(principal.tenantId, decision.proof.reservationId).pipe(Effect.ignore); return unavailable(); }
       const cmuxId = newVmId();
-      yield* ownership.record({ tenantId: principal.tenantId, kind: "vm", cmuxId, upstreamId: UpstreamId.make(providerId), createdBy: actorRef(principal.actor), createdAt: now, displayName: typeof data?.displayName === "string" ? data.displayName : null, labels: {} }).pipe(Effect.mapError(() => unavailable()));
+      yield* ownership.record({ tenantId: principal.tenantId, kind: "vm", cmuxId, upstreamId: UpstreamId.make(providerId), createdBy: actorRef(principal.actor), createdAt: now, displayName: typeof data?.displayName === "string" ? data.displayName : null, labels: {} }).pipe(Effect.mapError(() => unavailable()), Effect.tapError(() => upstream.discardCreatedVm(caller, decision.proof, providerId).pipe(Effect.ignore)), Effect.tapError(() => limits.release(principal.tenantId, decision.proof.reservationId).pipe(Effect.ignore)));
       yield* limits.release(principal.tenantId, decision.proof.reservationId).pipe(Effect.ignore);
       const resources = typeof data?.resources === "object" && data.resources !== null ? data.resources as Record<string, unknown> : {};
       yield* usage.record({ kind: "vm_started", tenantId: principal.tenantId, upstreamVmId: providerId, at: now, vcpus: typeof resources.cpu === "number" ? resources.cpu : 0, memoryMb: typeof resources.memory === "number" ? resources.memory : 0, storageMb: typeof resources.storage === "number" ? resources.storage : 0 }).pipe(Effect.ignore);
@@ -229,9 +250,9 @@ const vmResource = (request: Request, parts: ReadonlyArray<string>, principal: P
   if (owned === null) return notFound();
   if (parts[1] === "networks") return notFound();
   const suffix = parts.slice(1).join("/");
-  const allowed = request.method === "GET" && (suffix === "" || suffix === "fs/dir" || suffix === "fs/exists" || suffix === "fs/read" || suffix === "fs/stat" || suffix === "pty" || suffix === "pty/sessions" || suffix.startsWith("pty/sessions/"))
-    || request.method === "POST" && ["start", "pause", "exec-await", "snapshot", "resize", "fs/mkdir", "fs/uploads"].includes(suffix)
-    || request.method === "PUT" && ["fs/write", "networks"].includes(suffix)
+  const allowed = request.method === "GET" && (suffix === "" || suffix === "fs/dir" || suffix === "fs/exists" || suffix === "fs/read" || suffix === "fs/stat" || suffix === "pty" || suffix === "pty/sessions" || suffix.startsWith("pty/sessions/") || suffix.startsWith("fs/uploads/"))
+    || request.method === "POST" && (["start", "pause", "exec-await", "snapshot", "resize", "fs/mkdir", "fs/uploads"].includes(suffix) || suffix.endsWith("/commit"))
+    || request.method === "PUT" && (suffix === "fs/write" || suffix.startsWith("fs/uploads/"))
     || request.method === "PATCH" && suffix === ""
     || request.method === "DELETE" && (suffix === "" || suffix.startsWith("fs/") || suffix.startsWith("pty/sessions/"));
   if (!allowed) return notAvailable();
@@ -251,14 +272,26 @@ const vmResource = (request: Request, parts: ReadonlyArray<string>, principal: P
     if (decision._tag === "over_quota") return error(429, "QUOTA_EXCEEDED", "This team has reached its snapshot quota");
     snapshotReservation = decision.proof.reservationId;
   }
-  if (request.method === "DELETE" && suffix === "") yield* identities.revokeGrantsForVm(principal.tenantId, owned.vm.value, now).pipe(Effect.mapError(() => unavailable()));
-  let response = yield* upstream.forwardOwned(owned.owns, { request: forwardRequest, template, operation: `v5.vm.${request.method.toLowerCase()}` }).pipe(Effect.mapError((failure) => providerError(failure.status)));
+  if (request.method === "DELETE" && suffix === "") {
+    const grants = yield* identities.listGrantsForVm(principal.tenantId, owned.vm.value).pipe(Effect.mapError(() => unavailable()));
+    for (const grant of grants) {
+      const identityRow = yield* ownership.find(principal.tenantId, "identity", grant.identityCmuxId).pipe(Effect.mapError(() => unavailable()));
+      if (Option.isSome(identityRow)) {
+        const identityId = parseIdentityId(identityRow.value.cmuxId);
+        if (Option.isSome(identityId)) {
+          yield* name(principal, (caller) => name(identityId.value, (identity) => name(owned.vm.value, (vm) => tenantOwnsIdentity(caller, identity).pipe(Effect.flatMap((identityOwns) => tenantOwnsVm(caller, vm).pipe(Effect.flatMap((vmOwns) => identityOwns === null || vmOwns === null ? Effect.void : upstream.forwardGrant(identityOwns, vmOwns, { request: new Request("https://vm.test", { method: "DELETE" }), template: "/v5/identities/{identity}/permissions/vm/{vm}", operation: "revokeVmGrant" }).pipe(Effect.asVoid))))))));
+        }
+      }
+    }
+    yield* identities.revokeGrantsForVm(principal.tenantId, owned.vm.value, now).pipe(Effect.mapError(() => unavailable()));
+  }
+  let response = yield* upstream.forwardVm(owned.owns, { request: forwardRequest, template, operation: `v5.vm.${request.method.toLowerCase()}` }).pipe(Effect.mapError((failure) => providerError(failure.status)));
   if (response.status === 409 && parts[1] === "exec-await") {
-    const started = yield* upstream.forwardOwned(owned.owns, { request: new Request(request.url, { method: "POST", headers: request.headers }), template: "/v5/vms/{id}/start", operation: "v5.vm.start" }).pipe(Effect.mapError((failure) => providerError(failure.status)));
+    const started = yield* upstream.forwardVm(owned.owns, { request: new Request(request.url, { method: "POST", headers: request.headers }), template: "/v5/vms/{id}/start", operation: "v5.vm.start" }).pipe(Effect.mapError((failure) => providerError(failure.status)));
     const startData = yield* Effect.promise(() => parseJson(started));
     const startResources = typeof startData?.resources === "object" && startData.resources !== null ? startData.resources as Record<string, unknown> : {};
     yield* usage.record({ kind: "vm_started", tenantId: principal.tenantId, upstreamVmId: owned.row.upstreamId, at: now, vcpus: typeof startResources.cpu === "number" ? startResources.cpu : 0, memoryMb: typeof startResources.memory === "number" ? startResources.memory : 0, storageMb: typeof startResources.storage === "number" ? startResources.storage : 0 }).pipe(Effect.ignore);
-    response = yield* upstream.forwardOwned(owned.owns, { request: forwardRequest, template, operation: "v5.vm.exec-await.retry" }).pipe(Effect.mapError((failure) => providerError(failure.status)));
+    response = yield* upstream.forwardVm(owned.owns, { request: forwardRequest, template, operation: "v5.vm.exec-await.retry" }).pipe(Effect.mapError((failure) => providerError(failure.status)));
   }
   if (response.status === 409 && request.method === "PATCH") return error(400, "BAD_REQUEST", "The requested VM update is not available");
   if (response.ok && parts[1] === "snapshot") {
@@ -289,19 +322,19 @@ const vmResource = (request: Request, parts: ReadonlyArray<string>, principal: P
 const snapshotResource = (request: Request, id: string, principal: Principal, upstream: CompatUpstreamService, ownership: OwnershipStoreService, audit: AuditStoreService, now: Date) => Effect.gen(function* () {
   const owned = yield* ownedSnapshot(principal, id);
   if (owned === null) return notFound();
-  const response = yield* upstream.forwardOwned(owned.owns, { request, template: "/v5/snapshots/{id}", operation: `v5.snapshot.${request.method.toLowerCase()}` }).pipe(Effect.mapError((failure) => providerError(failure.status)));
+  const response = yield* upstream.forwardSnapshot(owned.owns, { request, template: "/v5/snapshots/{id}", operation: `v5.snapshot.${request.method.toLowerCase()}` }).pipe(Effect.mapError((failure) => providerError(failure.status)));
   if (request.method === "DELETE" && response.ok) yield* ownership.markDeleted(principal.tenantId, "snapshot", owned.row.cmuxId, now).pipe(Effect.ignore);
   return copyResponse(response);
 });
 
 const identityCollection = (request: Request, principal: Principal, upstream: CompatUpstreamService, ownership: OwnershipStoreService, audit: AuditStoreService, now: Date) => Effect.gen(function* () {
   if (request.method === "GET") {
-    const rows = yield* ownership.listPage(principal.tenantId, "identity", { limit: 1000, after: null, only: principal.resourceAllowlist, labels: null });
+    const rows = yield* allOwnedRows(principal, "identity", ownership);
     const values: unknown[] = [];
     for (const row of rows) {
       const parsed = parseIdentityId(row.cmuxId);
       if (Option.isNone(parsed)) continue;
-      const value = yield* name(principal, (caller) => name(parsed.value, (identity) => tenantOwnsIdentity(caller, identity).pipe(Effect.flatMap((owns) => owns === null ? Effect.succeed(null) : upstream.forwardOwned(owns as unknown as TenantOwnsResource<never, ResourceId>, { request: new Request("https://vm.test", { method: "GET" }), template: "/v5/identities/{id}", operation: "list_identities" }).pipe(Effect.flatMap((response) => response.ok ? Effect.promise(() => response.json() as Promise<unknown>) : Effect.succeed(null)))))));
+      const value = yield* name(principal, (caller) => name(parsed.value, (identity) => tenantOwnsIdentity(caller, identity).pipe(Effect.flatMap((owns) => owns === null ? Effect.succeed(null) : upstream.forwardIdentity(owns, { request: new Request("https://vm.test", { method: "GET" }), template: "/v5/identities/{id}", operation: "list_identities" }).pipe(Effect.flatMap((response) => response.ok ? Effect.promise(() => response.json() as Promise<unknown>) : Effect.succeed(null)))))));
       if (value !== null) values.push(value);
     }
     return Response.json({ identities: values, total: values.length });
@@ -330,17 +363,17 @@ const identityResource = (request: Request, parts: ReadonlyArray<string>, princi
   if (Option.isNone(row)) return notFound();
   const parsed = parseIdentityId(row.value.cmuxId);
   if (Option.isNone(parsed)) return notFound();
-  const result = (yield* name(principal, (caller) => name(parsed.value, (identity) => tenantOwnsIdentity(caller, identity).pipe(Effect.map((owns) => owns === null ? null : { owns: owns as unknown as TenantOwnsResource<never, ResourceId>, identity: identity as unknown as import("@gdp-ts/core").Named<never, IdentityId> }))))) as { readonly owns: TenantOwnsResource<never, ResourceId>; readonly identity: import("@gdp-ts/core").Named<never, IdentityId> } | null;
+  const result = yield* name(principal, (caller) => name(parsed.value, (identity) => tenantOwnsIdentity(caller, identity).pipe(Effect.map((owns) => owns === null ? null : { owns, identity }))));
   if (result === null) return notFound();
   const tail = parts.slice(1);
   if (tail[0] === "permissions" && tail[1] === "vm") return yield* identityPermission(request, tail.slice(2), principal, result.owns, parsed.value, ownership, identities, upstream, audit, now);
   if (tail[0] === "tokens") return yield* identityToken(request, tail.slice(1), principal, result.owns, parsed.value, identities, upstream, audit, now);
-  const response = yield* upstream.forwardOwned(result.owns, { request, template: "/v5/identities/{id}", operation: `identity.${request.method.toLowerCase()}` }).pipe(Effect.mapError((failure) => providerError(failure.status)));
+  const response = yield* upstream.forwardIdentity(result.owns, { request, template: "/v5/identities/{id}", operation: `identity.${request.method.toLowerCase()}` }).pipe(Effect.mapError((failure) => providerError(failure.status)));
   if (request.method === "DELETE" && response.ok) yield* ownership.markDeleted(principal.tenantId, "identity", row.value.cmuxId, now).pipe(Effect.ignore);
   return copyResponse(response);
 });
 
-const identityPermission = <C, R extends ResourceId>(request: Request, parts: ReadonlyArray<string>, principal: Principal, identityProof: TenantOwnsResource<C, R>, identityId: IdentityId, ownership: OwnershipStoreService, identities: IdentityStoreService, upstream: CompatUpstreamService, audit: AuditStoreService, now: Date) => Effect.gen(function* () {
+const identityPermission = <C, R extends IdentityId>(request: Request, parts: ReadonlyArray<string>, principal: Principal, identityProof: TenantOwnsResource<C, R>, identityId: IdentityId, ownership: OwnershipStoreService, identities: IdentityStoreService, upstream: CompatUpstreamService, audit: AuditStoreService, now: Date) => Effect.gen(function* () {
   if (request.method === "POST" && principal.resourceAllowlist !== null) return forbidden("A key limited to specific resources cannot grant identity access");
   if (parts.length === 0 && request.method === "GET") {
     const grants = yield* identities.listGrants(principal.tenantId, identityId);
@@ -357,7 +390,7 @@ const identityPermission = <C, R extends ResourceId>(request: Request, parts: Re
   const vmOwns = yield* name(principal, (caller) => name(vmParsed.value, (vm) => tenantOwnsVm(caller, vm)));
   if (vmOwns === null) return notFound();
   const template = parts.length === 0 ? "/v5/identities/{id}/permissions/vm" : `/v5/identities/{id}/permissions/vm/${encodeURIComponent(resolvedVmId)}`;
-  const response = yield* upstream.forwardOwned(identityProof, { request, template, operation: `identity.permission.${request.method.toLowerCase()}` }).pipe(Effect.mapError((failure) => providerError(failure.status)));
+  const response = yield* upstream.forwardGrant(identityProof, vmOwns, { request, template: template.replace("{id}", "{identity}").replace(resolvedVmId, "{vm}"), operation: `identity.permission.${request.method.toLowerCase()}` }).pipe(Effect.mapError((failure) => providerError(failure.status)));
   if (response.ok && request.method === "POST") {
     const data = yield* Effect.promise(() => parseJson(response));
     yield* identities.recordGrant({ id: stringField(data, "id") ?? idFrom("vmp-"), tenantId: principal.tenantId, identityCmuxId: identityId, vmCmuxId: vmParsed.value, upstreamId: vmRow.value.upstreamId, allowedLinuxUsers: Array.isArray(data?.allowedLinuxUsers) ? data.allowedLinuxUsers.filter((value): value is string => typeof value === "string") : null, grantedAt: now, grantedBy: principal.tenantId }).pipe(Effect.ignore);
@@ -367,9 +400,9 @@ const identityPermission = <C, R extends ResourceId>(request: Request, parts: Re
   return copyResponse(response);
 });
 
-const identityToken = <C, R extends ResourceId>(request: Request, parts: ReadonlyArray<string>, principal: Principal, identityProof: TenantOwnsResource<C, R>, identityId: IdentityId, identities: IdentityStoreService, upstream: CompatUpstreamService, audit: AuditStoreService, now: Date) => Effect.gen(function* () {
+const identityToken = <C, R extends IdentityId>(request: Request, parts: ReadonlyArray<string>, principal: Principal, identityProof: TenantOwnsResource<C, R>, identityId: IdentityId, identities: IdentityStoreService, upstream: CompatUpstreamService, audit: AuditStoreService, now: Date) => Effect.gen(function* () {
   const tokenPath = parts[0] === undefined ? "/v5/identities/{id}/tokens" : `/v5/identities/{id}/tokens/${encodeURIComponent(parts[0])}`;
-  const response = yield* upstream.forwardOwned(identityProof, { request, template: tokenPath, operation: `identity.token.${request.method.toLowerCase()}` }).pipe(Effect.mapError((failure) => providerError(failure.status)));
+  const response = yield* upstream.forwardIdentity(identityProof, { request, template: tokenPath, operation: `identity.token.${request.method.toLowerCase()}` }).pipe(Effect.mapError((failure) => providerError(failure.status)));
   if (response.ok && request.method === "POST") {
     const data = yield* Effect.promise(() => parseJson(response));
     const token = stringField(data, "token");
@@ -391,8 +424,8 @@ const identityExec = (request: Request, parts: ReadonlyArray<string>, token: str
   if (Option.isNone(vm) || Option.isNone(identity)) return notFound();
   const grant = yield* identities.findGrant(tokenRow.value.tenantId, identity.value, vm.value).pipe(Effect.orElseSucceed(() => Option.none()));
   if (Option.isNone(grant)) return notFound();
-  const principal: Principal = { tenantId: tokenRow.value.tenantId, actor: { kind: "session", userId: UserId.make("identity") }, scopes: new Set(["vm:exec", "vm:terminal"]), resourceAllowlist: null, credentialExpiresAt: null };
-  const response = yield* name(principal, (caller) => name(vm.value, (namedVm) => tenantOwnsVm(caller, namedVm).pipe(Effect.flatMap((owns) => owns === null ? Effect.succeed(notFound()) : upstream.forwardOwned(owns as unknown as TenantOwnsResource<never, ResourceId>, { request, template: `/v5/vms/{id}/${parts.slice(2).map(encodeURIComponent).join("/")}`, operation: "identity.exec", identityAccessToken: token }).pipe(Effect.map(copyResponse), Effect.mapError((failure) => providerError(failure.status)))))));
+  const principal: Principal = { tenantId: tokenRow.value.tenantId, actor: { kind: "session", userId: UserId.make("identity") }, scopes: new Set(["vm:exec", "vm:terminal"]), resourceAllowlist: new Set([vmRow.value.cmuxId]), credentialExpiresAt: null };
+  const response = yield* name(principal, (caller) => name(vm.value, (namedVm) => tenantOwnsVm(caller, namedVm).pipe(Effect.flatMap((owns) => owns === null ? Effect.succeed(notFound()) : upstream.forwardVm(owns, { request, template: `/v5/vms/{id}/${parts.slice(2).map(encodeURIComponent).join("/")}`, operation: "identity.exec", identityAccessToken: token }).pipe(Effect.map(copyResponse), Effect.mapError((failure) => providerError(failure.status)))))));
   yield* audit.append({ tenantId: principal.tenantId, actor: "identity-token", ownerActor: null, action: "v5.identity.exec", cmuxId: vmRow.value.cmuxId, outcome: response.ok ? "ok" : `HTTP_${response.status}`, at: now }).pipe(Effect.ignore);
   if (response.ok) yield* usage.record({ kind: "vm_woken_by_identity", tenantId: principal.tenantId, upstreamVmId: parts[1] ?? "", at: now }).pipe(Effect.ignore);
   return response;
