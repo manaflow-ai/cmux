@@ -429,6 +429,26 @@ impl Hub {
         Ok(())
     }
 
+    /// `leave_full_access_if_off` for a chat just started (cold or from the pool): when it would
+    /// run in full access, the agent stops and the chat stays open and idle.
+    pub(super) async fn cap_full_access(
+        &self,
+        session: &Arc<Session>,
+        child: &Arc<ChildAgent>,
+    ) -> Result<(), RpcError> {
+        let Err(e) = self.leave_full_access_if_off(session, child).await else { return Ok(()) };
+        if let Some(started) = session.child.lock().await.take() {
+            started.terminate(super::shutdown::SHUTDOWN_GRACE).await;
+        }
+        // A host that outlived the grace would be re-adopted, still in full access.
+        if Self::host_record_live(&session.id) {
+            self.end_unadopted_host(session).await;
+        }
+        self.set_status(session, SessionStatus::Idle);
+        self.append(session, "mux", "full_access_refused", json!({}));
+        Err(e)
+    }
+
     /// The level new chats start at now, and what chose it.
     async fn start_level(&self) -> (DefaultMode, Source) {
         let (picked, mut picked_under, configured) = {

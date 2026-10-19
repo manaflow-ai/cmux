@@ -375,7 +375,8 @@ impl Hub {
         // runs with the harness initialized and its session created.
         if let Some(pooled) = self.pool_take_claimed(&session.id) {
             match self.adopt_pooled(session, pooled).await {
-                Ok(child) => return Ok(child),
+                // A harness whose own settings started it in full access: capped like a cold start.
+                Ok(child) => return self.cap_full_access(session, &child).await.map(|()| child),
                 // Not promotable: it was ended; start cold below.
                 Err(e) => tracing::warn!(session = %session.id, "pooled session not taken: {e:#}"),
             }
@@ -718,19 +719,7 @@ impl Hub {
         if saved.agent_session_id.is_some() {
             self.replay_config(session, &child, &saved).await;
         }
-        if let Err(e) = self.leave_full_access_if_off(session, &child).await {
-            // It would run in full access: the agent stops, the chat stays open and idle.
-            if let Some(started) = session.child.lock().await.take() {
-                started.terminate(super::shutdown::SHUTDOWN_GRACE).await;
-            }
-            // A host that outlived the grace would be re-adopted, still in full access.
-            if Self::host_record_live(&session.id) {
-                self.end_unadopted_host(session).await;
-            }
-            self.set_status(session, SessionStatus::Idle);
-            self.append(session, "mux", "full_access_refused", json!({}));
-            return Err(e);
-        }
+        self.cap_full_access(session, &child).await?;
         self.set_status(session, SessionStatus::Ready);
         self.save_meta(session);
         let meta_now = session.meta();
