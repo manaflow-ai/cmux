@@ -26,12 +26,14 @@
 //!   `{row_key: {before, into, after, refusal?}}` over the rows of the last
 //!   view.
 
+use crate::typed::{CAcceptanceTable, CReply, CRows, Out};
 use cmux_layout_reducer::sidebar_doc::{
     Doc, Item, Op, Section, accept, reduce,
     view::{self, Row, ViewRequest},
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
+use std::collections::BTreeMap;
 
 struct Intent {
     key: String,
@@ -54,6 +56,8 @@ pub struct Mirror {
     /// relaunch never collide with ones the daemon stored earlier.
     local_prefix: String,
     rows: Vec<Row>,
+    /// The buffers of the last typed replies (`*_typed`).
+    out: Out,
 }
 
 fn refusal(reason: &str) -> Value {
@@ -287,26 +291,63 @@ impl Mirror {
         }
     }
 
-    pub fn view(&mut self, input: &[u8]) -> Value {
-        let request: ViewRequest = match serde_json::from_slice(input) {
-            Ok(request) => request,
-            Err(e) => return error(e),
-        };
+    /// Reads a view request and keeps its rows for `drag_begin`.
+    fn view_rows(&mut self, input: &[u8]) -> Result<(), Value> {
+        let request: ViewRequest = serde_json::from_slice(input).map_err(error)?;
         self.rows = view::view(&self.shown, &request);
-        json!(self.rows)
+        Ok(())
     }
 
-    pub fn drag_begin(&mut self, input: &[u8]) -> Value {
+    pub fn view(&mut self, input: &[u8]) -> Value {
+        match self.view_rows(input) {
+            Ok(()) => json!(self.rows),
+            Err(e) => e,
+        }
+    }
+
+    fn acceptance(&self, input: &[u8]) -> Result<BTreeMap<String, accept::Acceptance>, Value> {
         #[derive(Deserialize)]
         #[serde(untagged)]
         enum Items {
             List(Vec<String>),
             Object { items: Vec<String> },
         }
-        let items = match serde_json::from_slice::<Items>(input) {
-            Ok(Items::List(items) | Items::Object { items }) => items,
-            Err(e) => return error(e),
-        };
-        json!(accept::drag_begin(&self.shown, &self.rows, &items))
+        let (Items::List(items) | Items::Object { items }) =
+            serde_json::from_slice::<Items>(input).map_err(error)?;
+        Ok(accept::drag_begin(&self.shown, &self.rows, &items))
+    }
+
+    pub fn drag_begin(&mut self, input: &[u8]) -> Value {
+        match self.acceptance(input) {
+            Ok(table) => json!(table),
+            Err(e) => e,
+        }
+    }
+
+    // Typed replies (crate::typed): the same calls, read with no JSON.
+
+    pub fn view_typed(&mut self, input: &[u8]) -> *const CRows {
+        let ok = self.view_rows(input).is_ok();
+        self.out.rows(ok.then_some(self.rows.as_slice()))
+    }
+
+    pub fn drag_begin_typed(&mut self, input: &[u8]) -> *const CAcceptanceTable {
+        let table = self.acceptance(input).ok();
+        self.out.acceptance(table.as_ref())
+    }
+
+    pub fn load_typed(&mut self, input: &[u8]) -> *const CReply {
+        let reply = self.load(input);
+        self.out.reply(&reply)
+    }
+
+    pub fn apply_batch_typed(&mut self, input: &[u8]) -> *const CReply {
+        let reply = self.apply_batch(input);
+        self.out.reply(&reply)
+    }
+
+    pub fn apply_intent_typed(&mut self, input: &[u8]) -> *const CReply {
+        let reply = self.apply_intent(input);
+        self.out.reply(&reply)
     }
 }

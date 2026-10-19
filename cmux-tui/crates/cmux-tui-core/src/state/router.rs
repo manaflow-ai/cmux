@@ -129,11 +129,7 @@ pub(crate) fn handles(operation: ResourceOperation) -> bool {
             | Op::WorkspaceLogAppend
             | Op::WorkspaceLogList
             | Op::WorkspaceLogClear
-            | Op::AgentMessageSend
-            | Op::AgentMessageList
-            | Op::AgentMessageMark
-            | Op::AgentMessageRelease
-    )
+    ) || agent_message_router::handles(operation)
 }
 
 /// Map a state failure to its typed protocol error. Registry validation
@@ -193,6 +189,17 @@ fn string(fields: &Map<String, Value>, name: &str) -> Option<String> {
 /// `None` when absent, `Some(None)` for JSON null, `Some(Some(value))`.
 fn nullable_string(fields: &Map<String, Value>, name: &str) -> Option<Option<String>> {
     fields.get(name).map(|value| value.as_str().map(str::to_string))
+}
+
+/// `None` when absent; a present field must be a boolean.
+fn optional_bool(fields: &Map<String, Value>, name: &str) -> Result<Option<bool>, ResourceError> {
+    match fields.get(name) {
+        None => Ok(None),
+        Some(Value::Bool(value)) => Ok(Some(*value)),
+        Some(_) => {
+            Err(validation_error(&format!("{name} must be a boolean"), json!({"field": name})))
+        }
+    }
 }
 
 fn index(fields: &Map<String, Value>, name: &str) -> Option<usize> {
@@ -305,7 +312,7 @@ pub(crate) fn dispatch(
             patch_result(mux, commit)
         }
         Op::TabUpdate => {
-            require_any(fields, &["zoom", "back", "forward", "owner", "icon"])?;
+            require_any(fields, &["zoom", "back", "forward", "owner", "icon", "marked_unread"])?;
             let update = TabStateUpdate {
                 zoom: fields.get("zoom").map(Value::as_f64),
                 back: fields.contains_key("back").then(|| strings(fields, "back")),
@@ -313,6 +320,7 @@ pub(crate) fn dispatch(
                 owner: string(fields, "owner"),
                 icon: nullable_string(fields, "icon"),
                 emulation: None,
+                marked_unread: optional_bool(fields, "marked_unread")?,
             };
             let commit = mux
                 .state_update_tab(strip_request(&request)?, selectors.clone(), update)
@@ -341,8 +349,24 @@ pub(crate) fn dispatch(
         }
         Op::BrowserTabEmulate | Op::BrowserTabEmulateClear => {
             use crate::state::browser_devices::EmulationChange;
+            let fit = string(fields, "fit");
             let change = if operation == Op::BrowserTabEmulateClear {
                 EmulationChange::Clear
+            } else if let Some(fit) = fit {
+                let other = ["device", "custom", "orientation"]
+                    .iter()
+                    .any(|key| fields.get(*key).is_some_and(|value| !value.is_null()));
+                if other {
+                    return Err(state_error(anyhow::anyhow!(
+                        "bad request: give fit alone, without device, custom or orientation"
+                    )));
+                }
+                // `fit: "off"` ends the fit (as browser.tab.emulate.clear).
+                if fit.trim().eq_ignore_ascii_case("off") {
+                    EmulationChange::Clear
+                } else {
+                    EmulationChange::Fit(fit)
+                }
             } else {
                 EmulationChange::Set {
                     device: string(fields, "device"),
@@ -897,10 +921,9 @@ pub(crate) fn dispatch(
             state_result(mux, commit)
         }
         // Agent messages (plans/feat-agent-rooms/DESIGN.md)
-        Op::AgentMessageList
-        | Op::AgentMessageSend
-        | Op::AgentMessageMark
-        | Op::AgentMessageRelease => agent_message_router::dispatch(mux, &request),
+        operation if agent_message_router::handles(operation) => {
+            agent_message_router::dispatch(mux, &request)
+        }
         operation => Err(ResourceError::operation_failed(
             operation_name(operation),
             "state router received an operation it does not own",

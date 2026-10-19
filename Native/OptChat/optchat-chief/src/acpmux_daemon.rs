@@ -145,6 +145,15 @@ const CHIEF_IDENTITY_ENV: [&str; 7] = [
     SHARED_ENV,
 ];
 
+/// This host's credential and participant: the token file binds as this
+/// Chief (`agent_mux` for the default Chief). No daemon this host starts
+/// gets them, shared or not: the default Chief's host starts the Chief
+/// home's acpmux, which every Chief of the home and the person use, so its
+/// sessions would act as the default Chief (hq-6d 2026-10-14). The host
+/// binds with its own copy; acpmux drops them from every child too
+/// (acpmux `config::CHIEF_CREDENTIAL_ENV`).
+const CHIEF_CREDENTIAL_ENV: [&str; 2] = ["MUX_AGENT_TOKEN_FILE", "OPTCHAT_CHIEF_PARTICIPANT"];
+
 /// Whether this host's acpmux is shared ([`SHARED_ENV`]).
 pub fn shared() -> bool {
     env(SHARED_ENV).as_deref() == Some("1")
@@ -228,15 +237,25 @@ pub fn ensure_with(
             if bin.is_some() && !begin_start() {
                 return Err("the host is stopping; it starts no acpmux".into());
             }
-            let result = spawn(socket, bin, log);
+            let child = match spawn(socket, bin, log) {
+                Ok(child) => child,
+                Err(e) => {
+                    if bin.is_some() {
+                        finish_start(None);
+                    }
+                    return Err(e);
+                }
+            };
+            let pid = child.id();
+            // `spawn` starts nothing without a binary, so `bin` is set here.
             if let Some(bin) = bin {
-                finish_start(result.is_ok().then(|| Started {
+                finish_start(Some(Started {
                     bin: bin.into(),
                     socket: socket.to_path_buf(),
                     home: daemon_home(socket),
+                    child,
                 }));
             }
-            let pid = result?;
             seen_up.store(true, Ordering::SeqCst);
             Ok(Some(pid))
         }
@@ -306,10 +325,30 @@ pub fn daemon_home_for(
 /// The daemon this process started (local mode): only that one is this
 /// host's to stop. One per process: the host never starts a second
 /// ([`decide`] refuses once it saw a daemon).
-struct Started {
+pub struct Started {
     bin: PathBuf,
     socket: PathBuf,
     home: PathBuf,
+    /// The daemon's process (never waited before the stop): whether it
+    /// still runs tells a daemon this host may stop from one already gone.
+    child: std::process::Child,
+}
+
+impl Started {
+    /// Whether the daemon this host started already exited (a handoff or
+    /// the app stopped it; the next daemon on its socket is not this host's).
+    pub fn gone(&mut self) -> bool {
+        !matches!(self.child.try_wait(), Ok(None))
+    }
+
+    /// Stops it with `acpmux daemon shutdown` (its agents end first).
+    pub fn shutdown(self, log: &dyn Fn(&str)) -> bool {
+        let stopped = shutdown_at(&self.bin, &self.home, &self.socket, log);
+        let mut child = self.child;
+        // Reaped when it exited (no zombie while the host still runs).
+        let _ = child.try_wait();
+        stopped
+    }
 }
 
 /// The starts of this process: in flight, done, and whether it stops.
@@ -359,40 +398,74 @@ const START_WAIT: Duration = Duration::from_secs(35);
 /// with its own SIGTERM-to-SIGKILL grace).
 const SHUTDOWN_LIMIT: Duration = Duration::from_secs(20);
 
-/// Stops the acpmux daemon this process started, and with it every agent
-/// host of its home (`acpmux daemon shutdown`, which ends the agents first
-/// and sweeps hosts left after the daemon's exit). A daemon this process
-/// found running belongs to the app or a supervisor and is left alone.
-/// Returns whether it stopped one.
+/// The daemon this process started (local mode), once: a start in flight
+/// (the child exists, its socket not yet) finishes first, and no start
+/// begins after this. None: it started none (a daemon it found running
+/// belongs to the app, a supervisor or another Chief, and is left alone).
+pub fn take_started() -> Option<Started> {
+    let (mut starts, _) = START_DONE
+        .wait_timeout_while(starts(), START_WAIT, |s| s.starting > 0)
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    starts.stopped = true;
+    starts.started.take()
+}
+
+/// Stops the acpmux daemon this process started, if it still runs, with
+/// every agent host of its home (`acpmux daemon shutdown`). Whether it
+/// stopped one.
 pub fn shutdown_started(log: &dyn Fn(&str)) -> bool {
-    // A start in flight (the child exists, its socket not yet) finishes
-    // first, so its daemon is stopped too; no start begins after this.
-    let started = {
-        let (mut starts, _) = START_DONE
-            .wait_timeout_while(starts(), START_WAIT, |s| s.starting > 0)
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        starts.stopped = true;
-        starts.started.take()
-    };
-    let Some(started) = started else {
+    let Some(mut started) = take_started() else {
         return false;
     };
-    let mut command = Command::new(&started.bin);
+    !started.gone() && started.shutdown(log)
+}
+
+/// Stops the daemon this host's `ACPMUX_HOME`/`ACPMUX_SOCKET` name with
+/// `$ACPMUX_BIN daemon shutdown`, whoever started it: the last Chief to
+/// leave a Chief home's shared acpmux (hq-6d 2026-10-14).
+pub fn shutdown_shared(log: &dyn Fn(&str)) {
+    let Some(bin) = env("ACPMUX_BIN") else {
+        log("stopping acpmux: ACPMUX_BIN is not set");
+        return;
+    };
+    let socket = socket_path();
+    let home = daemon_home(&socket);
+    // Not waited for, in its own process group: a brain's host stops within
+    // the supervisor's grace (5 s before SIGKILL), the shutdown may take 20.
+    let started = Command::new(&bin)
+        .args(["daemon", "shutdown", "--end-agents"])
+        .env("ACPMUX_HOME", &home)
+        .env("ACPMUX_SOCKET", &socket)
+        .current_dir(&home)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .process_group(0)
+        .spawn();
+    match started {
+        Ok(child) => log(&format!(
+            "stopping acpmux: `daemon shutdown --end-agents` runs (pid {})",
+            child.id()
+        )),
+        Err(e) => log(&format!("stopping acpmux: starting {bin}: {e}")),
+    }
+}
+
+/// `bin daemon shutdown --end-agents` for the daemon of `home` on `socket`, bounded.
+fn shutdown_at(bin: &Path, home: &Path, socket: &Path, log: &dyn Fn(&str)) -> bool {
+    let mut command = Command::new(bin);
     command
-        .args(["daemon", "shutdown"])
-        .env("ACPMUX_HOME", &started.home)
-        .env("ACPMUX_SOCKET", &started.socket)
-        .current_dir(&started.home)
+        .args(["daemon", "shutdown", "--end-agents"])
+        .env("ACPMUX_HOME", home)
+        .env("ACPMUX_SOCKET", socket)
+        .current_dir(home)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
     let mut child = match command.spawn() {
         Ok(child) => child,
         Err(e) => {
-            log(&format!(
-                "stopping acpmux: starting {}: {e}",
-                started.bin.display()
-            ));
+            log(&format!("stopping acpmux: starting {}: {e}", bin.display()));
             return false;
         }
     };
@@ -400,7 +473,7 @@ pub fn shutdown_started(log: &dyn Fn(&str)) -> bool {
     loop {
         match child.try_wait() {
             Ok(Some(status)) => {
-                log(&format!("stopped the acpmux daemon it started ({status})"));
+                log(&format!("stopped the acpmux daemon ({status})"));
                 return true;
             }
             Ok(None) if Instant::now() < deadline => {
@@ -421,7 +494,11 @@ pub fn shutdown_started(log: &dyn Fn(&str)) -> bool {
 }
 
 /// Starts `$ACPMUX_BIN daemon run` and waits for its socket (local mode).
-fn spawn(socket: &Path, bin: Option<&str>, log: &dyn Fn(&str)) -> Result<u32, String> {
+fn spawn(
+    socket: &Path,
+    bin: Option<&str>,
+    log: &dyn Fn(&str),
+) -> Result<std::process::Child, String> {
     let Some(bin) = bin else {
         return Err(format!(
             "acpmux is not reachable at {} and ACPMUX_BIN is not set",
@@ -437,6 +514,9 @@ fn spawn(socket: &Path, bin: Option<&str>, log: &dyn Fn(&str)) -> Result<u32, St
         .map_err(|e| format!("opening the daemon log: {e}"))?;
     let err = out.try_clone().map_err(|e| e.to_string())?;
     let mut command = Command::new(bin);
+    for key in CHIEF_CREDENTIAL_ENV {
+        command.env_remove(key);
+    }
     if shared() {
         // The Chief home's daemon serves every Chief and the person's tabs:
         // none of this Chief's identity reaches it (its sessions would act
@@ -480,9 +560,9 @@ fn spawn(socket: &Path, bin: Option<&str>, log: &dyn Fn(&str)) -> Result<u32, St
     let mut step = Duration::from_millis(10);
     loop {
         if reachable(socket) {
-            // Not waited for: it outlives the host (its own process group).
-            drop(child);
-            return Ok(pid);
+            // Never waited for while it runs: it outlives the host (its own
+            // process group); the stop asks whether it still runs.
+            return Ok(child);
         }
         if let Ok(Some(status)) = child.try_wait() {
             return Err(format!(

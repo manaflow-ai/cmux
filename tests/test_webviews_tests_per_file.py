@@ -49,6 +49,7 @@ if grep -q -e '"dev",' -e 'createServer(' -e 'vite.config.gallery-dev.ts' -e 'vi
 fi
 case "$2" in
   *hang*) sleep 60 ;;
+  *slow*) sleep 3; echo "(pass) $2" ;;
   *fail*) echo "(fail) a broken test"; exit 1 ;;
   *) echo "(pass) $2" ;;
 esac
@@ -72,7 +73,7 @@ def path_without_timeout(temp):
 
 
 class PerFileRunner(unittest.TestCase):
-    def run_runner(self, files, without_timeout=False, contents=None):
+    def run_runner(self, files, without_timeout=False, contents=None, shard=None, shard_count=None):
         temp = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
         web = temp / "webviews"
         for name in files:
@@ -102,6 +103,9 @@ class PerFileRunner(unittest.TestCase):
                "BUN_OVERLAPS": str(self.overlaps), "SHARED_VITE_CACHE": str(web / "node_modules" / ".vite"),
                "BUN_DEV": str(self.dev), "BUN_PEAK": str(self.peak), "DEV_RUNNING": str(running),
                "CMUX_WEB_TEST_FILE_TIMEOUT": "2", "CMUX_WEB_TEST_JOBS": "8"}
+        if shard is not None:
+            env["CMUX_WEB_TEST_SHARD"] = str(shard)
+            env["CMUX_WEB_TEST_SHARD_COUNT"] = str(shard_count)
         started = time.monotonic()
         result = subprocess.run(["bash", str(RUNNER)], cwd=web, env=env, capture_output=True, text=True, timeout=40)
         return result, time.monotonic() - started, sorted(calls.read_text(encoding="utf-8").split())
@@ -133,6 +137,13 @@ class PerFileRunner(unittest.TestCase):
         result, _, calls = self.run_runner(["test/a.test.ts", "src/b.test.tsx"])
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(calls, ["./src/b.test.tsx", "./test/a.test.ts"])
+
+    def test_shards_cover_each_file_once(self):
+        files = ["test/a.test.ts", "test/b.test.ts", "test/c.test.ts", "src/d.test.tsx", "src/e.test.tsx"]
+        _, _, first = self.run_runner(files, shard=1, shard_count=2)
+        _, _, second = self.run_runner(files, shard=2, shard_count=2)
+        self.assertEqual(sorted(first + second), sorted(f"./{name}" for name in files))
+        self.assertEqual(set(first) & set(second), set())
 
     def test_dev_server_files_run_at_once_each_on_its_own_warm_vite_cache(self):
         # Every file that starts a dev server once ran one at a time after the rest (#19812): on
@@ -170,6 +181,24 @@ class PerFileRunner(unittest.TestCase):
         # One file per config warms its cache first; every other file starts from a copy of it.
         self.assertEqual(sum(warm == "cold" for _, _, warm in runs), 4, runs)
         self.assertGreater(max(int(n) for n in self.peak.read_text(encoding="utf-8").split()), 1, output)
+
+    def test_a_file_can_declare_a_longer_limit_than_the_default(self):
+        # editor-page runs 24 browser tests in two engines, about 115 s on the CI runner: the
+        # 120 s default killed it mid-WebKit, and its later tests read "browser has been closed".
+        # A file names its own limit on a header line; one without it keeps the default.
+        contents = {
+            "test/slow-declared.test.ts": "// cmux-web-test-timeout: 8\n",
+            "test/slow-default.test.ts": "",
+            # A declared limit never shortens a longer CMUX_WEB_TEST_FILE_TIMEOUT.
+            "test/slow-shorter.test.ts": "// cmux-web-test-timeout: 1\n",
+        }
+        result, _, calls = self.run_runner(list(contents), contents=contents)
+        output = result.stdout + result.stderr
+        self.assertEqual(calls, sorted(f"./{name}" for name in contents))
+        self.assertNotRegex(output, r"(FAIL|TIMEOUT)[^\n]*test/slow-declared\.test\.ts")
+        self.assertRegex(output, r"TIMEOUT[^\n]*test/slow-default\.test\.ts \(limit 2s\)")
+        self.assertIn("test/slow-declared.test.ts", output)
+        self.assertRegex(output, r"TIMEOUT[^\n]*test/slow-shorter\.test\.ts \(limit 2s\)")
 
     def test_no_test_files_is_an_error(self):
         result, _, _ = self.run_runner([])

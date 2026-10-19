@@ -55,8 +55,20 @@ impl Default for KittyInFlightTracker {
 }
 
 impl KittyInFlightTracker {
-    pub(crate) fn write(&mut self, data: &[u8]) {
+    pub(crate) fn is_ground(&self) -> bool {
+        matches!(self.scan, KittyStreamScan::Ground)
+    }
+
+    /// Original byte-at-a-time write, kept as the exactness reference.
+    pub(crate) fn write_reference(&mut self, data: &[u8]) {
         for &byte in data {
+            self.step(byte);
+        }
+    }
+
+    #[inline(always)]
+    pub(crate) fn step(&mut self, byte: u8) {
+        {
             let state = std::mem::take(&mut self.scan);
             self.scan = match state {
                 KittyStreamScan::Ground => KittyStreamScan::from_ground(byte),
@@ -148,6 +160,31 @@ impl KittyInFlightTracker {
     pub(crate) fn has_partial_command(&self) -> bool {
         !self.overflowed
             && matches!(&self.scan, KittyStreamScan::Kitty(command) if !command.overflowed)
+    }
+
+    pub(crate) fn has_unreplayable_command(&self) -> bool {
+        // A tracker-level overflow can also mean that a completed multipart
+        // chunk exceeded the retention budget. CAN cannot undo that command
+        // after the parser has returned to ground, so only an actively
+        // overflowed command is recoverable here.
+        !self.overflowed
+            && matches!(&self.scan, KittyStreamScan::Kitty(command) if command.overflowed)
+    }
+
+    pub(crate) fn has_unreplayable_prefix(&self) -> bool {
+        self.overflowed
+    }
+
+    pub(crate) fn discard_unreplayable(&mut self) {
+        self.scan = KittyStreamScan::Ground;
+        self.overflowed = false;
+        // CAN aborts only the command that is currently being parsed. Keep a
+        // completed m=1 prefix so checkpoint replay can still resume the
+        // native upload when a later m=0 chunk arrives. An overflowed first
+        // chunk has no prefix to preserve, so leave the tracker idle there.
+        if self.prefix.is_empty() {
+            self.loading = false;
+        }
     }
 
     /// The completed upload chunks and the partial command, separately, under

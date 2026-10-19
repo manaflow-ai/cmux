@@ -646,6 +646,8 @@ impl Mux {
                             public_id: WorkspacePublicId::random()?,
                             key: Mux::new_workspace_key()?,
                             name: mux.default_workspace_name(state),
+                            name_source: crate::resource_name::NameSource::Auto,
+                            name_revision: 0,
                             screens: vec![Screen {
                                 id: screen_id,
                                 public_id: ScreenPublicId::random()?,
@@ -753,9 +755,6 @@ impl Mux {
                     .iter()
                     .map(|surface| tab_public_id(state, *surface))
                     .collect::<anyhow::Result<Vec<_>>>()?;
-                if let Some(record) = edit.groups.groups.get(&group_id) {
-                    edit.closed_group = Some(group_archive(state, &group_id, record, &tabs));
-                }
                 let panes = members
                     .iter()
                     .filter_map(|surface| state.pane_of(*surface))
@@ -824,7 +823,8 @@ impl Mux {
         Ok(commit)
     }
 
-    /// Add a new view of a running terminal to `pane` (its last tab).
+    /// Add a new view of a running terminal to `pane`: its last tab, or at
+    /// the strip index of a [`super::tab_strip::tab_slot::scoped`] creation in `pane`.
     pub(crate) fn project_terminal_into_pane(
         self: &Arc<Self>,
         actor: &Actor,
@@ -843,8 +843,15 @@ impl Mux {
             terminal: Some(public.as_str().to_string()),
             ..Self::ordinary_resource_selectors()
         };
-        let index =
-            self.with_state(|state| state.panes.get(&pane).map_or(0, |record| record.tabs.len()));
+        // Peeked, and taken only once the view exists: a failed reattach
+        // leaves it to the new terminal `reopen_tab_record` falls back to.
+        let requested = tab_strip::tab_slot::peek_for(pane);
+        let index = self.with_state(|state| {
+            tab_strip::tab_slot::slot(
+                requested,
+                state.panes.get(&pane).map_or(0, |record| record.tabs.len()),
+            )
+        });
         self.resource_project_terminal_selected(
             selectors,
             destination,
@@ -853,6 +860,7 @@ impl Mux {
             None,
             &WorkspaceMutation::local("cmux-tui-tab-groups", actor.clone()),
         )?;
+        tab_strip::tab_slot::take_for(pane);
         self.with_state(|state| {
             state.panes.get(&pane).and_then(|record| record.tabs.get(index).copied())
         })

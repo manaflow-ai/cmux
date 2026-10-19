@@ -68,7 +68,7 @@ final class CEFHostView: NSView {
 
     /// The pane's rounded clip, the column strip's clip and the window's corners, in this view.
     var pageClip: CGPath? {
-        CEFClipShape.path(bounds: bounds, clips: CEFClipShape.clips(around: self))
+        CEFClipShape.path(bounds: bounds, clips: CEFClipShape.clips(around: self), cutouts: CEFClipShape.cutouts(around: self))
     }
 
     /// The chrome's rects plus the window's interactive overlays over this
@@ -170,7 +170,7 @@ final class CEFTabContentView: NSView {
     /// The pane shows this parked tab again: it takes the host view.
     override func viewDidUnhide() {
         super.viewDidUnhide()
-        guard let tab, window != nil else { return }
+        guard let tab, window != nil, !isHiddenOrHasHiddenAncestor else { return }
         tab.pageThemeDidChange()
         tab.contentDidAppear(in: self)
     }
@@ -191,19 +191,51 @@ final class CEFTabContentView: NSView {
         let frames = tab?.devToolsController.frames(in: bounds)
             ?? CEFDevToolsLayout.Frames(page: bounds, devTools: .zero, line: .zero, grab: .zero)
         let devToolsHost = tab?.devToolsController.views?.host
+        // A fit (cx-qby5j) shows the page in its presented rect inside the frame view.
+        let emulation = tab?.deviceEmulation
+        // The frame stays under the host view (the pane host is re-added at the bottom on a tab switch).
+        if let frame = subviews.first(where: { $0 is BrowserFitFrameView }), subviews.first !== frame {
+            addSubview(frame, positioned: .below, relativeTo: nil)
+        }
+        // With a side panel, Chromium's window holds the panel and the page, so the host keeps the page frame.
+        // DevTools device mode places the page itself (the fit yields until it ends).
+        // In a DevTools window the page keeps its full frame, but the fit still yields.
+        let deviceMode = tab?.devToolsController.deviceModeOn ?? false
+        let fitPage = tab?.sidePanel.state == nil && !deviceMode ? emulation?.presentedRect(in: pageViewportFrame) : nil
         for subview in subviews {
             let frame: CGRect
-            if subview is SidePanelHeaderView {
+            if let fitFrame = subview as? BrowserFitFrameView {
+                frame = pageViewportFrame
+                if let fitPage, let viewport = emulation.flatMap({ $0.viewport(in: $0.layoutArea(in: pageViewportFrame).size) }) {
+                    let presented = fitPage.offsetBy(dx: -frame.minX, dy: -frame.minY)
+                    fitFrame.update(emulation: emulation, presented: presented, layout: viewport.size, scale: viewport.scale)
+                }
+            } else if subview is SidePanelHeaderView {
                 frame = tab?.sidePanel.headerFrame ?? .zero
             } else if subview === devToolsHost {
                 frame = frames.devTools
             } else if subview is CEFDevToolsDivider {
                 frame = frames.grab
             } else {
-                frame = frames.page
+                frame = fitPage ?? frames.page
             }
             if subview.frame != frame { subview.frame = frame }
         }
         tab?.applyOcclusion()
+        // DevTools or the side panel moved the page area without a resize of this view: refit.
+        if let tab, let emulation, !deviceMode, emulation.viewport(in: emulation.layoutArea(in: pageViewportFrame).size) != tab.deviceEmulationViewport {
+            tab.applyDeviceEmulation()
+        }
+    }
+
+    /// Adds the fit frame under the page for a fit and removes it otherwise.
+    func updateFitFrame() {
+        let current = subviews.first { $0 is BrowserFitFrameView }
+        if tab?.deviceEmulation?.fit != nil, current == nil {
+            addSubview(BrowserFitFrameView(), positioned: .below, relativeTo: subviews.first)
+        } else if tab?.deviceEmulation?.fit == nil, let current {
+            current.removeFromSuperview()
+        }
+        needsLayout = true
     }
 }

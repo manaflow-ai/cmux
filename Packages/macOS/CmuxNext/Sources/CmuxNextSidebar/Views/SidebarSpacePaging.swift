@@ -96,7 +96,14 @@ import QuartzCore
     /// The model shows the space a release switched to: the real list takes
     /// the page's place at once (no reload animation, no second slide).
     func modelDidSwitch(to profile: ProfileKey?) -> Bool {
-        guard let pendingTarget, pendingTarget == profile else { return false }
+        guard let pendingTarget else { return false }
+        // A direct selection can supersede an in-flight swipe before its
+        // original switch callback arrives. Drop the old lock and transition
+        // state so later swipes and wheel paging remain available.
+        guard pendingTarget == profile else {
+            endPaging()
+            return false
+        }
         endPaging()
         return true
     }
@@ -192,6 +199,7 @@ import QuartzCore
         model.collapsedWorkspaces = host.model.collapsedWorkspaces
         (model.workspaceRow, model.rowBadgeStyle) = (host.model.workspaceRow, host.model.rowBadgeStyle)
         (model.minimal, model.expanded) = (host.model.minimal, host.model.expanded)
+        model.detailedStatus = host.model.detailedStatus
         model.activeWorkspaceID = host.model.activeWorkspaceID
         let list = SidebarListView(model: model)
         let container = SpacePageView(frame: page.frame)
@@ -238,7 +246,7 @@ import QuartzCore
 /// gesture and clicks stay on the list).
 final class SpacePageView: NSView {
     var list: SidebarListView?
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
     override func makeBackingLayer() -> CALayer { SpacePageLayer() }
 }

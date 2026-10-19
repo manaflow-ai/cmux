@@ -6,6 +6,8 @@ import Foundation
 @MainActor
 enum AgentPaneHandshakeReply {
     static func reply(to request: AgentPaneRequest, in model: AgentPaneModel) async -> [String: Any] {
+        // A page that loaded again starts without the tab row: it is offered again.
+        if request == .ready { model.tabRow.pageLoaded() }
         model.setCheckpointAvailable(false)
         do {
             var handshake = request == .ready
@@ -71,6 +73,7 @@ enum AgentPaneHandshakeReply {
             if handshake.connection?.remote != nil { model.remoteChat = true }
             // The connection stays here; the reply never encodes it.
             model.pendingConnection = handshake.connection
+            model.transport.acpmuxSocket = handshake.connection?.remote == nil ? handshake.connection?.socketPath : nil
             handshake.connection = nil
             return AgentPaneReply.handshake(handshake)
         } catch {

@@ -4,10 +4,12 @@
 // so the pane never requests a loopback page by itself: the click is the reader's consent. The
 // frame takes no input, so the transcript scrolls over it; clicking it opens the page it shows.
 // The address is a plain link too, which opens outside the pane where the host has no browser tab.
+// A component gallery stage (`isGalleryFrame`) is the exception: it draws at its own size and takes
+// input, so the reader tries the component in the chat (a live gallery frame, not a screenshot).
 import { useState } from "react";
 import { useT } from "../i18n";
 import { Globe } from "./icons";
-import { previewFrameUrl } from "./previewUrl";
+import { isGalleryFrame, previewFrameUrl } from "./previewUrl";
 import { useSiteInfo } from "../chips/linkStore";
 import { OpenInMenu } from "../previewCard/OpenInMenu";
 
@@ -21,6 +23,7 @@ export function PreviewCard({ url, onOpen }: { url: string; onOpen: (url: string
   // A dev-server pane is itself on loopback; a frame of the pane's own origin would be the pane.
   const own = typeof location !== "undefined" && parsed.origin === location.origin;
   const [loaded, setLoaded] = useState(false);
+  const live = isGalleryFrame(url);
   // The page's title and favicon, only from cmux's own browsing (D6: nothing is fetched).
   const site = useSiteInfo(url);
   return (
@@ -29,7 +32,7 @@ export function PreviewCard({ url, onOpen }: { url: string; onOpen: (url: string
         <span className="acpmux-turn-preview-icon">
           {site?.icon ? <img src={site.icon} alt="" width={16} height={16} /> : <Globe size={16} />}
         </span>
-        <a className="acpmux-turn-preview-address" href={url} title={site?.title ? `${site.title}\n${url}` : url}>
+        <a className="acpmux-turn-preview-address" href={url}>
           {site?.title ? <span className="acpmux-turn-preview-title">{site.title}</span> : null}
           {address}
         </a>
@@ -44,7 +47,11 @@ export function PreviewCard({ url, onOpen }: { url: string; onOpen: (url: string
         <OpenInMenu url={url} onOpenInPane={onOpen} />
       </div>
       {!own && !loaded && (
-        <div className="acpmux-turn-preview-unloaded">
+        <div
+          className={
+            live ? "acpmux-turn-preview-unloaded acpmux-turn-preview-unloaded--live" : "acpmux-turn-preview-unloaded"
+          }
+        >
           <button
             type="button"
             className="acpmux-turn-preview-load"
@@ -55,7 +62,12 @@ export function PreviewCard({ url, onOpen }: { url: string; onOpen: (url: string
           </button>
         </div>
       )}
-      {!own && loaded && (
+      {!own && loaded && live && (
+        <div className="acpmux-turn-preview-frame acpmux-turn-preview-frame--live">
+          <iframe src={frame} title={address} referrerPolicy="no-referrer" sandbox="allow-scripts allow-same-origin" />
+        </div>
+      )}
+      {!own && loaded && !live && (
         <div className="acpmux-turn-preview-frame" aria-hidden="true" onClick={() => onOpen(frame)}>
           <iframe
             src={frame}

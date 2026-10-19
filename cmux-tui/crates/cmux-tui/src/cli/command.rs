@@ -21,6 +21,8 @@ mod conversation;
 mod flags;
 pub(super) mod git;
 mod history;
+mod machine;
+mod name_flags;
 pub(super) use history::DAEMON_VERBS as HISTORY_DAEMON_VERBS;
 mod plan;
 mod screen;
@@ -154,7 +156,9 @@ pub(super) fn parse(args: &[String], surface: super::Surface) -> Result<CommandP
     let mut selectors = Selectors::default();
     let plan = match scope {
         "server" => parse_server(&tokens.words[1..], &mut tokens.flags)?,
-        "machine" => parse_machine(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
+        "machine" => {
+            machine::parse(&tokens.words[1..], &mut selectors, &mut tokens.flags, surface)?
+        }
         "session" => parse_session(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
         "client" => parse_client(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
         "workspace" => {
@@ -198,6 +202,9 @@ fn parse_server(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usag
             end_terminals: flags.boolean("end-terminals"),
         },
         ["reload-config"] => super::lifecycle::ServerAction::ReloadConfig,
+        ["compact-registry"] => super::lifecycle::ServerAction::CompactRegistry {
+            state_dir: flags.take("state-dir").map(PathBuf::from),
+        },
         ["start"] => {
             return Err(UsageError::new(
                 crate::localization::catalog().local_server.start_options_after_action,
@@ -209,7 +216,15 @@ fn parse_server(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usag
                 action,
                 super::suggestion(
                     action,
-                    &["stats", "start", "ensure", "status", "stop", "reload-config"],
+                    &[
+                        "stats",
+                        "start",
+                        "ensure",
+                        "status",
+                        "stop",
+                        "reload-config",
+                        "compact-registry",
+                    ],
                 ),
             )));
         }
@@ -269,30 +284,6 @@ fn tokenize(args: &[String]) -> Result<Tokens, UsageError> {
 
 pub(super) fn is_boolean_flag(name: &str) -> bool {
     BOOLEAN_FLAGS.contains(&name)
-}
-
-fn parse_machine(
-    words: &[String],
-    selectors: &mut Selectors,
-    flags: &mut Flags,
-) -> Result<CommandPlan, UsageError> {
-    match strs(words).as_slice() {
-        ["list"] => request(ResourceOperation::MachineList, selectors, flags, Map::new()),
-        [selector, "show"] => {
-            selectors.insert("machine", "machine", selector)?;
-            request(ResourceOperation::MachineGet, selectors, flags, Map::new())
-        }
-        [machine, "session", "list"] => {
-            selectors.insert("machine", "machine", machine)?;
-            request(ResourceOperation::SessionList, selectors, flags, Map::new())
-        }
-        [machine, "session", session, "open"] => {
-            selectors.insert("machine", "machine", machine)?;
-            selectors.insert("session", "session", session)?;
-            request(ResourceOperation::SessionOpen, selectors, flags, Map::new())
-        }
-        _ => usage("machine action"),
-    }
 }
 
 fn parse_session(
@@ -864,6 +855,8 @@ fn parse_tab_strings(
             let mut params = Map::new();
             insert_optional_string(&mut params, flags, "device", "device");
             insert_optional_string(&mut params, flags, "orientation", "orientation");
+            // --fit 16:9 | 1280: a desktop layout scaled to the tab's width, full height.
+            insert_optional_string(&mut params, flags, "fit", "fit");
             if let Some(custom) = flags.take("custom-json") {
                 let custom = serde_json::from_str(&custom).map_err(|error| {
                     UsageError::new(format!("invalid --custom-json JSON: {error}"))
@@ -872,7 +865,7 @@ fn parse_tab_strings(
             }
             if params.is_empty() {
                 return Err(UsageError::new(
-                    "tab emulate needs --device, --custom-json or --orientation; `cmux browser devices list` lists the devices",
+                    "tab emulate needs --device, --custom-json, --orientation or --fit 16:9|1280|off; `cmux browser devices list` lists the devices",
                 ));
             }
             request(ResourceOperation::BrowserTabEmulate, selectors, flags, params)
@@ -1406,8 +1399,8 @@ fn parse_agent(
             let terminal =
                 flags.take("terminal").or_else(|| std::env::var("CMUX_TUI_TERMINAL_ID").ok());
             terminal.iter().try_for_each(|id| validate_prefixed_id("terminal", "term", id))?;
-            // Read before the journal event redacts it; it travels beside the event (memory only).
-            let live_prompt = cmux_tui_core::agent_hook_live_prompt(&native_event, &native);
+            // Read before the journal event redacts them; they travel beside it (memory only).
+            let live = cmux_tui_core::agent_hook_live_fields(&source, &native_event, &native);
             let mut ingress = cmux_tui_core::agent_hook_journal_ingress(
                 &source,
                 &native_event,
@@ -1431,9 +1424,7 @@ fn parse_agent(
                     UsageError::new(format!("encode agent hook request: {error}"))
                 })?,
             );
-            if let Some(prompt) = live_prompt {
-                fields.insert("live_prompt".into(), Value::String(prompt));
-            }
+            fields.extend(live);
             request(ResourceOperation::SessionJournalAppend, &selectors, flags, fields)
         }
         ["report"] => {
@@ -2218,19 +2209,7 @@ fn request_with_required_name(
     selectors: &Selectors,
     flags: &mut Flags,
 ) -> Result<CommandPlan, UsageError> {
-    let mut params = Map::new();
-    params.insert("name".into(), Value::String(flags.required("name")?));
-    if operation == ResourceOperation::TabRename {
-        if let Some(source) = flags.take("source") {
-            validate_one_of("--source", &source, &["user", "auto"])?;
-            params.insert("source".into(), Value::String(source));
-        }
-        insert_optional_string(&mut params, flags, "expected-generation", "expected_generation");
-        if let Some(revision) = flags.take("expected-name-revision") {
-            validate_decimal("--expected-name-revision", &revision)?;
-            params.insert("expected_name_revision".into(), Value::String(revision));
-        }
-    }
+    let params = name_flags::rename_params(operation, flags)?;
     request(operation, selectors, flags, params)
 }
 
@@ -4328,6 +4307,7 @@ mod tests {
         }
     }
 
+    mod name_source_tests;
     mod transport_path_coverage_tests;
 
     fn record_covered_fields<'a>(

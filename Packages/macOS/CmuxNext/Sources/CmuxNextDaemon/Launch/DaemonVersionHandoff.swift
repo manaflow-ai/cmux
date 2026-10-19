@@ -114,18 +114,22 @@ extension DaemonLauncher {
         }
         let logger = Logger(subsystem: "com.cmuxterm.next", category: "daemon")
         logger.info("daemon \(identity.pid) runs build \(running, privacy: .public); handing off to \(target, privacy: .public)")
-        do {
-            let reply = try await connection.request(
-                ShutdownDaemonRequest(pid: identity.pid, generation: identity.generation))
-            guard reply.accepted != false else {
+        // Quiet (DaemonConnection.quietHandoff): no request of this connection is cut.
+        let handoff = handoff
+        return await connection.quietHandoff({ () async -> DaemonVersionDecision in
+            do {
+                let reply = try await connection.request(
+                    ShutdownDaemonRequest(pid: identity.pid, generation: identity.generation))
+                guard reply.accepted != false else {
+                    handoff.cancel(pid: identity.pid)
+                    return .keep("the daemon refused the handoff")
+                }
+            } catch {
                 handoff.cancel(pid: identity.pid)
-                return .keep("the daemon refused the handoff")
+                return .keep("handoff request failed: \(error)")
             }
-        } catch {
-            handoff.cancel(pid: identity.pid)
-            return .keep("handoff request failed: \(error)")
-        }
-        return decision
+            return decision
+        }, accepted: { $0 == decision })
     }
 
     /// The running owner lacks `capability`, which the bundled build serves (an older build, or a
@@ -154,18 +158,23 @@ extension DaemonLauncher {
         return await requestHandoff(identity: identity, using: connection)
     }
 
+    /// Sent with no request of `connection` in flight; requests made meanwhile go to the next
+    /// daemon (`DaemonConnection.quietHandoff`), so a handoff never cuts a Home send.
     private func requestHandoff(identity: DaemonIdentity, using connection: DaemonConnection) async -> Bool {
-        do {
-            let reply = try await connection.request(
-                ShutdownDaemonRequest(pid: identity.pid, generation: identity.generation))
-            guard reply.accepted != false else {
+        let handoff = handoff
+        return await connection.quietHandoff {
+            do {
+                let reply = try await connection.request(
+                    ShutdownDaemonRequest(pid: identity.pid, generation: identity.generation))
+                guard reply.accepted != false else {
+                    handoff.cancel(pid: identity.pid)
+                    return false
+                }
+            } catch {
                 handoff.cancel(pid: identity.pid)
                 return false
             }
-        } catch {
-            handoff.cancel(pid: identity.pid)
-            return false
+            return true
         }
-        return true
     }
 }

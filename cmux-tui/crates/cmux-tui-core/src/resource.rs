@@ -134,6 +134,8 @@ pub enum ResourceOperation {
     ChiefProfileGet,
     #[serde(rename = "chief.profile.create")]
     ChiefProfileCreate,
+    #[serde(rename = "chief.profile.adopt")]
+    ChiefProfileAdopt,
     #[serde(rename = "chief.profile.update")]
     ChiefProfileUpdate,
     #[serde(rename = "chief.profile.delete")]
@@ -392,6 +394,8 @@ pub enum ResourceOperation {
     AgentMessageMark,
     #[serde(rename = "agent.message.release")]
     AgentMessageRelease,
+    #[serde(rename = "agent.message.unsend")]
+    AgentMessageUnsend,
     #[serde(rename = "sidebar_view.get")]
     SidebarViewGet,
     #[serde(rename = "sidebar_view.ensure")]
@@ -508,6 +512,12 @@ pub enum ResourceOperation {
     BrowserTabEmulateClear,
     #[serde(rename = "browser.tab.set_profile")]
     BrowserTabSetProfile,
+    #[serde(rename = "browser.profile.list")]
+    BrowserProfileList,
+    #[serde(rename = "browser.profile.create")]
+    BrowserProfileCreate,
+    #[serde(rename = "browser.profile.open")]
+    BrowserProfileOpen,
     #[serde(rename = "palette_usage.get")]
     PaletteUsageGet,
     #[serde(rename = "palette_usage.record")]
@@ -518,6 +528,16 @@ pub enum ResourceOperation {
     PaletteUsageHide,
     #[serde(rename = "palette_usage.forget")]
     PaletteUsageForget,
+    #[serde(rename = "stash.create")]
+    StashCreate,
+    #[serde(rename = "stash.list")]
+    StashList,
+    #[serde(rename = "stash.restore")]
+    StashRestore,
+    #[serde(rename = "stash.delete")]
+    StashDelete,
+    #[serde(rename = "stash.import")]
+    StashImport,
     #[serde(rename = "room.create")]
     RoomCreate,
     #[serde(rename = "room.delete")]

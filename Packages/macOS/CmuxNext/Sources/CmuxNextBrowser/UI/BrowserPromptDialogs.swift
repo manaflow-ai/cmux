@@ -32,7 +32,7 @@ final class BrowserPromptDialogs {
         bar.isHidden = true
         if shown?.prompt == ObjectIdentifier(prompt) { return }
         dismissShown()
-        guard view.window != nil else { return }
+        guard view.window != nil, !view.isHiddenOrHasHiddenAncestor else { return }
         let key = ObjectIdentifier(prompt)
         let id = center.present(spec, in: .tab(view)) { [weak self, weak prompt] answer in
             if self?.shown?.prompt == key { self?.shown = nil }

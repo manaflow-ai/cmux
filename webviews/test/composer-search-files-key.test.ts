@@ -6,6 +6,7 @@ import path from "node:path";
 import { chromium, type Browser } from "playwright";
 import { playFailures } from "./support/galleryPlay";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("composer-search-files-key.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -29,6 +30,7 @@ await requireBrowserLane("composer-search-files-key.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
+    await warmViteServer(vite, "/gallery/frame.html");
     browser = await chromium.launch({ headless: true });
   });
   afterAll(async () => {

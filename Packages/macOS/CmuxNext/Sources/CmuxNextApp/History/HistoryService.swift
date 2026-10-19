@@ -146,9 +146,10 @@ final class HistoryService {
 
     /// Closed tabs, screens and workspaces, as the daemons record them
     /// (`closed-history-v2`): the only closed history (reopen-closed.md 9). Newest first, a page
-    /// closed again once (``newestOnce(_:)``).
+    /// closed again once (``DaemonClosedHistory/newestOnce(_:_:)``).
     func closedEntries() -> [HistoryEntry] {
-        Self.newestOnce(DaemonClosedHistory.entries(DaemonClosedHistory.allKinds, in: services).filter { Self.isWorthReopening($0.item) }.map { entry in
+        let shown = DaemonClosedHistory.entries(DaemonClosedHistory.allKinds, in: services).filter { Self.isWorthReopening($0.item) }
+        return DaemonClosedHistory.newestOnce(shown) { ($0.item, $0.daemon.machineID) }.map { entry in
             let item = entry.item, tab = Self.shownTab(item)
             let kind: CmuxNextHistory.ClosedItem.Kind = switch item.kind {
             case .tab: tab?.kind == "browser" ? .browserTab : .terminalTab
@@ -165,18 +166,6 @@ final class HistoryService {
                                 time: Date(timeIntervalSince1970: Double(item.closedAtMs) / 1000), title: title,
                                 detail: detail, machineName: local ? nil : entry.daemon.machineID,
                                 payload: .closed(closed))
-        })
-    }
-
-    /// `entries` newest first, a page closed again (the same address on the same machine) once,
-    /// at its newest close (Leo 2026-10-14), as the daemon's history list shows it. A terminal,
-    /// chat, screen or workspace carries nothing that tells one close from another (two shells
-    /// in one folder): each close stays its own row.
-    static func newestOnce(_ entries: [HistoryEntry]) -> [HistoryEntry] {
-        var seen = Set<[String]>()
-        return entries.sorted { $0.time > $1.time }.filter { entry in
-            guard case .closed(let item) = entry.payload, item.kind == .browserTab, let url = item.url else { return true }
-            return seen.insert([item.machine, url]).inserted
         }
     }
 

@@ -21,8 +21,8 @@ nonisolated struct ChiefOwnerMigrationAdapter: ChiefMigrationOwner {
 }
 
 extension HomeService {
-    /// NIGHTLY only (``ChiefHome/importsOldChiefs``): backs up the shared
-    /// Chief home once (``ChiefAdoption``), then moves the old per-tag Chiefs
+    /// NIGHTLY only (``ChiefHome/importsOldChiefs``): after the shared
+    /// Chief home's one-time backup (``ChiefAdoption``, before the owner starts), moves the old per-tag Chiefs
     /// into it before Home or the brain host use its owner
     /// (home-state-ownership.md section 7). While an
     /// older build's host still runs, Home says so and the owner stays
@@ -37,19 +37,10 @@ extension HomeService {
         let olds = ChiefMigration.oldChiefs(userHome: FileManager.default.homeDirectoryForCurrentUser, applicationSupport: support)
         let logger = logger
         let tool = BundledChiefMemoryTool.bundled()
-        let build = Bundle.main.bundleIdentifier ?? ChiefHome.nightlyBundleID
         chief.prepare = { [weak self] connection in
-            // NIGHTLY's backup of the shared home first, before anything here writes it.
-            // Nothing else here writes the home before its backup exists: a
-            // failed backup skips the move until a later launch.
-            do {
-                let adoption = try ChiefAdoption(home: home).run(by: build)
-                logger.info("chief adoption: \(String(describing: adoption), privacy: .public)")
-                if adoption == .busy { return }
-            } catch {
-                logger.error("chief adoption failed: \(String(describing: error), privacy: .public)")
-                return
-            }
+            // NIGHTLY's backup of the shared home exists first (taken before the owner started,
+            // ChiefConversationOwner.adoption); without it the move waits for a later launch.
+            guard let adoption = await self?.chief.adoption, adoption != .busy else { return }
             let outcome: ChiefMigration.Outcome
             do {
                 outcome = try await ChiefMigration.run(home: home, owner: ChiefOwnerMigrationAdapter(connection: connection, create: create), olds: olds, tool: tool)
@@ -70,11 +61,11 @@ extension HomeService {
         cloudChief?.mainConversation == id.rawValue || homeStore.summary(id)?.owner == .cloud
     }
 
-    /// The notice row of a conversation: the local Chief's organizing
-    /// status while a turn waits, else the merge notice.
+    /// The notice row of a conversation: on the local Chief, agents off in this build session (cx-tgf4h)
+    /// or its organizing status while a turn waits; else the merge notice.
     func conversationNotice(for id: ConversationID) -> String? {
         let isLocalChief = HomeChiefName.select(from: conversations)?.id == id.rawValue
-        return (isLocalChief ? settleNotice : nil) ?? migrationNotice
+        return (isLocalChief ? (HomeBrainHost.agentsDisabledNotice() ?? settleNotice) : nil) ?? migrationNotice
     }
 
     /// What Home shows when it cannot show conversations.

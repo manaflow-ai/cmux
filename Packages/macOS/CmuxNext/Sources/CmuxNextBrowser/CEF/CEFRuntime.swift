@@ -65,6 +65,11 @@ final class CEFRuntime {
     var nextRequest: Int32 = 1
     /// In-process DevTools calls waiting for their result (with deadlines).
     let devToolsCalls = CEFReplyWaiters<CEFDevToolsKey, String>()
+    /// Results Chromium sends while `shim.devToolsCall` is still running: a
+    /// method the browser process answers synchronously (for example
+    /// `Emulation.setEmitTouchEventsForMouse` or `setGeolocationOverride`)
+    /// replies before its caller can wait. Non-nil only during that call.
+    var synchronousDevToolsResults: [CEFDevToolsKey: Result<String, any Error>]?
     let siteReplies = CEFReplyWaiters<Int32, CEFSiteReply>()
     /// Browser of each pending site reply, so a closed browser fails them.
     var siteReplyBrowsers: [Int32: Int32] = [:]
@@ -91,10 +96,14 @@ final class CEFRuntime {
     }
     /// True when `--load-extension` is in use (development, verification).
     private(set) var loadsUnpackedExtensions = false
+    /// `browser.builtInAdBlocker`, asked at start (the App supplies it).
+    var builtInAdBlockerSetting: @MainActor () -> Bool = { true }
+    /// True when this Chromium started with the built-in uBlock Origin.
+    private(set) var builtInAdBlockerLoaded = false
     private var terminationObserver: (any NSObjectProtocol)?
     private var switchStorage: [UnsafeMutablePointer<CChar>?] = []
     /// The off-main library load; every concurrent first tab awaits it.
-    private var loadTask: Task<Result<CEFLoadedLibrary, BootError>, Never>?
+    private(set) var loadTask: Task<Result<CEFLoadedLibrary, BootError>, Never>?
     private(set) var preloaded = false
     /// The preload finished mapping the framework (CEF not started yet).
     private(set) var libraryLoaded = false
@@ -215,11 +224,9 @@ final class CEFRuntime {
             let library = try loaded.get()
             let clock = ContinuousClock()
             let started = clock.now
-            try initialize(library, environment: environment)
+            try CEFStartSteps.shared.initialize { () throws(BootError) in try initialize(library, environment: environment) }
             state = .ready
-            startChildMonitor()
-            windowGuard.start()
-            onReady?()
+            CEFStartSteps.shared.timed("ready_hooks") { startChildMonitor(); windowGuard.start(); onReady?() }
             self.trigger = trigger
             loadDuration = library.loadDuration
             initializeDuration = clock.now - started
@@ -267,7 +274,7 @@ final class CEFRuntime {
             let text = String(decoding: message.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
             return .failure(.framework(text))
         }
-        primeImageIO()
+        CEFFrameworkPrefetch.warm(layout)
         // Lists the framework's locale directories here, off the main thread.
         let locale = CEFLocale.current(frameworkDirectory: layout.frameworkDirectory)
         return .success(CEFLoadedLibrary(shim: shim, shimABI: shimABI ?? "", layout: layout, locale: locale, loadDuration: clock.now - started))
@@ -296,18 +303,23 @@ final class CEFRuntime {
         self.layout = layout
 
         let pump = CEFMessagePump(
-            work: { [weak self] in self?.shim?.doWork() },
+            work: { [weak self] in CEFStartSteps.shared.pump(windowPending: self?.pendingWindows.isEmpty == false) { self?.shim?.doWork() } },
             safetyNet: CEFPumpSchedule.safetyNet(forkAPIVersion: shim.forkAPIVersion())
         )
         self.pump = pump
         pump.start()
 
-        try? FileManager.default.createDirectory(at: storage.root, withIntermediateDirectories: true)
+        storage.prepareForLaunch()
+        let builtInPlan = CEFBuiltInExtensions(adBlockerEnabled: builtInAdBlockerSetting())
+            .plan(resources: Bundle.main.resourceURL, profiles: storage.root)
         let switchSet = CEFSwitches.current(
             forkAPIVersion: shim.forkAPIVersion(),
             bundleIdentifier: Bundle.main.bundleIdentifier,
-            environment: environment
+            environment: environment,
+            builtInExtensions: builtInPlan.folders, keepsUnpackedEnabled: builtInPlan.keepsUnpackedEnabled
         )
+        builtInAdBlockerLoaded = !switchSet.builtInExtensions.isEmpty
+        logger.notice("built-in extensions: \(switchSet.builtInExtensions.count, privacy: .public)")
         loadsUnpackedExtensions = !switchSet.loadExtensions.isEmpty
         shim.setExtensionDeveloperMode(loadsUnpackedExtensions ? 1 : 0)
         // Pages use the theme color, never white or Chromium's #292929
@@ -336,11 +348,11 @@ final class CEFRuntime {
         shim.setFocusRequestHandler(cefFocusRequestCallback)
         let ok = switchStorage.withUnsafeBufferPointer { buffer in  // never empty (ends with nil); no base: 0, a failed init
             buffer.baseAddress?.withMemoryRebound(to: UnsafePointer<CChar>?.self, capacity: buffer.count) { list in
-                shim.initialize(
+                CEFStartSteps.shared.timed("cef_initialize") { shim.initialize(
                     layout.frameworkDirectory.path, layout.mainBundle.path, layout.helperExecutable.path,
                     storage.root.path, storage.logFile.path, 0, locale.locale, locale.acceptLanguages, list, context,
                     cefScheduleCallback, cefEventCallback, cefKeyCallback
-                )
+                ) }
             } ?? 0
         }
         guard ok == 1 else {
@@ -375,7 +387,7 @@ final class CEFRuntime {
     }
 
     func host(for key: CEFPaneKey, lifecycleTrace: BrowserLifecycleTrace = .shared, contextMenus: BrowserContextMenuBuilder = .shared) -> CEFPaneHost {
-        if let host = hosts[key] { return host }
+        if let host = hosts[key] ?? CEFSpareWindow.shared.take(for: key, runtime: self) { return host }
         usedProfiles.insert(key.profile)
         let host = CEFPaneHost(key: key, runtime: self, lifecycleTrace: lifecycleTrace, contextMenus: contextMenus)
         hosts[key] = host

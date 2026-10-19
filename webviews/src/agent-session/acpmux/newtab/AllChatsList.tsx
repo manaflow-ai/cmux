@@ -8,6 +8,8 @@
 // With `onBring` (the History page, cx-zlnl) rows also select: Cmd/Ctrl-click toggles one,
 // Shift-click a range, Enter opens the selection, and the menu brings it into active sessions.
 // Projects (cx-ncc.66, Claude parity) shows the same chats grouped under their project folder.
+// Filter (cx-htpk0, Claude desktop parity) narrows the list to the live chats that are working or
+// wait on the user, or to the finished ones: live chats at rest, then every indexed chat.
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { subscribeDeviceChats } from "./deviceChats";
 import { ContextMenu } from "../../../ui/ContextMenu";
@@ -16,6 +18,7 @@ import { useT } from "../i18n";
 import { AgentMark, ageLabel } from "../NewTabPage";
 import { useNt } from "./strings";
 import { useMinuteClock } from "../clock";
+import { ChatFilterMenu, type ChatStatusFilter } from "./ChatFilterMenu";
 
 export type AllChatsRow = { key: string; harness: string; title?: string; cwd?: string; updatedAt: number };
 export type AllChatsDesign = "quiet" | "age" | "project";
@@ -43,6 +46,15 @@ export type LoadChatsPage = (params: {
   cursor?: string;
   limit: number;
 }) => Promise<AllChatsPage | undefined>;
+
+/// The header's Filter: All shows the list as it always was. Only live chats carry a state, so
+/// Working and Needs input show live chats alone, and Done adds the indexed chats after them.
+/// A failed or broken turn waits on the user as much as a question does.
+const FILTER_STATES: Record<Exclude<ChatStatusFilter, "all">, ReadonlySet<ActiveChat["state"]>> = {
+  working: new Set(["running"]),
+  input: new Set(["input", "failed", "error"]),
+  done: new Set(["unread", "idle"]),
+};
 
 const PAGE = 100;
 const ROW_HEIGHT = 30;
@@ -299,6 +311,21 @@ export function AllChatsList({
   const [menuTarget, setMenuTarget] = useState<string | undefined>(undefined);
   const { rows, nextCursor } = state;
   const [view, setView] = useState<"chats" | "projects">("chats");
+  const [filter, setFilter] = useState<ChatStatusFilter>("all");
+  // Working and Needs input are live chats only; the indexed rows are finished chats.
+  const indexed = filter === "all" || filter === "done";
+  const query = state.query.trim().toLowerCase();
+  // A search hides live chats under All, as before; a live-only filter searches their titles.
+  const activeShown =
+    filter === "all"
+      ? state.query
+        ? []
+        : active
+      : active.filter(
+          (chat) =>
+            FILTER_STATES[filter].has(chat.state) &&
+            (indexed ? !state.query : chat.title.toLowerCase().includes(query)),
+        );
   const [folded, setFolded] = useState<ReadonlySet<string>>(() => new Set());
   const entries = listEntries(rows, view, folded);
   // A Shift-click range runs over the chats as the list shows them.
@@ -358,7 +385,6 @@ export function AllChatsList({
             className="nt-all-group"
             data-focus-ring="row"
             aria-expanded={open}
-            title={project.cwd ?? label}
             onClick={() => {
               // A folded chat cannot stay selected: Enter or Bring would act on rows out of sight.
               selection.clear();
@@ -401,7 +427,6 @@ export function AllChatsList({
           data-focus-ring="row"
           data-untitled={row.title ? undefined : true}
           data-selected={selection.selected.includes(row.key) ? true : undefined}
-          title={row.cwd ? `${title}\n${row.cwd}` : title}
           onClick={(event) => {
             if (onBring && selection.click(event, row.key)) return;
             onOpen(row.key);
@@ -459,6 +484,13 @@ export function AllChatsList({
             {nt(choice)}
           </button>
         ))}
+        <ChatFilterMenu
+          filter={filter}
+          onFilter={(next) => {
+            selection.clear();
+            setFilter(next);
+          }}
+        />
         <label className="nt-all-search">
           <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true">
             <circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" strokeWidth="1.4" />
@@ -473,9 +505,9 @@ export function AllChatsList({
           />
         </label>
       </header>
-      {!state.query && active.length > 0 && (
+      {activeShown.length > 0 && (
         <ul className="nt-all-active" aria-label={t("sidebar.active")}>
-          {active.map((chat) => (
+          {activeShown.map((chat) => (
             <li key={chat.id}>
               {/* Its right-click menu: Open, as its click (cx-2lm4). */}
               <ContextMenu
@@ -500,7 +532,9 @@ export function AllChatsList({
           ))}
         </ul>
       )}
-      {state.loaded && rows.length === 0 ? (
+      {!indexed ? (
+        activeShown.length === 0 && <p className="nt-chats-empty">{t("sidebar.noMatches")}</p>
+      ) : state.loaded && rows.length === 0 ? (
         state.failed ? (
           <output className="nt-chats-empty nt-chats-failed">
             {nt("chatsLoadFailed")}

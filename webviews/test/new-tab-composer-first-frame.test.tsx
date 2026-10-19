@@ -1,8 +1,9 @@
 // l10n-allow-file: test fixtures.
 // A new chat's composer draws its final chips on its first frame (Leo 2026-10-13: grey skeleton
-// pills where effort and access go, then the chips, while the session started). The chips this
-// harness's chats last showed paint at once, and the session's report keeps the same chips in the
-// same order with the same labels.
+// pills where effort and access go, then the chips, while the session started). The effort this
+// harness's chats last showed and the start mode acpmux last answered (`_acpmux/start_mode`,
+// startMode.ts) paint at once, and the session's report keeps the same chips in the same order
+// with the same labels.
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
@@ -67,7 +68,9 @@ beforeAll(() => {
   host = dom.window.document.getElementById("root")!;
 });
 
-afterEach(() => {
+afterEach(async () => {
+  const { rememberStartMode } = await import("../src/agent-session/acpmux/startMode");
+  rememberStartMode("claude", undefined, undefined);
   act(() => root?.unmount());
   root = undefined;
   host.replaceChildren();
@@ -110,7 +113,7 @@ function reported(sessionId: string): Summary {
 }
 
 /// Renders the composer's chips for `summary` (undefined: a new chat whose session has not reported).
-async function render(summary: Summary) {
+async function render(summary: Summary, emptyCatalog = false) {
   const { createRoot } = await import("react-dom/client");
   const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
   const { ComposerPickers } = await import("../src/agent-session/acpmux/ComposerPickers");
@@ -132,7 +135,7 @@ async function render(summary: Summary) {
     isWorking: false,
     queue: [],
     canLoadOlder: false,
-    catalog,
+    catalog: emptyCatalog ? [] : catalog,
     summary: summary ?? { sessionId: "", harness: "claude", turnCount: 0 },
   } as unknown as Snapshot;
   function Host() {
@@ -166,7 +169,7 @@ const chips = () =>
     label: (chip.querySelector(".acpmux-picker-button")?.textContent ?? "").trim(),
   }));
 
-test("a new chat paints its last effort and access chips on the first frame, and its session keeps them in place", async () => {
+test("a new chat paints its last effort and its kept start mode on the first frame, and its session keeps them in place", async () => {
   // An earlier chat on this harness reported its chips.
   await render(reported("earlier"));
   const earlier = chips();
@@ -176,19 +179,30 @@ test("a new chat paints its last effort and access chips on the first frame, and
   root = undefined;
   host.replaceChildren();
 
-  // A new chat, before its session reports: no grey bars, the same chips.
+  // acpmux answered, in an earlier ask for another folder, that a new chat on this harness starts
+  // in that chat's mode; a folder it has not answered for yet holds the access chip's place with
+  // that answer, but names no mode (that folder's profile or preset may start it in another).
+  const { rememberStartMode } = await import("../src/agent-session/acpmux/startMode");
+  rememberStartMode("claude", "/home/dev/other", { modeId: "default", name: "Ask before edits" });
+
+  // A new chat, before its session reports: no grey bars, the same chips in the same order.
   await render(undefined);
   expect(host.querySelector(".acpmux-chip-skeleton, .acpmux-chip-skeleton-bar")).toBeNull();
   const first = chips();
-  expect(first).toEqual(earlier);
+  expect(first).toEqual([earlier[0]!, { kind: "mode", label: "Mode" }]);
 
   // Its session reports the same choices: the chips settle where they were.
   await render(reported("new"));
-  expect(chips()).toEqual(first);
+  expect(chips()).toEqual(earlier);
 });
 
 test("with no remembered chips a new chat draws no placeholder pills", async () => {
   await render(undefined);
   expect(host.querySelector(".acpmux-chip-skeleton, .acpmux-chip-skeleton-bar")).toBeNull();
   expect(chips()).toEqual([]);
+});
+
+test("a new chat shows the bundled model picker before the host catalog arrives", async () => {
+  await render(undefined, true);
+  expect(host.querySelector(".acpmux-model-name")?.textContent?.trim()).toBeTruthy();
 });

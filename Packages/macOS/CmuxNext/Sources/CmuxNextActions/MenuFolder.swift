@@ -11,6 +11,8 @@ public nonisolated enum MenuFolder: String, CaseIterable, Sendable, Hashable {
     case options
     case group
     case move
+    /// Sort orders (the sidebar's Sort ▸).
+    case sort
     case layout
     case connection
     case copy
@@ -26,7 +28,7 @@ public nonisolated enum MenuFolder: String, CaseIterable, Sendable, Hashable {
         case .openIn: .reopen
         case .appearance, .options: .identity
         case .group: .organize
-        case .move: .move
+        case .move, .sort: .move
         case .layout: .layout
         case .connection: .connection
         case .copy, .tools: .inspect
@@ -45,6 +47,7 @@ public nonisolated enum MenuFolder: String, CaseIterable, Sendable, Hashable {
         case .options: String(localized: "menu.folder.options", defaultValue: "Options", bundle: .module)
         case .group: String(localized: "menu.folder.group", defaultValue: "Group", bundle: .module)
         case .move: String(localized: "menu.folder.move", defaultValue: "Move", bundle: .module)
+        case .sort: String(localized: "menu.folder.sort", defaultValue: "Sort", bundle: .module)
         case .layout: String(localized: "menu.folder.layout", defaultValue: "Layout", bundle: .module)
         case .connection: String(localized: "menu.folder.connection", defaultValue: "Connection", bundle: .module)
         case .copy: String(localized: "menu.folder.copy", defaultValue: "Copy", bundle: .module)

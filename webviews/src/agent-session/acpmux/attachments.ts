@@ -1,14 +1,14 @@
-/// Files the composer attaches to a prompt. Images and PDFs go to the agent as
-/// ACP content blocks. A text file is written into the prompt's text because
+/// Files the composer attaches to a prompt. Images, PDFs and dictation's voice recordings go to
+/// the agent as ACP content blocks. A text file is written into the prompt's text because
 /// the web view never learns a dropped file's path; other files are refused.
 
 export type ComposerAttachment = {
   id: string;
-  kind: "image" | "text" | "document";
+  kind: "image" | "text" | "document" | "audio";
   name: string;
   mimeType: string;
   size: number;
-  /** Base64 image bytes, without the data: prefix. */
+  /** Base64 image, PDF or audio bytes, without the data: prefix. */
   data?: string;
   /** A text file's contents. */
   text?: string;
@@ -23,7 +23,8 @@ export type AttachmentError = { name: string; reason: "tooLarge" | "unsupported"
 export type PromptBlock =
   | { type: "text"; text: string }
   | { type: "image"; mimeType: string; data: string; name?: string }
-  | { type: "document"; mimeType: "application/pdf"; data: string; name?: string };
+  | { type: "document"; mimeType: "application/pdf"; data: string; name?: string }
+  | { type: "audio"; mimeType: string; data: string };
 
 /** Anthropic's per-image limit. */
 export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
@@ -106,19 +107,42 @@ export function decodeText(bytes: Uint8Array): string | undefined {
   }
 }
 
-/// A `size`px square thumbnail of an image attachment, its center cropped to fill (as a data: URL),
-/// so a chip never hands a multi-megabyte image to a small <img>. Undefined when the engine cannot
-/// decode the image or has no OffscreenCanvas; the chip then draws the image itself.
-export async function thumbnail(image: { mimeType: string; data: string }, size = 112): Promise<string | undefined> {
+/// A thumbnail of an image attachment `height`px tall (as a data: URL), in the image's own shape
+/// between 0.7:1 and 2:1, its center cropped only past those bounds, so a wide screenshot shows as
+/// itself rather than a sliver of its text (Leo, 2026-10-14) and a chip never hands a
+/// multi-megabyte image to a small <img>. Undefined when the engine cannot decode the image or has
+/// no OffscreenCanvas; the chip then draws the image itself.
+export async function thumbnail(image: { mimeType: string; data: string }, height = 160): Promise<string | undefined> {
   if (typeof createImageBitmap !== "function" || typeof OffscreenCanvas !== "function") return undefined;
   try {
     const bytes = Uint8Array.from(atob(image.data), (char) => char.charCodeAt(0));
     const bitmap = await createImageBitmap(new Blob([bytes], { type: image.mimeType }));
-    const side = Math.min(bitmap.width, bitmap.height);
-    const canvas = new OffscreenCanvas(size, size);
+    if (!bitmap.width || !bitmap.height) {
+      bitmap.close();
+      return undefined;
+    }
+    const ratio = Math.min(2, Math.max(0.7, bitmap.width / bitmap.height));
+    const [sourceWidth, sourceHeight] =
+      bitmap.width / bitmap.height > ratio
+        ? [bitmap.height * ratio, bitmap.height]
+        : [bitmap.width, bitmap.width / ratio];
+    const canvas = new OffscreenCanvas(Math.round(height * ratio), height);
     const context = canvas.getContext("2d");
-    if (!side || !context) return undefined;
-    context.drawImage(bitmap, (bitmap.width - side) / 2, (bitmap.height - side) / 2, side, side, 0, 0, size, size);
+    if (!context) {
+      bitmap.close();
+      return undefined;
+    }
+    context.drawImage(
+      bitmap,
+      (bitmap.width - sourceWidth) / 2,
+      (bitmap.height - sourceHeight) / 2,
+      sourceWidth,
+      sourceHeight,
+      0,
+      0,
+      canvas.width,
+      canvas.height,
+    );
     bitmap.close();
     const blob = await canvas.convertToBlob({ type: "image/png" });
     return `data:image/png;base64,${base64(new Uint8Array(await blob.arrayBuffer()))}`;
@@ -145,7 +169,7 @@ export function promptText(text: string, attachments: ComposerAttachment[]): str
   return [text, ...files].filter(Boolean).join("\n\n");
 }
 
-/// ACP prompt blocks: the text (with text files) first, then each image.
+/// ACP prompt blocks: the text (with text files) first, then each image, PDF and recording.
 export function promptBlocks(text: string, attachments: ComposerAttachment[]): PromptBlock[] {
   const blocks: PromptBlock[] = [];
   const body = promptText(text, attachments);
@@ -155,7 +179,55 @@ export function promptBlocks(text: string, attachments: ComposerAttachment[]): P
       blocks.push({ type: "image", mimeType: attachment.mimeType, data: attachment.data, name: attachment.name });
     else if (attachment.kind === "document" && attachment.data)
       blocks.push({ type: "document", mimeType: "application/pdf", data: attachment.data, name: attachment.name });
+    else if (attachment.kind === "audio" && attachment.data)
+      blocks.push({ type: "audio", mimeType: attachment.mimeType, data: attachment.data });
   return blocks;
+}
+
+/// Whether a session takes voice input through its picked model: the harness advertises ACP
+/// `promptCapabilities.audio`, and, when its model options name their input modalities
+/// (`_meta.inputModalities`, cmux-codex-acp), the picked model lists `audio`; a model without a
+/// list there takes none, as the harness itself rules. A harness that names no modalities at all
+/// is taken at its word. A Codex model that does not hear audio would only be told the recording
+/// could not be read.
+export function takesAudio(promptCapabilities: unknown, configOptions: unknown): boolean {
+  if ((promptCapabilities as { audio?: unknown } | undefined)?.audio !== true) return false;
+  const model = Array.isArray(configOptions)
+    ? (configOptions as { category?: unknown; currentValue?: unknown; options?: unknown }[]).find(
+        (option) => option?.category === "model",
+      )
+    : undefined;
+  const options = Array.isArray(model?.options)
+    ? (model.options as { value?: unknown; _meta?: { inputModalities?: unknown } }[])
+    : [];
+  if (!options.some((option) => Array.isArray(option?._meta?.inputModalities))) return true;
+  const modalities = options.find((option) => option?.value === model?.currentValue)?._meta?.inputModalities;
+  return Array.isArray(modalities) && modalities.includes("audio");
+}
+
+/// The largest recording a prompt carries: the host stops keeping audio at two minutes (3.84 MB
+/// of 16 kHz PCM), so this only backs that cap up. A bigger clip would go out as one huge JSON
+/// line that the model's API refuses; the transcript goes alone instead.
+export const MAX_AUDIO_BYTES = 4 * 1024 * 1024;
+
+/// A dictation session's recording as a chip, for a harness that takes voice input
+/// (`promptCapabilities.audio`): it goes with the prompt beside the transcript. Undefined past
+/// `MAX_AUDIO_BYTES`.
+export function audioAttachment(
+  audio: { mimeType: string; data: string },
+  name: string,
+): ComposerAttachment | undefined {
+  const padding = audio.data.endsWith("==") ? 2 : audio.data.endsWith("=") ? 1 : 0;
+  const size = Math.floor((audio.data.length * 3) / 4) - padding;
+  if (size > MAX_AUDIO_BYTES) return undefined;
+  return {
+    id: crypto.randomUUID(),
+    kind: "audio",
+    name,
+    mimeType: audio.mimeType,
+    size,
+    data: audio.data,
+  };
 }
 
 /** Counts PDF page objects without parsing or rendering the document. */

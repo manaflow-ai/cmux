@@ -1,3 +1,4 @@
+import CmuxNextAgentPane
 public import CmuxNextDaemon
 public import Foundation
 public import Observation
@@ -25,13 +26,16 @@ public final class ChiefConversationOwner {
     /// The live connection, nil while connecting or disconnected.
     public private(set) var connection: DaemonConnection?
     public private(set) var identity: DaemonIdentity?
+    /// NIGHTLY's one-time backup of its shared home (`ChiefAdoption`), taken before the owner
+    /// starts; nil until it ran or when it failed (the old Chief import waits for a later launch).
+    public private(set) var adoption: ChiefAdoption.Outcome?
     /// Why the owner is not connected, for `debug.home`.
     public private(set) var lastError: String?
     /// Runs once on the first connection, before the connection is
     /// published (the move of the old per-tag Chiefs). It never holds the
     /// owner back: Home's availability does not wait for the move.
     @ObservationIgnored public var prepare: (@concurrent @Sendable (DaemonConnection) async -> Void)?
-    /// Conversation events (`conversation-changed`, `conversation-typing`).
+    /// Conversation events (`conversation-changed`, `conversation-typing`, the Home row events).
     @ObservationIgnored public var onEvent: ((DaemonEvent) -> Void)?
     @ObservationIgnored private var runTask: Task<Void, Never>?
     @ObservationIgnored private let wake = RetryWake(owner: "ChiefConversationOwner")
@@ -89,9 +93,17 @@ public final class ChiefConversationOwner {
         let provider = launcher.endpointProvider
         let wake = wake
         let logger = logger
+        let home = home
+        let build = bundle.bundleIdentifier ?? ChiefHome.nightlyBundleID
         // task-owner: lives as long as the app; one connection, reconnecting by itself
         runTask = Task { [weak self] in
             weak let weakSelf = self
+            // NIGHTLY's backup before this app starts the owner (cx-is1kf.7); a running owner's
+            // databases are copied with SQLite's online backup.
+            // cmux NEXT's one-time adoption of its old homes ends before its owner starts (cx-is1kf.9).
+            await AcpmuxEnvironment.adoptBuildHomes()
+            let adoption = await ChiefAdoption.runOffMain(home: home, by: build, logger: logger)
+            weakSelf?.adoption = adoption
             let connected = await DaemonStartup.shared.connect(wake: wake) {
                 DaemonConnection(configuration: configuration, endpointProvider: provider)
             } onFailure: { error in
@@ -161,7 +173,9 @@ public final class ChiefConversationOwner {
         case .disconnected(let reason):
             self.connection = nil
             lastError = reason
-        case .conversationChanged, .conversationTyping, .conversationDraft:
+        case .conversationChanged, .conversationTyping, .conversationDraft, .conversationLive, .conversationRunChanged:
+            onEvent?(event)
+        case .unknown(let name, _) where HomeInboxSource.rowEvents.contains(name):
             onEvent?(event)
         default:
             break

@@ -312,6 +312,11 @@ impl Hub {
                 "a remote-origin connection never uses the session pool",
             ));
         }
+        if crate::launch_policy::agent_launch_disabled() {
+            return Ok(
+                json!({"accepted": false, "reason": crate::launch_policy::DISABLED_MESSAGE}),
+            );
+        }
         if !self.pool_enabled().await {
             return Ok(json!({"accepted": false, "reason": "the session pool is off"}));
         }
@@ -503,6 +508,17 @@ impl Hub {
     ) -> Option<String> {
         // REMOTE-FLOOR v3: a remote-origin chain is never served.
         if meta.remote_origin || !self.pool_enabled().await {
+            return None;
+        }
+        // A preset with a start mode or an approval starts cold: the approval
+        // holds for the contents this session's own spawn reads, not the ones
+        // a pooled harness started with (`hub/start_gate/preset_bind.rs`). Only
+        // the person sets an approval, so no client can clear it for a claim
+        // and get it back for the start.
+        let approved = |p: &crate::config::Preset| p.mode.is_some() || p.mode_approval.is_some();
+        if let Some(name) = &meta.preset
+            && self.config.read().await.presets.get(name).is_some_and(approved)
+        {
             return None;
         }
         let spec = self.pool_spec_for(meta, profile, defaults_env).await.ok()?;

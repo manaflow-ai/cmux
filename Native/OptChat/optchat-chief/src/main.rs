@@ -61,7 +61,7 @@ fn main() -> std::process::ExitCode {
                 }
             }
         }
-        Some(tool @ ("zoom" | "date" | "spawn" | "tell" | "profile")) => {
+        Some(tool @ ("zoom" | "date" | "spawn" | "tell" | "control" | "profile" | "chiefs")) => {
             let socket = flags
                 .value("socket")
                 .map(PathBuf::from)
@@ -79,6 +79,7 @@ fn main() -> std::process::ExitCode {
             // A subagent's tools (OPTCHAT_SUBAGENT=1) have no spawn or tell.
             let subagent =
                 optchat_chief::cli::env(optchat_chief::session_dir::SUBAGENT_ENV).is_some();
+            let call = call.map(optchat_chief::tools::with_turn_key);
             match call.and_then(|c| optchat_chief::tools::ask_as(&socket, c, subagent)) {
                 Ok(text) => {
                     println!("{text}");

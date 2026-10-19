@@ -21,11 +21,14 @@ import {
   withAccountDeletionAnalyticsForwardLease,
 } from "../../../../services/account/deletionLock";
 import {
+  ANONYMOUS_SAFE_PROPERTIES,
   MAX_ANALYTICS_BATCH_EVENTS,
   MAX_ANALYTICS_EVENT_PROPERTIES,
+  MAX_ANALYTICS_LIST_PROPERTY_ITEMS,
   MAX_ANALYTICS_REQUEST_BYTES,
   POSTHOG_HOST,
   POSTHOG_PROJECT_KEY,
+  iosAnalyticsChannel,
   isAllowedAnalyticsEvent,
 } from "../../../../services/analytics/iosEventPolicy";
 
@@ -190,13 +193,15 @@ function sanitizeEvent(candidate: unknown): IncomingEvent | null {
       : {};
 
   // Cap property fan-out so a malformed client can't push an unbounded property
-  // bag through the proxy.
+  // bag through the proxy. Values are scalars or short scalar lists
+  // (`product_ids`); nested objects are dropped.
   const properties: Record<string, unknown> = {};
   let count = 0;
   for (const [key, value] of Object.entries(rawProperties)) {
     if (count >= MAX_ANALYTICS_EVENT_PROPERTIES) break;
-    if (isScalar(value)) {
-      properties[key] = value;
+    const forwarded = forwardablePropertyValue(value);
+    if (forwarded !== undefined) {
+      properties[key] = forwarded;
       count += 1;
     }
   }
@@ -209,8 +214,34 @@ function sanitizeEvent(candidate: unknown): IncomingEvent | null {
   };
 }
 
-function isScalar(value: unknown): boolean {
+function isScalar(value: unknown): value is string | number | boolean {
   return typeof value === "string" || typeof value === "number" || typeof value === "boolean";
+}
+
+function forwardablePropertyValue(value: unknown): unknown {
+  if (isScalar(value)) return value;
+  if (!Array.isArray(value)) return undefined;
+  return value.filter(isScalar).slice(0, MAX_ANALYTICS_LIST_PROPERTY_ITEMS);
+}
+
+/**
+ * The properties an event keeps on its way to PostHog. Authenticated events
+ * keep everything the sanitizer accepted. An unauthenticated event may be a
+ * stale queued event from a deleted account, so it keeps only the build and
+ * store facts in ANONYMOUS_SAFE_PROPERTIES, never account fields. Every event
+ * gets `channel` from its bundle id so production, beta, dev and third-party
+ * builds can be separated; nothing is dropped for its channel.
+ */
+function forwardedProperties(event: IncomingEvent, authenticated: boolean): Record<string, unknown> {
+  const properties: Record<string, unknown> = authenticated ? { ...event.properties } : {};
+  if (!authenticated) {
+    for (const key of ANONYMOUS_SAFE_PROPERTIES) {
+      const value = event.properties[key];
+      if (isScalar(value)) properties[key] = value;
+    }
+  }
+  properties.channel = iosAnalyticsChannel(event.properties.bundle_identifier);
+  return properties;
 }
 
 async function forwardToPostHog(
@@ -229,8 +260,9 @@ async function forwardToPostHog(
   const batch = events.map((event) => {
     // An unauthenticated queued event may contain stale account fields from a
     // session that was deleted after the tombstone preflight. Preserve only its
-    // event name and namespaced anonymous id so it cannot recreate account data.
-    const properties = userId ? { ...event.properties } : {};
+    // event name, namespaced anonymous id and build facts so it cannot
+    // recreate account data.
+    const properties = forwardedProperties(event, userId !== null);
     const anonymousAlias = properties.$anon_distinct_id;
     if (typeof anonymousAlias === "string") {
       properties.$anon_distinct_id = anonymousPostHogDistinctID(anonymousAlias);

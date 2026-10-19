@@ -1,17 +1,19 @@
 import AppKit
 @testable import CmuxNextApp
+import CmuxNextBrowser
 import CmuxNextDesign
-import CmuxNextNowPlaying
+@testable import CmuxNextNowPlaying
 import CmuxNextSettings
 @testable import CmuxNextSidebar
 import Foundation
 import Observation
 import Testing
 
-/// The sidebar's Now Playing card (cx-ouoxo, behind `labs.previewFeatures`), driven by a fake Now
+/// The sidebar's Now Playing card (cx-ouoxo, behind `sidebar.nowPlaying.enabled`), driven by a fake Now
 /// Playing source through the same feed and intent route the app uses: it shows what plays with its
-/// artwork and controls, its controls and scrubber reach the source, it draws in the terminal theme,
-/// nothing on it moves under Reduce Motion, and it is there only while the preview is on.
+/// artwork and controls, its controls and scrubber reach the source, a seek the source ignores does
+/// not freeze the scrubber, a tab's artwork that failed to load comes in later, it draws in the
+/// terminal theme, nothing on it moves under Reduce Motion, and it is there only while Now Playing is on.
 @MainActor @Suite(.serialized) struct NowPlayingCardTests {
     @Observable final class FakeSource: NowPlayingSource {
         var nowPlaying: SidebarNowPlaying?
@@ -64,11 +66,11 @@ import Testing
         }
     }
 
-    func make(previewOn: Bool = true, scope: ThemeScope? = nil, playing: Bool = true) async -> Harness {
+    func make(enabled: Bool = true, scope: ThemeScope? = nil, playing: Bool = true) async -> Harness {
         _ = NSApplication.shared
         let source = FakeSource()
         source.nowPlaying = Self.track(playing: playing)
-        let flag = Flag(previewOn)
+        let flag = Flag(enabled)
         let model = SidebarModel()
         model.onIntent = { [source] intent in source.handle(intent) }
         let sidebar = SidebarView(model: model, design: DesignSettings())
@@ -82,7 +84,7 @@ import Testing
         window.orderFrontRegardless()
         let feed = model.followNowPlaying(source, enabled: { flag.on })
         let harness = Harness(source: source, flag: flag, model: model, sidebar: sidebar, window: window, feed: feed)
-        await harness.cardShows(previewOn)
+        await harness.cardShows(enabled)
         return harness
     }
 
@@ -132,6 +134,59 @@ import Testing
         #expect(abs(seconds - 120) < 2, "a quarter of 480 s is 120 s, the scrubber asked for \(seconds)")
     }
 
+    /// Clicks the scrubber `fraction` of the way along.
+    func click(_ h: Harness, at fraction: CGFloat) throws {
+        let scrubber = h.card.scrubber
+        let point = scrubber.convert(NSPoint(x: scrubber.bounds.width * fraction, y: scrubber.bounds.midY), to: nil)
+        for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+            let event = try #require(NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: 0,
+                                                        windowNumber: h.window.windowNumber, context: nil, eventNumber: 0,
+                                                        clickCount: 1, pressure: 1))
+            if type == .leftMouseDown { scrubber.mouseDown(with: event) } else { scrubber.mouseUp(with: event) }
+        }
+    }
+
+    @Test func aSeekTheSourceIgnoresLetsTheScrubberRunOnFromWhereItPlays() async throws {
+        let h = await make()
+        defer { h.close() }
+        try #require(!h.card.isHidden, "no Now Playing card while a track plays")
+        let scrubber = h.card.scrubber
+        let fraction = { scrubber.fill.bounds.width / max(1, scrubber.bounds.width) }
+        // Three quarters along asks for 360 s. The source ignores it and reports nothing new: it
+        // still plays from 60 s, an eighth of the track.
+        try click(h, at: 0.75)
+        guard case .seek(let seconds)? = h.source.commands.last, abs(seconds - 360) < 2 else {
+            Issue.record("the scrubber did not seek to 360 s: \(h.source.commands)")
+            return
+        }
+        #expect(fraction() > 0.7, "the scrubber does not show the point it was dragged to (\(fraction()))")
+        try await PasswordManagerRouteTests.until({ fraction() < 0.2 }, within: .seconds(6)) {
+            "the scrubber stays at \(fraction()) of the track after a seek the source ignored, not where it plays"
+        }
+    }
+
+    @Test func aTabsArtworkThatDidNotLoadComesInLater() async throws {
+        let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://example.com/listen")))
+        // Nothing listens there, so the first fetch fails.
+        let art = try #require(URL(string: "http://127.0.0.1:9/cover-\(UUID().uuidString).png"))
+        let media = BrowserMediaState(title: "Weightless", artworkURL: art, isPlaying: true, position: 60, duration: 480)
+        let source = BrowserTabsNowPlaying()
+        source.artworkRetry = .milliseconds(200)
+        source.follow(sessions: { [NowPlayingSession(tab: tab.id, media: media)] }, tab: { _ in tab })
+        // Read the way the card is fed: the model reads the source again only when it changes.
+        let model = SidebarModel()
+        let following = model.followNowPlaying(source, enabled: { true })
+        defer { following.cancel() }
+        try await PasswordManagerRouteTests.until({ model.nowPlaying != nil }, within: .seconds(6)) { "the card never shows the tab's track" }
+        try await Task.sleep(for: .seconds(1))
+        #expect(model.nowPlaying?.artwork == nil, "artwork from a fetch that cannot succeed")
+        // Now the image is there (a later fetch of the same URL gets it).
+        _ = BrowserFaviconLoader.shared.store(Self.artwork(), at: art, profile: tab.profileID)
+        try await PasswordManagerRouteTests.until({ model.nowPlaying?.artwork != nil }, within: .seconds(6)) {
+            "the card never shows the tab's artwork after its first fetch failed"
+        }
+    }
+
     @Test func theCardDrawsInTheTerminalTheme() async throws {
         let scope = try ThemedOverlayColorsTests.purpleRoom()
         let h = await make(scope: scope)
@@ -170,6 +225,7 @@ import Testing
             return views(card).compactMap(\.layer).flatMap(animated)
         }
         card.scrubber.reduceMotionOverride = true
+        card.levels.reduceMotionOverride = true
         card.configure(Self.track())
         card.isHidden = false
         card.layoutSubtreeIfNeeded()
@@ -182,18 +238,23 @@ import Testing
         #expect(spoken.contains("1:00") && spoken.hasSuffix("8:00"), "VoiceOver hears \(spoken)")
     }
 
-    @Test func theCardIsThereOnlyWhileThePreviewIsOn() async throws {
-        let h = await make(previewOn: false)
+    @Test func theCardIsThereOnlyWhileNowPlayingIsOn() async throws {
+        let h = await make(enabled: false)
         defer { h.close() }
         // Long enough for the feed's first pass (the same feed shows the card within milliseconds when on).
         try await Task.sleep(for: .milliseconds(300))
         h.sidebar.layoutSubtreeIfNeeded()
-        #expect(h.model.nowPlaying == nil, "the feed passed the track on with labs.previewFeatures off")
-        #expect(h.card.isHidden || h.card.frame.isEmpty, "the card shows with labs.previewFeatures off")
-        #expect(CmuxConfigSnapshot.previewFeaturesDefault == false, "the preview is on by default")
+        #expect(h.model.nowPlaying == nil, "the feed passed the track on with Now Playing off")
+        #expect(h.card.isHidden || h.card.frame.isEmpty, "the card shows with Now Playing off")
+        #expect(NowPlayingSettings.enabledDefault, "Now Playing is hidden by default")
         h.flag.on = true
         await h.cardShows()
-        #expect(!h.card.isHidden && !h.card.frame.isEmpty, "turning the preview on shows no card")
+        #expect(!h.card.isHidden && !h.card.frame.isEmpty, "turning Now Playing on shows no card")
+        h.flag.on = false
+        await h.cardShows(false)
+        #expect(h.card.isHidden || h.card.frame.isEmpty, "turning Now Playing off leaves the card")
+        h.flag.on = true
+        await h.cardShows()
         h.source.nowPlaying = nil
         await h.cardShows(false)
         #expect(h.card.isHidden || h.card.frame.isEmpty, "the card stays after the source stops")

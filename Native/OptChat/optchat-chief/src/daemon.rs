@@ -12,9 +12,9 @@ use cmux::raw::{
     Client, ClientConfig, ConversationAttachmentReadRequest, ConversationAttachmentUploadRequest,
     ConversationAttachmentUploadResult, ConversationBindRequest, ConversationCreateRequest,
     ConversationDraftRequest, ConversationHistoryRequest, ConversationListRequest,
-    ConversationOpRequest, ConversationRunAppendRequest, ConversationSnapshotRequest,
-    ConversationTypingRequest, Error as SdkError, Event, Nullable, Optional, SubscribeRequest,
-    SubscribeRequestTreeEvents,
+    ConversationLivePublishRequest, ConversationOpRequest, ConversationRunAppendRequest,
+    ConversationSnapshotRequest, ConversationTypingRequest, Error as SdkError, Event, Nullable,
+    Optional, SubscribeRequest, SubscribeRequestTreeEvents,
 };
 use cmux_chief::rules::{
     AGENT_MUX, CHIEF_CONVERSATION_TITLE, CHIEF_DISPLAY_NAME, DEFAULT_CONVERSATION_KEY,
@@ -46,6 +46,9 @@ impl std::fmt::Display for OpError {
 }
 
 /// The conversation operations the brain needs, on a connection bound as `agent_mux`.
+/// Most bytes the owner sends in one `conversation-attachment-read`.
+pub const ATTACHMENT_CHUNK_BYTES: u64 = 4 * 1024 * 1024;
+
 pub trait ConversationPort: Send {
     fn snapshot(
         &mut self,
@@ -76,6 +79,13 @@ pub trait ConversationPort: Send {
     ) -> Result<(), OpError> {
         Err(OpError::Rejected("runs_unsupported".into()))
     }
+    /// Sends one live frame of the running turn's run (`conversation-live-publish`,
+    /// `chief-live-v1`): the reply's text as it streams and a "working on"
+    /// line. Display only and never stored: a port without it says so with an
+    /// error and the turn goes on.
+    fn live_publish(&mut self, _conversation: &str, _frame: Value) -> Result<(), OpError> {
+        Err(OpError::Rejected("live_unsupported".into()))
+    }
     /// Uploads a picture a run step shows as an attachment record of
     /// `conversation` this connection's agent may name (one chunk, at most
     /// 4 MiB; the same steps as a link preview's picture).
@@ -92,8 +102,9 @@ pub trait ConversationPort: Send {
         Err(OpError::Rejected("attachments_unsupported".into()))
     }
     /// One attachment variant (`original`, `preview`, `poster`) of `hash`,
-    /// base64, in a single owner read of `bytes` (at most 4 MiB): an error
-    /// when the owner has not sent all of it (`local-attachments-v1`).
+    /// all `bytes` of it, base64 (`local-attachments-v1`). The owner sends at
+    /// most [`ATTACHMENT_CHUNK_BYTES`] a read, so a larger file takes several
+    /// reads; an error when the owner ends before `bytes`.
     fn attachment(
         &mut self,
         conversation: &str,
@@ -486,22 +497,40 @@ impl ConversationPort for SdkConversations {
         variant: &str,
         bytes: u64,
     ) -> Result<String, OpError> {
-        let data = self
-            .client
-            .conversation_attachment_read(ConversationAttachmentReadRequest {
-                conversation: conversation.into(),
-                hash: hash.into(),
-                length: Optional::Value(bytes),
-                offset: Optional::Value(0),
-                variant: Optional::Value(variant.into()),
-            })
-            .map_err(sdk_error)?;
-        if !data.eof {
-            return Err(OpError::Rejected(
-                "attachment_needs_more_than_one_read".into(),
-            ));
+        use base64::Engine as _;
+        let b64 = base64::engine::general_purpose::STANDARD;
+        let mut offset = 0u64;
+        let mut whole: Option<Vec<u8>> = None;
+        loop {
+            let data = self
+                .client
+                .conversation_attachment_read(ConversationAttachmentReadRequest {
+                    conversation: conversation.into(),
+                    hash: hash.into(),
+                    length: Optional::Value(
+                        bytes.saturating_sub(offset).min(ATTACHMENT_CHUNK_BYTES),
+                    ),
+                    offset: Optional::Value(offset),
+                    variant: Optional::Value(variant.into()),
+                })
+                .map_err(sdk_error)?;
+            // One read is the common case: its base64 goes on as is.
+            if offset == 0 && data.eof {
+                return Ok(data.data);
+            }
+            let chunk = b64
+                .decode(data.data.as_bytes())
+                .map_err(|e| OpError::Rejected(format!("attachment_bad_base64: {e}")))?;
+            let buffer = whole.get_or_insert_with(Vec::new);
+            buffer.extend_from_slice(&chunk);
+            offset += chunk.len() as u64;
+            if data.eof {
+                return Ok(b64.encode(buffer));
+            }
+            if chunk.is_empty() || offset >= bytes {
+                return Err(OpError::Rejected("attachment_ended_early".into()));
+            }
         }
-        Ok(data.data)
     }
 
     fn typing(&mut self, conversation: &str, on: bool) -> Result<(), OpError> {
@@ -570,6 +599,21 @@ impl ConversationPort for SdkConversations {
                 conversation: conversation.into(),
                 run: Nullable::value(run),
                 steps: Some(steps),
+            })
+            .map(|_| ())
+            .map_err(sdk_error)
+    }
+
+    /// `conversation-live-publish` (capability `chief-live-v1`): this bound
+    /// connection's principal is the Chief whose run streams.
+    fn live_publish(&mut self, conversation: &str, frame: Value) -> Result<(), OpError> {
+        if !self.supports("chief-live-v1") {
+            return Err(OpError::Rejected("live_unsupported".into()));
+        }
+        self.client
+            .conversation_live_publish(ConversationLivePublishRequest {
+                conversation: conversation.into(),
+                frame: Nullable::value(frame),
             })
             .map(|_| ())
             .map_err(sdk_error)
@@ -722,6 +766,21 @@ fn is_idempotency_conflict(error: &SdkError) -> bool {
     }
 }
 
+/// The conversation an `idempotency_conflict` names (`error_details.conversation`,
+/// cmux-tui-core conversation_store.rs `KeyedConversation`).
+fn keyed_conversation(error: &SdkError) -> Option<String> {
+    match error {
+        SdkError::Command {
+            error_details: Some(details),
+            ..
+        } => details
+            .get("conversation")
+            .and_then(Value::as_str)
+            .map(str::to_owned),
+        _ => None,
+    }
+}
+
 /// The most distinct requests [`find_grown_dm`] sends the owner.
 const GROWN_DM_PROBES: usize = 8;
 
@@ -849,12 +908,24 @@ fn connect(config: &LinkConfig) -> Result<Connected, ConnectError> {
                 // select above missed it. Answer there; a new key would make
                 // a second DM. The DM keeps its stored title.
                 Err(CreateError::Conflict(e)) => {
-                    match find_grown_dm(&mut client, &key, listed, &config.participant)? {
-                        Some(found) => found,
-                        None => {
-                            return Err(ConnectError::Other(format!(
-                                "{e}: no conversation with the person replays {key}; its DM's title or names changed"
-                            )));
+                    // The owner names the conversation the key made (to a
+                    // creator that takes part in it): that is the DM, also
+                    // when its title changed. An older owner names none.
+                    let keyed = keyed_conversation(&e).and_then(|id| {
+                        listed.iter().find(|c| {
+                            c.id == id && c.participants.iter().any(|p| p.id == config.participant)
+                        })
+                    });
+                    if let Some(found) = keyed.cloned() {
+                        found
+                    } else {
+                        match find_grown_dm(&mut client, &key, listed, &config.participant)? {
+                            Some(found) => found,
+                            None => {
+                                return Err(ConnectError::Other(format!(
+                                    "{e}: no conversation with the person replays {key}; its DM's title or names changed"
+                                )));
+                            }
                         }
                     }
                 }

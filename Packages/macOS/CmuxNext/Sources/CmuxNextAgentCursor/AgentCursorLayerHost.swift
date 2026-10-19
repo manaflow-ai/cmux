@@ -63,6 +63,12 @@ public final class AgentCursorLayerHost: AgentCursorLayerHosting {
         case let .pulse(session):
             // A pulse follows its action's place or glide, which armed the idle hide.
             cursor(for: session).pulse()
+        case let .caption(session, text):
+            // Only a placed cursor shows a caption (the model checks it);
+            // typing keeps the cursor up as any input does.
+            guard let cursor = cursors[session] else { return }
+            cursor.showCaption(text, scale: max(hostLayer.contentsScale, 2))
+            cursor.armIdleHide(after: Self.idleHideDelay)
         case let .indicate(session, anchor):
             let cursor = cursor(for: session)
             cursor.root.removeAnimation(forKey: "agentCursor.glide")

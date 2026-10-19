@@ -1,6 +1,11 @@
 //! `catalog.refresh` and `catalog.changed` over a client connection, and the
 //! curated models in `_acpmux/models` and `_acpmux/harnesses`.
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+// This process runs stand-in agents (the fake agents under tests/).
+const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+
 use acpmux::catalog::{FetchOutcome, Fetcher};
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;

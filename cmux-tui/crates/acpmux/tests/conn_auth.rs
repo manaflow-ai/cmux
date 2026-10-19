@@ -6,11 +6,16 @@
 //! (`_meta.acpmux.auth`, `server/conn_auth.rs`), which the mode rule reads.
 #![cfg(unix)]
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+// This process runs stand-in agents (the fake agents under tests/).
+const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Stdio};
 use std::time::Duration;
 use tokio_tungstenite::tungstenite::{Message, client::IntoClientRequest};
 
@@ -37,13 +42,11 @@ impl Daemon {
             .to_string(),
         )
         .unwrap();
-        let mut child = Command::new(env!("CARGO_BIN_EXE_acpmux"))
+        let mut child = daemon_env::command(&home, daemon_env::Agents::StandIn, &[])
             .args(["daemon", "run", "--listen", "127.0.0.1:0", "--ready-fd", "1", "--log", "error"])
             .env("ACPMUX_HOME", &home)
             .env("ACPMUX_SOCKET", home.join("s.sock"))
-            .env_remove("ACPMUX_AGENT_HOSTS")
             .env("ACPMUX_LOGIN_ENV", "0")
-            .env_remove("XPC_SERVICE_NAME")
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())

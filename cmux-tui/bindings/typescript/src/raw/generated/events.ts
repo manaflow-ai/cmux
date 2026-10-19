@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 3ed4675e0da8dc1564f14fbf58781a06559fea2fb3f14245c0ef3ec57626da36. */
+/* cmux-tui mux protocol 12, IR b431fb4d14b075f94710d8eb91c3b4a87fd99cb44eb8db04b89b0b9656c9ce85. */
 
 
 import type * as T from "./types.js";
@@ -22,6 +22,20 @@ export type AgentChangedEvent = { event: "agent-changed" } & {
   "state": T.AgentState;
   "surface": T.Id;
   "updated_at_ms": bigint;
+};
+
+/** Protocol v12; emission: emitted; streams: control. */
+export type AgentInventoryChangedEvent = { event: "agent-inventory-changed" } & {
+  "machine": string;
+  "revision": bigint;
+  "watch_id": string;
+};
+
+/** Protocol v12; emission: emitted; streams: control. */
+export type AgentInventoryWatchEndedEvent = { event: "agent-inventory-watch-ended" } & {
+  "machine": string;
+  "reason": string;
+  "watch_id": string;
 };
 
 /** Protocol v12; emission: emitted; streams: subscribe. */
@@ -109,6 +123,13 @@ export type CloudConversationChangedEvent = { event: "cloud-conversation-changed
 };
 
 /** Protocol v12; emission: emitted; streams: subscribe. */
+export type CloudConversationLiveEvent = { event: "cloud-conversation-live" } & {
+  "account"?: string;
+  "conversation": string;
+  "frame": (T.JsonValue) | null;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
 export type CloudConversationResyncedEvent = { event: "cloud-conversation-resynced" } & {
   "account"?: string;
   "conversation": string;
@@ -124,6 +145,14 @@ export type CloudConversationRunChangedEvent = { event: "cloud-conversation-run-
   "conversation": string;
   "run": (T.JsonValue) | null;
   "steps": Array<T.JsonValue>;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type CloudConversationTypingEvent = { event: "cloud-conversation-typing" } & {
+  "account"?: string;
+  "conversation": string;
+  "on": boolean;
+  "participant": string;
 };
 
 /** Protocol v12; emission: emitted; streams: subscribe. */
@@ -212,6 +241,12 @@ export type ConversationInboxChangedEvent = { event: "conversation-inbox-changed
 };
 
 /** Protocol v12; emission: emitted; streams: subscribe. */
+export type ConversationLiveEvent = { event: "conversation-live" } & {
+  "conversation": string;
+  "frame": (T.JsonValue) | null;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
 export type ConversationRunChangedEvent = { event: "conversation-run-changed" } & {
   "conversation": string;
   "run": (T.JsonValue) | null;
@@ -287,7 +322,12 @@ export type KeybindingsChangedEvent = { event: "keybindings-changed" } & {
 
 /** Protocol v6; emission: emitted; streams: subscribe. */
 export type LayoutChangedEvent = { event: "layout-changed" } & {
+  "active_pane"?: T.Id;
+  "layout"?: T.Layout;
   "screen": T.Id;
+  "transaction"?: string;
+  "workspace"?: T.Id;
+  "zoomed_pane"?: (T.Id) | null;
 };
 
 /** Protocol v12; emission: emitted; streams: subscribe. */
@@ -671,6 +711,8 @@ export interface UnknownEvent {
 export type KnownCmuxEvent =
   | ActivityChangedEvent
   | AgentChangedEvent
+  | AgentInventoryChangedEvent
+  | AgentInventoryWatchEndedEvent
   | AgentPresenceChangedEvent
   | BellEvent
   | BookmarksChangedEvent
@@ -680,8 +722,10 @@ export type KnownCmuxEvent =
   | ClientChangedEvent
   | ClientDetachedEvent
   | CloudConversationChangedEvent
+  | CloudConversationLiveEvent
   | CloudConversationResyncedEvent
   | CloudConversationRunChangedEvent
+  | CloudConversationTypingEvent
   | CloudInboxChangedEvent
   | CloudInboxResetEvent
   | CloudMuxResyncedEvent
@@ -693,6 +737,7 @@ export type KnownCmuxEvent =
   | ConversationChangedEvent
   | ConversationDraftEvent
   | ConversationInboxChangedEvent
+  | ConversationLiveEvent
   | ConversationRunChangedEvent
   | ConversationTypingEvent
   | DaemonShutdownEvent
@@ -765,8 +810,10 @@ export type KnownSubscribeEvent =
   | ClientChangedEvent
   | ClientDetachedEvent
   | CloudConversationChangedEvent
+  | CloudConversationLiveEvent
   | CloudConversationResyncedEvent
   | CloudConversationRunChangedEvent
+  | CloudConversationTypingEvent
   | CloudInboxChangedEvent
   | CloudInboxResetEvent
   | CloudMuxResyncedEvent
@@ -777,6 +824,7 @@ export type KnownSubscribeEvent =
   | ConversationChangedEvent
   | ConversationDraftEvent
   | ConversationInboxChangedEvent
+  | ConversationLiveEvent
   | ConversationRunChangedEvent
   | ConversationTypingEvent
   | EmptyEvent

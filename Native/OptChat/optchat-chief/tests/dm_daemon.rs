@@ -16,8 +16,10 @@
 //! - it answers in the DM again, and a person's message in the channel still
 //!   wakes it, with the reply in that message's thread;
 //! - when the DM's title changed too (the person renamed the conversation),
-//!   no request replays the key: the brain does not guess (an older channel
-//!   would be the guess) and says why in its log.
+//!   no request replays the key, but the owner names the conversation the
+//!   key made in the refusal (`error_details.conversation`, hq-6d
+//!   2026-10-14): the brain reconnects to that DM, never to an older channel
+//!   (the guess), and makes no new one.
 //!
 //! Not covered here: a paired device in the DM (no client path adds one;
 //! only the daemon's pairing does, remote_relay/participants.rs). The DM
@@ -382,7 +384,7 @@ fn a_renamed_chief_whose_dm_gained_a_participant_keeps_that_dm_and_its_channels(
 
 #[test]
 #[ignore = "needs CMUX_TUI_BIN"]
-fn a_renamed_chief_whose_grown_dm_was_retitled_never_takes_a_channel_for_it() {
+fn a_renamed_chief_whose_grown_dm_was_retitled_reconnects_to_it_not_to_a_channel() {
     let daemon = Daemon::start();
     let mut me = Conn::open(&daemon.socket);
     let channel_id = me.req(
@@ -419,31 +421,15 @@ fn a_renamed_chief_whose_grown_dm_was_retitled_never_takes_a_channel_for_it() {
     }
 
     let (events, lines) = link(&daemon, &token_file, "Night Scout");
-    let deadline = Instant::now() + Duration::from_secs(30);
-    let refusal = "no conversation with the person replays";
-    while !lines.lock().unwrap().iter().any(|l| l.contains(refusal)) {
-        assert!(
-            Instant::now() < deadline,
-            "no refusal in 30 s; link log:\n{}",
-            lines.lock().unwrap().join("\n")
-        );
-        if let Ok(DaemonEvent::Up { conversation, .. }) =
-            events.recv_timeout(Duration::from_millis(50))
-        {
-            panic!(
-                "the link came up with {} (channel {channel_id})",
-                conversation.id
-            );
-        }
-    }
-    // The refusal ends the connect attempt that would have come up.
-    while let Ok(event) = events.try_recv() {
-        if let DaemonEvent::Up { conversation, .. } = event {
-            panic!(
-                "the link came up with {} (channel {channel_id})",
-                conversation.id
-            );
-        }
-    }
+    let DaemonEvent::Up { conversation, .. } = first_up(&events, &lines) else {
+        unreachable!()
+    };
+    assert_eq!(
+        conversation.id,
+        dm,
+        "the link came up with {} (channel {channel_id}); link log:\n{}",
+        conversation.id,
+        lines.lock().unwrap().join("\n")
+    );
     assert_eq!(of_chief(&mut me).len(), 2, "no new conversation");
 }

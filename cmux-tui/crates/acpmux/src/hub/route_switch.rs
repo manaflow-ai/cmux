@@ -20,13 +20,31 @@ impl Hub {
         profile: &HarnessProfile,
         env: &mut std::collections::BTreeMap<String, String>,
     ) -> Result<Option<String>, RpcError> {
-        let (dir, state) = routes::places(&*self.config.read().await);
-        let family = crate::config::derive_family(&meta.harness, profile);
-        let bindings = routes::bindings(&state);
         let workspace = meta.session_env.get("CMUX_WORKSPACE_ID").map(String::as_str);
+        self.apply_route_for(&meta.harness, Some(&meta.id), workspace, profile, env).await
+    }
+
+    /// [`Self::apply_route`] for a spawn of harness `harness` that may not
+    /// be a chat: without a session (a one-shot `_acpmux/complete`) only the
+    /// profile's, family's or global route applies.
+    pub(super) async fn apply_route_for(
+        &self,
+        harness: &str,
+        session: Option<&str>,
+        workspace: Option<&str>,
+        profile: &HarnessProfile,
+        env: &mut std::collections::BTreeMap<String, String>,
+    ) -> Result<Option<String>, RpcError> {
+        let (dir, state) = routes::places(&*self.config.read().await);
+        let family = crate::config::derive_family(harness, profile);
+        let mut bindings = routes::bindings(&state);
+        // No chat: no chat binding applies.
+        if session.is_none() {
+            bindings.chats.clear();
+        }
         // A profile's own route (the `cmux` harness) replaces a family or
         // global binding; a chat or workspace binding still wins.
-        let bound = routes::bound_route(&bindings, &meta.id, workspace, &family);
+        let bound = routes::bound_route(&bindings, session.unwrap_or_default(), workspace, &family);
         let profile_route = profile.env.get(routes::PROFILE_ROUTE_KEY).cloned();
         let Some((id, scope)) = (match (bound, profile_route) {
             (Some((id, scope)), _) if matches!(scope, "chat" | "workspace") => Some((id, scope)),
@@ -118,6 +136,86 @@ impl Hub {
         self.detach_child(session).await;
         self.child_for(session).await.map(|_| ())
     }
+
+    /// `_acpmux/sessions/restart_harness {harnesses?, sessions?}` (Update
+    /// Everything, cx-1mbnu; a chat's "Restart chat"): every live session of
+    /// this daemon (none mirrored from a peer; none of the Home Chief's unless
+    /// named in `sessions`), or those of the named harnesses and/or the named
+    /// sessions, restarts its harness process and resumes the same agent
+    /// session, as a route switch does but with no binding written: so it runs
+    /// the version an update just installed. A session between turns restarts
+    /// now; one in a turn when the turn ends (never cancelled). Returns how
+    /// many restarted now, how many restart after their turn, and each one
+    /// whose harness could not start again.
+    pub async fn restart_harnesses(
+        self: &Arc<Self>,
+        harnesses: Option<&std::collections::BTreeSet<String>>,
+        sessions: Option<&std::collections::BTreeSet<String>>,
+    ) -> HarnessRestarts {
+        let live = self.sessions().into_iter().filter(|session| {
+            let meta = session.meta();
+            matches!(
+                meta.status,
+                SessionStatus::Ready | SessionStatus::Running | SessionStatus::Waiting
+            ) && (sessions.is_some() || !is_chief(&meta))
+                && harnesses.is_none_or(|ids| ids.contains(&meta.harness))
+                && sessions.is_none_or(|ids| ids.contains(session.id.as_str()))
+        });
+        // Each restart waits for its new process (spawn, initialize, load):
+        // all at once, so many chats take as long as the slowest one.
+        let outcomes = futures::future::join_all(live.map(|session| async move {
+            // The turn lock is held through a turn and its route-switch
+            // restart (`turns.rs`, `hosts.rs`); holding it, no turn starts
+            // meanwhile.
+            let idle = || {
+                if session.turn().is_none() { session.turn_lock.try_lock().ok() } else { None }
+            };
+            let mut turn = idle();
+            if turn.is_none() {
+                session.route_switch.store(true, Ordering::SeqCst);
+                // The turn may have ended before the flag was seen: then now.
+                turn = idle().filter(|_| session.route_switch.load(Ordering::SeqCst));
+            }
+            let Some(_turn) = turn else { return Ok(false) };
+            match self.restart_on_route(&session).await {
+                Ok(()) => Ok(true),
+                Err(e) => {
+                    tracing::warn!(session = %session.id, error = %e.message, "harness restart");
+                    Err((session.id.clone(), e.message))
+                }
+            }
+        }))
+        .await;
+        let mut out = HarnessRestarts::default();
+        for outcome in outcomes {
+            match outcome {
+                Ok(true) => out.now += 1,
+                Ok(false) => out.after_turn += 1,
+                Err(failed) => out.failed.push(failed),
+            }
+        }
+        out
+    }
+}
+
+/// What `restart_harnesses` did: how many sessions restarted now, how many
+/// restart when their turn ends, and `(session, error)` for each whose
+/// harness could not start again.
+#[derive(Debug, Default)]
+pub struct HarnessRestarts {
+    pub now: usize,
+    pub after_turn: usize,
+    pub failed: Vec<(String, String)>,
+}
+
+/// A Home Chief session (its turn, compactor or subagent): tagged
+/// `cmux.chief`, or named `optchat-…`, or of an `optchat-compact-…` preset
+/// harness (the app's `AcpmuxSessionCensus.isChief`). Update Everything
+/// never counts or restarts one; only a caller naming it in `sessions` does.
+fn is_chief(meta: &SessionMeta) -> bool {
+    live_tags(meta).get("cmux.chief").is_some()
+        || meta.name.starts_with("optchat-")
+        || meta.harness.starts_with("optchat-compact-")
 }
 
 impl Hub {
@@ -133,7 +231,7 @@ impl Hub {
         message: &str,
     ) -> Option<Value> {
         let lower = message.to_lowercase();
-        let route_class = super::turns::is_limit_error(message)
+        let route_class = super::turn_errors::is_limit_error(message)
             || [
                 "500",
                 "502",

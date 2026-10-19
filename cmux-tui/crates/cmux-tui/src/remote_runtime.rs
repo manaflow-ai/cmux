@@ -16,7 +16,7 @@ use std::time::Duration;
 use anyhow::{Context, anyhow};
 use async_trait::async_trait;
 use base64::Engine;
-use cmux_remote::admin::serve_admin_with_shutdown;
+use cmux_remote::admin::{MuxBinding, serve_admin_with_mux_binding};
 use cmux_remote::bridge::serve_mux_bridge;
 use cmux_remote::connection::{
     ClientConnection, ClientConnectionConfig, ConnectionError, ReconnectGroupSource,
@@ -1154,7 +1154,7 @@ async fn bootstrap_initial_ssh_route(
     shutdown: Option<watch::Receiver<bool>>,
 ) -> anyhow::Result<()> {
     let (destination, port) = ssh_bootstrap_destination(endpoint)?;
-    let mut config = SshBootstrapConfig::defaults(destination);
+    let mut config = SshBootstrapConfig::defaults(destination, cmux_build_identity::BUILD_IDENTITY);
     config.ssh_binary = ssh.ssh_binary.clone();
     config.port = port;
     config.remote_binary = ssh.remote_binary.clone();
@@ -2153,6 +2153,10 @@ async fn run_daemon(
             DaemonSessionPolicy { resume_lease: options.resume_lease },
         )?;
         let workspace = WorkspaceService::new();
+        // The admin proof and service forwarding must use the same resolved
+        // destination, including when the configured path is a symlink.
+        let mux_binding = MuxBinding::new(&mux_socket, &link_socket)?;
+        let mux_socket = mux_binding.mux_socket.clone();
 
         let lifecycle_id = uuid::Uuid::new_v4().to_string();
         let preliminary_runtime = persist_runtime_info(
@@ -2328,12 +2332,13 @@ async fn run_daemon(
             // host's filesystem path as the default route for mobile clients.
             push_unique_route(&mut routes, unix_route);
 
-            let admin = serve_admin_with_shutdown(
+            let admin = serve_admin_with_mux_binding(
                 daemon,
                 &admin_socket,
                 routes.clone(),
                 Some(lifecycle_id.clone()),
                 Some(owner_shutdown),
+                Some(mux_binding.clone()),
             )
             .await?;
             let info = DaemonRuntimeInfo {
@@ -5834,7 +5839,7 @@ mod tests {
             distribution_version: Some(cmux_remote::ssh_bootstrap::DISTRIBUTION_VERSION.into()),
             npm_bootstrap_version: cmux_remote::ssh_bootstrap::NPM_BOOTSTRAP_VERSION
                 .map(str::to_owned),
-            build_identity: Some(cmux_remote::ssh_bootstrap::BUILD_IDENTITY.into()),
+            build_identity: Some(cmux_build_identity::BUILD_IDENTITY.into()),
             remote_protocol: cmux_remote_protocol::REMOTE_PROTOCOL_VERSION,
             os: "test".into(),
             arch: "test".into(),

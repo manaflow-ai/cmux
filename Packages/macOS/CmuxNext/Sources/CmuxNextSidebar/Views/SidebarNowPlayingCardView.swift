@@ -1,23 +1,26 @@
 import AppKit
 import CmuxNextDesign
 import CmuxNextIcons
+import CmuxNextWakeups
 
-/// The Now Playing card in the bottom-left slot (cx-ouoxo, a preview
-/// feature): the artwork, title and artist, a scrubber that seeks, and
-/// Previous, Play or Pause, and Next. It sits on the composer's surface
-/// like every sidebar card, in the sidebar's theme. No visualizer; the
-/// scrubber moves on its own only when motion is allowed (`Motion`), as a
-/// render-server animation, so a playing card costs the app no wakeups.
+/// The Now Playing card in the bottom-left slot (cx-ouoxo): the artwork,
+/// title and artist with small level bars that sway while it plays, a
+/// scrubber that seeks, and Previous, Play or Pause (the one filled control),
+/// and Next. It sits on the composer's surface like every sidebar card, in
+/// the sidebar's theme. The bars and the scrubber move only when motion is
+/// allowed (`Motion`), as render-server animations, so a playing card costs
+/// the app no wakeups.
 final class SidebarNowPlayingCardView: NSView {
     var onCommand: ((SidebarNowPlayingCommand) -> Void)?
     private(set) var nowPlaying: SidebarNowPlaying?
     let surface = CardSurfaceView()
     let artworkView = NSImageView()
-    let titleLabel = NSTextField(labelWithString: "")
-    let artistLabel = NSTextField(labelWithString: "")
+    let titleLabel = ChromeLabel(labelWithString: "")
+    let artistLabel = ChromeLabel(labelWithString: "")
     let scrubber = SidebarNowPlayingScrubber()
     let previousButton = SidebarIconButton(icon: .mediaPrevious, label: "")
-    let playPauseButton = SidebarIconButton(icon: .mediaPlay, label: "")
+    let playPauseButton = SidebarNowPlayingPlayButton()
+    let levels = SidebarNowPlayingLevels()
     let nextButton = SidebarIconButton(icon: .mediaNext, label: "")
     /// The artwork data `artworkView` shows, so a report with the same art does not decode it again.
     private var shownArtwork: Data?
@@ -35,7 +38,7 @@ final class SidebarNowPlayingCardView: NSView {
             label.maximumNumberOfLines = 1
             label.setAccessibilityElement(false)
         }
-        for view in [artworkView, titleLabel, artistLabel, scrubber, previousButton, playPauseButton, nextButton] as [NSView] {
+        for view in [artworkView, titleLabel, artistLabel, levels, scrubber, previousButton, playPauseButton, nextButton] as [NSView] {
             addSubview(view)
         }
         previousButton.onPress = { [weak self] in self?.onCommand?(.previous) }
@@ -50,7 +53,7 @@ final class SidebarNowPlayingCardView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
 
     func configure(_ nowPlaying: SidebarNowPlaying?) {
         guard nowPlaying != self.nowPlaying else { return }
@@ -70,6 +73,7 @@ final class SidebarNowPlayingCardView: NSView {
         nextButton.label = labels.next
         previousButton.isEnabled = nowPlaying.canPrevious
         nextButton.isEnabled = nowPlaying.canNext
+        levels.show(playing: nowPlaying.isPlaying)
         if nowPlaying.artwork != shownArtwork {
             shownArtwork = nowPlaying.artwork
             artworkView.image = nowPlaying.artwork.flatMap(NSImage.init(data:))
@@ -81,13 +85,14 @@ final class SidebarNowPlayingCardView: NSView {
     }
 
     private static var padding: CGFloat { Metrics.space3 }
-    private static let artworkSide: CGFloat = 36
+    private static let artworkSide: CGFloat = 44
     private static let controlSide: CGFloat = 24
+    private static let playSide: CGFloat = 32
 
     /// The card's height for `nowPlaying` at the sidebar's width.
     static func height(for nowPlaying: SidebarNowPlaying) -> CGFloat {
         let scrub = nowPlaying.canSeek ? SidebarNowPlayingScrubber.height + Metrics.space1 : 0
-        return padding + artworkSide + Metrics.space2 + scrub + controlSide + padding
+        return padding + artworkSide + Metrics.space2 + scrub + playSide + padding
     }
 
     override func layout() {
@@ -98,12 +103,16 @@ final class SidebarNowPlayingCardView: NSView {
         titleLabel.font = Typography.bodyEmphasized
         artistLabel.font = Typography.caption
         artworkView.frame = NSRect(x: pad, y: pad, width: side, height: side)
-        let textX = pad + side + Metrics.space2, textWidth = max(0, b.width - pad - textX)
+        artworkView.layer?.cornerRadius = Metrics.space2
+        let textX = pad + side + Metrics.space2, levelsSize = SidebarNowPlayingLevels.size
+        let textWidth = max(0, b.width - pad - textX - levelsSize.width - Metrics.space2)
         let title = ceil(Typography.bodyEmphasized.boundingRectForFont.height), artist = ceil(Typography.caption.boundingRectForFont.height)
         let textHeight = title + (artistLabel.isHidden ? 0 : artist)
         let textY = pad + max(0, (side - textHeight) / 2)
         titleLabel.frame = NSRect(x: textX, y: textY, width: textWidth, height: title)
         artistLabel.frame = NSRect(x: textX, y: textY + title, width: textWidth, height: artist)
+        levels.frame = NSRect(x: b.width - pad - levelsSize.width, y: textY + (title - levelsSize.height) / 2,
+                              width: levelsSize.width, height: levelsSize.height).integral
         var y = pad + side + Metrics.space2
         if nowPlaying?.canSeek == true {
             scrubber.frame = NSRect(x: pad, y: y, width: max(0, b.width - 2 * pad), height: SidebarNowPlayingScrubber.height)
@@ -111,11 +120,11 @@ final class SidebarNowPlayingCardView: NSView {
         } else {
             scrubber.frame = .zero
         }
-        let control = Self.controlSide, gap = Metrics.space3
-        let x = (b.width - 3 * control - 2 * gap) / 2
-        for (index, button) in [previousButton, playPauseButton, nextButton].enumerated() {
-            button.frame = NSRect(x: x + CGFloat(index) * (control + gap), y: y, width: control, height: control).integral
-        }
+        let control = Self.controlSide, play = Self.playSide, gap = Metrics.space4
+        let x = (b.width - 2 * control - play - 2 * gap) / 2
+        previousButton.frame = NSRect(x: x, y: y + (play - control) / 2, width: control, height: control).integral
+        playPauseButton.frame = NSRect(x: x + control + gap, y: y, width: play, height: play).integral
+        nextButton.frame = NSRect(x: x + control + gap + play + gap, y: y + (play - control) / 2, width: control, height: control).integral
     }
 
     private func applyColors() {
@@ -125,6 +134,8 @@ final class SidebarNowPlayingCardView: NSView {
             artworkView.layer?.backgroundColor = Palette.hoverFill.cgColor
             scrubber.applyColors()
         }
+        levels.applyColors()
+        playPauseButton.needsDisplay = true
     }
 
     override func viewDidChangeEffectiveAppearance() {
@@ -153,8 +164,13 @@ final class SidebarNowPlayingScrubber: NSView {
     private(set) var nowPlaying: SidebarNowPlaying?
     private let track = CALayer()
     let fill = CALayer()
-    /// The position a drag shows until the source reports again.
+    /// The position a drag shows until the source reports again, or until ``seekWait`` passes
+    /// with no report (a source that ignored the seek): then it runs on from where it plays.
     private var dragged: TimeInterval?
+    private let seekWait = DemandTimer(owner: "sidebar.now-playing.seek")
+    /// Bumped by each press and release, so a wait that fires as a new drag starts leaves that drag.
+    private var seekCount = 0
+    static let seekWaitDelay: Duration = .seconds(2)
     /// Pins Reduce Motion for this scrubber only (tests), instead of the
     /// process-wide `Motion.reduceMotionOverride`, which leaks into every
     /// test that runs alongside.
@@ -180,11 +196,12 @@ final class SidebarNowPlayingScrubber: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
 
     func show(_ nowPlaying: SidebarNowPlaying?) {
         self.nowPlaying = nowPlaying
         dragged = nil
+        seekWait.cancel()
         isHidden = nowPlaying?.canSeek != true
         update()
     }
@@ -256,6 +273,8 @@ final class SidebarNowPlayingScrubber: NSView {
 
     override func mouseDown(with event: NSEvent) {
         guard let seconds = seconds(at: event) else { return }
+        seekWait.cancel()
+        seekCount &+= 1
         dragged = seconds
         update()
     }
@@ -272,6 +291,15 @@ final class SidebarNowPlayingScrubber: NSView {
         let expected = nowPlaying?.position(at: Date())
         dragged = expected.map { abs($0 - seconds) < 1.5 } == true ? nil : seconds
         update()
+        seekCount &+= 1
+        if dragged != nil {
+            let seek = seekCount
+            seekWait.schedule(after: Self.seekWaitDelay) { @MainActor [weak self] in
+                guard let self, self.seekCount == seek else { return }
+                self.dragged = nil
+                self.update()
+            }
+        }
         onSeek?(seconds)
     }
 

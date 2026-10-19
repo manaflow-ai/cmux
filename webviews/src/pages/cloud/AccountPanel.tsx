@@ -44,7 +44,6 @@ export function AccountPanel({ store, state, strings }: { store: CloudStore; sta
           type="button"
           className="cloud-link-button cloud-signout-button"
           aria-disabled={signOutUnavailable}
-          title={signOutUnavailable ? t(L.unavailable) : undefined}
           onClick={() => !signOutUnavailable && void store.signOut()}
         >
           {t(L.signOut)}

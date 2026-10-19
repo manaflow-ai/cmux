@@ -1,7 +1,7 @@
 {
   "$comment": "The window styles of appearance.chromeStyle: one easy string whose value supplies DEFAULTS for finer knobs. This file is the one source; Swift reads it through generated code (scripts/cmux-next/gen-chrome-styles.py; --check fails when the Swift is stale), and TS, the daemon and other ports read it directly. A key set in cmux.json wins over its style; a Debug Settings tunable wins over both. An absent knob keeps that knob's own default.",
   "setting": "appearance.chromeStyle",
-  "default": "default",
+  "default": "flat-sidebar-line",
   "knobs": {
     "chrome.mainPane.curved": {
       "type": "bool",
@@ -40,6 +40,10 @@
     "chrome.mainPane.borderlessStep": {
       "type": "number",
       "meaning": "Share of the separate shade the shared surface keeps when no line parts the sidebar from the main pane (unset: 0.35)."
+    },
+    "chrome.floatingPanes": {
+      "type": "bool",
+      "meaning": "Every pane is its own rounded card, tab strip included, on the shaded chrome: the chrome shade fills the sidebar, the titlebar and every gap, each pane's card is left unshaded (slightly lighter), and the main pane gutter equals the pane padding with no divider gap, so one even gap runs between panes, beside the sidebar and at the window edges."
     }
   },
   "styles": [
@@ -124,10 +128,10 @@
         "line",
         "border"
       ],
-      "summary": "Flat plus a hairline on the sidebar's edge.",
+      "summary": "Flat, no line between panes (the resize cursor shows a divider), plus a hairline on the sidebar's edge.",
       "implies": {
         "chrome.mainPane.curved": false,
-        "layout.paneSeparation": "dividers",
+        "layout.paneSeparation": "none",
         "sidebar.border": true,
         "appearance.sidebarSurface": "same",
         "chrome.mainPane.borderlessStep": 0
@@ -195,6 +199,32 @@
         "appearance.sidebarSurface": "separate",
         "chrome.mainPane.shadeDark": 0.12,
         "chrome.mainPane.shadeLight": 0.02
+      }
+    },
+    {
+      "id": "floating",
+      "actionName": "floating",
+      "title": "Floating Panes",
+      "symbol": "square.grid.2x2.fill",
+      "keywords": [
+        "floating",
+        "panes",
+        "cards",
+        "gaps",
+        "rounded",
+        "darker",
+        "background",
+        "no borders"
+      ],
+      "summary": "Darker window and sidebar; every pane a lighter rounded card, no borders, one even gap on all sides.",
+      "implies": {
+        "chrome.mainPane.curved": true,
+        "layout.paneSeparation": "cards",
+        "sidebar.border": false,
+        "appearance.sidebarSurface": "separate",
+        "chrome.mainPane.shadeDark": 0.14,
+        "chrome.mainPane.shadeLight": 0.03,
+        "chrome.floatingPanes": true
       }
     }
   ]

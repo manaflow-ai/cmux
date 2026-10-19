@@ -472,6 +472,7 @@ agent list
 agent message <agent> [--from <name>] [--thread <id>] [--] <text...|->
 agent message --reply-to <message-id> [--from <name>] [--] <text...|->
 agent message release <message-id> --recipient <agent> --approve|--decline
+agent message unsend <message-id> [--recipient <agent>]
 agent inbox [<agent>] [--state <state>] [--limit <n>] [--ack]
 agent report --terminal <selector> --state <state> --source <source>
 agent hook emit --source <provider> --event <native-event> [--terminal <id>]
@@ -521,9 +522,9 @@ terminal <selector> viewport scroll
 browser open <url> | --url <url> [OPTIONS]
 browser list
 browser profile list
-browser profile create --name <name> [--profile <id>] [--color <value>] [--icon <value>] [--index <n>]
+browser profile create --name <name> [--color <value>] [--icon <value>] [--index <n>]
 browser profile move --profile <id-or-name> --index <n>
-browser profile open <url> --engine webkit|cef --profile <id-or-name> [--pane <numeric-pane-id>] [--title <value>] [--background true|false]
+browser profile open <url> | --url <url> --profile <id-or-name> [--engine webkit|cef] [--pane <selector>] [--title <value>] [--background true|false]
 browser <selector> show|navigate|back|forward|reload|activate
 browser <selector> key|text|attach|close
 browser <selector> mouse|wheel --pointer-frame-seq <decimal>
@@ -715,7 +716,11 @@ person's Chiefs with the Chief registry (`chief.profile.list`, `chief.profile.cr
 Chief's display name; `<profile>` is `--name`, `--role`, `--personality`,
 `--instructions` or `--instructions-file`, `--avatar <png|jpeg|gif|webp file>`,
 `--tools`, `--harnesses`, `--self-edit` (comma lists) and `--harness`,
-`--model`, `--effort`. `--json` prints the record. It refuses a socket under
+`--model`, `--effort`. `chief adopt <agent> [<profile>]` (`chief.profile.adopt`)
+makes an agent already in the person's conversations a Chief under its own
+id; its conversations and history stay. Every write (new, adopt, edit,
+delete) is refused for an agent caller (`origin.forbidden`, reason
+`agent_caller`). `--json` prints the record. It refuses a socket under
 `~/.cmux/brains/` (a Chief brain's own session, where a client acts as the
 Chief) and `--machine`. Exit codes: 0, 1 refused, 2 usage, 3 transport, 124
 timeout.
@@ -847,11 +852,11 @@ workspace, or one whose workspace is unknown, may be held for the person
 A lone `-` reads the body from standard input. `--reply-to` answers a message:
 the reply goes to its sender and stays in its thread.
 
-For an acpmux recipient the command then prompts the session with the message,
-using the message id as the acpmux prompt id, and marks the receipt
-`delivered` (or `failed`, with the error). It first sends that recipient's
-older queued messages, oldest first; the prompt id keeps any of them from
-running twice. A `failed` message is not retried. It never starts the acpmux
+For an acpmux recipient the daemon's delivery pump prompts the session with
+the message, using the message id as the acpmux prompt id, and marks the
+receipt `delivered` (or `failed`, with acpmux's error); the command waits up
+to 15 seconds for it and reports a delivery still `queued` (acpmux is down or
+the session has not started; the pump retries). Neither starts the acpmux
 daemon. For a Codex terminal agent whose thread the shared Codex app-server
 daemon has loaded, it hands the agent's queued messages to Codex as one input
 (`turn/start` when the thread is idle, `turn/steer` when a turn is running)
@@ -864,6 +869,23 @@ stored either way, and problems with older messages are reported on stderr.
 it (one `agent.message.release`). Only the verified cmux app may decide, so
 from a terminal the command is refused with reason `release_needs_app`; the
 app's Approve and Decline controls make the same request.
+
+`agent message unsend` takes `<message-id>` back, from every recipient or
+only `--recipient` (one `agent.message.unsend`), and prints each delivery's
+outcome: `unsent` (it never reached the agent), `retracted` (acpmux told the
+agent in its turn that it was withdrawn), `too_late` (its turn ended, or the
+delivery path cannot take it back) or `failed` (acpmux refused, did not
+answer or may still take it; try again). `failed` exits 1, after the result
+is printed. Only the message's sender, from its own terminal or ACP session
+(its launch credential), or the person in the cmux app may take it back;
+there is no time limit. From a plain terminal the command is refused
+with reason `unsend_needs_app`.
+
+The daemon delivers messages to acpmux recipients (its delivery pump), and
+retries while acpmux is down or the session has not started, so a message that
+waited for acpmux, or for the person's approval, goes out without another
+`agent message`. `agent message` waits for the pump's hand-over to each acpmux
+recipient and reports one that failed or still waits.
 
 `agent inbox` lists messages newest first for `<agent>`, or for the caller's
 own address when it has one, else every message. `--state` is any delivery
@@ -920,10 +942,11 @@ sets the group's icon (one emoji, an SF Symbol name, or a stored
 `image:sha256-<hex>` or `svg:sha256-<hex>` asset) and `--clear-icon`
 removes it (`workspace-group-icon-v1`); `--pinned true|false` pins (saves)
 or unpins it (`workspace-group-pin-v1`). `workspace list --order personal` lists the
-workspaces in the sidebar order. `workspace list` without `--order` (or with
-`--order session`) lists the session's workspace order, the same order as
-`topology.workspaces`: creation order unless a workspace was moved, not the
-sidebar order. The app's `snapshot.get` `windows[].workspaces` lists the order
+workspaces in the sidebar order. With the sidebar document (`sidebar-doc-v1`),
+`workspace list` without `--order` also lists the sidebar order (one order
+with the sidebar). `--order session` (and, without the
+document, no `--order`) lists the session's workspace order, the same order as
+`topology.workspaces`: creation order unless a workspace was moved. The app's `snapshot.get` `windows[].workspaces` lists the order
 each window shows.
 
 ## Raw access

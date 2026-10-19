@@ -70,10 +70,13 @@ final class AgentPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
         // and closed items are set when the view is made, before the page loads (cx-uw104).
         if request == .ready {
             logger.info("agent pane ready accepted")
-            view.applyTheme()
+            view.applyTheme(force: true)
             view.applyShortcuts()
             view.applyPreviewFeatures()
+            AgentPaneSessionStatus.push(to: view)
+            AgentPaneSuggestedTasks.shared.push(to: view)
             view.applyEditedFiles()
+            if view.pageEvents == nil { view.model.sidebarPreviewVariant.replay(to: view) }
             view.replayCustomization()
             AgentPaneToolCard.replay(to: view)
             AgentPaneDeviceChat.push(view.deviceChats, to: view)

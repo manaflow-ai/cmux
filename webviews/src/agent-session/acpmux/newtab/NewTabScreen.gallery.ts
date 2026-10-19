@@ -3,7 +3,7 @@
 // the `ready` answer carries `newTab`, as the app's new tab does.
 import { agentPaneEntry } from "../../../gallery/format";
 import type { PlayContext } from "../../../gallery/play";
-import { CWD, manySessions, noChat, session } from "../../../gallery/fixtures/acpmux";
+import { CATALOG, CWD, manySessions, noChat, session } from "../../../gallery/fixtures/acpmux";
 import { minutesAgo } from "../../../gallery/clock";
 
 /// Favicons as the host sends them (cx-d0d.8): small inline PNGs.
@@ -53,6 +53,41 @@ const withAllChats = <V extends object>(variants: Record<string, V>) =>
     Object.entries(variants).map(([name, variant]) => [name, { native: { "chats.page": allChatsPage }, ...variant }]),
   ) as Record<string, V>;
 
+/// The widget view's fixtures: projects as the host sends them, and chats where three need the user.
+const WIDGET_PROJECTS = ["/Users/you/src/cmux", "/Users/you/src/cmux-web", "/Users/you/src/manaflow"];
+const widgetSessions = () => [
+  session({
+    sessionId: "widget-failed",
+    title: "Composer + picker polish: no Tonka toys",
+    indicator: "failed",
+    preview: "Hit an error while running the gallery checks.",
+    cwd: "/Users/you/src/cmux",
+    updatedAt: minutesAgo(2),
+  }),
+  session({
+    sessionId: "widget-input",
+    title: "Ship the release notes for 0.64",
+    status: "waiting",
+    pendingPermissions: 1,
+    indicator: "input",
+    cwd: "/Users/you/src/cmux-web",
+    updatedAt: minutesAgo(12),
+  }),
+  session({
+    sessionId: "widget-lost",
+    title: "Index the docs site",
+    indicator: "lost",
+    cwd: "/Users/you/src/manaflow",
+    updatedAt: minutesAgo(40),
+  }),
+  ...manySessions(6).map((entry) => ({
+    ...entry,
+    indicator: "done" as const,
+    status: "idle" as const,
+    pendingPermissions: 0,
+  })),
+];
+
 type GalleryNativeCall = { method: string; params?: Record<string, unknown> };
 
 function galleryNativeCalls(document: Document): GalleryNativeCall[] {
@@ -65,7 +100,11 @@ function galleryNativeCalls(document: Document): GalleryNativeCall[] {
   );
 }
 
-async function waitForTabJump(ctx: PlayContext, target: "tab" | "here" | "closed", id: string): Promise<void> {
+async function waitForTabJump(
+  ctx: PlayContext,
+  target: "tab" | "here" | "closed" | "workspace",
+  id: string,
+): Promise<void> {
   await ctx.waitFor(() =>
     galleryNativeCalls(ctx.document).some(
       (call) => call.method === "tab.jump" && call.params?.target === target && call.params?.id === id,
@@ -95,10 +134,12 @@ export default agentPaneEntry({
     "agent-session/acpmux/NewTabPage.tsx#AgentMark",
     "agent-session/acpmux/NewTabPage.tsx#FolderIcon",
     "agent-session/acpmux/newtab/AllChatsList.tsx#AllChatsList",
+    "agent-session/acpmux/newtab/ChatFilterMenu.tsx#ChatFilterMenu",
     "agent-session/acpmux/newtab/OpenTabsList.tsx#OpenTabsList",
     "agent-session/acpmux/newtab/ClosedList.tsx#ClosedList",
     "agent-session/acpmux/newtab/RowGlyph.tsx#RowGlyph",
     "agent-session/acpmux/newtab/StyleSwitch.tsx#StyleSwitch",
+    "agent-session/acpmux/newtab/WidgetCards.tsx#WidgetCards",
     "agent-session/acpmux/DictationMic.tsx#DictationMic",
     "agent-session/acpmux/ComposerContext.tsx#ComposerContext",
     "ui/HideableChrome.tsx#HideableChrome",
@@ -138,6 +179,17 @@ export default agentPaneEntry({
           throw new Error("the model picker's list does not end on Add harness…");
       },
     },
+    // Reasoning is its own chip beside the model chip, with its own menu (P0 #8): acpmux starts
+    // Claude Code on Medium, so the chip names it before any chat exists.
+    "reasoning-chip": {
+      note: "Before any chat: the Reasoning chip names the level acpmux starts Claude Code on (Medium) and opens the reasoning menu on its own, apart from the model chip.",
+      ready: newTab(),
+      snapshot: noChat([], {
+        catalog: CATALOG.map((entry) =>
+          entry.id === "claude" ? { ...entry, start: { model: "claude-opus-5-5", effort: "medium" } } : entry,
+        ),
+      }),
+    },
     "chats-unavailable": {
       note: "The chat index did not answer: All chats says it could not load and offers Try again.",
       ready: newTab(),
@@ -155,6 +207,49 @@ export default agentPaneEntry({
           (row) => row.getBoundingClientRect().height > 32,
         );
         if (tall.length) throw new Error(`${tall.length} recent chat rows are taller than one line`);
+      },
+    },
+    "current-composer": {
+      note: "Current composer visual reference: the latest New Tab surface with folder/computer, model, effort, dictation, Send, create actions, and quiet chat rows. This variant is visual-only; workspace switching is covered by the separate behavior journey.",
+      ready: newTab(),
+      snapshot: noChat(manySessions(14)),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-field") !== null);
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".nt-cards[data-variant=list] .nt-card").length === 5);
+        if ([...ctx.document.querySelectorAll(".nt-row")].some((row) => row.textContent?.includes("Release")))
+          throw new Error("the visual-only composer fixture unexpectedly contains the Release journey");
+      },
+    },
+    // The widget view (Debug Settings `newTab.widgets`, Leo 2026-10-18): soft cards under the create
+    // actions, from the page's own data. Projects: this Mac, then its recent projects, the one a chat
+    // starts in checked. Needs you: the chats asking for input or that hit an error, each with ×.
+    widgets: {
+      note: "Widget view on (Debug Settings newTab.widgets): a Projects card with this Mac and its recent projects, the picked one checked; a Needs you card with the chats waiting on you or that hit an error, each dismissable. Then the calm chat rows.",
+      ready: newTab({ widgets: true, projects: WIDGET_PROJECTS }),
+      snapshot: noChat(widgetSessions()),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".nt-widget-chat").length === 3);
+        await ctx.click({ text: "cmux" });
+        await ctx.waitFor(() => ctx.document.querySelector('.nt-widget-row[aria-pressed="true"]') !== null);
+      },
+    },
+    "widgets-off": {
+      note: "The same chats and projects with the widget view off (the default): no cards, only the calm chat rows.",
+      ready: newTab({ projects: WIDGET_PROJECTS }),
+      snapshot: noChat(widgetSessions()),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".nt-cards[data-variant=list] .nt-card").length > 0);
+        if (ctx.document.querySelector(".nt-widgets")) throw new Error("widget cards show with the widget view off");
+      },
+    },
+    "widgets-hover": {
+      note: "Widget view, a pointer over a Needs you chat: a hover card with its whole title and why it needs you (its last line).",
+      ready: newTab({ widgets: true, projects: WIDGET_PROJECTS }),
+      snapshot: noChat(widgetSessions()),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".nt-widget-chat").length === 3);
+        await ctx.hover({ selector: ".nt-widget-chat[data-state=failed] .nt-widget-chat-open" });
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-widget-tip") !== null);
       },
     },
     "no-harness-installed": {
@@ -213,6 +308,17 @@ export default agentPaneEntry({
         await ctx.waitFor(() => page.cmuxAcpmuxBridge?.command !== undefined);
         page.cmuxAcpmuxBridge?.command?.("showHarnesses");
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-harnesses") !== null);
+      },
+    },
+    "chats-filter-open": {
+      note: "Threads template with the All chats Filter open (cx-htpk0): All, Working, Needs input, Done, in the pane's own menu style, over the list.",
+      ready: newTab({ template: "threads" }),
+      snapshot: noChat(manySessions(14)),
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: "Filter" });
+        await ctx.waitFor(
+          () => ctx.document.querySelectorAll('.nt-chats-filter-list [role="menuitemradio"]').length === 4,
+        );
       },
     },
     "many-chats": {
@@ -390,6 +496,29 @@ export default agentPaneEntry({
         for (let step = 0; step < 3; step++) await ctx.press("ArrowDown");
         await ctx.press("Enter");
         await waitForTabJump(ctx, "tab", "tab-1");
+      },
+    },
+    "workspace-switch-animation-audit": {
+      note: "Workspace switch review: type Release, choose the workspace suggestion, and wait for the native jump receipt. The play runner records settle time, layout shift, and long frames for this transition.",
+      ready: newTab({
+        omnibar: {
+          tabs: [{ id: "tab-release", kind: "browser", title: "Release notes", detail: "cmux.dev" }],
+          workspaces: [{ id: "workspace-release", name: "Release", detail: "~/src/release" }],
+          folders: [CWD],
+          commands: [],
+          history: [],
+        },
+      }),
+      snapshot: noChat(manySessions(3)),
+      play: async (ctx) => {
+        await ctx.type("Release", { selector: ".nt-field" });
+        await ctx.waitFor(() =>
+          [...ctx.document.querySelectorAll<HTMLElement>('[role="option"]')].some(
+            (row) => row.dataset.type === "workspace" && row.textContent?.includes("Release"),
+          ),
+        );
+        await ctx.click({ role: "option", name: /^Release\s+~\/src\/release/ });
+        await waitForTabJump(ctx, "workspace", "workspace-release");
       },
     },
     "typed-reddit": {

@@ -2,10 +2,12 @@ import CmuxNextDesign
 import CoreGraphics
 
 /// Where a pane added by a split starts (cx-f6i7): a zero-width (or
-/// zero-height) sliver at the far edge of the space it takes from the pane
-/// it split, so the pane grows in from that edge while the split pane
-/// shrinks on the same spring and the divider between them slides from the
-/// edge to its place. Nothing overlaps and no gap opens.
+/// zero-height) sliver on the line where the edge of the pane it split was,
+/// so the pane grows in from there while the split pane shrinks on the same
+/// spring and the divider between them slides from that line to its place.
+/// With even split sizing (`layout.splitSizing`) the split also evens out the
+/// chain: every pane in it moves on the same spring, and the new pane's edges
+/// ride its neighbours' (nothing overlaps and no gap opens).
 struct PaneArrival: Equatable {
     /// The new pane's first frame.
     var seed: CGRect
@@ -15,30 +17,48 @@ struct PaneArrival: Equatable {
     /// The arrival of a pane whose frame will be `target`, given every pane's
     /// frame before (`previous`) and after (`next`) the change; nil when no
     /// existing pane gave up the space (a strip column appended, a pane moved
-    /// in from elsewhere), which then lands in place.
+    /// in from elsewhere), which then lands in place. The pane that gave it up
+    /// shrank inside its old frame and ends beside the new pane, on the side it
+    /// gave up (a column inserted mid-strip pushes its neighbor along instead).
     static func of(target: CGRect, previous: [PaneID: CGRect], next: [PaneID: CGRect]) -> PaneArrival? {
-        let slack: CGFloat = 1
-        for (pane, before) in previous {
-            // The pane that gave up the space shrank inside its old frame (a
-            // column inserted mid-strip pushes its neighbor along instead).
-            guard let after = next[pane], before.insetBy(dx: -slack, dy: -slack).contains(target),
-                  before.insetBy(dx: -slack, dy: -slack).contains(after), after.width * after.height < before.width * before.height - 1 else { continue }
-            if target.minX >= after.maxX - slack {
-                // Split right: the new pane comes in from the old right edge.
-                return PaneArrival(seed: CGRect(x: target.maxX, y: target.minY, width: 0, height: target.height),
-                                   edgeOffset: CGVector(dx: target.width, dy: 0))
-            }
-            if target.maxX <= after.minX + slack {
-                return PaneArrival(seed: CGRect(x: target.minX, y: target.minY, width: 0, height: target.height),
-                                   edgeOffset: CGVector(dx: -target.width, dy: 0))
-            }
-            if target.minY >= after.maxY - slack {
-                return PaneArrival(seed: CGRect(x: target.minX, y: target.maxY, width: target.width, height: 0),
-                                   edgeOffset: CGVector(dx: 0, dy: target.height))
-            }
-            if target.maxY <= after.minY + slack {
-                return PaneArrival(seed: CGRect(x: target.minX, y: target.minY, width: target.width, height: 0),
-                                   edgeOffset: CGVector(dx: 0, dy: -target.height))
+        let slack: CGFloat = 1, gap: CGFloat = 32
+        func across(_ a: CGFloat, _ b: CGFloat, _ c: CGFloat, _ d: CGFloat) -> Bool { min(b, d) - max(a, c) > slack }
+        // Beside: at most a pane gap apart (a pane further along the chain shrinks too).
+        func beside(_ near: CGFloat, _ far: CGFloat) -> Bool { far >= near - slack && far - near <= gap }
+        let shrank = previous.compactMap { pane, before -> (before: CGRect, after: CGRect)? in
+            guard let after = next[pane], before.insetBy(dx: -slack, dy: -slack).contains(after),
+                  after.width * after.height < before.width * before.height - 1 else { return nil }
+            return (before, after)
+        }
+        // The side the split pane kept, in the order a split adds a pane (Cmd-D right, Cmd-Shift-D
+        // down, then left and up): with even sizing the pane past the new one shrinks too, and the
+        // new divider must ride the split pane's edge, not that one's.
+        for side in 0..<4 {
+            for (before, after) in shrank {
+                let rows = across(after.minY, after.maxY, target.minY, target.maxY)
+                let columns = across(after.minX, after.maxX, target.minX, target.maxX)
+                switch side {
+                case 0 where rows && beside(after.maxX, target.minX) && before.maxX > after.maxX + slack:
+                    // From the old right edge, the gap to the split pane kept, so both edges and the
+                    // divider between them keep one distance in every frame.
+                    let x = before.maxX + (target.minX - after.maxX)
+                    return PaneArrival(seed: CGRect(x: x, y: target.minY, width: 0, height: target.height),
+                                       edgeOffset: CGVector(dx: before.maxX - after.maxX, dy: 0))
+                case 1 where columns && beside(after.maxY, target.minY) && before.maxY > after.maxY + slack:
+                    let y = before.maxY + (target.minY - after.maxY)
+                    return PaneArrival(seed: CGRect(x: target.minX, y: y, width: target.width, height: 0),
+                                       edgeOffset: CGVector(dx: 0, dy: before.maxY - after.maxY))
+                case 2 where rows && beside(target.maxX, after.minX) && before.minX < after.minX - slack:
+                    let x = before.minX - (after.minX - target.maxX)
+                    return PaneArrival(seed: CGRect(x: x, y: target.minY, width: 0, height: target.height),
+                                       edgeOffset: CGVector(dx: before.minX - after.minX, dy: 0))
+                case 3 where columns && beside(target.maxY, after.minY) && before.minY < after.minY - slack:
+                    let y = before.minY - (after.minY - target.maxY)
+                    return PaneArrival(seed: CGRect(x: target.minX, y: y, width: target.width, height: 0),
+                                       edgeOffset: CGVector(dx: 0, dy: before.minY - after.minY))
+                default:
+                    continue
+                }
             }
         }
         return nil
@@ -103,14 +123,6 @@ struct PaneArrival: Equatable {
         return Dictionary(uniqueKeysWithValues: rects.map { pane, rect in
             (pane, geometry.scrolls(pane: pane) ? rect.offsetBy(dx: shift, dy: 0) : rect)
         })
-    }
-
-    /// Where an arriving pane's host sits while its frame springs from the
-    /// seed: at its target size (one terminal resize, not one per frame),
-    /// moved with the edge that moves, so its content slides in from there.
-    static func presentation(shown: CGRect, target: CGRect) -> CGRect {
-        target.offsetBy(dx: (shown.minX - target.minX) + (shown.maxX - target.maxX),
-                        dy: (shown.minY - target.minY) + (shown.maxY - target.maxY))
     }
 
     /// The range strip panes show in beside docked columns (nil without

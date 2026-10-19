@@ -79,13 +79,8 @@ export const MessageRow = memo(function MessageRow({
   const textOnly = message.parts.length > 0 && message.parts.every((part) => part.type === "text");
   const own = !message.retracted && message.author === me && pending === undefined;
   const canEdit = own && textOnly && onEdit !== undefined && onEditStart !== undefined;
-  return (
-    <article
-      className={`hc-msg lg-msg${head ? " head" : ""}${mentionsMe(message, me) ? " mention" : ""}${editing ? " editing" : ""}${highlighted ? " highlighted" : ""}${focused ? " focused" : ""}${pending ? ` pending ${pending}` : ""}`}
-      aria-label={`${author?.name ?? message.author}, ${time}`}
-      aria-current={focused ? "true" : undefined}
-      data-depth={depth > 0 ? Math.min(depth, MAX_THREAD_INDENT) : undefined}
-    >
+  const body = (
+    <>
       <div className="hc-msg-gutter">
         {head ? <Avatar participant={author} size={20} /> : <time className="hc-msg-hover-time">{time}</time>}
       </div>
@@ -162,20 +157,31 @@ export const MessageRow = memo(function MessageRow({
           </div>
         )}
       </div>
-      {!message.retracted && !editing && pending === undefined && (
-        <MessageActions
-          strings={strings}
-          canEdit={canEdit}
-          canDelete={own && onRetract !== undefined}
-          onReact={(value) => onReact(message, value)}
-          onReply={onReply ? () => onReply(message) : onOpenThread ? () => onOpenThread(message.id) : undefined}
-          replyLabel={onReply ? t("action.replyTo") : undefined}
-          onCopyLink={onCopyLink ? () => onCopyLink(message) : undefined}
-          onEdit={() => onEditStart?.(message)}
-          onDelete={() => setConfirmDelete(true)}
-          onCopy={() => void navigator.clipboard?.writeText(messageText(message))}
-        />
-      )}
+    </>
+  );
+  return (
+    <article
+      className={`hc-msg lg-msg${head ? " head" : ""}${mentionsMe(message, me) ? " mention" : ""}${editing ? " editing" : ""}${highlighted ? " highlighted" : ""}${focused ? " focused" : ""}${pending ? ` pending ${pending}` : ""}`}
+      aria-label={`${author?.name ?? message.author}, ${time}`}
+      aria-current={focused ? "true" : undefined}
+      data-depth={depth > 0 ? Math.min(depth, MAX_THREAD_INDENT) : undefined}
+    >
+      {/* One wrapper whether or not the actions show, so editing never remounts the body. */}
+      <MessageActions
+        active={!message.retracted && !editing && pending === undefined}
+        strings={strings}
+        canEdit={canEdit}
+        canDelete={own && onRetract !== undefined}
+        onReact={(value) => onReact(message, value)}
+        onReply={onReply ? () => onReply(message) : onOpenThread ? () => onOpenThread(message.id) : undefined}
+        replyLabel={onReply ? t("action.replyTo") : undefined}
+        onCopyLink={onCopyLink ? () => onCopyLink(message) : undefined}
+        onEdit={() => onEditStart?.(message)}
+        onDelete={() => setConfirmDelete(true)}
+        onCopy={() => void navigator.clipboard?.writeText(messageText(message))}
+      >
+        {body}
+      </MessageActions>
     </article>
   );
 });
@@ -273,6 +279,7 @@ function Reactions({
           type="button"
           className={`hc-reaction${entry.mine ? " mine" : ""}`}
           aria-pressed={entry.mine}
+          // tooltip-allow: who reacted, shown nowhere else
           title={entry.authors.join(", ")}
           onClick={() => onReact(message, value)}
         >

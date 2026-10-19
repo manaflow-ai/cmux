@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 3ed4675e0da8dc1564f14fbf58781a06559fea2fb3f14245c0ef3ec57626da36.
+// cmux-tui mux protocol 12, IR b431fb4d14b075f94710d8eb91c3b4a87fd99cb44eb8db04b89b0b9656c9ce85.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -32,6 +32,22 @@ pub struct AgentChangedEvent {
     pub state: T::AgentState,
     pub surface: T::Id,
     pub updated_at_ms: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentInventoryChangedEvent {
+    pub machine: String,
+    pub revision: u64,
+    pub watch_id: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentInventoryWatchEndedEvent {
+    pub machine: String,
+    pub reason: String,
+    pub watch_id: String,
 }
 
 #[rustfmt::skip]
@@ -163,6 +179,15 @@ pub struct CloudConversationChangedEvent {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloudConversationLiveEvent {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub account: Option<String>,
+    pub conversation: String,
+    pub frame: Nullable<T::JsonValue>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CloudConversationResyncedEvent {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub account: Option<String>,
@@ -181,6 +206,16 @@ pub struct CloudConversationRunChangedEvent {
     pub conversation: String,
     pub run: Nullable<T::JsonValue>,
     pub steps: Vec<T::JsonValue>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloudConversationTypingEvent {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub account: Option<String>,
+    pub conversation: String,
+    pub on: bool,
+    pub participant: String,
 }
 
 #[rustfmt::skip]
@@ -292,6 +327,13 @@ pub struct ConversationInboxChangedEvent {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub pin_position: Option<u64>,
     pub pinned: bool,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationLiveEvent {
+    pub conversation: String,
+    pub frame: Nullable<T::JsonValue>,
 }
 
 #[rustfmt::skip]
@@ -422,7 +464,17 @@ pub struct KeybindingsChangedEvent {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LayoutChangedEvent {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub active_pane: Option<T::Id>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub layout: Option<T::Layout>,
     pub screen: T::Id,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub transaction: Option<String>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub workspace: Option<T::Id>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub zoomed_pane: Optional<T::Id>,
 }
 
 #[rustfmt::skip]
@@ -911,6 +963,8 @@ pub struct UnknownEvent {
 pub enum Event {
     ActivityChanged(ActivityChangedEvent),
     AgentChanged(AgentChangedEvent),
+    AgentInventoryChanged(AgentInventoryChangedEvent),
+    AgentInventoryWatchEnded(AgentInventoryWatchEndedEvent),
     AgentPresenceChanged(AgentPresenceChangedEvent),
     Bell(BellEvent),
     BookmarksChanged(BookmarksChangedEvent),
@@ -921,8 +975,10 @@ pub enum Event {
     ClientDetached(ClientDetachedEvent),
     ClientListInvalidated(ClientListInvalidatedEvent),
     CloudConversationChanged(CloudConversationChangedEvent),
+    CloudConversationLive(CloudConversationLiveEvent),
     CloudConversationResynced(CloudConversationResyncedEvent),
     CloudConversationRunChanged(CloudConversationRunChangedEvent),
+    CloudConversationTyping(CloudConversationTypingEvent),
     CloudInboxChanged(CloudInboxChangedEvent),
     CloudInboxReset(CloudInboxResetEvent),
     CloudMuxResynced(CloudMuxResyncedEvent),
@@ -934,6 +990,7 @@ pub enum Event {
     ConversationChanged(ConversationChangedEvent),
     ConversationDraft(ConversationDraftEvent),
     ConversationInboxChanged(ConversationInboxChangedEvent),
+    ConversationLive(ConversationLiveEvent),
     ConversationRunChanged(ConversationRunChangedEvent),
     ConversationTyping(ConversationTypingEvent),
     DaemonShutdown(DaemonShutdownEvent),
@@ -999,6 +1056,8 @@ impl Event {
         match self {
             Self::ActivityChanged(_) => Some("activity-changed"),
             Self::AgentChanged(_) => Some("agent-changed"),
+            Self::AgentInventoryChanged(_) => Some("agent-inventory-changed"),
+            Self::AgentInventoryWatchEnded(_) => Some("agent-inventory-watch-ended"),
             Self::AgentPresenceChanged(_) => Some("agent-presence-changed"),
             Self::Bell(_) => Some("bell"),
             Self::BookmarksChanged(_) => Some("bookmarks-changed"),
@@ -1009,8 +1068,10 @@ impl Event {
             Self::ClientDetached(_) => Some("client-detached"),
             Self::ClientListInvalidated(_) => Some("client-list-invalidated"),
             Self::CloudConversationChanged(_) => Some("cloud-conversation-changed"),
+            Self::CloudConversationLive(_) => Some("cloud-conversation-live"),
             Self::CloudConversationResynced(_) => Some("cloud-conversation-resynced"),
             Self::CloudConversationRunChanged(_) => Some("cloud-conversation-run-changed"),
+            Self::CloudConversationTyping(_) => Some("cloud-conversation-typing"),
             Self::CloudInboxChanged(_) => Some("cloud-inbox-changed"),
             Self::CloudInboxReset(_) => Some("cloud-inbox-reset"),
             Self::CloudMuxResynced(_) => Some("cloud-mux-resynced"),
@@ -1022,6 +1083,7 @@ impl Event {
             Self::ConversationChanged(_) => Some("conversation-changed"),
             Self::ConversationDraft(_) => Some("conversation-draft"),
             Self::ConversationInboxChanged(_) => Some("conversation-inbox-changed"),
+            Self::ConversationLive(_) => Some("conversation-live"),
             Self::ConversationRunChanged(_) => Some("conversation-run-changed"),
             Self::ConversationTyping(_) => Some("conversation-typing"),
             Self::DaemonShutdown(_) => Some("daemon-shutdown"),
@@ -1086,6 +1148,8 @@ impl Event {
         match self {
             Self::ActivityChanged(_) => Some(&ACTIVITY_CHANGED_EVENT_METADATA),
             Self::AgentChanged(_) => Some(&AGENT_CHANGED_EVENT_METADATA),
+            Self::AgentInventoryChanged(_) => Some(&AGENT_INVENTORY_CHANGED_EVENT_METADATA),
+            Self::AgentInventoryWatchEnded(_) => Some(&AGENT_INVENTORY_WATCH_ENDED_EVENT_METADATA),
             Self::AgentPresenceChanged(_) => Some(&AGENT_PRESENCE_CHANGED_EVENT_METADATA),
             Self::Bell(_) => Some(&BELL_EVENT_METADATA),
             Self::BookmarksChanged(_) => Some(&BOOKMARKS_CHANGED_EVENT_METADATA),
@@ -1096,8 +1160,10 @@ impl Event {
             Self::ClientDetached(_) => Some(&CLIENT_DETACHED_EVENT_METADATA),
             Self::ClientListInvalidated(_) => Some(&CLIENT_LIST_INVALIDATED_EVENT_METADATA),
             Self::CloudConversationChanged(_) => Some(&CLOUD_CONVERSATION_CHANGED_EVENT_METADATA),
+            Self::CloudConversationLive(_) => Some(&CLOUD_CONVERSATION_LIVE_EVENT_METADATA),
             Self::CloudConversationResynced(_) => Some(&CLOUD_CONVERSATION_RESYNCED_EVENT_METADATA),
             Self::CloudConversationRunChanged(_) => Some(&CLOUD_CONVERSATION_RUN_CHANGED_EVENT_METADATA),
+            Self::CloudConversationTyping(_) => Some(&CLOUD_CONVERSATION_TYPING_EVENT_METADATA),
             Self::CloudInboxChanged(_) => Some(&CLOUD_INBOX_CHANGED_EVENT_METADATA),
             Self::CloudInboxReset(_) => Some(&CLOUD_INBOX_RESET_EVENT_METADATA),
             Self::CloudMuxResynced(_) => Some(&CLOUD_MUX_RESYNCED_EVENT_METADATA),
@@ -1109,6 +1175,7 @@ impl Event {
             Self::ConversationChanged(_) => Some(&CONVERSATION_CHANGED_EVENT_METADATA),
             Self::ConversationDraft(_) => Some(&CONVERSATION_DRAFT_EVENT_METADATA),
             Self::ConversationInboxChanged(_) => Some(&CONVERSATION_INBOX_CHANGED_EVENT_METADATA),
+            Self::ConversationLive(_) => Some(&CONVERSATION_LIVE_EVENT_METADATA),
             Self::ConversationRunChanged(_) => Some(&CONVERSATION_RUN_CHANGED_EVENT_METADATA),
             Self::ConversationTyping(_) => Some(&CONVERSATION_TYPING_EVENT_METADATA),
             Self::DaemonShutdown(_) => Some(&DAEMON_SHUTDOWN_EVENT_METADATA),
@@ -1184,6 +1251,22 @@ pub fn decode_event(raw: Value) -> Event {
         },
         Some("agent-changed") => match serde_json::from_value::<AgentChangedEvent>(raw.clone()) {
             Ok(event) => Event::AgentChanged(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("agent-inventory-changed") => match serde_json::from_value::<AgentInventoryChangedEvent>(raw.clone()) {
+            Ok(event) => Event::AgentInventoryChanged(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("agent-inventory-watch-ended") => match serde_json::from_value::<AgentInventoryWatchEndedEvent>(raw.clone()) {
+            Ok(event) => Event::AgentInventoryWatchEnded(event),
             Err(error) => Event::Unknown(UnknownEvent {
                 name,
                 raw,
@@ -1270,6 +1353,14 @@ pub fn decode_event(raw: Value) -> Event {
                 decode_error: Some(error.to_string()),
             }),
         },
+        Some("cloud-conversation-live") => match serde_json::from_value::<CloudConversationLiveEvent>(raw.clone()) {
+            Ok(event) => Event::CloudConversationLive(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
         Some("cloud-conversation-resynced") => match serde_json::from_value::<CloudConversationResyncedEvent>(raw.clone()) {
             Ok(event) => Event::CloudConversationResynced(event),
             Err(error) => Event::Unknown(UnknownEvent {
@@ -1280,6 +1371,14 @@ pub fn decode_event(raw: Value) -> Event {
         },
         Some("cloud-conversation-run-changed") => match serde_json::from_value::<CloudConversationRunChangedEvent>(raw.clone()) {
             Ok(event) => Event::CloudConversationRunChanged(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("cloud-conversation-typing") => match serde_json::from_value::<CloudConversationTypingEvent>(raw.clone()) {
+            Ok(event) => Event::CloudConversationTyping(event),
             Err(error) => Event::Unknown(UnknownEvent {
                 name,
                 raw,
@@ -1368,6 +1467,14 @@ pub fn decode_event(raw: Value) -> Event {
         },
         Some("conversation-inbox-changed") => match serde_json::from_value::<ConversationInboxChangedEvent>(raw.clone()) {
             Ok(event) => Event::ConversationInboxChanged(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("conversation-live") => match serde_json::from_value::<ConversationLiveEvent>(raw.clone()) {
+            Ok(event) => Event::ConversationLive(event),
             Err(error) => Event::Unknown(UnknownEvent {
                 name,
                 raw,

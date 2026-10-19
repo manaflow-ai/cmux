@@ -12,6 +12,7 @@ import {
   createSettingsQueryClient,
   optimistic,
   scopeData,
+  shareScope,
   settingsKeys,
   type AccountsData,
   type HarnessesData,
@@ -126,6 +127,10 @@ export class SettingsStore {
   private readonly commandListeners = new Set<(command: PageCommand) => void>();
   private disposed = false;
   private themeColorsRequested = false;
+  /** The last composed state and what it was composed from (getSnapshot answers it while equal). */
+  private composed: { ui: UiState; cache: CacheView; state: SettingsState } | null = null;
+  /** The newest revision a finished or running read of the scope is sure to show. */
+  private covered = 0;
 
   constructor(
     private readonly client: SettingsClient,
@@ -161,7 +166,8 @@ export class SettingsStore {
           for (const key of event.keys) errors.delete(key);
           this.updateUi({ errors });
         }
-        void this.refresh();
+        // A read that already shows this revision (this page's own write re-reads it) is enough.
+        void this.refresh(typeof event.revision === "number" ? event.revision : undefined);
       },
       connection: (connected) => {
         if (this.disposed) return;
@@ -190,6 +196,9 @@ export class SettingsStore {
   scopeQuery() {
     return {
       queryKey: settingsKeys.scope("user"),
+      // A re-read keeps every unchanged row's object, so a change renders only its own rows.
+      structuralSharing: (previous: unknown, next: unknown) =>
+        shareScope(previous as ScopeData | undefined, next as ScopeData),
       queryFn: async (): Promise<ScopeData> => {
         try {
           const read = scopeData(await this.transport.get("user"));
@@ -204,12 +213,20 @@ export class SettingsStore {
   }
 
   /** Re-reads the scope. The newest read wins: a read still in flight is cancelled first, so an
-   * older answer never replaces a newer one. */
-  async refresh(): Promise<void> {
+   * older answer never replaces a newer one. With `revision` (a change the owner announced, or
+   * this page's own write) nothing is read when a finished or running read already shows it: each
+   * read builds every row on the owner. */
+  async refresh(revision?: number): Promise<void> {
     if (this.disposed) return;
+    if (revision !== undefined && revision <= this.covered) return;
+    // Any read that starts now shows at least `revision`: the owner applied it before saying so.
+    if (revision !== undefined) this.covered = revision;
     const { queryKey } = this.scopeQuery();
     await this.queryClient.cancelQueries({ queryKey, exact: true });
-    await this.queryClient.fetchQuery({ ...this.scopeQuery(), staleTime: 0 }).catch(() => undefined);
+    const read = await this.queryClient.fetchQuery({ ...this.scopeQuery(), staleTime: 0 }).catch(() => undefined);
+    if (read) this.covered = Math.max(this.covered, read.revision);
+    // A failed or cancelled read covers nothing it did not show: the next announcement reads again.
+    else this.covered = this.queryClient.getQueryData<ScopeData>(queryKey)?.revision ?? 0;
   }
 
   /** Re-reads the host lists (after an action, or when the host has no change stream). */
@@ -285,6 +302,42 @@ export class SettingsStore {
     const reply = await this.request("cmux.settings.backdrop.choose_image", {});
     if (!reply.ok) this.setError("appearance.background", rowError(reply.error));
     else await Promise.all([this.refresh(), this.refreshHost()]);
+  }
+
+  /** Downloads the image or movie at `url` and sets it (backgrounds plan phase 3). Resolves to the
+   * refusal code the picker words, or null once it is the background. */
+  async addBackdropLink(url: string): Promise<string | null> {
+    const reply = await this.request("cmux.settings.backdrop.image.link", { url });
+    if (!reply.ok) return reply.error.code || "cmux.settings.backdrop.download_failed";
+    await Promise.all([this.refresh(), this.refreshHost()]);
+    return null;
+  }
+
+  /** Deletes one of the person's own images; resolves to the bytes the rest take, or null. */
+  async removeBackdropImage(id: string): Promise<number | null> {
+    const reply = await this.request("cmux.settings.backdrop.image.remove", { id });
+    if (!reply.ok) return null;
+    await this.refreshHost();
+    return reply.value.bytes;
+  }
+
+  /** Shows one of the person's images, or with no id the backgrounds folder, in Finder. */
+  revealBackdropImage(id?: string): void {
+    void this.request("cmux.settings.backdrop.image.reveal", id ? { id } : {});
+  }
+
+  /** The bytes the person's own images take; null when the host cannot say. */
+  async backdropUsage(): Promise<number | null> {
+    const reply = await this.request("cmux.settings.backdrop.image.usage", {});
+    return reply.ok ? reply.value.bytes : null;
+  }
+
+  /** Opens the Wallpaper pane of System Settings, where macOS downloads a wallpaper the picker
+   * lists as not downloaded. macOS says nothing when it finishes, so the lists are read again
+   * once the person is back in this window. */
+  async openWallpaperSettings(): Promise<void> {
+    window.addEventListener("focus", () => void this.refreshHost(), { once: true });
+    await this.request("cmux.settings.backdrop.wallpaper_settings", {});
   }
 
   /** The workspace `id`'s own background, or null when the host has none or the workspace is gone. */
@@ -412,7 +465,26 @@ export class SettingsStore {
     };
   }
 
-  getSnapshot = (): SettingsState => composeState(this.ui, this.cacheView());
+  /** The page's state; the same object until the UI state or a cached part changes, so
+   * useSyncExternalStore subscribers render only on a real change. */
+  getSnapshot = (): SettingsState => {
+    const cache = this.cacheView();
+    const last = this.composed;
+    if (
+      last &&
+      last.ui === this.ui &&
+      last.cache.scope === cache.scope &&
+      last.cache.scopeSettled === cache.scopeSettled &&
+      last.cache.host === cache.host &&
+      last.cache.accounts === cache.accounts &&
+      last.cache.harnesses === cache.harnesses &&
+      last.cache.themeColors === cache.themeColors
+    )
+      return last.state;
+    const state = composeState(this.ui, cache);
+    this.composed = { ui: this.ui, cache, state };
+    return state;
+  };
 
   /** Dispatcher commands (find, back, forward, reset) for the mounted page. */
   onCommand(listener: (command: PageCommand) => void): () => void {
@@ -460,7 +532,7 @@ export class SettingsStore {
     }
     const key = settingsKeys.scope("user");
     const queryClient = this.queryClient;
-    const observer = new MutationObserver<void, TransportError, Write, { previous: ScopeData | undefined }>(
+    const observer = new MutationObserver<number | void, TransportError, Write, { previous: ScopeData | undefined }>(
       queryClient,
       {
         mutationKey: settingsKeys.write,
@@ -477,7 +549,8 @@ export class SettingsStore {
         onError: (_error, _next, context) => {
           if (context?.previous) queryClient.setQueryData(key, context.previous);
         },
-        onSettled: () => this.refresh(),
+        // The owner's revision after the write: its own change event then reads nothing more.
+        onSettled: (revision) => this.refresh(revision ?? undefined),
       },
     );
     try {

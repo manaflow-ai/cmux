@@ -11,13 +11,14 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { warmViteServer } from "./support/warmDevServer";
 
 type Inset = { spread: number; alpha: number };
 
 await requireBrowserLane("composer-rim-hairline.test.ts", async () => {
-  /** The composer edge's alpha over this page's transparent background, and its quiet focus step: 8% text over the edge. */
+  /** The composer edge's alpha over this page's transparent background, and its quiet focus step: 30% text over the edge. */
   const EDGE = 0.18;
-  const FOCUS = 0.08 + 0.92 * EDGE;
+  const FOCUS = 0.3 + 0.7 * EDGE;
   setDefaultTimeout(120_000);
   try {
     await (await chromium.launch({ headless: true })).close();
@@ -38,6 +39,7 @@ await requireBrowserLane("composer-rim-hairline.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
+    await warmViteServer(vite, "/test/browser/composer-rim.html");
     browser = await chromium.launch({ headless: true });
   });
   afterAll(async () => {
@@ -137,6 +139,42 @@ await requireBrowserLane("composer-rim-hairline.test.ts", async () => {
       const rim = await insets(page, id);
       for (const { alpha } of rim) expect(alpha, `${id} rim with borders none`).toBe(0);
     }
+    await page.close();
+  });
+
+  // Over art (data-cmux-see-through) the glass card adds a top-lit rim. Under a strip or a queue the
+  // card's ring is drawn once, by the ::before layer round strip and card together
+  // (composerLocation.css), so the card itself must not draw the ring a second time.
+  test("over art a card under a strip or a queue draws the rim but not a second ring", async () => {
+    const page = await open(2);
+    await page.evaluate(() => document.documentElement.setAttribute("data-cmux-see-through", ""));
+    const ring = (id: string) => insets(page, id).then((all) => all.filter(({ spread }) => spread > 0));
+    const shadow = (id: string, pseudo?: string) =>
+      page.evaluate(([id, pseudo]) => getComputedStyle(document.getElementById(id!)!, pseudo).boxShadow, [id, pseudo]);
+    expect((await ring("composer")).length, "a card on its own keeps its ring").toBe(1);
+    for (const id of ["strip-composer", "queue-composer"]) {
+      expect(await ring(id), `${id} draws no ring of its own`).toEqual([]);
+      expect(await shadow(id), `${id} keeps the glass rim`).toContain("0px 1px 0px 0px inset");
+      expect(await shadow(id, "::before"), `${id}'s ring layer`).toMatch(/inset/);
+    }
+    await page.close();
+  });
+
+  test("pointer focus leaves the composer rim quiet while keyboard traversal raises it", async () => {
+    const page = await open(2);
+    const rest = await insets(page, "composer");
+    const chip = page.locator("#composer-chip");
+    await chip.click();
+    // A mouse press may focus the chip, but it is not keyboard focus and must not change the card.
+    expect(await insets(page, "composer")).toEqual(rest);
+
+    // Move from the chip to the prompt with a real reverse-Tab. The prompt is then :focus-visible,
+    // so the card keeps its quiet one-device-pixel focus step for keyboard users.
+    await chip.focus();
+    await page.keyboard.press("Shift+Tab");
+    expect(await page.evaluate(() => document.activeElement?.id)).toBe("composer-field");
+    const keyboard = await insets(page, "composer");
+    expect(keyboard[0]?.alpha ?? 0).toBeGreaterThan(rest[0]?.alpha ?? 0);
     await page.close();
   });
 });

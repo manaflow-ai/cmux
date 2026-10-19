@@ -65,6 +65,22 @@ public actor MacInstallIdentity {
     /// registration of the signed-in user. `cmux link` runs as this install.
     public func installID() async -> String? { await client?.currentRecord?.install }
 
+    /// The signed-in Stack user, the registered install and the API's `ENVIRONMENT`, for a hand proof
+    /// (docs/chief-hands.md): mints a token first, which registers the install and learns the
+    /// environment from the server's challenge.
+    func proofContext() async throws -> (user: String, install: String, environment: String) {
+        _ = try await installToken()
+        guard let client, let user, let record = await client.currentRecord,
+              let environment = await client.environment else { throw Failure.signedOut }
+        return (user, record.install, environment)
+    }
+
+    /// ES256 by the signed-in user's install key over `message`: raw `r || s`, base64url.
+    func signWithInstallKey(_ message: String) async throws -> String {
+        guard let user else { throw Failure.signedOut }
+        return try await store.signer(for: user).sign(Data(message.utf8)).base64URLEncoded
+    }
+
     /// The session ended without a sign-out here (expired, or signed out
     /// elsewhere): stop minting. The key and record stay, so a sign-in of the
     /// same user reuses the install and a later sign-out can still revoke it.

@@ -1,3 +1,4 @@
+// cmux-web-test-timeout: 240
 // The ui wrapper and the migrated pages in real engines (headless Chromium and WebKit, Playwright),
 // keyboard only, left to right and right to left, with axe-core at each open state
 // (plans/cmux-next/a11y-foundation.md). Harness: test/browser/ui-a11y.html, served by the dev server.
@@ -15,7 +16,9 @@ import net from "node:net";
 import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import markdownStrings from "../src/pages/markdown/generated/strings.json";
+import { stopDevServer } from "./support/devServer";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { warmDevServer } from "./support/warmDevServer";
 
 await requireBrowserLane("ui-a11y.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -67,10 +70,11 @@ await requireBrowserLane("ui-a11y.test.ts", async () => {
       server!.stderr!.on("data", onData);
       server!.on("exit", (code) => reject(new Error(`dev server exited ${code}`)));
     });
-  }, 60_000);
+    await warmDevServer(base, "/test/browser/ui-a11y.html");
+  }, 240_000);
 
   afterAll(() => {
-    server?.kill();
+    stopDevServer(server);
   });
 
   /** What has focus as a screen reader hears it: the element, or the row its activedescendant names. */

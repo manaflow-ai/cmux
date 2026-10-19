@@ -95,6 +95,39 @@
       "title" : "Chat Folders",
       "type" : "array"
     },
+    "agents.defaultPermissionMode" : {
+      "default" : "fullAccess",
+      "description" : "What a new chat may do without asking. Picking a mode in a chat sets it too, until you change this setting again.",
+      "enum" : [
+        "fullAccess",
+        "standard",
+        "ask"
+      ],
+      "title" : "Permission Mode for New Chats",
+      "type" : "string"
+    },
+    "agents.subsessions.enabled" : {
+      "default" : true,
+      "description" : "An agent can start other agent sessions to work on parts of a task in parallel. They show under its session in the sidebar.",
+      "title" : "Let Agents Start Sub-sessions",
+      "type" : "boolean"
+    },
+    "agents.subsessions.maxChildren" : {
+      "default" : 50,
+      "description" : "The most sub-sessions one session can have open at the same time. Closing a sub-session frees its place.",
+      "maximum" : 1000,
+      "minimum" : 1,
+      "title" : "Open Sub-sessions per Session",
+      "type" : "number"
+    },
+    "agents.subsessions.maxDepth" : {
+      "default" : 10,
+      "description" : "How many levels of sub-sessions can start under a session. 1 lets a session start sub-sessions that cannot start their own.",
+      "maximum" : 100,
+      "minimum" : 1,
+      "title" : "Deepest Nesting",
+      "type" : "number"
+    },
     "AllowedSignInMethods" : {
       "description" : "Sign-in methods the app offers.",
       "items" : {
@@ -584,7 +617,7 @@
       "type" : "string"
     },
     "appearance.chromeStyle" : {
-      "default" : "default",
+      "default" : "flat-sidebar-line",
       "description" : "The look of the window: whether panes sit in one rounded card, and where lines are drawn. Separation, Sidebar Background and the sidebar border still win when you set them.",
       "enum" : [
         "default",
@@ -594,10 +627,107 @@
         "flat-sidebar-line",
         "bare",
         "panes",
-        "two-tone"
+        "two-tone",
+        "floating"
       ],
       "title" : "Window Style",
       "type" : "string"
+    },
+    "appearance.colorTransition.bezierX1" : {
+      "default" : 0.42,
+      "description" : "A control point of the Custom (Bezier) curve, as in CSS cubic-bezier().",
+      "maximum" : 1,
+      "minimum" : 0,
+      "title" : "Bezier X1",
+      "type" : "number"
+    },
+    "appearance.colorTransition.bezierX2" : {
+      "default" : 0.58,
+      "description" : "A control point of the Custom (Bezier) curve, as in CSS cubic-bezier().",
+      "maximum" : 1,
+      "minimum" : 0,
+      "title" : "Bezier X2",
+      "type" : "number"
+    },
+    "appearance.colorTransition.bezierY1" : {
+      "default" : 0,
+      "description" : "A control point of the Custom (Bezier) curve, as in CSS cubic-bezier().",
+      "maximum" : 2,
+      "minimum" : -1,
+      "title" : "Bezier Y1",
+      "type" : "number"
+    },
+    "appearance.colorTransition.bezierY2" : {
+      "default" : 1,
+      "description" : "A control point of the Custom (Bezier) curve, as in CSS cubic-bezier().",
+      "maximum" : 2,
+      "minimum" : -1,
+      "title" : "Bezier Y2",
+      "type" : "number"
+    },
+    "appearance.colorTransition.colorSpace" : {
+      "default" : "oklab",
+      "description" : "OKLab blends with even lightness. sRGB mixes the red, green and blue channels.",
+      "enum" : [
+        "oklab",
+        "srgb"
+      ],
+      "title" : "Color Blend Space",
+      "type" : "string"
+    },
+    "appearance.colorTransition.curve" : {
+      "default" : "easeOut",
+      "description" : "How a color change moves over its duration. Spring uses Spring Response and Spring Damping; Custom uses the four Bezier values.",
+      "enum" : [
+        "easeOut",
+        "easeInOut",
+        "linear",
+        "spring",
+        "cubicBezier"
+      ],
+      "title" : "Color Change Curve",
+      "type" : "string"
+    },
+    "appearance.colorTransition.duration" : {
+      "default" : 200,
+      "description" : "How long a color change takes. 0 changes colors at once.",
+      "maximum" : 2000,
+      "minimum" : 0,
+      "title" : "Color Change Duration",
+      "type" : "number"
+    },
+    "appearance.colorTransition.enabled" : {
+      "default" : true,
+      "description" : "Workspace, theme and color changes blend from the old colors to the new ones. Off: they change at once.",
+      "title" : "Animate Color Changes",
+      "type" : "boolean"
+    },
+    "appearance.colorTransition.reduceMotion" : {
+      "default" : "crossfade",
+      "description" : "What color changes do while Reduce Motion is on in macOS.",
+      "enum" : [
+        "crossfade",
+        "instant",
+        "full"
+      ],
+      "title" : "With Reduce Motion",
+      "type" : "string"
+    },
+    "appearance.colorTransition.springDamping" : {
+      "default" : 1,
+      "description" : "1 arrives smoothly with no overshoot. Above 1 is slower; below 1 arrives sooner.",
+      "maximum" : 2,
+      "minimum" : 0.1,
+      "title" : "Spring Damping",
+      "type" : "number"
+    },
+    "appearance.colorTransition.springResponse" : {
+      "default" : 0.3,
+      "description" : "Seconds a spring color change takes to reach its new colors.",
+      "maximum" : 2,
+      "minimum" : 0.05,
+      "title" : "Spring Response",
+      "type" : "number"
     },
     "appearance.density" : {
       "default" : "compact",
@@ -616,7 +746,7 @@
       "type" : "boolean"
     },
     "appearance.focusIndicator" : {
-      "default" : "both",
+      "default" : "tabs",
       "description" : "How the focused pane stands out: its border, subtler tabs in the other panes, both or neither.",
       "enum" : [
         "border",
@@ -643,6 +773,13 @@
       "title" : "Hue",
       "type" : "number"
     },
+    "appearance.interfaceScale" : {
+      "description" : "Text size of tabs, the sidebar and other controls. Terminal text has its own size.",
+      "maximum" : 1.25,
+      "minimum" : 0.9,
+      "title" : "Interface Size",
+      "type" : "number"
+    },
     "appearance.metrics.chromeFontSize" : {
       "description" : "Text size of tabs, the sidebar and other controls. Terminal text has its own size.",
       "maximum" : 16,
@@ -662,6 +799,34 @@
       "maximum" : 420,
       "minimum" : 160,
       "title" : "Sidebar Width",
+      "type" : "number"
+    },
+    "appearance.metrics.tabMaxWidth" : {
+      "description" : "Widest a tab gets when the strip has room.",
+      "maximum" : 320,
+      "minimum" : 120,
+      "title" : "Maximum Tab Width",
+      "type" : "number"
+    },
+    "appearance.metrics.tabMinActiveWidth" : {
+      "description" : "When the strip is crowded, every tab shrinks evenly to this width, and the selected tab stays at least this wide.",
+      "maximum" : 320,
+      "minimum" : 32,
+      "title" : "Minimum Selected Tab Width",
+      "type" : "number"
+    },
+    "appearance.metrics.tabMinInactiveWidth" : {
+      "description" : "Narrowest the other tabs get before the strip scrolls. Never wider than the selected tab's minimum.",
+      "maximum" : 320,
+      "minimum" : 16,
+      "title" : "Minimum Tab Width",
+      "type" : "number"
+    },
+    "appearance.metrics.tabPinnedWidth" : {
+      "description" : "Width of a pinned tab.",
+      "maximum" : 120,
+      "minimum" : 24,
+      "title" : "Pinned Tab Width",
       "type" : "number"
     },
     "appearance.metrics.titlebarHeight" : {
@@ -687,6 +852,16 @@
         "separate"
       ],
       "title" : "Sidebar Background",
+      "type" : "string"
+    },
+    "appearance.statusIndicator.animation" : {
+      "default" : "animated",
+      "description" : "Static draws a still, distinct shape for each state. Reduce Motion always uses Static.",
+      "enum" : [
+        "animated",
+        "static"
+      ],
+      "title" : "Status Indicators",
       "type" : "string"
     },
     "appearance.statusIndicator.color" : {
@@ -925,6 +1100,12 @@
       "title" : "Theme Edits",
       "type" : "object"
     },
+    "browser.builtInAdBlocker" : {
+      "default" : true,
+      "description" : "The full uBlock Origin blocks ads and trackers in Chromium tabs. Takes effect after cmux restarts.",
+      "title" : "Built-in uBlock Origin",
+      "type" : "boolean"
+    },
     "browser.customSearchEngine.search" : {
       "default" : "",
       "description" : "Used when Search Engine is Custom. Put {searchTerms} where the typed text goes.",
@@ -1057,6 +1238,14 @@
       "title" : "New Tab Page",
       "type" : "string"
     },
+    "browser.omnibar.backgroundOpacity" : {
+      "default" : 0,
+      "description" : "How much the address bar covers a see-through window. At 0 it is as see-through as the window, but never so clear that its text stops being readable.",
+      "maximum" : 1,
+      "minimum" : 0,
+      "title" : "Address Bar Opacity",
+      "type" : "number"
+    },
     "browser.omnibar.calculator" : {
       "default" : true,
       "description" : "Shows the answer to arithmetic you type. Return copies it.",
@@ -1074,7 +1263,7 @@
       "type" : "string"
     },
     "browser.omnibar.glass" : {
-      "default" : "transparent",
+      "default" : "off",
       "description" : "The material of the address bar. Transparent draws no fill. Clear glass shows more of what is behind it. Off uses the flat theme color.",
       "enum" : [
         "transparent",
@@ -1130,6 +1319,12 @@
       "title" : "Address Bar Shadow",
       "type" : "boolean"
     },
+    "browser.openLinksInCmuxBrowser" : {
+      "default" : true,
+      "description" : "When off, links you click in terminals, agent chats, Home and cmux pages open in your default browser. Shift-Command-click opens a link in the other browser.",
+      "title" : "Open Links in cmux Browser",
+      "type" : "boolean"
+    },
     "browser.openTerminalLinksInCmuxBrowser" : {
       "default" : true,
       "description" : "When off, links clicked in terminal output open in your default browser.",
@@ -1174,6 +1369,12 @@
       "title" : "Search Engine",
       "type" : "string"
     },
+    "browser.showAgentCursor" : {
+      "default" : true,
+      "description" : "When an agent drives a browser tab, show its cursor, clicks and typed keys on the page. Password fields show dots.",
+      "title" : "Show Agent Cursor",
+      "type" : "boolean"
+    },
     "browser.showBookmarksBar" : {
       "default" : false,
       "description" : "A row of bookmarks under each browser toolbar.",
@@ -1207,7 +1408,7 @@
       "default" : [
 
       ],
-      "description" : "Terminal links that match open in your default browser. Text matches anywhere in the URL, * and ? are wildcards, and re: starts a regular expression.",
+      "description" : "Links that match open in your default browser. Text matches anywhere in the URL, * and ? are wildcards, and re: starts a regular expression.",
       "items" : {
         "type" : "string"
       },
@@ -1318,6 +1519,377 @@
       "title" : "DisableTelemetry",
       "type" : "boolean"
     },
+    "editor.acceptSuggestionOnEnter" : {
+      "default" : "on",
+      "description" : "editor.acceptSuggestionOnEnter",
+      "enum" : [
+        "on",
+        "smart",
+        "off"
+      ],
+      "title" : "Return Accepts a Suggestion",
+      "type" : "string"
+    },
+    "editor.autoClosingBrackets" : {
+      "default" : true,
+      "description" : "editor.autoClosingBrackets",
+      "title" : "Close Brackets",
+      "type" : "boolean"
+    },
+    "editor.autoClosingQuotes" : {
+      "default" : true,
+      "description" : "editor.autoClosingQuotes",
+      "title" : "Close Quotes",
+      "type" : "boolean"
+    },
+    "editor.autoSave" : {
+      "default" : "afterDelay",
+      "description" : "editor.autoSave",
+      "enum" : [
+        "afterDelay",
+        "off"
+      ],
+      "title" : "Save Automatically",
+      "type" : "string"
+    },
+    "editor.autoSaveDelay" : {
+      "default" : 1000,
+      "description" : "editor.autoSaveDelay",
+      "maximum" : 60000,
+      "minimum" : 100,
+      "title" : "Pause Before Saving",
+      "type" : "number"
+    },
+    "editor.bracketPairColorization.enabled" : {
+      "default" : true,
+      "description" : "editor.bracketPairColorization.enabled",
+      "title" : "Color Bracket Pairs",
+      "type" : "boolean"
+    },
+    "editor.cursorBlinking" : {
+      "default" : "blink",
+      "description" : "editor.cursorBlinking",
+      "enum" : [
+        "blink",
+        "smooth",
+        "phase",
+        "expand",
+        "solid"
+      ],
+      "title" : "Cursor Blinking",
+      "type" : "string"
+    },
+    "editor.cursorSmoothCaretAnimation" : {
+      "default" : "off",
+      "description" : "editor.cursorSmoothCaretAnimation",
+      "enum" : [
+        "off",
+        "explicit",
+        "on"
+      ],
+      "title" : "Animate Cursor Movement",
+      "type" : "string"
+    },
+    "editor.cursorStyle" : {
+      "default" : "line",
+      "description" : "editor.cursorStyle",
+      "enum" : [
+        "line",
+        "block",
+        "underline",
+        "line-thin",
+        "block-outline",
+        "underline-thin"
+      ],
+      "title" : "Cursor Style",
+      "type" : "string"
+    },
+    "editor.cursorSurroundingLines" : {
+      "default" : 0,
+      "description" : "editor.cursorSurroundingLines",
+      "maximum" : 50,
+      "minimum" : 0,
+      "title" : "Lines Kept Around the Cursor",
+      "type" : "number"
+    },
+    "editor.detectIndentation" : {
+      "default" : true,
+      "description" : "Tab size and spaces follow the file's own indentation.",
+      "title" : "Detect Indentation",
+      "type" : "boolean"
+    },
+    "editor.emptySelectionClipboard" : {
+      "default" : true,
+      "description" : "editor.emptySelectionClipboard",
+      "title" : "Copy the Line When Nothing Is Selected",
+      "type" : "boolean"
+    },
+    "editor.find.seedSearchStringFromSelection" : {
+      "default" : "always",
+      "description" : "editor.find.seedSearchStringFromSelection",
+      "enum" : [
+        "always",
+        "selection",
+        "never"
+      ],
+      "title" : "Find Starts With",
+      "type" : "string"
+    },
+    "editor.folding" : {
+      "default" : true,
+      "description" : "editor.folding",
+      "title" : "Code Folding",
+      "type" : "boolean"
+    },
+    "editor.fontFamily" : {
+      "description" : "Empty uses the terminal font.",
+      "title" : "Font Family",
+      "type" : "string"
+    },
+    "editor.fontLigatures" : {
+      "default" : false,
+      "description" : "editor.fontLigatures",
+      "title" : "Font Ligatures",
+      "type" : "boolean"
+    },
+    "editor.fontSize" : {
+      "description" : "Empty uses the terminal font size. Cmd-= and Cmd-- change it in one editor.",
+      "maximum" : 72,
+      "minimum" : 6,
+      "title" : "Font Size",
+      "type" : "number"
+    },
+    "editor.fontWeight" : {
+      "default" : "normal",
+      "description" : "editor.fontWeight",
+      "enum" : [
+        "normal",
+        "bold",
+        "300",
+        "500",
+        "600"
+      ],
+      "title" : "Font Weight",
+      "type" : "string"
+    },
+    "editor.formatOnSave" : {
+      "default" : false,
+      "description" : "Runs the language's formatter when one is installed.",
+      "title" : "Format on Save",
+      "type" : "boolean"
+    },
+    "editor.guides.bracketPairs" : {
+      "default" : false,
+      "description" : "editor.guides.bracketPairs",
+      "title" : "Bracket Pair Guides",
+      "type" : "boolean"
+    },
+    "editor.guides.indentation" : {
+      "default" : true,
+      "description" : "editor.guides.indentation",
+      "title" : "Indentation Guides",
+      "type" : "boolean"
+    },
+    "editor.importFrom" : {
+      "default" : "auto",
+      "description" : "cmux reads that editor's settings and keybindings files and never changes them. A setting you make here wins.",
+      "enum" : [
+        "auto",
+        "vscode",
+        "cursor",
+        "windsurf",
+        "vscodium",
+        "zed",
+        "none"
+      ],
+      "title" : "Take Defaults From",
+      "type" : "string"
+    },
+    "editor.insertFinalNewline" : {
+      "default" : false,
+      "description" : "editor.insertFinalNewline",
+      "title" : "End Files with a Newline on Save",
+      "type" : "boolean"
+    },
+    "editor.insertSpaces" : {
+      "default" : true,
+      "description" : "Tab inserts spaces. Off inserts a tab character.",
+      "title" : "Insert Spaces",
+      "type" : "boolean"
+    },
+    "editor.letterSpacing" : {
+      "default" : 0,
+      "description" : "editor.letterSpacing",
+      "maximum" : 20,
+      "minimum" : -5,
+      "title" : "Letter Spacing",
+      "type" : "number"
+    },
+    "editor.lineHeight" : {
+      "default" : 0,
+      "description" : "0 computes it from the font size. A value under 8 multiplies the font size.",
+      "maximum" : 150,
+      "minimum" : 0,
+      "title" : "Line Height",
+      "type" : "number"
+    },
+    "editor.lineNumbers" : {
+      "default" : "on",
+      "description" : "editor.lineNumbers",
+      "enum" : [
+        "on",
+        "off",
+        "relative",
+        "interval"
+      ],
+      "title" : "Line Numbers",
+      "type" : "string"
+    },
+    "editor.linkedEditing" : {
+      "default" : false,
+      "description" : "editor.linkedEditing",
+      "title" : "Rename Matching Tags Together",
+      "type" : "boolean"
+    },
+    "editor.matchBrackets" : {
+      "default" : "always",
+      "description" : "editor.matchBrackets",
+      "enum" : [
+        "always",
+        "near",
+        "never"
+      ],
+      "title" : "Highlight Matching Brackets",
+      "type" : "string"
+    },
+    "editor.minimap.enabled" : {
+      "default" : false,
+      "description" : "editor.minimap.enabled",
+      "title" : "Minimap",
+      "type" : "boolean"
+    },
+    "editor.mouseWheelZoom" : {
+      "default" : false,
+      "description" : "editor.mouseWheelZoom",
+      "title" : "Zoom with Command and the Scroll Wheel",
+      "type" : "boolean"
+    },
+    "editor.multiCursorModifier" : {
+      "default" : "alt",
+      "description" : "The key you hold while you click to add a cursor.",
+      "enum" : [
+        "alt",
+        "ctrlCmd"
+      ],
+      "title" : "Add a Cursor With",
+      "type" : "string"
+    },
+    "editor.quickSuggestions" : {
+      "default" : false,
+      "description" : "editor.quickSuggestions",
+      "title" : "Suggest While Typing",
+      "type" : "boolean"
+    },
+    "editor.renderControlCharacters" : {
+      "default" : true,
+      "description" : "editor.renderControlCharacters",
+      "title" : "Show Control Characters",
+      "type" : "boolean"
+    },
+    "editor.renderLineHighlight" : {
+      "default" : "line",
+      "description" : "editor.renderLineHighlight",
+      "enum" : [
+        "none",
+        "gutter",
+        "line",
+        "all"
+      ],
+      "title" : "Current Line Highlight",
+      "type" : "string"
+    },
+    "editor.renderWhitespace" : {
+      "default" : "selection",
+      "description" : "editor.renderWhitespace",
+      "enum" : [
+        "none",
+        "boundary",
+        "selection",
+        "trailing",
+        "all"
+      ],
+      "title" : "Show Whitespace",
+      "type" : "string"
+    },
+    "editor.rulers" : {
+      "default" : [
+
+      ],
+      "description" : "Columns where a vertical line shows.",
+      "items" : {
+        "type" : "string"
+      },
+      "title" : "Rulers",
+      "type" : "array"
+    },
+    "editor.scrollBeyondLastLine" : {
+      "default" : false,
+      "description" : "editor.scrollBeyondLastLine",
+      "title" : "Scroll Past the Last Line",
+      "type" : "boolean"
+    },
+    "editor.smoothScrolling" : {
+      "default" : false,
+      "description" : "editor.smoothScrolling",
+      "title" : "Smooth Scrolling",
+      "type" : "boolean"
+    },
+    "editor.stickyScroll.enabled" : {
+      "default" : true,
+      "description" : "The lines that open the scopes around the top line stay at the top while you scroll.",
+      "title" : "Sticky Scroll",
+      "type" : "boolean"
+    },
+    "editor.tabSize" : {
+      "default" : 4,
+      "description" : "editor.tabSize",
+      "maximum" : 16,
+      "minimum" : 1,
+      "title" : "Tab Size",
+      "type" : "number"
+    },
+    "editor.trimTrailingWhitespace" : {
+      "default" : false,
+      "description" : "editor.trimTrailingWhitespace",
+      "title" : "Remove Trailing Spaces on Save",
+      "type" : "boolean"
+    },
+    "editor.wordBasedSuggestions" : {
+      "default" : true,
+      "description" : "editor.wordBasedSuggestions",
+      "title" : "Suggest Words from the File",
+      "type" : "boolean"
+    },
+    "editor.wordWrap" : {
+      "default" : "off",
+      "description" : "Opt-Z turns it on and off.",
+      "enum" : [
+        "off",
+        "on",
+        "wordWrapColumn",
+        "bounded"
+      ],
+      "title" : "Word Wrap",
+      "type" : "string"
+    },
+    "editor.wordWrapColumn" : {
+      "default" : 80,
+      "description" : "editor.wordWrapColumn",
+      "maximum" : 1000,
+      "minimum" : 10,
+      "title" : "Wrap Column",
+      "type" : "number"
+    },
     "EnrollmentToken" : {
       "description" : "Team enrollment token from the cmux dashboard. Signed-in users in a verified domain of the team join it; the token alone never grants membership.",
       "title" : "EnrollmentToken",
@@ -1358,6 +1930,12 @@
         "full"
       ],
       "title" : "Copy Terminal Notifications to the Feed",
+      "type" : "string"
+    },
+    "files.textEditor" : {
+      "default" : "",
+      "description" : "The app Open in Text Editor uses for a path: an app name, a bundle ID or the path of an app. Empty uses the app that opens source code.",
+      "title" : "Text Editor",
       "type" : "string"
     },
     "focus.inactiveTabStyle" : {
@@ -1458,6 +2036,18 @@
       "default" : false,
       "description" : "When off, location data is removed from photos and videos before they are attached.",
       "title" : "Keep Location in Photos and Videos",
+      "type" : "boolean"
+    },
+    "home.channelsEnabled" : {
+      "default" : false,
+      "description" : "Show Channels below Home in the sidebar. You can also turn it on or off from the command palette.",
+      "title" : "Channels",
+      "type" : "boolean"
+    },
+    "labs.classicHome" : {
+      "default" : false,
+      "description" : "Show Home as a full page instead of a workspace with the Chief docked on the left. Takes effect after cmux restarts.",
+      "title" : "Classic Home",
       "type" : "boolean"
     },
     "labs.previewFeatures" : {
@@ -1651,6 +2241,84 @@
       "title" : "ManagedTeam",
       "type" : "string"
     },
+    "markdown.code.blockSize" : {
+      "default" : 14,
+      "description" : "markdown.code.blockSize",
+      "maximum" : 32,
+      "minimum" : 8,
+      "title" : "Code Font Size",
+      "type" : "number"
+    },
+    "markdown.font.lineHeight" : {
+      "default" : 1.6,
+      "description" : "markdown.font.lineHeight",
+      "maximum" : 2.4,
+      "minimum" : 1,
+      "title" : "Line Height",
+      "type" : "number"
+    },
+    "markdown.font.preset" : {
+      "default" : "system",
+      "description" : "markdown.font.preset",
+      "enum" : [
+        "system",
+        "serif",
+        "mono"
+      ],
+      "title" : "Font",
+      "type" : "string"
+    },
+    "markdown.font.size" : {
+      "default" : 16,
+      "description" : "The text size every markdown viewer opens at. Cmd-= and Cmd-- change it in one viewer; Cmd-0 goes back to this size.",
+      "maximum" : 40,
+      "minimum" : 8,
+      "title" : "Default Font Size",
+      "type" : "number"
+    },
+    "markdown.layout.fullWidth" : {
+      "default" : false,
+      "description" : "Text fills the whole pane instead of the text width.",
+      "title" : "Full Width",
+      "type" : "boolean"
+    },
+    "markdown.layout.width" : {
+      "default" : 72,
+      "description" : "The widest a line of text gets, in characters. Wide tables and code scroll sideways in their own box.",
+      "maximum" : 160,
+      "minimum" : 40,
+      "title" : "Text Width",
+      "type" : "number"
+    },
+    "markdown.spacing.paragraph" : {
+      "default" : 1,
+      "description" : "The gap after each paragraph, as a share of the text size.",
+      "maximum" : 3,
+      "minimum" : 0,
+      "title" : "Paragraph Spacing",
+      "type" : "number"
+    },
+    "markdown.tables" : {
+      "default" : "scroll",
+      "description" : "markdown.tables",
+      "enum" : [
+        "scroll",
+        "wrap"
+      ],
+      "title" : "Wide Tables",
+      "type" : "string"
+    },
+    "markdown.theme" : {
+      "default" : "app",
+      "description" : "markdown.theme",
+      "enum" : [
+        "app",
+        "light",
+        "dark"
+      ],
+      "title" : "Page Theme",
+      "type" : "string"
+    },
     "MinimumVersion" : {
       "description" : "Oldest cmux version allowed to sign in, for example 1.2.0.",
       "title" : "MinimumVersion",
@@ -1779,6 +2447,17 @@
       "description" : "notifications.dockBadge",
       "title" : "Unread Count on Dock Icon",
       "type" : "boolean"
+    },
+    "notifications.dockBounce" : {
+      "default" : "once",
+      "description" : "When a notification alerts while cmux isn't the active app.",
+      "enum" : [
+        "off",
+        "once",
+        "untilActive"
+      ],
+      "title" : "Bounce Dock Icon",
+      "type" : "string"
     },
     "notifications.mutedWorkspaces" : {
       "default" : [
@@ -2024,6 +2703,29 @@
       "title" : "Workspaces Prefix",
       "type" : "string"
     },
+    "phone.allowConnections" : {
+      "default" : false,
+      "description" : "So your phone can find this Mac, cmux registers with its servers this Mac's name, device ID and platform, the app's bundle ID, version and build channel, the Mac's relay address and connection key, and your account and team IDs. Workspace names, folders, full paths and terminal output go only over the encrypted link to your phone. None of that, and no branch name or repo URL, is sent to cmux servers.",
+      "title" : "Let Your Phone Use This Mac",
+      "type" : "boolean"
+    },
+    "phone.keepAwake" : {
+      "default" : "pluggedIn",
+      "description" : "A sleeping Mac can't be reached from your phone until it wakes. Closing the lid still puts the Mac to sleep.",
+      "enum" : [
+        "off",
+        "pluggedIn",
+        "always"
+      ],
+      "title" : "Keep Mac Awake for Your Phone",
+      "type" : "string"
+    },
+    "phone.startSessions" : {
+      "default" : true,
+      "description" : "Off, your phone can still follow, type into and answer what's already running.",
+      "title" : "Let Your Phone Start New Workspaces",
+      "type" : "boolean"
+    },
     "picker.pinned" : {
       "default" : [
 
@@ -2039,6 +2741,17 @@
       "description" : "Refuse sign-in to any team other than ManagedTeam on this device.",
       "title" : "RestrictToManagedTeam",
       "type" : "boolean"
+    },
+    "sessions.keepAwake" : {
+      "default" : "pluggedIn",
+      "description" : "Stops idle sleep while an agent on this Mac is working. Your display can still turn off, and closing the lid still puts the Mac to sleep.",
+      "enum" : [
+        "off",
+        "pluggedIn",
+        "always"
+      ],
+      "title" : "Keep Mac Awake While Agents Work",
+      "type" : "string"
     },
     "shortcuts.showModifierHoldHints" : {
       "default" : true,
@@ -2094,6 +2807,12 @@
       "title" : "Sidebar Density",
       "type" : "string"
     },
+    "sidebar.detailedStatusIcons" : {
+      "default" : false,
+      "description" : "Workspace rows show a separate icon for working, waiting for input, error and done. Off, a row shows a spinner while it works and a blue dot when it is ready for you.",
+      "title" : "Detailed Status Icons",
+      "type" : "boolean"
+    },
     "sidebar.groupBy" : {
       "default" : "none",
       "description" : "sidebar.groupBy",
@@ -2108,6 +2827,20 @@
       "default" : false,
       "description" : "Off: one list of workspaces, and a workspace on another computer names it under its title. On: a section per computer.",
       "title" : "Group Workspaces by Computer",
+      "type" : "boolean"
+    },
+    "sidebar.hoverCards.delay" : {
+      "default" : 250,
+      "description" : "How long the pointer rests on a workspace or a tab before its card opens. While a card shows, the next one opens at once.",
+      "maximum" : 5000,
+      "minimum" : 0,
+      "title" : "Hover Card Delay",
+      "type" : "number"
+    },
+    "sidebar.hoverCards.enabled" : {
+      "default" : true,
+      "description" : "A card with details opens when the pointer rests on a workspace or a tab.",
+      "title" : "Show Hover Cards",
       "type" : "boolean"
     },
     "sidebar.minimal" : {
@@ -2127,6 +2860,12 @@
       ],
       "title" : "Hide Bands Until Hover",
       "type" : "string"
+    },
+    "sidebar.nowPlaying.enabled" : {
+      "default" : true,
+      "description" : "A player for what is playing, at the bottom of the sidebar and on the new chat page.",
+      "title" : "Show Now Playing",
+      "type" : "boolean"
     },
     "sidebar.numbering" : {
       "default" : "allItems",
@@ -2751,6 +3490,16 @@
       "title" : "New Tab Template",
       "type" : "string"
     },
+    "tabs.overflow" : {
+      "default" : "shrink",
+      "description" : "Shrink narrows every tab to the minimum width before the strip scrolls. Scroll keeps tabs wide and scrolls sooner.",
+      "enum" : [
+        "shrink",
+        "scroll"
+      ],
+      "title" : "Tab Overflow",
+      "type" : "string"
+    },
     "tabs.plusButton" : {
       "default" : "hover",
       "description" : "On Hover shows each tab bar's + only while the pointer is over that tab bar.",
@@ -2766,39 +3515,6 @@
       "description" : "When on, Cmd-T opens a workspace in the current group and Cmd-N opens a tab. When off, Cmd-T opens a tab, or a workspace when an agent chat or a pane without tabs is focused.",
       "title" : "Swap Cmd-T and Cmd-N",
       "type" : "boolean"
-    },
-    "tabs.tabBar.agent" : {
-      "default" : "auto",
-      "description" : "Automatic shows the tab bar in terminal and browser panes, and hides it for an agent chat alone in its column. Show or hide one pane's tab bar from the command palette.",
-      "enum" : [
-        "auto",
-        "always",
-        "never"
-      ],
-      "title" : "Tab Bar in Agent Chats",
-      "type" : "string"
-    },
-    "tabs.tabBar.browser" : {
-      "default" : "auto",
-      "description" : "Automatic shows the tab bar in terminal and browser panes, and hides it for an agent chat alone in its column. Show or hide one pane's tab bar from the command palette.",
-      "enum" : [
-        "auto",
-        "always",
-        "never"
-      ],
-      "title" : "Tab Bar in Browser Panes",
-      "type" : "string"
-    },
-    "tabs.tabBar.terminal" : {
-      "default" : "auto",
-      "description" : "Automatic shows the tab bar in terminal and browser panes, and hides it for an agent chat alone in its column. Show or hide one pane's tab bar from the command palette.",
-      "enum" : [
-        "auto",
-        "always",
-        "never"
-      ],
-      "title" : "Tab Bar in Terminal Panes",
-      "type" : "string"
     },
     "tabs.toolbarButtons" : {
       "default" : [
@@ -2842,6 +3558,28 @@
       "title" : "Font Size",
       "type" : "number"
     },
+    "ui.animations.bounce" : {
+      "default" : "none",
+      "description" : "None stops tabs, rows and panes exactly at their place. Subtle lets them settle with a small bounce.",
+      "enum" : [
+        "none",
+        "subtle"
+      ],
+      "title" : "Animation Bounce",
+      "type" : "string"
+    },
+    "ui.animations.newTab" : {
+      "default" : true,
+      "description" : "A new tab grows into its place in the tab bar. Off shows it there at once.",
+      "title" : "Animate New Tabs",
+      "type" : "boolean"
+    },
+    "ui.animations.newWorkspace" : {
+      "default" : true,
+      "description" : "A new workspace row opens in the sidebar. Off shows it there at once.",
+      "title" : "Animate New Workspaces",
+      "type" : "boolean"
+    },
     "ui.animationSpeed" : {
       "default" : "fast",
       "description" : "ui.animationSpeed",
@@ -2854,7 +3592,7 @@
       "type" : "string"
     },
     "ui.paneAnimations" : {
-      "default" : false,
+      "default" : true,
       "description" : "Splits, closes, moves, zooms, column scrolls and screen switches slide into place. Off: they change at once.",
       "title" : "Animate Panes",
       "type" : "boolean"
@@ -2925,7 +3663,7 @@
     },
     "updates.showWhatsNew" : {
       "default" : true,
-      "description" : "After an update, a What's New item shows at the top of the sidebar until you open it.",
+      "description" : "After an update, a card at the bottom of the sidebar links to What's New until you open or dismiss it.",
       "title" : "Show What's New After Updates",
       "type" : "boolean"
     },
@@ -2948,6 +3686,12 @@
       ],
       "title" : "Titlebar Buttons",
       "type" : "string"
+    },
+    "workspaces.autoName" : {
+      "default" : true,
+      "description" : "A workspace you have not named shows its front tab's name: a page's title, an agent chat's title, or a terminal's title or folder. Your own name always wins.",
+      "title" : "Name Workspaces from Tabs",
+      "type" : "boolean"
     },
     "workspaces.newPlacement" : {
       "default" : "top",

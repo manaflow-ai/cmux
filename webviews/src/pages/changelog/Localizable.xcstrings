@@ -1049,6 +1049,270 @@
         }
       }
     },
+    "changelog.page.internalChange": {
+      "comment": "Changelog page, under All Changes: one more change left out as internal work (CI, tests, refactors) that people would not notice.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "and 1 internal change"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "وتغيير داخلي واحد"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "i još 1 interna izmjena"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "og 1 intern ændring"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "und 1 interne Änderung"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "y 1 cambio interno"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "et 1 modification interne"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "e 1 modifica interna"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ほか内部変更 1 件"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "និងការផ្លាស់ប្តូរផ្ទៃក្នុង 1"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "외 내부 변경 1개"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "og 1 intern endring"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "oraz 1 zmiana wewnętrzna"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "e 1 alteração interna"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "и ещё 1 внутреннее изменение"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "และการเปลี่ยนแปลงภายในอีก 1 รายการ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ve 1 dahili değişiklik"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "і ще 1 внутрішня зміна"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "và 1 thay đổi nội bộ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以及 1 项内部更改"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以及 1 項內部變更"
+          }
+        }
+      }
+    },
+    "changelog.page.internalChanges": {
+      "comment": "Changelog page, under All Changes: how many more changes were left out as internal work (CI, tests, refactors); %@ is the count, always 2 or more.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "and %@ internal changes"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "و%@ تغييرات داخلية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "i još internih izmjena: %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "og %@ interne ændringer"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "und %@ interne Änderungen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "y %@ cambios internos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "et %@ modifications internes"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "e %@ modifiche interne"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ほか内部変更 %@ 件"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "និងការផ្លាស់ប្តូរផ្ទៃក្នុង %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "외 내부 변경 %@개"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "og %@ interne endringer"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "oraz zmiany wewnętrzne: %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "e %@ alterações internas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "и ещё внутренних изменений: %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "และการเปลี่ยนแปลงภายในอีก %@ รายการ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ve %@ dahili değişiklik"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "і ще внутрішніх змін: %@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "và %@ thay đổi nội bộ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以及 %@ 项内部更改"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以及 %@ 項內部變更"
+          }
+        }
+      }
+    },
     "changelog.page.updatedTo": {
       "comment": "Changelog page banner after an update whose versions have no notes; %@ is the new version.",
       "extractionState": "manual",
