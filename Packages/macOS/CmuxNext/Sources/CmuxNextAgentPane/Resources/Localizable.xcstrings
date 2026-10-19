@@ -26607,6 +26607,40 @@
           }
         }
       }
+    },
+    "agentPane.error.daemonHeldByOtherBuild": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "acpmux is running, but %1$@ owns it (%2$@) and this build may not use it. Quit %1$@, or use that build."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "acpmux は実行中ですが、%1$@ が所有しているため (%2$@)、このビルドでは使えません。%1$@ を終了するか、そのビルドを使ってください。"
+          }
+        }
+      }
+    },
+    "agentPane.error.daemonRefused": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "acpmux is running at %1$@, but this build may not use it: %2$@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "acpmux は %1$@ で実行中ですが、このビルドでは使えません: %2$@。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

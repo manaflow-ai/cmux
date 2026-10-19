@@ -986,3 +986,40 @@ main .gallery-entry-error {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* Entry options (EntryOptions.tsx): the entry's own switches, under the shared controls. */
+.gallery-options {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 14px;
+  margin-top: 8px;
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+}
+.gallery-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.gallery-option-label {
+  color: var(--g-muted);
+}
+.gallery-option[data-edited] .gallery-option-label,
+.gallery-option-toggle[data-edited] {
+  color: var(--g-text);
+  font-weight: var(--weight-emphasis);
+}
+.gallery-option-toggle input {
+  margin: 0;
+}
+.gallery-options-reset {
+  border: 1px solid var(--g-line);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--g-text);
+  padding: 1px 8px;
+}
+.gallery-options-reset:disabled {
+  opacity: 0.4;
+}

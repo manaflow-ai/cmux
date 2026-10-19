@@ -230,16 +230,27 @@ export function takesAudio(promptCapabilities: unknown, configOptions: unknown):
   return Array.isArray(modalities) && modalities.includes("audio");
 }
 
+/// The largest recording a prompt carries: the host stops keeping audio at two minutes (3.84 MB
+/// of 16 kHz PCM), so this only backs that cap up. A bigger clip would go out as one huge JSON
+/// line that the model's API refuses; the transcript goes alone instead.
+export const MAX_AUDIO_BYTES = 4 * 1024 * 1024;
+
 /// A dictation session's recording as a chip, for a harness that takes voice input
-/// (`promptCapabilities.audio`): it goes with the prompt beside the transcript.
-export function audioAttachment(audio: { mimeType: string; data: string }, name: string): ComposerAttachment {
+/// (`promptCapabilities.audio`): it goes with the prompt beside the transcript. Undefined past
+/// `MAX_AUDIO_BYTES`.
+export function audioAttachment(
+  audio: { mimeType: string; data: string },
+  name: string,
+): ComposerAttachment | undefined {
   const padding = audio.data.endsWith("==") ? 2 : audio.data.endsWith("=") ? 1 : 0;
+  const size = Math.floor((audio.data.length * 3) / 4) - padding;
+  if (size > MAX_AUDIO_BYTES) return undefined;
   return {
     id: crypto.randomUUID(),
     kind: "audio",
     name,
     mimeType: audio.mimeType,
-    size: Math.floor((audio.data.length * 3) / 4) - padding,
+    size,
     data: audio.data,
   };
 }

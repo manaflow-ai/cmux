@@ -5,9 +5,10 @@ import CmuxNextDaemon
 /// Notification actions over the daemon's retained unread markers
 /// (`TabModel.notification`) and `ack-tab-notifications`
 /// (notification-ack-v1), and the notifications panel over the ledger
-/// (`list-notifications`, `notification.clear`). The daemon cannot mark a
-/// notification unread, so that is refused. The row verbs act on the panel
-/// row their `notification` argument names, else on the latest unread.
+/// (`list-notifications`, `notification.clear`). Marking unread marks the
+/// tab itself (``TabUnreadMark``, `tab-mark-unread-v1`): a notification is
+/// never made unread again. The row verbs act on the panel row their
+/// `notification` argument names, else on the latest unread.
 enum NotificationHandlers {
     static let ack = DaemonCapabilities.shared.notificationAck
 
@@ -47,12 +48,12 @@ enum NotificationHandlers {
             guard !tabs.isEmpty else { throw ActionFailure(message: MiscHandlerStrings.noUnread) }
             try acknowledge(tabs.map(\.tab.surface), context)
         })
-        registry.bind("toggleUnread", requires: ack, daemon: context.daemon, run: { invocation in
+        // Toggle Tab Unread: reads an unread tab, else marks it unread (any tab, no notification needed).
+        registry.bind("toggleUnread", run: { invocation in
             guard let (pane, id) = context.scope(invocation).tab, let tab = pane.tab(id) else {
                 throw ActionFailure(message: MiscHandlerStrings.noPane)
             }
-            guard tab.hasUnread else { throw ActionFailure(message: MiscHandlerStrings.markUnread) }
-            try acknowledge([tab.surface], context)
+            try TabUnreadMark.toggle(tab, pane: pane.pane, context: context)
         })
         registry.bind("notificationOpen", run: { invocation in
             guard let row = try panel.row(invocation) else { return try open(latestUnread(context), context) }
@@ -64,10 +65,15 @@ enum NotificationHandlers {
         })
         registry.bind("notificationToggleRead", requires: ack, daemon: context.daemon, run: { invocation in
             if let row = try panel.row(invocation) {
-                guard row.unread, let surface = row.surface else { throw ActionFailure(message: MiscHandlerStrings.markUnread) }
-                return try acknowledge([surface], context)
+                guard let surface = row.surface else { throw ActionFailure(message: NotificationsPanelStrings.sourceClosed) }
+                if row.unread { return try acknowledge([surface], context) }
+                // A read row: Mark Unread marks its tab unread (the notification stays read).
+                guard let located = context.services.notifications.locate(surface: surface, in: context.daemon.store) else {
+                    throw ActionFailure(message: NotificationsPanelStrings.sourceClosed)
+                }
+                return try TabUnreadMark.set(true, tab: located.tab, daemon: context.services.daemon(for: located.pane))
             }
-            guard let latest = unread(context).last else { throw ActionFailure(message: MiscHandlerStrings.markUnread) }
+            guard let latest = unread(context).last else { throw ActionFailure(message: MiscHandlerStrings.noUnread) }
             try acknowledge([latest.tab.surface], context)
         })
         registry.bind("notificationDismiss", requires: ack, daemon: context.daemon, run: { invocation in

@@ -136,6 +136,7 @@ import { loadHighlightedCode } from "./conversation/CodeBlock";
 import { loadEditDiffHunks } from "./conversation/EditDiff";
 import { PlanList } from "./conversation/PlanList";
 import { BackgroundTaskNote } from "./conversation/BackgroundTaskNote";
+import { CompactionNote, FailoverNote } from "./conversation/CompactionNote";
 import {
   SessionCwdContext,
   SessionEditsContext,
@@ -690,6 +691,18 @@ const BackgroundTaskRow = memo(
   },
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
 );
+const CompactionRow = memo(
+  function CompactionRow({ row }: RowProps) {
+    return row.compaction ? <CompactionNote compaction={row.compaction} /> : null;
+  },
+  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
+);
+const FailoverRow = memo(
+  function FailoverRow({ row }: RowProps) {
+    return row.failover ? <FailoverNote failover={row.failover} /> : null;
+  },
+  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
+);
 const NoticeRow = memo(
   function NoticeRow({ row }: RowProps) {
     return <div className="acpmux-muted">{row.text}</div>;
@@ -783,6 +796,8 @@ const defaultRegistry: NativeRegistry = {
   notice: NoticeRow,
   plan: PlanRow,
   backgroundTask: BackgroundTaskRow,
+  compaction: CompactionRow,
+  failover: FailoverRow,
   sessionOffer: SessionOfferRow,
   [OFFER_RESULT]: OfferResultRow,
   typing: NoticeRow,
@@ -966,9 +981,14 @@ function RowFrame({
 const speaker = (kind: string, t: Translate) =>
   kind === "user" ? t("transcript.you") : kind === "assistant" ? t("transcript.agent") : undefined;
 const rowKind = (row: AcpmuxRow) => (isEditRow(row) ? "editedFiles" : row.kind);
-/// A row drawn as tool rows: tool calls and thoughts, or a background task's end.
+/// A row drawn as tool rows: tool calls and thoughts, a background task's end, a compaction or a
+/// failover note.
 const isStepRow = (row: AcpmuxRow | undefined) =>
-  row !== undefined && (row.kind === "backgroundTask" || (row.kind === "activity" && !isEditRow(row)));
+  row !== undefined &&
+  (row.kind === "backgroundTask" ||
+    row.kind === "compaction" ||
+    row.kind === "failover" ||
+    (row.kind === "activity" && !isEditRow(row)));
 const rowDomId = (id: string) => `acpmux-row-${encodeURIComponent(id)}`;
 const disclosureControls = (rows: readonly AcpmuxRow[], after: number): string | undefined => {
   const ids: string[] = [];
@@ -3436,7 +3456,15 @@ function AcpmuxPane() {
   }).current;
   const dictation = useDictation(dictationTarget, callNative, {
     accepts: snapshot.summary?.promptCapabilities?.audio === true,
-    attach: (audio) => composerHandle.current?.attach(audioAttachment(audio, translate("dictation.recording"))),
+    attach: (audio) => {
+      const recording = audioAttachment(audio, translate("dictation.recording"));
+      if (recording) composerHandle.current?.attach(recording);
+      else directClient.current?.notice(translate("dictation.recordingTooLong"));
+    },
+    omitted: (reason) =>
+      directClient.current?.notice(
+        translate(reason === "tooLong" ? "dictation.recordingTooLong" : "dictation.recordingNarrowband"),
+      ),
   });
   /// Why the host could not hand this pane acpmux (not installed, a daemon that will not start),
   /// in the host's words; cleared once a handshake succeeds.
@@ -5496,6 +5524,7 @@ function AcpmuxPane() {
               dictationField={newTabDictationField}
               notice={<DictationNotice dictation={dictation} />}
               template={screenTemplate(shownTemplate(newTab))}
+              {...(newTab.widgets ? { widgets: true } : {})}
               snapshot={composerSnapshot}
               omnibar={newTab.omnibar}
               location={newTab.location}
