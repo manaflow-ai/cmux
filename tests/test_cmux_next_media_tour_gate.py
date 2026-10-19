@@ -183,6 +183,12 @@ def main():
     _check(expression(tour_env["BASE_SHA"], dispatch_event("d" * 40)) == "d" * 40,
            "a batch tour compares against the stack's base, so it maps the union of the group's tours")
     _check(expression(tour_env["HEAD_SHA"], dispatch_event("d" * 40)) == "c" * 40, "a batch tour tours the group branch")
+    _check(str(expression(route_env["SAME_REPO"], dispatch_event("d" * 40))).lower() == "true",
+           "a batch dispatch counts as same-repository, so an owned Mac takes the tour")
+    _check(bool(expression(route_env["PR_XCODE_APP"], dict(dispatch_event("d" * 40), vars={"CMUX_CI_XCODE_APP_PR": "x"}))),
+           "a batch dispatch gets the PR Xcode pin")
+    _check(not expression(jobs["publish"]["if"], dispatch_event("d" * 40)),
+           "a batch dispatch publishes nothing; the queue reads the tour's artifact")
     _check(expression(tour_env["TOUR_TAG"], dispatch_event("d" * 40)) == "ci-media-batch",
            "batch tours keep their own tag, apart from the merge tours' DerivedData")
 

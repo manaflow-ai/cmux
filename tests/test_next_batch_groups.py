@@ -33,11 +33,13 @@ def pr(number: int, **fields) -> nb.PullRequest:
 class Assembly(unittest.TestCase):
     def test_members_share_one_batch_label(self):
         prs = [pr(1, labels=["batch:ui"]), pr(2, labels=["batch:ui", "dev-build"]), pr(3, labels=["batch:infra"]),
-               pr(4), pr(5, labels=["batch:ui", "batch:infra"])]
+               pr(4), pr(5, labels=["batch:ui", "batch:infra"]),
+               pr(6, labels=["batch:", "batch:ui"])]
         found = groups.assemble(prs)
         self.assertEqual({name: [item.number for item in members] for name, members in found.items()},
                          {"ui": [1, 2], "infra": [3]})
         self.assertEqual(groups.conflicting_groups(prs[4].labels), ["batch:infra", "batch:ui"])
+        self.assertEqual(groups.conflicting_groups(prs[5].labels), ["batch:", "batch:ui"])
 
     def test_stack_order_wins_then_label_order_then_number(self):
         a, b, c, d = pr(10), pr(11), pr(12), pr(13)
@@ -132,7 +134,22 @@ class GroupLanes(unittest.TestCase):
                         .startswith("failed"))
         self.assertTrue(item.judge_tour({"conclusion": "success"}, None, "success").startswith("failed"))
         self.assertTrue(item.judge_tour({"conclusion": "success"}, None, "skipped").startswith("did not run"))
-        self.assertTrue(item.judge_tour({"conclusion": "failure"}, {"status": "ok"}, "failure").startswith("failed"))
+        # A failed tour job (the base app's build, setup) blames nobody unless the recorder failed.
+        self.assertTrue(item.judge_tour({"conclusion": "failure"}, None, "failure").startswith("did not run"))
+        self.assertTrue(item.judge_tour({"conclusion": "failure"}, {"status": "recorder-failed"}, "failure")
+                        .startswith("failed"))
+
+
+class GroupWeb(unittest.TestCase):
+    def test_web_is_compared_with_the_web_run_at_the_stacks_base(self):
+        item = controller()
+        item.gh.runs.return_value = [{"id": 2, "head_branch": nb.BASE, "status": "completed", "head_sha": "b" * 40}]
+        item.failed_jobs = lambda run_id, detail=False: {1: ["web / react-apps-check: step Check"],
+                                                       2: ["web / react-apps-check: step Check"]}[run_id]
+        self.assertEqual(item.judge_web({"id": 1, "conclusion": "failure"}, "b" * 40), "passed")
+        self.assertIn("head_sha=" + "b" * 40, item.gh.runs.call_args.args[1])
+        item.failed_jobs = lambda run_id, detail=False: []
+        self.assertTrue(item.judge_web({"id": 1, "conclusion": "startup_failure"}, "b" * 40).startswith("did not run"))
 
 
 class GroupBisectAndLand(unittest.TestCase):
@@ -159,8 +176,12 @@ class GroupBisectAndLand(unittest.TestCase):
         item.base_moved_onto = lambda old, new, files: base_moved
         item.fresh_members = lambda prs: {target.number: target for target in prs}
 
+        refusals = list(getattr(self, "refusals", []))
+
         def fake_run(command, **_):
             merges.append(command)
+            if refusals:
+                return subprocess.CompletedProcess(command, 1, "", refusals.pop(0))
             return subprocess.CompletedProcess(command, 0, "", "")
 
         with mock.patch.object(nb.subprocess, "run", fake_run), \
@@ -204,10 +225,54 @@ class GroupBisectAndLand(unittest.TestCase):
         self.assertEqual(merges, [])
         self.assertIn("no exclude list", outcome[0][1])
 
+    def test_a_base_branch_modified_refusal_is_retried(self):
+        self.refusals = ["GraphQL: Base branch was modified. Review and try the merge again. (mergePullRequest)"]
+        with mock.patch.object(nb.time, "sleep"):
+            outcome, comments, merges = self.run_group([pr(1), pr(2)], red_member=None)
+        self.assertEqual([text for _, text in outcome], ["landed", "landed"])
+        self.assertEqual([command[3] for command in merges], ["1", "1", "2"])
+
     def test_a_dry_run_merges_nothing(self):
         outcome, comments, merges = self.run_group([pr(1), pr(2)], red_member=None, dry_run=True)
         self.assertEqual(merges, [])
         self.assertTrue(all(text == "validated; landing disabled for this run" for _, text in outcome))
+
+class GroupCycle(unittest.TestCase):
+    def test_after_a_group_lands_the_cycle_stops_and_starts_fresh(self):
+        item = controller()
+        item.reported = lambda target, kinds: ""
+        item.fetch = lambda prs: "b" * 40
+        item.group_meta = lambda prs: {target.number: {"labeled": {}} for target in prs}
+        item.is_ancestor = lambda a, b: False
+        ran = []
+        item.run_group = lambda name, members: ran.append(name) or [(members[0], "landed")]
+        prs = [pr(1, labels=["batch:a"]), pr(2, labels=["batch:b"])]
+        outcome = item.run_groups(prs, None, {})
+        self.assertEqual(ran, ["a"])  # b validates next cycle, on the base a landed on
+        self.assertEqual([text for _, text in outcome], ["landed"])
+
+    def test_the_same_heads_are_not_validated_again_within_the_hour(self):
+        item = controller()
+        item.reported = lambda target, kinds: ""
+        item.fetch = lambda prs: "b" * 40
+        item.group_meta = lambda prs: {target.number: {"labeled": {}} for target in prs}
+        item.is_ancestor = lambda a, b: False
+        ran = []
+        item.run_group = lambda name, members: ran.append(name) or [(members[0], "not landed: lane did not run")]
+        nb.GROUP_TRIED.clear()
+        prs = [pr(1, labels=["batch:a"])]
+        item.run_groups(prs, None, {})
+        skipped = {}
+        item.run_groups(prs, None, skipped)
+        self.assertEqual(ran, ["a"])
+        self.assertIn("tried at these heads", skipped[1])
+
+    def test_lanes_use_each_members_full_diff(self):
+        item = controller()
+        item.git = mock.Mock(return_value="\n".join(f"webviews/src/f{index}.ts" for index in range(150)))
+        self.assertEqual(len(item.member_files(pr(1), "b" * 40)), 150)
+        self.assertIn("b" * 40 + "..." + pr(1).sha, item.git.call_args.args)
+
 
 if __name__ == "__main__":
     unittest.main()
