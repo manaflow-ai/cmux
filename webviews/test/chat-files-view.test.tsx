@@ -163,3 +163,10 @@ test("a folder in no git repository says so", async () => {
   await show({ outside: true });
   expect(host.querySelector(".acpmux-file-viewer-note")?.textContent).toBe("This folder isn't in a git repository");
 });
+
+// Lucas 2026-10-19: the open viewer needs a plain way out besides Back: an X at the header's end.
+test("the viewer's X closes it", async () => {
+  const { events } = await show();
+  await act(async () => host.querySelector<HTMLButtonElement>('.acpmux-diff-header button[aria-label="Close"]')!.click());
+  expect(events).toEqual(["close"]);
+});
