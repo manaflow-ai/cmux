@@ -14,11 +14,8 @@
 //! - `_acpmux/watch_take_over` ends the watch. While the original app still runs the
 //!   conversation (`adopt_live.rs`) it is refused with `adopt.live` unless `ifLive` is `fork`
 //!   (Claude Code: a new conversation branches off) or `open` (both apps on one conversation).
-//!   Take Over starts the harness on the conversation (`claude --resume`, Codex
-//!   `session/load`) before the watch ends; the history it shows is already there. When that
-//!   start fails the chat goes on viewing, and the refusal says `watch.resumeFailed`.
-//! - `watch_taken_over` carries `family` and `cwd`, so a client can say how the original app
-//!   goes on (`claude --resume <id>` in that folder, `codex resume <id>`).
+//!   The next prompt then starts the harness on the conversation as for any idle chat
+//!   (`claude --resume`, Codex `session/load`); the history it shows is already there.
 //! - The read position is saved with the session, so a watch goes on after a daemon restart
 //!   where it stopped.
 //! - A transcript over 64 MiB is read from its newest 64 MiB.
@@ -229,7 +226,7 @@ impl Hub {
     /// Refused with `adopt.live` while the original app still runs it, unless `if_live` forks it
     /// (Claude Code) or opens it anyway.
     pub async fn watch_take_over(
-        self: &Arc<Self>,
+        &self,
         session: &Arc<Session>,
         if_live: IfLive,
     ) -> Result<Value, RpcError> {
@@ -265,43 +262,29 @@ impl Hub {
             }
         }
         let fork = if_live == IfLive::Fork;
-        // The agent starts on the conversation now, while the chat still views it: a resume that
-        // fails (a rollout gone, a folder gone, a harness that will not start) leaves the chat
-        // viewing, and says why, so the pane can offer Continue as New.
-        if fork {
-            *session.fork_from.lock().unwrap_or_else(|e| e.into_inner()) = Some(id.clone());
-            session.meta.lock().unwrap_or_else(|e| e.into_inner()).agent_session_id = None;
-        }
-        if let Err(e) = self.start_child(session).await {
-            if fork {
-                *session.fork_from.lock().unwrap_or_else(|e| e.into_inner()) = None;
-                session.meta.lock().unwrap_or_else(|e| e.into_inner()).agent_session_id =
-                    Some(id.clone());
-            }
-            self.append(session, "mux", "watch_take_over_failed", json!({"error": e.message}));
-            return Err(RpcError::invalid_params(format!(
-                "this {family} chat could not be resumed here: {}",
-                e.message
-            ))
-            .with_data(json!({"reason": "watch.resumeFailed", "error": e.message})));
-        }
         let open = {
             let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
-            m.watching.take().and_then(|w| w.open)
+            let open = m.watching.take().and_then(|w| w.open);
+            // A fork resumes nothing as itself: its first spawn branches the conversation off.
+            if fork {
+                m.agent_session_id = None;
+            }
+            open
         };
         // The other app's open turn is settled here: this chat's own turns follow.
         if let Some(turn) = open {
             self.end_watched_turn(session, &turn, None);
         }
+        if fork {
+            *session.fork_from.lock().unwrap_or_else(|e| e.into_inner()) = Some(id.clone());
+        }
         self.save_meta(session);
         // Watchers hear it as `_acpmux/session_changed`, with the summary that has no `watching`.
-        // `family` and `cwd` say where the conversation goes on outside cmux (the pane's line).
-        let cwd = session.meta().cwd;
         self.append(
             session,
             "mux",
             "watch_taken_over",
-            json!({"agentSessionId": id, "fork": fork, "family": family, "cwd": cwd}),
+            json!({"agentSessionId": id, "fork": fork}),
         );
         Ok(self.session_summary(session))
     }
