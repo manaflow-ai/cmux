@@ -2061,11 +2061,17 @@ public func FfiConverterTypeBrowserStats_lower(_ value: BrowserStats) -> RustBuf
 public struct ConnectOptions: Equatable, Hashable {
     /**
      * Debug "simulate distant network": skip every direct path. WebRTC
-     * uses ICE transport policy `relay` with the service's TURN servers
-     * (path `Turn`; no TURN server fails the dial), WireGuard uses only the
-     * backend relay frames (path `Relay`).
+     * uses ICE transport policy `relay` with the service's TURN servers,
+     * WireGuard only its TURN allocation (path `Turn`, or `TurnTls` when
+     * the allocation had to use TLS). No TURN server fails the dial.
      */
     public var relayOnly: Bool
+    /**
+     * Debug "simulate a network that blocks UDP": WireGuard sends and
+     * accepts no plain UDP and skips TURN over UDP, so it rides TURN over
+     * TLS on 443 (path `TurnTls`). WebRTC ignores it.
+     */
+    public var blockUdp: Bool
     /**
      * Debug: do not offer the media lane, so browser video rides its
      * reliable channel on either transport (the comparison baseline).
@@ -2077,15 +2083,21 @@ public struct ConnectOptions: Equatable, Hashable {
     public init(
         /**
          * Debug "simulate distant network": skip every direct path. WebRTC
-         * uses ICE transport policy `relay` with the service's TURN servers
-         * (path `Turn`; no TURN server fails the dial), WireGuard uses only the
-         * backend relay frames (path `Relay`).
+         * uses ICE transport policy `relay` with the service's TURN servers,
+         * WireGuard only its TURN allocation (path `Turn`, or `TurnTls` when
+         * the allocation had to use TLS). No TURN server fails the dial.
          */relayOnly: Bool = false, 
+        /**
+         * Debug "simulate a network that blocks UDP": WireGuard sends and
+         * accepts no plain UDP and skips TURN over UDP, so it rides TURN over
+         * TLS on 443 (path `TurnTls`). WebRTC ignores it.
+         */blockUdp: Bool = false, 
         /**
          * Debug: do not offer the media lane, so browser video rides its
          * reliable channel on either transport (the comparison baseline).
          */noVideoLane: Bool = false) {
         self.relayOnly = relayOnly
+        self.blockUdp = blockUdp
         self.noVideoLane = noVideoLane
     }
 
@@ -2106,12 +2118,14 @@ public struct FfiConverterTypeConnectOptions: FfiConverterRustBuffer {
         return
             try ConnectOptions(
                 relayOnly: FfiConverterBool.read(from: &buf), 
+                blockUdp: FfiConverterBool.read(from: &buf), 
                 noVideoLane: FfiConverterBool.read(from: &buf)
         )
     }
 
     public static func write(_ value: ConnectOptions, into buf: inout [UInt8]) {
         FfiConverterBool.write(value.relayOnly, into: &buf)
+        FfiConverterBool.write(value.blockUdp, into: &buf)
         FfiConverterBool.write(value.noVideoLane, into: &buf)
     }
 }
@@ -2508,8 +2522,18 @@ public func FfiConverterTypeLinkEvent_lower(_ value: LinkEvent) -> RustBuffer {
 public enum LinkPath: Equatable, Hashable {
     
     case direct
-    case relay
+    /**
+     * Through a TURN server over UDP.
+     */
     case turn
+    /**
+     * Through a TURN server reached over TLS (UDP blocked).
+     */
+    case turnTls
+    /**
+     * No working route at the moment.
+     */
+    case noPath
 
 
 
@@ -2533,9 +2557,11 @@ public struct FfiConverterTypeLinkPath: FfiConverterRustBuffer {
         
         case 1: return .direct
         
-        case 2: return .relay
+        case 2: return .turn
         
-        case 3: return .turn
+        case 3: return .turnTls
+        
+        case 4: return .noPath
         
         default: throw UniffiInternalError.unexpectedEnumCase
         }
@@ -2549,12 +2575,16 @@ public struct FfiConverterTypeLinkPath: FfiConverterRustBuffer {
             writeInt(&buf, Int32(1))
         
         
-        case .relay:
+        case .turn:
             writeInt(&buf, Int32(2))
         
         
-        case .turn:
+        case .turnTls:
             writeInt(&buf, Int32(3))
+        
+        
+        case .noPath:
+            writeInt(&buf, Int32(4))
         
         }
     }
@@ -2839,8 +2869,8 @@ public func connectWithOptions(baseUrl: String, token: String, teamId: String, d
 /**
  * The device's network changed or came back (iOS `NWPathMonitor`): every
  * WireGuard link moves onto the new network at once without a redial, and
- * the signaling socket is checked (and replaced when dead) so relay frames
- * flow again. Returns the steps: the first link's roam marks, then the
+ * the signaling socket is checked (and replaced when dead) so signaling
+ * works again. Returns the steps: the first link's roam marks, then the
  * signaling ones prefixed `signaling:`.
  */
 public func networkChanged(baseUrl: String, token: String, teamId: String, deviceId: String)async  -> [TimingMark]  {
@@ -2923,7 +2953,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cnx_ffi_checksum_func_connect_with_options() != 14347) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cnx_ffi_checksum_func_network_changed() != 34403) {
+    if (uniffi_cnx_ffi_checksum_func_network_changed() != 29696) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cnx_ffi_checksum_func_prewarm() != 62590) {

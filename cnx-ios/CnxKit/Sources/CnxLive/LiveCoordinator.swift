@@ -1295,9 +1295,10 @@ public final class LiveCoordinator {
                 }
             }
         case .waiting(let transport, _, let reason, _):
-            // An offline Mac is not a connection failure; without TURN, WebRTC
-            // from another network cannot get through: say so.
-            let relay = relayAvailable == false && transport == .webRTC ? ". Relay (TURN) unavailable" : ""
+            // An offline Mac is not a connection failure; without TURN, neither
+            // transport gets through from another network (WireGuard's backend
+            // relay is retired), so say so.
+            let relay = relayAvailable == false ? ". Relay (TURN) unavailable" : ""
             banner = reason == LinkController.reason(LinkError(code: "offline", message: ""))
                 ? .macOffline(name) : .failed("Can't reach \(name) over \(transport.displayName)\(relay)")
         }
