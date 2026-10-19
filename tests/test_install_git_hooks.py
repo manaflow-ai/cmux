@@ -251,6 +251,36 @@ class InstallGitHooksTests(unittest.TestCase):
         hook = Path(self.local_hooks_path()) / "pre-commit"
         return subprocess.run([str(hook)], cwd=self.repo, env=env, text=True, capture_output=True)
 
+    def test_pre_commit_registers_only_the_commits_own_tests(self):
+        """The base carried an unregistered test; the hook wrote it into whichever pull request
+        committed a test next, so unrelated pull requests conflicted on the registry (#21946)."""
+        self.assertEqual(self.install().returncode, 0)
+        workflow = self.repo / ".github/workflows/ci-guards.yml"
+        workflow.parent.mkdir(parents=True, exist_ok=True)
+        workflow.write_text(
+            "name: CI guards\njobs:\n  workflow-guard-tests:\n    steps:\n"
+            "      - run: python3 tests/test_kept.py\n"
+            "      - run: python3 tests/test_base.py\n      - run: python3 tests/test_mine.py\n",
+            encoding="utf-8",
+        )
+        registry = self.repo / "tests/test-execution.toml"
+        registry.parent.mkdir(parents=True, exist_ok=True)
+        registry.write_text('version = 1\n\n[[test]]\npath = "tests/test_kept.py"\nlane = "linux-guard"\n',
+                            encoding="utf-8")
+        for name in ("test_kept.py", "test_base.py"):
+            (self.repo / "tests" / name).write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+        self.git("add", "-A")
+        self.git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "--quiet", "--no-verify", "-m", "base")
+
+        (self.repo / "tests/test_mine.py").write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+        self.git("add", "tests/test_mine.py")
+        result = subprocess.run([str(Path(self.local_hooks_path()) / "pre-commit")], cwd=self.repo,
+                                env=self.env, text=True, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        text = registry.read_text(encoding="utf-8")
+        self.assertIn('path = "tests/test_mine.py"', text)
+        self.assertNotIn("tests/test_base.py", text)
+
     def test_pre_commit_formats_rust_outside_cmux_tui_with_its_edition(self):
         self.assertEqual(self.install().returncode, 0)
         source = self.stage_rust_package("Native/OptChat/probe", "2024")
