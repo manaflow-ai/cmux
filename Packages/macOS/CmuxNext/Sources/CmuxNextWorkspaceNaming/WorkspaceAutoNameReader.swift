@@ -63,13 +63,15 @@ public struct WorkspaceAutoNameReader {
     }
 
     /// The name a workspace made from `tab` takes (`TabMoves.toNewWorkspace`: a drag, a tear-off
-    /// into its own window, Move Pane): an agent chat its user name, else its chat's title (none
-    /// for a New Tab page, whose workspace keeps the daemon's name until it is a chat), any other
-    /// tab what `NewWorkspaceName.forTab` gives it. A chat tab's record carries no title or
+    /// into its own window, Move Pane): an agent chat its user name, else its chat's real title
+    /// (none for a New Tab page or a chat titled only by its first prompt: a name written now
+    /// lasts, so those keep the daemon's name and read as the chat live, `displayName`), any
+    /// other tab what `NewWorkspaceName.forTab` gives it. A chat tab's record carries no title or
     /// folder, so read as a terminal it named nothing and the window read "workspace-41".
     public func newWorkspaceName(_ tab: TabModel) -> String? {
-        if tab.agentSession != nil { return front(tab).flatMap(WorkspaceAutoName.derived) }
-        return NewWorkspaceName.forTab(terminal(tab))
+        guard let session = tab.agentSession else { return NewWorkspaceName.forTab(terminal(tab)) }
+        if isNewTabPage(tab) { return nil }
+        return NewWorkspaceName.clean(tab.name) ?? NewWorkspaceName.clean(turns.generatedTitle(for: session))
     }
 
     /// What a window's titlebar names `workspace`, whose front tab is `front`: its sidebar row's

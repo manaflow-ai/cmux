@@ -19,11 +19,13 @@ struct TornOffWorkspaceNameTests {
         return TabModel(snapshot)
     }
 
-    static func turns(_ titles: [String: String]) -> AgentTurnStateStore {
+    /// Chats titled by their agent (`generated`), or only by their first prompt.
+    static func turns(_ titles: [String: String], generated: Bool = true) -> AgentTurnStateStore {
         let turns = AgentTurnStateStore()
         turns.localHost = host
         for (session, title) in titles {
-            turns.apply(session: session, state: nil, lastMessage: nil, muted: false, title: title, detail: nil)
+            turns.apply(session: session, state: nil, lastMessage: nil, muted: false, title: title,
+                        generatedTitle: generated ? title : nil, detail: nil)
         }
         return turns
     }
@@ -50,6 +52,13 @@ struct TornOffWorkspaceNameTests {
     @Test func aChatTheUserNamedNamesItsWorkspaceSo() {
         let reader = Self.reader(Self.turns(["s1": "Fix the sidebar drag"]))
         #expect(reader.newWorkspaceName(Self.chatTab("s1", name: "Release notes")) == "Release notes")
+    }
+
+    @Test func aChatTitledOnlyByItsFirstPromptKeepsTheDaemonsNameButReadsAsTheChat() throws {
+        // A name written now lasts: the prompt would stand in for the agent's title for good.
+        let reader = Self.reader(Self.turns(["s1": "fix the flaky test in Foo"], generated: false))
+        #expect(reader.newWorkspaceName(Self.chatTab("s1")) == nil)
+        #expect(reader.displayName(try Self.workspace("workspace-41"), front: Self.chatTab("s1")) == "fix the flaky test in Foo")
     }
 
     @Test func aNewTabPageKeepsTheDaemonsName() {
