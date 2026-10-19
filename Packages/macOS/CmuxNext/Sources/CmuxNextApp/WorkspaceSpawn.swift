@@ -96,16 +96,6 @@ struct WorkspaceSpawn: Sendable {
     }
 }
 
-extension WorkspaceSpawn {
-    /// A person's new workspace always starts on the New Tab page (Lawrence 2026-10-10, cx-n0i9:
-    /// "cmd n and cmd t need to always be the new tab page"). The Terminal template dot no longer
-    /// skips the page: a saved `tabs.newTabTemplate: "terminal"` (the page's dots wrote it) stays
-    /// in cmux.json untouched and the page draws its default screen.
-    func honoring(_ template: NewTabTemplate?) -> WorkspaceSpawn {
-        self
-    }
-}
-
 extension WindowManager {
     /// Creates a workspace and returns its id (`WorkspaceSpawner`).
     func createWorkspace(_ spawn: WorkspaceSpawn, on daemon: DaemonService? = nil, into windowID: String? = nil,
@@ -154,6 +144,7 @@ struct WorkspaceSpawner {
         if let windowID, let name {
             let opensPage = WorkspaceCreation.opensPage(spawn, on: daemon, tabs: services.agentTabs)
             let face = SidebarMapping.shared.creatingRow(id: key.rawValue, machine: machine, name: name, opensPage: opensPage)
+            SidebarNewRowTimer.shared.began(key.rawValue)
             PendingWorkspaceRows.shared.add(.init(id: key.rawValue, window: windowID, machine: machine, face: face,
                                                   slot: spawn.slot, byDefault: rule), name: name)
         }
@@ -214,7 +205,7 @@ struct WorkspaceSpawner {
         let keep: Bool? = spawn.keep && daemon.supports(DaemonCapabilities.shared.terminalReap) ? true : nil
         let repair: EmptyWorkspaceRepair = services.machines.emptyWorkspaceRepair(daemon.machineID, local: services.emptyWorkspaces)
         let cwd = spawn.cwd ?? defaults?.cwd.flatMap { $0.isEmpty ? nil : ($0 as NSString).expandingTildeInPath } ?? daemon.defaultCwd
-        if let page = try await FirstTabHold.creating(key.rawValue, windows: windows, { try await WorkspaceCreation.newTabPage(spawn.honoring(services.settings?.snapshot.newTabTemplate), key, cwd: cwd, on: daemon, repair: repair, tabs: services.agentTabs) }) { return page }
+        if let page = try await FirstTabHold.creating(key.rawValue, windows: windows, { try await WorkspaceCreation.newTabPage(spawn, key, cwd: cwd, on: daemon, repair: repair, tabs: services.agentTabs) }) { return page }
         let command = spawn.command
         return try await WorkspaceCreation.create(key, name: spawn.name, on: connection, repair: repair) { created in
             _ = try await connection.request(CreateTerminalRequest(
