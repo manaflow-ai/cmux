@@ -103,7 +103,7 @@ const handle = (request: Request): Effect.Effect<Response, unknown, unknown> => 
   if (parts[0] === "identities" && parts.length === 1) return yield* identityCollection(request, principal, upstream, ownership, identities, audit, now);
   if (parts[0] === "identities") return yield* identityResource(request, parts.slice(1), principal, upstream, ownership, identities, audit, now);
   if (parts[0] === "snapshots" && parts[1] !== undefined) return yield* snapshotResource(request, parts[1], principal, upstream, ownership, audit, now);
-  if (parts[0] === "vms" && parts[1] !== undefined) return yield* vmResource(request, parts.slice(1), principal, upstream, ownership, audit, now);
+  if (parts[0] === "vms" && parts[1] !== undefined) return yield* vmResource(request, parts.slice(1), principal, upstream, ownership, audit, usage, now);
   return notAvailable();
 }).pipe(Effect.catchAll(() => Effect.succeed(unavailable())));
 
@@ -180,7 +180,7 @@ const createVm = (request: Request, principal: Principal, upstream: CompatUpstre
   });
 });
 
-const vmResource = (request: Request, parts: ReadonlyArray<string>, principal: Principal, upstream: CompatUpstreamService, ownership: OwnershipStoreService, audit: AuditStoreService, now: Date) => Effect.gen(function* () {
+const vmResource = (request: Request, parts: ReadonlyArray<string>, principal: Principal, upstream: CompatUpstreamService, ownership: OwnershipStoreService, audit: AuditStoreService, usage: { readonly record: (event: import("../metering/recorder.ts").UsageEvent) => Effect.Effect<void> }, now: Date) => Effect.gen(function* () {
   const id = parts[0];
   if (id === undefined) return notFound();
   const owned = yield* ownedVm(principal, id);
@@ -203,6 +203,17 @@ const vmResource = (request: Request, parts: ReadonlyArray<string>, principal: P
   }
   if (request.method === "DELETE" && response.ok) yield* ownership.markDeleted(principal.tenantId, "vm", owned.row.cmuxId, now).pipe(Effect.ignore);
   if (["POST", "PATCH", "PUT", "DELETE"].includes(request.method)) yield* audit.append({ tenantId: principal.tenantId, actor: actorRef(principal.actor), ownerActor: null, action: `v5.vm.${request.method.toLowerCase()}`, cmuxId: owned.row.cmuxId, outcome: response.ok ? "ok" : `HTTP_${response.status}`, at: now }).pipe(Effect.ignore);
+  if (response.ok && ["start", "pause", "resize"].includes(parts[1] ?? "")) {
+    const data = yield* Effect.promise(() => parseJson(response));
+    const resources = typeof data?.resources === "object" && data.resources !== null ? data.resources as Record<string, unknown> : {};
+    const vcpus = typeof resources.cpu === "number" ? resources.cpu : 0;
+    const memoryMb = typeof resources.memory === "number" ? resources.memory : 0;
+    const storageMb = typeof resources.storage === "number" ? resources.storage : 0;
+    if (parts[1] === "start") yield* usage.record({ kind: "vm_started", tenantId: principal.tenantId, upstreamVmId: owned.row.upstreamId, at: now, vcpus, memoryMb, storageMb }).pipe(Effect.ignore);
+    if (parts[1] === "pause") yield* usage.record({ kind: "vm_stopped", tenantId: principal.tenantId, upstreamVmId: owned.row.upstreamId, at: now, reason: "pause" }).pipe(Effect.ignore);
+    if (parts[1] === "resize") yield* usage.record({ kind: "vm_resized", tenantId: principal.tenantId, upstreamVmId: owned.row.upstreamId, at: now, vcpus, memoryMb, storageMb }).pipe(Effect.ignore);
+  }
+  if (response.ok && request.method === "DELETE") yield* usage.record({ kind: "vm_stopped", tenantId: principal.tenantId, upstreamVmId: owned.row.upstreamId, at: now, reason: "delete" }).pipe(Effect.ignore);
   return copyResponse(response);
 });
 const snapshotResource = (request: Request, id: string, principal: Principal, upstream: CompatUpstreamService, ownership: OwnershipStoreService, audit: AuditStoreService, now: Date) => Effect.gen(function* () {
