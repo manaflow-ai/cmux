@@ -91,7 +91,6 @@
     "agent-session/acpmux/conversation/icons.tsx#WrapLines",
     "agent-session/acpmux/icons/Icon.tsx#Icon",
     "agent-session/acpmux/icons/IconsContext.tsx#IconsProvider",
-    "agent-session/acpmux/question/QuestionCard.tsx#QuestionCard",
     "agent-session/shared/AgentMark.tsx#AgentMark",
     "comments/CommentComposer.tsx#CommentComposer",
     "comments/CommentsSection.tsx#CommentsSidebarSection",

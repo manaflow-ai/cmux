@@ -62,12 +62,16 @@ const REPEATS = new Set(["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"]);
 /// descriptions, a preview of the highlighted option, an inline Other answer, Skip and Submit.
 /// Bare keys work while focus is inside the card, and it takes the keyboard on arrival only when
 /// nothing else has it or the composer is empty. ⌘↩ submits; Escape skips (in the Other field it
-/// only leaves the field). Only a person's click or key sends an answer.
+/// only leaves the field, and on a multi-question tab it hands the keyboard back, keeping the
+/// answers so far). Skipping on Escape is this card's choice, after the Claude app's; the shared
+/// reducer (and the Mac card) still read Escape as "give the keyboard back". Only a person's click
+/// or key sends an answer.
 export function QuestionCard({ question, onReply }: { question: AgentQuestion; onReply(reply: QuestionReply): void }) {
   if (question.state.kind === "answered")
     return <AnsweredQuestion question={question} answer={question.state.answer} />;
   if (question.state.kind === "cancelled") return <CancelledQuestion question={question} />;
-  return <PendingAsk question={question} onReply={onReply} />;
+  // Keyed by the ask: a new ask starts unfolded with fresh choices.
+  return <PendingAsk key={question.id} question={question} onReply={onReply} />;
 }
 
 /// The pill over a pending card. Folding hides the card but keeps it mounted, so the person's
@@ -94,13 +98,20 @@ function PendingAsk({ question, onReply }: { question: AgentQuestion; onReply(re
   );
 }
 
+/// The prompt's typed text, without the placeholder MarkdownField keeps beside the editor.
+const composerText = (composer: Element) => composer.querySelector(".acpmux-md-root")?.textContent?.trim() ?? "";
+
 /// Whether a card that just arrived may take the keyboard: nothing in the page has it, or the
-/// composer has it with nothing typed. A half-written prompt keeps it.
+/// composer has it, and either way the composer holds no draft. A half-written (or restored)
+/// prompt keeps it, so a typed digit or Enter never answers the ask by surprise.
 function keyboardIsIdle(document: Document): boolean {
   const active = document.activeElement;
-  if (!active || active === document.body) return true;
+  if (!active || active === document.body) {
+    const composer = document.querySelector(".acpmux-composer-prompt");
+    return !composer || composerText(composer) === "";
+  }
   const composer = active.closest(".acpmux-composer-prompt");
-  return composer !== null && (composer.textContent ?? "").trim() === "";
+  return composer !== null && composerText(composer) === "";
 }
 
 // The rows are buttons with radio or checkbox roles (a radiogroup or group), not native inputs:
@@ -196,6 +207,7 @@ function PendingQuestion({
     if (event.metaKey || event.ctrlKey || event.altKey) return;
     const target = event.target as HTMLElement;
     const inOther = target.closest(".acpmux-question-other") !== null;
+    const inTabs = target.closest(".acpmux-question-tabs") !== null;
     // In the Other field, typing is text: only Enter and Escape act.
     if (inOther) {
       if (event.key !== "Enter" && event.key !== "Escape") return;
@@ -210,8 +222,9 @@ function PendingQuestion({
     if (!input) return;
     event.preventDefault();
     if (event.repeat && !REPEATS.has(event.key)) return;
-    // Escape skips the ask; in the Other field the reducer only leaves the field.
-    if (input.type === "escape" && !inOther) skip();
+    // Escape skips the ask. In the Other field the reducer only leaves the field; on a tab it
+    // gives the keyboard back, so answers given to the other questions are not thrown away.
+    if (input.type === "escape" && !inOther && !inTabs) skip();
     else dispatch(input);
   };
   // The keys reach the card from its focused rows, field and buttons, so it listens natively
@@ -390,7 +403,7 @@ function OtherRow({
   if (editing)
     return (
       <div className="acpmux-question-row acpmux-question-other" data-row-editing="true" data-highlighted>
-        <ChoiceMark multi={multi} chosen />
+        <ChoiceMark multi={multi} chosen={multi ? draft.trim() !== "" : true} />
         <input
           type="text"
           aria-label={t("question.other")}
@@ -426,10 +439,15 @@ function OtherRow({
 }
 
 /// A row's radio button, or its checkbox when the item takes several answers. Decoration: the row
-/// carries the role and aria-checked.
+/// carries the role and aria-checked (the Other field, which has neither, still shows its mark).
 function ChoiceMark({ multi, chosen }: { multi: boolean; chosen: boolean }) {
   return (
-    <span className="acpmux-question-mark" data-multi={multi || undefined} aria-hidden="true">
+    <span
+      className="acpmux-question-mark"
+      data-multi={multi || undefined}
+      data-chosen={chosen || undefined}
+      aria-hidden="true"
+    >
       {multi && chosen && <Check size={11} strokeWidth={2} />}
     </span>
   );
