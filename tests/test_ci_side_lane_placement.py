@@ -279,7 +279,8 @@ class CmuxNextWiring(unittest.TestCase):
     def test_missing_gui_label_uses_blacksmith_instead_of_a_dead_gui_queue(self):
         jobs = self.workflow()["jobs"]
         context = self.context(runner=STD)
-        context["needs"][self.PLACEMENT]["outputs"]["gui_runner"] = ""
+        # With no online gui or session runner, placement writes both empty.
+        context["needs"][self.PLACEMENT]["outputs"].update(gui_runner="", session_runner="")
         for name in GUI_JOBS:
             self.assertEqual(evaluate(jobs[name]["runs-on"], context), FALLBACK, name)
 

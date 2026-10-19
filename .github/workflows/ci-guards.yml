@@ -699,6 +699,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_side_lane_placement.py
 
+      - name: Validate session jobs keep the gui label until runners carry the session label
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_session_label_routing.py
+
       - name: Validate owned Mac build state
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_owned_build_state.py

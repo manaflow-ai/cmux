@@ -73,7 +73,7 @@ class AutofixActionExports(unittest.TestCase):
         return workflow["jobs"]["action-exports"]["runs-on"]
 
     def context(self, **variables) -> dict:
-        context = github_context("pull_request", ref="refs/pull/1/merge", CI_PR_POOL_OWNED="1", **variables)
+        context = github_context("pull_request", ref="refs/pull/1/merge", **{"CI_PR_POOL_OWNED": "1", **variables})
         context["vars"].pop("MACOS_RUNNER_PR")
         context["github"].update(repository="manaflow-ai/cmux",
                                  event={"pull_request": {"head": {"repo": {"full_name": "manaflow-ai/cmux"}}}})
