@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextIcons
 @testable import CmuxNextApp
 @testable import CmuxNextBrowser
 import Foundation
@@ -51,5 +52,14 @@ import Testing
         let tab = chromiumTab()
         tab.showsExtensionToolbar = false
         #expect(!report(tab).showsExtensionsButton)
+    }
+
+    /// The Downloads and Extensions buttons draw Chrome's own glyphs (Lawrence 2026-10-18: "for
+    /// downloads and extensions icons use same icons if possible"), and the bundled pack has both.
+    @Test func downloadsAndExtensionsDrawChromesGlyphs() {
+        let facts = BrowserToolbarFacts(engine: .cef, hostsDevTools: true)
+        #expect(BrowserToolbarPolicy.state(.downloads, facts).icon == .browserToolbarDownloads)
+        #expect(IconPack.bundled.drawing(for: .browserToolbarDownloads) != nil)
+        #expect(IconPack.bundled.drawing(for: .browserToolbarExtensions) != nil)
     }
 }
