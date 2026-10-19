@@ -3,6 +3,7 @@ import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextDesign
 import CmuxNextSettings
 import CmuxNextTerminal
 import CmuxNextWakeups
@@ -285,7 +286,7 @@ final class NotificationCenterService {
             feedDriver?.run()
             if decision.desktop { post(notification, tab: nil, workspace: nil, sound: decision.sound) }
             if !notification.desktop, let sound = decision.sound { NotificationSounds.playWithoutBanner(sound) }
-            dockAttention.bounce(decision.bounce)
+            if let mode = decision.bounce { dockAttention.bounce(untilActive: mode == .untilActive) }
             return
         }
         if decision.acknowledge {
@@ -347,7 +348,7 @@ final class NotificationCenterService {
             notification.desktop ? NotificationSounds.play(sound) : NotificationSounds.playWithoutBanner(sound)
         }
         if let seconds = decision.timeout { scheduleTimeout(seconds, tabID: located.tab.id) }
-        dockAttention.bounce(decision.bounce)
+        if let mode = decision.bounce { dockAttention.bounce(untilActive: mode == .untilActive) }
     }
 
     private func post(_ notification: DaemonNotification, tab: TabModel?, workspace: String?, sound: String?,
