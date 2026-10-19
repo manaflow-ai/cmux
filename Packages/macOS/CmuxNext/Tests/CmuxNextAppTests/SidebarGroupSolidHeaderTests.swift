@@ -60,90 +60,97 @@ import Testing
         #expect(fill.alphaComponent > 0.5, "the bar's fill is see-through (\(fill.alphaComponent))")
     }
 
-    /// How far the members' line runs into the header bar: negative is a gap between them.
-    private static func overlap(_ sidebar: SidebarView, name: String) throws -> (overlap: CGFloat, line: CGRect, bar: CGRect) {
-        let header = try Self.header(sidebar)
-        let bar = try #require(header.layer?.sublayers?.first { !$0.isHidden && $0.frame.width >= header.bounds.width - 0.5 && $0.cornerRadius > 0 },
-                               "name \"\(name)\": no full-width rounded bar")
-        #expect(bar.frame.height > Metrics.dividerThickness * 4, "name \"\(name)\": a \(bar.frame.height) pt bar is a hairline")
-        let line = try #require(GroupPaletteDefaultTests.views(GroupLineView.self, in: sidebar).first, "no members' line")
-        line.layoutSubtreeIfNeeded()
-        line.updateLayer()
-        let barRect = sidebar.convert(bar.frame, from: header)
-        let drawn = sidebar.convert(line.bounds, from: line)
-        // The bar's edge nearest the members, in a flipped sidebar or not.
-        let overlap = sidebar.isFlipped ? barRect.maxY - drawn.minY : drawn.maxY - barRect.minY
-        return (overlap, drawn, barRect)
+    /// The group's members' line view, nil when none draws (the joined bar draws its own).
+    private static func lineView(_ sidebar: SidebarView) -> GroupLineView? {
+        GroupPaletteDefaultTests.views(GroupLineView.self, in: sidebar).first
     }
 
-    /// The header bar's layer and the last member row, in the sidebar's coordinates.
-    private static func parts(_ sidebar: SidebarView) throws -> (bar: CALayer, lastRow: CGRect) {
+    /// The header's bar layer, the bar's rect, and the last member row, in the sidebar's coordinates.
+    private static func parts(_ sidebar: SidebarView, name: String = "") throws -> (layer: CALayer, bar: CGRect, lastRow: CGRect) {
         let header = try Self.header(sidebar)
-        let bar = try #require(header.layer?.sublayers?.first { !$0.isHidden && $0.frame.width >= header.bounds.width - 0.5 && $0.cornerRadius > 0 })
+        let layer = header.barLayer
+        #expect(header.barFrame.height > Metrics.dividerThickness * 4, "name \"\(name)\": a \(header.barFrame.height) pt bar is a hairline")
         let last = try #require(sidebar.list.rowViews[.workspace(Self.measured)], "no last member row")
-        return (bar, sidebar.convert(last.bounds, from: last))
+        return (layer, sidebar.convert(header.barFrame, from: header), sidebar.convert(last.bounds, from: last))
     }
 
-    /// The bar's corner that meets the members' line: its bottom-left one, in the layer's own
-    /// coordinates (flipped or not).
-    private static func bottomLeft(_ sidebar: SidebarView) throws -> CACornerMask {
-        try #require(Self.header(sidebar).layer).contentsAreFlipped() ? .layerMinXMaxYCorner : .layerMinXMinYCorner
-    }
+    /// Whether a shape's outline covers a point, in its layer's coordinates.
+    private static func covers(_ path: CGPath?, _ x: CGFloat, _ y: CGFloat) -> Bool { path?.contains(CGPoint(x: x, y: y)) ?? false }
 
-    /// Leo 2026-10-19, his Chrome reference: by default a 26 pt header bar with 6 pt round
-    /// corners, then a small cut (`SidebarStyle.groupLineCut`), then a thin line in the bar's
-    /// color, round at both ends, inset a little inside the bar's left edge (`groupBarX`), that
-    /// runs to the last member row's bottom. An unnamed group's header is the same solid bar.
+    /// Leo 2026-10-19, measured on his Chrome reference at 2x: by default a 26 pt header bar with
+    /// 6 pt corners, a 6 pt cut (`SidebarStyle.groupLineCut`), then a 2 pt line in the bar's color
+    /// whose right edge meets the end of the bar's corner arc (bar left + corner radius), that runs to
+    /// the last member row's bottom. Its ends are trimmed as Chrome's are: the left corners square,
+    /// the right corners cut by a quarter circle as wide as the line. An unnamed group's header is
+    /// the same solid bar.
     @Test(arguments: [false, true], ["cmux-next app", ""])
     func theMembersLineStartsACutBelowTheBar(minimal: Bool, name: String) throws {
         let sidebar = Self.sidebar(minimal: minimal, name: name)
-        let (overlap, drawn, bar) = try Self.overlap(sidebar, name: name)
-        #expect(abs(-overlap - SidebarStyle.groupLineCut) < 0.01,
-                "minimal \(minimal): a \(-overlap) pt gap between the bar and its members' line, want the \(SidebarStyle.groupLineCut) pt cut")
+        let (layer, bar, lastRow) = try Self.parts(sidebar, name: name)
+        let line = try #require(Self.lineView(sidebar), "no members' line")
+        line.layoutSubtreeIfNeeded()
+        line.updateLayer()
+        let drawn = sidebar.convert(line.bounds, from: line)
+        try #require(sidebar.isFlipped)
         #expect(SidebarStyle.groupLineCut == Metrics.space3, "Chrome's cut is about 6 pt, the space3 step")
-        #expect(abs(drawn.minX - bar.minX - SidebarStyle.groupBarX) < 0.01, "the line \(drawn) is not \(SidebarStyle.groupBarX) pt inside the bar \(bar)")
-        #expect(abs(drawn.width - Metrics.space1) < 0.01, "a \(drawn.width) pt line, want Chrome's thin \(Metrics.space1) pt one")
-        let (layer, lastRow) = try Self.parts(sidebar)
-        let lineEnd = sidebar.isFlipped ? drawn.maxY : drawn.minY, rowEnd = sidebar.isFlipped ? lastRow.maxY : lastRow.minY
-        #expect(abs(lineEnd - rowEnd) < 0.01, "the line ends at \(lineEnd), the last member row at \(rowEnd)")
-        #expect(layer.maskedCorners == [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMinXMaxYCorner, .layerMaxXMaxYCorner],
-                "the default bar rounds every corner")
+        #expect(abs(drawn.minY - bar.maxY - SidebarStyle.groupLineCut) < 0.01,
+                "minimal \(minimal): a \(drawn.minY - bar.maxY) pt gap below the bar, want the \(SidebarStyle.groupLineCut) pt cut")
+        #expect(abs(drawn.width - Metrics.space1) < 0.01, "a \(drawn.width) pt line, want Chrome's \(Metrics.space1) pt one")
         #expect(abs(layer.cornerRadius - Metrics.space3) < 0.51, "a \(layer.cornerRadius) pt bar corner, Chrome's is about 6 pt")
+        #expect(abs(drawn.maxX - (bar.minX + layer.cornerRadius)) < 0.01,
+                "the line's right edge \(drawn.maxX) is not where the bar's corner arc ends (\(bar.minX + layer.cornerRadius))")
+        #expect(abs(drawn.maxY - lastRow.maxY) < 0.01, "the line ends at \(drawn.maxY), the last member row at \(lastRow.maxY)")
+        #expect(layer.mask == nil && layer.maskedCorners.roundedCount == 4, "the default bar rounds every corner")
+        // Chrome's trim, in the line's own coordinates.
+        let shape = (line.layer?.mask as? CAShapeLayer)?.path, w = drawn.width, h = drawn.height, e: CGFloat = 0.15
+        #expect(Self.covers(shape, e, e) && Self.covers(shape, e, h - e), "the line's left corners are not square")
+        #expect(!Self.covers(shape, w - e, e) && !Self.covers(shape, w - e, h - e), "the line's right corners are not trimmed")
+        #expect(Self.covers(shape, w / 2, h / 2) && Self.covers(shape, w - e, h / 2), "the line's body is not solid")
     }
 
-    /// `sidebar.groupLineJoinsHeader` (off by default), Leo 2026-10-19 "all lined up on the left":
-    /// the line's left edge is flush with the bar's left edge and meets the bar with no gap, and the
-    /// bar's bottom-left corner is square there, so bar and line are one L shape.
+    /// `sidebar.groupLineJoinsHeader` (off by default), Leo 2026-10-19: "you join it properly and
+    /// you square off the thing". The bar draws bar and line as ONE shape (one layer, one outline):
+    /// the line runs straight down from the bar's square bottom-left corner at the bar's own left
+    /// edge, at full width, with no cap, step or seam at the join, to the last member row's bottom,
+    /// where it ends in the same trim as the default line. No separate line view draws.
     @Test(arguments: [false, true], ["cmux-next app", ""])
-    func theJoinSettingRunsTheLineIntoTheBar(minimal: Bool, name: String) throws {
+    func theJoinSettingDrawsBarAndLineAsOneShape(minimal: Bool, name: String) throws {
         let sidebar = Self.sidebar(minimal: minimal, name: name, joined: true)
-        let (overlap, drawn, bar) = try Self.overlap(sidebar, name: name)
-        #expect(overlap >= 0, "minimal \(minimal): a \(-overlap) pt gap between the bar and its members' line")
-        #expect(overlap <= drawn.width + 0.01, "minimal \(minimal): the line runs \(overlap) pt into the bar")
-        #expect(abs(drawn.minX - bar.minX) < 0.01, "the line \(drawn) is not flush with the bar's left edge \(bar)")
-        let (layer, _) = try Self.parts(sidebar)
-        #expect(!layer.maskedCorners.contains(try Self.bottomLeft(sidebar)), "the bar's corner over the line is still round")
-        #expect(layer.maskedCorners.roundedCount == 3, "only the corner over the line is square: \(layer.maskedCorners)")
+        let (layer, bar, lastRow) = try Self.parts(sidebar, name: name)
+        #expect(Self.lineView(sidebar) == nil, "a separate line view draws beside the joined bar")
+        let header = try Self.header(sidebar)
+        let shapeFrame = sidebar.convert(layer.frame, from: header)
+        try #require(sidebar.isFlipped)
+        #expect(abs(shapeFrame.minX - bar.minX) < 0.01 && abs(shapeFrame.minY - bar.minY) < 0.01, "the shape \(shapeFrame) does not start at the bar \(bar)")
+        #expect(abs(shapeFrame.maxY - lastRow.maxY) < 0.01, "the shape ends at \(shapeFrame.maxY), the last member row at \(lastRow.maxY)")
+        let shape = try #require((layer.mask as? CAShapeLayer)?.path, "the joined bar has no outline")
+        let b = bar.height, w = Metrics.space1, end = shapeFrame.height, r = Metrics.space3, e: CGFloat = 0.15
+        #expect(!Self.covers(shape, e, e) && !Self.covers(shape, bar.width - e, e) && !Self.covers(shape, bar.width - e, b - e),
+                "the bar's other corners are not round")
+        #expect(Self.covers(shape, e, b - e) && Self.covers(shape, e, b + e), "the corner over the line is not square")
+        for y in stride(from: b - 1, through: end - w - e, by: 0.5) {
+            #expect(Self.covers(shape, e, y) && Self.covers(shape, w - e, y), "the line is not full width at \(y) pt")
+            #expect(!Self.covers(shape, w + e, max(y, b + e)), "the line is wider than \(w) pt at \(y) pt")
+        }
+        #expect(Self.covers(shape, e, end - e) && !Self.covers(shape, w - e, end - e), "the line's end is not trimmed as Chrome's")
+        #expect(!Self.covers(shape, r + e, b + 1), "the shape fills past the line under the bar")
     }
 
-    /// Turning the setting on or off moves an open sidebar's lines, without a relaunch: the
-    /// render reloads the list (Reduce Motion, so the move lands in this turn).
-    @Test func turningTheJoinOnAndOffMovesTheLine() throws {
+    /// Turning the setting on or off redraws an open sidebar, without a relaunch: the render
+    /// reloads the list (Reduce Motion, so it lands in this turn).
+    @Test func turningTheJoinOnAndOffRedrawsTheGroup() throws {
         Motion.reduceMotionOverride = true
         defer { Motion.reduceMotionOverride = nil }
         let sidebar = Self.sidebar(minimal: false)
-        #expect(try Self.overlap(sidebar, name: "").overlap < 0, "the default has no cut")
+        #expect(Self.lineView(sidebar) != nil && Self.lineView(sidebar)?.isHidden == false, "the default draws a line view")
         for joined in [true, false] {
             sidebar.design.sidebarSections.groupLineJoinsHeader = joined
             sidebar.renderNow()
-            #expect(sidebar.list.groupLineJoinsHeader == joined, "the list did not get the setting \(joined)")
             sidebar.layoutSubtreeIfNeeded()
-            let overlap = try Self.overlap(sidebar, name: "").overlap
-            if joined {
-                #expect(overlap >= 0, "turning the join on left a \(-overlap) pt cut")
-            } else {
-                #expect(abs(overlap + SidebarStyle.groupLineCut) < 0.01, "turning the join off left the line \(overlap) pt into the bar")
-            }
+            #expect(sidebar.list.groupLineJoinsHeader == joined, "the list did not get the setting \(joined)")
+            let (layer, _, _) = try Self.parts(sidebar)
+            #expect((layer.mask != nil) == joined, "joined \(joined): the bar's outline")
+            #expect((Self.lineView(sidebar) != nil) == !joined, "joined \(joined): the line view")
         }
     }
 

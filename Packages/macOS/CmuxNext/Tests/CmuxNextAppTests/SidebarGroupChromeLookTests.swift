@@ -40,8 +40,8 @@ import Testing
     }
 
     /// Leo 2026-10-19 (Chrome tab groups, "a neat little cut"): by default the members' line
-    /// starts a small, deliberate cut below the header bar (`SidebarStyle.groupLineCut`), with a
-    /// round top end. `sidebar.groupLineJoinsHeader` joins them instead (SidebarGroupSolidHeaderTests).
+    /// starts a small, deliberate cut below the header bar (`SidebarStyle.groupLineCut`), its top
+    /// end trimmed as Chrome's. `sidebar.groupLineJoinsHeader` joins them instead (SidebarGroupSolidHeaderTests).
     @Test func theMembersLineStartsASmallCutBelowTheHeaderBar() throws {
         let (sidebar, _) = try Self.sidebar()
         let header = try #require(sidebar.list.rowViews[.group(Self.open)] as? GroupHeaderRowView)
@@ -58,7 +58,10 @@ import Testing
         #expect(abs(cut - SidebarStyle.groupLineCut) < 0.01,
                 "the line starts \(cut) pt below the header bar (edge \(barEdge)), want the \(SidebarStyle.groupLineCut) pt cut")
         line.layoutSubtreeIfNeeded()
-        #expect(abs((line.layer?.cornerRadius ?? 0) - drawn.width / 2) < 0.01, "the line's ends are not round")
+        // Chrome's trim (SidebarGroupSolidHeaderTests): left corners square, right corners cut.
+        let shape = (line.layer?.mask as? CAShapeLayer)?.path
+        #expect(shape?.contains(CGPoint(x: 0.15, y: 0.15)) == true && shape?.contains(CGPoint(x: drawn.width - 0.15, y: 0.15)) == false,
+                "the line's top end is not trimmed as Chrome's")
     }
 
     @Test func aHeaderInkIsWhiteOrNearBlackWhicheverReadsBetter() throws {
