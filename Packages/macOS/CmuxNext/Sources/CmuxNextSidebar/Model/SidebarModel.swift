@@ -133,6 +133,8 @@ public final class SidebarModel {
     public var minimal = false
     /// Expanded rows (`sidebar.density`), unless minimal.
     public var expanded = false
+    /// Row badges draw each state apart (`sidebar.detailedStatusIcons`), not Working or Ready only.
+    public var detailedStatus = false
     /// Group by Folder (`sidebar.groupBy`): loose rows sit under folder headers.
     public var groupsByFolder = false
     /// `sidebar.groupByComputer`: a header per computer; off, one list.
@@ -443,6 +445,7 @@ public final class SidebarModel {
         showWorkspaceTabs = preferences.showWorkspaceTabs && !preferences.minimal
         workspaceRow = preferences.workspaceRow
         (minimal, expanded) = (preferences.minimal, preferences.density == .expanded)
+        detailedStatus = preferences.detailedStatusIcons
         hidesWorkspaces = !preferences.showProjects
         groupsByFolder = preferences.groupBy == .folder
         groupsByComputer = preferences.groupsByComputer
@@ -462,6 +465,7 @@ public final class SidebarModel {
         o.activeWorkspaceID = activeWorkspaceID
         o.workspaceRow = workspaceRow
         (o.minimal, o.expanded) = (minimal, expanded)
+        o.detailedStatus = detailedStatus
         o.flattensMachines = !groupsByComputer
         if o.flattensMachines {
             for section in sections {

@@ -10,7 +10,8 @@ extension WorkspaceRowView {
     /// Applies `style` after the rest of `configure`: the row badge and the trailing time. `trailing` leaves the row as it was.
     func configureBadges(_ ws: SidebarWorkspace, shown: WorkspaceRowContent, style: SidebarRowBadgeStyle,
                          stackLimit: Int = SidebarRowBadgeStackCap.tunable.defaultValue.limit) {
-        let badges = WorkspaceRowBadges(unread: ws.unread, activity: shown.activity, stackLimit: stackLimit)
+        let badges = WorkspaceRowBadges(unread: ws.unread, activity: shown.activity, stackLimit: stackLimit,
+                                        detailed: shown.detailedStatus)
         guard style != .trailing, !isShowingPlaceholder else {
             rowBadge.configure([], look: .corner)
             return
@@ -36,7 +37,7 @@ extension WorkspaceRowView {
     static func badgeSummary(_ badges: WorkspaceRowBadges, stacked: Bool) -> String? {
         var parts: [String] = []
         if badges.unreadCount > 0 { parts.append(Strings.unreadCount(badges.unreadCount)) }
-        for state in badges.items where state != .success {
+        for state in badges.pending where state != .success {
             if let text = Strings.activity(state), !parts.contains(text) { parts.append(text) }
         }
         if stacked, badges.overflow > 0 { parts.append(Strings.statusMore(badges.overflow)) }

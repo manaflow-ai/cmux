@@ -18,7 +18,7 @@ import Testing
     private static let custom = WorkspaceID("ws-custom")
     private static let now = Date()
 
-    private static func sidebar(_ style: SidebarRowBadgeStyle? = nil) -> SidebarView {
+    private static func sidebar(_ style: SidebarRowBadgeStyle? = nil, detailed: Bool = false) -> SidebarView {
         let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
         let agentRow = SidebarWorkspace(id: agent, title: "cmux-next", lastActivity: now.addingTimeInterval(-180),
                                         kind: .harness, kindBrand: "claude", unread: .count(1), activity: .success, agentBrand: "claude")
@@ -33,7 +33,10 @@ import Testing
                                                             .workspace(customRow)]),
         ])
         model.rowBadgeStyle = style
-        let sidebar = SidebarView(model: model, design: DesignSettings())
+        model.detailedStatus = detailed
+        let design = DesignSettings()
+        design.sidebarSections.detailedStatusIcons = detailed
+        let sidebar = SidebarView(model: model, design: design)
         sidebar.frame = NSRect(x: 0, y: 0, width: 260, height: 600)
         sidebar.layoutSubtreeIfNeeded()
         sidebar.list.reload(animated: false)
@@ -85,8 +88,10 @@ import Testing
         }
     }
 
+    /// With detailed status icons (`sidebar.detailedStatusIcons`); by default an error reads as
+    /// Ready (`SidebarStatusSimpleTests`).
     @Test func theCornerBadgeSaysTheMostUrgentState() throws {
-        let sidebar = Self.sidebar()
+        let sidebar = Self.sidebar(detailed: true)
         // Readable at 1x (coordinator 2026-10-14: the i, shield and bubble were not): a 10 pt
         // glyph on whole points, so the static glyphs' pixel art lands on the pixel grid.
         let badge = try Self.cornerBadge(Self.row(sidebar, Self.failing))
@@ -142,7 +147,7 @@ import Testing
     /// the most urgent first, overlapping like an avatar stack, up to the stack size (five by
     /// default, `SidebarRowBadgeStackCapTests`); the tooltip says the count.
     @Test func theStackDrawsOneOverlappingGlyphPerItemMostUrgentFirst() throws {
-        let row = try Self.row(Self.sidebar(.stack), Self.failing)
+        let row = try Self.row(Self.sidebar(.stack, detailed: true), Self.failing)
         let stack = try #require(Self.visible(RowBadgeView.self, in: row).first)
         #expect(stack.view.states == [.error, .success, .success, .success])
         #expect(stack.frame.minX > row.title.frame.minX, "the stack is in the trailing slot")
