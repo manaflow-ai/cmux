@@ -328,6 +328,31 @@ fn server_pairing_resumes_a_code_the_server_may_still_accept_after_the_local_clo
 }
 
 #[test]
+fn server_pairing_a_resumed_code_the_backend_expired_is_cleared_and_begun_anew() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("pairing/identity.json");
+    let api = Api::new(vec![
+        Err(Error::unreachable("fixture.lost_wait")),
+        Ok(Waited::Expired),
+        Ok(Waited::Paired(paired())),
+    ]);
+    assert!(run(&path, &api, Some("intent"), &mut vec![]).is_err());
+    assert_eq!(
+        pairing::enroll(&path, API, info(), Some("intent"), &api, NOW + 600_001, |_| Ok(()))
+            .unwrap_err()
+            .message,
+        "server.pair.expired"
+    );
+    assert_eq!(pairing::status(&path).unwrap()["state"], "unpaired");
+    assert_eq!(
+        pairing::enroll(&path, API, info(), Some("intent"), &api, NOW + 600_002, |_| Ok(()))
+            .unwrap()["state"],
+        "paired"
+    );
+    assert_eq!(api.begins.load(Ordering::SeqCst), 2);
+}
+
+#[test]
 fn server_pairing_begin_that_never_reached_the_api_can_be_retried_at_once() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("pairing/identity.json");
