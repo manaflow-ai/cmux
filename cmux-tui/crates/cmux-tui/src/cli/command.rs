@@ -21,6 +21,7 @@ mod conversation;
 mod flags;
 pub(super) mod git;
 mod history;
+mod machine;
 mod name_flags;
 pub(super) use history::DAEMON_VERBS as HISTORY_DAEMON_VERBS;
 mod plan;
@@ -155,7 +156,9 @@ pub(super) fn parse(args: &[String], surface: super::Surface) -> Result<CommandP
     let mut selectors = Selectors::default();
     let plan = match scope {
         "server" => parse_server(&tokens.words[1..], &mut tokens.flags)?,
-        "machine" => parse_machine(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
+        "machine" => {
+            machine::parse(&tokens.words[1..], &mut selectors, &mut tokens.flags, surface)?
+        }
         "session" => parse_session(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
         "client" => parse_client(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
         "workspace" => {
@@ -281,30 +284,6 @@ fn tokenize(args: &[String]) -> Result<Tokens, UsageError> {
 
 pub(super) fn is_boolean_flag(name: &str) -> bool {
     BOOLEAN_FLAGS.contains(&name)
-}
-
-fn parse_machine(
-    words: &[String],
-    selectors: &mut Selectors,
-    flags: &mut Flags,
-) -> Result<CommandPlan, UsageError> {
-    match strs(words).as_slice() {
-        ["list"] => request(ResourceOperation::MachineList, selectors, flags, Map::new()),
-        [selector, "show"] => {
-            selectors.insert("machine", "machine", selector)?;
-            request(ResourceOperation::MachineGet, selectors, flags, Map::new())
-        }
-        [machine, "session", "list"] => {
-            selectors.insert("machine", "machine", machine)?;
-            request(ResourceOperation::SessionList, selectors, flags, Map::new())
-        }
-        [machine, "session", session, "open"] => {
-            selectors.insert("machine", "machine", machine)?;
-            selectors.insert("session", "session", session)?;
-            request(ResourceOperation::SessionOpen, selectors, flags, Map::new())
-        }
-        _ => usage("machine action"),
-    }
 }
 
 fn parse_session(
