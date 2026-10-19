@@ -53,8 +53,8 @@ export const misuse = (principal: Principal, vmA: VmId, vmB: VmId) =>
         yield* upstream.createVm(caller, { cmuxId: vmA, idleTimeoutSeconds: 300, environment: "local" }, { scope: write });
         // @ts-expect-error the compatibility forwarder requires a minted VM ownership proof
         yield* compat.forwardVm(a, { request: new Request("https://vm.test"), template: "/v5/vms/{id}", operation: "misuse" });
-        // @ts-expect-error a tenant VM proof cannot authorize an identity forward
-        yield* compat.forwardIdentity(ownsA, { request: new Request("https://vm.test"), template: "/v5/identities/{id}", operation: "misuse" });
+        // @ts-expect-error a named VM value is not an identity ownership proof
+        yield* compat.forwardIdentity(a, { request: new Request("https://vm.test"), template: "/v5/identities/{id}", operation: "misuse" });
       }),
     );
 

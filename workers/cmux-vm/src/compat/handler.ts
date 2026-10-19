@@ -8,7 +8,7 @@ import { SessionVerifier, TeamMembership } from "../auth/credentials.ts";
 import { actorRef, type Principal } from "../domain/principal.ts";
 import type { Scope } from "../domain/scopes.ts";
 import { TenantLimits } from "../limits/service.ts";
-import { IdentityId, newIdentityId, newSnapshotId, newVmId, parseIdentityId, parseSnapshotId, parseVmId, UpstreamId, UserId, type ResourceKind } from "../lib/ids.ts";
+import { IdentityId, newIdentityId, newSnapshotId, newVmId, parseIdentityId, parseSnapshotId, parseVmId, UpstreamId, UserId, type ResourceKind, type VmId, type SnapshotId } from "../lib/ids.ts";
 import { keyHasScope } from "../proofs/key-has-scope.ts";
 import { tenantMayCreate } from "../proofs/tenant-may-create.ts";
 import { Entitlements } from "../proofs/tenant-may-create.ts";
@@ -125,30 +125,32 @@ const handle = (request: Request, options: { readonly publicSnapshotIds: Readonl
   return notAvailable();
 }).pipe(Effect.catchAll(() => Effect.succeed(unavailable())));
 
-const ownedVm = (principal: Principal, upstreamId: string) => Effect.gen(function* () {
+type OwnedVmVisitor = <C, V>(caller: Named<C, Principal>, vm: Named<V, VmId>, owns: TenantOwnsResource<C, V>, row: OwnedResource) => Effect.Effect<Response, unknown, unknown>;
+type OwnedSnapshotVisitor = <C, V>(caller: Named<C, Principal>, snapshot: Named<V, SnapshotId>, owns: TenantOwnsResource<C, V>, row: OwnedResource) => Effect.Effect<Response, unknown, unknown>;
+const withOwnedVmCompat = (principal: Principal, upstreamId: string, visit: OwnedVmVisitor): Effect.Effect<Response, unknown, OwnershipStore> => Effect.gen(function* () {
   const store = yield* OwnershipStore;
   const row = yield* store.findByUpstream(principal.tenantId, "vm", upstreamId);
-  if (Option.isNone(row)) return null;
+  if (Option.isNone(row)) return notFound();
   const parsed = parseVmId(row.value.cmuxId);
-  if (Option.isNone(parsed)) return null;
-  return yield* name(principal, (caller) => name(parsed.value, (vm) => tenantOwnsVm(caller, vm).pipe(Effect.map((owns) => owns === null ? null : { caller, vm, owns, row: row.value }))));
+  if (Option.isNone(parsed)) return notFound();
+  return yield* name(principal, <C>(caller: Named<C, Principal>) => name(parsed.value, <V>(vm: Named<V, VmId>) => tenantOwnsVm(caller, vm).pipe(Effect.flatMap((owns) => owns === null ? Effect.succeed(notFound()) : visit(caller, vm, owns, row.value)))));
 });
-const ownedSnapshot = (principal: Principal, upstreamId: string) => Effect.gen(function* () {
+const withOwnedSnapshotCompat = (principal: Principal, upstreamId: string, visit: OwnedSnapshotVisitor): Effect.Effect<Response, unknown, OwnershipStore> => Effect.gen(function* () {
   const store = yield* OwnershipStore;
   const row = yield* store.findByUpstream(principal.tenantId, "snapshot", upstreamId);
-  if (Option.isNone(row)) return null;
+  if (Option.isNone(row)) return notFound();
   const parsed = parseSnapshotId(row.value.cmuxId);
-  if (Option.isNone(parsed)) return null;
-  return yield* name(principal, (caller) => name(parsed.value, (snapshot) => tenantOwnsSnapshot(caller, snapshot).pipe(Effect.map((owns) => owns === null ? null : { caller, snapshot, owns, row: row.value }))));
+  if (Option.isNone(parsed)) return notFound();
+  return yield* name(principal, <C>(caller: Named<C, Principal>) => name(parsed.value, <V>(snapshot: Named<V, SnapshotId>) => tenantOwnsSnapshot(caller, snapshot).pipe(Effect.flatMap((owns) => owns === null ? Effect.succeed(notFound()) : visit(caller, snapshot, owns, row.value)))));
 });
 const allOwnedRows = (principal: Principal, kind: ResourceKind, ownership: OwnershipStoreService) => Effect.gen(function* () {
   const rows: OwnedResource[] = [];
   let after: { readonly createdAt: Date; readonly cmuxId: string } | null = null;
   while (true) {
-    const page = yield* ownership.listPage(principal.tenantId, kind, { limit: 1000, after, only: principal.resourceAllowlist, labels: null });
+    const page: ReadonlyArray<OwnedResource> = yield* ownership.listPage(principal.tenantId, kind, { limit: 1000, after, only: principal.resourceAllowlist, labels: null });
     rows.push(...page);
     if (page.length < 1000) break;
-    const last = page.at(-1);
+    const last: OwnedResource | undefined = page.at(-1);
     if (last === undefined) break;
     after = { createdAt: last.createdAt, cmuxId: last.cmuxId };
   }
@@ -243,11 +245,11 @@ const createVm = (request: Request, principal: Principal, upstream: CompatUpstre
   });
 });
 
-const vmResource = (request: Request, parts: ReadonlyArray<string>, principal: Principal, upstream: CompatUpstreamService, ownership: OwnershipStoreService, identities: IdentityStoreService, audit: AuditStoreService, usage: { readonly record: (event: import("../metering/recorder.ts").UsageEvent) => Effect.Effect<void> }, now: Date) => Effect.gen(function* () {
+const vmResource = (request: Request, parts: ReadonlyArray<string>, principal: Principal, upstream: CompatUpstreamService, ownership: OwnershipStoreService, identities: IdentityStoreService, audit: AuditStoreService, usage: { readonly record: (event: import("../metering/recorder.ts").UsageEvent) => Effect.Effect<void> }, now: Date) => {
+
   const id = parts[0];
   if (id === undefined) return notFound();
-  const owned = yield* ownedVm(principal, id);
-  if (owned === null) return notFound();
+  return withOwnedVmCompat(principal, id, (caller, vm, owns, row) => Effect.gen(function* () {
   if (parts[1] === "networks") return notFound();
   const suffix = parts.slice(1).join("/");
   const allowed = request.method === "GET" && (suffix === "" || suffix === "fs/dir" || suffix === "fs/exists" || suffix === "fs/read" || suffix === "fs/stat" || suffix === "pty" || suffix === "pty/sessions" || suffix.startsWith("pty/sessions/") || suffix.startsWith("fs/uploads/"))
@@ -267,20 +269,19 @@ const vmResource = (request: Request, parts: ReadonlyArray<string>, principal: P
   }
   let snapshotReservation: string | null = null;
   if (parts[1] === "snapshot" && request.method === "POST") {
-    const decision = yield* name(principal, (caller) => tenantMayCreate(caller, "snapshot"));
+    const decision = yield* name(principal, <C>(caller: Named<C, Principal>) => tenantMayCreate(caller, "snapshot"));
     if (decision._tag === "not_entitled") return error(402, "PAYMENT_REQUIRED", "This team is not entitled to create snapshots");
     if (decision._tag === "over_quota") return error(429, "QUOTA_EXCEEDED", "This team has reached its snapshot quota");
     snapshotReservation = decision.proof.reservationId;
   }
   if (request.method === "DELETE" && suffix === "") {
-    const grants = yield* identities.listGrantsForVm(principal.tenantId, owned.vm.value).pipe(Effect.mapError(() => unavailable()));
+    const grants = yield* identities.listGrantsForVm(principal.tenantId, vm.value).pipe(Effect.mapError(() => unavailable()));
     for (const grant of grants) {
       const identityRow = yield* ownership.find(principal.tenantId, "identity", grant.identityCmuxId).pipe(Effect.mapError(() => unavailable()));
       if (Option.isSome(identityRow)) {
         const identityId = parseIdentityId(identityRow.value.cmuxId);
         if (Option.isSome(identityId)) {
-          yield* name(principal, (caller) => name(identityId.value, (identity) => name(owned.vm.value, (vm) =>
-            tenantOwnsIdentity(caller, identity).pipe(
+          yield* name(identityId.value, (identity) => tenantOwnsIdentity(caller, identity).pipe(
               Effect.flatMap((identityOwns) => identityOwns === null ? Effect.void :
                 tenantOwnsVm(caller, vm).pipe(
                   Effect.flatMap((vmOwns) => vmOwns === null ? Effect.void : upstream.forwardGrant(identityOwns, vmOwns, {
@@ -290,20 +291,19 @@ const vmResource = (request: Request, parts: ReadonlyArray<string>, principal: P
                   }).pipe(Effect.asVoid)),
                 ),
               ),
-            ),
-          )));
+            ));
         }
       }
     }
-    yield* identities.revokeGrantsForVm(principal.tenantId, owned.vm.value, now).pipe(Effect.mapError(() => unavailable()));
+    yield* identities.revokeGrantsForVm(principal.tenantId, vm.value, now).pipe(Effect.mapError(() => unavailable()));
   }
-  let response = yield* upstream.forwardVm(owned.owns, { request: forwardRequest, template, operation: `v5.vm.${request.method.toLowerCase()}` }).pipe(Effect.mapError((failure) => providerError(failure.status)));
+  let response = yield* upstream.forwardVm(owns, { request: forwardRequest, template, operation: `v5.vm.${request.method.toLowerCase()}` }).pipe(Effect.mapError((failure) => providerError(failure.status)));
   if (response.status === 409 && parts[1] === "exec-await") {
-    const started = yield* upstream.forwardVm(owned.owns, { request: new Request(request.url, { method: "POST", headers: request.headers }), template: "/v5/vms/{id}/start", operation: "v5.vm.start" }).pipe(Effect.mapError((failure) => providerError(failure.status)));
+    const started = yield* upstream.forwardVm(owns, { request: new Request(request.url, { method: "POST", headers: request.headers }), template: "/v5/vms/{id}/start", operation: "v5.vm.start" }).pipe(Effect.mapError((failure) => providerError(failure.status)));
     const startData = yield* Effect.promise(() => parseJson(started));
     const startResources = typeof startData?.resources === "object" && startData.resources !== null ? startData.resources as Record<string, unknown> : {};
-    yield* usage.record({ kind: "vm_started", tenantId: principal.tenantId, upstreamVmId: owned.row.upstreamId, at: now, vcpus: typeof startResources.cpu === "number" ? startResources.cpu : 0, memoryMb: typeof startResources.memory === "number" ? startResources.memory : 0, storageMb: typeof startResources.storage === "number" ? startResources.storage : 0 }).pipe(Effect.ignore);
-    response = yield* upstream.forwardVm(owned.owns, { request: forwardRequest, template, operation: "v5.vm.exec-await.retry" }).pipe(Effect.mapError((failure) => providerError(failure.status)));
+    yield* usage.record({ kind: "vm_started", tenantId: principal.tenantId, upstreamVmId: row.upstreamId, at: now, vcpus: typeof startResources.cpu === "number" ? startResources.cpu : 0, memoryMb: typeof startResources.memory === "number" ? startResources.memory : 0, storageMb: typeof startResources.storage === "number" ? startResources.storage : 0 }).pipe(Effect.ignore);
+    response = yield* upstream.forwardVm(owns, { request: forwardRequest, template, operation: "v5.vm.exec-await.retry" }).pipe(Effect.mapError((failure) => providerError(failure.status)));
   }
   if (response.status === 409 && request.method === "PATCH") return error(400, "BAD_REQUEST", "The requested VM update is not available");
   if (response.ok && parts[1] === "snapshot") {
@@ -316,27 +316,28 @@ const vmResource = (request: Request, parts: ReadonlyArray<string>, principal: P
     }
   }
   if (snapshotReservation !== null) yield* TenantLimits.pipe(Effect.flatMap((limits) => limits.release(principal.tenantId, snapshotReservation as string))).pipe(Effect.ignore);
-  if (request.method === "DELETE" && response.ok) yield* ownership.markDeleted(principal.tenantId, "vm", owned.row.cmuxId, now).pipe(Effect.ignore);
-  if (["POST", "PATCH", "PUT", "DELETE"].includes(request.method)) yield* audit.append({ tenantId: principal.tenantId, actor: actorRef(principal.actor), ownerActor: null, action: `v5.vm.${request.method.toLowerCase()}`, cmuxId: owned.row.cmuxId, outcome: response.ok ? "ok" : `HTTP_${response.status}`, at: now }).pipe(Effect.ignore);
+  if (request.method === "DELETE" && response.ok) yield* ownership.markDeleted(principal.tenantId, "vm", row.cmuxId, now).pipe(Effect.ignore);
+  if (["POST", "PATCH", "PUT", "DELETE"].includes(request.method)) yield* audit.append({ tenantId: principal.tenantId, actor: actorRef(principal.actor), ownerActor: null, action: `v5.vm.${request.method.toLowerCase()}`, cmuxId: row.cmuxId, outcome: response.ok ? "ok" : `HTTP_${response.status}`, at: now }).pipe(Effect.ignore);
   if (response.ok && ["start", "pause", "resize"].includes(parts[1] ?? "")) {
     const data = yield* Effect.promise(() => parseJson(response));
     const resources = typeof data?.resources === "object" && data.resources !== null ? data.resources as Record<string, unknown> : {};
     const vcpus = typeof resources.cpu === "number" ? resources.cpu : 0;
     const memoryMb = typeof resources.memory === "number" ? resources.memory : 0;
     const storageMb = typeof resources.storage === "number" ? resources.storage : 0;
-    if (parts[1] === "start") yield* usage.record({ kind: "vm_started", tenantId: principal.tenantId, upstreamVmId: owned.row.upstreamId, at: now, vcpus, memoryMb, storageMb }).pipe(Effect.ignore);
-    if (parts[1] === "pause") yield* usage.record({ kind: "vm_stopped", tenantId: principal.tenantId, upstreamVmId: owned.row.upstreamId, at: now, reason: "pause" }).pipe(Effect.ignore);
-    if (parts[1] === "resize") yield* usage.record({ kind: "vm_resized", tenantId: principal.tenantId, upstreamVmId: owned.row.upstreamId, at: now, vcpus, memoryMb, storageMb }).pipe(Effect.ignore);
+    if (parts[1] === "start") yield* usage.record({ kind: "vm_started", tenantId: principal.tenantId, upstreamVmId: row.upstreamId, at: now, vcpus, memoryMb, storageMb }).pipe(Effect.ignore);
+    if (parts[1] === "pause") yield* usage.record({ kind: "vm_stopped", tenantId: principal.tenantId, upstreamVmId: row.upstreamId, at: now, reason: "pause" }).pipe(Effect.ignore);
+    if (parts[1] === "resize") yield* usage.record({ kind: "vm_resized", tenantId: principal.tenantId, upstreamVmId: row.upstreamId, at: now, vcpus, memoryMb, storageMb }).pipe(Effect.ignore);
   }
-  if (response.ok && request.method === "DELETE") yield* usage.record({ kind: "vm_stopped", tenantId: principal.tenantId, upstreamVmId: owned.row.upstreamId, at: now, reason: "delete" }).pipe(Effect.ignore);
+  if (response.ok && request.method === "DELETE") yield* usage.record({ kind: "vm_stopped", tenantId: principal.tenantId, upstreamVmId: row.upstreamId, at: now, reason: "delete" }).pipe(Effect.ignore);
   return copyResponse(response);
-});
+  }));
+};
 const snapshotResource = (request: Request, id: string, principal: Principal, upstream: CompatUpstreamService, ownership: OwnershipStoreService, audit: AuditStoreService, now: Date) => Effect.gen(function* () {
-  const owned = yield* ownedSnapshot(principal, id);
-  if (owned === null) return notFound();
-  const response = yield* upstream.forwardSnapshot(owned.owns, { request, template: "/v5/snapshots/{id}", operation: `v5.snapshot.${request.method.toLowerCase()}` }).pipe(Effect.mapError((failure) => providerError(failure.status)));
-  if (request.method === "DELETE" && response.ok) yield* ownership.markDeleted(principal.tenantId, "snapshot", owned.row.cmuxId, now).pipe(Effect.ignore);
-  return copyResponse(response);
+  return yield* withOwnedSnapshotCompat(principal, id, (_caller, _snapshot, owns, row) => Effect.gen(function* () {
+    const response = yield* upstream.forwardSnapshot(owns, { request, template: "/v5/snapshots/{id}", operation: `v5.snapshot.${request.method.toLowerCase()}` }).pipe(Effect.mapError((failure) => providerError(failure.status)));
+    if (request.method === "DELETE" && response.ok) yield* ownership.markDeleted(principal.tenantId, "snapshot", row.cmuxId, now).pipe(Effect.ignore);
+    return copyResponse(response);
+  }));
 });
 
 const identityCollection = (request: Request, principal: Principal, upstream: CompatUpstreamService, ownership: OwnershipStoreService, audit: AuditStoreService, now: Date) => Effect.gen(function* () {

@@ -264,6 +264,7 @@ const vmAction = <const Name extends string>(endpointName: Name, path: `/v1/vms/
     .setPath(VmPath)
     .setHeaders(TeamHeaders)
     .addSuccess(Vm)
+    .addError(BadRequest)
     .addError(NotFound)
     .addError(Conflict)
     .addError(QuotaExceeded)
