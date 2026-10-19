@@ -126,7 +126,10 @@ public struct SubrouterCodexResumeRouting: Sendable, Equatable {
             .lowercased()
         guard normalizedLauncher == nil || normalizedLauncher == "codex",
               let marker = capturedLaunchBoundMarker(in: environment),
-              launchArgumentsContainSubrouterProvider(launchArguments) else {
+              launchArgumentsContainSubrouterProvider(
+                  launchArguments,
+                  launcher: normalizedLauncher
+              ) else {
             return nil
         }
         return marker.split(separator: " ").map(String.init) + [sessionID]
@@ -200,7 +203,7 @@ public struct SubrouterCodexResumeRouting: Sendable, Equatable {
         ) != nil else {
             return sanitizedArguments
         }
-        if launchArgumentsContainSubrouterProvider(sanitizedArguments) {
+        if launchArgumentsContainSubrouterProvider(sanitizedArguments, launcher: nil) {
             return sanitizedArguments
         }
 
@@ -268,8 +271,19 @@ public struct SubrouterCodexResumeRouting: Sendable, Equatable {
         return selected
     }
 
-    private func launchArgumentsContainSubrouterProvider(_ arguments: [String]) -> Bool {
-        providerEvidence(in: arguments) == .provider("subrouter")
+    private func launchArgumentsContainSubrouterProvider(
+        _ arguments: [String],
+        launcher: String?
+    ) -> Bool {
+        let evidence: SubrouterCodexProviderEvidence
+        if launcher == "codex" {
+            // The captured launcher kind is authoritative for managed custom
+            // Codex paths whose basename is not literally `codex`.
+            evidence = providerEvidenceFromAssignments(in: arguments)
+        } else {
+            evidence = providerEvidence(in: arguments)
+        }
+        return evidence == .provider("subrouter")
     }
 
     private func isCodexInvocation(_ arguments: [String]) -> Bool {

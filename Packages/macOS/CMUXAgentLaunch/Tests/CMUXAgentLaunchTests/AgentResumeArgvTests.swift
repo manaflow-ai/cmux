@@ -467,6 +467,22 @@ struct AgentResumeArgvTests {
             ) == .resolved(["sr", "codex", "resume", "SID"] + preserved)
         )
 
+        #expect(
+            AgentResumeArgv().launcherResolution(
+                launcher: "codex",
+                sessionId: "SID",
+                executablePath: "/opt/company/bin/codex-enterprise",
+                arguments: [
+                    "/opt/company/bin/codex-enterprise",
+                    "-c", "model_provider=subrouter",
+                ],
+                environment: boundSubrouterMarker()
+            ) == .resolved([
+                "sr", "codex", "resume", "SID",
+                "-c", "check_for_update_on_startup=false",
+            ])
+        )
+
         for command in ["subrouter", "cx"] {
             #expect(
                 AgentResumeArgv().launcherResolution(
