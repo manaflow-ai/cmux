@@ -845,8 +845,10 @@ pub(super) fn connect(socket: &PathBuf) -> Result<UnixStream, String> {
 /// Connects to one app socket. The peer-uid check is on this connection,
 /// before any request bytes are written, so a shared-directory socket cannot
 /// impersonate the user's app.
-fn connect_for_uid(socket: &std::path::Path, _expected_uid: u32) -> std::io::Result<UnixStream> {
-    UnixStream::connect(socket)
+fn connect_for_uid(socket: &std::path::Path, expected_uid: u32) -> std::io::Result<UnixStream> {
+    let stream = UnixStream::connect(socket)?;
+    cmux_tui_core::platform::require_unix_peer_uid(&stream, expected_uid)?;
+    Ok(stream)
 }
 
 /// One request and its response. The outer error is transport; the inner
