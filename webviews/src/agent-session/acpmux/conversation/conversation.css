@@ -2297,8 +2297,9 @@ pre.cv-math-source {
   }
 }
 /* Static status indicators (cx-sya4n): the dots hold still. Reduce Motion gets the same static
-   dots, swapped in without the morph, since both rules above sit under no-preference. */
-:root[data-status-indicators="static"] .acpmux-jump-latest__dots i {
+   dots, swapped in without the morph, since both rules above sit under no-preference. The selector
+   repeats the loop's [data-shown][data-working] so it outranks it. */
+:root[data-status-indicators="static"] .acpmux-jump-latest[data-shown][data-working] .acpmux-jump-latest__dots i {
   animation: none;
 }
 @keyframes acpmux-jump-latest-dot {
