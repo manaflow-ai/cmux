@@ -91,7 +91,7 @@ test("a closed cmux-render fence draws as a render card named by its page's titl
   expect(card!.querySelector(".acpmux-render-card-title")?.textContent).toBe("Desk clamp");
   // Nothing runs until the reader presses Run, as for a render tool call.
   expect(host.querySelector("iframe")).toBeNull();
-  act(() => button("Show preview")!.click());
+  act(() => button("Show visualization")!.click());
   const frame = host.querySelector("iframe")!;
   expect(frame.getAttribute("src")).toBe("cmux-agent://render/frame");
   expect(frame.getAttribute("sandbox")).toBe("allow-scripts");
@@ -157,7 +157,7 @@ test.each(["<!doctype html>", " \n<!-- page -->\n<!-- layout -->\n<!DoCtYpE html
   async (prefix) => {
     const html = prefix + "<html><head><title>Standards</title></head><body>Page</body></html>";
     await draw("```cmux-render\n" + html + "\n```");
-    act(() => button("Show preview")!.click());
+    act(() => button("Show visualization")!.click());
     const frame = host.querySelector("iframe")!;
     const messages: { html: string }[] = [];
     frame.contentWindow!.postMessage = (data) => messages.push(data);

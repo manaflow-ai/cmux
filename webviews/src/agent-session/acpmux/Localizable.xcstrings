@@ -34886,127 +34886,127 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "معاينة"
+            "value": "تصوّر"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pregled"
+            "value": "Vizualizacija"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Forhåndsvisning"
+            "value": "Visualisering"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Vorschau"
+            "value": "Visualisierung"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Preview"
+            "value": "Visualization"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Vista previa"
+            "value": "Visualización"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Aperçu"
+            "value": "Visualisation"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Anteprima"
+            "value": "Visualizzazione"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "プレビュー"
+            "value": "可視化"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "មើលជាមុន"
+            "value": "ការបង្ហាញជារូបភាព"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "미리보기"
+            "value": "시각화"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Forhåndsvisning"
+            "value": "Visualisering"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Podgląd"
+            "value": "Wizualizacja"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pré-visualização"
+            "value": "Visualização"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Предпросмотр"
+            "value": "Визуализация"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ตัวอย่าง"
+            "value": "การแสดงผลด้วยภาพ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Önizleme"
+            "value": "Görselleştirme"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Попередній перегляд"
+            "value": "Візуалізація"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Xem trước"
+            "value": "Trực quan hóa"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "预览"
+            "value": "可视化"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "預覽"
+            "value": "視覺化"
           }
         }
       }
@@ -166022,127 +166022,127 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "عرض المعاينة"
+            "value": "عرض التصوّر"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Prikaži pregled"
+            "value": "Prikaži vizualizaciju"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Vis forhåndsvisning"
+            "value": "Vis visualisering"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Vorschau anzeigen"
+            "value": "Visualisierung anzeigen"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Show preview"
+            "value": "Show visualization"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mostrar vista previa"
+            "value": "Mostrar visualización"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Afficher l’aperçu"
+            "value": "Afficher la visualisation"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mostra anteprima"
+            "value": "Mostra visualizzazione"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "プレビューを表示"
+            "value": "可視化を表示"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "បង្ហាញការមើលជាមុន"
+            "value": "បង្ហាញជារូបភាព"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "미리보기 표시"
+            "value": "시각화 보기"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Vis forhåndsvisning"
+            "value": "Vis visualisering"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pokaż podgląd"
+            "value": "Pokaż wizualizację"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mostrar pré-visualização"
+            "value": "Mostrar visualização"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Показать предпросмотр"
+            "value": "Показать визуализацию"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "แสดงตัวอย่าง"
+            "value": "แสดงผลด้วยภาพ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Önizlemeyi göster"
+            "value": "Görselleştirmeyi göster"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Показати попередній перегляд"
+            "value": "Показати візуалізацію"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hiển thị bản xem trước"
+            "value": "Hiển thị trực quan hóa"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "显示预览"
+            "value": "显示可视化"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "顯示預覽"
+            "value": "顯示視覺化"
           }
         }
       }
