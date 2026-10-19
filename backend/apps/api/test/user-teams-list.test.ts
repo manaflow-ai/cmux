@@ -206,7 +206,7 @@ describe("user.teams.list (cx-5xew)", { timeout: 60_000 }, () => {
     const observed = await inDO(teamStub(t.team), async (instance) => {
       const engine = instance.bind(t.team), frames: Array<unknown> = []
       engine.submit({ identity: "system:team", kind: "system" }, { t: "op", op: "team.member.provision",
-        params: { user: member.user, role: "admin", display_name: "Member" }, idempotency_key: crypto.randomUUID(), origin: "script"
+        params: { user: member.user, role: "admin", source: "stack", display_name: "Member" }, idempotency_key: crypto.randomUUID(), origin: "script"
       }, (_target: string, frame: unknown) => frames.push(frame))
       return { frames, incarnation: engine.rows.get("member_authority", member.user)?.row.incarnation }
     })
