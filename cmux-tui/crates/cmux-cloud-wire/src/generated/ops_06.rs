@@ -4,6 +4,36 @@
 #[allow(unused_imports)]
 use super::*;
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct IntegrationPolicySetParamsGithub {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope: Option<IntegrationPolicySetParamsGithubScope>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub require_org_admin: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
+    pub repo_allowlist: Option<Option<Vec<RepoPattern>>>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct IntegrationPolicySetParams {
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
+    pub allowed_providers: Option<Option<Vec<IntegrationProvider>>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub github: Option<IntegrationPolicySetParamsGithub>,
+}
+
+wire_errors! {
+    /// The error codes integration.policy.set declares.
+    IntegrationPolicySetError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        PolicyLocked = "policy.locked",
+        RevisionConflict = "revision.conflict",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
 wire_op! {
     /// Disconnect: deletes the stored provider credential at once and marks the connection revoked.
     IntegrationRevokeOp {
@@ -872,25 +902,4 @@ pub struct ParticipantAvatarSetParams {
     /// true removes the picture (no bytes).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub clear: Option<bool>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ParticipantAvatarSetResult {
-    pub participant_id: ParticipantId,
-    pub avatar: Option<AvatarRef>,
-}
-
-wire_errors! {
-    /// The error codes participant.avatar.set declares.
-    ParticipantAvatarSetError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        AvatarInvalid = "avatar_invalid",
-        AvatarTooLarge = "avatar_too_large",
-        Forbidden = "forbidden",
-        IdempotencyConflict = "idempotency.conflict",
-        RevisionConflict = "revision.conflict",
-        UnknownParticipant = "unknown_participant",
-        ValidationInvalid = "validation.invalid",
-    }
 }

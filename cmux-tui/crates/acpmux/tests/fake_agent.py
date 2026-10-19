@@ -255,6 +255,11 @@ def handle_prompt(rid, params):
     # Connection-loss simulation for auto-resume tests. "net-fail-once: X" fails that prompt
     # with a transport error once per session; "net-down" fails it and every later prompt of
     # the session the same way. Any other prompt after a net-fail-once is answered as usual.
+    # "net-fail-then-exit" fails with that transport error, then the agent exits.
+    if text == "net-fail-then-exit":
+        send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "stream disconnected before completion: error sending request for url (https://relay.invalid/responses)"}})
+        time.sleep(0.05)
+        os._exit(0)
     # "net-refused-later" waits a moment, then fails with a refused connection.
     if text == "net-refused-later":
         time.sleep(0.5)
