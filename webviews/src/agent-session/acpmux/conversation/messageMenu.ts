@@ -59,6 +59,12 @@ export function forkablePrompts(rows: readonly { kind: string; seq?: number; tex
   return prompts.reverse();
 }
 
+/// The chat menu's Fork submenu's earlier turns: up to eight, newest first, after From here (the
+/// latest turn).
+export function earlierForkPrompts(rows: readonly { kind: string; seq?: number; text?: string }[]) {
+  return forkablePrompts(rows).slice(1, 9);
+}
+
 /// The latest completed turn's summary event: the one turn a fork goes through unless the chat
 /// `forksAnyTurn` (`acp.session.fork` refuses another agent's earlier turn).
 export function latestForkSeq(rows: readonly { kind: string; seq?: number }[]): number | undefined {

@@ -160,7 +160,7 @@ import { PreviewCard } from "./conversation/PreviewCard";
 import { turnPreviewUrl } from "./conversation/previewUrl";
 import {
   canFork,
-  forkablePrompts,
+  earlierForkPrompts,
   forksAnyTurn,
   latestForkSeq,
   messageMenuTarget,
@@ -4509,7 +4509,7 @@ function AcpmuxPane() {
     );
     // Fork › From here (the last turn), then, for a harness that forks at any turn, the earlier
     // prompts, newest first (ChatGPT's "from a message"); otherwise one Fork row.
-    const forkPrompts = forksAnyTurn(summary?.family) ? forkablePrompts(snapshot.rows).slice(1, 9) : [];
+    const forkPrompts = forksAnyTurn(summary?.family) ? earlierForkPrompts(snapshot.rows) : [];
     const fork: ChatMenuItem[] =
       forkable && lastForkSeq !== undefined
         ? [
