@@ -448,7 +448,11 @@ final class NativeConversationUITests: XCTestCase {
             app.launch()
             defer { app.terminate() }
             try openDetail(in: app)
-            XCTAssertTrue(app.staticTexts[heading].waitForExistence(timeout: 5))
+            let localizedHeading = app.staticTexts
+                .matching(identifier: "ConversationWelcome")
+                .allElementsBoundByIndex
+                .first { removingDirectionalIsolates(from: $0.label) == heading }
+            XCTAssertNotNil(localizedHeading, "Empty conversation heading should match the localized provider name")
             let send = app.buttons["ConversationSendButton"]
             XCTAssertTrue(send.exists)
             XCTAssertEqual(send.label, sendLabel)
@@ -557,6 +561,11 @@ final class NativeConversationUITests: XCTestCase {
         app.launchEnvironment["CMUX_UITEST_CONVERSATION_FIXTURE"] = "1"
         app.launchEnvironment["CMUX_UITEST_CONVERSATION_SCENARIO"] = scenario
         return app
+    }
+
+    private func removingDirectionalIsolates(from value: String) -> String {
+        let isolates: Set<UInt32> = [0x2066, 0x2067, 0x2068, 0x2069]
+        return String(value.unicodeScalars.filter { !isolates.contains($0.value) })
     }
 
     @MainActor
