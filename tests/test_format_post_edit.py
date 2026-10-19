@@ -287,7 +287,9 @@ class FormatPostEditTests(unittest.TestCase):
         child = package / "src/child.rs"
         child.write_text("pub fn   child( ){}\n")
         path = self.edit("probe/src/lib.rs", "mod child;\npub fn   lib( ){}\n")
-        returncode, stdout, stderr = self.run_hook("codex", path)
+        # The fixture HOME hides rustup's toolchains from its rustfmt proxy.
+        rustup_home = os.environ.get("RUSTUP_HOME", str(Path.home() / ".rustup"))
+        returncode, stdout, stderr = self.run_hook("codex", path, RUSTUP_HOME=rustup_home)
         self.assert_hook_ok("codex", returncode, stdout)
         self.assertEqual(path.read_text(), "mod child;\npub fn lib() {}\n", stderr)
         self.assertEqual(child.read_text(), "pub fn   child( ){}\n")

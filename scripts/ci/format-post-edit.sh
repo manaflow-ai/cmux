@@ -23,7 +23,7 @@ payload="$(cat 2>/dev/null || true)"
 # closed pipe.
 [ "${CMUX_SKIP_FORMAT_HOOKS:-0}" = 1 ] && exit 0
 # One line per file:
-#   rust<TAB>edition<TAB>toolchain<TAB>path<TAB>config  (toolchain, config may be empty)
+#   rust<TAB>edition<TAB>toolchain<TAB>path<TAB>config  (toolchain "-" for none; config may be empty)
 #   web<TAB>package<TAB>path-inside-package
 plan="$(PAYLOAD="$payload" python3 - "$ROOT" <<'PY'
 import json
@@ -124,7 +124,8 @@ for path in sorted(paths):
         config = next((os.path.join(root, d, name) for d in parents(package)
                        for name in ("rustfmt.toml", ".rustfmt.toml")
                        if os.path.isfile(os.path.join(root, d, name))), "")
-        print(f"rust\t{edition(package)}\t{toolchain(package)}\t{path}\t{config}")
+        # "-" for no toolchain: read collapses empty tab-separated fields.
+        print(f"rust\t{edition(package)}\t{toolchain(package) or '-'}\t{path}\t{config}")
         continue
     package = next((p for p in WEB_PACKAGES if path.startswith(p + "/")), None)
     if package and WEB_FILE.search(path) and "/node_modules/" not in path:
@@ -144,6 +145,7 @@ if [ -n "$rust_lines" ]; then
     # rustfmt keeps a stable style across versions, so without that toolchain
     # the PATH rustfmt still formats.
     rustfmt_bin=""
+    [ "$toolchain" != - ] || toolchain=""
     if [ -n "$toolchain" ]; then
       rustfmt_bin="$(rustup which --toolchain "$toolchain" rustfmt 2>/dev/null || true)"
       if [ -z "$rustfmt_bin" ] || [ ! -x "$rustfmt_bin" ]; then
