@@ -26,6 +26,12 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts/ci"))
 import next_batch as nb  # noqa: E402
 
+# The suite also runs on Actions. Start every test from a host environment, so the
+# "never land from Actions" refusal (landing_refusal) applies only where a test sets
+# GITHUB_ACTIONS itself, and a runner's own batch settings never leak into a case.
+for _name in [n for n in os.environ if n == "GITHUB_ACTIONS" or n.startswith("CMUX_NEXT_BATCH_")]:
+    del os.environ[_name]
+
 WORKFLOW = ROOT / ".github/workflows/cmux-next-batch.yml"
 NOW = dt.datetime(2026, 10, 6, 5, 0, tzinfo=dt.timezone.utc)
 PANE = "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/pane.js"
@@ -179,6 +185,27 @@ class OpenPrsQuery(unittest.TestCase):
         self.assertEqual(sorted(seen[2:]), [("detail", "PR_1", True, None), ("detail", "PR_3", True, None)])
         self.assertEqual(prs[2].files, [".github/workflows/x.yml"])
         self.assertEqual(prs[1].files, [])
+
+    def test_override_label_actors_come_from_the_list_query_after_the_head_commit(self):
+        """#21925 on top of #21891's two-query list: who applied a label still arrives
+        with the light list, and only an application after the head's commit counts."""
+        node = self.node(1)
+        committed = node["commits"]["nodes"][0]["commit"]["committedDate"]
+        before = (dt.datetime.fromisoformat(committed) - dt.timedelta(hours=1)).isoformat()
+        after = (dt.datetime.fromisoformat(committed) + dt.timedelta(minutes=5)).isoformat()
+        node["labels"] = {"nodes": [{"name": nb.OVERRIDE_ALONE}, {"name": "stale"}]}
+        node["timelineItems"] = {"nodes": [
+            {"createdAt": after, "label": {"name": nb.OVERRIDE_ALONE}, "actor": {"login": "lawrencecchen"}},
+            {"createdAt": before, "label": {"name": "stale"}, "actor": {"login": "lawrencecchen"}},
+            {},
+        ]}
+        pages = [{"repository": {"pullRequests": {"nodes": [node],
+                                                  "pageInfo": {"hasNextPage": False, "endCursor": None}}}}]
+        gh, _ = self.fake(pages, {("PR_1", ""): (["a.swift"], [], None)})
+        with mock.patch.dict(os.environ, {"CMUX_NEXT_BATCH_AUTHORS": ""}):
+            [item] = nb.open_prs(gh)
+        self.assertEqual(item.label_actors, {nb.OVERRIDE_ALONE: "lawrencecchen"})
+        self.assertIn("LABELED_EVENT", nb.LIST_QUERY)
 
     def test_pages_contexts_past_the_first_hundred_and_caches_by_head_and_counts(self):
         pages = [{"repository": {"pullRequests": {"nodes": [self.node(1, state="FAILURE")],
