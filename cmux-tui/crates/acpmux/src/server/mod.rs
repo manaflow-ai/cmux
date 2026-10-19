@@ -42,12 +42,15 @@ pub struct Conn {
     pub origin: Origin,
     /// The proof it presented (`conn_auth.rs`); what the mode rule reads.
     pub auth: ConnAuth,
+    /// It reads session text raw (`peer_text.rs`): every origin but a peer.
+    raw_text: bool,
     name: StdMutex<String>,
     out: mpsc::Sender<String>,
     subs: StdMutex<HashMap<String, SubOpts>>,
     /// Server-derived mailbox identities for this connection's local attachments.
     mailbox_bindings: StdMutex<HashMap<String, SessionReceipt>>,
     watch_all: AtomicBool,
+    watch_inventory: StdMutex<bool>,
     /// The unix socket peer's audit token, read at accept (macOS); what
     /// `_acpmux/person_enroll` checks. None for WebSocket connections.
     peer: Option<cmux_link::app_caller::PeerToken>,
@@ -61,12 +64,19 @@ pub struct Conn {
     person: AtomicBool,
     /// `_acpmux/person_holds` calls on this connection (`hub/person.rs`).
     pub(super) holds_calls: std::sync::atomic::AtomicU32,
+    /// The acpmux session it runs in, proven at its first `initialize` (`hub/person.rs` (a)).
+    caller: std::sync::OnceLock<String>,
 }
 
 impl Conn {
     /// Whether this connection is the person (`hub/person.rs`).
     pub(super) fn is_person(&self) -> bool {
         self.person.load(Ordering::SeqCst)
+    }
+
+    /// The acpmux session this connection proved it runs in (`hub/person.rs` (a)).
+    pub(super) fn caller(&self) -> Option<&str> {
+        self.caller.get().map(String::as_str)
     }
 
     /// Whether this connection gets the person challenge: the unix socket or the proven local app.
@@ -81,9 +91,15 @@ impl Conn {
     /// the proof matches its own nonce and id. Nothing else ever does.
     fn bind_person(&self, hub: &Hub, m: &str, params: &mut Option<Value>) {
         let _ = params.as_mut().and_then(crate::hub::person::take_key);
+        // Stripped from every request; read from a first unix `initialize` only (person.rs (a)).
+        let caller = params.as_mut().and_then(crate::hub::person::take_caller);
         let n = self.requests.fetch_add(1, Ordering::SeqCst) + 1;
         if n == 1 && m == method::INITIALIZE && self.challengeable() {
             self.challenged.store(true, Ordering::SeqCst);
+        }
+        let first_local = n == 1 && m == method::INITIALIZE && self.origin == Origin::Local;
+        if let Some(id) = caller.filter(|_| first_local).and_then(|c| hub.proven_caller(c)) {
+            let _ = self.caller.set(id);
         }
         if n == 2 && m == method::MUX_PERSON_PROVE && self.challenged.load(Ordering::SeqCst) {
             let proof = params.as_ref().and_then(|p| p.get("proof")).and_then(Value::as_str);
@@ -98,7 +114,8 @@ impl Conn {
     }
 
     fn send(&self, msg: &Message) {
-        let _ = self.out.try_send(msg.to_line());
+        let masked = (!self.raw_text).then(|| peer_text::masked(msg)).flatten();
+        let _ = self.out.try_send(masked.as_ref().unwrap_or(msg).to_line());
     }
     fn sub_opts(&self, session_id: &str) -> Option<SubOpts> {
         self.subs.lock().unwrap().get(session_id).cloned()
@@ -687,69 +704,29 @@ async fn serve_connection_from(
         refuse_unauthenticated(&mut inbound, &out, origin).await;
         return;
     }
+    let raw_text = !peer_text::masks(origin);
     let conn = Arc::new(Conn {
         id: uuid::Uuid::now_v7().to_string(),
         origin,
         auth,
+        raw_text,
         name: StdMutex::new(String::new()),
         out,
         subs: StdMutex::new(HashMap::new()),
         mailbox_bindings: StdMutex::new(HashMap::new()),
         watch_all: AtomicBool::new(false),
+        watch_inventory: StdMutex::new(false),
         peer,
         requests: std::sync::atomic::AtomicU64::new(0),
         challenged: AtomicBool::new(false),
         nonce: crate::hub::person::new_nonce(),
         person: AtomicBool::new(false),
         holds_calls: std::sync::atomic::AtomicU32::new(0),
+        caller: std::sync::OnceLock::new(),
     });
     tracing::debug!(conn = %conn.id, "client connected");
 
-    // Fan-out task.
-    let fan = {
-        let hub = hub.clone();
-        let conn = conn.clone();
-        let mut rx = hub.subscribe();
-        let mut harnesses = hub.subscribe_harness_changes();
-        let mut catalog = hub.catalog.subscribe();
-        tokio::spawn(async move {
-            loop {
-                let ev = tokio::select! {
-                    ev = rx.recv() => ev,
-                    note = harnesses.recv() => {
-                        match note {
-                            Ok(note) if conn.watch_all.load(Ordering::SeqCst) => {
-                                harness_admin::watch_note(&conn, note)
-                            }
-                            // Lagged: a newer change follows with the full list.
-                            Ok(_) | Err(broadcast::error::RecvError::Lagged(_)) => {}
-                            Err(broadcast::error::RecvError::Closed) => break,
-                        }
-                        continue;
-                    }
-                    // Every connection hears a catalog change: no watch or attach is needed.
-                    changed = catalog.recv() => {
-                        match changed {
-                            Ok(summary) => conn.send(&Message::notification(crate::catalog::EVENT_CHANGED, summary)),
-                            Err(broadcast::error::RecvError::Lagged(_)) => conn.send(&Message::notification(
-                                crate::catalog::EVENT_CHANGED,
-                                hub.catalog.summary(),
-                            )),
-                            Err(broadcast::error::RecvError::Closed) => break,
-                        }
-                        continue;
-                    }
-                };
-                match ev {
-                    Ok(ev) => deliver(&hub, &conn, ev),
-                    Err(broadcast::error::RecvError::Lagged(n)) => {
-                        conn.send(&Message::notification("_acpmux/lagged", json!({"dropped": n})));
-                    }
-                    Err(broadcast::error::RecvError::Closed) => break,
-                }
-            }
-        })
-    };
+    let fan = fanout::start(hub.clone(), conn.clone());
 
     while let Some(line) = inbound.recv().await {
         if line.trim().is_empty() {
@@ -971,13 +948,16 @@ fn civil_from_days(z: i64) -> (i64, u32, u32) {
 mod change_kind;
 mod chats;
 pub mod conn_auth;
+mod fanout;
 pub use conn_auth::ConnAuth;
 mod fork_through;
 mod harness_admin;
 mod harness_enable;
+mod inventory_watch;
 pub mod local_app;
 pub mod peer_auth;
 mod peer_forward;
+pub mod peer_text;
 mod pending;
 mod processes;
 pub use pending::event_value;

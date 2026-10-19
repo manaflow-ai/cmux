@@ -55,7 +55,7 @@
 .acpmux-mic[data-state=finalizing] .acpmux-mic-meter{opacity:.55}
 @keyframes acpmux-mic-wait{50%{opacity:.45}}
 @media (prefers-reduced-motion:no-preference){.acpmux-mic[data-state=starting]{animation:acpmux-mic-wait calc(var(--agent-motion-in) * 10) var(--agent-ease-out) infinite}.acpmux-mic-meter span{transition:transform var(--agent-motion-hover) var(--agent-ease-out)}}
-.acpmux-dictation-notice{display:flex;align-items:center;gap:8px;margin:0 max(16px,calc((100% - 736px)/2)) 8px;padding:6px 6px 6px 12px;border-radius:12px;background:var(--acpmux-composer-bg);box-shadow:inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-composer-edge);color:var(--agent-text);font-size:12px;line-height:18px}
+.acpmux-dictation-notice{display:flex;align-items:center;gap:8px;margin:0 var(--cv-inset) 8px;padding:6px 6px 6px 12px;border-radius:12px;background:var(--acpmux-composer-bg);box-shadow:inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-composer-edge);color:var(--agent-text);font-size:12px;line-height:18px}
 /* Static status indicators (cx-sya4n): the mic's wait pulse stops. */
 :root[data-status-indicators=static] .acpmux-mic[data-state=starting]{animation:none}
 .acpmux-dictation-notice span{flex:1}
@@ -76,16 +76,19 @@
 .acpmux-picker-button{display:flex;align-items:center;gap:4px;min-width:0;height:28px;padding:0 8px;border:0;border-radius:6px;background:none;color:var(--agent-text);white-space:nowrap}
 .acpmux-picker-button>span{overflow:hidden;text-overflow:ellipsis}
 .acpmux-picker-button[aria-expanded=true]{background:var(--acpmux-pill-open,color-mix(in srgb,var(--agent-text) 16%,transparent));box-shadow:inset 0 0 0 1px var(--acpmux-pill-edge,color-mix(in srgb,var(--agent-text) 24%,transparent))}@media (hover:hover) and (pointer:fine){.acpmux-picker-button:hover{background:var(--acpmux-pill-hover,color-mix(in srgb,var(--agent-text) 11%,transparent))}}
-.acpmux-picker-button:focus-visible,.acpmux-plan:focus-visible,.acpmux-send:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}.acpmux-model .acpmux-picker-button:active,.acpmux-effort .acpmux-picker-button:active,.acpmux-access .acpmux-picker-button:active{background:var(--acpmux-pill-press,color-mix(in srgb,var(--agent-text) 22%,transparent))}.acpmux-model .acpmux-picker-button:focus-visible,.acpmux-effort .acpmux-picker-button:focus-visible,.acpmux-access .acpmux-picker-button:focus-visible{background:var(--acpmux-pill-open,color-mix(in srgb,var(--agent-text) 16%,transparent));box-shadow:inset 0 0 0 1px var(--acpmux-pill-edge,color-mix(in srgb,var(--agent-text) 24%,transparent))}
+.acpmux-picker-button:focus-visible,.acpmux-plan:focus-visible,.acpmux-send:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}.acpmux-model .acpmux-picker-button:focus-visible,.acpmux-effort .acpmux-picker-button:focus-visible,.acpmux-access .acpmux-picker-button:focus-visible{background:var(--acpmux-pill-open,color-mix(in srgb,var(--agent-text) 16%,transparent));box-shadow:inset 0 0 0 1px var(--acpmux-pill-edge,color-mix(in srgb,var(--agent-text) 24%,transparent))}
 .acpmux-mode .acpmux-picker-button{gap:6px;padding:0 8px 0 6px;color:var(--agent-muted)}
 .acpmux-plan{display:flex;align-items:center;gap:6px;height:28px;padding:0 8px 0 6px;border:0;border-radius:6px;background:none;color:var(--agent-muted);font:inherit;cursor:default;white-space:nowrap}
 .acpmux-plan:hover{background:var(--acpmux-composer-hover);color:var(--agent-text)}
 .acpmux-plan[aria-pressed=true]{background:color-mix(in srgb,var(--agent-accent,var(--agent-text)) 16%,transparent);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--agent-accent,var(--agent-text)) 45%,transparent);color:var(--agent-accent,var(--agent-text))}
 .acpmux-separator{flex:none;width:1px;height:18px;margin:0 4px;background:var(--acpmux-composer-edge)}
 .acpmux-chips>.acpmux-plan+.acpmux-chips-spacer,.acpmux-chips>.acpmux-mode+.acpmux-chips-spacer{margin-left:0}
-.acpmux-mode.acpmux-unrestricted .acpmux-picker-button{color:var(--acpmux-warning)}
+/* Full access draws in the chip's own color, like Claude's mode label: the shield's mark names the risk and the menu marks its icon (Leo 2026-10-18). */
 .acpmux-model .acpmux-picker-button,.acpmux-effort .acpmux-picker-button{padding:0 6px 0 8px}
 .acpmux-model .acpmux-picker-button,.acpmux-effort .acpmux-picker-button,.acpmux-access .acpmux-picker-button{border-radius:999px;background:var(--acpmux-pill-fill,color-mix(in srgb,var(--agent-text) 6%,transparent))}
+/* A pill pressed or open keeps the hover step and no edge: no brighter press tone that flashes on a click (Leo 2026-10-18). */
+.acpmux-model .acpmux-picker-button:is(:active,[aria-expanded=true]),.acpmux-effort .acpmux-picker-button:is(:active,[aria-expanded=true]),.acpmux-access .acpmux-picker-button:is(:active,[aria-expanded=true]){background:var(--acpmux-pill-hover,color-mix(in srgb,var(--agent-text) 11%,transparent));box-shadow:none}
+@media (hover:hover) and (pointer:fine){.acpmux-model .acpmux-picker-button:hover:not([aria-expanded=true]),.acpmux-effort .acpmux-picker-button:hover:not([aria-expanded=true]),.acpmux-access .acpmux-picker-button:hover:not([aria-expanded=true]){background:var(--acpmux-pill-hover,color-mix(in srgb,var(--agent-text) 11%,transparent))}}
 /* The model picker follows T3: one harness/model button and a stable two-column popover. */
 .acpmux-model-name{color:var(--agent-text)}
 .acpmux-model-effort{flex:none;margin-left:4px;padding:2px 6px;border-radius:4px;background:var(--acpmux-menu-hover);color:var(--agent-muted);font-size:12px;line-height:16px}
@@ -162,10 +165,8 @@
 .acpmux-newtab>*{width:100%}
 .acpmux-newtab-box{border-radius:22px;background:color-mix(in srgb,var(--acpmux-composer-bg) 72%,transparent);-webkit-backdrop-filter:blur(18px) saturate(1.08);backdrop-filter:blur(18px) saturate(1.08);box-shadow:inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-composer-edge),var(--elevation-2)}
 .acpmux-newtab-row{display:flex;align-items:center;gap:10px;height:56px;padding:0 8px 0 18px;cursor:text}
-/* The field row is the text area: the I-beam over all of it, and a press anywhere in it focuses the field (NewTabPage); its switch keeps the arrow. The box lifts on hover as the browser omnibar does (Palette.hoverFill: the composer hover step), not while it has the keyboard, and eases with the hover token both ways. */
+/* The field row is the text area: the I-beam over all of it, and a press anywhere in it focuses the field (NewTabPage); its switch keeps the arrow. The box has no hover state (Leo 2026-10-18). */
 .acpmux-newtab-switch{cursor:default}
-.acpmux-newtab-box:hover:not(:focus-within){background:var(--acpmux-composer-hover)}
-@media (prefers-reduced-motion:no-preference){.acpmux-newtab-box{transition:background-color var(--agent-motion-hover) var(--agent-ease-out)}}
 .acpmux-newtab-row>.acpmux-icon{color:var(--acpmux-composer-dim)}
 .acpmux-newtab-field{flex:1;min-width:0;height:100%;border:0;outline:0;padding:0;background:none;color:var(--agent-text);caret-color:var(--cmux-caret, var(--agent-text));font:inherit;font-size:15px}
 .acpmux-newtab-field::placeholder{color:var(--acpmux-composer-placeholder);opacity:1}
@@ -227,18 +228,21 @@
 .acpmux-newtab .acpmux-send:active{background:color-mix(in srgb,var(--agent-accent,var(--agent-text)) 76%,var(--acpmux-base))}
 @container (max-width:540px){.acpmux-newtab-kind kbd{display:none}}
 @container (max-width:460px){.acpmux-newtab-kind>span{display:none}}
-/* Queue (ComposerQueue.tsx): prompts waiting for the running turn, as compact rows attached to the composer's top edge, inset so the composer's rounded corners lead into them. In the bottom stack's flow (bottomStack.css), so it never covers the dock or a question above it. */
-.acpmux-composer-queue{display:flex;flex-direction:column;max-height:var(--acpmux-queue-max,122px);overflow-y:auto;margin:0 16px;padding:4px 0;box-sizing:border-box;list-style:none;border-radius:12px 12px 0 0;background:var(--acpmux-composer-tray);box-shadow:inset 0 .5px 0 var(--acpmux-composer-edge),inset .5px 0 0 var(--acpmux-composer-edge),inset -.5px 0 0 var(--acpmux-composer-edge);font-size:13px;line-height:18px}
-.acpmux-queued{position:relative;display:flex;align-items:center;gap:8px;min-width:0;min-height:26px;padding:0 12px;box-sizing:border-box;color:var(--agent-text)}
-.acpmux-queued-mark{flex:none;min-width:14px;color:var(--acpmux-composer-dim);font-size:var(--text-detail);font-variant-numeric:tabular-nums;text-align:right}
-.acpmux-queued-text{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.acpmux-queued-actions{position:absolute;top:0;right:8px;bottom:0;display:flex;align-items:center;gap:2px;padding-left:20px;background:linear-gradient(to right,transparent,var(--acpmux-composer-tray) 20px);opacity:0;transition:opacity var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
+/* Queue (ComposerQueue.tsx): prompts waiting for the running turn, as compact rows attached to the composer's top edge, on the column's edges like every block in the chat. In the bottom stack's flow (bottomStack.css), so it never covers the dock or a question above it. */
+.acpmux-composer-queue{display:grid;grid-template-columns:auto minmax(0,1fr) auto;column-gap:8px;align-content:start;max-height:var(--acpmux-queue-max,132px);overflow-y:auto;margin:0;padding:4px 0;box-sizing:border-box;list-style:none;border-radius:12px 12px 0 0;background:var(--acpmux-composer-tray);box-shadow:inset 0 var(--cmux-hairline,.5px) 0 var(--acpmux-composer-edge),inset var(--cmux-hairline,.5px) 0 0 var(--acpmux-composer-edge),inset calc(-1*var(--cmux-hairline,.5px)) 0 0 var(--acpmux-composer-edge);font-size:var(--text-body);line-height:var(--text-body--line-height)}
+.acpmux-queued{position:relative;grid-column:1/-1;display:grid;grid-template-columns:subgrid;align-items:start;min-width:0;min-height:26px;padding:4px 8px 4px 12px;box-sizing:border-box;color:var(--agent-text)}
+.acpmux-queued-mark{min-width:14px;line-height:18px;color:var(--acpmux-composer-dim);font-size:var(--text-detail);font-variant-numeric:tabular-nums}
+.acpmux-queued-text{display:block;min-width:0;margin:0;padding:0;border:0;background:none;color:inherit;font:inherit;line-height:18px;text-align:left;white-space:pre-wrap;overflow-wrap:anywhere;cursor:default}
+/* The clamp sits on the button's text: WebKit lays a button out as its own box and ignores -webkit-line-clamp on it. */
+.acpmux-queued-clamp{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}.acpmux-queued-text[data-open] .acpmux-queued-clamp{display:block;-webkit-line-clamp:none}
+.acpmux-queued-actions{grid-column:3;display:flex;align-items:center;gap:2px;margin-top:-4px;opacity:.55;transition:opacity var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
 .acpmux-queued:hover .acpmux-queued-actions,.acpmux-queued:focus-within .acpmux-queued-actions{opacity:1}
 .acpmux-queued-action{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;padding:0;border:0;border-radius:6px;background:none;color:var(--acpmux-composer-dim);cursor:default}
 .acpmux-queued-action:hover{background:var(--agent-control-hover);color:var(--agent-text)}
 .acpmux-queued-action:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:-1px}
-.acpmux-queue-paused{display:flex;align-items:center;gap:8px;min-height:26px;padding:0 8px 0 34px;box-sizing:border-box;color:var(--agent-warning,var(--acpmux-composer-dim));font-size:var(--text-detail)}
-.acpmux-queue-resume{margin-left:auto;height:22px;padding:0 8px;border:0;border-radius:6px;background:none;color:var(--agent-text);font:inherit;cursor:default}
+.acpmux-queue-paused{grid-column:1/-1;display:grid;grid-template-columns:subgrid;align-items:center;min-height:26px;padding:0 8px 0 12px;box-sizing:border-box;color:var(--agent-warning,var(--acpmux-composer-dim));font-size:var(--text-detail)}
+.acpmux-queue-paused>span{grid-column:1/3}
+.acpmux-queue-resume{grid-column:3;justify-self:end;height:22px;padding:0 8px;border:0;border-radius:6px;background:none;color:var(--agent-text);font:inherit;cursor:default}
 .acpmux-queue-resume:hover{background:var(--agent-control-hover)}
 .acpmux-queue-resume:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:-1px}
 .acpmux-sidebar-project>svg{flex:none;color:var(--agent-muted)}.acpmux-sidebar-project>span:not(.acpmux-session-mark){flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}.acpmux-rail{flex:0 0 48px;display:flex;flex-direction:column;align-items:center;gap:4px;padding:10px 0;box-sizing:border-box}.acpmux-rail-button{position:relative;display:grid;place-items:center;width:34px;height:34px;padding:0;border:0;border-radius:9px;background:none;color:var(--agent-muted);cursor:default}.acpmux-rail-button:hover:not(:disabled){background:color-mix(in srgb,var(--agent-text) 6%,transparent);color:var(--agent-text)}.acpmux-rail-button[aria-current=page]{background:color-mix(in srgb,var(--agent-text) 9%,transparent);color:var(--agent-text)}.acpmux-rail-button:focus-visible,.acpmux-sidebar-action:focus-visible{outline:2px solid color-mix(in srgb,var(--agent-text) 40%,transparent);outline-offset:-2px}.acpmux-rail-button:disabled{opacity:.4}.acpmux-rail-dot{position:absolute;top:6px;right:6px;width:6px;height:6px;border-radius:50%;background:var(--agent-warning,var(--agent-accent))}.acpmux-sidebar-body{flex:1;min-width:0;display:flex;flex-direction:column}.acpmux-sidebar-scroll{flex:1;min-height:0;overflow:auto;padding:10px 8px 16px 0}.acpmux-sidebar-action{display:flex;align-items:center;gap:8px;width:100%;height:30px;margin-bottom:6px;padding:0 9px;border:0;border-radius:8px;background:none;color:var(--agent-text);font:inherit;letter-spacing:inherit;cursor:default}.acpmux-sidebar-action svg{flex:none;color:var(--agent-soft)}.acpmux-sidebar-action:hover{background:color-mix(in srgb,var(--agent-text) 5%,transparent)}.acpmux-sidebar-title{display:flex;align-items:center;height:30px;margin:0 0 6px;padding:0 9px;font-size:13px;font-weight:600}.acpmux-session-row.is-flat{padding-left:9px}.acpmux-session-trailing{flex:none;color:var(--agent-muted);font-size:12px;font-variant-numeric:tabular-nums}.acpmux-account{flex:none;display:flex;align-items:center;gap:8px;height:48px;padding:0 17px 0 9px}.acpmux-avatar{flex:none;display:grid;place-items:center;width:24px;height:24px;border-radius:50%;background:color-mix(in srgb,var(--agent-text) 14%,transparent);color:var(--agent-text);font-size:12px;font-weight:600}.acpmux-account-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500}.acpmux-account-detail{flex:none;color:var(--agent-muted)}.acpmux-account-detail::before{content:"· "}.acpmux-hidden-label{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
@@ -247,12 +251,17 @@
 .acpmux-empty-glyph{color:var(--acpmux-composer-placeholder)}
 .acpmux-empty-title{margin:0;max-width:560px;font-size:20px;line-height:28px;font-weight:400;color:var(--agent-text);overflow-wrap:anywhere}
 .acpmux-empty-project{text-decoration:underline;text-decoration-color:var(--acpmux-composer-placeholder);text-underline-offset:4px;text-decoration-thickness:1px}
-/* A remote connection showing a chat acpmux will not let it drive (remoteEditing.ts). */
+/* A remote connection showing a chat acpmux will not let it drive (remoteEditing.ts). On the
+   column's edge: in the composer form, which stands there already; elsewhere in the bottom stack,
+   at the column's inset. */
 .acpmux-composer-remote-note {
-  margin: 0 18px 4px;
+  margin: 0 var(--cv-inset) 4px;
   color: var(--agent-muted);
-  font-size: 12px;
-  line-height: 16px;
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+}
+.acpmux-composer .acpmux-composer-remote-note {
+  margin: 0 0 4px;
 }
 /* Context (ComposerContext.tsx): composerLocation.css. */
 /* The folder trust ask (TrustAsk.tsx): one quiet line among the chat's permission asks, its actions text buttons that step on hover and press. */
@@ -415,6 +424,15 @@ button.acpmux-edited-file:hover{background:color-mix(in srgb,var(--agent-text) 4
 .acpmux-turn-preview-address:focus-visible{outline:1.5px solid var(--agent-muted);outline-offset:1px;border-radius:3px}
 .acpmux-turn-preview-frame{position:relative;height:180px;overflow:hidden;cursor:pointer;background:var(--agent-page-bg)}
 .acpmux-turn-preview-frame iframe{position:absolute;top:0;left:0;width:400%;height:400%;border:0;transform:scale(.25);transform-origin:0 0;pointer-events:none;background:var(--agent-page-bg)}
+.cv-link-preview{min-width:280px;max-width:min(520px,calc(100vw - 24px));padding:0;overflow:hidden;border-radius:9px;background:var(--surface-popup,var(--agent-page-bg));color:var(--agent-text);box-shadow:var(--elevation-2);pointer-events:auto}
+.cv-link-preview__head{display:flex;align-items:center;gap:9px;min-height:42px;padding:7px 9px;border-bottom:1px solid var(--agent-border);background:color-mix(in srgb,var(--agent-text) 4%,transparent)}
+.cv-link-preview__icon{display:flex;flex:none;align-items:center;justify-content:center;width:24px;height:24px;border-radius:6px;background:var(--agent-page-bg);color:var(--agent-muted)}
+.cv-link-preview__icon .cv-chip__icon{width:15px;height:15px;margin:0}
+.cv-link-preview__site{min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--text-detail);font-weight:600}
+.cv-link-preview__open{display:inline-flex;align-items:center;gap:5px;flex:none;height:24px;padding:0 8px;border:1px solid var(--agent-border);border-radius:6px;background:transparent;color:var(--agent-text);font:inherit;font-size:var(--text-detail);cursor:pointer}
+.cv-link-preview__open:hover{background:color-mix(in srgb,var(--agent-text) 8%,transparent)}
+.cv-link-preview__open:focus-visible{outline:1.5px solid var(--agent-muted);outline-offset:1px}
+.cv-link-preview__target{padding:9px 12px 10px;color:var(--agent-muted);font-size:var(--text-detail);line-height:1.35;overflow-wrap:anywhere}
 .acpmux-edited-path{flex:1;min-width:0;display:flex;white-space:nowrap;overflow:hidden;font-family:var(--cv-code-font,var(--cv-mono,ui-monospace,"SF Mono",Menlo,monospace))}
 .acpmux-edited-dir{min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--agent-muted)}
 .acpmux-edited-base{flex:none}

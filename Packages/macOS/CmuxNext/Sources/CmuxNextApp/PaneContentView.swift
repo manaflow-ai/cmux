@@ -115,7 +115,7 @@ final class PaneContentView: NSView, PaneContentChrome {
     }
 
 
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
 
     override func layout() {
         let stripHeight = self.stripHeight

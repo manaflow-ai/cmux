@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 0ffdc025bee91f84dac1a77976dae2216281abe7f3c20aee0d88b7ddcf108cdc. */
+/* cmux-tui mux protocol 12, IR d6685d20764871f0c31c501adbdac32317c2aaba05737cf58233a0e372edd691. */
 
 
 import type * as T from "./types.js";
@@ -22,6 +22,20 @@ export type AgentChangedEvent = { event: "agent-changed" } & {
   "state": T.AgentState;
   "surface": T.Id;
   "updated_at_ms": bigint;
+};
+
+/** Protocol v12; emission: emitted; streams: control. */
+export type AgentInventoryChangedEvent = { event: "agent-inventory-changed" } & {
+  "machine": string;
+  "revision": bigint;
+  "watch_id": string;
+};
+
+/** Protocol v12; emission: emitted; streams: control. */
+export type AgentInventoryWatchEndedEvent = { event: "agent-inventory-watch-ended" } & {
+  "machine": string;
+  "reason": string;
+  "watch_id": string;
 };
 
 /** Protocol v12; emission: emitted; streams: subscribe. */
@@ -689,6 +703,8 @@ export interface UnknownEvent {
 export type KnownCmuxEvent =
   | ActivityChangedEvent
   | AgentChangedEvent
+  | AgentInventoryChangedEvent
+  | AgentInventoryWatchEndedEvent
   | AgentPresenceChangedEvent
   | BellEvent
   | BookmarksChangedEvent

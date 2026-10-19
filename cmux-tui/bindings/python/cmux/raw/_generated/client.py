@@ -360,8 +360,8 @@ class GeneratedClientMixin:
     def home_inbox(self, *, owners: Union[List[str], None, MissingType] = MISSING) -> HomeInboxResult:
         return self._invoke_command('home-inbox', HomeInboxRequest(owners=owners))
 
-    def identify(self) -> IdentifyResult:
-        return self._invoke_command('identify', IdentifyRequest())
+    def identify(self, *, machine_metadata: Union[bool, MissingType] = MISSING) -> IdentifyResult:
+        return self._invoke_command('identify', IdentifyRequest(machine_metadata=machine_metadata))
 
     def ids(self, *, kind: Union[Literal['workspace', 'screen', 'pane', 'surface'], None, MissingType] = MISSING) -> IdsResult:
         return self._invoke_command('ids', IdsRequest(kind=kind))
@@ -591,8 +591,8 @@ class GeneratedClientMixin:
     def rename_surface(self, surface: Id, name: str) -> EmptyResult:
         return self._invoke_command('rename-surface', RenameSurfaceRequest(surface=surface, name=name))
 
-    def rename_workspace(self, name: str, *, workspace: Union[Id, None, MissingType] = MISSING, key: Union[str, None, MissingType] = MISSING, expected_revision: Union[int, None, MissingType] = MISSING, expected_generation: Union[str, None, MissingType] = MISSING, origin: Union[str, None, MissingType] = MISSING, mutation_id: Union[str, None, MissingType] = MISSING) -> WorkspaceMutationResult:
-        return self._invoke_command('rename-workspace', RenameWorkspaceRequest(name=name, workspace=workspace, key=key, expected_revision=expected_revision, expected_generation=expected_generation, origin=origin, mutation_id=mutation_id))
+    def rename_workspace(self, name: str, *, workspace: Union[Id, None, MissingType] = MISSING, key: Union[str, None, MissingType] = MISSING, expected_revision: Union[int, None, MissingType] = MISSING, expected_generation: Union[str, None, MissingType] = MISSING, origin: Union[str, None, MissingType] = MISSING, mutation_id: Union[str, None, MissingType] = MISSING, expected_name_revision: Union[str, None, MissingType] = MISSING, release: Union[bool, MissingType] = MISSING, source: Union[NameSource, None, MissingType] = MISSING) -> WorkspaceMutationResult:
+        return self._invoke_command('rename-workspace', RenameWorkspaceRequest(name=name, workspace=workspace, key=key, expected_revision=expected_revision, expected_generation=expected_generation, origin=origin, mutation_id=mutation_id, expected_name_revision=expected_name_revision, release=release, source=source))
 
     def reopen_saved_screen_group(self, saved: str, *, workspace: Union[Id, None, MissingType] = MISSING) -> JsonValue:
         return self._invoke_command('reopen-saved-screen-group', ReopenSavedScreenGroupRequest(saved=saved, workspace=workspace))

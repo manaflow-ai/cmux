@@ -21,9 +21,10 @@ warnings only.
                  frame: the grid each terminal renders follows the grid its frame fits within
                  --lag steps (I7). Frame p99 over 16.7 ms is a warning.
   tabs           16 panes x 3 tabs, Next Tab 40 times: 0 applies, 0 topology sends, 0 pane
-                 snapshots, 0 sidebar list reloads (I6); a switch that reaches the next display-link
-                 tick late (debug.tab_switch) and a main-thread apply over 4 ms are warnings. The
-                 socket reply also waits for the daemon's confirm: reported, not gated.
+                 snapshots, 0 sidebar list reloads (I6); each switch's Core Animation commit is in
+                 the first frame after it shows (debug.tab_switch late_vsyncs 0; a frame check), a
+                 main-thread apply over 4 ms is a warning. The socket reply also waits for the
+                 daemon's confirm: reported, not gated. --hang-ms N prints main-thread stalls.
   split          split right + close pane 10 times in the 16 panes: per pair at most 2 applies,
                  2 topology sends, 4 pane snapshots (sources name the snapshot fields that changed).
   relaunch       the app quits and starts again on the same tag, so it restores the grid with
@@ -65,12 +66,11 @@ BUDGET = {
     "switch_selection_patches": 1,
     # Whole phase (40 Next Tab ops at 16 panes x 3 tabs).
     "tabs": {"workspace_applies": 0, "topology_sends": 0, "pane_snapshots": 0, "list_reloads": 0},
-    # Per split+close pair (cx-8w027.14, measured 2 / 2 / 2.4-3.4): one apply and one topology each
-    # for the split and the close (the new tab is named by its client-minted id, so the daemon's
-    # confirm sends none); snapshots: the new pane's mount, the daemon's confirm (surface, handle,
-    # terminal state and size change, after the first frame), the shell's titles (0.4-1.4, the
-    # shell's timing).
-    "split": {"workspace_applies": 2, "topology_sends": 2, "pane_snapshots": 4},
+    # Per split+close pair (cx-8w027.14, measured 2 / 2 / 1.9-2.5): one apply and one topology each
+    # for the split and the close (the new tab is named by its client-minted id; topologies carry no
+    # surfaces, so the daemon's confirm sends none); snapshots: the new pane's mount and the shell's
+    # titles (0-1.5, the shell's timing); the confirm re-runs only that tab's strip item.
+    "split": {"workspace_applies": 2, "topology_sends": 2, "pane_snapshots": 3},
     # Whole status window (4 tickers x 4 ticks/s x 5 s).
     "status": {"workspace_applies": 0, "topology_sends": 0, "pane_snapshots": 0, "list_reloads": 0},
     # Per restored pane, from the relaunched app's first answer until the restore settled: one
@@ -81,10 +81,7 @@ BUDGET = {
 # removes it). A breach up to that value is a warning that names the bead; above it, a failure. A
 # ratchet: when a full run (no --only) no longer shows the breach, the gate fails until its line here
 # is removed, so the fixing lane tightens the gate in its own landing.
-KNOWN = {
-    # Per restored pane (the relaunch budget scales with the grid's panes).
-    ("relaunch", "pane_snapshots"): (12, "cx-8w027.23: the restore maps each pane several more times as the live tree replaces the launch snapshot"),
-}
+KNOWN = {}
 FRAME_BUDGET_MS = 1000 / 60
 # Main-thread work of one tab switch (intent to shown); MainActorWorkQueue's frame budget.
 TAB_APPLY_BUDGET_MS = 4
@@ -173,6 +170,9 @@ class App:
                "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1440,900",
                "CMUX_NEXT_CONFIG_FILE": self.config, "CMUX_NEXT_GHOSTTY_CONFIG": ghostty,
                "CMUX_NEXT_CHIEF_ISOLATED": "1", "CMUX_NEXT_CHIEF_HOME": os.path.join(self.scratch, "chief")}
+        # --hang-ms: the main-thread watchdog samples every stall over N ms (debug.hangs), for a late frame's cause.
+        if os.environ.get("PERF_GATE_HANG_MS"):
+            env["CMUX_NEXT_HANG_THRESHOLD_MS"] = os.environ["PERF_GATE_HANG_MS"]
         self.teardown.install()
         log = open(os.path.join(self.out, "app.log"), "a")
         self.process = subprocess.Popen([os.path.join(self.bundle, "Contents/MacOS/cmux DEV")], env=env,
@@ -663,6 +663,7 @@ class Gate:
         # next vsync, not a link that starts from idle.
         app.rpc("debug.frames", {"action": "start"})
         app.rpc("debug.tab_switch", {"action": "start"})
+        app.rpc("debug.hangs", {"clear": True})
         latencies = []
         for _ in range(ops):
             start = time.monotonic()
@@ -685,32 +686,40 @@ class Gate:
             return round((time.monotonic() - start) * 1000, 1)
         phase = report["phases"][scenario]
         phase["frames"] = switch_frames
+        phase["hangs"] = (app.rpc("debug.hangs") or {}).get("records") or []
+        for record in phase["hangs"][:8]:
+            print(f"  main-thread stall {record.get('duration_ms', 0):.1f} ms ({record.get('kind')}): "
+                  + " < ".join(str(f)[:70] for f in (record.get("frames") or [])[:40]), flush=True)
         if scenario == "tabs":
             phase["no_wait_ms"] = [timed(lambda: app.rpc("action.run", {"action": "nextSurface", "args": {}, "focus": True,
                                                                          "origin": "script", "wait": False})) for _ in range(20)]
             app.settle()
             phase["ping_ms"] = [timed(lambda: app.rpc("system.ping")) for _ in range(20)]
-        # The gated timing: the app's own time per switch, intent to shown (apply) and to the next display frame.
-        pairs = list(zip(own.get("apply_ms") or [], own.get("frame_ms") or []))
-        phase["apply_ms"], phase["frame_ms"] = ([round(v, 2) for v in values] for values in zip(*pairs)) if pairs else ([], [])
-        if not check(len(pairs) == ops, f"debug.tab_switch timed {len(pairs)} of {ops} switches", scenario):
+        # The gated timing: the app's own time per switch (debug.tab_switch): intent to shown (apply), to the Core
+        # Animation commit that carries it (after AppKit's layout and display), and the frames it missed (0: the
+        # first frame it could); the commit's end (an upper bound) is reported.
+        switches = own.get("switches") or []
+        phase["switches"] = [{k: round(v, 2) for k, v in row.items()} for row in switches]
+        if not check(len(switches) == ops, f"debug.tab_switch timed {len(switches)} of {ops} switches", scenario):
             return
-        applies, frames = sorted(phase["apply_ms"]), sorted(phase["frame_ms"])
+        col = lambda name: sorted(row[name] for row in switches)
         p99 = lambda values: values[max(0, int(len(values) * 0.99) - 1)]
-        print(f"  tab switch: apply p50 {applies[ops // 2]:.2f} / p99 {p99(applies):.2f} ms, next frame p50 {frames[ops // 2]:.2f} / "
-              f"p99 {p99(frames):.2f} ms; reply p99 {phase['latency_p99_ms']:.1f} ms (daemon confirm included)", flush=True)
+        applies, commits, ends = col("apply_ms"), col("commit_ms"), col("commit_end_ms")
+        print(f"  tab switch: apply p50 {applies[ops // 2]:.2f} / p99 {p99(applies):.2f} ms, commit p50 {commits[ops // 2]:.2f} / "
+              f"p99 {p99(commits):.2f} ms, commit end p99 {p99(ends):.2f} ms (refresh {switches[0]['refresh_ms']:.1f} ms); "
+              f"reply p99 {phase['latency_p99_ms']:.1f} ms (daemon confirm included)", flush=True)
         if p99(applies) > TAB_APPLY_BUDGET_MS:
             warn(f"tab switch apply p99 {p99(applies):.2f} ms (over {TAB_APPLY_BUDGET_MS} ms of main-thread work)", scenario)
         if self.frames_ok(scenario):
-            # The switch draws on the first frame after its intent: within one refresh plus its own apply.
-            refresh = switch_frames.get("refresh_ms") or (report.get("frames_probe") or {}).get("refresh_ms") or FRAME_BUDGET_MS
-            late = [frame for apply, frame in pairs if frame > apply + refresh * 1.25]
-            # A warning, not a check (cx-8w027.25): the probe's display-link callback is not the Core Animation
-            # commit (on macOS 26 the update cycle commits from its own run loop source), so a late callback on a
-            # busy main thread does not prove a missed frame. It blocks again once it measures the commit.
-            if late:
-                warn(f"{len(late)} of {ops} tab switches reached the probe's display-link tick a frame late (refresh "
-                     f"{refresh:.1f} ms, next frame p99 {p99(frames):.2f} ms)", scenario)
+            late = [row for row in switches if row["late_vsyncs"] > 0]
+            check(not late, f"every tab switch commits in the first frame after it shows ({len(late)} later"
+                            + (f": {[(round(r['apply_ms'], 1), round(r['commit_ms'], 1), int(r['late_vsyncs'])) for r in late][:6]} "
+                               "(apply ms, commit ms, frames missed)" if late else "") + ")", scenario)
+            # The commit's own end (the encode and AppKit's window-server transaction) past the next vsync: reported.
+            overrun = [row for row in switches if row["late_end_vsyncs"] > 0]
+            if overrun:
+                warn(f"{len(overrun)} of {ops} tab switch commits ended a frame late: "
+                     f"{[(round(r['commit_ms'], 1), round(r['commit_end_ms'], 1)) for r in overrun][:6]} (commit ms, end ms)", scenario)
 
     def split(self, scenario="split"):
         app = self.app
@@ -854,6 +863,7 @@ def main():
     parser.add_argument("--only", help=f"comma list of scenarios ({','.join(SCENARIOS)})")
     parser.add_argument("--lag", type=int, default=3, help="drag steps the rendered grid may trail the fitted grid")
     parser.add_argument("--source-guard-only", action="store_true")
+    parser.add_argument("--hang-ms", type=int, help="sample main-thread stalls over N ms (debug.hangs) and print them")
     opts = parser.parse_args()
     os.makedirs(opts.out, exist_ok=True)
     out = os.path.join(opts.out, "perf-gate.json")
@@ -866,6 +876,8 @@ def main():
         if unknown:
             parser.error(f"unknown scenarios {unknown}")
         names = [n for n in SCENARIOS if n in asked]  # the fixed order: status last (its tickers keep printing)
+        if opts.hang_ms:
+            os.environ["PERF_GATE_HANG_MS"] = str(opts.hang_ms)
         app = App(os.path.abspath(opts.app), opts.out)
         report.update({"app": app.bundle, "tag": app.tag, "budget": BUDGET, "host": os.uname().nodename})
         gate = Gate(app, opts)
