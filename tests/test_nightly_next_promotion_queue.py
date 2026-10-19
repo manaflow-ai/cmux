@@ -95,6 +95,9 @@ const github = {
     checks: {
       listAnnotations: async ({ check_run_id }) => {
         if (scenario.annotationsThrow) throw Object.assign(new Error('Forbidden'), { status: 403 });
+        if ((scenario.annotationsThrowFor || []).includes(check_run_id - 5000)) {
+          throw Object.assign(new Error('Not Found'), { status: 404 });
+        }
         const run = dispatchRun(check_run_id - 5000);
         const message = run.cancelledBy === 'queue' ? EVICTED : 'The run was canceled by @teamleaderleo.';
         return { data: [{ annotation_level: 'failure', message }] };
@@ -261,7 +264,8 @@ def queue(running: str, arrivals: list[str]) -> tuple[list[dict], list[dict]]:
 
 def run_promotions(requests: list[dict], dispatch_runs: list[dict], *,
                    target: str = BASE, not_green: list[str] | None = None,
-                   list_throws: bool = False, annotations_throw: bool = False) -> dict:
+                   list_throws: bool = False, annotations_throw: bool = False,
+                   annotations_throw_for: list[int] | None = None) -> dict:
     scenario = {
         "decide": step("Decide the promotion")["with"]["script"],
         "move": step("Move nightly-next")["with"]["script"],
@@ -273,6 +277,7 @@ def run_promotions(requests: list[dict], dispatch_runs: list[dict], *,
         "notGreen": not_green or [],
         "listThrows": list_throws,
         "annotationsThrow": annotations_throw,
+        "annotationsThrowFor": annotations_throw_for or [],
     }
     result = subprocess.run(
         ["node", "--input-type=module", "-e", HARNESS],
@@ -362,6 +367,19 @@ def test_an_unreadable_cancel_annotation_still_promotes_the_admitted_commit() ->
     assert any("cancelled in the promote queue" in warning for warning in result["warnings"]), result["warnings"]
 
 
+def test_one_unreadable_cancel_annotation_keeps_the_other_evicted_requests() -> None:
+    """A 403 or 404 on one cancelled run skips that run; NEWER, evicted, still lands."""
+    requests, dispatch_runs = queue(RUNNING, [NEWER, OLDER])
+    broken = dict(dispatch_runs[-1], id=len(dispatch_runs) + 1, conclusion="cancelled",
+                  cancelledBy="queue", cancelledAt=0, display_title=run_title(UNGREEN))
+    result = run_promotions(requests, dispatch_runs + [broken], annotations_throw_for=[broken["id"]])
+    assert result["failed"] == [], result["failed"]
+    assert result["target"] == NEWER, (
+        f"nightly-next stopped at {short(result['target'])}; one unreadable annotation dropped every evicted request"
+    )
+    assert any(str(broken["id"]) in warning for warning in result["warnings"]), result["warnings"]
+
+
 def test_the_promote_job_can_read_the_cancel_annotation() -> None:
     assert promote_job()["permissions"].get("checks") == "read", promote_job()["permissions"]
 
@@ -374,6 +392,7 @@ def main() -> None:
     test_a_request_cancelled_by_a_person_is_not_promoted()
     test_a_failed_recovery_scan_still_promotes_the_admitted_commit()
     test_an_unreadable_cancel_annotation_still_promotes_the_admitted_commit()
+    test_one_unreadable_cancel_annotation_keeps_the_other_evicted_requests()
     test_the_promote_job_can_read_the_cancel_annotation()
     print("PASS: nightly-next promotion queue")
 
