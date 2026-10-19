@@ -48,7 +48,10 @@ export default componentEntry<Props>({
     await import("./ledger.css");
   },
   variants: {
-    landscape: { note: "A wide still, centered: the circle takes its middle square.", props: { width: 640, height: 400 } },
+    landscape: {
+      note: "A wide still, centered: the circle takes its middle square.",
+      props: { width: 640, height: 400 },
+    },
     portrait: { note: "A tall still, centered.", props: { width: 400, height: 640 } },
     zoomed: {
       note: "Zoomed in 2.5x and moved toward the sun.",
