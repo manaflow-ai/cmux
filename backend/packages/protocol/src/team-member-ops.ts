@@ -111,6 +111,8 @@ export const UserTeam = Schema.Struct({
   /** The team's name in TeamDO (Stack's name for a shared team); empty for a personal team TeamDO does not have yet. */
   display_name: Schema.String,
   kind: Schema.Literals(["personal", "stack"]),
+  /** Confirmed Stack reference for a shared team; clients match opaque ids, never display names. */
+  stack_team: Schema.optional(Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(128))),
   /** The caller's role, as TeamDO answers it now (cx-3bi.4: guest and billing too). */
   role: TeamRole,
   /** The team requires its SSO and this session did not sign in through it: selecting it answers auth.sso_required. */

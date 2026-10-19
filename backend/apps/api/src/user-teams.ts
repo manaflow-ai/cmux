@@ -6,8 +6,8 @@ import type { ReadResult } from "./owner-do.ts"
 import { signInRules, ssoRefusal, withSsoSession } from "./policy-gate.ts"
 
 const TEAM_ID = /^team_[0-9a-f]{20}$/
-type Membership = { role: string; display_name: string; kind: "personal" | "stack" } | null
-type UserTeam = { id: string; display_name: string; kind: "personal" | "stack"; role: string; sso_required: boolean }
+type Membership = { role: string; display_name: string; kind: "personal" | "stack"; stack_team?: string } | null
+type UserTeam = { id: string; display_name: string; kind: "personal" | "stack"; stack_team?: string; role: string; sso_required: boolean }
 /** Teams one user.teams.list checks at once (each is a TeamDO membership call, plus its sign-in rules). */
 const LIST_CONCURRENCY = 10
 
@@ -70,7 +70,7 @@ export const listUserTeams = async (env: Env, p: Principal): Promise<ReadResult>
     batch.forEach((team, j) => {
       const { m, sso } = answers[j]!
       if (m === "unreachable" || sso === "unreachable") incomplete = true
-      else if (m) teams.push({ id: team, display_name: m.display_name, kind: m.kind, role: m.role, sso_required: sso })
+      else if (m) teams.push({ id: team, display_name: m.display_name, kind: m.kind, ...(m.stack_team ? { stack_team: m.stack_team } : {}), role: m.role, sso_required: sso })
     })
   }
   return { ok: true, value: { teams, incomplete }, revision: "0" }
