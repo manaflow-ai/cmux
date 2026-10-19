@@ -108,6 +108,13 @@ public actor MacInstallIdentity {
         return reply
     }
 
+    func nativeOwnerRead(_ body: Data, context: NativeInstallContext) async throws -> (status: Int, body: Data) {
+        try await nativeCheck(context)
+        let reply = try await transport.post("/v1/read", json: body, bearer: context.token, headers: requestHeaders)
+        try await nativeCheck(context)
+        return reply
+    }
+
     /// The owner refused the current token (401): the next call mints again.
     public func invalidate() async { await client?.invalidate() }
 

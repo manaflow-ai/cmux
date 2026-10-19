@@ -19,6 +19,9 @@ actor NativeDeviceTestWorld: InstallAuthTransport, NativeDeviceTransport {
     private var badAck = false
     private var oldDevice = false
     private var beforePolicy: (@Sendable () async -> Void)?
+    private var beforeTarget: (@Sendable () async -> Void)?
+    private var badTarget: String?
+    private var targetStatus = 200
     private(set) var requests: [Data] = []
     private(set) var enrollments = 0
     private(set) var deletions = 0
@@ -33,6 +36,9 @@ actor NativeDeviceTestWorld: InstallAuthTransport, NativeDeviceTransport {
     func setBadAck() { badAck = true }
     func includeLegacyDevice() { oldDevice = true }
     func onPolicy(_ action: @escaping @Sendable () async -> Void) { beforePolicy = action }
+    func onTarget(_ action: @escaping @Sendable () async -> Void) { beforeTarget = action }
+    func setBadTarget(_ field: String) { badTarget = field }
+    func refuseTarget(_ status: Int) { targetStatus = status }
     func holdEnrollment() { hold = true }
     func waitUntilHeld() async { var it = held.stream.makeAsyncIterator(); _ = await it.next() }
     func release() { pending?.resume(); pending = nil }
@@ -55,13 +61,24 @@ actor NativeDeviceTestWorld: InstallAuthTransport, NativeDeviceTransport {
     func post(_ path: String, json: Data, bearer: String?, headers: [String: String]) async throws -> (status: Int, body: Data) {
         requests.append(json)
         let body = try JSONSerialization.jsonObject(with: json) as! [String: Any]
-        guard path == "/v1/ops", let op = body["op"] as? String, op.hasPrefix("host.") else {
+        guard (path == "/v1/ops" || path == "/v1/read"), let op = body["op"] as? String, op.hasPrefix("host.") else {
             return try await auth.post(path, json: json, bearer: bearer, headers: headers)
         }
         let token = try claims(bearer ?? "")
         guard let scope = scopes.first(where: { $0.team == token["team"] }), let install = token["inst"], token["sub"] == Self.user,
               let point = await auth.publicKey(install)?.base64EncodedString(), let params = body["params"] as? [String: Any] else { throw Failure.invalid }
         let host = "host_" + String(scope.team.dropFirst(5))
+        if op == "host.network.target" {
+            guard path == "/v1/read", body["idempotency_key"] == nil, body["origin"] == nil,
+                  params["mesh"] == nil || params["mesh"] as? String == scope.mesh else { throw Failure.invalid }
+            let action = beforeTarget; beforeTarget = nil
+            await action?()
+            if targetStatus != 200 { return (targetStatus, try data(["code": "owner.unreachable"])) }
+            var value = ["team": scope.team, "tenant": scope.tenant, "project": Self.project,
+                         "origin": origin.absoluteString, "mesh": scope.mesh, "ipv4_cidr": "10.128.0.0/20"]
+            if let badTarget { value[badTarget] = badTarget == "origin" ? "http://attacker.test" : badTarget == "ipv4_cidr" ? "0.0.0.0/0" : "wrong-identity" }
+            return (200, try data(["op": op, "value": value]))
+        }
         if op == "host.enroll" {
             var value: [String: Any] = ["id": host, "owner_user": Self.user, "enrolled_by": install]
             if let network = networks[scope.team] { value["network"] = network; value["wg_public_key"] = network["wg"] }

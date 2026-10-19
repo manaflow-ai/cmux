@@ -1,7 +1,22 @@
 import { Schema } from "effect"
 import { def, mutationErrors, type CloudOpDef } from "./op-def.ts"
-import { HostId, WgPublicKey } from "./schemas.ts"
-import { NativeDeviceId, NativeMeshId, ServerNetworkBinding, ServerNetworkProof } from "./server-network.ts"
+import { HostId, TeamId, WgPublicKey } from "./schemas.ts"
+import { NativeDeviceId, NativeMeshId, NativeTenantId, ServerNetworkBinding, ServerNetworkProof } from "./server-network.ts"
+
+export const HostNetworkTarget = def({
+  name: "host.network.target",
+  owner: "cloud:TeamDO",
+  class: "read",
+  risk: "read",
+  target: "team",
+  principals: ["install"],
+  params: Schema.Struct({ mesh: Schema.optionalKey(NativeMeshId) }),
+  result: Schema.Struct({ team: TeamId, tenant: NativeTenantId, project: Schema.String, origin: Schema.String, mesh: NativeMeshId, ipv4_cidr: Schema.String }),
+  errors: ["validation.invalid", "auth.unauthenticated", "auth.forbidden", "selector.not_found", "owner.unreachable"],
+  docs: "Discover the configured Native origin and canonical team tenant for an active client install with read and mutate-own grants. Verify the requested mesh or select the tenant's sole mesh. This read creates no tenant, mesh, device or serving grant and returns no service credential.",
+  cli: { path: "host network target", visible: false },
+  mcp: { expose: "never", group: "team" }
+})
 
 export const HostNetworkBind = def({
   name: "host.network.bind",
@@ -18,4 +33,4 @@ export const HostNetworkBind = def({
   mcp: { expose: "never", group: "team" }
 })
 
-export const hostNetworkOps = [HostNetworkBind] as const satisfies readonly CloudOpDef[]
+export const hostNetworkOps = [HostNetworkTarget, HostNetworkBind] as const satisfies readonly CloudOpDef[]
