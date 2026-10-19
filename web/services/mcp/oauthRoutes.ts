@@ -43,8 +43,35 @@ export function mcpIssuerFor(fallbackOrigin: string, env: Record<string, string 
   return configured && /^https:\/\/[^/?#]+$/.test(configured) ? configured : fallbackOrigin;
 }
 
+/** Header the dev tunnel proxy (`scripts/mcp-dev-tunnel.py`) sets to its public origin. */
+export const MCP_DEV_TUNNEL_HEADER = "x-cmux-public-origin";
+const DEV_TUNNEL_ORIGIN = /^https:\/\/[a-z0-9-]+\.trycloudflare\.com$/;
+
+/**
+ * A public tunnel origin for a direct dev-backend stack, or undefined. The
+ * dev-backend gateway routes by its own tailnet host and rewrites
+ * `x-forwarded-host`, so a tunnel names itself in a separate value. Production
+ * (no direct dev-backend origin) never accepts one.
+ */
+export function devTunnelOrigin(value: string | null | undefined, env: Record<string, string | undefined> = process.env): string | undefined {
+  if (!directDevBackendOrigin(env)) return undefined;
+  const origin = value?.trim().replace(/\/+$/, "");
+  return origin && DEV_TUNNEL_ORIGIN.test(origin) ? origin : undefined;
+}
+
+/** The dev tunnel issuer a consent request's `resource` names, for the tailnet-host consent page. */
+export function devTunnelIssuerForResource(resource: string | null, env: Record<string, string | undefined> = process.env): string | undefined {
+  if (!resource) return undefined;
+  try {
+    return devTunnelOrigin(new URL(resource).origin, env);
+  } catch {
+    return undefined;
+  }
+}
+
 export function mcpIssuer(request: Request, env: Record<string, string | undefined> = process.env): string {
-  return mcpIssuerFor(mcpPublicOrigin(request, env), env);
+  return devTunnelOrigin(request.headers.get(MCP_DEV_TUNNEL_HEADER), env)
+    ?? mcpIssuerFor(mcpPublicOrigin(request, env), env);
 }
 
 // Metadata and the token endpoint are called by the MCP host's browser or

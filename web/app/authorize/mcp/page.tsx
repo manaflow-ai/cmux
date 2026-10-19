@@ -3,7 +3,7 @@ import { Suspense } from "react";
 import { redirect } from "next/navigation";
 
 import { directDevBackendOrigin } from "../../lib/direct-dev-backend-origin";
-import { mcpIssuerFor, mcpPublicOrigin } from "../../../services/mcp/oauthRoutes";
+import { devTunnelIssuerForResource, mcpIssuerFor, mcpPublicOrigin } from "../../../services/mcp/oauthRoutes";
 import { authorizationRedirect, MCP_AUTHORIZE_PATH } from "../../../services/mcp/oauth";
 import {
   AUTHORIZATION_PARAM_NAMES,
@@ -56,8 +56,11 @@ function ErrorCard({ message }: { message: string }) {
 }
 
 async function McpAuthorizeContent({ searchParams }: McpAuthorizePageProps) {
-  const origin = mcpIssuerFor(await pageOrigin());
   const params = searchParamsFrom(await searchParams);
+  // A dev stack's browser signs in on the tailnet host while the MCP host
+  // reached it through a public tunnel; the resource names that tunnel.
+  const origin = devTunnelIssuerForResource(params.get("resource"))
+    ?? mcpIssuerFor(await pageOrigin());
   const validated = await validateConsentRequest(params, origin);
   if (!validated.ok) {
     if (validated.redirectable && validated.redirectUri) {
