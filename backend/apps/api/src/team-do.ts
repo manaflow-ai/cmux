@@ -1,3 +1,4 @@
+import { authorizeNativeDial, recheckNativeDial, type NativeDialDeps, type NativeDialPermit, type NativeDialTarget } from "./cloud-native-dial.ts"
 import type { EventFrame, OwnerFrame, Principal } from "@cmux/ownership"
 import type { ServerNetworkReservation } from "@cmux/protocol"
 import { teamEventVisible, teamSubscriberView } from "./domains/team-visibility.ts"
@@ -222,6 +223,27 @@ export class TeamDO extends OwnerDO<TeamState> {
       })
       .finally(() => { this.personalTenantFlight = undefined; this.scheduleAlarm() })
     return this.personalTenantFlight
+  }
+
+  private nativeDialDeps(entity: string): NativeDialDeps | null {
+    if (!this.isBound(entity)) return null
+    const engine = this.bind(entity)
+    return {
+      team: entity, project: this.env.STACK_PROJECT_ID, origin: this.env.CLOUD_VM_API_ORIGIN,
+      state: () => engine.currentState, rows: engine.rows, tenant: () => this.vmApiTenant(entity, "operate"), http: this.http, now: Date.now,
+      key: (user, install, grant) => this.env.USER_DO.get(this.env.USER_DO.idFromName(user)).deviceKey(user, install, grant, "read"),
+      allowed: () => cloudPolicyOf(engine.currentState).connect_services
+    }
+  }
+  /** CloudDO only: current install/Native identity and directed VM service permission. */
+  async authorizeCloudDial(entity: string, p: Principal, target: NativeDialTarget, proof: unknown, services: ReadonlyArray<string>) {
+    const deps = this.nativeDialDeps(entity)
+    return deps ? authorizeNativeDial(deps, p, target, proof, services) : { ok: false as const, code: "auth.forbidden", message: "no active team network owner" }
+  }
+  /** Final live backend check after CloudDO signed a transient token. */
+  async recheckCloudDial(entity: string, p: Principal, permit: NativeDialPermit): Promise<boolean> {
+    const deps = this.nativeDialDeps(entity)
+    return deps ? recheckNativeDial(deps, p, permit) : false
   }
 
   async cloudPolicy(entity: string) { return cloudPolicyOf(this.isBound(entity) ? this.bind(entity).currentState : undefined) } // RPC from CloudDO (CLOUD-CONNECT-ACCESS, cloud.idlePause)

@@ -2,6 +2,7 @@ import { Schema } from "effect"
 import { def, mutationErrors } from "./op-def.ts"
 import { HostId, Revision, TeamId, UserId } from "./schemas.ts"
 import { CloudVmNetwork } from "./cloud-network.ts"
+import { ServerNetworkProof } from "./server-network.ts"
 
 /**
  * cmux-next Cloud machines (plans/cmux-next/cloud-client-contract.md 1.2, 1.3 and 1.7;
@@ -221,7 +222,7 @@ export const CloudMachineLinkToken = def({
   risk: "execute",
   target: "team",
   principals: ["install"],
-  params: Schema.Struct({ host: HostId, services: LinkServices }),
+  params: Schema.Struct({ host: HostId, services: LinkServices, native_proof: Schema.optionalKey(ServerNetworkProof) }),
   result: Schema.Struct({
     /** Secret: shown once to the caller, checked by the VM daemon on `hello`. */
     token: Schema.String,

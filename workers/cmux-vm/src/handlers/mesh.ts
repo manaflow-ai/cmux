@@ -48,11 +48,12 @@ import {
 } from "../lib/ids.ts";
 import type { RateClass } from "../limits/ledger.ts";
 import { TenantLimits } from "../limits/service.ts";
-import { compileAcl, isAddressRuleKey, outsideSourceSlash64, parseDeviceIpv6, peersOf, planApply, type AclDocument, type CompileResult, type DesiredRule } from "../mesh/acl.ts";
+import { compileAcl, isAddressRuleKey, outsideSourceSlash64, parseDeviceIpv6, planApply, type AclDocument, type CompileResult, type DesiredRule } from "../mesh/acl.ts";
 import { ENROLLMENT_CODE_TTL_MS, MESH_MTU, MESH_PERSISTENT_KEEPALIVE_SECONDS, MESH_SLOTS, MeshConfig, slotCidr } from "../mesh/config.ts";
 import { sha256Hex } from "../mesh/signed-request.ts";
 import { actorOf, ownerStillValid } from "../mesh/owner.ts";
 import { projectOverlayPeers } from "../mesh/overlay-policy.ts";
+import { projectVmPeers } from "../mesh/vm-policy.ts";
 import { deviceHoldsKey, type DeviceHoldsKey } from "../proofs/device-holds-key.ts";
 import { keyHasScope, type KeyHasScope } from "../proofs/key-has-scope.ts";
 import { tenantMayCreateDevice, tenantMayCreateMesh } from "../proofs/mesh-may-create.ts";
@@ -496,15 +497,7 @@ const peerMapOf = (tenantId: Principal["tenantId"], deviceId: string, row: MeshD
     const document = Option.match(acl, { onNone: () => EMPTY_ACL, onSome: (version) => version.document });
     const { result, members } = yield* compileFor(tenantId, row.meshId, document, false);
     const rules = result.ok ? result.rules : [];
-    const addresses = new Map(members.map((member) => [member.vmId, member.ipv4]));
-    const peers = [...peersOf(deviceId, rules)].map(([vmId, allowed]) => ({
-      kind: "vm" as const,
-      id: VmId_(vmId),
-      address: addresses.get(vmId) ?? null,
-      allow: allowed.map((rule) =>
-        rule.protocol === null ? { protocol: "any" as const } : rule.port === null ? { protocol: rule.protocol } : { protocol: rule.protocol, port: rule.port },
-      ),
-    }));
+    const peers = projectVmPeers(deviceId, members, rules).map((peer) => ({ ...peer, id: VmId_(peer.id) }));
     return new PeerMap({
       deviceId: DeviceId_(deviceId),
       meshId: MeshId_(row.meshId),
@@ -519,7 +512,7 @@ export const overlayPolicyOf = (tenantId: Principal["tenantId"], deviceId: strin
     const store = yield* MeshStore;
     const acl = yield* store.currentAcl(tenantId, row.meshId).pipe(Effect.catchAll(dependencyDown("mesh.currentAcl")));
     const document = Option.match(acl, { onNone: () => EMPTY_ACL, onSome: (version) => version.document });
-    const { result, devices } = yield* compileFor(tenantId, row.meshId, document, false);
+    const { result, members, devices } = yield* compileFor(tenantId, row.meshId, document, false);
     if (!result.ok) return yield* Effect.fail(unavailable());
     // Re-read the subject under the lock: an earlier ownership proof may have
     // raced a deletion or key rotation while waiting for the writer.
@@ -548,6 +541,7 @@ export const overlayPolicyOf = (tenantId: Principal["tenantId"], deviceId: strin
       wgPublicKey: subject.wgPublicKey, installPublicKey: subject.installPublicKey,
       aclVersion: Option.match(acl, { onNone: () => 0, onSome: (version) => version.version }),
       peers: projectOverlayPeers(deviceId, identities, result.overlayRules).map((peer) => ({ ...peer, deviceId: DeviceId_(peer.deviceId) })),
+      vms: projectVmPeers(deviceId, members, result.rules).map((peer) => ({ ...peer, id: VmId_(peer.id) })),
     };
     const policyDigest = yield* sha256Hex(`cmux-device-overlay-policy-v1\n${JSON.stringify(projection)}`);
     return new OverlayPolicy({ ...projection, policyDigest });

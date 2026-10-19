@@ -1,3 +1,5 @@
+import type { NativeDialPermit, NativeDialReply } from "./cloud-native-dial.ts"
+import { transportOf } from "./cloud-vm-api-config.ts"
 import type { Principal, SqlStore, StoredRow } from "@cmux/ownership"
 import { CloudMachineConnectInfo, CloudMachineLinkToken, cloudServicesProblem, overlayAddress } from "@cmux/protocol"
 import { LINK_TOKEN_MAX_TTL_S, newJti, signLinkToken, signingKid, type SigningKeys } from "./link-token.ts"
@@ -112,11 +114,17 @@ export const LINK_INSTALL_KINDS: ReadonlyArray<string> = ["cli", "mac", "ios"]
  * caller. Each call mints a fresh token (no key, no replay, no stream event); the mint is audited
  * (kid, jti, services, exp, the request's internal key), never the token.
  */
+export interface NativeLinkAuthority {
+  authorize(row: MachineRow, p: Principal, proof: unknown, services: ReadonlyArray<string>): Promise<NativeDialReply>
+  recheck(p: Principal, permit: NativeDialPermit): Promise<boolean>
+}
+const dialGeneration = (row: MachineRow) => JSON.stringify({ host: row.host, epoch: row.epoch ?? 1, status: row.status, key: row.wg_public_key, transport: row.transport, network: row.network, provider: row.provider_name, creator: row.creator })
+
 export const mintLinkToken = async (
-  args: { entity: string; rows: Rows | undefined; p: Principal; params: unknown; request: string; environment: string; keys: SigningKeys | null },
+  args: { entity: string; rows: Rows | undefined; p: Principal; params: unknown; request: string; environment: string; keys: SigningKeys | null; native?: NativeLinkAuthority },
   policy: () => Promise<ReadonlyArray<string>>,
   /** Lazy: an object nobody created must not get the audit table (review P3-1). */
-  audit: () => AccessAudit
+  audit: () => Pick<AccessAudit, "record">
 ): Promise<MintReply> => {
   const { entity, p } = args
   if (p.kind !== "install" || !p.install || p.agent !== undefined) return { ok: false, code: "auth.forbidden", message: "link tokens are minted only for an install's cmux link" }
@@ -124,7 +132,7 @@ export const mintLinkToken = async (
     return { ok: false, code: "cloud.link.install_refused", message: "only the cli, mac app and ios installs mint link tokens", details: { install_kind: p.install_kind ?? null, allowed: [...LINK_INSTALL_KINDS] } }
   // execute, or the narrow cloud-link class of the iPhone and Mac installs (this op and a restricted team_vm.ssh_cert only).
   if (!p.grant_classes?.includes("execute") && !p.grant_classes?.includes("cloud-link")) return { ok: false, code: "auth.forbidden", message: "grant does not cover execute or cloud-link" }
-  const d = decodeParams<{ host: string; services: ReadonlyArray<string> }>(CloudMachineLinkToken, args.params)
+  const d = decodeParams<{ host: string; services: ReadonlyArray<string>; native_proof?: unknown }>(CloudMachineLinkToken, args.params)
   if (!d.ok) return d
   const row = machineBySelector(args.rows, { host: d.value.host })
   if (!row) return { ok: false, code: "cloud.machine.not_found", message: "no such machine in this team" }
@@ -136,12 +144,25 @@ export const mintLinkToken = async (
   const allowed = allowedServices(entity, row, p, await policy())
   if (!allowed.ok) return allowed
   if (!d.value.services.every((s) => allowed.services.includes(s))) return { ok: false, code: "auth.forbidden", message: "a service you asked for is not one you may dial on this machine" }
+  const generation = dialGeneration(row)
+  const transport = transportOf(row)
+  if (transport === null) return { ok: false, code: "owner.unreachable", message: "the machine transport is unsupported" }
+  let permit: NativeDialPermit | undefined
+  if (transport === "vm-api") {
+    if (!row.network || !args.native) return { ok: false, code: "owner.unreachable", message: "current network authorization is unavailable" }
+    const checked = await args.native.authorize(row, p, d.value.native_proof, d.value.services)
+    if (!checked.ok) return checked
+    permit = checked.permit
+  }
   if (!args.keys) return { ok: false, code: "owner.unreachable", message: "link signing keys are not configured on this deployment" }
   const iat = Math.floor(Date.now() / 1000)
   const claims = { iss: `cmux:cloud:${args.environment}`, aud: row.host, sub: p.install, svc: [...d.value.services], epoch: row.epoch ?? 1, iat, exp: iat + LINK_TOKEN_MAX_TTL_S, jti: newJti(), team: entity }
   const kid = signingKid(args.keys, Date.now())
   if (!kid) return { ok: false, code: "owner.unreachable", message: "no link signing key has been published long enough to sign" }
   const token = await signLinkToken(claims, kid, args.keys.keys[kid]!)
-  audit().record({ op: "link_token", request: args.request, machine: row.id, host: row.host, ...who(p), kid, jti: claims.jti, svc: claims.svc, exp: claims.exp, at: Date.now() })
+  if (permit && !await args.native!.recheck(p, permit)) return { ok: false, code: "auth.forbidden", message: "the client network identity changed" }
+  const current = machineBySelector(args.rows, { host: d.value.host })
+  if (!current || dialGeneration(current) !== generation) return { ok: false, code: "auth.forbidden", message: "the machine changed during authorization" }
+  audit().record({ op: "link_token", request: args.request, machine: row.id, host: row.host, ...who(p), kid, jti: claims.jti, svc: claims.svc, exp: claims.exp, ...(permit ? { native: { mesh: permit.mesh, device: permit.device, acl_version: permit.aclVersion, policy_digest: permit.policyDigest } } : {}), at: Date.now() })
   return { ok: true, value: { token, expires_at: claims.exp * 1000, host: row.host, epoch: claims.epoch, services: claims.svc } }
 }

@@ -249,6 +249,8 @@ export class OverlayPolicy extends Schema.Class<OverlayPolicy>("OverlayPolicy")(
   aclVersion: Schema.Int,
   policyDigest: Schema.String.pipe(Schema.pattern(/^[0-9a-f]{64}$/u)).annotations({ description: "SHA-256 identity of this projection, including public keys and ACL version. Changes when peers or keys change at the same ACL version; not an ordering, freshness or authorization proof." }),
   peers: Schema.Array(OverlayPeer),
+  // Older services omit this projection. Cloud authorization must require it.
+  vms: Schema.optional(Schema.Array(Peer)).annotations({ description: "The requesting device's current VM service permissions from the same compiled policy and identity snapshot. Absence is unsupported, never permission. Public address transport rules are excluded; reachability does not grant a daemon session." }),
 }, { description: "Default-deny device overlay policy. Only connected peers with live owners and install identities are included. A policy read does not activate transport, admit a relay session or grant command execution. Consumers must obtain current policy through their authorized control plane." }) {}
 
 export class DeviceOverlayPolicy extends OverlayPolicy.extend<DeviceOverlayPolicy>("DeviceOverlayPolicy")({

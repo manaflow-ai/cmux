@@ -32,7 +32,7 @@ export interface NetworkIdentity {
 }
 
 type Failure = { readonly ok: false; readonly code: string; readonly message: string; readonly retryable: boolean }
-export type NetworkRead = { readonly ok: true } | Failure
+export type NetworkRead = { readonly ok: true; readonly policy: Record<string, unknown> } | Failure
 
 /** Bound responses even when the trusted service sends an unexpected policy. */
 export const networkBody = async (response: Response): Promise<Record<string, unknown> | null> => {
@@ -78,6 +78,6 @@ export const verifyNetworkIdentity = async (
     if (!policy) return fail("owner.unreachable", "network identity verification is unavailable", true)
     if (policy.tenantId !== identity.tenant || policy.meshId !== identity.mesh || policy.deviceId !== identity.device
       || policy.wgPublicKey !== identity.wg || policy.installPublicKey !== identity.point) return fail("auth.forbidden", "the network identity does not match this install")
-    return { ok: true }
+    return { ok: true, policy }
   } catch { return fail("owner.unreachable", "network identity verification is unavailable", true) }
 }
