@@ -189,9 +189,11 @@ final class HoverCardPanel: NSPanel {
         let content = glass.contentView
         content.wantsLayer = true
         guard duration > 0, Motion.canAnimate(in: glass), let layer = content.layer else { return }
+        // motion-allow: a crossfade transition on Motion's .crossfade duration, gated by Motion.canAnimate
         let fade = CATransition()
         fade.type = .fade
         fade.duration = duration
+        // motion-allow: the crossfade's ease-out curve (CATransition takes no Motion curve)
         fade.timingFunction = CAMediaTimingFunction(name: .easeOut)
         layer.add(fade, forKey: "hoverCard.crossfade")
     }

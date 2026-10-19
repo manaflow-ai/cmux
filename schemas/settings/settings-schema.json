@@ -373,7 +373,6 @@
               "sidebar.minimal",
               "sidebar.density",
               "sidebar.detailedStatusIcons",
-              "sidebar.groupLineJoinsHeader",
               "sidebar.minimalMode",
               "sidebar.cards.tips",
               "sidebar.side",
@@ -18669,58 +18668,6 @@
     },
     {
       "accepts" : [
-        true,
-        false
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : false,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.sidebar",
-        "text" : "Sidebar"
-      },
-      "help" : {
-        "key" : "settings.sidebar.groupLineJoinsHeader.help",
-        "text" : "The line beside a group's workspaces runs into the group's header as one shape. Off, the line starts just below the header, with a small gap."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "sidebar.groupLineJoinsHeader",
-      "keywords" : [
-        "sidebar",
-        "group",
-        "groups",
-        "line",
-        "header",
-        "join",
-        "connect",
-        "gap",
-        "chrome"
-      ],
-      "kind" : "toggle",
-      "page_hidden" : false,
-      "path" : [
-        "sidebar",
-        "groupLineJoinsHeader"
-      ],
-      "refuses" : [
-        "true",
-        1,
-        null
-      ],
-      "section" : "appearance",
-      "summary" : null,
-      "title" : {
-        "key" : "settings.sidebar.groupLineJoinsHeader",
-        "text" : "Join Group Lines to Headers"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
         "off",
         "bottom",
         "top",
@@ -29371,7 +29318,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "d5eaeb3720f75b7a63ac3ceb3110cab145461b3b63f4766de4f7040475cb23c6",
+  "schema_hash" : "9989d4acc39a68b97c8c4c91b4bea8c9253be5bcaf57e0cd2b132c357ffa920b",
   "sections" : [
     {
       "id" : "general",

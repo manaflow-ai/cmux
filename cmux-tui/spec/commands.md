@@ -7185,11 +7185,19 @@ with `reason` `forbidden`.
 
 `cloud-host-replica-set {api_base_url, install_token, expires_at,
 client_version?, host_name}` leases the app's install token. The daemon keeps
-it in memory only and never returns it; a chief token (`agt`) is refused. The
+it in memory only and never returns it; a chief token (`agt`) is refused. A
+lease for the same user, install and origin is a renewal: the token is swapped
+in place and the open socket stays. The daemon asks for a renewal with the
+`cloud-host-replica-needed` event (spec/events.md): `expiring` within two
+minutes of `expires_at`, `unauthenticated` when the cloud refused the token. The
 daemon enrolls the host (`host.enroll`, idempotent per install), opens
-`/v1/wire/host/<host>` and publishes `host:<host>/session` (the workspace
-tree that `list-workspaces` returns): a snapshot after each connect, then one
-event per settled change, each with the whole new state in `effects.state`.
+`/v1/wire/host/<host>` and publishes `host:<host>/session`: a projection of
+the `list-workspaces` tree with, per workspace, only `id`, `resource_id`,
+`short_id`, `name`, `name_revision`, `group`, `color`, `icon`, `pinned`,
+`marked_unread`, `unread_count` and `active`, plus `registry_id` and
+`generation` (no screens, tabs or titles). A snapshot after each connect, then
+one event per settled change, each with the whole new state in
+`effects.state`.
 It also answers the ops the cloud forwards from the host's owner. Only
 `workspace.rename` with the fields `workspace`, `name`,
 `expected_name_revision` and `expected_generation` runs, through the daemon's
@@ -7205,7 +7213,7 @@ lease goes when the cloud confirms. `cloud-host-replica-status` returns
 api_base_url?, expires_at?, host_name?, host?, stream?, seq?, purge_pending?,
 purge_unconfirmed?, last_error?}`. On `unauthenticated` the app sets a new
 lease; `forbidden` means this install is not the host's publisher or the
-cloud removed the host. A removed host stays `forbidden` through later leases
+cloud removed the host (or the owner deleted the replica with `host.replica.purge`). A removed host stays `forbidden` through later leases
 of the same install (a token refresh never enrolls it again) until
 `cloud-host-replica-clear`. `replaced` means another socket of the same
 install publishes the host now; the daemon waits for a new lease.
@@ -8874,7 +8882,10 @@ an agent or an MCP server, and every unknown param is
 `agent_session.limit` (8 attachments per connection, 64 per daemon, 8 calls in
 flight per attachment), `agent_session.timeout` (5 s), `agent_session.refused`
 (acpmux refused), `agent_session.unknown_permission`,
-`agent_session.read_only` (a mutation sent to an observation attachment).
+`agent_session.read_only` (a mutation sent to an observation attachment),
+`agent_session.mode_conflict` (an `agent-session-attach` or
+`agent-session-observe` for a surface this connection already has attached in
+the other mode; detach first to switch modes).
 
 ### agent-session-attach
 
@@ -8907,7 +8918,10 @@ same `agent-session-record`, `agent-session-changed`, and
 `agent-session-closed` events, and clients resume from the newest received
 `seq` after a `lagged`, `overflow`, `acpmux_closed`, `too_large`, or `detached`
 close. `agent-session-prompt`, `agent-session-cancel`, and
-`agent-session-permission` are refused before acpmux is called.
+`agent-session-permission` are refused before acpmux is called. An observe on a
+surface this connection already attached with `agent-session-attach`, or an
+attach on one it observes, answers `agent_session.mode_conflict` and keeps the
+existing attachment unchanged; the same mode again only pages.
 
 ### agent-session-events
 
