@@ -121,7 +121,7 @@ fn main() {
     }
     for path in &git_paths {
         if let Some(p) = git(&["rev-parse", "--path-format=absolute", "--git-path", path])
-            && std::path::Path::new(&p).exists()
+            && Path::new(&p).exists()
         {
             println!("cargo:rerun-if-changed={p}");
         }
