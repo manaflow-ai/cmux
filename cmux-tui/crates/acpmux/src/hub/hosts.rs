@@ -548,6 +548,8 @@ impl Hub {
                         };
                         let _ =
                             hub.finish_turn(&s, &c, result, &prompt_id, &turn_id, turn_seq).await;
+                        // A recovered turn is not continued (`auto_resume.rs`); settle its mark.
+                        hub.schedule_auto_resume(&s, &turn_id, None);
                         // A route switch or an update asked for a restart
                         // during the turn (route_switch.rs): the process ends
                         // now and the next prompt starts it again, resuming

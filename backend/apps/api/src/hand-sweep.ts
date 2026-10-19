@@ -1,54 +1,37 @@
 import type { Env } from "./env.ts"
 import { handStub } from "./hand-api.ts"
+import { PROVIDERS } from "./hand-providers.ts"
+import { SANDBOX_PREFIX } from "./hand-sandbox.ts"
 import { HAND_ID } from "./hand-wire.ts"
 
 /**
- * The hourly sweep of sandbox VMs (index.ts scheduled): every VM under this deployment's prefix with
- * a `cmux_hand` tag and this deployment's origin (`cmux_deployment`) whose hand row no longer holds
- * that exact VM (a create that timed out after
- * the provider made the VM, a hand removed while its delete failed) is deleted by its exact id. VMs
- * younger than 15 minutes are left alone (a sandbox being made has its row a moment later).
+ * The hourly sweep of sandbox machines (index.ts scheduled), on every provider that is set up: a
+ * machine with this deployment's prefix, a hand tag and this deployment's origin whose hand row no
+ * longer holds it (an expired code, a failed install, a create that timed out after the provider
+ * made it, a removed hand whose delete failed) is deleted by its exact id. Machines younger than 15
+ * minutes, or without a readable creation time, are left alone; a failed lookup keeps the machine.
  */
 const MIN_AGE_MS = 15 * 60_000
-const PAGE = 100
-const MAX_PAGES = 20
 
 export const sweepSandboxVms = async (env: Env): Promise<{ seen: number; deleted: number; kept: number }> => {
-  const key = env.HAND_FREESTYLE_API_KEY
   const prefix = env.CLOUD_NAME_PREFIX ?? ""
-  if (!key || !/^cmuxnp-(dev|stg|prod)-cld-$/.test(prefix)) return { seen: 0, deleted: 0, kept: 0 }
   const origin = (env.CLOUD_API_ORIGIN ?? "").replace(/\/$/, "")
-  if (!origin) return { seen: 0, deleted: 0, kept: 0 }
-  const base = (env.CLOUD_FREESTYLE_API_URL || "https://api.freestyle.sh").replace(/\/+$/, "")
-  const headers = { authorization: `Bearer ${key}` }
   let seen = 0
   let deleted = 0
   let kept = 0
-  const done = new Set<string>()
-  for (let page = 0; page < MAX_PAGES; page++) {
-    const res = await fetch(`${base}/v5/vms?limit=${PAGE}&offset=${page * PAGE}`, { headers, redirect: "manual", signal: AbortSignal.timeout(20_000) })
-    if (!res.ok) break
-    const vms = ((await res.json()) as { vms?: Array<{ id?: string; slug?: string | null; createdAt?: string; metadata?: Record<string, unknown> | null }> }).vms ?? []
-    // A list that ignores the offset gives the same page again: stop there.
-    if (vms.every((v) => !v.id || done.has(v.id))) break
-    for (const vm of vms) {
-      if (!vm.id || done.has(vm.id)) continue
-      done.add(vm.id)
-      const hand = vm.metadata?.cmux_hand
-      // Only VMs this deployment made (its prefix and its origin in the metadata).
-      if (!vm.id || typeof hand !== "string" || !HAND_ID.test(hand) || !vm.slug?.startsWith(`${prefix}hand-`) || vm.metadata?.cmux_deployment !== origin) continue
+  if (!SANDBOX_PREFIX.test(prefix) || !origin) return { seen, deleted, kept }
+  for (const provider of Object.values(PROVIDERS).filter((p) => p.canManage(env))) {
+    for (const m of await provider.list(env, prefix)) {
+      if (!m.hand || !HAND_ID.test(m.hand) || m.deployment !== origin) continue
       seen++
-      const made = Date.parse(vm.createdAt ?? "")
-      if (!Number.isFinite(made) || Date.now() - made < MIN_AGE_MS) continue
-      const state = await handStub(env, hand).ownsVm(vm.id).catch(() => "unknown" as const)
+      if (!Number.isFinite(m.created_at) || Date.now() - m.created_at < MIN_AGE_MS) continue
+      const state = await handStub(env, m.hand).ownsVm(m.id, provider.id).catch(() => "unknown" as const)
       if (state !== "gone") {
         kept++
         continue
       }
-      const d = await fetch(`${base}/v5/vms/${encodeURIComponent(vm.id)}`, { method: "DELETE", headers, redirect: "manual", signal: AbortSignal.timeout(20_000) }).catch(() => null)
-      if (d && (d.ok || d.status === 404)) deleted++
+      if (await provider.remove(env, m.id)) deleted++
     }
-    if (vms.length < PAGE) break
   }
   return { seen, deleted, kept }
 }

@@ -122,6 +122,18 @@ export class RunBook {
       .map((entry) => entry.run);
   }
 
+  /** Runs that can project the conversation's current goal strip. */
+  goalEntries(conversation: string): RunEntry[] {
+    return [...this.runs.values()]
+      .filter((entry) => entry.run.conversation === conversation)
+      .filter((entry) => entry.run.status === "running" || entry.run.status === "failed")
+      .sort((a, b) => b.run.updatedAt - a.run.updatedAt);
+  }
+
+  goalEntry(conversation: string): RunEntry | undefined {
+    return this.goalEntries(conversation)[0];
+  }
+
   /** Summaries the owner listed: kept steps stay; a newer summary replaces an older one. */
   setRuns(runs: readonly HomeRun[]): void {
     let changed = false;

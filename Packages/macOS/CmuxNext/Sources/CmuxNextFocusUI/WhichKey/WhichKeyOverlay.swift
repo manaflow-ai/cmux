@@ -88,7 +88,7 @@ final class WhichKeyView: NSView {
     /// Longest a title draws before it truncates.
     private static let maxTitleWidth: CGFloat = 280
 
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
 
     func update(prefix: [String], rows newRows: [WhichKeyRow]) {
         prefixCaps = prefix

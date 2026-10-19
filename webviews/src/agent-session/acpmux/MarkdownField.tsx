@@ -109,6 +109,9 @@ const clean = (markdown: string) =>
 /** Spaces at the end of the prompt: markdown drops them, but "/review " needs its space. */
 const trailingSpaces = (view: EditorView) => /[ \t]+$/.exec(view.state.doc.lastChild?.textContent ?? "")?.[0] ?? "";
 
+/** HTML/JSX copied from a code editor is plain text, even when its clipboard advertises HTML. */
+const looksLikeMarkupText = (text: string) => /<>|<\/?[A-Za-z][\w.-]*(?:\s[^<>]*)?\/?>(?=\s|$|[.,;:!?)]|<)/.test(text);
+
 /** The document as the prompt's markdown, keeping the spaces typed at its end. */
 function promptMarkdown(editor: Editor | undefined, view: EditorView): string {
   const markdown = clean(editor?.action(getMarkdown()) ?? "");
@@ -281,8 +284,16 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
               },
             },
             handleTextInput: (editorView, _from, _to, text) => beforeInput(editorView, text),
-            handlePaste: (editorView, _event, slice) =>
-              beforeInput(editorView, slice.content.textBetween(0, slice.content.size, "\n", "\n")),
+            handlePaste: (editorView, event, slice) => {
+              const plain = event.clipboardData?.getData("text/plain");
+              if (plain && looksLikeMarkupText(plain)) {
+                if (beforeInput(editorView, plain)) return true;
+                const { from, to } = editorView.state.selection;
+                editorView.dispatch(editorView.state.tr.insertText(plain, from, to));
+                return true;
+              }
+              return beforeInput(editorView, slice.content.textBetween(0, slice.content.size, "\n", "\n"));
+            },
           },
           // Report every document and caret change; the composer's menu follows the caret.
           view: () => ({
@@ -347,6 +358,7 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
         editor.current = made;
         view.current = made.ctx.get(editorViewCtx);
         remark.current = made.ctx.get(remarkCtx);
+        if (known.current) setDocument(known.current);
         showPlaceholder(known.current);
         applyAttributes();
         if (pendingFocus.current) view.current.focus();

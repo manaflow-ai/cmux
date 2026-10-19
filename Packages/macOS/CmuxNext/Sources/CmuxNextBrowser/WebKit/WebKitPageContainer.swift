@@ -30,7 +30,7 @@ final class WebKitPageContainer: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    override var isFlipped: Bool { false }
+    nonisolated override var isFlipped: Bool { false }
 
     /// WebKit added or removed a view beside the page (the attached Web
     /// Inspector shows and hides this way).

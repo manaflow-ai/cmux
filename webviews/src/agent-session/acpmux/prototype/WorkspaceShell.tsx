@@ -308,21 +308,19 @@ export function WorkspaceShell() {
           <span>{space.name}</span>
           <ProfileChip id={space.browserProfile} />
         </div>
-        {items.groupByStatus ? (
-          // Grouped by each workspace's most urgent agent, in this space's stack order.
-          <div key={space.id} className="proto-stack-list">
-            {groupByStatus(stack.workspaces, (workspace) => details.get(workspace.id)!.status).map((group) => (
+        <div className="proto-stack-list">
+          {items.groupByStatus ? (
+            // Grouped by each workspace's most urgent agent, in this space's stack order.
+            groupByStatus(stack.workspaces, (workspace) => details.get(workspace.id)!.status).map((group) => (
               <section key={group.status} className="proto-stack-group">
                 <StatusHeader group={group} />
                 <ul>{group.items.map(row)}</ul>
               </section>
-            ))}
-          </div>
-        ) : (
-          <ul key={space.id} className="proto-stack-list">
-            {stack.workspaces.map(row)}
-          </ul>
-        )}
+            ))
+          ) : (
+            <ul>{stack.workspaces.map(row)}</ul>
+          )}
+        </div>
         <SpaceDots spaces={spaces} onSelect={(id) => showSpaces(switchSpace(spaces, id))} />
       </nav>
 

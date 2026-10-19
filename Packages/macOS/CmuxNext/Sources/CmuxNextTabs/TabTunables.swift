@@ -1,6 +1,29 @@
 public import CmuxNextDesign
 public import CoreGraphics
 
+/// Prototype transitions for a tab's loading indicator. The default is
+/// `instant`, which preserves the existing behavior; the other choices keep
+/// the tab's geometry fixed while the indicator enters or leaves.
+public nonisolated enum TabLoadingAnimation: String, Sendable, CaseIterable, TunableChoice {
+    /// The current behavior: the spinner appears or disappears in one frame.
+    case instant
+    /// A short opacity-only fade.
+    case fade
+    /// Fade with a tiny scale-up/down around the icon's center.
+    case fadeScale
+    /// Fade with a two-point vertical settle.
+    case fadeSlide
+
+    public var tunableTitle: String {
+        switch self {
+        case .instant: "Instant"
+        case .fade: "Fade"
+        case .fadeScale: "Fade + scale"
+        case .fadeSlide: "Fade + slide"
+        }
+    }
+}
+
 /// Debug Settings tunables of the tab strip (plans/cmux-next/tabs.md). The
 /// derived ones compute their default from the density tokens exactly as
 /// `TabStripMetrics` always did; the expression lives here once.
@@ -67,11 +90,17 @@ public nonisolated enum TabTunables {
         "tabs.hoverPreviews", .tabs, "Tab hover previews",
         help: "Full shows a thumbnail on a tab's hover card; Compact shows only its facts.",
         default: .full, code: "TabTunables.hoverPreviews")
+    /// Debug-only loading transition prototypes. Instant is the production
+    /// default until one of the variants is selected for dogfood.
+    public static let loadingAnimation = Tunable<TabLoadingAnimation>.choice(
+        "tabs.loadingAnimation", .tabs, "Tab loading animation",
+        help: "Prototype for a busy tab's indicator entering or leaving. Instant preserves the current behavior.",
+        default: .instant, code: "TabTunables.loadingAnimation")
     public static var all: [TunableDescriptor] {
         [compactTabWidth, scrollTabMinWidth, pinnedGroupGap, contentTrailingInset, closeButtonSize, closeGlyphSize, iconTitleSpacing, titleCloseSpacing,
          titleFadeWidth, badgeSize, closeMinContentsWidth, titleMinVisibleWidth, scrollFadeWidth,
          separatorHeight, groupChipPadding, groupUnderlineHeight, tearOffDistance, dragStartDistance].map(\.descriptor)
             + [separators.descriptor, separatorOpacity.descriptor, groupJoinHysteresis.descriptor, autoscrollGain.descriptor,
-               hoverPreviews.descriptor]
+               hoverPreviews.descriptor, loadingAnimation.descriptor]
     }
 }

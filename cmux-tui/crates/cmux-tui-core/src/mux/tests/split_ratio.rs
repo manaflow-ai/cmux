@@ -102,7 +102,7 @@ fn set_split_ratio_updates_only_the_exact_split_and_clamps() {
         assert_eq!(*inner_ratio, 0.5);
         assert!(s.workspaces[0].screens[0].creation_order_auto_layout.is_none());
     });
-    assert!(matches!(events.recv().unwrap(), MuxEvent::LayoutChanged(_)));
+    assert!(matches!(events.recv().unwrap(), MuxEvent::LayoutChanged(..)));
     assert!(events.try_recv().is_err());
     assert!(matches!(
         mux.set_split_ratio_checked(9999, 0.4),

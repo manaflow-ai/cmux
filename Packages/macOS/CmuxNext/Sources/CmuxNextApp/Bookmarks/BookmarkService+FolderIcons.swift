@@ -65,9 +65,8 @@ extension BookmarkService {
     func followFolderIcons() {
         // task-owner: lives as long as the service; event-driven (Observation)
         folderIconObservation = Task { [weak self] in
-            for await _ in ObservationStream({ [weak self] in self?.anyAwaitedFolderIconLanded() ?? false }) {
+            for await landed in ObservationStream({ [weak self] in self?.landedAwaitedFolderIcons() ?? [] }) {
                 guard let self else { return }
-                let landed = awaitedFolderIcons.filter { IconAssetImages.shared.image($0, owner: iconOwner) != nil }
                 guard !landed.isEmpty else { continue }
                 awaitedFolderIcons.subtract(landed)
                 guard showsBar else { continue }
@@ -78,7 +77,7 @@ extension BookmarkService {
 
     /// Reads the awaited icons and each one's image, so the stream above runs
     /// again when one is added or lands.
-    private func anyAwaitedFolderIconLanded() -> Bool {
-        awaitedFolderIcons.contains { IconAssetImages.shared.image($0, owner: iconOwner) != nil }
+    private func landedAwaitedFolderIcons() -> Set<String> {
+        awaitedFolderIcons.filter { IconAssetImages.shared.image($0, owner: iconOwner) != nil }
     }
 }

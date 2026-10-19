@@ -11,8 +11,9 @@ private final class SplitPageKey {
 
 /// Split Right/Down from a browser tab, the New Tab page or an agent chat (cx-jfo7): the new pane
 /// opens on the New Tab page instead of a terminal, with an Open Tabs list of the workspace's
-/// tabs to move there. The page opens hidden in the source pane and then moves to a new split on
-/// `edge`, the way a new chat reaches its dock (NewChatPlacement.dock).
+/// tabs to move there. One daemon commit makes the page in the new pane (`conversation-tab-split-v1`:
+/// one gesture, one transaction, one tree delta); an older daemon opens it hidden in the source pane
+/// and then moves it to a new split on `edge`, the way a new chat reaches its dock (NewChatPlacement.dock).
 extension NewTabPage {
     /// Whether a person's split of `pane` opens the New Tab page: its selected tab is a browser
     /// tab, the New Tab page or an agent chat. Terminal splits keep the terminal.
@@ -44,9 +45,16 @@ extension NewTabPage {
             guard target == .here else { return jump(target, id) }
             if let services, let key = opened.value { Self.moveHere(id, page: key, services: services) }
         }
-        let started = services.agentTabs.openTab(in: source, newTab: (page, handler), select: false, hidden: true) { [weak source] key in
+        let split: SplitDirection? = !source.daemon.supports(DaemonCapabilities.shared.conversationTabSplit) ? nil
+            : edge == .right ? .right : edge == .bottom ? .down : nil
+        // Even split sizing, as a terminal split (PaneHandlers.split), once the store's pane is placed.
+        let sizing = split.flatMap { source.workspace?.layoutModel.splitSizingChanges(splitting: source.layoutPaneID, axis: $0 == .right ? .horizontal : .vertical) } ?? []
+        let started = services.agentTabs.openTab(in: source, newTab: (page, handler), select: false, hidden: split == nil, split: split) { [weak source] key in
             opened.value = key
-            if let source { Self.moveToSplit(key, from: source, edge: edge, keys: keys) }
+            guard let source else { return }
+            guard split != nil else { return Self.moveToSplit(key, from: source, edge: edge, keys: keys) }
+            source.workspace?.layoutModel.applySplitSizing(sizing)
+            input.flushAll() // the page shows in its pane: a field that reported ready may take the keys now
         }
         if !started { input.endIncoming(keys, pageMade: false) }
     }

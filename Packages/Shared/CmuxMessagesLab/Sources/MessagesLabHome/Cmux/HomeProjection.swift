@@ -42,6 +42,8 @@ final class HomeProjection: @preconcurrency ChatIntents {
     private var shownNotice: String? { sendNotice ?? notice }
     /// The Chief's activity line under the transcript (`chief-live-v1`).
     let liveLine = HomeLiveLine()
+    /// The status line's details, made on the first click.
+    private(set) var turnPopover: HomeTurnStatusPopover?
     /// The window is key and visible: the read cursor may advance.
     var isVisibleToUser = false { didSet { if isVisibleToUser { reportReadIfNeeded() } } }
     var onSummaryChange: (ConversationSummary?) -> Void = { _ in }
@@ -83,9 +85,14 @@ final class HomeProjection: @preconcurrency ChatIntents {
     private(set) var stopped = false
     /// Return was pressed while only the cache knew this conversation: the
     /// send goes once the owner confirms it (`refresh`), in the thread that
-    /// was open at the Return (`deferredThreadRoot`, nil: the conversation).
+    /// was open at the Return (`deferredThread`, nil root: the conversation), answering the
+    /// branch message that was open (nil parent: the root).
     private var sendWhenConfirmed = false
-    private var deferredThreadRoot: MessageID?
+    private var deferredThread: (root: MessageID?, parent: MessageID?) = (nil, nil)
+    /// A permalink's message waiting for the window that holds it (`reveal`, HomeProjection+Tree.swift).
+    var pendingReveal: MessageID?
+    /// Tree threads: permalink paging, the thread header, Copy Link (HomeProjection+ThreadHeader.swift).
+    let tree = HomeTreeState()
     /// Rebuilds and applied (changed) updates, for tests.
     private(set) var rebuilds = 0
     private(set) var appliedUpdates = 0
@@ -107,6 +114,8 @@ final class HomeProjection: @preconcurrency ChatIntents {
         if let linkPreviews { core.links = { [weak linkPreviews] in linkPreviews?.cached($0) } }
         controller.intents = self
         liveLine.dispatch = { [weak controller] text in if controller?.store != nil { controller?.dispatch(.setNotice(text)) } }
+        liveLine.onTick = { [weak self] in self?.turnPopover?.refresh() }
+        liveLine.onClose = { [weak self] in self?.turnPopover?.close() }
         video.controller = controller
         media.onReady = { [weak self] _ in self?.refreshAttachments() }
     }
@@ -119,6 +128,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
     func stop() {
         stopped = true
         liveLine.stop()
+        turnPopover?.close()
         controller.intents = nil
     }
 
@@ -128,43 +138,47 @@ final class HomeProjection: @preconcurrency ChatIntents {
         if sendWhenConfirmed, homeStore.isConfirmed(conversation) {
             sendWhenConfirmed = false
             sendNotice = nil
-            _ = send(root: .some(deferredThreadRoot))
-            deferredThreadRoot = nil
+            _ = send(thread: deferredThread)
+            deferredThread = (nil, nil)
         }
         // A running Chief run (`chief-live-v1`) owns the Chief's bubble: its typing dots until text comes.
         let live = homeStore.liveRun(in: conversation)
         apply(items: homeStore.transcript(for: conversation), summary: homeStore.summary(conversation),
               typing: (homeStore.typing[conversation] ?? []).union(live.map { [$0.participant] } ?? []),
               hasOlder: homeStore.hasOlderMessages(in: conversation), draft: live.map(\.turnDraft) ?? homeStore.drafts[conversation])
-        // The line closes one display frame after the reply took the bubble's place, never with it (cx-zz30r).
+        // The line closes on the frame after the one that shows the reply in the bubble's place (cx-zz30r, cx-06vn1).
         if let activity = live?.activity { liveLine.show(activity) } else { liveLine.hide(after: controller) }
+        revealIfLoaded()
+        refreshThreadHeader()
     }
 
     /// The whole current value; unchanged values return before any work.
     func apply(items: [TranscriptItem], summary: ConversationSummary?, typing wantedTyping: Set<ParticipantID>,
                hasOlder newHasOlder: Bool, draft: HomeTurnDraft? = nil) {
-        // The agent whose running reply shows has its bubble instead of the typing dots.
-        let typing = wantedTyping.subtracting(core.draftAuthors(draft))
+        // MessagesLab hides a sender's typing dots while its stream has text (ask 11).
+        let typing = wantedTyping
         guard let store = controller.store else {
             install(items: items, summary: summary, typing: typing, hasOlder: newHasOlder)
             restoreDraft()
+            // A reply already running when the view opens shows as its stream at once.
+            if let store = controller.store { for a in core.stream(draft, state: store.state) { controller.dispatch(a) } }
             return
         }
         let typingChanged = Set(store.state.ui.typing) != Set(typing.filter { $0 != me }.map(\.rawValue))
         guard items != shown || summary != shownSummary || typingChanged || newHasOlder != hasOlder
-                || core.draftDiffers(draft) else { return }
+                || core.streamDiffers(draft) else { return }
         appliedUpdates += 1
         if newHasOlder != hasOlder { olderRequested = false }
         hasOlder = newHasOlder
         let titleChanged = HomeMapping.title(summary, me: me) != HomeMapping.title(shownSummary, me: me)
         let summaryChanged = summary != shownSummary
         let diff = core.step(items: items, summary: summary)
-        let drafted = core.draft(draft, state: store.state)
+        let streamed = core.stream(draft, state: store.state)
         // MessagesLab bd65bbf: a keystroke goes first. Statuses and typing that arrive in a
         // keystroke frame are committed at the start of the next display frame; anything
         // else (a message, a tapback, a page) is committed now, in order.
         let typingActions = core.typing(store.state, wanted: typing)
-        let ambient = !diff.rebuild && drafted.isEmpty && (diff.actions + typingActions).allSatisfy {
+        let ambient = !diff.rebuild && streamed.isEmpty && (diff.actions + typingActions).allSatisfy {
             switch $0 { case .status, .typing: return true; default: return false }
         }
         if ambient, controller.inKeystrokeFrame, !(diff.actions + typingActions).isEmpty {
@@ -177,13 +191,16 @@ final class HomeProjection: @preconcurrency ChatIntents {
                 self.onRowsChange()
             }
         } else {
-            for a in diff.actions {
+            // The running reply's stream goes after the new messages (it stays the newest bubble), or
+            // where its posted reply is among them (`.streamEnd(replacedBy:)`, in transcript order).
+            let cut = diff.handOffAt ?? diff.actions.count
+            for (i, a) in diff.actions.enumerated() {
+                if i == cut { dispatchStreamed(streamed) }
                 if case .prependPage = a { olderRequested = false }
                 controller.dispatchTimingTapback(a) // my tapback chosen in the menu: from its input (MessagesLab 7518134)
             }
-            // After the new messages, so the running reply stays the newest bubble.
-            for a in drafted.actions { controller.dispatch(a) }
-            if diff.rebuild || drafted.rebuild { rebuild() }
+            if cut >= diff.actions.count { dispatchStreamed(streamed) }
+            if diff.rebuild { rebuild() }
             for a in core.typing(store.state, wanted: typing) { controller.dispatch(a) }
         }
         if titleChanged { applyHeader() }
@@ -200,6 +217,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
         self.hasOlder = hasOlder
         let store = controller.install(conv, windowStart: w.start, total: w.total)
         store.linkPreviews = linkPreviews
+        installThreadHeader()
         if let previews = linkPreviews?.previews {
             // MessagesLab 85684b4: the LinkPresentation fallback runs only for an OUTGOING card on
             // screen (a link I sent); a late answer fills the card.
@@ -266,10 +284,10 @@ final class HomeProjection: @preconcurrency ChatIntents {
     /// at the reconnect, or fails "Not Delivered" at the deadline, never
     /// silently). Else why nothing was sent; the text stays in the field.
     @discardableResult
-    func send() -> String? { send(root: nil) }
+    func send() -> String? { send(thread: nil) }
 
-    /// `deferred`: the thread a held send was made in (`refresh`); nil reads the open view.
-    private func send(root deferred: MessageID??) -> String? {
+    /// `deferred`: the thread (root, parent) a held send was made in (`refresh`); nil reads the open view.
+    private func send(thread deferred: (root: MessageID?, parent: MessageID?)?) -> String? {
         guard let store = controller.store else { return noteSend("refused: transcript_not_ready") }
         let draft = store.state.ui.draft
         let text = draft.text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -278,11 +296,11 @@ final class HomeProjection: @preconcurrency ChatIntents {
         // no .send, no flash, no jump, nothing to HomeStore); then a chip whose attachment is not prepared.
         guard Reducer.canSend(draft), !text.isEmpty || !attachments.isEmpty else { return noteSend("refused: empty_draft") }
         // The open thread or reply view: the send is a reply in that thread (HomeStore's root id).
-        let threadRoot: MessageID?
+        let threadRoot: MessageID?, parent: MessageID?
         if let deferred {
-            threadRoot = deferred
-        } else if let resolved = self.threadRoot(of: draft.replyTo ?? store.state.ui.openThread) {
-            threadRoot = resolved
+            (threadRoot, parent) = deferred
+        } else if let resolved = self.threadRoot(of: draft.replyTo ?? store.state.ui.openThread), let answered = treeParent(of: store.state) {
+            (threadRoot, parent) = (resolved, resolved == nil ? nil : answered)
         } else {
             // The root has no message id yet (my send still going) or is not loaded: the view
             // closes with a notice; the text stays, and the next Return sends to the conversation.
@@ -296,7 +314,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
         // owner's conversation (and carries the text there) once it answers.
         if homeStore.isCacheOnly(conversation) {
             sendWhenConfirmed = true
-            deferredThreadRoot = threadRoot
+            deferredThread = (threadRoot, parent)
             let chief = homeStore.summary(conversation)?.participants.contains(where: \.isChief) == true
             sendNotice = chief ? CmuxStrings.waitingForChief : CmuxStrings.waitingToConnect
             return noteSend("waiting_for_owner: sends once the owner confirms this conversation")
@@ -338,14 +356,14 @@ final class HomeProjection: @preconcurrency ChatIntents {
                     let files: [MessagePart] = attachments.map { .attachment($0.ref) }
                     let plain = files + [.text(text)]
                     try await homeStore.send(conversation: conversation, parts: plain, uploads: attachments, key: key,
-                                             threadRoot: threadRoot) {
+                                             threadRoot: threadRoot, parent: parent) {
                         guard let filled = await links.parts(shown) else { return (plain, []) }
                         return (files + filled.parts, filled.uploads)
                     }
                 } else if attachments.isEmpty {
-                    _ = try await homeStore.perform(.sendMessage(conversation: conversation, parts: [.text(text)], threadRoot: threadRoot), key: key)
+                    _ = try await homeStore.perform(.sendMessage(conversation: conversation, parts: [.text(text)], threadRoot: threadRoot, parent: parent), key: key)
                 } else {
-                    try await homeStore.send(conversation: conversation, text: text, attachments: attachments, key: key, threadRoot: threadRoot)
+                    try await homeStore.send(conversation: conversation, text: text, attachments: attachments, key: key, threadRoot: threadRoot, parent: parent)
                 }
             } catch let refusal as HomeAttachmentError {
                 self?.sendRefused(key, text: text, attachments: attachments, notice: refusal)
@@ -473,9 +491,45 @@ final class HomeProjection: @preconcurrency ChatIntents {
         return found.flatMap { $0.threadRoot ?? $0.messageID }.map { Optional.some($0) }
     }
 
+    /// ThreadMode.tree: the HomeStore message a send from the open view answers, the drilled
+    /// branch's message (MessagesLab's `.send` makes it the local reply's `parent`, ThreadHost.swift):
+    /// `.some(nil)` for the root (no branch open); nil when that message has no message id yet
+    /// (my send still going), so the reply is never moved to another parent.
+    private func treeParent(of state: AppState) -> MessageID?? {
+        guard state.ui.threadMode == .tree, let open = state.ui.openThread else { return .some(nil) }
+        guard let branch = state.ui.threadPath.last else {
+            // A view opened at a reply whose root is not loaded (MessagesLab takes the reply as the
+            // root): the send answers that reply.
+            let shownRoot = item(open.messageId)
+            guard let shownRoot, let mid = shownRoot.messageID, shownRoot.threadRoot != nil, shownRoot.threadRoot != mid else { return .some(nil) }
+            return .some(mid)
+        }
+        let found = item(branch.messageId)
+            ?? homeStore.transcript(for: conversation).first { HomeMapping.id($0, aliases: aliases) == branch.messageId }
+        // A retracted branch message takes no reply (the owner refuses part 0 of it): refused here, never re-parented.
+        guard let found, !found.isRetracted else { return nil }
+        return found.messageID.map { Optional.some($0) }
+    }
+
     func pickAttachments() { onPickAttachments() }
     func takeAttachments(from pasteboard: NSPasteboard) -> Bool { onAttachmentPasteboard(pasteboard) }
     func acceptsAttachments(from pasteboard: NSPasteboard) -> Bool { acceptsAttachmentDrag(pasteboard) }
+    func statusLineClicked(_ rect: CGRect, in view: NSView) {
+        let popover = turnPopover ?? {
+            let made = HomeTurnStatusPopover { [weak self] in self?.liveLine.details() }
+            // Closed by Esc or a click outside: the field takes the keyboard back (a click elsewhere keeps its own).
+            made.onClosed = { [weak self] in
+                guard let self, let window = view.window else { return }
+                // A click that closed it in another text field keeps that field's keyboard.
+                if let other = window.firstResponder as? NSText, other !== self.controller.demo?.compose.textView.view { return }
+                self.controller.focusCompose()
+            }
+            turnPopover = made
+            return made
+        }()
+        popover.toggle(relativeTo: rect, of: view)
+    }
+
     func draftChanged() {
         if sendNotice == CmuxStrings.threadRootNotReady { sendNotice = nil }  // the user moved on
         homeStore.setDraft(controller.store?.state.ui.draft.text ?? "", for: conversation)
@@ -619,8 +673,8 @@ struct ProjectionCore {
     var media: HomeMapping.Media = { _ in nil }
     /// Link previews already fetched (`LinkPreviews.cached`); none in the harness.
     var links: HomeMapping.Links = { _ in nil }
-    /// The agent's running reply on screen (`draft(_:state:)`).
-    var shownDraft: ShownDraft?
+    /// The agent's running reply on screen (`stream(_:state:)`, MessagesLab ask 11).
+    var shownStream: ShownStream?
 
     init(me: ParticipantID) { self.me = me }
 
@@ -628,6 +682,7 @@ struct ProjectionCore {
     mutating func install(_ id: ConversationID, items: [TranscriptItem], summary: ConversationSummary?)
         -> (Conversation, (start: Int, total: Int)) {
         shown = items
+        shownStream = nil // a new projection store has no stream: the next update begins it again
         self.summary = summary
         let roots = HomeMapping.roots(in: items, aliases: aliases, summary: summary, media: media, links: links)
         let conv = Conversation(id: id.rawValue, title: HomeMapping.title(summary, me: me),
@@ -638,7 +693,8 @@ struct ProjectionCore {
 
     /// The actions from the shown snapshot to this one.
     mutating func step(items: [TranscriptItem], summary new: ConversationSummary?) -> HomeDiff {
-        let d = HomeDiff.plan(old: shown, new: items, oldSummary: summary, newSummary: new, aliases: aliases, me: me, media: media, links: links)
+        let d = HomeDiff.plan(old: shown, new: items, oldSummary: summary, newSummary: new, aliases: aliases, me: me, media: media, links: links,
+                              handOff: streamingTurn)
         shown = items
         summary = new
         return d

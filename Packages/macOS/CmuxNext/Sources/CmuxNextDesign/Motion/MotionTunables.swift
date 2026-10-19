@@ -11,8 +11,8 @@ public nonisolated enum MotionTunables {
         // Structural (design-tokens.json motion.springs, motion.structural): critically damped by
         // default, response short enough that a move ends visibly (within 0.5%) by 0.18 s (hq-1d D1).
         .move: (SpringParameters(response: 0.15, dampingFraction: 1), "Tab reflow and reorder, sidebar row moves, pane and divider frames."),
-        .zoom: (SpringParameters(response: 0.32, dampingFraction: 0.9), "A pane zooming to fill its screen."),
-        .exit: (SpringParameters(response: 0.12, dampingFraction: 1), "The panes a zoom leaves fading out, the farthest first."),
+        .zoom: (SpringParameters(response: 0.30, dampingFraction: 1), "A pane zooming to fill its screen and back (Cmd-Shift-Enter)."),
+        .exit: (SpringParameters(response: 0.24, dampingFraction: 1), "A pane closing: its neighbours and dividers covering its space."),
         .tabOpen: (SpringParameters(response: 0.1, dampingFraction: 1), "A new tab growing in at its slot and the tabs right of it making room."),
         .appear: (SpringParameters(response: 0.135, dampingFraction: 1), "Palette scale-in, tab grow-in, group expand, row insert, sidebar show."),
         .disappear: (SpringParameters(response: 0.11, dampingFraction: 1), "Tab close, group collapse, row removal, sidebar hide."),
@@ -75,13 +75,14 @@ public nonisolated enum MotionTunables {
     static let loopDefaults: [MotionLoop: (TimeInterval, String)] = [
         .spinner: (0.9, "One turn of the busy spinner."),
         .pulse: (1.8, "One cycle of the agent-waiting pulse."),
-        .flash: (0.6, "Pane attention flash (two blinks)."),
+        .flash: (1, "Pane attention flash (two blinks; at least 1 s, the 2 Hz cap)."),
     ]
 
     static let loops: [MotionLoop: Tunable<Double>] = Dictionary(uniqueKeysWithValues: MotionLoop.allCases.map { loop in
         let entry = loopDefaults[loop] ?? (1, "")
         return (loop, Tunable.number("motion.loop.\(loop.rawValue)", .fades, "\(loop.rawValue) period", help: entry.1,
-                                     default: entry.0, range: 0.1...4, step: 0.05, unit: .seconds, code: "MotionTunables.loopDefaults[.\(loop.rawValue)]"))
+                                     default: entry.0, range: loop.minimumPeriod...4, step: 0.05, unit: .seconds,
+                                     code: "MotionTunables.loopDefaults[.\(loop.rawValue)]"))
     })
 
     // MARK: Marquee and panel scale

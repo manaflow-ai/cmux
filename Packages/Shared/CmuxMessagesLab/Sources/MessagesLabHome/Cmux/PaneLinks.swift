@@ -29,12 +29,13 @@ extension ChatController {
     /// opens nothing). A card tap is the one time a received card may fetch its preview
     /// (HomeLinkPreviews).
     func openLink(_ hit: MessagesWindowView.Hit, at p: CGPoint) -> Bool {
+        let other = NSApp.currentEvent?.modifierFlags.intersection(.deviceIndependentFlagsMask).isSuperset(of: [.command, .shift]) == true
         switch linkTarget(hit, at: p) {
         case let .text(url)?:
             // An app link (a Chief subagent) goes to the host, never to the system.
-            if let url, url.isChiefSubagentLink { onAppLink?(url) } else if let url { NSWorkspace.shared.open(url) }
+            if let url, url.isChiefSubagentLink { onAppLink?(url) } else if let url { onOpenLink(url, other) }
         case let .card(raw, url)?:
-            if let url { intents?.linkTapped(hit.row.ref, url: raw); NSWorkspace.shared.open(url) }
+            if let url { intents?.linkTapped(hit.row.ref, url: raw); onOpenLink(url, other) }
         case nil:
             return false
         }

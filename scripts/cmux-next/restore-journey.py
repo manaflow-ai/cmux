@@ -1499,14 +1499,12 @@ def load_rows(variant, launched):
     if opts.hist_file:
         # Only a report the reopened page sent counts (a pre-quit one would pass falsely).
         fresh = REPORTS.get("hist") if (REPORTS.get("hist") or {}).get("at", 0) > launched else {}
-        # Against the page loaded fresh: Chromium's file pages show other local images by default
-        # (1); WebKit's see their own folder only, so on WebKit the ceiling stays 0 whatever the
-        # fresh load showed. A reopen must not widen either.
+        # A file page sees its own folder only, on both engines (Chromium: CEFShim
+        # local_file_scope.h, cx-ary1f), fresh or reopened.
         ext = fresh.get("ext")
-        ceiling = 0 if engine() != "chromium" else max(LIVE_READ.get("hist_ext") or 0, 0)
-        RESULTS.append((f"{variant}: page[hist] shows no more outside its folder than a fresh load",
-                        ext is not None and 0 <= ext <= ceiling,
-                        f"probe {ext} after the reopen, {LIVE_READ.get('hist_ext')} on the page loaded fresh, at most {ceiling} (1 shown, 0 refused, -1 no probe)", "browser"))
+        RESULTS.append((f"{variant}: page[hist] shows nothing outside its folder",
+                        ext == 0,
+                        f"probe {ext} after the reopen, {LIVE_READ.get('hist_ext')} on the page loaded fresh (1 shown, 0 refused, -1 no probe)", "browser"))
         # Reading a file outside the page's folder stays refused on both engines, fresh or reopened.
         read = fresh.get("read")
         RESULTS.append((f"{variant}: page[hist] reads nothing outside its folder",
@@ -1535,6 +1533,8 @@ def journey(base):
             LIVE_READ["hist_ext"] = REPORTS["hist"].get("ext")
             RESULTS.append(("seed web: the file page loaded fresh reads nothing outside its folder", LIVE_READ["hist"] == 0,
                             f"read {LIVE_READ['hist']} (1 read, 0 refused, -1 no probe)", "seed"))
+            RESULTS.append(("seed web: the file page loaded fresh shows nothing outside its folder", LIVE_READ["hist_ext"] == 0,
+                            f"probe {LIVE_READ['hist_ext']} (1 shown, 0 refused, -1 no probe)", "seed"))
         started = SINCE = time.time()
         if not APP.quit(variant):
             RESULTS.append((f"{variant}: app ends ({'killed' if variant == 'crash' else 'its quit path'})", False, "still running", "app quit"))

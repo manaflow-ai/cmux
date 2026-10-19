@@ -27,7 +27,13 @@ public final class MessagesLabHomeView: NSView {
         wantsLayer = true
         addSubview(controller.host)
         projection.start()
+        // Reduce Motion changes (the system setting or the host's pin) still or restart the loops
+        // already running (MessagesLabHomeView+Motion.swift).
+        motionObservers = observeReduceMotion()
     }
+
+    /// The Reduce Motion observers (weak: a closed view's turn is a no-op).
+    private var motionObservers: [any NSObjectProtocol] = []
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
@@ -136,6 +142,13 @@ public final class MessagesLabHomeView: NSView {
         set { controller.onAppLink = newValue }
     }
 
+    /// cmux: a click on any other link in the transcript (`otherTarget`: Shift-Command held).
+    /// Defaults to the system; the host routes it (cmux: its link setting).
+    public var onOpenLink: (_ url: URL, _ otherTarget: Bool) -> Void {
+        get { controller.onOpenLink }
+        set { controller.onOpenLink = newValue }
+    }
+
     /// A click (or Space/Return with the keyboard) on the header's name
     /// pill: cmux shows the Chief's settings sidebar there.
     public var onNamePill: () -> Void {
@@ -165,6 +178,28 @@ public final class MessagesLabHomeView: NSView {
 
     /// The field's text view (the pane's primary input).
     public var primaryInput: NSView { controller.demo?.compose.textView.view ?? self }
+
+    /// Whether focusing this view should move the keyboard from `responder`
+    /// to ``primaryInput``.
+    ///
+    /// False only while the keyboard is on a text view or text field (the
+    /// field itself, the thread header's field, a find field) or on the
+    /// transcript while the person makes or holds a text selection there.
+    /// - Parameter responder: The window's first responder now.
+    /// - Returns: True when the host should make ``primaryInput`` first responder.
+    public func primaryInputShouldTakeKeyboard(from responder: NSResponder?) -> Bool {
+        controller.composeShouldTakeKeyboard(from: responder)
+    }
+
+    /// Whether ``pasteIntoPrimaryInput(_:)`` has something to paste: text, or
+    /// files and pictures Home's attachment intake takes.
+    public var canPasteIntoPrimaryInput: Bool { controller.canPasteIntoCompose() }
+
+    /// Cmd+V from a part of Home that is not a text field: the message box
+    /// takes the keyboard, then the paste (text, files and pictures, as a
+    /// paste in the box or a drop does).
+    /// - Parameter sender: The paste's sender, passed to the box's `paste(_:)`.
+    public func pasteIntoPrimaryInput(_ sender: Any?) { controller.pasteIntoCompose(sender) }
 
     /// Puts text in the field (first-run suggestions).
     public func setDraft(_ text: String) {

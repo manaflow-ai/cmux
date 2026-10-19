@@ -1,7 +1,9 @@
 // The composer's location strip (hq#1957 composer location strip). Leo: the folder and host row
 // ("Choose folder ⌄ · cosmic-gray ⌄") sat inside the card as a second row under the controls,
-// wasting space. It is now a tab on the card's top edge, in the chat composer and the New Tab's:
-//   - the strip's bottom edge is the card's top edge, and it stays within the card's sides;
+// wasting space. It is now a tab on the card's top edge in the chat composer, and text a few px
+// over the card in the New Tab's (#21133):
+//   - the strip's bottom edge is the card's top edge (New Tab: a few px above it), and it stays
+//     within the card's sides;
 //   - the card holds one controls row and no location row;
 //   - the strip is as tall with no project, with one and while the host loads;
 //   - only a new chat has the strip, before its first send: a started chat's card stands alone,
@@ -121,20 +123,25 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
         expect(measured.strip).not.toBeNull();
         expect(measured.stripFolder).toBe(true);
         const { strip, card } = measured as { strip: Rect; card: Rect };
-        expect(Math.abs(strip.bottom - card.top)).toBeLessThanOrEqual(1);
+        // The New Tab's strip is text a few px over its card (Cursor's home, #21133); the chat's
+        // stands on the card's top edge.
+        if (surface.card === ".nt-box") {
+          expect(card.top - strip.bottom).toBeGreaterThanOrEqual(2);
+          expect(card.top - strip.bottom).toBeLessThanOrEqual(8);
+        } else expect(Math.abs(strip.bottom - card.top)).toBeLessThanOrEqual(1);
         expect(strip.left).toBeGreaterThanOrEqual(card.left - 0.5);
         expect(strip.right).toBeLessThanOrEqual(card.right + 0.5);
         expect(measured.controlRows).toBe(1);
         expect(measured.locationInCard).toBe(0);
       });
 
+  // The New Tab's strip has its own height (text over the card, #21133), so only the chat's compare.
   test("the strip is as tall with no project, with a project and while the host loads", async () => {
     const heights: Record<string, number> = {};
     for (const [entry, variant] of [
       ["agent-pane.composer-strip", "no-project"],
       ["agent-pane.composer-strip", "project"],
       ["agent-pane.composer-strip", "host-loading"],
-      ["agent-pane.new-tab", "empty"],
     ] as const) {
       const page = await open(entry, variant, 720);
       await page.locator(".acpmux-composer-strip").waitFor();
@@ -263,9 +270,9 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
 
   // The seam: one column through the strip's empty fill and down into the card, at 2x. A line across
   // the seam is a row far from its neighbors' tone; the strip's and the card's fills are the same.
+  // The New Tab has no seam: its strip is text over the card, which keeps its whole rim (#21133).
   for (const surface of [
     { name: "the chat composer", entry: "agent-pane.composer-strip", variant: "project", card: ".acpmux-composer-box" },
-    { name: "the New Tab composer", entry: "agent-pane.new-tab", variant: "empty", card: ".nt-box" },
   ])
     test(`${surface.name}: no hairline across the seam under the strip`, async () => {
       const page = await browser!.newPage({ viewport: { width: 720, height: 560 }, deviceScaleFactor: 2 });
@@ -432,6 +439,32 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
     expect(marks.tailText).toBe("service");
     expect(marks.tail!.right).toBeLessThanOrEqual(marks.strip!.right);
     expect(marks.branchClipped).toBe(false);
+  });
+
+  test("focusing a footer control lifts the strip rim without changing its geometry", async () => {
+    const page = await open("agent-pane.composer-strip", "project", 420);
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await page.waitForTimeout(20);
+    const before = await page.evaluate(() => {
+      const strip = document.querySelector<HTMLElement>(".acpmux-composer-strip")!;
+      const rect = strip.getBoundingClientRect();
+      return {
+        edge: getComputedStyle(strip).getPropertyValue("--acpmux-strip-edge"),
+        rect: { left: rect.left, top: rect.top, width: rect.width, height: rect.height },
+      };
+    });
+    await page.evaluate(() => document.querySelector<HTMLElement>(".acpmux-composer-strip button")!.focus());
+    const after = await page.evaluate(() => {
+      const strip = document.querySelector<HTMLElement>(".acpmux-composer-strip")!;
+      const rect = strip.getBoundingClientRect();
+      return {
+        edge: getComputedStyle(strip).getPropertyValue("--acpmux-strip-edge"),
+        rect: { left: rect.left, top: rect.top, width: rect.width, height: rect.height },
+      };
+    });
+    await page.close();
+    expect(after.edge).not.toBe(before.edge);
+    expect(after.rect).toEqual(before.rect);
   });
 
   // Inside the card's corner: one column just inside the strip's side, from the strip down into the

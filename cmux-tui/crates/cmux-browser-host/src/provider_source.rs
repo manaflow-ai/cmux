@@ -142,6 +142,7 @@ impl ProviderDriver {
         // Under the cef_tabs lock (then the table's, as tab_engine above), so a
         // concurrent re-announce (provider reader) cannot be overwritten by an older scale.
         tab.driver.set_input_scale(self.tab_input_scale(target_id));
+        tab.driver.set_touch_emulation(self.tab_touch(target_id));
         drop(tabs);
         tab.driver.set_request_filter(self.tab_filter(target_id));
         Ok(tab)
