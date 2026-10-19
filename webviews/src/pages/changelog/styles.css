@@ -89,10 +89,10 @@ html[data-cmux-page="changelog"] body {
 .cl-row-text { flex: 1 1 auto; min-width: 0; }
 .cl-row-title { font-weight: 600; }
 .cl-row-summary { color: var(--page-text-2); }
-/* Try it and Learn more show on hover or keyboard focus, beside the paragraph. */
+/* In a one-line row, Try it and Learn more show on hover or keyboard focus, beside the paragraph.
+   Layouts that stack a change in a column (Digest, Reader) show them under the summary. */
 .cl-row-actions { display: flex; align-items: baseline; gap: 10px; flex: none; margin-left: auto; opacity: 0; }
 .cl-group li:hover .cl-row-actions,
-.cld-item:hover .cl-row-actions,
 .cl-row-actions:focus-within { opacity: 1; }
 .cl-row-action {
   border: 0;
@@ -239,7 +239,8 @@ html[data-cmux-page="changelog"] body {
 .cld-item .cl-row-title,
 .cld-item .cl-row-summary { display: block; white-space: normal; }
 .cld-item .cl-row-summary { font-size: var(--text-detail); line-height: var(--text-detail--line-height); margin-top: 2px; }
-.cld-item .cl-row-actions { margin-top: 4px; }
+.cld-item .cl-row-actions,
+.clr-groups .cl-row-actions { margin: 4px 0 0; opacity: 1; }
 .cld-thumb { margin: 0; width: 76px; border-radius: 5px; }
 
 @media (prefers-reduced-motion: reduce) {

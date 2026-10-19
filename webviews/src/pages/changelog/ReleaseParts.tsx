@@ -65,7 +65,7 @@ export function ItemActions({ item, ctx }: { item: ReleaseItem; ctx: PartsContex
   );
 }
 
-/** Actions on a grouped change stay with its title and summary instead of hiding on hover. */
+/** Try it and Learn more for one grouped change, kept with its title and summary. */
 export function RowActions({ item, ctx }: { item: ReleaseItem; ctx: PartsContext }) {
   if (!item.action && !item.docs) return null;
   return (
