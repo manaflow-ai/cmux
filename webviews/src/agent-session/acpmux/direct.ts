@@ -1992,15 +1992,25 @@ export class AcpmuxDirectClient {
       // A note between messages: the text and tool fold before it close.
       this.endAssistantSegment();
       this.streamingActivity = undefined;
-      // One row per compaction: the running note becomes how it ended.
-      const running = [...this.rows.values()]
-        .reverse()
-        .find((row) => row.kind === "compaction" && row.compaction?.state === "running");
+      // One row per compaction: its end replaces the latest running note before it. A running
+      // note always starts its own row, so one that never ended (a stop mid-compaction) is not
+      // taken over, and an older history page binds to its own rows, never to a live one.
+      let running: AcpmuxRow | undefined;
+      if (compaction.state !== "running")
+        for (const row of this.rows.values())
+          if (
+            row.kind === "compaction" &&
+            row.compaction?.state === "running" &&
+            (row.seq ?? 0) < event.seq &&
+            (row.seq ?? 0) > (running?.seq ?? -1)
+          )
+            running = row;
       const id = running?.id ?? `compaction-${event.seq}`;
       this.rows.set(id, {
         id,
         version: (running?.version ?? 0) + 1,
         at: running?.at ?? event.at,
+        seq: running?.seq ?? event.seq,
         kind: "compaction",
         compaction,
       });

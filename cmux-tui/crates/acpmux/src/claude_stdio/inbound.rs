@@ -23,6 +23,15 @@ impl Translator {
         // A local slash command answers with a synthetic assistant line, or
         // `/clear` with its reset, before its result (Claude Code 2.1.299);
         // `/compact` with its boundary, and nothing else (2.1.303).
+        // The summary is the line right after the boundary; any other line of
+        // the chat's own (not the summary) means this compaction wrote none.
+        if parent.is_none()
+            && (kind == "assistant"
+                || (kind == "user"
+                    && line.get("isSynthetic").and_then(Value::as_bool) != Some(true)))
+        {
+            self.awaiting_summary.store(false, Ordering::SeqCst);
+        }
         if kind == "assistant"
             || (kind == "system" && (sub == "conversation_reset" || sub == "compact_boundary"))
         {
@@ -240,6 +249,7 @@ impl Translator {
             "user"
                 if parent.is_none()
                     && line.get("isSynthetic").and_then(Value::as_bool) == Some(true)
+                    && compaction_summary_text(line).is_some()
                     && self.awaiting_summary.swap(false, Ordering::SeqCst) =>
             {
                 if let Some(text) = compaction_summary_text(line) {
@@ -574,9 +584,10 @@ impl Translator {
             // Claude Code 2.1.303 says `status: compacting` when a compaction
             // starts, and clears it with `compact_result` when it ends.
             "system" if sub == "status" && parent.is_none() => {
-                match (line.get("status").and_then(Value::as_str), line.get("compact_result")) {
+                let result = line.get("compact_result").and_then(Value::as_str);
+                match (line.get("status").and_then(Value::as_str), result) {
                     (Some("compacting"), _) => out.push(upd(compaction_update("running", line))),
-                    (None, Some(result)) if result.as_str() != Some("success") => {
+                    (None, Some(result)) if result != "success" => {
                         out.push(upd(compaction_update("failed", line)))
                     }
                     _ => {}
@@ -838,6 +849,14 @@ fn compaction_update(state: &str, line: &Value) -> Value {
 fn compaction_summary_text(line: &Value) -> Option<String> {
     let text = match line.pointer("/message/content")? {
         Value::String(s) => s.clone(),
+        // A tool result is never a summary; the general user arm reads it.
+        Value::Array(blocks)
+            if blocks
+                .iter()
+                .any(|b| b.get("type").and_then(Value::as_str) == Some("tool_result")) =>
+        {
+            return None;
+        }
         Value::Array(blocks) => blocks
             .iter()
             .filter_map(|b| b.get("text").and_then(Value::as_str))

@@ -76,6 +76,8 @@ impl Hub {
                     // What came before is in the summary.
                     assistant = None;
                     entries.clear();
+                    tool_calls = 0;
+                    plan = false;
                     summary = Some((rec.seq, t.to_owned()));
                     return true;
                 }
@@ -225,6 +227,15 @@ fn summary_capsule(
         used += need;
         kept.push(&e.text);
         from_seq = e.from_seq;
+    }
+    if kept.is_empty()
+        && let Some(last) = entries.last()
+    {
+        // Even the newest message is over budget: keep its end.
+        let cut = tail(&last.text, budget);
+        used = cut.len();
+        kept.push(cut);
+        from_seq = last.from_seq;
     }
     kept.reverse();
     let mut text = format!("{open}{}{CLOSING}", kept.join(SEPARATOR));

@@ -167,3 +167,25 @@ test("a failover to the fallback harness is noted", async () => {
 test("token counts read as thousands", () => {
   expect([27183, 2047, 999, 1000, 412000].map(compactTokens)).toEqual(["27k", "2k", "999", "1k", "412k"]);
 });
+
+test("a compaction that never ended keeps its row; the next one gets its own", async () => {
+  const daemon = fakeDaemon(
+    record([
+      ["mux", "user_message", { text: "/compact" }],
+      ["in", "compaction", update({ sessionUpdate: "compaction", state: "running" })],
+      ["mux", "turn_result", { status: "cancelled" }],
+      ["mux", "user_message", { text: "go on" }],
+      ["in", "compaction", update({ sessionUpdate: "compaction", state: "running", reason: "account_switch" })],
+      ["in", "compaction", update({ sessionUpdate: "compaction", state: "completed", reason: "account_switch" })],
+    ]),
+  );
+  const { rows } = await connect(daemon);
+  expect(
+    rows()
+      .filter((row) => row.kind === "compaction")
+      .map((row) => [row.seq, row.compaction?.state]),
+  ).toEqual([
+    [2, "running"],
+    [5, "completed"],
+  ]);
+});
