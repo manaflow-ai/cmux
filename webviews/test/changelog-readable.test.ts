@@ -77,6 +77,17 @@ const USER_FACING = [
   "feat: a naïve-mode-switch for the prompt",
 ];
 
+// The 49-nightly range showed "Restore the URL chip hover card styles lost in the Chief Dock squash"
+// under Fixed: its digest title was cut before "squash", and only the whole line reads as internal.
+test("no internal line of the 50 published nightlies reaches New, Improved or Fixed", () => {
+  const all = nightlies as ReleaseNotes[];
+  for (const notes of [all, ...all.map((n) => [n])]) {
+    const view = mergedView(notes, "en");
+    for (const row of [view.hero, ...view.groups.flatMap((g) => g.items)].filter((i) => i !== undefined))
+      expect(`${row.title} ${row.summary}`).not.toMatch(/export-backdrop-art|#N\b|#21369|Chief Dock squash/i);
+  }
+});
+
 test("hyphenated feature names, small numbers and squash commits stay user-facing", () => {
   for (const subject of USER_FACING) expect([subject, readableChange(subject).internal]).toEqual([subject, false]);
 });
