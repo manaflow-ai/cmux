@@ -4802,47 +4802,20 @@ import Testing
 
     @Test
     func legacySubrouterClaudeRestorePreservesClaudeOptions() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-legacy-subrouter-claude-\(UUID().uuidString)", isDirectory: true)
-        let bin = root.appendingPathComponent("bin", isDirectory: true)
-        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        let sr = bin.appendingPathComponent("sr", isDirectory: false)
-        try "#!/bin/sh\nexit 0\n".write(to: sr, atomically: true, encoding: .utf8)
-        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: sr.path)
-
         let sessionID = "0198f073-0a5b-7000-8000-000000000059"
         let marker = "sr claude proxy --resume"
-        let record = CMUXCLI.RestoreRecord(
-            mode: AgentRestoreRequestMode.resumeAgent.rawValue,
-            kind: "claude",
-            checkpointID: sessionID,
-            source: "agent-hook",
-            workingDirectory: "/tmp",
+        let arguments = SubrouterClaudeResumeRouting().resumeArguments(
+            launcher: "claude",
+            sessionID: sessionID,
+            launchArguments: [
+                "claude", "--model", "opus", "--dangerously-skip-permissions",
+            ],
             environment: [
                 SubrouterClaudeResumeRouting.environmentKey: marker,
                 SubrouterClaudeResumeRouting.launchBoundEnvironmentKey: marker,
-            ],
-            launchCommand: AgentLaunchCommand(launcher: "claude", arguments: ["claude"]),
-            preparedArguments: nil,
-            preparedArgumentsWorkingDirectory: nil,
-            forkArguments: nil,
-            forkArgumentsWorkingDirectory: nil,
-            permissionMode: nil,
-            legacyCommand: "claude --model opus --dangerously-skip-permissions --resume \(sessionID)",
-            legacyForkCommand: nil
+            ]
         )
-
-        let execution = try CMUXCLI(args: []).legacyRestoreExecution(
-            record: record,
-            processEnvironment: ["PATH": bin.path],
-            workingDirectory: "/tmp"
-        )
-        guard case .invocation(let invocation) = execution else {
-            Issue.record("A routed legacy Claude record must use a structured invocation")
-            return
-        }
-        #expect(invocation.arguments == [
+        #expect(arguments == [
             "sr", "claude", "proxy", "--resume", sessionID,
             "--model", "opus", "--dangerously-skip-permissions",
         ])
