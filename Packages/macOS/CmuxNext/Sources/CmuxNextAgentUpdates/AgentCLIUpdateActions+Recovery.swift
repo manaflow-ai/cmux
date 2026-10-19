@@ -63,7 +63,10 @@ extension AgentCLIUpdateActions {
                     // The owner's durable result is terminal.
                     await settle(input.key, in: intent)
                 case .pending:
-                    setFlags(resume: false, dismiss: false, key: input.key, in: intent)
+                    // A creation still pending long after a recovery first saw it may be let go.
+                    let since = pendingSince[input.key] ?? now()
+                    pendingSince[input.key] = since
+                    setFlags(resume: false, dismiss: now().timeIntervalSince(since) >= Self.pendingDismissAfter, key: input.key, in: intent)
                 }
             } catch {
                 // A withdrawn route or uncertain read retains the Rust record.
@@ -125,7 +128,7 @@ extension AgentCLIUpdateActions {
     /// A terminal outcome: the ledger forgets the key, so it stops blocking and resuming.
     /// With `intent`, nothing ran and its job line goes too; an exit keeps its outcome shown.
     func settle(_ key: String, in intent: Intent?) async {
-        settled.insert(key)
+        settled.insert(key); pendingSince[key] = nil
         retained.removeAll { $0.intent.key == key }
         if let intent {
             intent.jobs.removeAll { $0["intent_key"]?.stringValue == key }

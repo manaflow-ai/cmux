@@ -1,6 +1,7 @@
 //! Non-secret UI update intent identity, durably recorded before dispatch.
 //! This ledger grants no execution authority and never contains argv or credentials.
-//! A settled intent is deleted; recording prunes rows past an age and count bound.
+//! A settled intent is deleted; recording prunes rows past an age and count bound,
+//! and a read never returns a row past the age bound.
 
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde::{Deserialize, Serialize};
@@ -111,7 +112,7 @@ impl WorkspaceRegistry {
             )?;
         }
         tx.commit()?;
-        Ok((read_rows(&db, &actor)?, changed))
+        Ok((read_rows(&db, &actor, now_ms)?, changed))
     }
 
     /// Forgets settled intents. A key already gone is not an error: settling is idempotent.
@@ -143,11 +144,21 @@ impl WorkspaceRegistry {
             )?;
         }
         tx.commit()?;
-        Ok((read_rows(&db, &actor)?, changed))
+        Ok((read_rows(&db, &actor, i64::try_from(super::unix_epoch_ms()?)?)?, changed))
     }
 
     pub(crate) fn list_agent_cli_intents(&self, actor: &Actor) -> anyhow::Result<Vec<Value>> {
-        read_rows(&self.connection.get(), &frontend(actor)?)
+        self.list_agent_cli_intents_at(actor, i64::try_from(super::unix_epoch_ms()?)?)
+    }
+
+    /// A blocked family never records, so the read applies the age bound too:
+    /// a row no session settled (a closed tab, a reinstalled server) stops blocking.
+    pub(crate) fn list_agent_cli_intents_at(
+        &self,
+        actor: &Actor,
+        now_ms: i64,
+    ) -> anyhow::Result<Vec<Value>> {
+        read_rows(&self.connection.get(), &frontend(actor)?, now_ms)
     }
 
     pub(crate) fn attach_agent_cli_intent_receipt(
@@ -260,12 +271,15 @@ fn row_value(intent: &AgentCLIIntent, receipt: Option<Value>) -> anyhow::Result<
     Ok(value)
 }
 
-fn read_rows(db: &Connection, actor: &str) -> anyhow::Result<Vec<Value>> {
+fn read_rows(db: &Connection, actor: &str, now_ms: i64) -> anyhow::Result<Vec<Value>> {
     let mut statement = db.prepare(
-        "SELECT intent_json,receipt_json FROM agent_cli_intents WHERE actor=?1 ORDER BY intent_key",
+        "SELECT intent_json,receipt_json FROM agent_cli_intents WHERE actor=?1 AND recorded_at>=?2
+         ORDER BY intent_key",
     )?;
     let rows = statement
-        .query_map([actor], |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)))?
+        .query_map(params![actor, now_ms.saturating_sub(MAX_AGE_MS)], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))
+        })?
         .collect::<Result<Vec<_>, _>>()?;
     rows.into_iter()
         .map(|(input, receipt)| {
@@ -434,11 +448,69 @@ mod tests {
             let rows: Vec<_> = (0..64).map(|n| keyed(&format!("row-{batch}-{n:02}"))).collect();
             registry.record_agent_cli_intents_at(&actor(), &rows, later + batch).unwrap();
         }
-        let rows = registry.list_agent_cli_intents(&actor()).unwrap();
+        let rows = registry.list_agent_cli_intents_at(&actor(), later + 4).unwrap();
         assert_eq!(rows.len(), MAX_ROWS as usize);
         assert!(rows.iter().all(|row| row["key"] != "stale"));
         assert!(rows.iter().all(|row| !row["key"].as_str().unwrap().starts_with("row-0-")));
         assert!(rows.iter().any(|row| row["key"] == "row-4-63"));
+        drop(registry);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn cmux_next_agent_cli_intent_reads_hide_rows_past_the_age_bound_without_a_record() {
+        let root = root();
+        let mut registry = WorkspaceRegistry::open(&root, "intents").unwrap();
+        let start = 1_000_000_000_000;
+        registry.record_agent_cli_intents_at(&actor(), &[keyed("blocked")], start).unwrap();
+        let fresh = registry.list_agent_cli_intents_at(&actor(), start + MAX_AGE_MS).unwrap();
+        assert_eq!(fresh.len(), 1);
+        let aged = registry.list_agent_cli_intents_at(&actor(), start + MAX_AGE_MS + 1).unwrap();
+        assert!(aged.is_empty());
+        drop(registry);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn cmux_next_agent_cli_intent_ledger_without_recorded_at_gains_it_and_prunes_old_rows() {
+        let root = root();
+        let mut registry = WorkspaceRegistry::open(&root, "intents").unwrap();
+        {
+            let db = registry.connection.get();
+            db.execute_batch(
+                "DROP TABLE agent_cli_intents;
+                 CREATE TABLE agent_cli_intents (
+                   actor TEXT NOT NULL, intent_key TEXT NOT NULL, intent_json TEXT NOT NULL,
+                   receipt_json TEXT, PRIMARY KEY(actor, intent_key));",
+            )
+            .unwrap();
+            db.execute(
+                "INSERT INTO agent_cli_intents(actor,intent_key,intent_json) VALUES(?1,?2,?3)",
+                params![
+                    frontend(&actor()).unwrap(),
+                    "pre-column",
+                    serde_json::to_string(&keyed("pre-column")).unwrap()
+                ],
+            )
+            .unwrap();
+            let tx = db.unchecked_transaction().unwrap();
+            create_schema(&tx).unwrap();
+            create_schema(&tx).unwrap();
+            tx.commit().unwrap();
+        }
+        let now = 1_000_000_000_000;
+        assert!(registry.list_agent_cli_intents_at(&actor(), now).unwrap().is_empty());
+        let (rows, changed) =
+            registry.record_agent_cli_intents_at(&actor(), &[keyed("new")], now).unwrap();
+        assert!(changed);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0]["key"], "new");
+        let kept: i64 = registry
+            .connection
+            .get()
+            .query_row("SELECT count(*) FROM agent_cli_intents", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(kept, 1, "the pre-column row reads as oldest and is pruned");
         drop(registry);
         std::fs::remove_dir_all(root).unwrap();
     }

@@ -21,6 +21,8 @@ import Testing
         var loseReply = false
         var outcome = "pending"
         var refuse: Set<AgentCLIFamily> = []
+        var refuseCode = "agent_cli_job.refused"
+        var observeError: DaemonError?
         var claudeChannel = "native"
         let machine: ResourceID = "machine_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         let session: ResourceID = "session_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
@@ -34,12 +36,13 @@ import Testing
                 self.starts.append((cli, key))
                 if self.refuse.contains(cli) {
                     throw DaemonError.command(cmd: "agent-cli-update-job", message: "The owner could not start the update job",
-                                              code: "agent_cli_job.refused")
+                                              code: self.refuseCode)
                 }
                 if self.loseReply { throw DaemonError.notConnected }
                 return try self.receipt(cli)
             }, observe: { receipt in
                 self.observations += 1
+                if let error = self.observeError { throw error }
                 let result = self.outcome == "pending"
                     ? #"{"state":"pending","lifecycle":"running","revision":"7"}"#
                     : self.outcome == "lost"
