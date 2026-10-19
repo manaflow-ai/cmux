@@ -679,6 +679,12 @@ pub fn slug(text: &str) -> String {
 /// base recorded as `branch.<branch>.cmuxBase`, as `git.worktree.create`
 /// makes one. A taken name gets the next free suffix.
 fn make_worktree(folder: &Path, title: &str) -> Result<Worktree, String> {
+    let home = std::env::var_os("HOME").map(PathBuf::from).ok_or("no home folder for worktrees")?;
+    make_worktree_under(folder, title, &home)
+}
+
+/// [`make_worktree`] with `home` as the home folder.
+fn make_worktree_under(folder: &Path, title: &str, home: &Path) -> Result<Worktree, String> {
     let common =
         PathBuf::from(git(folder, &["rev-parse", "--path-format=absolute", "--git-common-dir"])?);
     let main = if common.file_name().is_some_and(|n| n == ".git") {
@@ -695,7 +701,6 @@ fn make_worktree(folder: &Path, title: &str) -> Result<Worktree, String> {
     let project = Some(slug(project.strip_suffix(".git").unwrap_or(&project)))
         .filter(|p| !p.is_empty())
         .unwrap_or_else(|| "repository".into());
-    let home = std::env::var_os("HOME").map(PathBuf::from).ok_or("no home folder for worktrees")?;
     let parent = home.join(".cmux").join("worktrees").join(project);
     let base = git(folder, &["symbolic-ref", "--quiet", "--short", "HEAD"])
         .or_else(|_| git(folder, &["rev-parse", "HEAD"]))?;
@@ -736,6 +741,62 @@ mod tests {
         assert!(instructions(true).contains("offer_session"));
         assert!(!instructions(false).contains("offer_session"));
         assert!(instructions(false).contains("start_session only when the user asked"));
+    }
+
+    #[test]
+    fn a_caller_whose_policy_acpmux_does_not_know_counts_as_asking() {
+        let caller = json!({"enforcement": {"policy": "unknown"}});
+        let lax = json!({"enforcement": {"policy": "approve-all"}});
+        assert_eq!(stricter_policy(&caller, &lax), Some("ask"));
+        let asking = json!({"enforcement": {"policy": "ask"}});
+        assert_eq!(stricter_policy(&caller, &asking), None);
+        let reads = json!({"enforcement": {"policy": "approve-reads"}});
+        assert_eq!(stricter_policy(&reads, &lax), Some("approve-reads"));
+    }
+
+    fn run_git(dir: &Path, args: &[&str]) {
+        let ok = Command::new("git")
+            .arg("-C")
+            .arg(dir)
+            .args(["-c", "user.name=t", "-c", "user.email=t@t", "-c", "init.defaultBranch=main"])
+            .args(["-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null"])
+            .args(args)
+            .status()
+            .unwrap()
+            .success();
+        assert!(ok, "git {args:?}");
+    }
+
+    /// Parallel starts with one title each get a worktree of their own (the next suffix).
+    #[test]
+    fn parallel_worktrees_with_one_title_each_get_a_name() {
+        let scratch = std::env::temp_dir().join(format!("amx-wt-race-{}", uuid::Uuid::now_v7()));
+        let repo = scratch.join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+        run_git(&repo, &["init", "-q"]);
+        run_git(&repo, &["commit", "-q", "--allow-empty", "-m", "first"]);
+        let home = scratch.join("home");
+        let barrier = Arc::new(std::sync::Barrier::new(6));
+        let made: Vec<Result<Worktree, String>> = (0..6)
+            .map(|_| {
+                let (repo, home, barrier) = (repo.clone(), home.clone(), barrier.clone());
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    make_worktree_under(&repo, "Same task", &home)
+                })
+            })
+            .collect::<Vec<_>>()
+            .into_iter()
+            .map(|t| t.join().unwrap())
+            .collect();
+        let mut roots: Vec<PathBuf> = made
+            .into_iter()
+            .map(|m| m.unwrap_or_else(|e| panic!("a parallel start failed: {e}")).root)
+            .collect();
+        roots.sort();
+        roots.dedup();
+        assert_eq!(roots.len(), 6, "{roots:?}");
+        let _ = std::fs::remove_dir_all(&scratch);
     }
 
     #[test]
