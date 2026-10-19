@@ -310,7 +310,8 @@ fn read(global: &GlobalArgs, target: &str, after: u64, limit: usize) -> Result<V
         }
         more = page["hasMore"] == true && !events.is_empty();
         let ready = transcript.items.iter().filter(|item| item.id > after).count();
-        if !more || ready > limit || transcript.text_bytes > MAX_READ_TEXT_BYTES {
+        let full = ready > limit || transcript.text_bytes > MAX_READ_TEXT_BYTES;
+        if !more || (full && !transcript.waiting_on_tool(after)) {
             break;
         }
     }
@@ -360,6 +361,8 @@ struct Transcript {
     /// The item the next text chunk extends.
     open_text: Option<usize>,
     tools: HashMap<String, usize>,
+    /// The last `turn_end` item; a tool call before it is finished.
+    last_turn_end: Option<usize>,
     text_bytes: usize,
 }
 
@@ -375,8 +378,10 @@ impl Transcript {
                     if msg["steer"] == true {
                         extra.insert("steer".into(), json!(true));
                     }
+                    // Only another agent's message; the hub's own prompts
+                    // (`auto_resume`, `offer_result`) carry provenance too.
                     let provenance = &msg["_meta"]["provenance"];
-                    if provenance.is_object() {
+                    if provenance["kind"] == "agent_message" {
                         extra.insert("origin".into(), json!("agent_message"));
                         for (from, to) in
                             [("from", "from"), ("fromName", "from_name"), ("msgId", "message_id")]
@@ -446,20 +451,34 @@ impl Transcript {
     fn push(&mut self, id: u64, role: &'static str, text: String, extra: Map<String, Value>) {
         self.open_text = None;
         self.text_bytes += text.len();
+        if role == "turn_end" {
+            self.last_turn_end = Some(self.items.len());
+        }
         self.items.push(Item { id, role, text, extra });
     }
 
     /// Whether item `index` is finished: an answer once another item
-    /// follows it, a tool call once it completed or failed.
+    /// follows it, a tool call once it completed or failed, or once its turn
+    /// ended (a stopped turn, or a harness that never sent the last update).
     fn complete(&self, index: usize) -> bool {
         let item = &self.items[index];
         match item.role {
             "assistant" => self.open_text != Some(index),
             "tool" => {
                 matches!(item.extra["tool"]["status"].as_str(), Some("completed" | "failed"))
+                    || self.last_turn_end.is_some_and(|end| end > index)
             }
             _ => true,
         }
+    }
+
+    /// Whether an unfinished tool call follows `after`: the read keeps
+    /// loading events until its turn ends, so the turn end is seen.
+    fn waiting_on_tool(&self, after: u64) -> bool {
+        self.items
+            .iter()
+            .enumerate()
+            .any(|(index, item)| item.id > after && item.role == "tool" && !self.complete(index))
     }
 
     /// The items after `after`, at most `limit`. `next_after` never passes
@@ -570,7 +589,10 @@ mod tests {
     fn a_tool_call_left_running_by_an_ended_turn_does_not_hold_the_read() {
         let mut events = vec![
             mux(1, "user_message", json!({"text": "run it"})),
-            update(2, json!({"sessionUpdate": "tool_call", "toolCallId": "t1", "kind": "execute", "status": "in_progress"})),
+            update(
+                2,
+                json!({"sessionUpdate": "tool_call", "toolCallId": "t1", "kind": "execute", "status": "in_progress"}),
+            ),
             mux(3, "turn_result", json!({"status": "cancelled"})),
         ];
         for seq in 4..10 {
@@ -587,9 +609,18 @@ mod tests {
     #[test]
     fn a_tool_call_in_a_running_turn_still_holds_the_read() {
         let events = vec![
-            update(2, json!({"sessionUpdate": "tool_call", "toolCallId": "t1", "kind": "execute", "status": "in_progress"})),
-            update(3, json!({"sessionUpdate": "agent_message_chunk", "content": {"text": "still going"}})),
-            update(4, json!({"sessionUpdate": "tool_call", "toolCallId": "t2", "kind": "read", "status": "completed"})),
+            update(
+                2,
+                json!({"sessionUpdate": "tool_call", "toolCallId": "t1", "kind": "execute", "status": "in_progress"}),
+            ),
+            update(
+                3,
+                json!({"sessionUpdate": "agent_message_chunk", "content": {"text": "still going"}}),
+            ),
+            update(
+                4,
+                json!({"sessionUpdate": "tool_call", "toolCallId": "t2", "kind": "read", "status": "completed"}),
+            ),
         ];
         let page = transcript(&events).page("c", 1, 10, false, 4);
         assert_eq!(page["items"][0]["partial"], true);
@@ -599,9 +630,21 @@ mod tests {
     #[test]
     fn only_agent_message_provenance_marks_a_prompt_as_another_agents() {
         let events = vec![
-            mux(1, "user_message", json!({"text": "hi", "_meta": {"provenance": {"kind": "agent_message", "from": "chat-a", "fromName": "A", "msgId": "m1"}}})),
-            mux(2, "user_message", json!({"text": "resume", "_meta": {"provenance": {"kind": "auto_resume", "promptId": "p", "attempt": 1, "turnId": "t"}}})),
-            mux(3, "user_message", json!({"text": "result", "_meta": {"provenance": {"kind": "offer_result", "offerId": "o", "childSessionId": "c2", "title": "x"}}})),
+            mux(
+                1,
+                "user_message",
+                json!({"text": "hi", "_meta": {"provenance": {"kind": "agent_message", "from": "chat-a", "fromName": "A", "msgId": "m1"}}}),
+            ),
+            mux(
+                2,
+                "user_message",
+                json!({"text": "resume", "_meta": {"provenance": {"kind": "auto_resume", "promptId": "p", "attempt": 1, "turnId": "t"}}}),
+            ),
+            mux(
+                3,
+                "user_message",
+                json!({"text": "result", "_meta": {"provenance": {"kind": "offer_result", "offerId": "o", "childSessionId": "c2", "title": "x"}}}),
+            ),
         ];
         let page = transcript(&events).page("c", 0, 10, false, 3);
         let items = page["items"].as_array().unwrap();
