@@ -49,7 +49,7 @@ final class WorkspaceContentView: NSView {
         }
     }
 
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
 
     /// Shows the workspace action surface in place of an empty layout.
     func showEmpty(_ view: NSView?) {

@@ -5,9 +5,11 @@
 
 #include "include/cef_devtools_message_observer.h"
 #include "include/cef_parser.h"
+#include "include/cef_resource_request_handler.h"
 #include "command_line_switches.h"
 #include "external_url.h"
 #include "local_file_handoff.h"
+#include "local_file_scope.h"
 #include "page_scheme_registration.h"
 #include "shim_internal.h"
 
@@ -71,6 +73,33 @@ class App : public CefApp, public CefBrowserProcessHandler {
   std::vector<std::string> switches_;
   IMPLEMENT_REFCOUNTING(App);
 };
+
+// A file: page's subresources and subframes outside its folder never load
+// (local_file_scope.h, cx-ary1f).
+class LocalFileRefusal : public CefResourceRequestHandler {
+ public:
+  cef_return_value_t OnBeforeResourceLoad(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame>, CefRefPtr<CefRequest>,
+                                          CefRefPtr<CefCallback>) override {
+    return RV_CANCEL;
+  }
+
+  IMPLEMENT_REFCOUNTING(LocalFileRefusal);
+};
+
+// The URL of the document a request loads into: a subframe's parent for a
+// subframe navigation, otherwise the frame itself. An about:blank or
+// about:srcdoc frame shares its parent's origin, so its parent decides; with
+// no such parent (a popup a page wrote into) the URL is "", which the policy
+// refuses.
+std::string RequestDocumentURL(CefRefPtr<CefFrame> frame, CefRefPtr<CefRequest> request) {
+  if (request->GetResourceType() == RT_SUB_FRAME) frame = frame->GetParent();
+  while (frame) {
+    std::string url = frame->GetURL().ToString();
+    if (!url.empty() && url.compare(0, 6, "about:") != 0) return url;
+    frame = frame->GetParent();
+  }
+  return std::string();
+}
 
 class Client : public CefClient,
                public CefDisplayHandler,
@@ -163,12 +192,20 @@ class Client : public CefClient,
     return true;
   }
 
-  // MARK: Chrome Web Store
+  // MARK: Chrome Web Store, local file scope
 
-  CefRefPtr<CefResourceRequestHandler> GetResourceRequestHandler(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame>,
+  CefRefPtr<CefResourceRequestHandler> GetResourceRequestHandler(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame> frame,
                                                                  CefRefPtr<CefRequest> request, bool, bool,
                                                                  const CefString&, bool&) override {
-    return WebStoreRequestHandler(request->GetURL().ToString());
+    const std::string url = request->GetURL().ToString();
+    // A request with no frame (a worker, a CefURLRequest) has no folder to
+    // judge it by: its file: loads are refused.
+    if (LocalFileSchemeURL(url) && request->GetResourceType() != RT_MAIN_FRAME &&
+        !LocalFileSubresourceAllowed(frame ? RequestDocumentURL(frame, request) : std::string(), url)) {
+      static CefRefPtr<CefResourceRequestHandler> refusal = new LocalFileRefusal();
+      return refusal;
+    }
+    return WebStoreRequestHandler(url);
   }
 
   // MARK: Certificate errors

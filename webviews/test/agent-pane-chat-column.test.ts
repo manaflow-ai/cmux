@@ -172,15 +172,25 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
   /// view must follow what is drawn, not an estimate a later frame takes back (cx-next-ghostty-config).
   const LOADED = 6;
 
-  async function open(chat: Chat, width: number, height = 700, loaded = false, foldThoughts = false): Promise<Page> {
+  async function open(
+    chat: Chat,
+    width: number,
+    height = 700,
+    loaded = false,
+    foldThoughts = false,
+    attributes: Record<string, string> = {},
+  ): Promise<Page> {
     const page = await browser!.newPage({ viewport: { width, height } });
-    // The Debug toggle agentPane.debug.foldLongThoughts, as the app sets it on <html>.
-    if (foldThoughts)
-      await page.addInitScript(() => {
-        const set = () => document.documentElement.setAttribute("data-fold-long-thoughts", "on");
-        if (document.documentElement) set();
-        else document.addEventListener("readystatechange", set, { once: true });
-      });
+    // The Debug tunables (agentPane.debug.foldLongThoughts and the others), as the app sets them on <html>.
+    const set = { ...(foldThoughts && { "data-fold-long-thoughts": "on" }), ...attributes };
+    if (Object.keys(set).length)
+      await page.addInitScript((names: Record<string, string>) => {
+        const apply = () => {
+          for (const [name, value] of Object.entries(names)) document.documentElement.setAttribute(name, value);
+        };
+        if (document.documentElement) apply();
+        else document.addEventListener("readystatechange", apply, { once: true });
+      }, set);
     if (loaded)
       await (await page.context().newCDPSession(page)).send("Emulation.setCPUThrottlingRate", { rate: LOADED });
     const { port } = vite!.httpServer!.address() as { port: number };
@@ -551,11 +561,11 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
   const THOUGHT = Array.from({ length: 60 }, (_, index) => `Step ${index + 1}: check the retry path.`).join("\n");
   const thoughtToggle = (page: Page) => page.locator("button[aria-expanded]", { hasText: "Thought" });
 
-  test("a long thought streams in full, then folds when the next step starts without moving the rows above it", async () => {
+  test("a long thought streams, then folds when the next step starts without moving the rows above it", async () => {
     const chat = newChat();
     thinks(chat, THOUGHT);
     const page = await open(chat, 900, 700, false, true);
-    // Streaming: the whole thought, with nothing to open.
+    // Streaming: the whole thought's text (in the live viewport), with nothing to open.
     await page.getByText("Step 60: check the retry path.", { exact: false }).waitFor({ state: "attached" });
     expect(await thoughtToggle(page).count()).toBe(0);
     await page.locator(".acpmux-scroll").hover();
@@ -595,6 +605,50 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
     const tops = (await stop(page)).map((frame) => frame.top);
     expect(await toggle.getAttribute("aria-expanded")).toBe("false");
     expect(new Set(tops)).toEqual(new Set([tops[0]!]));
+    await page.close();
+  });
+
+  // While it streams, a long thought holds Codex's seven-line viewport with its newest line in view
+  // (Debug toggle agentPane.debug.liveThoughtViewport, on by default).
+  const liveThought = async (attributes: Record<string, string> = {}) => {
+    const chat = newChat();
+    thinks(chat, THOUGHT);
+    const page = await open(chat, 900, 700, false, true, attributes);
+    const text = page.locator(".cv-thought__text");
+    await text.waitFor({ state: "attached" });
+    await text.scrollIntoViewIfNeeded();
+    return { page, text };
+  };
+
+  test("a long live thought holds a 140px viewport with its newest line in view", async () => {
+    const { page, text } = await liveThought();
+    expect(await page.locator(".cv-thought.is-live .cv-thought__label").textContent()).toBe("Thinking");
+    const seen = await text.evaluate((element) => {
+      const box = element.getBoundingClientRect();
+      const node = element.firstChild!;
+      const at = (words: string) => {
+        const range = document.createRange();
+        const start = node.textContent!.indexOf(words);
+        range.setStart(node, start);
+        range.setEnd(node, start + words.length);
+        return range.getBoundingClientRect();
+      };
+      const last = at("Step 60: check the retry path.");
+      const first = at("Step 1: check the retry path.");
+      return {
+        height: Math.round(box.height),
+        lastInView: last.top >= box.top - 1 && last.bottom <= box.bottom + 1,
+        firstOut: first.bottom <= box.top + 1,
+      };
+    });
+    expect(seen).toEqual({ height: 140, lastInView: true, firstOut: true });
+    await page.close();
+  });
+
+  test("with the live viewport off, a long live thought streams in full", async () => {
+    const { page, text } = await liveThought({ "data-live-thought-viewport": "off" });
+    expect(await page.locator(".cv-thought.is-live").count()).toBe(0);
+    expect(await text.evaluate((element) => element.getBoundingClientRect().height)).toBeGreaterThan(600);
     await page.close();
   });
 

@@ -8,10 +8,11 @@ import CmuxNextTabs
 /// profile differs from its workspace's shows a dot.
 extension BrowserProfileService {
     /// The tab strip dot of `tab`, nil when its profile is the one its
-    /// workspace gives new tabs.
-    func tabBadge(for tab: TabModel, workspaceID: String?) -> TabProfileBadge? {
+    /// workspace gives new tabs. `room`: the room of the strip's window (`roomDefault`).
+    func tabBadge(for tab: TabModel, workspaceID: String?, room: ProfileID?) -> TabProfileBadge? {
         let id = profileID(ofTab: tab)
-        guard BrowserProfileCascade.showsTabBadge(tabProfile: id, workspaceEffective: effectiveProfile(forWorkspace: workspaceID)) else {
+        guard BrowserProfileCascade.showsTabBadge(tabProfile: id, workspaceEffective: effectiveProfile(forWorkspace: workspaceID, room: room))
+        else {
             return nil
         }
         let record = record(id)

@@ -9,6 +9,7 @@
 //    the top three changes numbered, each a title and one line, and "See all changes", once.
 // Data: UpdateHighlights (updateHighlights.ts); the host mounts these and wires the actions.
 import { useId } from "react";
+import { distinctSummary } from "./model";
 import type { Strings } from "../shared/i18n";
 import type { UpdateHighlights, UpdateSurfaceActions } from "./updateHighlights";
 
@@ -84,7 +85,9 @@ export function UpdateReadyHighlights({
               </span>
               <div>
                 <span className="wn-pop-item">{item.title}</span>
-                {item.summary && <span className="wn-pop-line">{item.summary}</span>}
+                {item.summary && distinctSummary(item.title, item.summary) && (
+                  <span className="wn-pop-line">{item.summary}</span>
+                )}
               </div>
             </li>
           ))}
