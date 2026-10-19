@@ -109,7 +109,7 @@ impl Hub {
     }
 
     /// The forced value and the change count as they are now.
-    pub(super) async fn start_mode_state(&self) -> StartModeState {
+    pub(super) async fn start_mode_now(&self) -> StartModeState {
         self.with_start_mode_state(|_| {}).await.1
     }
 

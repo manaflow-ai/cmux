@@ -319,7 +319,7 @@ impl Hub {
 
     /// The level new chats start at now, and what chose it.
     async fn start_level(&self) -> (DefaultMode, Source) {
-        let state = self.start_mode_state().await;
+        let state = self.start_mode_now().await;
         let (mut picked, mut picked_at, legacy, configured) = {
             let cfg = self.config.read().await;
             (
@@ -473,7 +473,7 @@ impl Hub {
         let level = level_of(mode, &family, self.web_modes().modes(&family)).as_str();
         // The setting's change count now, so a later change to it wins over
         // this pick.
-        let changes = Some(self.start_mode_state().await.changes);
+        let changes = Some(self.start_mode_now().await.changes);
         let mut cfg = self.config.write().await;
         if cfg.harnesses.get(&meta.harness).is_some_and(profile_sets_mode) {
             return;
