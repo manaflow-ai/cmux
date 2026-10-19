@@ -25,17 +25,37 @@ settings. A step has a `title` and optionally:
     optional  why the step may fail (a feature not ported yet); its failure is
               reported as unavailable and makes the tour degraded, rather than
               letting an incomplete tour look fully verified
+    keys      chords sent through the app socket (`debug.key`), never HID:
+              ["down", "cmd+return"]; modifiers cmd, shift, option, ctrl
+    text      characters typed the same way, one `debug.key` each
+    request   one input request on the app socket: {"method": "debug.key",
+              "debug.mouse" or "debug.agent_pane", "params": {...}}; an agent
+              pane request names one of its user actions (new_chat,
+              send_prompt, click ...); a reply with `error` fails the step
     expect    app debug RPC postcondition: {"method": "debug.layers",
               "fields": {"field": expected_value}}; mismatches fail required
-              steps and make optional steps unavailable
+              steps and make optional steps unavailable. Also `params` (the
+              request's, e.g. {"action": "chat_state"} for debug.agent_pane),
+              `contains` ({"field": "substring"}) and `timeout` (seconds the
+              state may take to arrive, default 2)
+
+A step does at most one of `cmux`, `keys`, `text` and `request`. Input goes
+to the app's own windows through its socket, so a tour never needs the
+console's keyboard or pointer and several can share one Mac.
+
+`harnesses` lists harness profiles the launch gets in a private
+XDG_CONFIG_HOME: "fake-agent" is acpmux's test agent
+(cmux-tui/crates/acpmux/tests/fake_agent.py), which needs no sign-in, so a
+runner with no logged-in agent can still start a chat and get an answer.
 
 Screenshots are the DEV app's own drawing of its main window
 (`debug.window_snapshot`, which needs no grant), child windows it owns
 included, so nothing covering the window (permission prompts, other jobs'
-windows) is in them. A build that cannot snapshot falls back to the window's
-rectangle on screen, captured in the console user's session as the E2E
-recorder on main does (scripts/ci/preflight-e2e-screen-capture.py), so it
-works when the runner user is not the console user.
+windows) is in them. A build that cannot snapshot falls back to that window
+alone by its window server id (`screencapture -l`, run in the console user's
+session as the E2E recorder on main does), never the display, so tours on one
+Mac never capture each other. The app is never activated: the tour drives it
+through its socket, so concurrent tours do not trade focus or the key window.
 
 The manifest records `result` as `pass`, `degraded`, or `failed`. Optional
 failures keep the process exit status green for compatibility, but result in a
@@ -52,6 +72,7 @@ import os
 from pathlib import Path
 import plistlib
 import re
+import shlex
 import shutil
 import signal
 import socket
@@ -62,8 +83,23 @@ import threading
 import time
 from typing import Any
 
-STEP_KEYS = {"title", "cmux", "daemon", "wait", "shot", "optional", "expect"}
-TOUR_KEYS = {"title", "steps", "settings"}
+STEP_KEYS = {"title", "cmux", "daemon", "wait", "shot", "optional", "expect", "keys", "text", "request"}
+TOUR_KEYS = {"title", "steps", "settings", "harnesses"}
+# What a step does; at most one each.
+ACTION_KEYS = ("cmux", "keys", "text", "request")
+MODIFIERS = {"cmd", "shift", "option", "ctrl"}
+MAX_TEXT = 500
+# Input requests a step may send. Each acts only on the app's own windows.
+INPUT_METHODS = {"debug.key", "debug.mouse", "debug.agent_pane"}
+# The agent pane's person actions (DebugAgentPane.swift); its measuring and
+# debugging actions are not tour input.
+AGENT_PANE_INPUT_ACTIONS = {"new_chat", "send_prompt", "select_session", "answer_permission", "pick_folder",
+                            "click", "open_menu", "close_menus"}
+AGENT_PANE_STATE_ACTIONS = {"chat_state", "readiness"}
+MAX_POSTCONDITION_TIMEOUT = 30.0
+# Harness profiles a tour may ask for: id -> the agent script, from the repo root.
+TOUR_HARNESSES = {"fake-agent": "cmux-tui/crates/acpmux/tests/fake_agent.py"}
+REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_WAIT = 1.5
 STEP_TIMEOUT = 20.0
 POSTCONDITION_TIMEOUT = 2.0
@@ -129,6 +165,10 @@ def load_tour(path: Path) -> dict[str, Any]:
             raise TourError(f"{where} has unknown keys {sorted(unknown)}")
         if not isinstance(step.get("title"), str) or not step["title"].strip():
             raise TourError(f"{where} needs a `title`")
+        actions = [key for key in ACTION_KEYS if key in step]
+        if len(actions) > 1:
+            raise TourError(f"{where}: a step does one of {list(ACTION_KEYS)}, not {actions}")
+        check_input(step, where)
         command = step.get("cmux")
         if command is not None and (not isinstance(command, list) or not command
                                     or not all(isinstance(word, str) for word in command)):
@@ -145,14 +185,61 @@ def load_tour(path: Path) -> dict[str, Any]:
             raise TourError(f"{where}: `optional` is the reason the step may fail")
         expect = step.get("expect")
         if expect is not None:
-            if not isinstance(expect, dict) or set(expect) - {"method", "fields"}:
-                raise TourError(f"{where}: `expect` must contain only `method` and `fields`")
-            if not isinstance(expect.get("method"), str) or not expect["method"].strip():
-                raise TourError(f"{where}: `expect.method` must be a non-empty string")
-            if (not isinstance(expect.get("fields"), dict) or not expect["fields"]
-                    or not all(isinstance(field, str) and field for field in expect["fields"])):
-                raise TourError(f"{where}: `expect.fields` must be a non-empty object of field names")
-    return {"name": slug(path.stem), "title": data["title"].strip(), "steps": steps, "settings": data.get("settings")}
+            check_expect(expect, where)
+    harnesses = data.get("harnesses", [])
+    if (not isinstance(harnesses, list) or not all(isinstance(name, str) for name in harnesses)
+            or set(harnesses) - set(TOUR_HARNESSES) or len(set(harnesses)) != len(harnesses)):
+        raise TourError(f"{path}: `harnesses` lists profiles from {sorted(TOUR_HARNESSES)}")
+    return {"name": slug(path.stem), "title": data["title"].strip(), "steps": steps, "settings": data.get("settings"),
+            "harnesses": harnesses}
+
+
+def chord(text: str) -> tuple[str, list[str]]:
+    """`cmd+return` as debug.key's key and modifiers."""
+    *modifiers, key = text.split("+")
+    return key, modifiers
+
+
+def check_input(step: dict[str, Any], where: str) -> None:
+    """TourError unless the step's keys, text or request is one the tour can send."""
+    if "keys" in step:
+        keys = step["keys"]
+        if not isinstance(keys, list) or not keys or not all(isinstance(word, str) and word for word in keys):
+            raise TourError(f"{where}: `keys` must be a non-empty list of chords such as \"cmd+return\"")
+        for word in keys:
+            key, modifiers = chord(word)
+            if not key or set(modifiers) - MODIFIERS:
+                raise TourError(f"{where}: `{word}` is not a key with modifiers from {sorted(MODIFIERS)}")
+    if "text" in step and (not isinstance(step["text"], str) or not step["text"] or len(step["text"]) > MAX_TEXT):
+        raise TourError(f"{where}: `text` must be 1 to {MAX_TEXT} characters")
+    if "request" in step:
+        request = step["request"]
+        if (not isinstance(request, dict) or set(request) - {"method", "params"}
+                or request.get("method") not in INPUT_METHODS or not isinstance(request.get("params", {}), dict)):
+            raise TourError(f"{where}: `request` is {{method, params}} with a method from {sorted(INPUT_METHODS)}")
+        action = request.get("params", {}).get("action")
+        if request["method"] == "debug.agent_pane" and action not in AGENT_PANE_INPUT_ACTIONS:
+            raise TourError(f"{where}: an agent pane request's action is one of {sorted(AGENT_PANE_INPUT_ACTIONS)}")
+
+
+def check_expect(expect: Any, where: str) -> None:
+    if not isinstance(expect, dict) or set(expect) - {"method", "fields", "params", "contains", "timeout"}:
+        raise TourError(f"{where}: `expect` must contain only `method`, `fields`, `params`, `contains` and `timeout`")
+    if not isinstance(expect.get("method"), str) or not expect["method"].strip():
+        raise TourError(f"{where}: `expect.method` must be a non-empty string")
+    fields, contains = expect.get("fields", {}), expect.get("contains", {})
+    if (not isinstance(fields, dict) or not isinstance(contains, dict) or not (fields or contains)
+            or not all(isinstance(field, str) and field for field in [*fields, *contains])):
+        raise TourError(f"{where}: `expect.fields` or `expect.contains` must be a non-empty object of field names")
+    if not all(isinstance(value, str) for value in contains.values()):
+        raise TourError(f"{where}: `expect.contains` maps fields to the text they hold")
+    if not isinstance(expect.get("params", {}), dict):
+        raise TourError(f"{where}: `expect.params` must be an object")
+    timeout = expect.get("timeout", POSTCONDITION_TIMEOUT)
+    if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or not 0 < timeout <= MAX_POSTCONDITION_TIMEOUT:
+        raise TourError(f"{where}: `expect.timeout` must be over 0 and at most {MAX_POSTCONDITION_TIMEOUT:.0f} seconds")
+    if expect["method"] == "debug.agent_pane" and expect.get("params", {}).get("action") not in AGENT_PANE_STATE_ACTIONS:
+        raise TourError(f"{where}: an agent pane postcondition reads {sorted(AGENT_PANE_STATE_ACTIONS)}")
 
 
 def command_line(argv: list[str]) -> str:
@@ -252,6 +339,23 @@ class Session:
             return None
         return (done.stderr or done.stdout).strip() or "the helper wrote no image"
 
+    def window_id(self, pid: int) -> int | None:
+        """The window server id of the largest normal window `pid` shows, from the window list
+        (ids and bounds need no Screen Recording grant); None when it shows none."""
+        script = ('ObjC.import("CoreGraphics");'
+                  'var list = ObjC.deepUnwrap(ObjC.castRefToObject($.CGWindowListCopyWindowInfo('
+                  '$.kCGWindowListOptionAll | $.kCGWindowListExcludeDesktopElements, 0))) || [];'
+                  f'var mine = list.filter(function (w) {{ return w.kCGWindowOwnerPID === {int(pid)} && w.kCGWindowLayer === 0; }});'
+                  'mine.sort(function (a, b) { return b.kCGWindowBounds.Width * b.kCGWindowBounds.Height'
+                  ' - a.kCGWindowBounds.Width * a.kCGWindowBounds.Height; });'
+                  'mine.length ? String(mine[0].kCGWindowNumber) : ""')
+        try:
+            done = self.capture(["osascript", "-l", "JavaScript", "-e", script])
+        except (OSError, subprocess.SubprocessError):
+            return None
+        text = done.stdout.strip()
+        return int(text) if text.isdigit() else None
+
     def shareable(self, path: Path) -> Path:
         """A directory the session's user can write when that user is someone else."""
         path.mkdir(parents=True, exist_ok=True)
@@ -262,71 +366,53 @@ class Session:
 
 class Screen:
     """Screenshots of the app's main window through `app` (debug.window_snapshot),
-    or, after use_display(), of a rectangle in global top-left coordinates."""
+    or, after use_display(), of that window alone by its window server id
+    (`screencapture -l`), which shows the window even when another covers it."""
 
     def __init__(self, session: Session, scratch: Path | None = None, app: App | None = None) -> None:
         self.session = session
         self.scratch = scratch or Path(tempfile.gettempdir())
         self.app = app
         self.rect: tuple[int, int, int, int] | None = None
-        self.primary_height: float | None = None
-        self.primary_width: float | None = None
+        self.pid: int | None = None
+        self.window_id: int | None = None
 
     @property
     def mode(self) -> str:
         return APP_WINDOW_MODE if self.app else self.session.capture_mode
 
-    def use_display(self) -> None:
-        """Capture the window's rect on the display from now on; follow() again after."""
+    def use_display(self, pid: Any) -> None:
+        """Capture the app's window through the window server from now on; follow() again after."""
         self.app = None
         self.rect = None
-        script = ('ObjC.import("AppKit");'
-                  'var f = $.NSScreen.screens.objectAtIndex(0).frame;'
-                  'JSON.stringify([f.size.width, f.size.height])')
-        try:
-            done = self.session.capture(["osascript", "-l", "JavaScript", "-e", script])
-            self.primary_width, self.primary_height = (float(value) for value in json.loads(done.stdout)[:2])
-        except (subprocess.SubprocessError, ValueError, IndexError, TypeError):
-            self.primary_width = self.primary_height = None
+        self.pid = pid if isinstance(pid, int) else None
 
     def follow(self, frame: list[float] | None) -> None:
         """Aim at a window frame (NSWindow coordinates: bottom-left origin on the primary screen)."""
-        # Without a usable window frame (none, gone, too small, off the
-        # display) nothing is captured: the old rect would show what is behind.
+        # Without a usable window frame (none, gone, too small) nothing is captured.
         self.rect = None
-        if self.app:
-            # The app draws the window itself, so the frame only says one is shown.
-            if frame and len(frame) == 4 and frame[2] >= 50 and frame[3] >= 50:
-                self.rect = tuple(int(value) for value in frame)
+        if not frame or len(frame) != 4 or frame[2] < 50 or frame[3] < 50:
             return
-        if not frame or self.primary_height is None or len(frame) != 4:
-            return
-        x, y, width, height = frame
-        if width < 50 or height < 50:
-            return
-        top = self.primary_height - (y + height)
-        left, right = max(0.0, x), x + width
-        bottom = min(self.primary_height, top + height)
-        if self.primary_width:
-            right = min(self.primary_width, right)
-        top = max(0.0, top)
-        if right - left < 50 or bottom - top < 50:
-            return
-        self.rect = (int(left), int(top), int(right - left), int(bottom - top))
+        self.rect = tuple(int(value) for value in frame)
+        if not self.app:
+            # The app's largest window is its main window, as main_window_frame picks it.
+            self.window_id = self.session.window_id(self.pid) if self.pid else None
 
     def capture(self, path: Path, kind: str = "png") -> str | None:
-        """Write a screenshot of the app window's rect; None on success, else what went wrong.
+        """Write a screenshot of the app's window; None on success, else what went wrong.
 
-        Never the whole display: the runner's console is shared, and these
-        images are published, so with no window rect there is no shot.
+        Never the display: the runner's console is shared with other jobs'
+        windows, and these images are published.
         """
         if not self.rect:
             return "no app window on screen to capture"
         if self.app:
             return self.app_window_capture(path, kind)
+        if self.window_id is None:
+            return "no window server id for the app's window"
         if self.session.helper:
             return self.helper_capture(path, kind)
-        argv = ["/usr/sbin/screencapture", "-x", "-t", kind, f"-R{','.join(map(str, self.rect))}", str(path)]
+        argv = ["/usr/sbin/screencapture", "-x", "-o", "-t", kind, f"-l{self.window_id}", str(path)]
         try:
             done = self.session.capture(argv)
         except subprocess.TimeoutExpired:
@@ -335,32 +421,18 @@ class Screen:
             return None
         return (done.stderr or done.stdout or f"screencapture exited {done.returncode}").strip()
 
-
     def helper_capture(self, path: Path, kind: str) -> str | None:
-        """The whole display through the helper, cropped to the rect with sips."""
-        # The whole desktop lands outside shots/ and frames/, so a kill
-        # mid-capture cannot publish it, in a directory the helper's user can write.
-        raw = self.scratch / f"raw-{threading.get_ident()}.png"
-        problem = self.session.helper_capture(self.session.helper, ["desktop"], raw)
-        if problem:
+        """The app's window through the helper (`window <id>`), as PNG or JPEG."""
+        raw = path if kind == "png" else self.scratch / f"helper-{threading.get_ident()}.png"
+        problem = self.session.helper_capture(self.session.helper, ["window", str(self.window_id)], raw)
+        if problem or raw == path:
             return problem
-        if not self.primary_width:
-            raw.unlink(missing_ok=True)
-            return "unknown display size; cannot crop the helper's desktop image"
-        # The rect is clamped to the primary display (follow()), which the
-        # helper's desktop image starts with.
-        pixels = subprocess.run(["sips", "-g", "pixelWidth", str(raw)], capture_output=True, text=True).stdout
-        match = re.search(r"pixelWidth:\s*(\d+)", pixels)
-        scale = int(match.group(1)) / self.primary_width if match else 1.0
-        x, y, width, height = (round(value * scale) for value in self.rect)
-        argv = ["sips", "-s", "format", "jpeg" if kind == "jpg" else "png",
-                "--cropOffset", str(y), str(x), "-c", str(height), str(width)]
-        done = subprocess.run(argv + [str(raw), "--out", str(path)], capture_output=True, text=True)
+        done = subprocess.run(["sips", "-s", "format", "jpeg", str(raw), "--out", str(path)],
+                              capture_output=True, text=True)
         raw.unlink(missing_ok=True)
         if path.is_file() and path.stat().st_size > 0:
             return None
         return (done.stderr or done.stdout).strip() or "sips wrote no image"
-
 
     def app_window_capture(self, path: Path, kind: str) -> str | None:
         """The app's main window as it draws it (debug.window_snapshot), as PNG or JPEG."""
@@ -394,7 +466,7 @@ def frame_interval(mode: str) -> float:
 
 
 class Recorder(threading.Thread):
-    """Frames of the screen rectangle about every `interval` seconds, tagged with the step."""
+    """Frames of the app's window about every `interval` seconds, tagged with the step."""
 
     def __init__(self, screen: Screen, directory: Path) -> None:
         super().__init__(daemon=True)
@@ -448,7 +520,7 @@ class App:
     """One launch of the app on a private socket, driven through its bundled CLI."""
 
     def __init__(self, app_path: Path, session: Session, workdir: Path, *, fresh_state: bool = False,
-                 settings: dict[str, Any] | None = None) -> None:
+                 settings: dict[str, Any] | None = None, harnesses: list[str] | None = None) -> None:
         self.app_path = app_path
         self.session = session
         self.fresh_state = fresh_state
@@ -469,6 +541,43 @@ class App:
                 self.settings_path.chmod(0o666)
         self.process: subprocess.Popen[bytes] | None = None
         self.identity: dict[str, Any] = {}
+        self.workdir = workdir
+        self.harnesses = list(harnesses or [])
+        # The launch's own XDG_CONFIG_HOME when the tour brings harness profiles.
+        self.config_home: Path | None = workdir / "xdg" if self.harnesses else None
+
+    def write_harnesses(self) -> None:
+        """The tour's harness profiles, written as the session user.
+
+        acpmux runs a profile only when the daemon's user owns it and nobody
+        else can change it (config/profiles.rs read_profile_file), so the
+        files are made by that user, not by a runner user that differs.
+        """
+        if not self.config_home:
+            return
+        staged = self.session.shareable(self.workdir / "harness-src")
+        commands = [f"mkdir -p {shlex.quote(str(self.config_home / 'cmux/harnesses'))}"]
+        for name in self.harnesses:
+            agent = staged / Path(TOUR_HARNESSES[name]).name
+            shutil.copy(REPO_ROOT / TOUR_HARNESSES[name], agent)
+            agent.chmod(0o644)
+            profile = staged / f"{name}.toml"
+            # FAKE_NO_MODES: no session modes, so the composer shows no mode picker.
+            profile.write_text(f'schema = 1\nid = "{name}"\nname = "Fake agent"\ncommand = "python3"\n'
+                               f"args = [{json.dumps(str(self.config_home / agent.name))}]\n"
+                               '[env]\nFAKE_NO_MODES = "1"\n', encoding="utf-8")
+            profile.chmod(0o644)
+            for source, target in ((agent, self.config_home / agent.name),
+                                   (profile, self.config_home / "cmux/harnesses" / profile.name)):
+                commands.append(f"cp {shlex.quote(str(source))} {shlex.quote(str(target))}"
+                                f" && chmod 644 {shlex.quote(str(target))}")
+        done = self.session.run(["/bin/sh", "-c", " && ".join(commands)])
+        if done.returncode != 0:
+            raise TourError(f"harness profiles: {(done.stderr or done.stdout).strip()}")
+
+    def remove_harnesses(self) -> None:
+        if self.config_home:
+            self.session.run(["rm", "-rf", str(self.config_home)])
 
     def environment(self) -> dict[str, str]:
         env = {key: value for key, value in os.environ.items() if key not in SCRUBBED_ENV}
@@ -507,9 +616,16 @@ class App:
         self.stop_daemon()
         self.clear_leftovers()
         self.clear_state()
-        knobs = [f"CMUX_NEXT_SOCKET_PATH={self.socket_path}", "CMUX_NEXT_SOCKET_MODE=allowAll"]
+        self.write_harnesses()
+        # CMUX_NEXT_NO_ACTIVATE: the app refuses every activation, so tours side by side on one Mac never take
+        # focus or the key window from each other; debug.key and the CLI work on a window that is never key.
+        knobs = [f"CMUX_NEXT_SOCKET_PATH={self.socket_path}", "CMUX_NEXT_SOCKET_MODE=allowAll", "CMUX_NEXT_NO_ACTIVATE=1"]
         if self.settings_path:
             knobs.append(f"CMUX_NEXT_CONFIG_FILE={self.settings_path}")
+        if self.config_home:
+            # The daemons inherit it (AcpmuxDaemonLauncher.spawnEnvironment) and
+            # read harness profiles from it (config/profiles.rs).
+            knobs.append(f"XDG_CONFIG_HOME={self.config_home}")
         argv = self.session.prefix + ["env", *knobs, str(self.executable), "-ApplePersistenceIgnoreState", "YES"]
         with self.log_path.open("wb") as log:
             self.process = subprocess.Popen(argv, stdout=log, stderr=subprocess.STDOUT,
@@ -528,10 +644,16 @@ class App:
             self.identity = json.loads(done.stdout)
         except ValueError:
             self.identity = {}
-        bundle = self.identity.get("bundle_id")
-        if bundle:
-            # Best effort: the tour reads better with the app in front.
-            self.session.run(["osascript", "-e", f'tell application id "{bundle}" to activate'])
+
+    def pid(self) -> int | None:
+        """The app's process id: from identify, else the newest process running this build's executable."""
+        pid = self.identity.get("pid")
+        if isinstance(pid, int):
+            return pid
+        if not self.session.prefix and self.process is not None:
+            return self.process.pid  # `env` execs the app in place
+        found = self.session.run(["pgrep", "-n", "-f", re.escape(str(self.executable))]).stdout.strip()
+        return int(found) if found.isdigit() else None
 
     def daemon_session(self) -> str:
         """DaemonLauncher.sessionName: cmux-app, or cmux-app-<cleaned tag>."""
@@ -606,6 +728,7 @@ class App:
         self.stop_daemon()
         self.clear_leftovers()
         self.clear_state()
+        self.remove_harnesses()
 
 
 def _postcondition_field(state: Any, field: str) -> tuple[bool, Any]:
@@ -627,10 +750,15 @@ def check_postcondition(app: App, step: dict[str, Any]) -> tuple[str, str]:
     if expect is None:
         return "skipped", "not configured"
     method = expect["method"]
-    if method not in READ_ONLY_POSTCONDITION_METHODS:
+    params = dict(expect.get("params") or {})
+    reads_state = method in READ_ONLY_POSTCONDITION_METHODS or (
+        method == "debug.agent_pane" and params.get("action") in AGENT_PANE_STATE_ACTIONS)
+    if not reads_state:
         status = "unavailable" if step.get("optional") else "failed"
         return status, f"{method}: not an allowed read-only debug method"
-    deadline = time.monotonic() + POSTCONDITION_TIMEOUT
+    if method in READ_ONLY_POSTCONDITION_METHODS:
+        params.setdefault("after", "sync")
+    deadline = time.monotonic() + float(expect.get("timeout", POSTCONDITION_TIMEOUT))
     last_detail = "no state observed"
     while time.monotonic() < deadline:
         if not app.alive():
@@ -638,13 +766,13 @@ def check_postcondition(app: App, step: dict[str, Any]) -> tuple[str, str]:
             return status, f"{method}: app exited before postcondition"
         try:
             remaining = max(0.1, min(2.0, deadline - time.monotonic()))
-            state = app.request(method, {"after": "sync"}, timeout=remaining)
+            state = app.request(method, params, timeout=remaining)
         except (OSError, ValueError, TourError, socket.timeout) as error:
             status = "unavailable" if step.get("optional") else "failed"
             return status, f"{method}: {error}"
         mismatches = []
         observed = {}
-        for field, expected in expect["fields"].items():
+        for field, expected in (expect.get("fields") or {}).items():
             found, actual = _postcondition_field(state, field)
             if found:
                 observed[field] = actual
@@ -654,11 +782,18 @@ def check_postcondition(app: App, step: dict[str, Any]) -> tuple[str, str]:
                 mismatches.append(
                     f"{field}={json.dumps(actual, sort_keys=True)} (expected {json.dumps(expected, sort_keys=True)})"
                 )
+        for field, needle in (expect.get("contains") or {}).items():
+            found, actual = _postcondition_field(state, field)
+            if found:
+                observed[field] = actual
+            if not isinstance(actual, str) or needle not in actual:
+                held = json.dumps(actual) if found else "missing"
+                mismatches.append(f"{field}={held} lacks {json.dumps(needle)}")
         if not mismatches:
-            fields = ", ".join(expect["fields"])
+            fields = ", ".join([*(expect.get("fields") or {}), *(expect.get("contains") or {})])
             return "passed", f"{method}: matched {fields}; observed={json.dumps(observed, sort_keys=True)}"
         last_detail = f"{method}: " + "; ".join(mismatches)
-        time.sleep(0.05)
+        time.sleep(0.05 if method in READ_ONLY_POSTCONDITION_METHODS else 0.25)
     return ("unavailable" if step.get("optional") else "failed"), last_detail
 
 
@@ -671,6 +806,43 @@ def _json_equal(actual: Any, expected: Any) -> bool:
     if isinstance(actual, list):
         return len(actual) == len(expected) and all(_json_equal(a, e) for a, e in zip(actual, expected))
     return actual == expected
+
+
+def input_requests(step: dict[str, Any]) -> tuple[str, list[tuple[str, dict[str, Any]]]]:
+    """The step's input as (what the manifest says, socket requests in order)."""
+    if "keys" in step:
+        presses = [chord(word) for word in step["keys"]]
+        return ("keys " + ", ".join(step["keys"]),
+                [("debug.key", {"key": key, "modifiers": modifiers}) for key, modifiers in presses])
+    if "text" in step:
+        return (f"text {json.dumps(step['text'])}",
+                [("debug.key", {"key": "space" if char == " " else char, "modifiers": []}) for char in step["text"]])
+    if "request" in step:
+        params = dict(step["request"].get("params") or {})
+        label = step["request"]["method"] + (f" {params['action']}" if "action" in params else "")
+        return label, [(step["request"]["method"], params)]
+    return "", []
+
+
+def send_input(app: App, step: dict[str, Any], result: dict[str, Any]) -> str | None:
+    """Send the step's input over the app socket; what went wrong, or None."""
+    label, requests = input_requests(step)
+    if not requests:
+        return None
+    result["input"] = label
+    replies = []
+    for method, params in requests:
+        try:
+            reply = app.request(method, params, timeout=STEP_TIMEOUT)
+        except (OSError, ValueError, TourError, socket.timeout) as error:
+            return f"{method}: {error}"
+        replies.append(reply)
+        if isinstance(reply, dict) and reply.get("error"):
+            result["output"] = json.dumps(reply, sort_keys=True)[-1500:]
+            return f"{method}: {reply['error']}"
+    if "request" in step:
+        result["output"] = json.dumps(replies[-1], sort_keys=True)[-1500:]
+    return None
 
 
 def run_step(app: App, screen: Screen, step: dict[str, Any], index: int, shots: Path) -> dict[str, Any]:
@@ -687,6 +859,10 @@ def run_step(app: App, screen: Screen, step: dict[str, Any], index: int, shots: 
             result["detail"] = f"exited {done.returncode}"
             if step.get("optional"):
                 result["detail"] += f" ({step['optional']})"
+    problem = send_input(app, step, result)
+    if problem:
+        result["status"] = "unavailable" if step.get("optional") else "failed"
+        result["detail"] = problem + (f" ({step['optional']})" if step.get("optional") else "")
     time.sleep(step.get("wait", DEFAULT_WAIT))
     postcondition_status, postcondition_detail = check_postcondition(app, step)
     result["postcondition"] = {
@@ -724,7 +900,8 @@ def run_tour(app_path: Path, tour: dict[str, Any], out: Path, session: Session, 
     shots = session.shareable(directory / "shots")
     frames = session.shareable(directory / "frames")
     workdir = Path(tempfile.mkdtemp(prefix="cmux-tour.", dir="/tmp"))
-    app = App(app_path, session, workdir, fresh_state=fresh_state, settings=tour.get("settings"))
+    app = App(app_path, session, workdir, fresh_state=fresh_state, settings=tour.get("settings"),
+              harnesses=tour.get("harnesses"))
     screen = Screen(session, session.shareable(workdir / "raw"), app)
     recorder = Recorder(screen, frames)
     manifest: dict[str, Any] = {"name": tour["name"], "title": tour["title"], "steps": [], "frames": [],
@@ -749,15 +926,14 @@ def run_tour(app_path: Path, tour: dict[str, Any], out: Path, session: Session, 
             # No window snapshot from this build: the display, if a route works.
             session.probe_once()
             if not session.app_window:
-                screen.use_display()
+                screen.use_display(app.pid())
                 screen.follow(app.main_window_frame())
         probe.unlink(missing_ok=True)
         recorder.interval = frame_interval(screen.mode)
         manifest["capture_mode"], manifest["frame_interval"] = screen.mode, recorder.interval
         print(f"[{tour['name']}] screen capture: {screen.mode}", flush=True)
         if screen.rect is None:
-            manifest["frames_error"] = (f"no app window on screen within {WINDOW_TIMEOUT:.0f}s" if screen.app
-                                        else "the app window is not on the primary display, or its size is unknown")
+            manifest["frames_error"] = f"no app window on screen within {WINDOW_TIMEOUT:.0f}s"
         else:
             recorder.start()
         for index, step in enumerate(tour["steps"], 1):
@@ -783,6 +959,8 @@ def run_tour(app_path: Path, tour: dict[str, Any], out: Path, session: Session, 
         if recorder.error and not manifest["frames"]:
             manifest.setdefault("frames_error", recorder.error)
         manifest["capture_rect"] = screen.rect
+        if not screen.app:
+            manifest["capture_window"] = screen.window_id
         if app.log_path.exists():
             shutil.copy(app.log_path, directory / "app.log")
         shutil.rmtree(workdir, ignore_errors=True)
