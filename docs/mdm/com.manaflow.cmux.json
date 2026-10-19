@@ -3194,7 +3194,7 @@
     },
     "updates.showWhatsNew" : {
       "default" : true,
-      "description" : "After an update, a What's New item shows at the top of the sidebar until you open it.",
+      "description" : "After an update, a card at the bottom of the sidebar links to What's New until you open or dismiss it.",
       "title" : "Show What's New After Updates",
       "type" : "boolean"
     },
