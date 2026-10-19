@@ -112,4 +112,38 @@ status=0
 RUNNER_TEMP="$RT" /bin/bash "$ROOT/scripts/cmux-next/clear-stale-scheme-build-state.sh" "$RT/cmux-next-x/../other" >"$TMP/out" 2>&1 || status=$?
 [[ $status -eq 2 && -d "$RT/other/Build" ]] || fail "a .. path escaped the guard (exit $status)"
 
+# 6. The guard gates an rm -rf. A RUNNER_TEMP that is empty, /, a top-level
+#    directory or a home directory accepts nothing, and a path is judged where it resolves: a link
+#    named like a lane's DerivedData cannot aim the clear elsewhere. Every path
+#    here is under $RT or does not exist, so a broken guard removes nothing real.
+clear_at() {
+  status=0
+  env -i PATH=/usr/bin:/bin "$@" /bin/bash "$ROOT/scripts/cmux-next/clear-stale-scheme-build-state.sh" "$path" \
+    >"$TMP/out" 2>&1 || status=$?
+}
+victim="$RT/victim"; mkdir -p "$victim/Build"
+top="/$(printf '%s' "$RT" | cut -d/ -f2)"
+missing="cmux-next-guard-test-$$-missing"
+[[ ! -e "/$missing" && ! -e "$top/$missing" ]] || fail "test paths /$missing or $top/$missing exist"
+home="/$(printf '%s' "$HOME" | cut -d/ -f2-3)"
+[[ ! -e "$home/$missing" ]] || fail "test path $home/$missing exists"
+for spec in "RUNNER_TEMP=/|/$missing" "RUNNER_TEMP=$top|$top/$missing" "RUNNER_TEMP=$home|$home/$missing" "RUNNER_TEMP=|$RT/cmux-next-release-compile" \
+  "RUNNER_TEMP=relative|relative/cmux-next-release-compile"; do
+  path=${spec#*|}; clear_at "${spec%%|*}"
+  [[ $status -eq 2 ]] || fail "${spec%%|*} accepted $path (exit $status)"
+done
+ln -s "$victim" "$RT/cmux-next-linked"
+path="$RT/cmux-next-linked"; clear_at RUNNER_TEMP="$RT"
+[[ $status -eq 2 && -d "$victim/Build" ]] || fail "a lane-named link under RUNNER_TEMP cleared $victim (exit $status)"
+ln -s "$victim" "$TMP/linked"
+path="$TMP/linked"; clear_at RUNNER_TEMP="$RT"
+[[ $status -eq 2 && -d "$victim/Build" ]] || fail "a link under /tmp cleared $victim (exit $status)"
+path="$RT/./cmux-next-release-compile"; clear_at RUNNER_TEMP="$RT"
+[[ $status -eq 2 ]] || fail "a . segment was accepted (exit $status)"
+# A RUNNER_TEMP reached through a link is still RUNNER_TEMP.
+ln -s "$RT" "$RT-link"; trap 'rm -rf "$TMP" "$RT" "$RT-link"' EXIT
+mkdir -p "$RT/cmux-next-release-compile/Build"
+path="$RT-link/cmux-next-release-compile"; clear_at RUNNER_TEMP="$RT-link"
+[[ $status -eq 0 && ! -e "$RT/cmux-next-release-compile/Build" ]] || fail "a linked RUNNER_TEMP's DerivedData was refused (exit $status)"
+
 printf 'release compile DerivedData tests: ok\n'
