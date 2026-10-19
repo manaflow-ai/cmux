@@ -66,9 +66,12 @@ Gate: classify as causal, amplifying, or unrelated only with timestamped evidenc
 
 - Provider fix committed at `7760aeca92`; focused and full `CMUXAgentLaunch` tests pass (845 tests in 99 suites).
 - Tagged app bundle passed `codesign --verify --deep --strict`; the reload wrapper itself stopped on an external cmux-tui provenance-attestation check.
-- Copied fixture imported successfully into the tagged app: three windows, nine workspaces, and 83 imported panels (84 surfaces including the initial empty surface).
-- Copied fixture restored all resume bindings with `auto_resume=false`; no provider child processes launched.
-- The imported JSON is about 208 KB and contains no scrollback payload; the pressure vector is surface/terminal fan-out (83 imported panels), not a large scrollback blob.
+- The preserved copied-session snapshot at
+  `/Users/danielraffel/Library/Application Support/cmux/recovery-backup-20261019T005641Z-live-session/session-com.cmuxterm.app.debug.restore.openat.json`
+  contains two windows, eight workspaces, and 83 panels (about 208 KB).
+- Its restore fixture was imported with automatic provider replay disabled; no provider child processes were launched during the fixture check.
+- The imported JSON contains no scrollback payload; the pressure vector is
+  surface/terminal fan-out (83 imported panels), not a large scrollback blob.
 - Protected backup SHA-256 manifest passes; protected PID 49398 remains untouched.
 - Crash lane: WindowServer/qemu association is real but causality remains unproven.
 - Governor lane: no evidence of causality for the initial crash; one post-fault reclaim workload and a profile/effective-value discrepancy remain follow-up items.
