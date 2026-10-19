@@ -167,9 +167,15 @@ async fn a_restarted_chat_saved_in_full_access_comes_back_without_it_when_off() 
         .call("_acpmux/sessions/restart_harness", json!({"sessions": [&claude, &codex, &restores]}))
         .await;
     assert_eq!(r["result"]["restarted"], json!(3), "{r}");
-    assert_eq!(app.mode(&claude).await, "default");
-    assert_ne!(app.mode(&codex).await, "agent-full-access");
-    // Its harness restored full access on load: acpmux moves it out again.
-    assert_ne!(app.mode(&restores).await, "full-access");
+    // Each comes back on its own harness, in that harness's mode that asks: Claude's `default`,
+    // the Codex bridge's `agent`, and for the harness that restored full access on load, the mode
+    // acpmux then sent it explicitly (`normal`, its first mode that does not skip approvals).
+    for (id, harness, mode) in
+        [(&claude, "claude", "default"), (&codex, "codex", "agent"), (&restores, "restores", "normal")]
+    {
+        let r = app.call("_acpmux/info", json!({"sessionId": id})).await;
+        assert_eq!(r["result"]["harness"], harness, "{r}");
+        assert_eq!(r["result"]["modes"]["currentModeId"], mode, "{harness}: {r}");
+    }
     let _ = std::fs::remove_dir_all(&dir);
 }
