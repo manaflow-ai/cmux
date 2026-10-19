@@ -175,6 +175,7 @@ class GroupBisectAndLand(unittest.TestCase):
         item.current_base = lambda: ("d" * 40 if base_moved else item.base_sha)
         item.base_moved_onto = lambda old, new, files: base_moved
         item.fresh_members = lambda prs: {target.number: target for target in prs}
+        item.member_files = lambda target, base: list(target.files)
 
         refusals = list(getattr(self, "refusals", []))
 
@@ -247,7 +248,8 @@ class GroupCycle(unittest.TestCase):
         ran = []
         item.run_group = lambda name, members: ran.append(name) or [(members[0], "landed")]
         prs = [pr(1, labels=["batch:a"]), pr(2, labels=["batch:b"])]
-        outcome = item.run_groups(prs, None, {})
+        with mock.patch.object(nb, "now", return_value=NOW):
+            outcome = item.run_groups(prs, None, {})
         self.assertEqual(ran, ["a"])  # b validates next cycle, on the base a landed on
         self.assertEqual([text for _, text in outcome], ["landed"])
 
@@ -261,9 +263,10 @@ class GroupCycle(unittest.TestCase):
         item.run_group = lambda name, members: ran.append(name) or [(members[0], "not landed: lane did not run")]
         nb.GROUP_TRIED.clear()
         prs = [pr(1, labels=["batch:a"])]
-        item.run_groups(prs, None, {})
         skipped = {}
-        item.run_groups(prs, None, skipped)
+        with mock.patch.object(nb, "now", return_value=NOW):
+            item.run_groups(prs, None, {})
+            item.run_groups(prs, None, skipped)
         self.assertEqual(ran, ["a"])
         self.assertIn("tried at these heads", skipped[1])
 
