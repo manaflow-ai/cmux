@@ -112,6 +112,7 @@ jobs:
     # writing capture-receipt.json is reported, not shown as "no media".
     outputs:
       is_ui: ${{ steps.scope.outputs.is_ui }}
+      tree_note: ${{ steps.tree.outputs.note }}
     env:
       CMUX_CI_XCODE_APP: ${{ (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CMUX_CI_XCODE_APP_PR || '' }}
       # GhosttyKit comes prebuilt; the ghostty CLI helper zig build is skipped.
@@ -290,12 +291,17 @@ jobs:
       # A merge that changes cmux-tui publishes its tree only after every
       # cmux-tui-artifacts target builds: 45 min for 6c4456b782d9 (run
       # 39311342536), and each tour based on it waited ~37 min in reload.sh.
-      # A base whose tree is not published yet builds with the newest
-      # published tree in its history instead (resolve-newest-published never
-      # waits), and so does a head that changes no cmux-tui tree input, so
-      # before and after still run one daemon. A head that changes cmux-tui
-      # keeps (and waits for) its own tree. Best effort: any failure waits.
+      # When the pull request changes no cmux-tui tree input (head and base
+      # share a tree) and that tree is not published yet, both apps build
+      # with the newest published tree in the base's history
+      # (resolve-newest-published never waits), so before and after still run
+      # one daemon. The search skips commits whose daemon-capabilities.json
+      # differs from the base's: the bundle checks the daemon serves every
+      # capability listed there. A head that changes cmux-tui waits for its
+      # own tree, so the base keeps its own too. The tour comment names a
+      # stand-in. Best effort: any failure waits as before.
       - name: Use a published cmux-tui tree for an unpublished base
+        id: tree
         if: steps.scope.outputs.is_ui == 'true'
         continue-on-error: true
         run: |
@@ -305,8 +311,14 @@ jobs:
           pin=scripts/cmux-next/pin-cmux-tui.sh
           base_key="$(cd "$base" && "./$pin" key)"
           head_key="$("./$pin" key)"
-          resolved="$(cd "$base" && "./$pin" resolve-newest-published)" || {
-            echo "no published cmux-tui tree near the base; the build waits for $base_key"; exit 0; }
+          if [ "$head_key" != "$base_key" ]; then
+            echo "the head changes cmux-tui ($head_key, base $base_key): both apps use their own trees"
+            exit 0
+          fi
+          resolved="$(cd "$base" && GITHUB_STEP_SUMMARY='' CMUX_TUI_TREE_DISPATCH='' \
+            CMUX_TUI_TREE_SAME_PATHS=plans/cmux-next/daemon-capabilities.json \
+            "./$pin" resolve-newest-published)" || {
+            echo "no published cmux-tui tree near the base; the builds wait for $base_key"; exit 0; }
           key="$(sed -n 's/^key=//p' <<<"$resolved")"
           from="$(sed -n 's/^source_commit=//p' <<<"$resolved")"
           [[ "$key" =~ ^[0-9a-f]{40}$ ]] || { echo "unexpected resolve output: $resolved"; exit 0; }
@@ -314,16 +326,10 @@ jobs:
             echo "the base's own cmux-tui tree $base_key is published"
             exit 0
           fi
-          echo "BASE_TUI_TREE_KEY=$key" >> "$GITHUB_ENV"
-          note="The base's cmux-tui tree \`$base_key\` is not published yet; the before app uses \`$key\` from \`${from:0:12}\`"
-          if [ "$head_key" = "$base_key" ]; then
-            echo "HEAD_TUI_TREE_KEY=$key" >> "$GITHUB_ENV"
-            note="$note, and so does the after app (its cmux-tui is the base's)."
-          else
-            note="$note; the after app changes cmux-tui and uses its own tree \`$head_key\`."
-          fi
+          { echo "BASE_TUI_TREE_KEY=$key"; echo "HEAD_TUI_TREE_KEY=$key"; } >> "$GITHUB_ENV"
+          note="Both apps run cmux-tui from ${from:0:12} (tree ${key:0:12}): the merge base's own tree ${base_key:0:12} was not published yet."
           echo "$note"
-          echo "$note" >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+          echo "note=$note" >> "$GITHUB_OUTPUT"
 
       # The checkout is cleaned and the base worktree recreated every run, so
       # optchat-chief built cold (~100 s) for each app; its Cargo target dir
@@ -506,6 +512,7 @@ jobs:
           ROUTE_REASON: ${{ needs.route.outputs.reason }}
           TOUR_RESULT: ${{ needs.tour.result }}
           TOUR_IS_UI: ${{ needs.tour.outputs.is_ui }}
+          TREE_NOTE: ${{ needs.tour.outputs.tree_note }}
         run: |
           set -euo pipefail
           note=""
@@ -549,5 +556,6 @@ jobs:
                 note="${note:+$note }The tour job failed before the tour ran (build or setup); the run log has the output."
               fi ;;
           esac
+          note="${note:+$note }$TREE_NOTE"
           python3 scripts/cmux-next/media/publish.py --repo "$GITHUB_REPOSITORY" \
             --media "$RUNNER_TEMP/media" --pr "$PR" --sha "$HEAD_SHA" --run-url "$RUN_URL" --note "$note"
