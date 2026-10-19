@@ -63,4 +63,15 @@ import Testing
         let first = SidebarDocStore.adoptedID(SidebarDocWorkspaceRef(sessionID: Self.session, workspaceID: "first"))
         #expect(target.before == first, "Move to Top went before \(target.before ?? target.after ?? "nothing"), not the first row")
     }
+
+    @Test func anAnchorWithoutItsItemHereIsAdoptedWithTheMove() throws {
+        let drag = Self.drag(placed: ["c", "moved"])
+        let model = Self.model()
+        let position = try #require(WorkspaceSlot.top(anchor: "moved").position(moving: ["moved"], section: .machine(.local), in: model.sections))
+        let anchored = try #require(drag.anchoredTarget(position, moving: ["itm_moved"], model: model))
+        #expect(anchored.adopt == [Self.ref(WorkspaceID("first"))], "the anchor the client has no item for is not adopted first")
+        // An anchor the client has an item for needs no adopt.
+        let placed = try #require(Self.drag(placed: ["first", "second", "c", "moved"]).anchoredTarget(position, moving: ["itm_moved"], model: model))
+        #expect(placed.adopt.isEmpty)
+    }
 }
