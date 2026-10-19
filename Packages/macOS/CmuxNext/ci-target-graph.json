@@ -94,11 +94,7 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextAgentLanes",
       "targets": [
         "CmuxNextAgentActivity",
-        "CmuxNextAgentPane",
         "CmuxNextBridge",
-        "CmuxNextCompat",
-        "CmuxNextDaemon",
-        "CmuxNextDesign",
         "CmuxNextSidebar",
         "CmuxNextWakeups"
       ],
@@ -183,6 +179,7 @@
         "CmuxNextDaemonRecovery",
         "CmuxNextDaemonService",
         "CmuxNextDesign",
+        "CmuxNextDiff",
         "CmuxNextFeed",
         "CmuxNextFocus",
         "CmuxNextFocusUI",
@@ -198,6 +195,7 @@
         "CmuxNextOnboarding",
         "CmuxNextPages",
         "CmuxNextPalette",
+        "CmuxNextPopups",
         "CmuxNextProcessEnvironment",
         "CmuxNextRemote",
         "CmuxNextRemoteBrowser",
@@ -255,6 +253,7 @@
         "CmuxNextDaemon",
         "CmuxNextDaemonRecovery",
         "CmuxNextDaemonService",
+        "CmuxNextDiff",
         "CmuxNextFocus",
         "CmuxNextFocusUI",
         "CmuxNextHistory",
@@ -561,6 +560,18 @@
       ],
       "packages": []
     },
+    "CmuxNextDiff": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextDiff",
+      "targets": [
+        "CmuxNextAgentPane",
+        "CmuxNextCompat",
+        "CmuxNextDaemonService",
+        "CmuxNextPages",
+        "CmuxNextSettings"
+      ],
+      "packages": []
+    },
     "CmuxNextFeed": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextFeed",
@@ -767,6 +778,27 @@
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextPaletteTests",
       "targets": [
         "CmuxNextPalette"
+      ],
+      "packages": [],
+      "reads": []
+    },
+    "CmuxNextPopups": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextPopups",
+      "targets": [
+        "CmuxNextBrowser",
+        "CmuxNextCompat",
+        "CmuxNextDesign",
+        "CmuxNextWakeups"
+      ],
+      "packages": []
+    },
+    "CmuxNextPopupsTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextPopupsTests",
+      "targets": [
+        "CmuxNextBrowser",
+        "CmuxNextPopups"
       ],
       "packages": [],
       "reads": []

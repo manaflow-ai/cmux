@@ -95,6 +95,17 @@
       "title" : "Chat Folders",
       "type" : "array"
     },
+    "agents.defaultPermissionMode" : {
+      "default" : "fullAccess",
+      "description" : "What a new chat may do without asking. Picking a mode in a chat sets it too, until you change this setting again.",
+      "enum" : [
+        "fullAccess",
+        "standard",
+        "ask"
+      ],
+      "title" : "Permission Mode for New Chats",
+      "type" : "string"
+    },
     "AllowedSignInMethods" : {
       "description" : "Sign-in methods the app offers.",
       "items" : {
@@ -2372,12 +2383,6 @@
       ],
       "title" : "Section Look",
       "type" : "string"
-    },
-    "sidebar.sessionTree" : {
-      "default" : false,
-      "description" : "Lists a workspace that another workspace's agent started under it, and shows each row's pull requests and the first rows' Command-number keys.",
-      "title" : "Session Tree",
-      "type" : "boolean"
     },
     "sidebar.showChats" : {
       "default" : true,
