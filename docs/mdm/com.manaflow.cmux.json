@@ -1842,6 +1842,14 @@
       "title" : "ManagedTeam",
       "type" : "string"
     },
+    "markdown.font.size" : {
+      "default" : 16,
+      "description" : "The text size every markdown viewer opens at. Cmd-= and Cmd-- change it in one viewer; Cmd-0 goes back to this size.",
+      "maximum" : 40,
+      "minimum" : 8,
+      "title" : "Default Font Size",
+      "type" : "number"
+    },
     "MinimumVersion" : {
       "description" : "Oldest cmux version allowed to sign in, for example 1.2.0.",
       "title" : "MinimumVersion",
@@ -2329,6 +2337,12 @@
       ],
       "title" : "Sidebar Density",
       "type" : "string"
+    },
+    "sidebar.detailedStatusIcons" : {
+      "default" : false,
+      "description" : "Workspace rows show a separate icon for working, waiting for input, error and done. Off, a row shows a spinner while it works and a blue dot when it is ready for you.",
+      "title" : "Detailed Status Icons",
+      "type" : "boolean"
     },
     "sidebar.groupBy" : {
       "default" : "none",

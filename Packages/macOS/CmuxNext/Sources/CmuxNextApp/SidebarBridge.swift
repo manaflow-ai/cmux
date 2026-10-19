@@ -135,13 +135,14 @@ final class SidebarBridge {
                 newTabPages: pages, muted: muted,
                 top: .make(layout, machines: machines, room: windowState.profileID.rawValue), pageFace: services.sidebarPageFace,
                 tabTitle: Self.tabTitle(services), rows: feed.rowSource)
+            // Not the creates' rows (PendingWorkspaceRows): they draw from the press (its redraws below), and a walk reads them as it shows.
             return ((sections, services.sidebarCustomization.rowDecorations), launching, failed, SidebarSpaceBar.profiles(machines.local), SidebarProfileKey(windowState.profileID.rawValue),
-                    SidebarRows.visibleLayout(layout.document), PendingWorkspaceRows.shared.rows(in: windowState.id))
+                    SidebarRows.visibleLayout(layout.document))
         }) { [weak self] value in
-            let ((sections, decorations), launching, failed, profiles, active, shown, creating) = value
+            let ((sections, decorations), launching, failed, profiles, active, shown) = value
             guard let self else { return }
             self.showProfiles(profiles, active: active, launching: launching)
-            self.show(SidebarSection.decorated(feed.fill(sections), decorations), layout: shown, launching: launching, failed: failed, creating: creating)
+            self.show(SidebarSection.decorated(feed.fill(sections), decorations), layout: shown, launching: launching, failed: failed, creating: PendingWorkspaceRows.shared.rows(in: windowState.id))
             // A workspace the window lists shows its own row from here on (cx-9a7wx).
             let membership = WindowProfiles.membership(machines)
             PendingWorkspaceRows.shared.forget(in: windowState.id, listed: Set(sections.flatMap(\.workspaces).map(\.id.rawValue))) { id in
@@ -150,6 +151,12 @@ final class SidebarBridge {
                       let pin = membership?.pins[workspace] else { return false }
                 return pin != windowState.profileID
             }
+        }
+        PendingWorkspaceRows.shared.redraws.add(self) { [weak self] in
+            guard let self, let id = self.state?.id else { return }
+            rows.show(creating: (PendingWorkspaceRows.shared.rows(in: id), NewWorkspacePlacements.home(services.machines)))
+            self.selectionHold.flush() // a selection waiting on the new row takes it in this turn, as `show` does
+            container.sidebarView.renderNow() // in this turn, so its frame draws the row
         }
         // R99: the rows of another space, for the page beside the current one during a swipe.
         model.spaceSections = { [weak windowState, spaceCache] key in

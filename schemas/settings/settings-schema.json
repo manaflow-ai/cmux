@@ -354,6 +354,7 @@
               "sidebar.showProfileControl",
               "sidebar.minimal",
               "sidebar.density",
+              "sidebar.detailedStatusIcons",
               "sidebar.minimalMode",
               "sidebar.cards.tips",
               "sidebar.side",
@@ -14031,6 +14032,64 @@
     },
     {
       "accepts" : [
+        8,
+        40,
+        24
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 16,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.markdownViewer",
+        "text" : "Markdown Viewer"
+      },
+      "help" : {
+        "key" : "settings.markdown.fontSize.help",
+        "text" : "The text size every markdown viewer opens at. Cmd-= and Cmd-- change it in one viewer; Cmd-0 goes back to this size."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "markdown.font.size",
+      "keywords" : [
+        "markdown",
+        "font",
+        "size",
+        "text",
+        "zoom",
+        "viewer"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "markdown",
+        "font",
+        "size"
+      ],
+      "range" : {
+        "max" : 40,
+        "min" : 8,
+        "placeholder" : 16,
+        "step" : 1,
+        "unit" : "points"
+      },
+      "refuses" : [
+        -24,
+        72,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.markdown.fontSize",
+        "text" : "Default Font Size"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
 
       ],
       "agent_refusal" : null,
@@ -14983,6 +15042,60 @@
       "title" : {
         "key" : "settings.sidebar.density",
         "text" : "Sidebar Density"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.detailedStatusIcons.help",
+        "text" : "Workspace rows show a separate icon for working, waiting for input, error and done. Off, a row shows a spinner while it works and a blue dot when it is ready for you."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.detailedStatusIcons",
+      "keywords" : [
+        "sidebar",
+        "status",
+        "icons",
+        "badge",
+        "working",
+        "waiting",
+        "input",
+        "error",
+        "done",
+        "agent",
+        "osc 7501"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "detailedStatusIcons"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.detailedStatusIcons",
+        "text" : "Detailed Status Icons"
       },
       "validation" : "portable"
     },
@@ -25589,7 +25702,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "83792af4a2de800d5ae2c0dbfd6e317b511f10e28f552adfc6a49d5358df4e49",
+  "schema_hash" : "200c049ca7679d3181c020244ef186916872bd909b3c37c4a63a5b105a6c0bfa",
   "sections" : [
     {
       "id" : "general",

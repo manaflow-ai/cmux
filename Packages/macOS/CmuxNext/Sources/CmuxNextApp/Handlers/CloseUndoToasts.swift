@@ -132,6 +132,8 @@ final class CloseUndoToasts {
     /// One gesture over tabs of several panes (a pane's close others): one
     /// question and one toast decision over every closing tab (cx-lb4al).
     static func close(_ parts: [(pane: PaneController, ids: [StripTabID])]) {
+        // A tab still being created is cancelled now, before any question or toast (CancelledCreation).
+        for part in parts { part.pane.close(part.ids.filter { part.pane.daemon.store.creations.isPending(tab: $0.rawValue) }) }
         // A tab already closing (a second close before the daemon answered the first) closes once.
         let parts = parts.map { part in (pane: part.pane, ids: part.ids.filter { !part.pane.pendingClosed.contains($0.rawValue) }) }
             .filter { !$0.ids.isEmpty }
