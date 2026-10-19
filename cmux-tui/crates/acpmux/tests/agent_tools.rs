@@ -109,6 +109,8 @@ async fn local_sessions_get_the_browser_and_cua_tools_and_skills() {
     std::fs::create_dir_all(&bin).unwrap();
     let cua = fake_bin(&bin, "cmux-cua");
     let cmux = fake_bin(&bin, "cmux");
+    // Agent memory is off until cmux.json turns it on (asserted below).
+    let chief = fake_bin(&bin, "optchat-chief");
     // A settings file that does not mention MCP: every agent chat still gets
     // the cmux MCP server (cx-wx93i: on by default, `mcp.enabled: false` is off).
     let cmux_json = root.join("cmux-next.json");
@@ -195,6 +197,21 @@ async fn local_sessions_get_the_browser_and_cua_tools_and_skills() {
     )
     .unwrap();
     assert_eq!(manifest["name"], "cmux");
+
+    // `agents.memory.enabled` adds the memory server for the next session,
+    // with the session as its provenance.
+    std::fs::write(&cmux_json, r#"{"agents": {"memory": {"enabled": true}}}"#).unwrap();
+    let id = local.new_session("fake").await;
+    let servers: Value = serde_json::from_str(&local.ask(&id, "mcp").await).unwrap();
+    let memory = servers
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|s| s["name"] == "cmux-agent-memory")
+        .unwrap_or_else(|| panic!("{servers}"));
+    assert_eq!(memory["command"], json!(chief), "{servers}");
+    assert_eq!(memory["args"], json!(["agent-memory", "mcp"]), "{servers}");
+    assert!(memory["env"].to_string().contains(&id), "{servers}");
 
     // The switch turns it off for the next session.
     // SAFETY: as above; no session is starting concurrently.
