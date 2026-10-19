@@ -2041,12 +2041,16 @@ export interface components {
             };
             createdAt: string;
         };
-        CreateMeshRequest: {
+        CreateMeshIntentRequest: {
             /**
              * maxLength(100)
              * @description a string at most 100 character(s) long
              */
             displayName?: string;
+            labels?: components["schemas"]["MeshLabels"];
+        };
+        MeshLabels: {
+            [key: string]: string;
         };
         Mesh: {
             /** @description a string matching the pattern ^mesh_[0123456789abcdefghjkmnpqrstvwxyz]{26}$ */
@@ -2055,6 +2059,13 @@ export interface components {
             /** @description The mesh's IPv4 block; VMs and devices get addresses inside it. */
             ipv4Cidr: string;
             createdAt: string;
+        };
+        CreateMeshRequest: {
+            /**
+             * maxLength(100)
+             * @description a string at most 100 character(s) long
+             */
+            displayName?: string;
         };
         MeshList: {
             items: components["schemas"]["Mesh"][];
@@ -6214,7 +6225,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["CreateMeshRequest"];
+                "application/json": components["schemas"]["CreateMeshIntentRequest"];
             };
         };
         responses: {

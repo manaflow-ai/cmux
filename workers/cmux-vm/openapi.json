@@ -5788,7 +5788,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/CreateMeshRequest"
+                "$ref": "#/components/schemas/CreateMeshIntentRequest"
               }
             }
           },
@@ -12041,7 +12041,7 @@
         },
         "additionalProperties": false
       },
-      "CreateMeshRequest": {
+      "CreateMeshIntentRequest": {
         "type": "object",
         "required": [],
         "properties": {
@@ -12051,9 +12051,22 @@
             "title": "maxLength(100)",
             "minLength": 1,
             "maxLength": 100
+          },
+          "labels": {
+            "$ref": "#/components/schemas/MeshLabels"
           }
         },
         "additionalProperties": false
+      },
+      "MeshLabels": {
+        "type": "object",
+        "required": [],
+        "properties": {},
+        "additionalProperties": {
+          "type": "string",
+          "description": "a string matching the pattern ^[A-Za-z0-9._:/@-]{0,63}$",
+          "pattern": "^[A-Za-z0-9._:/@-]{0,63}$"
+        }
       },
       "Mesh": {
         "type": "object",
@@ -12085,6 +12098,20 @@
           },
           "createdAt": {
             "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "CreateMeshRequest": {
+        "type": "object",
+        "required": [],
+        "properties": {
+          "displayName": {
+            "type": "string",
+            "description": "a string at most 100 character(s) long",
+            "title": "maxLength(100)",
+            "minLength": 1,
+            "maxLength": 100
           }
         },
         "additionalProperties": false
