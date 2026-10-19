@@ -705,6 +705,12 @@ extension TerminalController {
         guard !text.isEmpty || !attachments.isEmpty else {
             return .err(code: "invalid_params", message: "Nothing to send", data: nil)
         }
+        // Validate the entire attachment batch before clearing the terminal's
+        // prompt. A malformed item must leave the user's draft untouched so
+        // they can correct or retry it after the error response.
+        if let attachmentError = Self.chatAttachmentValidationError(attachments) {
+            return attachmentError
+        }
         guard let terminalParams = await mobileChatTerminalParams(sessionID: sessionID) else {
             return .err(code: "not_found", message: Self.chatTerminalBindingErrorMessage, data: [
                 "session_id": sessionID
@@ -806,6 +812,30 @@ extension TerminalController {
             return "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'"
         }
         return path
+    }
+
+    private static func chatAttachmentValidationError(
+        _ attachments: [[String: Any]]
+    ) -> V2CallResult? {
+        for attachment in attachments {
+            let kind = (attachment["kind"] as? String) ?? "image"
+            switch kind {
+            case "file":
+                guard let path = attachment["path"] as? String,
+                      path.hasPrefix("/"),
+                      !path.contains("\0"),
+                      chatAttachmentPathIsOwned(path) else {
+                    return .err(code: "invalid_params", message: "File attachment missing an absolute path", data: nil)
+                }
+            default:
+                guard let base64 = attachment["data_b64"] as? String,
+                      let data = Data(base64Encoded: base64),
+                      !data.isEmpty else {
+                    return .err(code: "invalid_params", message: "Missing or invalid image_base64", data: nil)
+                }
+            }
+        }
+        return nil
     }
 
     private static func chatAttachmentPathIsOwned(_ path: String) -> Bool {

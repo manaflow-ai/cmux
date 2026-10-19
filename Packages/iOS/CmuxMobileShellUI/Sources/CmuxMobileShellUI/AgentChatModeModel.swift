@@ -157,6 +157,15 @@ final class AgentChatModeModel {
     /// acknowledged controls (or a newer descriptor) afterward.
     private var controlsRequestTokens: [String: Int] = [:]
     private var pendingSendsBySession: [String: [QueuedSend]] = [:]
+    /// Prompts accepted by the host but not yet present in the authoritative
+    /// transcript. Keeping this separate from the transport's current
+    /// in-flight item prevents a fast queue from dropping its first prompt
+    /// before the matching transcript event arrives.
+    private var awaitingTranscriptSendsBySession: [String: [QueuedSend]] = [:]
+    /// User-message ids already considered while reconciling local sends. A
+    /// text set is insufficient when two consecutive prompts are identical;
+    /// ids let each transcript append acknowledge exactly one local send.
+    private var knownUserMessageIDsBySession: [String: Set<String>] = [:]
     /// The prompt currently crossing the RPC boundary. Keep it visible until
     /// the authoritative transcript appends the corresponding user message so
     /// a slow host cannot make a successful send look lost.
@@ -208,8 +217,15 @@ final class AgentChatModeModel {
     }
 
     private struct QueuedSend: Sendable {
+        let id: UUID
         let text: String
         let attachments: [PendingAttachment]
+
+        init(id: UUID = UUID(), text: String, attachments: [PendingAttachment]) {
+            self.id = id
+            self.text = text
+            self.attachments = attachments
+        }
     }
 
     var visibleSessions: [ChatSessionDescriptor] {
@@ -530,6 +546,7 @@ final class AgentChatModeModel {
               selectedPendingActionableCount == 0,
               pendingSendsBySession[selectedSessionID, default: []].isEmpty,
               inFlightSendsBySession[selectedSessionID] == nil,
+              awaitingTranscriptSendsBySession[selectedSessionID, default: []].isEmpty,
               !regeneratingSessionIDs.contains(selectedSessionID),
               latestAgentResponse(in: selectedSessionID) != nil,
               let queued = lastTurnBySession[selectedSessionID] else { return false }
@@ -562,10 +579,7 @@ final class AgentChatModeModel {
     /// behind it in the client queue.
     var selectedPendingPrompts: [String] {
         guard let selectedSessionID else { return [] }
-        var prompts: [String] = []
-        if let inFlight = inFlightSendsBySession[selectedSessionID] {
-            prompts.append(inFlight.text)
-        }
+        var prompts = awaitingTranscriptSendsBySession[selectedSessionID, default: []].map(\.text)
         prompts.append(contentsOf: pendingSendsBySession[selectedSessionID, default: []].map(\.text))
         return prompts
     }
@@ -622,6 +636,8 @@ final class AgentChatModeModel {
         controlsRequestTokens = [:]
         usageRevisions = [:]
         pendingSendsBySession = [:]
+        awaitingTranscriptSendsBySession = [:]
+        knownUserMessageIDsBySession = [:]
         inFlightSendsBySession = [:]
         lastTurnBySession = [:]
         answeringRequestKeys = []
@@ -865,7 +881,10 @@ final class AgentChatModeModel {
             text: text,
             attachments: pendingAttachments
         )
-        inFlightSendsBySession[selectedSessionID] = lastTurnBySession[selectedSessionID]
+        if let queued = lastTurnBySession[selectedSessionID] {
+            inFlightSendsBySession[selectedSessionID] = queued
+            awaitingTranscriptSendsBySession[selectedSessionID, default: []].append(queued)
+        }
         let generation = sourceGeneration
         guard generation == sourceGeneration, !Task.isCancelled else { return }
         do {
@@ -878,6 +897,9 @@ final class AgentChatModeModel {
         } catch {
             guard generation == sourceGeneration, !Task.isCancelled else { return }
             inFlightSendsBySession[selectedSessionID] = nil
+            if let queuedID = lastTurnBySession[selectedSessionID]?.id {
+                awaitingTranscriptSendsBySession[selectedSessionID]?.removeAll { $0.id == queuedID }
+            }
             draft = text
             attachments = pendingAttachments
             errorMessage = error.localizedDescription
@@ -1092,6 +1114,7 @@ final class AgentChatModeModel {
         guard !Task.isCancelled else { return }
         do {
             inFlightSendsBySession[selectedSessionID] = queued
+            awaitingTranscriptSendsBySession[selectedSessionID, default: []].append(queued)
             try await source.send(
                 text: queued.text,
                 attachments: queued.attachments.map(\.outbound),
@@ -1101,6 +1124,7 @@ final class AgentChatModeModel {
         } catch {
             guard generation == sourceGeneration, !Task.isCancelled else { return }
             inFlightSendsBySession[selectedSessionID] = nil
+            awaitingTranscriptSendsBySession[selectedSessionID]?.removeAll { $0.id == queued.id }
             errorMessage = error.localizedDescription
         }
     }
@@ -1123,6 +1147,7 @@ final class AgentChatModeModel {
               selectedPendingActionableCount == 0,
               pendingSendsBySession[selectedSessionID, default: []].isEmpty,
               inFlightSendsBySession[selectedSessionID] == nil,
+              awaitingTranscriptSendsBySession[selectedSessionID, default: []].isEmpty,
               let baselineResponse = latestAgentResponse(in: selectedSessionID),
               let queued = lastTurnBySession[selectedSessionID],
               latestUserPrompt(in: selectedSessionID) == normalizedPrompt(queued.text),
@@ -1529,6 +1554,8 @@ final class AgentChatModeModel {
                 latestVersionBySession[sessionID] ?? Int.min
             )
             pendingSendsBySession[sessionID] = nil
+            awaitingTranscriptSendsBySession[sessionID] = nil
+            knownUserMessageIDsBySession[sessionID] = nil
             inFlightSendsBySession[sessionID] = nil
             lastTurnBySession[sessionID] = nil
             answeredRequestKeysBySession[sessionID] = nil
@@ -1579,6 +1606,8 @@ final class AgentChatModeModel {
             // discarded; the replacement history will seed the latest user
             // prompt again when it arrives.
             pendingSendsBySession[sessionID] = nil
+            awaitingTranscriptSendsBySession[sessionID] = nil
+            knownUserMessageIDsBySession[sessionID] = nil
             inFlightSendsBySession[sessionID] = nil
             sendingSessionIDs.remove(sessionID)
             lastTurnBySession[sessionID] = nil
@@ -1669,15 +1698,25 @@ final class AgentChatModeModel {
     }
 
     private func reconcilePendingPrompts(sessionID: String) {
-        let userPrompts = Set((messagesBySession[sessionID] ?? []).compactMap { message -> String? in
-            guard message.role == .user,
-                  case .prose(let prose) = message.kind else { return nil }
-            return prose.text.trimmingCharacters(in: .whitespacesAndNewlines)
-        })
-        if let inFlight = inFlightSendsBySession[sessionID],
-           userPrompts.contains(inFlight.text.trimmingCharacters(in: .whitespacesAndNewlines)) {
-            inFlightSendsBySession[sessionID] = nil
+        let userMessages = (messagesBySession[sessionID] ?? [])
+            .filter { $0.role == .user }
+            .sorted { $0.seq < $1.seq }
+        var knownIDs = knownUserMessageIDsBySession[sessionID, default: []]
+        var awaiting = awaitingTranscriptSendsBySession[sessionID, default: []]
+        for message in userMessages where !knownIDs.contains(message.id) {
+            knownIDs.insert(message.id)
+            guard case .prose(let prose) = message.kind else { continue }
+            let text = normalizedPrompt(prose.text)
+            guard let index = awaiting.firstIndex(where: {
+                normalizedPrompt($0.text) == text
+            }) else { continue }
+            let acknowledged = awaiting.remove(at: index)
+            if inFlightSendsBySession[sessionID]?.id == acknowledged.id {
+                inFlightSendsBySession[sessionID] = nil
+            }
         }
+        knownUserMessageIDsBySession[sessionID] = knownIDs
+        awaitingTranscriptSendsBySession[sessionID] = awaiting.isEmpty ? nil : awaiting
     }
 
     private func upsert(_ descriptor: ChatSessionDescriptor) {
@@ -1789,6 +1828,7 @@ final class AgentChatModeModel {
             lastTurnBySession[sessionID] = queued
             do {
                 inFlightSendsBySession[sessionID] = queued
+                awaitingTranscriptSendsBySession[sessionID, default: []].append(queued)
                 try await source.send(
                     text: queued.text,
                     attachments: queued.attachments.map(\.outbound),
@@ -1797,6 +1837,7 @@ final class AgentChatModeModel {
             } catch {
                 guard generation == sourceGeneration, !Task.isCancelled else { return }
                 inFlightSendsBySession[sessionID] = nil
+                awaitingTranscriptSendsBySession[sessionID]?.removeAll { $0.id == queued.id }
                 pendingSendsBySession[sessionID, default: []].insert(queued, at: 0)
                 if selectedSessionID == sessionID,
                    draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
@@ -1807,6 +1848,7 @@ final class AgentChatModeModel {
                 errorMessage = error.localizedDescription
                 return
             }
+            inFlightSendsBySession[sessionID] = nil
         }
     }
 

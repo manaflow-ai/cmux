@@ -1122,6 +1122,45 @@ import Testing
         #expect((await source.sent).map(\.0) == ["first instruction", "second instruction"])
     }
 
+    @Test func identicalQueuedPromptsReconcileOneTranscriptAppendAtATime() async {
+        let source = FakeAgentChatSource(
+            sessions: [descriptor(id: "session", agent: .codex)],
+            pages: [:]
+        )
+        let model = AgentChatModeModel()
+        model.updateSource(source)
+        await settle()
+
+        let sendGate = await source.holdSends()
+        model.draft = "repeat this"
+        let firstSend = Task { await model.sendDraft() }
+        await source.waitForSendStart()
+
+        model.draft = "repeat this"
+        await model.sendDraft()
+        await sendGate.open()
+        await firstSend.value
+        #expect((await source.sent).map(\.0) == ["repeat this", "repeat this"])
+
+        await source.emitHost(
+            sessionID: "session",
+            event: .appended([userMessage(id: "first", seq: 1, text: "repeat this")])
+        )
+        await settle()
+
+        // The first transcript row acknowledges only the first local send;
+        // the second identical prompt remains visible until its own row
+        // arrives.
+        #expect(model.selectedPendingPrompts == ["repeat this"])
+
+        await source.emitHost(
+            sessionID: "session",
+            event: .appended([userMessage(id: "second", seq: 2, text: "repeat this")])
+        )
+        await settle()
+        #expect(model.selectedPendingPrompts.isEmpty)
+    }
+
     @Test func staleSendCompletionCannotClearReplacementSendInFlightState() async {
         let oldSource = FakeAgentChatSource(
             sessions: [descriptor(id: "session", agent: .codex)], pages: [:]
