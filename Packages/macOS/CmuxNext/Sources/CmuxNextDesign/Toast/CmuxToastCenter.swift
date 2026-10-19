@@ -24,6 +24,22 @@ public final class CmuxToastCenter {
     private var entries: [Int: Entry] = [:]
     private var stacks: [ObjectIdentifier: CmuxToastStack] = [:]
     private var nextSerial = 1
+    /// Notices the person closed, quiet until their timer ends.
+    private var quieted: [QuietKey: DemandTimer] = [:]
+    /// How long a notice the person closed stays quiet: the same message
+    /// (same id, no action) asked for again in that time does not show.
+    /// A toast with an action (Undo, Reopen, Retry) is never quieted.
+    public var closedCooldown: Duration = .seconds(120)
+
+    /// A notice by what it says: its id and message.
+    private struct QuietKey: Hashable {
+        let id: String
+        let message: String
+        init(_ toast: CmuxToast) {
+            id = toast.id
+            message = toast.message
+        }
+    }
 
     public init(clock: any Clock<Duration> = ContinuousClock(), host: any CmuxToastHosting = CmuxToastOverlayHost()) {
         self.clock = clock
@@ -37,9 +53,14 @@ public final class CmuxToastCenter {
         let serial = nextSerial
         nextSerial += 1
         let handle = CmuxToastHandle(serial: serial, toast: toast, center: self)
+        // The person closed this notice a moment ago: it does not come back yet.
+        if isQuieted(toast) {
+            handle.finish(.closed)
+            return handle
+        }
         let view = CmuxToastView(toast: toast)
         view.onAction = { [weak handle] in handle?.runAction() }
-        view.onClose = { [weak self] in self?.end(serial, .closed) }
+        view.onClose = { [weak self] in self?.closedByPerson(serial) }
         view.onHover = { [weak self, weak handle] hovered in
             guard let handle else { return }
             self?.setHovered(hovered, handle)
@@ -47,6 +68,8 @@ public final class CmuxToastCenter {
         let key = ObjectIdentifier(window)
         var stack = stacks[key] ?? CmuxToastStack()
         let newest = stack.serials.last
+        // The same toast again while it shows (a repeated refusal): it stays in place and is not announced again.
+        let repeats = newest.flatMap { entries[$0]?.handle.toast } == toast
         let replaced = stack.push(serial: serial, id: toast.id, undo: toast.action?.isUndo == true)
         stacks[key] = stack
         entries[serial] = Entry(handle: handle, view: view, window: window, timer: DemandTimer(owner: "toast", clock: clock))
@@ -66,9 +89,11 @@ public final class CmuxToastCenter {
         startTimer(serial)
         // A toast that appears under a still pointer holds at once.
         if view.isHovered { setHovered(true, handle) }
-        NSAccessibility.post(element: view, notification: .announcementRequested, userInfo: [
-            .announcement: toast.message, .priority: NSAccessibilityPriorityLevel.high.rawValue,
-        ])
+        if !repeats {
+            NSAccessibility.post(element: view, notification: .announcementRequested, userInfo: [
+                .announcement: toast.message, .priority: NSAccessibilityPriorityLevel.high.rawValue,
+            ])
+        }
         return handle
     }
 
@@ -123,6 +148,27 @@ public final class CmuxToastCenter {
         } else if entries[handle.serial]?.timer.isScheduled == false {
             startTimer(handle.serial)
         }
+    }
+
+    // MARK: Quiet after close
+
+    /// Whether `toast` is a notice the person closed less than
+    /// ``closedCooldown`` ago (same id and message, no action).
+    public func isQuieted(_ toast: CmuxToast) -> Bool {
+        toast.action == nil && quieted[QuietKey(toast)] != nil
+    }
+
+    /// The close button: the toast ends, and a notice without an action
+    /// stays quiet for ``closedCooldown``.
+    func closedByPerson(_ serial: Int) {
+        if let toast = entries[serial]?.handle.toast, toast.action == nil, closedCooldown > .zero {
+            let quiet = QuietKey(toast)
+            quieted[quiet]?.cancel()
+            let timer = DemandTimer(owner: "toast.quiet", clock: clock)
+            quieted[quiet] = timer
+            timer.schedule(after: closedCooldown) { @MainActor [weak self] in self?.quieted[quiet] = nil }
+        }
+        end(serial, .closed)
     }
 
     // MARK: Ending
