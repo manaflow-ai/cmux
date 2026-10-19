@@ -422,7 +422,9 @@ public final class ChiefCloudBackend: ConversationBackend, ChiefLiveSource, @unc
                 if !welcomed, status == 403 || status == 404 {
                     return .refused("the service refused the conversation (HTTP \(status ?? 0))")
                 }
-                return .ended(welcomed: welcomed, unauthorized: status == 401, reason: "socket ended: \(error.localizedDescription)")
+                // 4401: the owner closed the socket because the token expired.
+                let expired = task.closeCode.rawValue == 4401
+                return .ended(welcomed: welcomed, unauthorized: status == 401 || expired, reason: "socket ended: \(error.localizedDescription)")
             }
         }
 
@@ -496,11 +498,15 @@ public final class ChiefCloudBackend: ConversationBackend, ChiefLiveSource, @unc
                 try await applyLive(live.activity(object), on: task)
             case "run.live":
                 liveResyncPending = false
+                // The owner sends one after a subscribe: the subscribe was taken.
+                subscribeOutstanding = false
                 try await applyLive(live.snapshot(object), on: task)
             case "error":
                 // Only a refused subscribe ends the socket for good; an error
                 // that answers a typing or `run.live.get` frame is dropped.
                 let code = object["code"] as? String ?? ""
+                // A refused `run.live.get` must not stop later gaps from resyncing.
+                liveResyncPending = false
                 if subscribeOutstanding, code == "auth.forbidden" || code == "auth.unauthenticated" {
                     throw Refused(reason: object["message"] as? String ?? code)
                 }

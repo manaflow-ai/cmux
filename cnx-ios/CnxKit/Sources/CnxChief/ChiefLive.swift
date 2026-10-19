@@ -203,7 +203,7 @@ struct ChiefLiveState {
         let talk = talkID.flatMap { run.steps[$0] }
         return ChiefLive(
             key: "\(conversation)\u{0}\(key)", step: talkID, text: talk?.text ?? "",
-            truncated: (talk?.text.utf16.count ?? 0) > Self.bufferCap,
+            truncated: (talk?.text.utf16.count ?? 0) >= Self.bufferCap,
             activity: run.activity?.line, since: run.activity?.since
         )
     }

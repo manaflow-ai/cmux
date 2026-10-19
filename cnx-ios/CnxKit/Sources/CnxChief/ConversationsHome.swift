@@ -152,7 +152,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                     if shows(session) {
                         PinnedGrid(session: session, route: ChiefRoute(place: sources.primaryPlace), name: primaryName,
                                    identifier: "home.chief", cloud: sources.isCloudReady ? sources : nil,
-                                   newChief: startNewChief)
+                                   newChief: newChiefAction)
                     }
                     if let mac = sources.secondary, shows(mac) {
                         PinnedGrid(session: mac, route: ChiefRoute(place: .mac), name: String(localized: "Mac Chief"),
@@ -178,6 +178,18 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                 .listRowInsets(EdgeInsets())
                 .listRowSeparator(.hidden)
                 .listRowBackground(theme.colors.bg.color)
+            } else if filter == .all, query.isEmpty, let error = sources.changeError {
+                // A refused switch or create while the Cloud Chief is open.
+                Text(error)
+                    .font(.footnote)
+                    .foregroundStyle(Color(uiColor: .systemRed))
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity)
+                    .padding(.bottom, 8)
+                    .listRowInsets(EdgeInsets())
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(theme.colors.bg.color)
+                    .accessibilityIdentifier("home.chief.changeError")
             }
             let rows = agents
             if filter != .all, rows.isEmpty, !showsChief {
@@ -301,6 +313,11 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         return String(localized: "Chief")
     }
 
+    /// New Chief only where this service answered a Chief brain route.
+    private var newChiefAction: (() -> Void)? {
+        sources.brainsAvailable ? startNewChief : nil
+    }
+
     private func startNewChief() {
         newChiefName = String(localized: "Chief")
         namingChief = true
@@ -320,7 +337,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                 EmptyView()
             }
             if sources.cloudChiefs.count > 1 {
-                ChiefPickerMenu(sources: sources, newChief: startNewChief) {
+                ChiefPickerMenu(sources: sources, newChief: newChiefAction) {
                     Text("Other Chiefs")
                 }
             }

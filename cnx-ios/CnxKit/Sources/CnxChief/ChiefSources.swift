@@ -45,6 +45,9 @@ public final class ChiefSources {
     public private(set) var isChanging = false
     /// Why the last create or turn-on failed (the service's answer); nil after a success.
     public private(set) var changeError: String?
+    /// This service answered a Chief brain route (403 or 200, never 404): only
+    /// then does the phone offer to make a chief here.
+    public private(set) var brainsAvailable = false
 
     /// The model and effort a Chief made or turned on here runs with.
     nonisolated static let defaultModel = "claude-opus-5-5"
@@ -166,6 +169,8 @@ public final class ChiefSources {
     func wake() {
         if case .ready = cloudState, let backend = cloud.backend as? ChiefCloudBackend {
             backend.reconnectNow()
+            // The chief may have been archived or its brain turned off elsewhere.
+            refresh()
         } else {
             refreshIfNeeded()
         }
@@ -188,6 +193,7 @@ public final class ChiefSources {
         cloudState = .off
         cloudChiefs = []
         changeError = nil
+        brainsAvailable = false
         pathMonitor?.cancel()
         pathMonitor = nil
         lastPath = nil
@@ -224,10 +230,11 @@ public final class ChiefSources {
 
     private func apply(_ found: Lookup, userID: String, http: ChiefCloudHTTP) {
         if let chiefs = found.chiefs { cloudChiefs = chiefs }
+        if let available = found.brainsAvailable { brainsAvailable = available }
         switch found {
-        case let .ready(chief, _):
+        case let .ready(chief, _, _):
             adopt(chief, userID: userID, http: http)
-        case let .unavailable(reason, action, _):
+        case let .unavailable(reason, action, _, _):
             cloudState = .unavailable(reason, action)
             if !(cloud.backend is ChiefOfflineBackend) {
                 cloud.use(ChiefOfflineBackend(reason: reason))
@@ -239,6 +246,8 @@ public final class ChiefSources {
     /// phone keeps the choice for the account.
     public func select(_ chief: CloudChief) {
         guard chief.id != cloudChief?.id else { return }
+        guard outboxIsEmpty() else { return }
+        changeError = nil
         selectedChiefID = chief.id
         refresh()
     }
@@ -246,16 +255,14 @@ public final class ChiefSources {
     /// Makes a Cloud Chief for this account (`chief.create`) and turns its
     /// Cloud brain on (``defaultModel``, ``defaultEffort``), then opens it.
     public func createChief(named name: String) async {
-        guard let http, !isChanging else { return }
+        guard let http, !isChanging, brainsAvailable, outboxIsEmpty() else { return }
         isChanging = true
         changeError = nil
         defer { isChanging = false }
         let display = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        // One key per request (isChanging stops a second tap): a fixed key
-        // would replay an earlier, since archived, chief.
-        let key = "chief-create-\(UUID().uuidString)"
         do {
-            let chief = try await Self.create(http, displayName: display.isEmpty ? String(localized: "Chief") : display, key: key)
+            let chief = try await Self.create(http, displayName: display.isEmpty ? String(localized: "Chief") : display,
+                                              first: cloudChiefs.isEmpty)
             // Open the new chief even if its brain then refuses to turn on.
             selectedChiefID = chief.id
             try await Self.turnOn(http, chiefID: chief.id)
@@ -279,6 +286,15 @@ public final class ChiefSources {
         } catch {
             changeError = Self.changeMessage(error)
         }
+    }
+
+    /// Messages queued for the open Cloud Chief would go to another one.
+    private func outboxIsEmpty() -> Bool {
+        guard cloud.outbox.isEmpty else {
+            changeError = String(localized: "A message is waiting to be sent to this Chief. Send or delete it first.")
+            return false
+        }
+        return true
     }
 
     private func adopt(_ chief: CloudChief, userID: String, http: ChiefCloudHTTP) {
@@ -315,14 +331,22 @@ public final class ChiefSources {
     // MARK: Lookup
 
     enum Lookup: Sendable {
-        case ready(CloudChief, chiefs: [CloudChief])
-        /// `chiefs` nil: the list was not read (keep the last one).
-        case unavailable(String, CloudAction?, chiefs: [CloudChief]?)
+        case ready(CloudChief, chiefs: [CloudChief], brains: Bool?)
+        /// `chiefs` nil: the list was not read (keep the last one). `brains`
+        /// nil: no brain route was read.
+        case unavailable(String, CloudAction?, chiefs: [CloudChief]?, brains: Bool?)
 
         var chiefs: [CloudChief]? {
             switch self {
-            case let .ready(_, chiefs): chiefs
-            case let .unavailable(_, _, chiefs): chiefs
+            case let .ready(_, chiefs, _): chiefs
+            case let .unavailable(_, _, chiefs, _): chiefs
+            }
+        }
+
+        var brainsAvailable: Bool? {
+            switch self {
+            case let .ready(_, _, brains): brains
+            case let .unavailable(_, _, _, brains): brains
             }
         }
     }
@@ -344,34 +368,49 @@ public final class ChiefSources {
             let chiefs = CloudChief.parseList(try ChiefCloudHTTP.value(reply))
             let reachable = chiefs.filter { $0.mainConversation != nil }
             guard let chief = reachable.first(where: { $0.id == selected }) ?? CloudChief.preferred(in: chiefs) else {
-                // No chief yet: offer to make one only where Chief brains run.
+                // No chief yet: offer to make one only where Chief brains run
+                // (403 for an id nobody owns); never on a 404 or a failed probe.
                 let probe = try await http.send("GET", "/v1/chiefs/\(probeAgent)/brain")
-                if probe.status == 404 { return .unavailable(notOnThisServer, nil, chiefs: chiefs) }
-                return .unavailable(String(localized: "You don't have a Cloud Chief yet."), .create, chiefs: chiefs)
+                switch probe.status {
+                case 404: return .unavailable(notOnThisServer, nil, chiefs: chiefs, brains: false)
+                case 403: return .unavailable(String(localized: "You don't have a Cloud Chief yet."), .create, chiefs: chiefs, brains: true)
+                default:
+                    return .unavailable(String(localized: "Cloud Chief couldn't load (HTTP \(probe.status))."), nil, chiefs: chiefs, brains: nil)
+                }
             }
-            if chief.brainPlace != nil { return .ready(chief, chiefs: chiefs) }
+            // A chief placed on a server: that server's brain answers on the
+            // conversation socket; the Cloud brain route is not involved.
+            if chief.brainPlace != nil { return .ready(chief, chiefs: chiefs, brains: nil) }
             let brain = try await http.send("GET", "/v1/chiefs/\(chief.id)/brain")
-            if brain.status == 404 { return .unavailable(notOnThisServer, nil, chiefs: chiefs) }
+            if brain.status == 404 { return .unavailable(notOnThisServer, nil, chiefs: chiefs, brains: false) }
             let status = try ChiefCloudHTTP.value(brain) as? [String: Any]
             let enabled = (status?["config"] as? [String: Any])?["enabled"] as? Bool ?? false
-            return enabled ? .ready(chief, chiefs: chiefs)
-                : .unavailable(String(localized: "Cloud Chief is turned off."), .turnOn(chief), chiefs: chiefs)
+            return enabled ? .ready(chief, chiefs: chiefs, brains: true)
+                : .unavailable(String(localized: "Cloud Chief is turned off."), .turnOn(chief), chiefs: chiefs, brains: true)
         } catch let error as ChiefCloudError {
             // No Home routes at all on this service.
-            if error.status == 404 { return .unavailable(notOnThisServer, nil, chiefs: nil) }
-            return .unavailable(String(localized: "Cloud Chief couldn't load: \(error.message)"), nil, chiefs: nil)
+            if error.status == 404 { return .unavailable(notOnThisServer, nil, chiefs: nil, brains: false) }
+            return .unavailable(String(localized: "Cloud Chief couldn't load: \(error.message)"), nil, chiefs: nil, brains: nil)
         } catch {
-            return .unavailable(String(localized: "Couldn't reach Cloud Chief. Check your connection."), nil, chiefs: nil)
+            return .unavailable(String(localized: "Couldn't reach Cloud Chief. Check your connection."), nil, chiefs: nil, brains: nil)
         }
     }
 
     /// `chief.create {display_name}`: the new chief (with its main conversation).
-    nonisolated static func create(_ http: ChiefCloudHTTP, displayName: String, key: String) async throws -> CloudChief {
+    /// The account's first chief uses the catalog's key `chief-default`, so
+    /// the phone and another device never both make one; if that key replays
+    /// a chief since archived, a fresh key makes a new one.
+    nonisolated static func create(_ http: ChiefCloudHTTP, displayName: String, first: Bool) async throws -> CloudChief {
+        let key = first ? "chief-default" : "chief-create-\(UUID().uuidString)"
         let body = try ChiefCloudHTTP.json([
             "op": "chief.create", "params": ["display_name": displayName], "idempotency_key": key, "origin": "user",
         ])
         let reply = try await http.send("POST", "/v1/ops", body: body)
-        guard let chief = CloudChief.parse(try ChiefCloudHTTP.value(reply)) else {
+        let value = try ChiefCloudHTTP.value(reply)
+        if first, let raw = value as? [String: Any], raw["archived_at"] is String {
+            return try await create(http, displayName: displayName, first: false)
+        }
+        guard let chief = CloudChief.parse(value) else {
             throw ChiefCloudError.badReply(String(localized: "The service made no chief."))
         }
         return chief
