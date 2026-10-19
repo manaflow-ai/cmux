@@ -84,10 +84,37 @@ enum HomeStrings {
     static var firstRunStartAgent: String {
         String(localized: "home.firstRun.startAgent", defaultValue: "Start an agent", bundle: .module)
     }
-    /// The keyboard hint under the first-run rows; `keys` is the tab family's
-    /// shortcut as the registry shows it (`⌃1…9`).
-    static func firstRunTabsHint(_ keys: String) -> String {
-        String(format: String(localized: "home.firstRun.tabsHint", defaultValue: "%@ switches tabs.", bundle: .module), keys)
+    /// The heading of the first-run "Switching" card (`HomeFirstRunSwitchCard`).
+    static var switchKeysHeader: String {
+        String(localized: "home.firstRun.switchKeys.header", defaultValue: "Switching", bundle: .module)
+    }
+    /// The card's button that hides it for good.
+    static var switchKeysHide: String {
+        String(localized: "home.firstRun.switchKeys.hide", defaultValue: "Hide", bundle: .module)
+    }
+    static var switchKeysTabs: String {
+        String(localized: "home.firstRun.switchKeys.tabs", defaultValue: "Tab 1–9 (like VS Code)", bundle: .module)
+    }
+    static var switchKeysWorkspaces: String {
+        String(localized: "home.firstRun.switchKeys.workspaces", defaultValue: "Workspace 1–9", bundle: .module)
+    }
+    static var switchKeysNextTab: String {
+        String(localized: "home.firstRun.switchKeys.nextTab", defaultValue: "Previous / next tab", bundle: .module)
+    }
+    static var switchKeysNextWorkspace: String {
+        String(localized: "home.firstRun.switchKeys.nextWorkspace", defaultValue: "Previous / next workspace", bundle: .module)
+    }
+    static var switchKeysFocus: String {
+        String(localized: "home.firstRun.switchKeys.focus", defaultValue: "Focus back / forward", bundle: .module)
+    }
+    /// The one-line note when Mission Control's Switch to Desktop takes the tab keys.
+    static var switchKeysDesktopConflict: String {
+        String(localized: "home.firstRun.switchKeys.desktopConflict",
+               defaultValue: "Mission Control uses these keys to switch desktops.", bundle: .module)
+    }
+    /// The note's button: opens System Settings > Keyboard > Keyboard Shortcuts.
+    static var switchKeysOpenSettings: String {
+        String(localized: "home.firstRun.switchKeys.openSettings", defaultValue: "Keyboard Shortcuts…", bundle: .module)
     }
     /// The heading over the first-run panel's agent rows.
     static var firstRunAgentsHeader: String {

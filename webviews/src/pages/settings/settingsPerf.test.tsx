@@ -51,6 +51,7 @@ function walk(fiber: Fiber | null): void {
   },
 };
 
+// The scratch bench branch flips this default (the fleet step takes no env).
 const enabled = process.env.CMUX_SETTINGS_BENCH === "1";
 const iterations = Number(process.env.CMUX_SETTINGS_BENCH_N ?? 40);
 
@@ -84,6 +85,10 @@ type Page = {
 };
 
 let renderMs = 0;
+/** The first commit of the newest mount: when it landed, its React ms, and the rows it drew. */
+type FirstFrame = { at: number; react: number; rows: number };
+let firstFrame: FirstFrame | null = null;
+let mountReactStart = 0;
 async function mount(path: string): Promise<Page> {
   setLocale("en");
   const mock = createMockClient();
@@ -97,7 +102,16 @@ async function mount(path: string): Promise<Page> {
     root.render(
       createElement(
         Profiler,
-        { id: "settings", onRender: (_id: string, _phase: string, actual: number) => (renderMs += actual) },
+        {
+          id: "settings",
+          onRender: (_id: string, _phase: string, actual: number) => {
+            renderMs += actual;
+            // The first commit that draws setting rows (the router's own first commit draws none).
+            const rows = document.querySelectorAll("[data-row-key]").length;
+            if (!firstFrame && rows > 0)
+              firstFrame = { at: performance.now(), react: renderMs - mountReactStart, rows };
+          },
+        },
         createElement(SettingsPage, { store, history }),
       ),
     );
@@ -117,11 +131,20 @@ async function mount(path: string): Promise<Page> {
   };
 }
 
-type Sample = { wall: number; react: number; rendered: number; rows: number; lists: number };
+type Sample = {
+  wall: number;
+  react: number;
+  rendered: number;
+  rows: number;
+  lists: number;
+  /** Opening only: ms to the first commit that draws rows (the first frame), React ms until then. */
+  firstFrame?: number;
+  firstFrameReact?: number;
+};
 
 function stats(name: string, samples: Sample[]) {
   const pick = (field: keyof Sample) => {
-    const sorted = samples.map((sample) => sample[field]).sort((a, b) => a - b);
+    const sorted = samples.map((sample) => sample[field] ?? 0).sort((a, b) => a - b);
     const at = (q: number) => sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))]!;
     return { p50: +at(0.5).toFixed(2), p95: +at(0.95).toFixed(2), max: +sorted.at(-1)!.toFixed(2) };
   };
@@ -133,8 +156,12 @@ function stats(name: string, samples: Sample[]) {
     componentsRendered: pick("rendered"),
     settingRowsRendered: pick("rows"),
     settingsListReads: pick("lists"),
+    ...(samples[0]?.firstFrame === undefined
+      ? {}
+      : { firstFrameMs: pick("firstFrame"), firstFrameReactMs: pick("firstFrameReact") }),
   };
-  console.log(`SETTINGS_BENCH ${JSON.stringify(out)}`);
+  // A notice line: run-webviews-tests.sh shows a passing file's notices.
+  console.log(`::notice::SETTINGS_BENCH ${JSON.stringify(out)}`);
   return out;
 }
 
@@ -197,50 +224,63 @@ function sectionPath(key: string): string {
   return `/settings/${homes.get(key)!.category}`;
 }
 
-test.skipIf(!enabled)("settings perf bench", async () => {
-  // Cold open: a new store and page (start, first read, first render) per sample.
-  for (const section of ["general", "appearance", "theme"]) {
-    const samples: Sample[] = [];
-    for (let index = 0; index < iterations; index += 1) {
-      const before = renderMs;
-      const start = performance.now();
-      const page = await mount(`/settings/${section}`);
-      samples.push({
-        wall: performance.now() - start,
-        react: renderMs - before,
-        rendered: 0,
-        rows: 0,
-        lists: page.lists(),
-      });
-      expect(page.container.querySelector("[data-row-key]") ?? page.container.querySelector(".section")).not.toBeNull();
-      page.unmount();
+test.skipIf(!enabled)(
+  "settings perf bench",
+  async () => {
+    // Cold open: a new store and page (start, first read, first render) per sample.
+    for (const section of ["general", "appearance", "theme"]) {
+      const samples: Sample[] = [];
+      for (let index = 0; index < iterations; index += 1) {
+        const before = renderMs;
+        firstFrame = null;
+        mountReactStart = renderMs;
+        const start = performance.now();
+        const page = await mount(`/settings/${section}`);
+        // Set by the Profiler during mount (TypeScript still narrows it to the null above).
+        const frame = firstFrame as FirstFrame | null;
+        samples.push({
+          wall: performance.now() - start,
+          react: renderMs - before,
+          rendered: 0,
+          // Opening: the rows the first frame drew.
+          rows: frame?.rows ?? 0,
+          lists: page.lists(),
+          firstFrame: (frame?.at ?? start) - start,
+          firstFrameReact: frame?.react ?? 0,
+        });
+        expect(
+          page.container.querySelector("[data-row-key]") ?? page.container.querySelector(".section"),
+        ).not.toBeNull();
+        page.unmount();
+      }
+      stats(`open.${section}`, samples);
     }
-    stats(`open.${section}`, samples);
-  }
 
-  // Search: one keystroke at a time through "font size", then clearing it.
-  const query = "font size";
-  await scenario("search.keystroke", "/settings/general", (page, index) => {
-    const field = page.container.querySelector<HTMLInputElement>(".search-input")!;
-    const step = index % (query.length + 1);
-    setInput(field, step === query.length ? "" : query.slice(0, step + 1));
-  });
+    // Search: one keystroke at a time through "font size", then clearing it.
+    const query = "font size";
+    await scenario("search.keystroke", "/settings/general", (page, index) => {
+      const field = page.container.querySelector<HTMLInputElement>(".search-input")!;
+      const step = index % (query.length + 1);
+      setInput(field, step === query.length ? "" : query.slice(0, step + 1));
+    });
 
-  // A switch on the General page (59 rows): click, optimistic value, write, re-read.
-  const toggleKey = "tabs.cmdWClosesPinnedTabs";
-  await scenario("toggle.bool", sectionPath(toggleKey), (page) => {
-    page.container.querySelector<HTMLButtonElement>(`[data-row-key="${toggleKey}"] [role="switch"]`)!.click();
-  });
+    // A switch on the General page (59 rows): click, optimistic value, write, re-read.
+    const toggleKey = "tabs.cmdWClosesPinnedTabs";
+    await scenario("toggle.bool", sectionPath(toggleKey), (page) => {
+      page.container.querySelector<HTMLButtonElement>(`[data-row-key="${toggleKey}"] [role="switch"]`)!.click();
+    });
 
-  // Font size on its page: the write the field commits.
-  const fontKey = "terminal.fontSize";
-  await scenario("set.fontSize", sectionPath(fontKey), async (page, index) => {
-    await page.store.set(fontKey, 12 + (index % 6));
-  });
+    // Font size on its page: the write the field commits.
+    const fontKey = "terminal.fontSize";
+    await scenario("set.fontSize", sectionPath(fontKey), async (page, index) => {
+      await page.store.set(fontKey, 12 + (index % 6));
+    });
 
-  // Theme pick on the Theme page.
-  const themes = ["Dracula", "Nord", "Gruvbox Dark", "Solarized Dark Higher Contrast"];
-  await scenario("set.theme", "/settings/theme", async (page, index) => {
-    await page.store.set(THEME_KEY, themes[index % themes.length]);
-  });
-});
+    // Theme pick on the Theme page.
+    const themes = ["Dracula", "Tokyo Night", "Gruvbox Dark", "Catppuccin Mocha"];
+    await scenario("set.theme", "/settings/theme", async (page, index) => {
+      await page.store.set(THEME_KEY, themes[index % themes.length]);
+    });
+  },
+  600_000,
+);

@@ -61,7 +61,10 @@ extension HomeNativeTranscriptView {
         panel.allowedContentTypes = HomeComposerCheck.pickerTypes
         // task-owner: the sheet belongs to the window; the task ends when it closes
         Task { [weak self] in
-            guard await panel.beginSheetModal(for: window) == .OK else { return }
+            let response = await panel.beginSheetModal(for: window)
+            // Chosen or cancelled, the person goes back to typing in the box.
+            defer { self?.transcript.focusPrimaryInputForTyping() }
+            guard response == .OK else { return }
             self?.handlePicked(panel.urls)
         }
     }
@@ -156,6 +159,9 @@ extension HomeNativeTranscriptView {
     }
 
     public override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
-        handleDrop(sender.draggingPasteboard)
+        guard handleDrop(sender.draggingPasteboard) else { return false }
+        // A drop aimed at Home (the first-run panel, the margins): type at once.
+        transcript.focusPrimaryInputForTyping()
+        return true
     }
 }
