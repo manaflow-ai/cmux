@@ -94,6 +94,16 @@ struct CmuxTextActionPayloadTests {
         #expect(payload.promptDisplayText == "rm<U+00A0>-rf<U+2003>x<U+3164>y<U+034F>z")
     }
 
+    @Test func promptDisplayTextShowsVariationSelectorsOutsideEmoji() throws {
+        // A variation selector after a letter draws nothing, but the shell
+        // keeps it in the word: `/tmp<U+FE00>` is not `/tmp`.
+        let payload = try #require(CmuxTextActionPayload(
+            text: "rm -rf /tmp\u{FE00}/x\u{E0100} y\u{180B}",
+            submit: false
+        ))
+        #expect(payload.promptDisplayText == "rm -rf /tmp<U+FE00>/x<U+E0100> y<U+180B>")
+    }
+
     @Test func promptDisplayTextShowsEdgeWhitespaceTheDialogWouldTrim() throws {
         // A trailing newline runs the line wherever bracketed paste is off,
         // and the dialog trims edge whitespace, so it must stay visible.
