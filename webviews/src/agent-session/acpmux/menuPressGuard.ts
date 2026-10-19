@@ -47,26 +47,43 @@ export function installMenuPressGuard(doc: Document): () => void {
 function install(doc: Document): () => void {
   const view = doc.defaultView;
   if (!view) return () => {};
-  let swallowing = false;
+  let swallowing: number | null = null;
   // Decided first, on the window, while the menu is still open: the menus close on this press.
   const decide = (event: PointerEvent) => {
+    if (!event.isPrimary) return;
     const target = event.target instanceof Element ? event.target : null;
-    swallowing = event.isPrimary && event.button === 0 && !!doc.querySelector(OPEN_CHIP) && !target?.closest(PASSES);
+    swallowing =
+      event.button === 0 && !!doc.querySelector(OPEN_CHIP) && !target?.closest(PASSES) ? event.pointerId : null;
+  };
+  const cancel = (event: PointerEvent) => {
+    if (event.pointerId === swallowing) swallowing = null;
+  };
+  const blur = () => {
+    swallowing = null;
   };
   const stop = (event: Event) => {
     event.stopPropagation();
     if (event.type === "mousedown" || event.type === "click") event.preventDefault();
   };
   const swallow = (event: Event) => {
-    if (!swallowing) return;
-    if (event.type === "click") swallowing = false;
+    if (swallowing === null) return;
+    // Keyboard and programmatic activations do not belong to the pointer gesture. In particular,
+    // releasing a drag outside the window may never deliver its click to clear the guard.
+    if (event.type === "click" && (event as MouseEvent).detail === 0) return;
+    // Only the pointer events carry the gesture's id; a click may be a PointerEvent with another id.
+    if (event.type.startsWith("pointer") && (event as PointerEvent).pointerId !== swallowing) return;
+    if (event.type === "click") swallowing = null;
     // After the dismiss's own listener on the target (added in the document's capture phase).
     event.target?.addEventListener(event.type, stop, { once: true });
   };
   view.addEventListener("pointerdown", decide, true);
+  view.addEventListener("pointercancel", cancel, true);
+  view.addEventListener("blur", blur);
   for (const type of SWALLOWED) doc.body.addEventListener(type, swallow, true);
   return () => {
     view.removeEventListener("pointerdown", decide, true);
+    view.removeEventListener("pointercancel", cancel, true);
+    view.removeEventListener("blur", blur);
     for (const type of SWALLOWED) doc.body.removeEventListener(type, swallow, true);
   };
 }

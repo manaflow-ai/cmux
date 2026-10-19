@@ -33,6 +33,8 @@ export type AgentSessionTheme = {
   danger: string;
   /// Caution, softer than `danger` (ANSI yellow): the full-access mode chip.
   warning?: string;
+  /// Done and passing marks (ANSI green): open PRs, passing checks, a finished Chief task.
+  success?: string;
   /// The primary action (the composer's Send): the theme's ANSI blue.
   highlight?: string;
   /// Glyphs on `highlight`.
