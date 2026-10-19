@@ -23,4 +23,8 @@ import Testing
             #expect(!dumped.contains(secret))
         }
     }
+
+    @Test func descriptionKeepsTheCaseNameOnly() {
+        #expect(String(describing: AgentPaneRequest.ready) == "ready")
+    }
 }

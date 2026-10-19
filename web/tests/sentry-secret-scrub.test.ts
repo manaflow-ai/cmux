@@ -128,7 +128,7 @@ test("Sentry scrubs escaped JSON credentials and namespaced query keys", () => {
   const event = scrubSentryEvent({
     request: {
       url:
-        "https://example.test/callback?auth[token]=url-auth-secret&access_token[]=url-access-secret&X-Amz-Signature=url-signature-secret",
+        "https://example.test/callback?auth[token]=url-auth-secret&access_token[]=url-access-secret&X-Amz-Signature=url-signature-secret#code=fragment-code-secret",
       query_string:
         "auth[token]=query-auth-secret&access_token[]=query-access-secret&X-Amz-Signature=query-signature-secret",
     },
@@ -137,9 +137,15 @@ test("Sentry scrubs escaped JSON credentials and namespaced query keys", () => {
         {
           type: "ProviderError",
           value:
-            "provider escaped {\\\"details\\\":\\\"{\\\\\\\"password\\\\\\\":\\\\\\\"escaped-password-secret\\\\\\\"}\\\"}",
+            "provider escaped {\\\"details\\\":\\\"{\\\\\\\"password\\\\\\\":\\\\\\\"escaped-password-secret\\\\\\\"}\\\"} fragment #sig=fragment-signature-secret",
         },
       ],
+    },
+    extra: {
+      output_tokens: 7,
+      response_status: 503,
+      content_type: "application/json",
+      auth_method: "pkce",
     },
   } as Event);
 
@@ -152,7 +158,17 @@ test("Sentry scrubs escaped JSON credentials and namespaced query keys", () => {
     "query-auth-secret",
     "query-access-secret",
     "query-signature-secret",
+    "fragment-code-secret",
+    "fragment-signature-secret",
   ]) {
     expect(serialized).not.toContain(secret);
+  }
+  for (const safe of [
+    '"output_tokens":7',
+    '"response_status":503',
+    '"content_type":"application/json"',
+    '"auth_method":"pkce"',
+  ]) {
+    expect(serialized).toContain(safe);
   }
 });
