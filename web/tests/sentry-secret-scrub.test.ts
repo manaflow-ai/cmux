@@ -63,3 +63,22 @@ test("Sentry scrubs quoted JSON assignments and complete cookie headers", () => 
     expect(serialized).not.toContain(secret);
   }
 });
+
+test("Sentry scrubs auth containers and raw provider tokens", () => {
+  const event = scrubSentryEvent({
+    message: "upstream rejected ghp_abcdefghijklmnopqrstuvwxyz123456",
+    extra: {
+      auth: "ordinary-auth-value",
+      credentials: { login: "ordinary-credential-value" },
+    },
+  } as Event);
+
+  const serialized = JSON.stringify(event);
+  for (const secret of [
+    "ordinary-auth-value",
+    "ordinary-credential-value",
+    "ghp_abcdefghijklmnopqrstuvwxyz123456",
+  ]) {
+    expect(serialized).not.toContain(secret);
+  }
+});
