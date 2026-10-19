@@ -168,6 +168,13 @@ class NightlyTrustedRouting(unittest.TestCase):
         # listJobsForWorkflowRun needs Actions read; without it the timeout this
         # must still report would throw before any issue is opened.
         self.assertEqual(DOC['jobs']['report-nightly-failure']['permissions'].get('actions'), 'read')
+        # A build cancelled while queued for a runner also never started; only a
+        # newer push (nightly-next moved past this run's tip) makes it a replacement.
+        step = next(step for step in DOC['jobs']['report-nightly-failure']['steps']
+                    if step.get('name') == 'Open or update the nightly failure issue')
+        self.assertIn('needs.decide.outputs.head_sha', step['env']['TIP_SHA'])
+        self.assertIn("ref: 'heads/nightly-next'", script)
+        self.assertIn("process.env.TIP_SHA", script)
         # An unreadable job list reports rather than going silent.
         self.assertIn("catch (error)", script.split("listJobsForWorkflowRun")[1][:600])
 
