@@ -129,6 +129,29 @@ fn the_daemon_publishes_its_tree_and_runs_only_the_owners_allowed_ops() {
     // A stream the replica does not hold starts at the wall clock (ms).
     assert!(snapshot["snapshot"]["seq"].as_u64().unwrap() > 1_600_000_000_000);
     assert!(snapshot["snapshot"]["state"].to_string().contains("before"));
+    // Only the listed workspace fields leave the Mac: no screens, no titles.
+    let published = &snapshot["snapshot"]["state"]["workspaces"][0];
+    for kept in published.as_object().unwrap().keys() {
+        assert!(
+            [
+                "id",
+                "resource_id",
+                "short_id",
+                "name",
+                "name_revision",
+                "group",
+                "color",
+                "icon",
+                "pinned",
+                "marked_unread",
+                "unread_count",
+                "active"
+            ]
+            .contains(&kept.as_str()),
+            "{kept} is published"
+        );
+    }
+    assert!(published.get("screens").is_none() && published.get("title").is_none(), "{published}");
 
     // The owner's rename: the daemon runs it, publishes the change, then answers.
     let op = |key: &str, to: &str, user: &str, op: &str, params: Value| {

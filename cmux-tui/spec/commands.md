@@ -7191,9 +7191,13 @@ in place and the open socket stays. The daemon asks for a renewal with the
 `cloud-host-replica-needed` event (spec/events.md): `expiring` within two
 minutes of `expires_at`, `unauthenticated` when the cloud refused the token. The
 daemon enrolls the host (`host.enroll`, idempotent per install), opens
-`/v1/wire/host/<host>` and publishes `host:<host>/session` (the workspace
-tree that `list-workspaces` returns): a snapshot after each connect, then one
-event per settled change, each with the whole new state in `effects.state`.
+`/v1/wire/host/<host>` and publishes `host:<host>/session`: a projection of
+the `list-workspaces` tree with, per workspace, only `id`, `resource_id`,
+`short_id`, `name`, `name_revision`, `group`, `color`, `icon`, `pinned`,
+`marked_unread`, `unread_count` and `active`, plus `registry_id` and
+`generation` (no screens, tabs or titles). A snapshot after each connect, then
+one event per settled change, each with the whole new state in
+`effects.state`.
 It also answers the ops the cloud forwards from the host's owner. Only
 `workspace.rename` with the fields `workspace`, `name`,
 `expected_name_revision` and `expected_generation` runs, through the daemon's
