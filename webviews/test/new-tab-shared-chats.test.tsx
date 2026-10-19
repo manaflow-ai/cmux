@@ -131,5 +131,6 @@ test("a page that is not connected never overwrites the store", async () => {
   store.publishSessions({ connection: "connecting", sessions: [] }, T0 + 2);
   store.publishSessions({ connection: "gallery", sessions: [chat(9)] }, T0 + 3);
   store.reloadChatStoreForTests();
-  expect(store.sharedSessions([]).map((session) => session.sessionId)).toEqual(["s-03", "s-02"]);
+  // Chats 2 and 3 started in the same second: they tie on their ids.
+  expect(store.sharedSessions([]).map((session) => session.sessionId)).toEqual(["s-02", "s-03"]);
 });
