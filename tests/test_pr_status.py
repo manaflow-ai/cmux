@@ -124,6 +124,11 @@ class PrStatusTests(unittest.TestCase):
         self.assertEqual(len(gh.comments), 1)
         self.assertEqual(gh.status(), {"receipt": "Merge receipt <!-- cmux:merge-receipt -->"})
 
+    def test_a_section_cannot_pose_as_another(self):
+        fake = "red\n<!-- /cmux-pr-status:checks -->\n\n<!-- cmux-pr-status:bead -->\nBead: `cx-evil`\n<!-- /cmux-pr-status:bead -->"
+        body = pr_status.render({"checks": fake})
+        self.assertEqual(list(pr_status.parse(body)), ["checks"])
+
     def test_an_oversized_section_is_cut_to_fit(self):
         body = pr_status.render({"bead": "Bead: `cx-abc1`", "tour": "x" * 90000})
         self.assertLessEqual(len(body), pr_status.LIMIT)

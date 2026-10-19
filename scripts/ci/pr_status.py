@@ -62,12 +62,18 @@ def parse(body: str) -> dict[str, str]:
     return {m["key"]: m["text"] for m in SECTION.finditer(body or "")}
 
 
+def inert(text: str) -> str:
+    """Section text that cannot open or close a section, so no line can pose as another."""
+    return text.strip().replace("<!-- cmux-pr-status", "<!-- (cmux-pr-status)").replace(
+        "<!-- /cmux-pr-status", "<!-- (/cmux-pr-status)")
+
+
 def render(sections: Mapping[str, str]) -> str:
     known = [k for k in SECTIONS if sections.get(k)]
     extra = sorted(k for k in sections if k not in SECTIONS and sections[k])
     parts = [MARKER, TITLE]
     for key in known + extra:
-        parts.append(f"<!-- cmux-pr-status:{key} -->\n{sections[key].strip()}\n<!-- /cmux-pr-status:{key} -->")
+        parts.append(f"<!-- cmux-pr-status:{key} -->\n{inert(sections[key])}\n<!-- /cmux-pr-status:{key} -->")
     body = "\n\n".join(parts) + "\n"
     if len(body) > LIMIT:
         # Trim the longest section (the tour's step table, in practice), never the others.
