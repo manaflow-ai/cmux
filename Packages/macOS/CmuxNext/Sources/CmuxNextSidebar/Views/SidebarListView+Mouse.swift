@@ -58,9 +58,15 @@ extension SidebarListViewComponents {
         case let .tab(workspace, tab):
             // Selected at once; the press stays so a drag can take the tab.
             model.send(.selectTab(workspace: workspace, tab: tab))
-        case .item:
-            // It runs on mouse-up (as a band item: the App moves the one selection), so a press can still drag it.
+        case let .item(item):
             SidebarGroupKeys(list: self).setFocus(nil)
+            // Home and the App Store switch at once, as a workspace row does; the press can still drag
+            // the row. Any other item runs on mouse-up (as a band item), so a press meant as a move never runs it.
+            let id = LayoutItemID(item)
+            if model.listedItem(id)?.ref.activatesOnPress == true {
+                press.activatedOnPress = true
+                model.send(.activateItem(id, opensWorkspace: event.modifierFlags.contains(.option)))
+            }
         case .section, .emptySection, .folder, .block:
             break
         }
@@ -109,6 +115,7 @@ extension SidebarListViewComponents {
             model.send(.toggleCollapse(.section(section)))
         case let .item(item):
             // A link opens its page, a tab shows, an app opens, as in the band.
+            guard !press.activatedOnPress else { break }
             model.send(.activateItem(LayoutItemID(item), opensWorkspace: event.modifierFlags.contains(.option)))
         case .emptySection, .folder, .block:
             break

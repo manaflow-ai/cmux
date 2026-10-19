@@ -57,12 +57,10 @@ final class HomeHostView: NSView {
         transcript.setNamePillHelp(HomeEngineStrings.pillHelp)
         transcript.onNamePill = { [weak self] in self?.toggleSidebar() }
         loadAvatar()
-        sidebar.onAvatar = { [weak self, weak service] text in
-            self?.transcript.avatarPicture = text == nil ? Self.defaultAvatar : nil
-            self?.transcript.avatarText = text
+        sidebar.onAvatar = { [weak self, weak service] in
+            self?.loadAvatar()
             // The tile avatar is the default Chief's: a named Chief's panel never sets it (cx-327wl).
-            guard self?.control.named == nil else { return }
-            service?.directory.chiefAvatar = text.map(HomeChiefAvatar.text) ?? Self.defaultTileAvatar
+            if self?.control.named == nil { service?.refreshChiefAvatar() }
         }
         sidebar.onShowMemory = { [weak services] in
             _ = services?.registry.perform(ChiefInspectorHandlers.actionID, invocation: ActionInvocation(origin: .user))
@@ -172,7 +170,7 @@ final class HomeHostView: NSView {
         // A long reason (a migration notice) wraps in a narrow pane instead of clipping.
         message.maximumNumberOfLines = 0
         message.lineBreakMode = .byWordWrapping
-        message.cell?.wraps = true
+        message.wraps = true
         message.stringValue = HomeStrings.unavailable
         addSubview(transcript)
         addSubview(message)
@@ -220,7 +218,7 @@ final class HomeHostView: NSView {
         }
     }
 
-    override var wantsUpdateLayer: Bool { true }
+    nonisolated override var wantsUpdateLayer: Bool { true }
 
     override func updateLayer() {
         performWithTheme {
@@ -238,8 +236,7 @@ final class HomeHostView: NSView {
         let inset: CGFloat = 24
         let width = max(0, bounds.width - 2 * inset)
         message.preferredMaxLayoutWidth = width
-        let height = ceil(message.cell?.cellSize(forBounds: NSRect(x: 0, y: 0, width: width, height: .greatestFiniteMagnitude)).height
-            ?? message.intrinsicContentSize.height)
+        let height = ceil(message.size(forWidth: width).height)
         message.frame = NSRect(x: inset, y: (bounds.height - height) / 2, width: width, height: height)
     }
 

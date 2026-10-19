@@ -18,8 +18,9 @@ name: cmux-next
 #              change reaches (Packages/macOS/CmuxNext/ci-target-graph.json)
 #   daemon     the same-tree cmux-tui and the live-daemon suites, for daemon,
 #              Rust core, FFI and control paths
-# A batch integration PR labeled full-ci, and every feat-cmux-next push, runs
-# them all; a red push run names the pull requests in its range.
+# A batch integration PR labeled full-ci runs them all. A feat-cmux-next push
+# runs the Mac compiles but not swift test (see the jobs comment below); a red
+# push run names the pull requests in its range.
 
 on:
   pull_request:
@@ -1128,6 +1129,7 @@ jobs:
           bash scripts/cmux-next/tests/pin-cmux-tui-host-target.test.sh
           bash scripts/cmux-next/tests/pin-cmux-tui-windows-fetch.test.sh
           python3 tests/test_cmux_next_tree_notify.py
+          python3 tests/test_idea_ledger.py
           bash scripts/cmux-next/tests/pin-cmux-tui-resolve-newest.test.sh
           bash scripts/cmux-next/tests/pin-cmux-tui-fallback-key.test.sh
           bash scripts/cmux-next/tests/pin-cmux-tui-dispatch.test.sh
@@ -1306,6 +1308,15 @@ jobs:
         continue-on-error: true
         run: python3 scripts/cmux-next/check-daemon-capabilities-fresh.py
 
+      # Every capability the app references and the daemon source defines is
+      # in DaemonCapabilities.required/.optional, without a build: the app build
+      # runs this check first, so #21322 (four unlisted capabilities) broke
+      # every tagged build before any PR check saw it.
+      - name: App capability references are listed
+        id: app-capability-references
+        continue-on-error: true
+        run: python3 -I scripts/cmux-next/check-app-capability-references.py --repo .
+
       # A capability error is a version skew: it names the matching CLI or one
       # exact command, never "update the app" (plans/cmux-next/version-skew.md).
       - name: Capability texts never say update the app
@@ -1349,6 +1360,7 @@ jobs:
             ${{ steps.routing-replay.outcome }}|Routing replay (router changes)
             ${{ steps.app-ffi-pin.outcome }}|Check the app FFI pin
             ${{ steps.daemon-capabilities-fresh.outcome }}|Daemon capabilities export is fresh
+            ${{ steps.app-capability-references.outcome }}|App capability references are listed
         run: |
           failed=()
           # `outcome|name`: an empty outcome (a check that never ran) still names its step.
@@ -1749,14 +1761,15 @@ jobs:
           retention-days: 14
 
   # The CmuxNext test targets the change reaches: path_route's swift_filter
-  # (an empty filter runs every target, as on a push or a full-ci PR). No
+  # (an empty filter runs every target, as on a full-ci PR or a dispatch). No
   # cmux-tui wait: the live-daemon suites skip unless the same-tree binary is
   # already published, and daemon-test runs them against it.
   swift-test:
     needs: [path_route, macos-placement, push-head-preflight, web-bundles]
-    # Swift is a batch cadence check. A contributor PR gets the fast
-    # tier; the full-ci batch integration PR and base pushes run the minis-first
-    # Swift suites and serve as the backstop.
+    # Swift is a batch cadence check. A contributor PR gets the fast tier and
+    # a feat-cmux-next push skips this job (push CI is the app build only, see
+    # the jobs comment), so only a full-ci PR or a dispatch runs these suites.
+    # Label a PR full-ci when its Swift tests must run before it merges.
     if: ${{ !(github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next') && (!cancelled() && (needs.web-bundles.result == 'success' || needs.web-bundles.result == 'skipped') && needs.path_route.outputs.swift == 'true' && needs.push-head-preflight.outputs.current == 'true' && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci')) && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/next-batch/'))) }}
     name: cmux-next swift test
     continue-on-error: false
@@ -3064,7 +3077,7 @@ jobs:
               echo "perf gate: not run, the scheme compile ended $COMPILE before it" ;;
           esac
 
-  # The post-merge backstop: every feat-cmux-next push runs every tier (a
+  # The post-merge backstop: every feat-cmux-next push runs its push tiers (a
   # superseded push skips its Mac jobs, so a burst of merges is checked once,
   # at its newest commit). When a check job fails, this comments on each pull
   # request merged since that job last passed on a push, so the owning lane

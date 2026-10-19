@@ -648,7 +648,7 @@ final class SidebarTypingLayer: CALayer {
         for d in lit { d.backgroundColor = p.typingDot; d.contentsScale = scale }
     }
     /// The dots pulse (tests: every lit dot has its animation, or the still phase is set).
-    var isPulsing: Bool { Self.stillPhase != nil || lit.allSatisfy { $0.animation(forKey: "pulse") != nil } }
+    var isPulsing: Bool { stillPhase != nil || lit.allSatisfy { $0.animation(forKey: "pulse") != nil } }
     /// Still scenes: the dots stand at this phase of the pulse (0-1) instead of animating (nil: animate).
     static var stillPhase: Double?
     private static func level(_ i: Int, phase t: Double) -> Double {
@@ -658,9 +658,12 @@ final class SidebarTypingLayer: CALayer {
     }
     /// Starts the pulse once. Phase-locked to whole periods of the media clock, so every bubble
     /// in the list pulses in step and a row that scrolls back in does not restart its cycle.
+    /// cmux: the still phase, also the first dot's peak under Reduce Motion (cx-sya4n: nothing loops).
+    private var stillPhase: Double? { Self.stillPhase ?? (CmuxSidebarView.reducesMotion ? 0.45 : nil) }
     func animate() {
-        if let ph = Self.stillPhase {
-            for (i, d) in lit.enumerated() { d.opacity = Float(Self.level(i, phase: ph)) }
+        if let ph = stillPhase {
+            // cmux: a running pulse stops when Reduce Motion turns on (cx-sya4n).
+            for (i, d) in lit.enumerated() { d.removeAnimation(forKey: "pulse"); d.opacity = Float(Self.level(i, phase: ph)) }
             return
         }
         let begin = (CACurrentMediaTime() / Self.period).rounded(.down) * Self.period

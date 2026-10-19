@@ -40,7 +40,7 @@ class SidebarRowView: NSView {
     required init?(coder: NSCoder) { fatalError() }
 
     nonisolated override var isFlipped: Bool { true }
-    override var wantsUpdateLayer: Bool { true }
+    nonisolated override var wantsUpdateLayer: Bool { true }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
         let local = convert(point, from: superview)
@@ -180,7 +180,7 @@ class SidebarRowView: NSView {
     /// A one-line label. Its color is set in the row's `updateLayer`, inside
     /// `performWithTheme`, so it follows the row's theme scope; it is a layer
     /// color, so a theme change blends it (`ChromeLabel`, I5).
-    static func label(font: NSFont) -> NSTextField {
+    static func label(font: NSFont) -> ChromeLabel {
         ChromeLabel(font: font)
     }
 

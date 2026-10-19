@@ -64,7 +64,7 @@ public final class StatusIndicatorView: NSView, StatusIndicatorConfigClient {
         }
     }
 
-    public override var wantsUpdateLayer: Bool { true }
+    nonisolated public override var wantsUpdateLayer: Bool { true }
 
     /// Show `state`, drawn in `style` (nil: the configured style).
     public func configure(_ state: StatusIndicatorState, style: StatusIndicatorStyle? = nil) {
@@ -81,6 +81,8 @@ public final class StatusIndicatorView: NSView, StatusIndicatorConfigClient {
     public func statusIndicatorConfigDidChange(_ config: StatusIndicatorConfig) {
         refresh()
         needsDisplay = true
+        // The static look can show or hide the mark; the host lays out again.
+        superview?.needsLayout = true
     }
 
     private func refresh() {
@@ -90,6 +92,7 @@ public final class StatusIndicatorView: NSView, StatusIndicatorConfigClient {
         let plan = StatusIndicatorPlan.make(state, style: config.style(hint: styleHint), animates: animates, set: config.iconSet,
                                             isStatic: config.isStatic, staticShapes: config.staticShapes)
         let showed = showsGlyph
+        nameState()
         indicator.apply(plan, config: config)
         isHidden = plan.glyph == .none
         // The host reserves trailing space only for a visible glyph.
