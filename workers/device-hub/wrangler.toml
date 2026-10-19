@@ -45,3 +45,35 @@ class_name = "SessionDO"
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["UserDO", "SessionDO"]
+
+# ---- dev deployment: cmux-device-hub-dev on workers.dev ----
+# Bindings, vars and migrations are not inherited by environments, so they are
+# repeated here. Deploy steps: DEPLOY.md.
+[env.dev]
+name = "cmux-device-hub-dev"
+workers_dev = true
+preview_urls = false
+
+[env.dev.observability]
+enabled = true
+
+[env.dev.observability.logs]
+enabled = true
+invocation_logs = false
+
+[env.dev.vars]
+STACK_PROJECT_ID = "9790718f-14cd-4f7e-824d-eaf527a82b82"
+PAID_USER_IDS = ""
+PUBLIC_BASE_URL = ""
+
+[[env.dev.durable_objects.bindings]]
+name = "USER_DO"
+class_name = "UserDO"
+
+[[env.dev.durable_objects.bindings]]
+name = "SESSION_DO"
+class_name = "SessionDO"
+
+[[env.dev.migrations]]
+tag = "v1"
+new_sqlite_classes = ["UserDO", "SessionDO"]

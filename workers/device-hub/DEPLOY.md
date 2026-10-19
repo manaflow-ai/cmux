@@ -1,0 +1,85 @@
+# Deploying the device hub
+
+The device hub (`docs/device-hub/PROTOCOL.md`) is one Worker with two SQLite
+Durable Object classes, `UserDO` and `SessionDO`. It deploys to Lawrence's
+Cloudflare account. `wrangler.toml` commits no `account_id`; the deploy shell
+provides it. Bindings, vars and migrations are repeated under `[env.dev]`,
+because environments do not inherit them.
+
+| Environment | Worker | URL |
+|---|---|---|
+| dev | `cmux-device-hub-dev` | `https://cmux-device-hub-dev.debussy.workers.dev` |
+| production | `cmux-device-hub` | not deployed yet |
+
+## Dev deploy
+
+Run from `workers/device-hub` with wrangler signed in to the account.
+
+```bash
+export CLOUDFLARE_ACCOUNT_ID=0c1675e0def6de1ab3a50a4e17dc5656
+npm ci
+
+# 1. Deploy the code and the v1 Durable Object migration.
+npx wrangler deploy --env dev
+
+# 2. Server keys. Each command generates a fresh P-256 private JWK and pipes it
+#    straight into the secret; the value never reaches the terminal or a file.
+node scripts/gen-key.mjs | npx wrangler secret put SESSION_KEY --env dev
+node scripts/gen-key.mjs | npx wrangler secret put TICKET_KEY --env dev
+
+# 3. Paid-plan relay credentials (Cloudflare Realtime TURN), from the
+#    1Password item "Cloudflare TURN Server API Key" in the Shared vault.
+op read "op://Shared/Cloudflare TURN Server API Key/credential" \
+  | npx wrangler secret put TURN_KEY_API_TOKEN --env dev
+# The key id is in the item's notes. Check that exactly one 32-hex id is found
+# (prints a count, not the id), then store it.
+op read "op://Shared/Cloudflare TURN Server API Key/notesPlain" | grep -oE '[0-9a-f]{32}' | sort -u | wc -l
+op read "op://Shared/Cloudflare TURN Server API Key/notesPlain" | grep -oE '[0-9a-f]{32}' | head -1 \
+  | npx wrangler secret put TURN_KEY_ID --env dev
+
+# 4. Health check.
+curl -fsS https://cmux-device-hub-dev.debussy.workers.dev/v1/health
+```
+
+Without `TURN_KEY_ID` and `TURN_KEY_API_TOKEN`, the Worker still runs:
+paid users get `ice: []`, as free users do, and the apps fall back to direct
+paths and the user's own relays.
+
+Rotating `SESSION_KEY` signs every device out (their hub sessions stop
+verifying; the apps exchange their Stack token again). Rotating `TICKET_KEY`
+invalidates tickets that are less than 60 s old. Neither touches stored data.
+
+### Paid users
+
+`PAID_USER_IDS` is a plain var (comma-separated Stack user ids). Set it in
+`[env.dev.vars]` and redeploy, or pass it for one deploy:
+
+```bash
+npx wrangler deploy --env dev --var PAID_USER_IDS:<id1>,<id2>
+```
+
+A later deploy without `--var` resets it to the value in `wrangler.toml`.
+
+## Checks before a deploy
+
+Tests and installs run on a cmux Mac mini, not the laptop:
+
+```bash
+rsync -a --delete --exclude node_modules --exclude .wrangler --exclude .dev.vars \
+  workers/device-hub/ mini-cmux15:device-hub-work/src/
+ssh mini-cmux15 'cd ~/device-hub-work/src && export PATH=$HOME/.local/bin:$PATH \
+  && npm ci && npx tsc --noEmit && npx vitest run && npx wrangler deploy --dry-run --env dev --outdir /tmp/dh-dist'
+```
+
+## Local `wrangler dev` (integration only)
+
+```bash
+ssh mini-cmux15 'cd ~/device-hub-work/src && export PATH=$HOME/.local/bin:$PATH \
+  && node scripts/gen-dev-secrets.mjs .dev.vars \
+  && npx wrangler dev --ip 0.0.0.0 --port 8799 --persist-to ~/device-hub-work/state'
+curl -fsS http://cmux15.tail137216.ts.net:8799/v1/health
+```
+
+This is plain HTTP on the tailnet. The cmux apps' App Transport Security
+allows insecure loads only for `cmux-loopback.localtest.me`, so apps need the
+https dev deployment above, not this server.

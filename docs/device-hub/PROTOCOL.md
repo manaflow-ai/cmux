@@ -17,8 +17,8 @@ host-signed allow lists are later work.
   `setWebSocketAutoResponse` so they never wake it).
 - **Session DO** (one per session): signaling for exactly two devices, admitted
   by single-use tickets. Hibernates while idle; deleted when the session ends.
-- All of it deploys in Lawrence's Cloudflare account. Until credentials are
-  available it runs under `wrangler dev` on a cmux Mac mini (tailnet URL).
+- All of it deploys in Lawrence's Cloudflare account. The dev deployment is the
+  `cmux-device-hub-dev` Worker on workers.dev (`workers/device-hub/DEPLOY.md`).
 
 ## Identity
 
@@ -35,9 +35,18 @@ host-signed allow lists are later work.
   - `X-Device-Ts: <unix seconds>` (must be within 60 s of server time),
   - `X-Device-Sig: <base64 raw r||s, 64 bytes>` = ECDSA-P256-SHA256 over the
     UTF-8 string `"<METHOD>\n<path+query>\n<ts>\n<hex sha256 of body or empty>"`.
+    The last line is the lowercase hex SHA-256 of the exact body bytes, or the
+    empty string when there is no body (GET, WebSocket upgrades). `path+query`
+    is the request target as sent, e.g. `/v1/sessions/<sid>/ws?ticket=<jws>`.
   The server verifies with the device's registered signing key and rejects a
   repeated `(device, ts, sig)` for 120 s. Registration itself is signed with the
-  key being registered.
+  key being registered. A registered id keeps its signing key: registering it
+  with another key is 409 `device_key_mismatch`, and a removed id cannot be
+  registered again (403 `device_removed`; the app makes a new id). Calls from an
+  unknown device are 401 `bad_signature`; from a removed one, 403 `device_removed`.
+- **Times**: JSON timestamps (`expiresAt`, `createdAt`, `lastSeenAt`,
+  `updatedAt`, audit `ts`) are Unix milliseconds. JWT/ticket claims and
+  `X-Device-Ts` are Unix seconds.
 
 ## Records (User DO SQLite)
 
@@ -58,38 +67,52 @@ audit(id TEXT PK, ts, event, viewer_id, host_id, scope, session_id, detail,
 Audit events: `shared`, `unshared`, `requested`, `approved`, `denied`,
 `started`, `ended`, `permission_changed`, `device_added`, `device_removed`.
 Audit holds metadata only: never screen content, keystrokes or clipboard.
+Relay changes are not audited. The User DO also keeps a `replay(device_id, ts,
+sig, expires_at)` table for the 120 s signature replay cache.
+
+JSON shapes: a device is `{id, name, platform, signingKey, agreementKey,
+createdAt, lastSeenAt, macScreenShared, online}`; an ICE server is
+`{urls:[…], username?, credential?}`; an audit entry is `{id, ts, event,
+viewerId, hostId, scope, sessionId, detail, durationS}` (`detail` carries the
+end reason, the decision, or `old->new` for a permission change).
 
 ## HTTP API (all JSON)
 
 | Method, path | Body | Result | Notes |
 |---|---|---|---|
+| `GET /v1/health` | | `{ok, service, protocol, time}` | No auth. |
 | `POST /v1/auth/stack` | `{token}` | `{session, userId, expiresAt}` | Verifies the Stack Auth token (JWKS). |
-| `GET /v1/me` | | `{userId, plan: 'free'\|'paid', device}` | `plan` from env `PAID_USER_IDS` in v1. |
+| `GET /v1/me` | | `{userId, plan: 'free'\|'paid', device}` | `plan` from env `PAID_USER_IDS` in v1. Needs a registered device. |
 | `POST /v1/devices` | `{id, name, platform, signingKey, agreementKey}` | `{device}` | Registers or updates this device. Signed by `signingKey`. |
 | `GET /v1/devices` | | `{devices:[…]}` | Not removed devices, with `online` from open sockets. |
-| `PATCH /v1/devices/:id` | `{name}` | `{device}` | |
+| `PATCH /v1/devices/:id` | `{name}` | `{device}` | Any of the user's devices. |
 | `DELETE /v1/devices/:id` | | `{}` | Removes the device; ends its sessions; pushes revocations. |
 | `PUT /v1/devices/:id/mac-screen` | `{shared}` | `{device}` | Only device `:id` itself may change its own sharing. |
-| `GET /v1/permissions?host=:id` | | `{permissions:[{viewerId, scope}]}` | |
-| `PUT /v1/permissions/:hostId/:viewerId` | `{scope}` | `{permission}` | Any of the user's devices may set it in v1. Lowering a scope revokes live sessions that exceed it. |
+| `GET /v1/permissions?host=:id` | | `{permissions:[{viewerId, scope}]}` | One entry per other device; absent rows read `ask`. |
+| `PUT /v1/permissions/:hostId/:viewerId` | `{scope}` | `{permission:{hostId, viewerId, scope, previous, updatedAt}}` | Any of the user's devices may set it in v1. Lowering a scope revokes sessions that exceed it: `none` ends every open session of the pair, `view` ends `full` ones; `ask` and `full` end none. |
 | `POST /v1/sessions` | `{hostId, scope}` | `{session:{id, state, scope}}` | From the viewer. See flow. |
-| `POST /v1/sessions/:id/decision` | `{decision:'deny'\|'once'\|'always', scope}` | `{session}` | From the host device only. `always` stores the permission. |
-| `POST /v1/sessions/:id/end` | `{reason}` | `{}` | Either side. |
-| `POST /v1/sessions/:id/ice` | | `{ice:[…]}` | Fresh cmux relay credentials while authorized (paid only; else `[]`). |
-| `GET /v1/relays` | | `{relays:[…]}` | Each relay carries only this device's sealed blob. |
+| `POST /v1/sessions/:id/decision` | `{decision:'deny'\|'once'\|'always', scope}` | `{session}` | From the host device only. `scope` defaults to the requested one and may lower `full` to `view`, never raise it (400). `always` stores the permission. Requests expire after 5 min. |
+| `POST /v1/sessions/:id/end` | `{reason}` | `{}` | Either side; idempotent. Pushes `session.revoked`. |
+| `POST /v1/sessions/:id/ice` | | `{ice:[…]}` | Fresh cmux relay credentials while `approved`/`live` (paid only; else `[]`); otherwise 409 `session_not_active`. |
+| `GET /v1/relays` | | `{relays:[…]}` | Each relay carries `sealed: {<this device id>: blob}` or `{}`. |
 | `PUT /v1/relays/:id` | `{name, urls, authMode, sealed, enabled, priority}` | `{relay}` | `sealed`: `{deviceId: base64}` for every device. |
 | `DELETE /v1/relays/:id` | | `{}` | |
-| `GET /v1/audit?limit=&before=` | | `{entries:[…]}` | Newest first. |
+| `GET /v1/audit?limit=&before=` | | `{entries:[…]}` | Newest first. `limit` 1-200 (default 50); `before` = `ts` (ms), exclusive. |
 
 Errors: `{error:{code, message}}` with HTTP 400/401/403/404/409/429.
-Codes: `bad_signature`, `stale_timestamp`, `replay`, `not_shared`,
-`permission_none`, `scope_exceeds_permission`, `host_offline`, `not_host`,
-`session_not_pending`, `rate_limited`.
+Codes: `bad_request`, `unauthorized` (missing/expired hub session),
+`not_found`, `bad_signature`, `stale_timestamp`, `replay`, `device_removed`,
+`device_key_mismatch`, `not_shared`, `permission_none`,
+`scope_exceeds_permission`, `host_offline`, `not_host`, `session_not_pending`,
+`session_not_active`, `ticket_invalid`, `role_taken`, `rate_limited` (reserved;
+v1 does not rate-limit yet), `internal` (500).
 
 ## WebSocket: User DO
 
 `GET /v1/user/ws` (upgrade), with the account and device headers. One socket per
-device (a new one replaces the old). Server → device messages:
+device (a new one replaces the old, which is closed with code 4000; a removed
+device's socket is closed with 4001). Connecting and disconnecting push
+`devices.changed` to the other devices. Server → device messages:
 
 ```
 {type:'devices.changed'}                       // refetch GET /v1/devices
@@ -101,7 +124,12 @@ device (a new one replaces the old). Server → device messages:
 {type:'session.revoked', sessionId, reason}    // to both; end at once
 {type:'session.ended', sessionId, reason}
 ```
-Device → server: `{type:'ping'}` (auto-response `{type:'pong'}`).
+Device → server: `{type:'ping'}` (auto-response `{type:'pong'}`). The
+auto-response matches bytes exactly: send the text frame `{"type":"ping"}`, no
+spaces; the reply is `{"type":"pong"}`. Other device frames are ignored.
+`viewerKeyFingerprint` is the lowercase hex SHA-256 of the viewer's 65-byte
+signing key. Pushes reach only connected devices; there is no backlog, so a
+device refetches state after it reconnects.
 
 ## Session flow
 
@@ -118,25 +146,37 @@ Device → server: `{type:'ping'}` (auto-response `{type:'pong'}`).
 3. On approval the server creates the Session DO and pushes `session.ticket`
    to both devices. Ticket = compact JWS (ES256, server key) with payload
    `{sid, role:'viewer'|'host', dev, peer, peerKey, scope, iat, exp: iat+60, jti}`.
-   `signalURL` = `wss://<host>/v1/sessions/<sid>/ws`. `ice` = cmux relay
+   `signalURL` = `wss://<host>/v1/sessions/<sid>/ws` (`<host>` is the Worker's
+   public origin: env `PUBLIC_BASE_URL`, else the request's). `ice` = cmux relay
    credentials if the user is on a paid plan (Cloudflare TURN, minted per
    session, TTL 1 h), else `[]`; the app adds the user's own relays.
-4. Each device opens `signalURL?ticket=<jws>` with its device headers. The
-   Session DO verifies the JWS, `exp`, `dev` = `X-Device-Id`, the device
-   signature, and burns `jti` (SQLite). At most one socket per role.
+4. Each device opens `signalURL?ticket=<jws>` with its device headers (no
+   `Authorization`; the ticket admits it). The User DO passes both devices'
+   signing keys to the Session DO when it creates it, so the Session DO
+   verifies the JWS, `exp`, `sid`, `dev` = `X-Device-Id` = the role's device,
+   the device signature, and burns `jti` (SQLite). At most one socket per role.
+   Failures, before the upgrade: 401 `ticket_invalid` (bad, expired or other
+   session), 403 `ticket_invalid` (other device), 401 `bad_signature` /
+   `stale_timestamp`, 401 `replay` (used `jti`), 409 `role_taken`, 404
+   `session_not_active` (ended or unknown session).
 5. Signaling messages are relayed verbatim between the two roles:
    `{type:'offer'|'answer', sdp, fpSig}`, `{type:'candidate', …}`, `{type:'bye'}`.
+   Text frames up to 64 KiB; other types are dropped. Frames sent before the
+   peer connects are queued (up to 256) and delivered when it does.
    `fpSig` = base64 raw ECDSA over `"<sid>|<role>|<fingerprint>"`, where
    `fingerprint` is the value of the SDP's `a=fingerprint:` line (all of them,
    joined with `,`, in order). The receiver verifies it with `peerKey` from its
    own ticket and aborts on mismatch.
 6. When both are connected the Session DO marks the session `live` (audit
    `started`). When either sends `bye`, closes, or the server revokes, it
-   marks `ended` (audit `ended` with duration and reason), closes both sockets
-   and deletes its storage.
+   marks `ended` (audit `ended` with duration and reason `bye`/`closed`, push
+   `session.ended` to both), closes both sockets and deletes its storage.
 7. Revocation: removing a device, lowering a permission, turning sharing off,
-   or ending from either side pushes `session.revoked` to both devices; the
-   host closes the peer connection at once; `/ice` stops renewing.
+   or ending from either side pushes `session.revoked` to both devices (reason
+   `device_removed`, `permission_changed`, `sharing_off`, or the `/end`
+   reason), closes the signaling sockets with code 4002 and audits `ended`; the
+   host closes the peer connection at once; `/ice` stops renewing. Pending
+   requests are ended the same way.
 
 The host enforces the scope: in a `view` session it ignores all input.
 

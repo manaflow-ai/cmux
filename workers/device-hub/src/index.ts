@@ -3,11 +3,13 @@ import { ORIGIN_HEADER, USER_HEADER, type Env } from "./env";
 import { ApiError, badRequest, errorResponse, json, notFound, unauthorized } from "./errors";
 import { STACK_API, verifyStackAccessToken } from "./stack";
 
+// The main module may export only handlers and Durable Object classes.
+
 export { SessionDO } from "./sessionDo";
 export { UserDO } from "./userDo";
 
-export const SESSION_TTL_S = 3600;
-export const SESSION_ISSUER = "device-hub";
+const SESSION_TTL_S = 3600;
+const SESSION_ISSUER = "device-hub";
 
 const SESSION_WS = /^\/v1\/sessions\/([0-9a-f-]{36})\/ws$/;
 
@@ -39,7 +41,7 @@ async function authStack(request: Request, env: Env): Promise<Response> {
 }
 
 /** Verifies `Authorization: Bearer <session>` and returns the user id. */
-export async function requireSession(request: Request, env: Env): Promise<string> {
+async function requireSession(request: Request, env: Env): Promise<string> {
   const auth = request.headers.get("authorization") ?? "";
   const m = /^Bearer\s+(\S+)$/i.exec(auth);
   if (!m) throw unauthorized("missing session");

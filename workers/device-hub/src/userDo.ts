@@ -521,6 +521,8 @@ export class UserDO extends DurableObject<Env> {
     const scope = (body.scope ?? s.scope) as Scope;
     if (scope !== "view" && scope !== "full") throw badRequest("scope must be view or full");
     if (rank(scope) > rank(s.scope)) throw badRequest("the decision cannot grant more than was requested");
+    // Leave pending before any await so a concurrent decision sees it as decided.
+    this.sql.exec("UPDATE sessions SET state = 'approved', scope = ? WHERE id = ?", scope, id);
     if (decision === "always") await this.storePermission(s.host_id, s.viewer_id, scope, Date.now());
     this.audit("approved", { viewerId: s.viewer_id, hostId: s.host_id, scope, sessionId: id, detail: decision });
     await this.approve({ ...s, scope }, c);

@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { signEs256 } from "../src/crypto";
+import * as main from "../src/index";
 import { Device, hubEnv, mockOutbound, outbound, rawCall, signIn, stackClaims, stackToken } from "./helpers";
+
+describe("main module", () => {
+  it("exports only the handler and the Durable Object classes (workerd rejects other exports)", () => {
+    expect(Object.keys(main).sort()).toEqual(["SessionDO", "UserDO", "default"]);
+  });
+});
 
 describe("health", () => {
   it("answers without auth", async () => {
