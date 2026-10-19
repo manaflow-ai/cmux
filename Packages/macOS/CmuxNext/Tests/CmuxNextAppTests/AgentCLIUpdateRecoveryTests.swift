@@ -239,6 +239,85 @@ import Testing
         #expect(h.owner.starts.map(\.1) == ["after-failure"])
     }
 
+    /// A kept update tab the person closed answers `terminal.closed`, then `selector.not_found`
+    /// once tombstoned. Either ends the job; any other observation failure keeps it.
+    @Test(arguments: ["terminal.closed", "selector.not_found", "transient"])
+    func aClosedUpdateTerminalSettlesInsteadOfBlockingForever(code: String) async throws {
+        let h = Harness(); let input = try h.retained()
+        h.ledger.rows[input.key] = try .init(intent: input, receipt: h.owner.receipt(.codex))
+        h.owner.observeError = code == "transient" ? .notConnected
+            : .command(cmd: "terminal.wait_exit", message: "gone", code: code, details: CmuxNextDaemon.JSONValue.object(["scope": .string("terminal")]))
+        let (actions, registry) = h.make()
+        await actions.refresh()
+        #expect(h.ledger.rows.isEmpty == (code != "transient"))
+        #expect(actions.state.arrayValue?.first?["state"] == (code == "transient" ? "created" : "exited"))
+        do { _ = try await actions.runSettings(id: "work-profile", context: gesture("after-close"), registry: registry) } catch {}
+        #expect(h.owner.starts.map(\.1) == (code == "transient" ? [] : ["after-close"]))
+    }
+
+    /// Only a missing session, never a missing terminal, ends the job.
+    @Test func aMissingSessionIsNotAClosedTerminal() async throws {
+        let h = Harness(); let input = try h.retained()
+        h.ledger.rows[input.key] = try .init(intent: input, receipt: h.owner.receipt(.codex))
+        h.owner.observeError = .command(cmd: "terminal.wait_exit", message: "gone", code: "selector.not_found", details: CmuxNextDaemon.JSONValue.object(["scope": .string("session")]))
+        let (actions, _) = h.make()
+        await actions.refresh()
+        #expect(h.ledger.rows.count == 1)
+    }
+
+    /// A row from a session recovery cannot reach (a reinstalled server) neither blocks
+    /// the current session's update nor is selected as its owner.
+    @Test func aRowFromAnUnreachableSessionDoesNotBlock() async throws {
+        let h = Harness()
+        let foreign = try AgentCLIUpdateIntent(key: "orphan-intent", rootKey: "orphan-root", machine: h.owner.machine,
+            session: "session_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", cli: .codex, profiles: ["work-profile"])
+        h.ledger.rows[foreign.key] = try .init(intent: foreign, receipt: nil)
+        let (actions, registry) = h.make()
+        _ = try await actions.runSettings(id: "work-profile", context: gesture("current-session"), registry: registry)
+        #expect(h.owner.starts.map(\.1) == ["current-session"])
+        #expect(h.resolutions == 0)
+    }
+
+    /// Nothing starts before the ledger records; a failed record leaves no job that blocks.
+    @Test func aFailedRecordLeavesNoBlockingJob() async throws {
+        let h = Harness(); h.ledger.refuse = true
+        let (actions, registry) = h.make()
+        do { _ = try await actions.runSettings(id: "work-profile", context: gesture("unrecorded"), registry: registry) } catch {}
+        #expect(actions.state.arrayValue?.isEmpty == true)
+        h.ledger.refuse = false
+        _ = try await actions.runSettings(id: "work-profile", context: gesture("recorded"), registry: registry)
+        #expect(h.owner.starts.map(\.1) == ["recorded"])
+    }
+
+    /// A creation still pending well after a first recovery saw it may be dismissed.
+    @Test func aLongPendingCreationBecomesDismissable() async throws {
+        let h = Harness(); let input = try h.retained()
+        h.ledger.rows[input.key] = try .init(intent: input, receipt: nil)
+        h.resolution = .pending
+        let (actions, registry) = h.make()
+        var clock = Date(timeIntervalSince1970: 1_000_000)
+        actions.now = { clock }
+        try await actions.recover()
+        #expect(actions.state.arrayValue?.first?["can_dismiss"] == false)
+        clock += AgentCLIUpdateActions.pendingDismissAfter - 1
+        try await actions.recover()
+        #expect(actions.state.arrayValue?.first?["can_dismiss"] == false)
+        clock += 1
+        try await actions.recover()
+        #expect(actions.state.arrayValue?.first?["can_dismiss"] == true)
+        _ = try await actions.runPage(["action": "dismissUpdate", "intent": .string(input.key)], context: gesture("dismiss"), registry: registry)
+        #expect(h.ledger.rows.isEmpty && h.owner.starts.isEmpty)
+    }
+
+    /// A busy owner may be running this very key; its intent stays tracked.
+    @Test func aBusyOwnerKeepsTheIntent() async throws {
+        let h = Harness(); h.owner.refuse = [.claude]; h.owner.refuseCode = "agent_cli_job.busy"
+        let (actions, registry) = h.make()
+        do { _ = try await actions.runSettings(id: nil, context: gesture(), registry: registry) } catch {}
+        #expect(!h.ledger.events.contains("settle:1"))
+        #expect(Set(h.ledger.rows.values.map(\.intent.cli)) == ["claude", "codex"])
+    }
+
     @Test(arguments: ["indeterminate", "not_found", "pending"])
     func onlyAnIntentNothingRunsForCanBeDismissed(state: String) async throws {
         let h = Harness(); let input = try h.retained()
