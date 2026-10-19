@@ -348,10 +348,20 @@ def fetch_details(gh: GitHub, wanted: list[tuple[str, bool, bool]]) -> dict[str,
     return {node_id: (files[node_id], checks[node_id]) for node_id, _, _ in wanted}
 
 
-def open_prs(gh: GitHub) -> list[PullRequest]:
+def rollup_failing(rollup: dict) -> bool:
+    """Whether any check or status in the rollup ended red (its state or a red count)."""
+    if (rollup.get("state") or "").upper() in {"FAILURE", "ERROR"}:
+        return True
+    contexts = rollup.get("contexts") or {}
+    counts = (contexts.get("checkRunCountsByState") or []) + (contexts.get("statusContextCountsByState") or [])
+    return any((item.get("state") or "").lower() in RED and item.get("count") for item in counts)
+
+
+def open_prs(gh: GitHub, fresh: bool = False) -> list[PullRequest]:
     """Every open PR into BASE. Files and checks are filled in only for PRs
     the cheap filters keep (ineligible_reason without them), and checks only
-    when the rollup has a failure: nothing else reads them."""
+    when the rollup has a failure: nothing else reads them. `fresh` skips the
+    cache (landing rechecks the exact state)."""
     owner, name = gh.repo.split("/")
     nodes, after = [], None
     while True:
@@ -363,7 +373,7 @@ def open_prs(gh: GitHub) -> list[PullRequest]:
             break
         after = info["endCursor"]
     at = now()
-    prs, wanted, keys = [], [], {}
+    prs, wanted, keys, found = [], [], {}, {}
     for node in nodes:
         commit = (node["commits"]["nodes"] or [{}])[0].get("commit") or {}
         rollup = commit.get("statusCheckRollup") or {}
@@ -377,18 +387,22 @@ def open_prs(gh: GitHub) -> list[PullRequest]:
         prs.append((pr, node))
         if ineligible_reason(pr, at) is not None:
             continue
-        failing = (rollup.get("state") or "").upper() in {"FAILURE", "ERROR"}
         key = (pr.sha, json.dumps(rollup, sort_keys=True))
         keys[node["id"]] = key
-        if key not in DETAILS:
-            wanted.append((node["id"], True, failing))
+        cached = None if fresh else DETAILS.get(key)
+        if cached is None:
+            wanted.append((node["id"], True, rollup_failing(rollup)))
+        else:
+            found[key] = cached
     if wanted:
+        fetched = {keys[node_id]: details for node_id, details in fetch_details(gh, wanted).items()}
+        found.update(fetched)
         if len(DETAILS) > 5000:
             DETAILS.clear()
-        DETAILS.update({keys[node_id]: details for node_id, details in fetch_details(gh, wanted).items()})
+        DETAILS.update(fetched)
     for pr, node in prs:
         if node["id"] in keys:
-            pr.files, pr.checks = DETAILS[keys[node["id"]]]
+            pr.files, pr.checks = found[keys[node["id"]]]
     return [pr for pr, _ in prs]
 
 
@@ -1249,7 +1263,7 @@ class Controller:
     def land(self, validation: Validation) -> list[tuple[PullRequest, str]]:
         landed = []
         helper = self.merge_green()
-        fresh = {pr.number: pr for pr in open_prs(self.gh)}
+        fresh = {pr.number: pr for pr in open_prs(self.gh, fresh=True)}
         for pr in validation.stack.included:
             current = fresh.get(pr.number)
             if current is None:
