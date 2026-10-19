@@ -56,4 +56,36 @@ if run > "$tmp/out" 2>&1; then fail "a repair over a newer edit of its file was 
 [[ "$(remote_tip)" == "$moved" ]] || fail "the remote moved although the repair was refused"
 grep -q "generated.txt" "$tmp/out" || fail "the refusal does not name the file: $(cat "$tmp/out")"
 
+# 4. An earlier base autofix run already replayed its repair of the same file: this run's
+#    repair (from a newer tree) wins instead of being refused by the bot's own commit.
+setup
+lane_push source.txt "src v2"
+(cd "$tmp/lane" && git pull -q --ff-only origin feat && echo "older repair" > generated.txt \
+  && git commit -q -am "chore(next): base autofix at 0123456789ab" && git push -q origin feat)
+moved="$(remote_tip)"
+run > "$tmp/out" 2>&1 || fail "a repair over an earlier autofix commit was refused: $(cat "$tmp/out")"
+[[ "$(git -C "$tmp/remote.git" rev-parse feat^)" == "$moved" ]] || fail "the repair is not on top of the bot's commit"
+[[ "$(remote_show generated.txt)" == repaired ]] || fail "the newer repair did not replace the older one"
+[[ "$(remote_show source.txt)" == "src v2" ]] || fail "the moved tip's change was lost"
+
+# 5. The tip already holds exactly this repair: nothing is pushed, and the run passes.
+setup
+(cd "$tmp/lane" && git pull -q --ff-only origin feat && echo repaired > generated.txt \
+  && git commit -q -am "chore(next): base autofix at 0123456789ab" && git push -q origin feat)
+moved="$(remote_tip)"
+run > "$tmp/out" 2>&1 || fail "an already-landed repair failed the run: $(cat "$tmp/out")"
+[[ "$(remote_tip)" == "$moved" ]] || fail "an empty repair commit was pushed"
+
+# 6. The repair adds a file in a directory a newer commit deleted: refused, nothing pushed.
+setup
+(cd "$tmp/lane" && mkdir -p page && echo src > page/source.txt && git add -A && git commit -q -m "add page" && git push -q origin feat)
+rm -rf "$tmp/bot"; git clone -q --depth=1 -b feat "file://$tmp/remote.git" "$tmp/bot"
+base="$(git -C "$tmp/bot" rev-parse HEAD)"
+(cd "$tmp/bot" && mkdir -p page && echo gen > page/generated.txt && git add -A && git commit -q -m "chore(next): base autofix")
+(cd "$tmp/lane" && git rm -q -r page && git commit -q -m "drop page" && git push -q origin feat)
+moved="$(remote_tip)"
+if run > "$tmp/out" 2>&1; then fail "a generated file for a deleted directory was pushed"; fi
+[[ "$(remote_tip)" == "$moved" ]] || fail "the remote moved although the repair was refused"
+grep -q "page/generated.txt" "$tmp/out" || fail "the refusal does not name the file: $(cat "$tmp/out")"
+
 echo "PASS: base autofix lands its repair on a moved feat-cmux-next unless a newer commit wrote the same files"
