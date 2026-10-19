@@ -111,6 +111,32 @@ Policy scope is a workspace default plus an optional per-terminal override. Any
 workspace member with write access can change it. Every host emits the change to
 all participants.
 
+## Creation size
+
+A new terminal's PTY starts at the grid of the view that asked for it, so its
+first frame is already final: no shell prompt printed at the wrong width, no
+snap when the view's first report arrives.
+
+- The creating client sends `cols`/`rows` with the create (`new-tab`, and the
+  other creates that take them). The cmux-next Mac app works the grid out
+  before it asks (`NewTerminalGrid`): the fitted grid of the terminal its pane
+  shows (Ghostty's own fit of the same content area), else the pane's content
+  size, backing scale, a live terminal's cell size and the configured padding
+  through Ghostty's formula (`TerminalGridEstimate`). A zoomed terminal's fit
+  does not count: a new terminal starts at the configured font size.
+- At creation the creating view is the only participant, so its grid is what
+  `smallest`, `latest`, `largest` and `priority` choose anyway; under `fixed`
+  the host's fixed grid still applies.
+- A create without a size gets the latest explicit or reported grid of any
+  terminal (`creation_size`), the old behavior. It is a fallback for clients
+  that cannot know their size yet (a CLI spawn, the app's first terminal).
+- A view renders only grids the host announced (`TerminalGridPolicy`). A view
+  that attaches later never makes the others draw a wrong frame: under
+  `smallest` its smaller viewport shrinks the grid for everyone in one
+  announced step (each view reflows on the same output), under `latest` it
+  takes the grid on attach and later activity (also one announced step), and a larger view shows the hatch
+  around the grid. A view that is not an owner pins to the host grid.
+
 ## Phone viewers
 
 Phones and tablets follow three rules so that "Fit everyone" never shrinks

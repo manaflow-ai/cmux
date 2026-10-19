@@ -84,13 +84,14 @@ export const createCloudClient = (options: CloudClientOptions) => {
     /**
      * WebSocket to an owner stream (`cmux.wire/1` frames). Browsers cannot set headers, and
      * Workers invocation logs record every header but Authorization (cx-dgsp), so the socket
-     * carries only a single-use ticket from POST /v1/wire/ticket, never the token. Any answer
-     * without a ticket throws; the legacy `bearer.` subprotocol is retired.
+     * carries only a single-use ticket from POST /v1/wire/ticket, never the token. The ticket is
+     * minted for `scope` and opens no other socket. Any answer without a ticket throws; the legacy
+     * `bearer.` subprotocol is retired.
      */
     async openWire(scope: "user" | "team"): Promise<WebSocket> {
       const team = await options.team?.()
       const token = await options.token()
-      const res = await doFetch(`${base}/v1/wire/ticket`, { method: "POST", headers: { authorization: `Bearer ${token}` } })
+      const res = await doFetch(`${base}/v1/wire/ticket`, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify({ scope }) })
       const body: unknown = await res.json().catch(() => undefined)
       const ticket = res.ok ? (body as { ticket?: unknown } | undefined)?.ticket : undefined
       if (typeof ticket !== "string") throw new CloudHttpError(res.status, body)

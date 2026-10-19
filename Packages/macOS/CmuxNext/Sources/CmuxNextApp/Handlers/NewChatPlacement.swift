@@ -10,7 +10,8 @@ import Observation
 enum NewChatPlacement: Equatable {
     /// A tab in the pane it was opened from.
     case here
-    /// A tab in the chat dock's pane.
+    /// A tab in the chat dock's pane (or, beside a pinned chat dock that
+    /// takes no tabs, in the first scrolling pane).
     case dock(LayoutPaneID)
     /// A new left chat dock, made from the chat once it exists.
     case newDock
@@ -21,7 +22,13 @@ enum NewChatPlacement: Equatable {
     /// second chat joins its pane.
     static func resolve(from pane: LayoutPaneID, columns: [LayoutColumn], isLoneChat: Bool) -> NewChatPlacement {
         guard columns.contains(where: { $0.root.contains(pane) }) else { return .here }
-        if let dock = columns.first(where: { $0.dock?.role == .agentChat }) { return .dock(dock.root.panes[0]) }
+        if let dock = columns.first(where: { $0.dock?.role == .agentChat }) {
+            if dock.dock?.takesTabs != false { return .dock(dock.root.panes[0]) }
+            // `pinned-dock-v1`: a pinned chat dock (Home's) takes no new chat. It opens where it
+            // was asked for, or in the first scrolling pane when that was the dock itself.
+            guard dock.root.contains(pane) else { return .here }
+            return columns.first(where: { $0.dock == nil }).map { NewChatPlacement.dock($0.root.panes[0]) } ?? .here
+        }
         return isLoneChat ? .here : .newDock
     }
 }
