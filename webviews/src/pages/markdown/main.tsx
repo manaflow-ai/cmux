@@ -49,6 +49,7 @@ const LINK_LABELS: Record<LinkLabel, string> = {
   noHeading: L.noHeading,
   checking: L.checking,
   opensBrowser: L.opensBrowser,
+  opensInCmux: L.opensInCmux,
   opensFile: L.opensFile,
   opensMail: L.opensMail,
   linkPlaceholder: L.linkPlaceholder,
