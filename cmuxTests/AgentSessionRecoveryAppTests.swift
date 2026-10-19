@@ -14,6 +14,58 @@ import Testing
 /// relaunch brought none back, though the journal and hook store knew them all.
 @Suite(.serialized)
 struct AgentSessionRecoveryAppTests {
+    /// Codex does not emit the Claude-style session-end hook. cmux owns the
+    /// panel-close boundary, so an unclean app exit must still recover a
+    /// Codex session whose process died with the app.
+    @Test
+    func codexSessionKilledWithTheAppIsRecoveredThroughRestoreVerb() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-agent-recovery-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let now = Date()
+        let sessionID = "codex-recovery-\(UUID().uuidString.lowercased())"
+        let journalURL = root.appendingPathComponent("journal.sqlite3")
+        let store = try AgentJournalStore(databaseURL: journalURL)
+        _ = try store.append(AgentJournalEventDraft(
+            kind: .sessionStarted,
+            occurredAtMs: Int64(now.addingTimeInterval(-60).timeIntervalSince1970 * 1000),
+            source: "codex",
+            agentKey: "codex",
+            sessionId: sessionID,
+            workspaceId: UUID().uuidString,
+            surfaceId: UUID().uuidString
+        ))
+        store.close()
+
+        let transcript = root.appendingPathComponent("\(sessionID).jsonl")
+        try Data("{}\n".utf8).write(to: transcript)
+        var file = RestorableAgentHookSessionStoreFile()
+        file.sessions[sessionID] = RestorableAgentHookSessionRecord(
+            sessionId: sessionID,
+            workspaceId: UUID().uuidString,
+            surfaceId: UUID().uuidString,
+            cwd: "/tmp",
+            transcriptPath: transcript.path,
+            pid: nil,
+            launchCommand: AgentLaunchCommand(launcher: "codex", arguments: ["codex"]),
+            isRestorable: true,
+            updatedAt: now.timeIntervalSince1970
+        )
+        try JSONEncoder().encode(file).write(to: root.appendingPathComponent("codex-hook-sessions.json"))
+
+        let recovery = AgentSessionRecovery(
+            journalURL: journalURL,
+            homeDirectory: root.path,
+            environment: ["CMUX_AGENT_HOOK_STATE_DIR": root.path]
+        )
+        let candidates = recovery.candidates(openSessionIds: [], activeSince: now.addingTimeInterval(-600), now: now)
+        let candidate = try #require(candidates.first)
+        #expect(candidate.kind == "codex")
+        #expect(AgentSessionRecovery.resumeCommand(for: candidate)?.hasSuffix(" restore codex \(sessionID)") == true)
+    }
+
     @Test
     func sessionsKilledWithTheAppResumeThroughTheirLauncher() throws {
         let root = FileManager.default.temporaryDirectory
