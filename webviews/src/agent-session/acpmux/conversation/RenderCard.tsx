@@ -1,17 +1,22 @@
-// A render card above a turn's answer (renderCall.ts): the agent's HTML, live, in the render frame
-// (`cmux-agent://render/frame`, AgentPaneRenderFrame.swift). The frame is an origin of its own,
-// sandboxed without same-origin, so the HTML cannot reach the pane, its bridge or acpmux; its
-// policy allows no connection. The frame asks for the HTML once it loads and reports its height;
-// the card grows to it, up to a cap a reader can lift. Nothing runs until the reader presses Run:
-// the frame shares the pane's web process, so a busy loop in agent HTML would freeze the pane. The
-// pane on a dev server has no render frame, so there the call stays a plain tool row. Open hands the
-// page to the side panel beside the chat (ArtifactPanel.tsx), with its source a tab away.
-import { useContext, useEffect, useRef, useState } from "react";
-import { useT } from "../i18n";
-import { ArtifactContext } from "./artifactPreview";
-import { Expand } from "./icons";
-import { renderFrameCSS } from "./renderBase";
+// Agent HTML stays in one opaque frame. liveRender streams into its runtime; the lab off
+// keeps the original Run gate and card controls (Lucas 2026-10-18).
+import { useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { translate, useT } from "../i18n";
+import { useLab } from "../labs";
+import { ArtifactContext, documentName } from "./artifactPreview";
+import { Expand, PlayTriangle } from "./icons";
+import { Dialog } from "../../../ui/Dialog";
+import { renderFrameCSS, embeddedFrameCSS } from "./renderBase";
 import { RENDER_FRAME_MIN_HEIGHT, type RenderCall } from "./renderCall";
+import { isReactRender, reactRenderPage, renderBridgeScript } from "./renderFrameDoc";
+import { devRenderFrameURL, LIVE_RENDER_FRAME_DOC } from "./renderFrameShell";
+import { RenderBridgeContext } from "./RenderBridgeContext";
+import { useRenderRequests } from "./useRenderRequests";
+import { ChatSessionContext, TranscriptRowContext, RenderLiveContext, useRenderAttachment } from "./viewIdentity";
+import { renderWatchdog, renderHeartbeatPage } from "./renderWatchdog";
+import { renderStreamScript } from "./renderStreamRuntime";
+import { ranRenders, failedRenders, renderExecutionKey } from "./renderExecution";
+export { ranRenders } from "./renderExecution";
 
 export const RENDER_FRAME_URL = "cmux-agent://render/frame";
 /// The tallest a card draws until the reader expands it.
@@ -19,93 +24,483 @@ const COLLAPSED_MAX_HEIGHT = 560;
 /// The tallest an expanded card draws; a taller page scrolls inside it.
 const EXPANDED_MAX_HEIGHT = 4000;
 
-/// The HTML the reader has run while this pane lives: a card scrolled away and back keeps
-/// running, and a reloaded pane (after a hang or a crash) starts with every card waiting again.
-export const ranRenders = new Set<string>();
-
 /// Whether this page can frame renders: only the bundled pane has the render origin.
 export const canRender = () => typeof location !== "undefined" && location.protocol === "cmux-agent:";
 
+/// Whether the pane runs on the dev server, which serves the render frame at DEV_RENDER_FRAME_PATH
+/// with the frame's own policy; elsewhere (tests, the gallery) the lab's frame is a srcdoc.
+const devServer = () => import.meta.env?.DEV === true && /^https?:$/.test(location.protocol);
+
 /// Feeds `html` to a render frame once it asks for it, and follows the height the frame reports.
-export function useRenderFrame(html: string) {
+/// The theme for a page embedded in the chat: no side inset, so it lines up with the reply's text
+/// (Lucas 2026-10-18); a page's own `body` margin still wins.
+
+export function useRenderFrame(
+  html: string,
+  live = false,
+  request?: (data: Record<string, unknown>, target: Window) => void,
+  streaming = false,
+  frozen = false,
+  kit = false,
+  enabled = true,
+  onStop?: (error: string) => void,
+) {
   const frame = useRef<HTMLIFrameElement>(null);
-  const [height, setHeight] = useState(RENDER_FRAME_MIN_HEIGHT);
+  const [height, setHeight] = useState(live ? 0 : RENDER_FRAME_MIN_HEIGHT);
+  const latest = useRef({ html, streaming, request, frozen, onStop });
+  latest.current = { html, streaming, request, frozen, onStop };
+  const [error, setError] = useState<string>();
+  const [stopped, setStopped] = useState(false);
+  const measured = useRef(height);
   useEffect(() => {
+    if (!frozen) setHeight(measured.current);
+  }, [frozen]);
+  const schedule = useRef<() => void>(() => {});
+  useLayoutEffect(() => {
+    setError(undefined);
+    setStopped(false);
+    if (!enabled) return;
+    let stalled = false;
+    const watchdog = renderWatchdog((reason) => {
+      stalled = true;
+      setStopped(true);
+      const error = translate(reason === "hang" ? "render.hung" : "render.loadFailed");
+      setError(error);
+      latest.current.onStop?.(error);
+    });
+    let reportedError = false;
+    let booted = false,
+      ready = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let animation: number | undefined;
+    let lastFlush = -Infinity;
+    let preparingReact = false;
+    let sent: { html: string; done: boolean } | undefined;
+    const flush = () => {
+      timer = undefined;
+      animation = undefined;
+      if (!ready || stalled) return;
+      const { html, streaming } = latest.current;
+      if (isReactRender(html) && streaming && !preparingReact) {
+        preparingReact = true;
+        frame.current?.contentWindow?.postMessage(
+          { type: "cmux-render-react-prepare", errorText: translate("render.loadFailed") },
+          "*",
+        );
+      }
+      if (isReactRender(html) && streaming) return;
+      const page = isReactRender(html) ? reactRenderPage(html) : html;
+      const done = !streaming;
+      if (sent?.html === page && sent.done === done) return;
+      frame.current?.contentWindow?.postMessage({ type: "cmux-render-stream", html: page, done }, "*");
+      sent = { html: page, done };
+      lastFlush = performance.now();
+    };
+    schedule.current = () => {
+      if (!ready || timer !== undefined || animation !== undefined) return;
+      if (!sent) return flush();
+      const nextFrame = () => {
+        timer = undefined;
+        animation = requestAnimationFrame(flush);
+      };
+      const remaining = 50 - (performance.now() - lastFlush);
+      if (remaining > 0) timer = setTimeout(nextFrame, remaining);
+      else nextFrame();
+    };
     const onMessage = (event: MessageEvent) => {
       const target = frame.current?.contentWindow;
-      if (!target || event.source !== target) return;
+      if (stalled || !target || event.source !== target) return;
       const data: unknown = event.data;
       if (!data || typeof data !== "object") return;
-      const message = data as { type?: unknown; height?: unknown };
-      if (message.type === "cmux-render-ready")
-        target.postMessage({ type: "cmux-render", html, css: renderFrameCSS() }, "*");
+      const message = data as { type?: unknown; height?: unknown; error?: unknown };
+      if (message.type === "cmux-render-ready" && !booted && !ready) {
+        booted = true;
+        const css = live ? embeddedFrameCSS() : renderFrameCSS();
+        const theme = getComputedStyle(document.body).colorScheme.includes("dark") ? "dark" : "light";
+        target.postMessage(
+          {
+            type: "cmux-render",
+            html: live
+              ? "<!doctype html><html><head>" +
+                renderBridgeScript(theme, css) +
+                renderStreamScript() +
+                "</head><body></body></html>"
+              : renderHeartbeatPage(latest.current.html),
+            css,
+          },
+          "*",
+        );
+        watchdog.start(target);
+      } else if (message.type === "cmux-render-pong") {
+        watchdog.pong((data as { id?: unknown }).id);
+      } else if (live && message.type === "cmux-render-stream-ready") {
+        if (ready) return;
+        ready = true;
+        watchdog.start(target);
+        target.postMessage({ type: "cmux-render-kit", enabled: kit }, "*");
+        theme();
+        schedule.current();
+      } else if (live && kit && message.type === "cmux-render-error" && typeof message.error === "string") {
+        const text = message.error.replace(/\s+/g, " ").trim().slice(0, 200);
+        if (text && !reportedError) {
+          reportedError = true;
+          setError(text);
+        }
+      } else if (live && message.type === "cmux-render-request")
+        latest.current.request?.(data as Record<string, unknown>, target);
       else if (
-        message.type === "cmux-render-size" &&
+        message.type === (live ? "cmux-render-content-size" : "cmux-render-size") &&
         typeof message.height === "number" &&
         Number.isFinite(message.height)
-      )
-        setHeight(Math.min(EXPANDED_MAX_HEIGHT, Math.max(RENDER_FRAME_MIN_HEIGHT, Math.ceil(message.height))));
+      ) {
+        measured.current = Math.min(
+          live ? 1600 : EXPANDED_MAX_HEIGHT,
+          Math.max(live ? 0 : RENDER_FRAME_MIN_HEIGHT, Math.ceil(message.height)),
+        );
+        if (!latest.current.frozen) setHeight(measured.current);
+      }
     };
     addEventListener("message", onMessage);
-    return () => removeEventListener("message", onMessage);
-  }, [html]);
-  return { frame, height };
+    let themeCSS: string | undefined;
+    const theme = () => {
+      const css = embeddedFrameCSS();
+      if (css === themeCSS) return;
+      themeCSS = css;
+      frame.current?.contentWindow?.postMessage(
+        {
+          type: "cmux-render-theme",
+          theme: getComputedStyle(document.body).colorScheme.includes("dark") ? "dark" : "light",
+          css,
+        },
+        "*",
+      );
+    };
+    const observer = live ? new MutationObserver(theme) : undefined;
+    observer?.observe(document.documentElement, { attributes: true });
+    observer?.observe(document.body, { attributes: true });
+    observer?.observe(document.head, { childList: true, subtree: true, characterData: true });
+    const scheme = live && typeof matchMedia === "function" ? matchMedia("(prefers-color-scheme: dark)") : undefined;
+    scheme?.addEventListener("change", theme);
+    return () => {
+      watchdog.dispose();
+      clearTimeout(timer);
+      if (animation !== undefined) cancelAnimationFrame(animation);
+      schedule.current = () => {};
+      removeEventListener("message", onMessage);
+      observer?.disconnect();
+      scheme?.removeEventListener("change", theme);
+    };
+  }, [live, kit, enabled]);
+  useEffect(() => schedule.current(), [html, streaming]);
+  return { frame, height, error, stopped };
 }
 
-export function RenderCard({ call }: { call: RenderCall }) {
+type RenderCardProps = {
+  call: RenderCall;
+  panel?: boolean;
+  streaming?: boolean;
+  turnStreaming?: boolean;
+};
+
+export function RenderCard(props: RenderCardProps) {
+  const sessionId = useContext(ChatSessionContext);
+  const rowId = useContext(TranscriptRowContext);
+  const initialHTML = useRef(props.call.html);
+  const identity = rowId ? [rowId, props.call.id ?? ""] : (props.call.id ?? initialHTML.current);
+  const attachment = useRenderAttachment();
+  const provenance = useContext(RenderLiveContext);
+  const liveTurn = provenance !== false && (provenance === true ? 0 : provenance.attachment) === attachment;
+  const executionKey = renderExecutionKey(sessionId, identity, attachment);
+  return <ScopedRenderCard key={executionKey} {...props} executionKey={executionKey} liveTurn={liveTurn} />;
+}
+
+function ScopedRenderCard({
+  call,
+  panel = false,
+  streaming = false,
+  executionKey,
+  liveTurn,
+}: RenderCardProps & { executionKey: string; liveTurn: boolean }) {
   const t = useT();
+  const live = useLab("liveRender");
+  const renderExpand = useLab("renderExpand");
+  const [large, setLarge] = useState(false);
+  const expandButton = useRef<HTMLButtonElement>(null);
+  const kit = useLab("renderKit") && live;
+  const bridge = useContext(RenderBridgeContext);
   const open = useContext(ArtifactContext);
-  const { frame, height } = useRenderFrame(call.html);
+  const sessionId = useContext(ChatSessionContext);
+  const rowId = useContext(TranscriptRowContext);
+  const identity = rowId ? [rowId, call.id ?? ""] : (call.id ?? call.html);
+  const key = JSON.stringify([sessionId, identity]);
+  const requests = useRenderRequests(key);
+  const [ran, setRan] = useState(() => ranRenders.has(executionKey) || (live && liveTurn));
+  const [failure, setFailure] = useState(() => failedRenders.get(executionKey));
+  const running = !failure && (ran || (live && liveTurn));
+  useEffect(() => {
+    if (live && liveTurn) setRan(true);
+  }, [live, liveTurn]);
+  useEffect(() => {
+    if (running) ranRenders.add(executionKey);
+  }, [running, executionKey]);
+  const { frame, height, error, stopped } = useRenderFrame(
+    call.html,
+    live,
+    requests.request,
+    streaming,
+    live && !!requests.pending,
+    kit,
+    running,
+    (error) => {
+      failedRenders.set(executionKey, error);
+      setFailure(error);
+    },
+  );
+  useEffect(() => {
+    if (stopped) requests.cancel();
+  }, [stopped, requests.cancel]);
   const [expanded, setExpanded] = useState(false);
-  const [running, setRunning] = useState(() => ranRenders.has(call.html));
   const run = () => {
-    ranRenders.add(call.html);
-    setRunning(true);
+    failedRenders.delete(executionKey);
+    setFailure(undefined);
+    ranRenders.add(executionKey);
+    setRan(true);
   };
-  const title = call.title ?? t("render.untitled");
+  const title = call.title ?? (live ? renderTitle(call.html) || t("render.untitled") : t("render.untitled"));
+  const repairName = (call.title || renderTitle(call.html)).replace(/\s+/g, " ").trim().slice(0, 100);
   const tall = height > COLLAPSED_MAX_HEIGHT;
   return (
-    <div className="acpmux-render-card">
-      <div className="acpmux-render-card-head">
-        <span className="acpmux-render-card-title">{title}</span>
-        {!running && (
-          <button type="button" className="acpmux-review-changes" onClick={run}>
-            {t("render.run")}
-          </button>
-        )}
-        {running && tall && (
+    <div
+      className={panel ? "acpmux-render-card acpmux-render-card--panel" : "acpmux-render-card"}
+      style={live && streaming && isReactRender(call.html) ? { display: "none" } : undefined}
+    >
+      {running && !stopped && live && renderExpand && !panel && !streaming && !requests.pending && (
+        <button
+          type="button"
+          ref={expandButton}
+          className="cv-iconbtn cv-iconbtn--compact acpmux-render-enlarge"
+          aria-label={t("artifact.open")}
+          title={t("artifact.open")}
+          onClick={() => setLarge(true)}
+        >
+          <Expand />
+        </button>
+      )}
+      {large && (
+        <Dialog
+          open={large}
+          onOpenChange={setLarge}
+          label={title}
+          finalFocus={expandButton}
+          className="acpmux-render-dialog"
+          backdropClassName="acpmux-image-viewer-backdrop"
+        >
+          <div className="acpmux-render-dialog-head">
+            <span>{title}</span>
+            <button type="button" className="acpmux-review-changes" onClick={() => setLarge(false)}>
+              {t("artifact.close")}
+            </button>
+          </div>
+          <div className="acpmux-render-dialog-body">
+            <RenderCard call={call} panel />
+          </div>
+        </Dialog>
+      )}
+      {(!live || !running) && (
+        <div className="acpmux-render-card-head">
+          <span className="acpmux-render-card-title">{title}</span>
+          {running && tall && (
+            <button
+              type="button"
+              className="acpmux-review-changes"
+              aria-expanded={expanded}
+              onClick={() => setExpanded((value) => !value)}
+            >
+              {expanded ? t("render.collapse") : t("render.expand")}
+            </button>
+          )}
+          {/* Only a page that runs opens larger: a waiting one would show its source (Lucas 2026-10-19). */}
+          {open && !panel && running && (
+            <button
+              type="button"
+              className="cv-iconbtn cv-iconbtn--compact"
+              aria-label={t("artifact.open")}
+              title={t("artifact.open")}
+              onClick={() =>
+                open({
+                  kind: "html",
+                  lang: "html",
+                  code: call.html,
+                })
+              }
+            >
+              <Expand />
+            </button>
+          )}
+        </div>
+      )}
+      {!running && (
+        // A page from history waits for a click: one target where the page will show, not a small
+        // button in the title line (Lucas 2026-10-19).
+        <button type="button" className="acpmux-render-card-gate" onClick={run}>
+          <span className="acpmux-render-card-gate-icon" aria-hidden="true">
+            <PlayTriangle size={12} />
+          </span>
+          {t("render.showPreview")}
+        </button>
+      )}
+      {running && !stopped && (
+        <iframe
+          key={`${live}:${kit}`}
+          ref={frame}
+          className={panel ? "acpmux-artifact-frame" : "acpmux-render-card-frame"}
+          src={live && !canRender() ? (devServer() ? devRenderFrameURL(location.href) : undefined) : RENDER_FRAME_URL}
+          srcDoc={live && !canRender() && !devServer() ? LIVE_RENDER_FRAME_DOC : undefined}
+          // The name for assistive tech; `title` would also float as a hover tooltip over the render.
+          aria-label={title}
+          sandbox="allow-scripts"
+          referrerPolicy="no-referrer"
+          style={
+            panel && !live ? undefined : { height: live || expanded ? height : Math.min(height, COLLAPSED_MAX_HEIGHT) }
+          }
+        />
+      )}
+      {(error || failure) && (
+        <div className="acpmux-render-note" role="status" style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+          <span style={{ overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>
+            {t("render.error")} {error || failure}
+          </span>
+          {bridge && (
+            <button
+              type="button"
+              className="acpmux-review-changes"
+              style={{ flexShrink: 0 }}
+              // l10n-allow: repair context sent to the agent
+              onClick={() =>
+                bridge.prefill(
+                  `Please fix ${repairName ? `the chat render ${JSON.stringify(repairName)}` : "this chat render"}. Render error: ${error || failure}`,
+                )
+              }
+            >
+              {t("render.askToFix")}
+            </button>
+          )}
+        </div>
+      )}
+      {live && running && !stopped && requests.pending && <RenderConfirm requests={requests} />}
+      {live && requests.copied && <output className="acpmux-render-note">{t("turn.copied")}</output>}
+    </div>
+  );
+}
+
+/// The full request stays scrollable, with invisible controls named before the reader confirms.
+function RenderConfirm({ requests }: { requests: ReturnType<typeof useRenderRequests> }) {
+  const t = useT();
+  const pending = requests.pending!;
+  const appeared = useRef(0);
+  const payload = useRef<HTMLDivElement>(null);
+  const [reviewed, setReviewed] = useState(false);
+  const checkEnd = () => {
+    const box = payload.current;
+    if (box && box.scrollHeight - box.clientHeight - box.scrollTop <= 1) setReviewed(true);
+  };
+  useLayoutEffect(() => {
+    // Give the reader time to see each request before its buttons accept a click (Lucas 2026-10-18).
+    appeared.current = Date.now();
+    const box = payload.current!;
+    box.scrollTop = 0;
+    setReviewed(box.scrollHeight <= box.clientHeight + 1);
+    const observer = new ResizeObserver(checkEnd);
+    observer.observe(box);
+    return () => observer.disconnect();
+  }, [pending]);
+  const label =
+    pending.method === "sendPrompt"
+      ? t("render.sendToChat")
+      : pending.method === "copy"
+        ? t("render.copy")
+        : pending.method === "prefill"
+          ? t("render.edit")
+          : t("render.open");
+  return (
+    // oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- Escape cancels from the buttons inside, as in ArtifactPanel.
+    <section
+      aria-label={`${t("render.origin")}: ${label}`}
+      className="acpmux-render-confirm"
+      // ui-allow: A new request cannot borrow a click meant for the page beneath it.
+      onClickCapture={(event) => {
+        if (Date.now() - appeared.current < 500) {
+          event.preventDefault();
+          event.stopPropagation();
+        }
+      }}
+      // ui-allow: Escape cancels this draft from any control in its confirmation strip.
+      onKeyDown={(event) => {
+        if (event.key === "Escape") {
+          event.stopPropagation();
+          event.preventDefault();
+          requests.cancel();
+        }
+      }}
+    >
+      <div className="acpmux-render-confirm-draft">
+        <span className="acpmux-render-confirm-origin">{t("render.origin")}</span>
+        <span className="acpmux-render-confirm-label">{label}</span>
+        <div
+          ref={payload}
+          className="acpmux-render-confirm-text"
+          onScroll={checkEnd}
+          // ui-allow: Keyboard users can scroll the full confirmation before acting.
+          tabIndex={0}
+          role="region"
+          aria-label={label}
+        >
+          {pending.text
+            .replace(
+              /[\p{Default_Ignorable_Code_Point}\p{Cc}\p{Zl}\p{Zp}\u00a0\u2000-\u200a\u3000\ufff9-\ufffb]/gu,
+              (character) =>
+                character === "\n"
+                  ? character
+                  : `[U+${character.codePointAt(0)!.toString(16).toUpperCase().padStart(4, "0")}]`,
+            )
+            .replace(
+              /\n(?: *\n){3,}/g,
+              (lines) => `\n${t("render.blankLines", { count: lines.split("\n").length - 2 })}\n`,
+            )}
+        </div>
+      </div>
+      <div className="acpmux-render-confirm-actions">
+        <button
+          type="button"
+          className="acpmux-ask-action is-primary"
+          disabled={!reviewed}
+          onClick={() => requests.confirm(false)}
+        >
+          {pending.method === "sendPrompt" ? t("composer.send") : label}
+        </button>
+        {pending.method === "sendPrompt" && (
           <button
             type="button"
             className="acpmux-review-changes"
-            aria-expanded={expanded}
-            onClick={() => setExpanded((value) => !value)}
+            disabled={!reviewed}
+            onClick={() => requests.confirm(true)}
           >
-            {expanded ? t("render.collapse") : t("render.expand")}
+            {t("render.edit")}
           </button>
         )}
-        {open && (
-          <button
-            type="button"
-            className="cv-iconbtn cv-iconbtn--compact"
-            aria-label={t("artifact.open")}
-            title={t("artifact.open")}
-            onClick={() => open({ kind: "html", lang: "html", code: call.html })}
-          >
-            <Expand />
-          </button>
-        )}
+        <button type="button" className="acpmux-review-changes acpmux-render-cancel" onClick={requests.cancel}>
+          {t("edited.cancel")}
+        </button>
       </div>
-      {running && (
-        <iframe
-          ref={frame}
-          className="acpmux-render-card-frame"
-          src={RENDER_FRAME_URL}
-          title={title}
-          sandbox="allow-scripts"
-          referrerPolicy="no-referrer"
-          style={{ height: expanded ? height : Math.min(height, COLLAPSED_MAX_HEIGHT) }}
-        />
-      )}
-    </div>
+    </section>
+  );
+}
+
+/// Agent-authored names stay in the page; unnamed cards keep Preview (Lucas 2026-10-18).
+export function renderTitle(html: string): string {
+  const title = documentName({ kind: "html", lang: "html", code: html });
+  if (title || !isReactRender(html)) return title;
+  return (
+    /^\s*\/\/\s*title:\s*([^\r\n]+)/i.exec(html.trimStart().slice("<!-- cmux-react -->".length))?.[1]?.trim() ?? ""
   );
 }

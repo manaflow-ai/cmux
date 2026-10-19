@@ -1,6 +1,7 @@
 # Lane: react-pages
 
 ## Active streams
+- 2026-10-19, next-chat-ui / PR #21315: `render_preview` MCP tool routes `CMUX_AGENT_SESSION` to local-only `agent.render_preview`. A bridge-free ephemeral WKWebView uses the chat's frame scheme handler document/policy and bundled streaming runtime, resolved kit/theme and reply width. Labs: renderPreview, renderExpand, tableScroll. No focus changes or remote relay additions. Preview is MCP-only because its image response is agent inspection, with no user action or standalone CLI/palette/shortcut equivalent. Tagged Swift build and real socket PNG captures pass, including light/dark, React, viewport heights, navigation blocking, timeout cleanup and focus preservation. Warm captures take about 0.3 to 0.5 seconds. Swift unit tests and Rust compilation/tests remain for CI; web checks and PNG receipts are reported with the task.
 - History and App Store as React pages with a Rust backend (React UIs lead, R62 UI-STACK). Design: plans/cmux-next/react-pages.md. Pages live in `webviews/src/pages/<page>/`; `webviews/src/pages/shared/pageClient.ts` is the only transport file (pane-protocol envelope over the `cmuxPage` WebKit bridge until the daemon router lands). Touches: webviews dev server (`/history/` route), CmuxNextHistory xcstrings (page strings source), `cmux-history` crate (H2), daemon `history.*` ops (H3, main window), app platform `cmux.apps.*` ops (theirs).
 
 ## Landed

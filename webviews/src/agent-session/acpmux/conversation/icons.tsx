@@ -345,6 +345,16 @@ export const Magnifier = (p: CvIconProps) => (
   </Svg>
 );
 
+/** A thought line's brain (ThoughtFold.tsx): two halves on a center fold. */
+export const Brain = (p: CvIconProps) => (
+  <Svg strokeWidth={1.1} {...p}>
+    <path d="M8 3C7.3 2.3 6 2.3 5.4 3.1 4.4 2.9 3.5 3.7 3.6 4.7 2.6 5.1 2.2 6.3 2.8 7.2 2.1 7.9 2.2 9.2 3.1 9.7 2.9 10.8 3.8 11.8 4.9 11.6 5.4 12.7 6.9 13 8 12.2" />
+    <path d="M8 3c.7-.7 2-.7 2.6.1 1-.2 1.9.6 1.8 1.6 1 .4 1.4 1.6.8 2.5.7.7.6 2-.3 2.5.2 1.1-.7 2.1-1.8 1.9-.5 1.1-2 1.4-3.1.6" />
+    <path d="M8 3v9.2" />
+    <path d="M5.2 5.2c.7.2 1 .8.8 1.4M3.9 8.2c.9-.2 1.7.3 1.9 1.1M10.8 5.2c-.7.2-1 .8-.8 1.4M12.1 8.2c-.9-.2-1.7.3-1.9 1.1" />
+  </Svg>
+);
+
 /** Folder of directory-listing tool rows ("Listed files in …"). */
 export const Folder = (p: CvIconProps) => (
   <Svg strokeWidth={1.1} {...p}>

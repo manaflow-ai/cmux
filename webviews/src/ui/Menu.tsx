@@ -26,6 +26,8 @@ export interface MenuProps {
   open?: boolean;
   onOpenChange?(open: boolean): void;
   onOpenChangeComplete?(open: boolean): void;
+  /** Receives the menu button, for a caller that hands focus back to it itself. */
+  triggerRef?: RefObject<HTMLButtonElement | null>;
   children: ReactNode;
 }
 
@@ -47,11 +49,12 @@ interface MenuContextValue {
 const MenuContext = createContext<MenuContextValue | null>(null);
 
 /** A menu: a `MenuButton` and a `MenuPopup`. Non-modal, so the page keeps scrolling. */
-export function Menu({ open, onOpenChange, onOpenChangeComplete, children }: MenuProps) {
+export function Menu({ open, onOpenChange, onOpenChangeComplete, triggerRef, children }: MenuProps) {
   const [internalOpen, setInternalOpen] = useState(open ?? false);
   const session = useRef<PointerSession | null>(null);
   const pointerCleanup = useRef<(() => void) | null>(null);
-  const trigger = useRef<HTMLButtonElement | null>(null);
+  const ownTrigger = useRef<HTMLButtonElement | null>(null);
+  const trigger = triggerRef ?? ownTrigger;
   const opener = useRef<Element | null>(null);
   const keyed = useRef(false);
   const captured = useRef(false);
