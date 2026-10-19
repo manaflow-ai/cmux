@@ -1,3 +1,4 @@
+import CmuxSSHClipboardTrust
 import AppKit
 import Foundation
 import CmuxFoundation
@@ -42,6 +43,17 @@ extension GhosttyApp: TerminalEngineHosting {
 /// surface model historically constructed in its initializer.
 struct TerminalSurfaceViewFactory: TerminalSurfaceViewProviding {
     let imageTransferPreparation: TerminalImageTransferPreparationService
+    let sshClipboardWriteTrustStore: SSHClipboardWriteTrustStore
+
+    init(
+        imageTransferPreparation: TerminalImageTransferPreparationService,
+        sshClipboardWriteTrustStore: SSHClipboardWriteTrustStore? = nil
+    ) {
+        self.imageTransferPreparation = imageTransferPreparation
+        self.sshClipboardWriteTrustStore = sshClipboardWriteTrustStore
+            ?? AppDelegate.shared?.sshClipboardWriteTrustStore
+            ?? SSHClipboardWriteTrustStore(defaults: .standard)
+    }
 
     @MainActor
     func makeSurfaceViews(
@@ -49,7 +61,8 @@ struct TerminalSurfaceViewFactory: TerminalSurfaceViewProviding {
     ) -> (surfaceView: any TerminalSurfaceNativeViewing, paneHost: any TerminalSurfacePaneHosting) {
         let view = GhosttyNSView(
             frame: initialFrame,
-            imageTransferPreparation: imageTransferPreparation
+            imageTransferPreparation: imageTransferPreparation,
+            sshClipboardWriteTrustStore: sshClipboardWriteTrustStore
         )
         return (view, GhosttySurfaceScrollView(surfaceView: view))
     }

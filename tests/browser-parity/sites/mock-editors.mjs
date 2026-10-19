@@ -7,7 +7,9 @@ import zlib from "node:zlib";
 
 const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
-// A minimal zip writer (deflate), enough for xlsx and pptx exports.
+// A minimal zip writer (deflate), enough for xlsx and pptx exports. An
+// entry is [name, text or bytes, { size }]: `size` overrides the declared
+// uncompressed size (a lying header, for the reader's limit tests).
 export function zip(entries) {
   const crcTable = Array.from({ length: 256 }, (_, n) => {
     let c = n;
@@ -22,8 +24,9 @@ export function zip(entries) {
   const locals = [];
   const centrals = [];
   let offset = 0;
-  for (const [name, text] of entries) {
+  for (const [name, text, opts = {}] of entries) {
     const data = Buffer.from(text);
+    const declared = opts.size ?? data.length;
     const comp = zlib.deflateRawSync(data);
     const nameBuf = Buffer.from(name);
     const local = Buffer.alloc(30);
@@ -32,7 +35,7 @@ export function zip(entries) {
     local.writeUInt16LE(8, 8);
     local.writeUInt32LE(crc32(data), 14);
     local.writeUInt32LE(comp.length, 18);
-    local.writeUInt32LE(data.length, 22);
+    local.writeUInt32LE(declared, 22);
     local.writeUInt16LE(nameBuf.length, 26);
     const central = Buffer.alloc(46);
     central.writeUInt32LE(0x02014b50, 0);
@@ -41,7 +44,7 @@ export function zip(entries) {
     central.writeUInt16LE(8, 10);
     central.writeUInt32LE(crc32(data), 16);
     central.writeUInt32LE(comp.length, 20);
-    central.writeUInt32LE(data.length, 24);
+    central.writeUInt32LE(declared, 24);
     central.writeUInt16LE(nameBuf.length, 28);
     central.writeUInt32LE(offset, 42);
     locals.push(local, nameBuf, comp);
@@ -171,15 +174,24 @@ function replaceIn(file, find, repl) {
   return n;
 }
 
-const shell = (file, body) => `<!doctype html><html><head><meta charset="utf-8"><title>${esc(file.title)} - Google ${file.kind === "spreadsheets" ? "Sheets" : file.kind === "document" ? "Docs" : "Slides"}</title></head><body>${file.trashed ? '<div role="alert">File is in trash</div>' : ""}
+// As live, the editor's header names the Google account it is signed in
+// as (account: a ListAccounts row, passed by the docs.google.com mock).
+const accountButton = (account) => (account ? `<a role="button" aria-label="Google Account: ${esc(account[2])} (${esc(account[3])})" href="https://accounts.google.com/SignOutOptions"></a>` : "");
+const shell = (file, body, account) => `<!doctype html><html><head><meta charset="utf-8"><title>${esc(file.title)} - Google ${file.kind === "spreadsheets" ? "Sheets" : file.kind === "document" ? "Docs" : "Slides"}</title></head><body>${file.trashed ? '<div role="alert">File is in trash</div>' : ""}
+<div id="docs-header">${accountButton(account)}</div>
 <div id="docs-titlebar"><input class="docs-title-input" value="${esc(file.title)}" aria-label="Rename">
 <div id="share-slot"></div><div role="button" aria-label="Share screen">Present</div>
 <div id="docs-file-menu" role="menuitem">File</div><div id="docs-edit-menu" role="menuitem">Edit</div></div>
+${file.decoyTrash ? '<div class="decoy"><div role="menuitem" id="decoy-trash">Move to trash</div></div>' : ""}
 ${body}
 <script>
 // As in the editors: the Share button (no id) renders a moment after the title.
 // As live: an unlabeled wrapper carries the id; the inner button the label.
-setTimeout(() => { document.getElementById("share-slot").innerHTML = '<div id="docs-titlebar-share-client-button"><div role="button" aria-label="Share. ${file.shared ? "Anyone with the link can view" : "Private to only me"}. "> <span>Share</span></div></div>'; }, 600);
+setTimeout(() => { document.getElementById("share-slot").innerHTML = '<div id="docs-titlebar-share-client-button">${file.decoyShare === "inside" ? '<span aria-label="Share. Private to only me. "></span>' : ""}<div role="button" aria-label="Share. ${esc(file.shareText || (file.shared ? "Anyone with the link can view" : "Private to only me"))}. "> <span>Share</span></div></div>'; }, 600);
+// decoyShare: a script (or another session) puts a label that says
+// private where the old reader looked: anywhere in the page before the
+// button ("page"), or a second label inside the button ("inside").
+${file.decoyShare === "page" ? `document.getElementById("docs-titlebar").insertAdjacentHTML("afterbegin", '<div aria-label="Share. Private to only me. "></div>');` : ""}
 const post = (path, data) => fetch(location.pathname.replace(/\\/edit$/, "") + "/__mock/" + path, { method: "POST", body: JSON.stringify(data) });
 // As live in Docs: a rename typed while the editor is still loading is lost.
 const loadedAt = Date.now();
@@ -189,6 +201,9 @@ document.querySelector(".docs-title-input").addEventListener("keydown", (e) => {
   post("title", { title: e.target.value });
   document.title = e.target.value + " - Google Docs";
 });
+// decoyTrash: a "Move to trash" item outside the File menu (page content,
+// another menu); a press on it is recorded, never trashes.
+document.querySelector("#decoy-trash")?.addEventListener("click", () => post("decoy", { what: "Move to trash" }));
 document.getElementById("docs-file-menu").addEventListener("click", () => {
   document.body.insertAdjacentHTML("beforeend", '<div role="menu"><div role="menuitem" id="trash-item">Move to trash</div></div>');
   document.getElementById("trash-item").addEventListener("click", async () => { await post("trash", {}); document.body.insertAdjacentHTML("beforeend", '<div role="dialog">File moved to trash</div>'); });
@@ -216,7 +231,7 @@ document.getElementById("docs-edit-menu").addEventListener("click", () => {
 });
 </script></body></html>`;
 
-function sheetEditor(file) {
+function sheetEditor(file, account) {
   return shell(
     file,
     `<div id="docs-save-indicator-badge"><span id="save-badge">Saved to Drive</span></div><div id="waffle-grid-container"><input id="t-name-box" aria-label="Name Box" value="A1"><div class="cell-input" contenteditable="true" tabindex="0"></div></div>
@@ -231,6 +246,10 @@ box.addEventListener("keydown", (e) => {
   if (e.key !== "Enter") return;
   e.preventDefault();
   range = box.value.toUpperCase();
+  // redirectSelection: an editor (or another session) that moves the
+  // selection elsewhere right after the name box selected the range.
+  const redirect = ${JSON.stringify(file.redirectSelection || null)};
+  if (redirect) { range = redirect; box.value = redirect; }
   const m = /^([A-Z]+)(\\d+)/.exec(range);
   const c = [...m[1]].reduce((n, ch) => n * 26 + ch.charCodeAt(0) - 64, 0) - 1;
   cur = { r: Number(m[2]) - 1, c, start: c };
@@ -255,11 +274,13 @@ cell.addEventListener("paste", (e) => {
   post("cells", { range: ref(cur.r, cur.c), tsv, via: "paste" });
 });
 cell.addEventListener("keydown", (e) => {
-  if (e.key === "Tab") { e.preventDefault(); commit(); cur.c++; }
-  else if (e.key === "Enter") { e.preventDefault(); commit(); cur.r++; cur.c = cur.start; }
+  // As live, the name box shows the active cell.
+  if (e.key === "Tab") { e.preventDefault(); commit(); cur.c++; box.value = ref(cur.r, cur.c); }
+  else if (e.key === "Enter") { e.preventDefault(); commit(); cur.r++; cur.c = cur.start; box.value = ref(cur.r, cur.c); }
 });
 cell.addEventListener("keydown", (e) => { if (e.key === "Delete" || e.key === "Backspace") { saving(); post("clear", { range }); } });
 </script>`,
+    account,
   );
 }
 
@@ -274,12 +295,12 @@ export function createEditors() {
   // Fixtures: one shared sheet, one private doc and deck.
   add({ id: "1sheetSHARED00000000000000000000x", kind: "spreadsheets", title: "Team budget", shared: true, sheets: [{ name: "Budget", gid: "0", cells: new Map([["A1", "Item"], ["B1", "Cost"], ["A2", "Rent"], ["B2", "1200"], ["A3", "Food"], ["B3", "300"], ["A4", "Total"], ["B4", "=SUM(B2:B3)"]]) }, { name: "Notes", gid: "7", cells: new Map([["A1", "remember"]]) }] });
   add({ id: "1docPRIVATE000000000000000000000x", kind: "document", title: "Plan", shared: false, blocks: [{ type: "heading", level: 1, text: "Plan" }, { type: "paragraph", text: "Intro paragraph." }, { type: "heading", level: 2, text: "Goals" }, { type: "list", items: ["Ship it", "Measure it"] }, { type: "table", rows: [["Owner", "Task"], ["Ada", "Draft"]] }, { type: "paragraph", text: "Closing line." }] });
-  add({ id: "1deckPRIVATE00000000000000000000x", kind: "presentation", title: "Roadmap deck", shared: false, slides: [{ title: "Roadmap", body: ["Q1: ship", "Q2: grow"], notes: "Say hello" }, { title: "Risks", body: ["Time"], notes: "Keep short" }] });
+  add({ id: "1deckPRIVATE00000000000000000000x", kind: "presentation", title: "Roadmap deck", shared: false, slides: [{ id: "g1a2b3c_0_0", title: "Roadmap", body: ["Q1: ship", "Q2: grow"], notes: "Say hello" }, { id: "g1a2b3c_0_7", title: "Risks", body: ["Time"], notes: "Keep short" }] });
 
-  function handle(req, url, body) {
+  function handle(req, url, body, internal = {}) {
     if (req.method === "GET" && /^\/(document|spreadsheets|presentation)\/create$/.test(url.pathname)) {
       const kind = url.pathname.split("/")[1];
-      const id = add({ kind, title: kind === "document" ? "Untitled document" : kind === "spreadsheets" ? "Untitled spreadsheet" : "Untitled presentation", shared: false, sheets: [{ name: "Sheet1", gid: "0", cells: new Map() }], blocks: [{ type: "paragraph", text: "" }], slides: [{ title: "", body: [], notes: "" }] });
+      const id = add({ kind, owner: internal.owner || null, title: kind === "document" ? "Untitled document" : kind === "spreadsheets" ? "Untitled spreadsheet" : "Untitled presentation", shared: false, sheets: [{ name: "Sheet1", gid: "0", cells: new Map() }], blocks: [{ type: "paragraph", text: "" }], slides: [{ title: "", body: [], notes: "" }] });
       return { redirect: `https://docs.google.com/${kind}/d/${id}/edit` };
     }
     const m = /^\/(document|spreadsheets|presentation)\/d\/([\w-]+)\/(edit|export|htmlview|__mock\/(\w+))$/.exec(url.pathname);
@@ -290,7 +311,16 @@ export function createEditors() {
     if (file.kind !== m[1]) return { status: 404, html: "<p>Not found</p>" };
     const op = m[3];
     if (op === "edit") {
-      if (file.kind === "spreadsheets") return { html: sheetEditor(file) };
+      // A collaborator reverses the deck's slides as the editor loads.
+      if (file.reorderOnEditorLoad) (file.slides = [...file.slides].reverse()), (file.reorderOnEditorLoad = false);
+      // A collaborator shares the file right after an editor page loaded
+      // (its Share button still shows the old label).
+      if (file.shareAfterEditorLoad && !internal.skipShare) {
+        const page = handle(req, url, body, { ...internal, skipShare: true });
+        (file.shared = true), (file.shareAfterEditorLoad = false);
+        return page;
+      }
+      if (file.kind === "spreadsheets") return { html: sheetEditor(file, internal.account) };
       if (file.kind === "document")
         return {
           html: shell(
@@ -306,19 +336,26 @@ document.querySelector(".kix-appview-editor").addEventListener("input", (e) => {
   timer = setTimeout(() => { post("append", { text: typed }); typed = ""; }, 200);
 });
 </script>`,
+            internal.account,
           ),
         };
       return {
         html: shell(
           file,
-          `<svg id="filmstrip" width="200" height="${file.slides.length * 110}">${file.slides.map((s, i) => `<g id="filmstrip-slide-${i}-p${i}"><rect x="10" y="${i * 110 + 5}" width="150" height="90" fill="#eee"></rect></g>`).join("")}</svg>
+          `<svg id="filmstrip" width="200" height="${file.slides.length * 110}">${file.slides.map((s, i) => `<g id="filmstrip-slide-${i}-${s.id || `p${i}`}"><rect x="10" y="${i * 110 + 5}" width="150" height="90" fill="#eee"></rect></g>`).join("")}</svg>
 <div class="punch-viewer-svgpage">${esc(file.slides.map((s) => s.title).join(" "))}</div>
 <div id="speakernotes"><div id="speakernotes-workspace" role="textbox" aria-label="Speaker notes" tabindex="0" style="min-height:40px"></div></div>
 <script>
-// As live: thumbnails g#filmstrip-slide-<i>-<pageId> select a slide; the
+// As live: thumbnails g#filmstrip-slide-<i>-<pageId> select a slide (the
+// page id is the slide's object id and stays with it when slides move); the
 // notes textbox takes typed keys (Meta+A selects all notes; Escape commits).
 let slide = 0, notes = null, replaceAll = false, atStart = false;
-document.querySelectorAll("#filmstrip g").forEach((g, i) => g.addEventListener("click", () => { slide = i; }));
+// As live, the URL's #slide=id.<object id> names the selected slide.
+// redirectSlide: an editor (or another session) that selects that slide
+// instead of the one clicked.
+const slideIds = ${JSON.stringify(file.slides.map((x, i) => x.id || `p${i}`))};
+const redirectSlide = ${JSON.stringify(Number.isInteger(file.redirectSlide) ? file.redirectSlide : null)};
+document.querySelectorAll("#filmstrip g").forEach((g, i) => g.addEventListener("click", () => { slide = redirectSlide === null ? i : redirectSlide; location.hash = "slide=id." + slideIds[slide]; }));
 const nw = document.getElementById("speakernotes-workspace");
 nw.addEventListener("click", () => { nw.focus(); notes = ""; replaceAll = false; atStart = false; });
 nw.addEventListener("keydown", (e) => {
@@ -332,6 +369,7 @@ nw.addEventListener("keydown", (e) => {
   if (e.key.length === 1 && !e.metaKey) { e.preventDefault(); notes += e.key; }
 });
 </script>`,
+            internal.account,
         ),
       };
     }
@@ -366,11 +404,17 @@ nw.addEventListener("keydown", (e) => {
     // Cell edits reach the saved file (what exports read) 800 ms later.
     if (action === "cells" || action === "clear") {
       if (data.via) (file.edits ||= []).push(data.via);
-      setTimeout(() => apply(file, action, data), 800);
+      // onEdit: a test standing in for a collaborator who edits the sheet
+      // the moment this edit reaches Google (before it is saved).
+      if (file.onEdit) file.onEdit(data);
+      // file.pending: the edits not yet saved, for a test to await.
+      const saved = new Promise((resolve) => setTimeout(() => { apply(file, action, data); file.pending.delete(saved); resolve(); }, 800));
+      (file.pending ||= new Set()).add(saved);
       return { json: { ok: true } };
     }
     if (action === "title") file.title = data.title;
     if (action === "trash") file.trashed = true;
+    if (action === "decoy") (file.decoyClicks ||= []).push(data.what);
     if (action === "append") file.blocks.push({ type: "paragraph", text: data.text });
     if (action === "notes") file.slides[data.index].notes = data.replaceAll ? data.text : file.slides[data.index].notes + data.text;
     if (action === "replace") return { json: { count: replaceIn(file, data.find, data.replace) } };
@@ -382,11 +426,18 @@ nw.addEventListener("keydown", (e) => {
       const { start, cells } = rangeCells(data.range);
       if (action === "clear") for (const { r, c } of cells) sheet.cells.delete(colName(c) + (r + 1));
       else
-        data.tsv.replace(/\n$/, "").split("\n").forEach((line, dr) => line.split("\t").forEach((v, dc) => {
+      {
+        // As Sheets' paste parser: CR, LF and CRLF each end a row.
+        const lines = data.tsv.replace(/(\r\n|\r|\n)$/, "").split(/\r\n|\r|\n/);
+        lines.forEach((line, dr) => line.split("\t").forEach((v, dc) => {
           const ref = colName(start.c + dc) + (start.r + dr + 1);
           if (v === "") sheet.cells.delete(ref);
           else sheet.cells.set(ref, v);
         }));
+        // pasteSpill: an editor whose paste also changes the cell under the
+        // pasted block (a parser quirk the tools cannot see in the TSV).
+        if (data.via === "paste" && file.pasteSpill) sheet.cells.set(colName(start.c) + (start.r + lines.length + 1), file.pasteSpill);
+      }
     }
   }
   // The googleusercontent host that serves binary exports (no CORS headers).
@@ -395,7 +446,8 @@ nw.addEventListener("keydown", (e) => {
     if (!file || file.trashed) return { status: 404, text: "" };
     const format = url.searchParams.get("format");
     const type = format === "xlsx" ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" : "application/vnd.openxmlformats-officedocument.presentationml.presentation";
-    return { status: 200, headers: { "content-type": type, "content-disposition": `attachment; filename="${file.title}.${format}"` }, body: format === "xlsx" ? xlsx(file) : pptx(file) };
+    // `exportBody`: crafted export bytes a test serves instead.
+    return { status: 200, headers: { "content-type": type, "content-disposition": `attachment; filename="${file.title}.${format}"` }, body: file.exportBody || (format === "xlsx" ? xlsx(file) : pptx(file)) };
   }
   return { files, handle, add, exportHost };
 }
