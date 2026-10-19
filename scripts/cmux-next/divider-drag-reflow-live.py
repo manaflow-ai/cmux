@@ -120,7 +120,7 @@ with open(config, "w") as f:
 env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
        "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
        "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_CONFIG_FILE": config, "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1280,760"}
-for probe in ("CMUX_NEXT_PROBE_DRAGMARGINS", "CMUX_NEXT_PROBE_NODRAGMARGINS", "CMUX_NEXT_PROBE_VARIANT"):  # PROBE ONLY
+for probe in ("CMUX_NEXT_PROBE_DRAGMARGINS", "CMUX_NEXT_PROBE_NODRAGMARGINS", "CMUX_NEXT_PROBE_VARIANT", "CMUX_NEXT_HANG_THRESHOLD_MS"):  # PROBE ONLY
     if os.environ.get(probe):
         env[probe] = os.environ[probe]
 teardown = TagTeardown(APP)
@@ -175,6 +175,7 @@ try:
     report["drag_started_ms"] = 300
     drag(sample=False)
     report["frames"] = rpc("debug.frames", {"action": "stop"})
+    report["hangs"] = rpc("debug.hangs")  # PROBE ONLY: main-thread stalls of pass A
     # Pass B, recorded frame by frame: the grid each terminal renders against what its frame fits.
     report["record"] = rpc("debug.window_record", {"dir": frames_dir, "seconds": 10})
     drag(sample=True)
@@ -244,6 +245,8 @@ print("dragmargins:", json.dumps(((report.get("frames") or {}).get("dragmargins"
 tf = report.get("tabs_frames") or {}
 print("tabs:", json.dumps({k: v for k, v in tf.items() if k != "dragmargins"})[:400], "resets", (tf.get("dragmargins") or {}).get("resets"), "needs", (tf.get("dragmargins") or {}).get("needs"))
 print("drag resets:", ((report.get("frames") or {}).get("dragmargins") or {}).get("resets"), "needs", ((report.get("frames") or {}).get("dragmargins") or {}).get("needs"))
+for record in ((report.get("hangs") or {}).get("records") or [])[:6]:
+    print("hang %.1f ms %s: %s" % (record.get("duration_ms", 0), record.get("kind"), " < ".join(str(f)[:60] for f in (record.get("frames") or [])[:30])))
 print("steps:", json.dumps(report["steps"][:4]), "...", json.dumps(report["steps"][-3:]))
 print("PASS" if ok else "FAIL")
 sys.exit(0 if ok else 1)
