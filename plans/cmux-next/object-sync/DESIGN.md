@@ -665,9 +665,24 @@ Phase 3, slice 1 (2026-10-19): the HostDO replica, backend side.
   stranger; publish, live read, gap request, forwarded op and its settle, an op in flight refused
   when the host goes away, offline status, resume from the replica with the host off, offline
   refusal, a cursor ahead of the replica, another host's stream refused, heads on reconnect).
-- Next slice: the daemon publisher (the Mac's `host:<h>/session` stream from the workspace store,
-  forwarded ops into the daemon's own command path, the per-host replica off switch L4) and the
-  phone's reader through `OwnershipMirror`.
+- The daemon publisher (slice 2, `cmux-tui-cloud-conversations/src/host_replica.rs` and
+  `cmux-tui-core/src/server/cloud_host_replica.rs`, capability `cloud-host-replica-v1`): the
+  verified app leases its install token (`cloud-host-replica-set`); the daemon enrolls the host,
+  publishes `host:<h>/session` (the `list-workspaces` tree) and runs forwarded ops through its own
+  command path. Only `workspace.rename` with fixed fields runs (remote relay default deny), only for
+  the token's user, never for a principal with `agent`; the cloud key is namespaced per user in
+  the daemon's idempotency store. The seq never goes back in one daemon, and a stream the replica
+  does not hold starts at the wall clock (ms), so a reader's cursor from before a purge or a restart
+  is always behind. The off switch L4 is `cloud-host-replica-clear {purge: true}`: the publisher
+  sends `replica.purge`, HostDO refuses the ops in flight, forgets every stream and answers
+  `replica.purged`. A host the cloud removed (410, 4403) stays off for that install until the app
+  clears the replica; close 4000 (another socket of the install) waits for a new lease.
+  Deliberate first step: each event carries the whole tree in `effects.state` (O(tree) per
+  change, the cost section 1 names); diffs per workspace come when the tree has per-object revisions.
+  Open: an owner-callable `host.replica.purge` op, so the owner can delete the cloud copy while
+  the Mac is off; the Swift app's lease caller and the L4 toggle in Settings.
+- Next slice: the Swift lease caller and L4 toggle, and the phone's reader through
+  `OwnershipMirror` (after the cnx-ios fold-in).
 
 Each phase deletes what it replaces in the same change (no twins). Each phase lands on
 `feat-cmux-next` in small slices as soon as its slice is green (Lawrence, 2026-10-18: "cut our

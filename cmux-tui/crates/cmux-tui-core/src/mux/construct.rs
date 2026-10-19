@@ -215,6 +215,7 @@ impl Mux {
             conversations: Default::default(),
             chiefs: Default::default(),
             cloud_conversations: OnceLock::new(),
+            host_replica: OnceLock::new(),
             history_search: OnceLock::new(),
             #[cfg(test)]
             client_resize_before_apply: Mutex::new(None),

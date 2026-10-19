@@ -34,6 +34,9 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
         capabilities.push(cloud_conversations::CLOUD_TYPING_CAPABILITY);
         capabilities.push(cloud_attachments::CAPABILITY);
     }
+    if mux.host_replica().is_some_and(|replica| replica.running()) {
+        capabilities.push(cloud_host_replica::CAPABILITY);
+    }
     if mux.serves_ws_listen() {
         capabilities.push(WS_LISTEN_CAPABILITY);
         capabilities.push(WS_LISTEN_ORIGINS_CAPABILITY);

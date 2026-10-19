@@ -288,9 +288,12 @@ fn the_off_switch_never_moves_a_reader_back_and_a_removed_host_stays_off() {
                "origin":"user","to":"r9","principal":{"user":ME,"kind":"session"}})
         .to_string(),
     );
-    let late = wait_frame(&first, "the late op's answer", |f| f["t"] == "reject" && f["to"] == "r9");
+    let late =
+        wait_frame(&first, "the late op's answer", |f| f["t"] == "reject" && f["to"] == "r9");
     assert_eq!(late["retryable"], true);
-    wait_frame(&first, "its settle", |f| f["t"] == "request-settled" && f["to"] == "r9" && f["ok"] == false);
+    wait_frame(&first, "its settle", |f| {
+        f["t"] == "request-settled" && f["to"] == "r9" && f["ok"] == false
+    });
     first.push_text(json!({"t":"replica.purged"}).to_string());
     wait_until("off", || status(&mux, client)["state"] == "off");
 

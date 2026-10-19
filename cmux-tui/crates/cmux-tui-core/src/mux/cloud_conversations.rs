@@ -24,6 +24,18 @@ impl Mux {
         self.cloud_conversations.get()
     }
 
+    /// The host replica publisher, if installed (server/cloud_host_replica.rs).
+    pub fn host_replica(&self) -> Option<&crate::cloud_conversations::HostReplica> {
+        self.host_replica.get()
+    }
+
+    pub(crate) fn set_host_replica(
+        &self,
+        replica: crate::cloud_conversations::HostReplica,
+    ) -> Result<(), crate::cloud_conversations::HostReplica> {
+        self.host_replica.set(replica)
+    }
+
     /// Ends a closed connection's cloud subscriptions.
     pub(crate) fn release_cloud_conversation_client(&self, client: u64) {
         if let Some(service) = self.cloud_conversations.get() {

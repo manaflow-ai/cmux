@@ -160,6 +160,8 @@ pub(crate) mod clipboard_read;
 mod close_tabs_command;
 mod cloud_attachments;
 mod cloud_conversations;
+mod cloud_host_replica;
+pub use cloud_host_replica::install_host_replica;
 mod conversation_attachments;
 mod conversation_live;
 mod conversation_resource;
@@ -1693,6 +1695,11 @@ enum Command {
     CloudSessionSet(cloud_conversations::SessionSetParams),
     CloudSessionClear,
     CloudSessionStatus,
+    /// The host's read replica publisher (`cloud-host-replica-v1`,
+    /// server/cloud_host_replica.rs).
+    CloudHostReplicaSet(cloud_host_replica::HostReplicaSetParams),
+    CloudHostReplicaClear(cloud_host_replica::HostReplicaClearParams),
+    CloudHostReplicaStatus,
     /// `page-credential` (`page-credential-v1`, server/page_credential.rs).
     PageCredential(page_credential::PageCredentialParams),
     /// `ws-listen` (`ws-listen-v1`, server/page_listener.rs): open the

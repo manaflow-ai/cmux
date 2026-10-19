@@ -525,6 +525,9 @@ pub struct Mux {
     /// The cloud conversations proxy (`cloud-conversations-v1`), installed by
     /// a binary that has a cloud transport; absent otherwise.
     cloud_conversations: OnceLock<crate::cloud_conversations::CloudConversations>,
+    /// The host's read replica publisher (`cloud-host-replica-v1`),
+    /// installed by a binary that has a cloud transport; absent otherwise.
+    host_replica: OnceLock<crate::cloud_conversations::HostReplica>,
     /// The history search index (`history-search-v1`), installed by the
     /// binary with its feeds; absent otherwise.
     history_search: OnceLock<crate::history_search::HistorySearch>,

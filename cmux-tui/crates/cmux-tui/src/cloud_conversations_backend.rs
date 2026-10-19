@@ -237,7 +237,8 @@ impl RemoteCloudBackend {
             Err(_) => Err(unavailable("handshake timed out".into())),
             Ok(Err(WsError::Http(response))) => Err(match response.status().as_u16() {
                 401 => ConnectError::Unauthenticated,
-                403 | 404 => ConnectError::Forbidden,
+                // 410: the host replica was dropped (its host left the team).
+                403 | 404 | 410 => ConnectError::Forbidden,
                 status => unavailable(format!("handshake answered HTTP {status}")),
             }),
             Ok(Err(error)) => Err(unavailable(error.to_string())),
@@ -311,9 +312,14 @@ impl CloudWire for RemoteWire {
 pub(crate) fn install(mux: &Arc<Mux>) {
     match RemoteCloudBackend::new() {
         Ok(backend) => {
+            let backend = Arc::new(backend);
             let service =
-                cmux_tui_core::cloud_conversations::CloudConversations::new(Arc::new(backend));
+                cmux_tui_core::cloud_conversations::CloudConversations::new(backend.clone());
             mux.install_cloud_conversations(service);
+            // The host's read replica publisher (object-sync phase 3) shares the
+            // transport; it stays off until the app leases an install token.
+            let replica = cmux_tui_core::cloud_conversations::HostReplica::new(backend);
+            cmux_tui_core::server::install_host_replica(mux, replica);
         }
         Err(error) => crate::client_log::stderr_log!(
             "startup",
