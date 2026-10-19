@@ -83,7 +83,7 @@ end reason, the decision, or `old->new` for a permission change).
 | `GET /v1/health` | | `{ok, service, protocol, time}` | No auth. |
 | `POST /v1/auth/stack` | `{token}` | `{session, userId, expiresAt}` | Verifies the Stack Auth token (JWKS). |
 | `GET /v1/me` | | `{userId, plan: 'free'\|'paid', device}` | `plan` from env `PAID_USER_IDS` in v1. Needs a registered device. |
-| `POST /v1/devices` | `{id, name, platform, signingKey, agreementKey}` | `{device}` | Registers or updates this device. Signed by `signingKey`. |
+| `POST /v1/devices` | `{id, name, platform, signingKey, agreementKey}` | `{device}` | Registers or updates this device. Signed by `signingKey`. The first registration sets `name`; once `PATCH` renamed the device, registration keeps that name. |
 | `GET /v1/devices` | | `{devices:[…]}` | Not removed devices, with `online` from open sockets. |
 | `PATCH /v1/devices/:id` | `{name}` | `{device}` | Any of the user's devices. |
 | `DELETE /v1/devices/:id` | | `{}` | Removes the device; ends its sessions; pushes revocations. |
@@ -97,7 +97,7 @@ end reason, the decision, or `old->new` for a permission change).
 | `GET /v1/relays` | | `{relays:[…]}` | Each relay carries `sealed: {<this device id>: blob}` or `{}`. |
 | `PUT /v1/relays/:id` | `{name, urls, authMode, sealed, enabled, priority}` | `{relay}` | `sealed`: `{deviceId: base64}` for every device. |
 | `DELETE /v1/relays/:id` | | `{}` | |
-| `GET /v1/audit?limit=&before=` | | `{entries:[…]}` | Newest first. `limit` 1-200 (default 50); `before` = `ts` (ms), exclusive. |
+| `GET /v1/audit?limit=&before=&device=` | | `{entries:[…]}` | The whole account's log, newest first. `limit` 1-200 (default 50); `before` = `ts` (ms), exclusive; `device` keeps entries whose `viewerId` or `hostId` is that device (sessions, permissions, sharing; not `device_added`/`device_removed`, which name no viewer or host). |
 
 Errors: `{error:{code, message}}` with HTTP 400/401/403/404/409/429.
 Codes: `bad_request`, `unauthorized` (missing/expired hub session),
@@ -179,6 +179,12 @@ device refetches state after it reconnects.
    reason), closes the signaling sockets with code 4002 and audits `ended`; the
    host closes the peer connection at once; `/ice` stops renewing. Pending
    requests are ended the same way.
+8. Offline devices: when a device's last User DO socket closes or errors while
+   it has open sessions, the server waits 30 s. If it has not reconnected by
+   then, every session where it is viewer or host ends: audit `ended` with
+   reason `peer_offline`, push `session.ended` (reason `peer_offline`) to both
+   devices, and the Session DO closes its sockets. A socket replaced by a new
+   one from the same device does not count as offline.
 
 The host enforces the scope: in a `view` session it ignores all input.
 

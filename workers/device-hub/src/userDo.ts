@@ -48,6 +48,8 @@ interface RelayRow {
 }
 
 export const PENDING_TTL_MS = 5 * 60 * 1000;
+/** How long a device may stay disconnected before its sessions end (reason peer_offline). */
+export const OFFLINE_GRACE_MS = 30_000;
 const PERMISSION_SCOPES: PermissionScope[] = ["none", "ask", "view", "full"];
 const RELAY_ID = /^[A-Za-z0-9_-]{1,64}$/;
 const SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -77,6 +79,7 @@ CREATE TABLE IF NOT EXISTS audit(
   viewer_id TEXT, host_id TEXT, scope TEXT, session_id TEXT, detail TEXT,
   duration_s INTEGER);
 CREATE INDEX IF NOT EXISTS audit_ts ON audit(ts);
+CREATE TABLE IF NOT EXISTS offline(device_id TEXT PRIMARY KEY, since INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS replay(
   device_id TEXT NOT NULL, ts TEXT NOT NULL, sig TEXT NOT NULL,
   expires_at INTEGER NOT NULL, PRIMARY KEY(device_id, ts, sig));
@@ -121,6 +124,9 @@ export class UserDO extends DurableObject<Env> {
     super(ctx, env);
     this.sql = ctx.storage.sql;
     this.sql.exec(SCHEMA);
+    // v1.1: a rename through PATCH pins the name against re-registration.
+    const cols = this.sql.exec("PRAGMA table_info(devices)").toArray().map((c) => c.name);
+    if (!cols.includes("name_pinned")) this.sql.exec("ALTER TABLE devices ADD COLUMN name_pinned INTEGER NOT NULL DEFAULT 0");
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair(PING, PONG));
   }
 
@@ -247,7 +253,14 @@ export class UserDO extends DurableObject<Env> {
     if (existing && existing.signing_key !== signingKey) throw new ApiError(409, "device_key_mismatch", "device id is registered with another signing key");
     this.burnSignature(h.id, h.ts, h.sig, now);
     if (existing) {
-      this.sql.exec("UPDATE devices SET name = ?, platform = ?, agreement_key = ?, last_seen_at = ? WHERE id = ?", name, body.platform, agreementKey, now, h.id);
+      this.sql.exec(
+        "UPDATE devices SET name = CASE WHEN name_pinned = 1 THEN name ELSE ? END, platform = ?, agreement_key = ?, last_seen_at = ? WHERE id = ?",
+        name,
+        body.platform,
+        agreementKey,
+        now,
+        h.id,
+      );
     } else {
       this.sql.exec(
         "INSERT INTO devices(id, name, platform, signing_key, agreement_key, created_at, last_seen_at, removed_at, mac_screen_shared) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, 0)",
@@ -319,6 +332,7 @@ export class UserDO extends DurableObject<Env> {
     }
     const pair = new WebSocketPair();
     this.ctx.acceptWebSocket(pair[1], [me.id]);
+    this.sql.exec("DELETE FROM offline WHERE device_id = ?", me.id);
     this.broadcast({ type: "devices.changed" }, me.id);
     return new Response(null, { status: 101, webSocket: pair[0] });
   }
@@ -334,13 +348,55 @@ export class UserDO extends DurableObject<Env> {
       // already closed
     }
     const [deviceId] = this.ctx.getTags(ws);
+    if (deviceId) await this.markOffline(deviceId, ws);
     this.broadcast({ type: "devices.changed" }, deviceId);
+  }
+
+  async webSocketError(ws: WebSocket): Promise<void> {
+    const [deviceId] = this.ctx.getTags(ws);
+    if (deviceId) await this.markOffline(deviceId, ws);
+  }
+
+  /** Starts the grace period for a device whose last socket went away. */
+  private async markOffline(deviceId: string, closing: WebSocket) {
+    const others = this.ctx.getWebSockets(deviceId).filter((w) => w !== closing && w.readyState === WebSocket.OPEN);
+    if (others.length > 0) return;
+    const d = this.device(deviceId);
+    if (!d || d.removed_at !== null) return;
+    const open = this.sql.exec("SELECT 1 FROM sessions WHERE state != 'ended' AND (viewer_id = ? OR host_id = ?) LIMIT 1", deviceId, deviceId).toArray();
+    if (open.length === 0) return;
+    this.sql.exec("INSERT INTO offline(device_id, since) VALUES (?, ?) ON CONFLICT(device_id) DO NOTHING", deviceId, Date.now());
+    await this.scheduleOfflineAlarm();
+  }
+
+  private async scheduleOfflineAlarm() {
+    const row = this.sql.exec("SELECT MIN(since) AS since FROM offline").one();
+    if (row.since === null) return;
+    const at = (row.since as number) + OFFLINE_GRACE_MS;
+    const current = await this.ctx.storage.getAlarm();
+    if (current === null || current > at) await this.ctx.storage.setAlarm(at);
+  }
+
+  /** Ends the sessions of devices that stayed offline past the grace period. */
+  async alarm(): Promise<void> {
+    const now = Date.now();
+    const due = this.sql.exec("SELECT device_id FROM offline WHERE since + ? <= ?", OFFLINE_GRACE_MS, now).toArray();
+    for (const r of due) {
+      const deviceId = r.device_id as string;
+      this.sql.exec("DELETE FROM offline WHERE device_id = ?", deviceId);
+      if (this.online(deviceId)) continue;
+      const open = this.sql
+        .exec("SELECT * FROM sessions WHERE state != 'ended' AND (viewer_id = ? OR host_id = ?)", deviceId, deviceId)
+        .toArray() as unknown as SessionRow[];
+      for (const s of open) await this.endSession(s, "peer_offline", "ended", true);
+    }
+    await this.scheduleOfflineAlarm();
   }
 
   private renameDevice(id: string, body: Record<string, unknown>): Response {
     this.liveDevice(id);
     const name = str(body.name, "name", 100);
-    this.sql.exec("UPDATE devices SET name = ? WHERE id = ?", name, id);
+    this.sql.exec("UPDATE devices SET name = ?, name_pinned = 1 WHERE id = ?", name, id);
     this.broadcast({ type: "devices.changed" });
     return json({ device: publicDevice(this.device(id)!, this.online(id)) });
   }
@@ -645,11 +701,20 @@ export class UserDO extends DurableObject<Env> {
   private listAudit(q: URLSearchParams): Response {
     const limit = Math.min(Math.max(Number(q.get("limit") ?? 50) || 50, 1), 200);
     const before = q.get("before");
-    const rows = (
-      before && /^\d+$/.test(before)
-        ? this.sql.exec("SELECT * FROM audit WHERE ts < ? ORDER BY ts DESC, rowid DESC LIMIT ?", Number(before), limit)
-        : this.sql.exec("SELECT * FROM audit ORDER BY ts DESC, rowid DESC LIMIT ?", limit)
-    ).toArray();
+    const device = q.get("device");
+    const where: string[] = [];
+    const binds: unknown[] = [];
+    if (before && /^\d+$/.test(before)) {
+      where.push("ts < ?");
+      binds.push(Number(before));
+    }
+    if (device) {
+      where.push("(viewer_id = ? OR host_id = ?)");
+      binds.push(device, device);
+    }
+    const rows = this.sql
+      .exec(`SELECT * FROM audit ${where.length ? `WHERE ${where.join(" AND ")}` : ""} ORDER BY ts DESC, rowid DESC LIMIT ?`, ...binds, limit)
+      .toArray();
     return json({
       entries: rows.map((r) => ({
         id: r.id,
