@@ -168,6 +168,31 @@ def scenario_keep_zero():
         expect_kept_everywhere(root, outside, names)
 
 
+def scenario_held_tag():
+    """A tour of another tag holds its lock before it builds into its idle dirs: they stay. (lsof can take
+    seconds, so the holder outlives the whole prune.)"""
+    lock = os.path.join(ROOT, "scripts", "ci", "media_tag_lock.py")
+    with tempfile.TemporaryDirectory() as root, tempfile.TemporaryDirectory() as outside, \
+            tempfile.TemporaryDirectory() as locks:
+        build_tree(root, outside)
+        held = subprocess.run([sys.executable, lock, "hold", "--tag", "ci-media-pr-1", "--lock-dir", locks,
+                               "--wait", "0", "--max-hold", "60"], capture_output=True, text=True)
+        _check(held.returncode == 0, "a tour holds ci-media-pr-1")
+        child = hold_open(os.path.join(root, "cmux-ci-media-pr-3-base"))
+        try:
+            result = subprocess.run([sys.executable, SCRIPT, "--root", root, "--keep-tag", "ci-media-pr-9-base",
+                                     "--keep-tag", "ci-media-pr-9-head", "--keep-others", "0", "--lock-dir", locks],
+                                    capture_output=True, text=True)
+        finally:
+            child.kill()
+            child.wait()
+        print(result.stdout + result.stderr)
+        names = remaining(root)
+        _check("cmux-ci-media-pr-1-base" in names, "keeps a held tag's base")
+        _check("cmux-ci-media-pr-1-head" in names, "keeps a held tag's head")
+        _check("cmux-ci-media-pr-2-base" not in names, "still removes an idle unheld tag")
+
+
 def workflow_step():
     with open(WORKFLOW) as handle:
         workflow = yaml.safe_load(handle)
@@ -209,6 +234,7 @@ def scenario_workflow_step():
 def main():
     scenario_keep_four()
     scenario_keep_zero()
+    scenario_held_tag()
     scenario_workflow_step()
     if FAILURES:
         print(f"{len(FAILURES)} failure(s)")

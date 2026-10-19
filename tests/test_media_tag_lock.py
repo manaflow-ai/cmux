@@ -22,7 +22,7 @@ class MediaTagLockTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.temp.cleanup()
 
-    def hold(self, tag: str, wait: float, max_hold: float = 30) -> subprocess.CompletedProcess[str]:
+    def hold(self, tag: str, wait: float, max_hold: float = 4) -> subprocess.CompletedProcess[str]:
         return subprocess.run([sys.executable, str(SCRIPT), "hold", "--tag", tag, "--lock-dir", str(self.locks),
                                "--wait", str(wait), "--max-hold", str(max_hold)],
                               capture_output=True, text=True, timeout=60)
