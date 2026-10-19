@@ -10,7 +10,7 @@ A field the daemon adds later is refused until this script runs again and the ch
     python3 scripts/cmux-next/gen-phone-lane-fields.py           # write the Swift table
     python3 scripts/cmux-next/gen-phone-lane-fields.py --check   # exit 1 when it drifted
 """
-import json, os, re, sys
+import hashlib, json, os, re, sys
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
 SCHEMA = "cmux-tui/spec/sdk-schema.json"
@@ -20,16 +20,48 @@ OUT = "Packages/macOS/CmuxNext/Sources/CmuxNextMobile/DaemonLane/DaemonLanePolic
 PROGRAM_FIELDS = {"respawn", "env", "shell_args", "argv", "command", "cwd"}
 # Field types that are not plain values (opaque JSON, maps, objects) pass through to the daemon whole,
 # so each one is allowed only after a review, by type or by command field. A new one stops the script.
+# Each review pins the type's whole resolved shape (`shape_hash`): a field added anywhere inside it,
+# such as a `command` in a nested object, stops the script until the review and its hash are updated.
 REVIEWED_TYPES = {
-    "PaneRef": "a pane named by its numeric id or public pane_ id; the daemon resolves it in its own tree",
-    "TabRef": "a tab named by its numeric surface id or public tab_ id; the daemon resolves it in its own tree",
+    "PaneRef": ("a pane named by its numeric id or public pane_ id; the daemon resolves it in its own tree",
+                "b23ae39eaed8f1d7"),
+    "TabRef": ("a tab named by its numeric surface id or public tab_ id; the daemon resolves it in its own tree",
+               "aa168c418c03be91"),
 }
 REVIEWED_FIELDS = {
-    ("put-frontend-projection", "projection"): "the phone's own personal projection; the lane checks scope and subject",
-    ("move-tab-to-column", "dock"): "ColumnPin: an edge and a width for docking a column",
-    ("resize-attached-view", "identity"): "SizingIdentity: whose size lease this is",
-    ("clear-history", "fallback_key"): "TerminalKeyInput: a key to send when the surface cannot clear",
+    ("put-frontend-projection", "projection"): ("the phone's own personal projection; the lane checks scope and subject",
+                                                "d7e14019f9227131"),
+    ("move-tab-to-column", "dock"): ("ColumnPin: an edge and a width for docking a column",
+                                     "1b92a6de6fe0171a"),
+    ("resize-attached-view", "identity"): ("SizingIdentity: whose size lease this is",
+                                           "603297ce84b828a2"),
+    ("clear-history", "fallback_key"): ("TerminalKeyInput: a key to send when the surface cannot clear",
+                                        "a5c09e7823e98e46"),
 }
+
+
+def resolved(types, t, seen=()):
+    """`t` with every named type expanded in place (a cycle stays a name), for `shape_hash`."""
+    if isinstance(t, dict):
+        if t.get("kind") == "ref" and t.get("name") in types and t.get("name") not in seen:
+            name = t["name"]
+            return {"ref": name, "is": resolved(types, types[name], seen + (name,))}
+        return {k: resolved(types, v, seen) for k, v in sorted(t.items()) if k not in ("description", "doc", "docs")}
+    if isinstance(t, list):
+        return [resolved(types, v, seen) for v in t]
+    return t
+
+
+def shape_hash(types, t):
+    canonical = json.dumps(resolved(types, t), sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode()).hexdigest()[:16]
+
+
+def check_review(label, pinned, types, t):
+    got = shape_hash(types, t)
+    if pinned != got:
+        raise SystemExit("%s: the reviewed shape of %s changed (pinned %s, now %s); review every field in it, "
+                         "then update its hash in %s" % (SCHEMA, label, pinned, got, os.path.basename(__file__)))
 
 
 def plain(types, t):
@@ -79,7 +111,11 @@ def table():
             if field in PROGRAM_FIELDS:
                 continue
             t = spec.get("type") or {}
-            if not plain(types, t) and type_name(t) not in REVIEWED_TYPES and (name, field) not in REVIEWED_FIELDS:
+            if not plain(types, t) and (name, field) in REVIEWED_FIELDS:
+                check_review("%s.%s" % (name, field), REVIEWED_FIELDS[(name, field)][1], types, t)
+            elif not plain(types, t) and type_name(t) in REVIEWED_TYPES:
+                check_review(type_name(t), REVIEWED_TYPES[type_name(t)][1], types, types.get(type_name(t), {}))
+            elif not plain(types, t):
                 raise SystemExit("%s: %s.%s has free-form type %s; review it and add it to REVIEWED_TYPES or "
                                  "REVIEWED_FIELDS in %s" % (SCHEMA, name, field, json.dumps(t), os.path.basename(__file__)))
             fields.append(field)

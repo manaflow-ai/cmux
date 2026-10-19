@@ -129,8 +129,9 @@ public struct DaemonLanePolicy: Sendable {
             return .refuse(Self.errorLine(id: id, code: "forbidden",
                                           message: "\(command) does not take \(extra.sorted().joined(separator: ", ")) from a phone"))
         }
-        if let url = object["url"] as? String,
-           !Self.urlSchemes.contains(URLComponents(string: url)?.scheme?.lowercased() ?? "") {
+        // A `url` that is not a string is refused too, rather than left to the daemon's typed decode.
+        if let value = object["url"], !(value is NSNull),
+           !Self.urlSchemes.contains((value as? String).flatMap { URLComponents(string: $0)?.scheme?.lowercased() } ?? "") {
             return .refuse(Self.errorLine(id: id, code: "forbidden", message: "phones open only http and https pages"))
         }
         if Self.startsSessions.contains(command), !allowsStartingSessions() {
