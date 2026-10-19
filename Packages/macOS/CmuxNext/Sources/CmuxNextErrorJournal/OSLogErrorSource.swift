@@ -1,0 +1,69 @@
+public import Foundation
+import OSLog
+
+/// This process's own unified-log errors and faults (`Logger.error`, `Logger.fault`, and the
+/// page console errors ``ConsoleErrorCapture`` logs). Reads `OSLogStore` scoped to the current
+/// process, after the last harvested entry of this launch.
+///
+/// Sources: `page:<page>` for the page console subsystem, `app` for `com.cmuxterm` subsystems,
+/// `system:<subsystem>` for frameworks logging in-process (WebKit, AppKit).
+public struct OSLogErrorSource: ErrorHarvestSource {
+    public let id: String
+    private let processID: Int32
+    private let launchDate: Date
+
+    /// Makes the source for this process.
+    /// - Parameters:
+    ///   - id: Cursor key.
+    ///   - processID: Ties the cursor to this launch.
+    ///   - launchDate: Where the first harvest of this launch starts.
+    public init(id: String = "oslog", processID: Int32 = ProcessInfo.processInfo.processIdentifier,
+                launchDate: Date = Date()) {
+        self.id = id
+        self.processID = processID
+        self.launchDate = launchDate
+    }
+
+    public func collect(after cursor: String?) async throws -> ErrorHarvest {
+        var start = launchDate
+        if let cursor {
+            let parts = cursor.split(separator: ":")
+            if parts.count == 2, Int32(parts[0]) == processID, let ms = Double(parts[1]) {
+                start = Date(timeIntervalSince1970: ms / 1000)
+            }
+        }
+        let store = try OSLogStore(scope: .currentProcessIdentifier)
+        let entries = try store.getEntries(at: store.position(date: start))
+        var events: [ErrorEvent] = []
+        var newest = start
+        for case let entry as OSLogEntryLog in entries where entry.date > start {
+            guard entry.level == .error || entry.level == .fault else { continue }
+            newest = max(newest, entry.date)
+            events.append(Self.event(subsystem: entry.subsystem, category: entry.category,
+                                     isFault: entry.level == .fault, message: entry.composedMessage, date: entry.date))
+            if events.count >= 5000 { break }
+        }
+        let ms = Int64((newest.timeIntervalSince1970 * 1000).rounded(.up))
+        return ErrorHarvest(events: events, cursor: "\(processID):\(ms)")
+    }
+
+    /// Maps one log entry to an event: the first line is the message, a following `at …`
+    /// line is the top frame.
+    static func event(subsystem: String, category: String, isFault: Bool, message: String, date: Date) -> ErrorEvent {
+        let source: String = if subsystem == ConsoleErrorCapture.subsystem {
+            "page:\(category)"
+        } else if subsystem.hasPrefix("com.cmuxterm") || subsystem.isEmpty {
+            "app"
+        } else {
+            "system:\(subsystem)"
+        }
+        let lines = message.split(separator: "\n", omittingEmptySubsequences: true)
+        let first = lines.first.map(String.init) ?? message
+        let frame = lines.dropFirst().first { $0.trimmingCharacters(in: .whitespaces).hasPrefix("at ") }
+            .map { String($0.trimmingCharacters(in: .whitespaces).dropFirst(3)) }
+        var level: ErrorLevel = isFault ? .fault : .error
+        if source.hasPrefix("page:"), first.hasPrefix("[warn] ") { level = .warning }
+        return ErrorEvent(source: source, level: level, message: first, topFrame: frame,
+                          context: ["subsystem": subsystem, "category": category], date: date)
+    }
+}
