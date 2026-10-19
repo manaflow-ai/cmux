@@ -8895,8 +8895,8 @@
       "title_table" : "HomeActions"
     },
     {
-      "cli" : "guiOnly",
-      "cli_name" : "action home-switch-view",
+      "cli" : "offered",
+      "cli_name" : "home switch-view",
       "context_menu" : "noObject",
       "context_menus" : [
 
@@ -8905,17 +8905,10 @@
 
       ],
       "default_chord" : null,
-      "default_shortcut" : {
-        "key" : "h",
-        "modifiers" : [
-          "ctrl",
-          "opt",
-          "cmd"
-        ]
-      },
+      "default_shortcut" : null,
       "id" : "home.switchView",
       "main_menu" : "view",
-      "mcp" : "guiOnly",
+      "mcp" : "offered",
       "palette" : "offered",
       "palette_section" : {
         "id" : "category.window",
@@ -8927,6 +8920,62 @@
       "palette_suggested" : null,
       "title" : "Switch Home View",
       "title_key" : "action.home.switchView",
+      "title_table" : "HomeActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "home enable-channels",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "home.enableChannels",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Enable Channels",
+      "title_key" : "action.home.enableChannels",
+      "title_table" : "HomeActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "home disable-channels",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "home.disableChannels",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Disable Channels",
+      "title_key" : "action.home.disableChannels",
       "title_table" : "HomeActions"
     },
     {
