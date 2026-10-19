@@ -29,6 +29,12 @@ public nonisolated enum MotionFade: String, Sendable, CaseIterable {
     case clickPulse
     /// An agent cursor fades out once its agent goes idle (agent-cursor.md).
     case cursorHide
+    /// A hibernated tab's favicon shrinking into its dotted ring, and growing
+    /// back when the tab wakes (Chromium `TabIcon` favicon size animation, 250 ms).
+    case hibernateIcon
+    /// A hibernated tab's dotted ring fading in (Chromium `TabIcon` discard
+    /// animation, 1 s). Reduce Motion caps it at one crossfade.
+    case hibernateRing
 
     /// Seconds at `MotionSpeed.fast` (`MotionTunables`; overridable in
     /// Debug Settings).

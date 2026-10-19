@@ -75,6 +75,13 @@ public struct PaletteKeyMap {
     }
 
     /// Cmd-W, the chord that closes the selected row's object.
+    /// Cmd-K: the selected row's Actions menu (`paletteKey.toggleActions`), taken
+    /// before a main-menu item with the same chord (a terminal's Clear).
+    public static func isActionsKey(_ event: NSEvent) -> Bool {
+        event.modifierFlags.intersection([.command, .shift, .option, .control]) == .command
+            && event.charactersIgnoringModifiers?.lowercased() == "k"
+    }
+
     public static func isCloseItem(_ event: NSEvent) -> Bool {
         event.modifierFlags.intersection([.command, .shift, .option, .control]) == .command
             && event.charactersIgnoringModifiers?.lowercased() == "w"

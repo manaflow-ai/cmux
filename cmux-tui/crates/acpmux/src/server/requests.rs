@@ -860,6 +860,16 @@ async fn dispatch_request(
         method::MUX_QUEUE_EDIT => {
             let s = hub.resolve(session_key(&params)?)?;
             let control = super::remote_guard::control_of(conn.origin, conn.auth, &params);
+            // A peer read the prompt masked (`peer_text.rs`): it may move or send one
+            // with a secret, not rewrite it.
+            if super::peer_text::masks(conn.origin)
+                && str_param(&params, "op") == Some("update")
+                && hub.queued_holds_secret(&s, str_param(&params, "promptId").unwrap_or_default())
+            {
+                return Err(RpcError::invalid_params(
+                    "this queued prompt holds a masked secret: edit it on the machine that runs the session",
+                ));
+            }
             hub.queue_edit(&s, &params, control, super::trust_gate::gated(conn.origin, &params))
                 .await
         }
