@@ -386,11 +386,22 @@ if ! awk '
   job == "app" && /Clear build outputs a persistent runner kept/ { in_clear=1; next }
   in_clear && /^      - name:/ { in_clear=0 }
   in_clear && /clear-dirs\.sh remote-daemon-assets/ { saw_clear=1 }
-  job == "app" && /Prepare persistent Release DerivedData/ { saw_prepare=1 }
+  job == "app" && /^      - name: Start Release DerivedData empty/ { in_prepare=1; saw_prepare=1; next }
+  in_prepare && /^      - name:/ { in_prepare=0 }
+  in_prepare && /clear-dirs\.sh build-universal/ { saw_clear_dd=1 }
+  in_prepare && /ln -s/ { saw_link=1 }
   job == "app" && /cmux-nightly-\$\{\{ needs\.decide\.outputs\.channel \}\}-\$\{toolchain_key\}/ { saw_key=1 }
-  END { exit !(saw_clear && saw_prepare && saw_key) }
+  job == "app" && /^      - name: Restore Xcode compilation cache/ && !saw_clear_dd { restore_first=1 }
+  job == "app" && /^      - name: Build nightly app \(Release\)/ { saw_build=1 }
+  job == "app" && !saw_build && /ln -s .*build-universal/ { saw_link=1 }
+  job == "app" && !saw_build && /persistent Release DerivedData/ { saw_persistent=1 }
+  END { exit !(saw_clear && saw_prepare && saw_clear_dd && !restore_first && !saw_link && !saw_key && !saw_persistent) }
 ' "$WORKFLOW_FILE"; then
-  echo "FAIL: persistent minis must retain channel/toolchain-keyed Release DerivedData"
+  # An incremental build can keep stale autolink and force-load data in
+  # objects it did not recompile after an import set changed. The shipped app
+  # must start from empty DerivedData; only the content-keyed compilation
+  # cache (restored into it) and the Swift package checkouts may be warm.
+  echo "FAIL: the shipped nightly build must start from empty Release DerivedData, never a persistent tree"
   exit 1
 fi
 
@@ -527,7 +538,7 @@ notarize_timeout = re.search(
     re.MULTILINE | re.DOTALL,
 )
 assert notarize_timeout, "missing notarization step"
-assert "timeout-minutes: 90" in notarize_timeout.group(1)
+assert "timeout-minutes: ${{ needs.decide.outputs.should_publish == 'true' && 90 || 140 }}" in notarize_timeout.group(1)
 assert "timeout-minutes: 50" not in notarize_timeout.group(1)
 assert "CMUX_NOTARY_SUBMIT_ONLY: ${{ needs.decide.outputs.should_publish }}" in notarize_timeout.group(1)
 assert "CMUX_DEFER_GATEKEEPER_ASSESSMENT: ${{ needs.decide.outputs.should_publish }}" in notarize_timeout.group(1)
@@ -549,7 +560,9 @@ assert "Verify trusted source workflow run" in resume
 assert "SOURCE_HEAD_SHA" in resume
 assert "resolve-notarization-recovery.py" in resume
 assert "--extract-app" in resume
-assert "scripts/ci/resume-nightly-notarization.sh" in resume
+# The manual resume continues a recovered DMG through the stapled-app wrapper,
+# which calls scripts/ci/resume-nightly-notarization.sh.
+assert "scripts/ci/resume-stapled-app-notarization.sh" in resume
 resume_script = (Path(sys.argv[1]).parents[2] / "scripts/ci/resume-nightly-notarization.sh").read_text(encoding="utf-8")
 assert "verify_computer_use_helper" in resume_script
 assert "standalone_helper" in resume_script
@@ -593,7 +606,32 @@ assert "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04'"
 assert "sleep 300" in auto
 assert "exact recovery artifacts for manual continuation" in auto
 assert "needs.poll.outputs.all_accepted == 'true'" in auto
-assert "CMUX_OUTER_NOTARY_WAIT_TIMEOUT=40m" in auto
+assert "CMUX_OUTER_NOTARY_WAIT_TIMEOUT=25m" in auto
+assert "CMUX_STAPLED_APP_NOTARY_WAIT_TIMEOUT=40m" in auto
+# A recovered DMG gets the DMG around its stapled app as an outer submission.
+assert "./scripts/ci/resume-stapled-app-notarization.sh" in auto
+assert "steps.prepare-outer.outputs.prepared == 'true'" in auto
+assert "scripts/ci/stage-outer-notarization-recovery.py" in auto and "--require-stapled-app" in auto
+assert "stapled-app-notarization-recovery-" in auto
+# A pending stapled-app DMG is polled until Accepted or its 6 h fallback.
+assert "./scripts/ci/poll-outer-notarizations.sh" in auto
+assert "poll-stapled:" in auto and "staple-stapled:" in auto
+assert "fromJSON(needs.poll-stapled.outputs.outer_variants)" in auto
+assert "needs.staple-stapled.result == 'success'" in auto
+assert "--stapled-app-fallback" in auto and "--stapled-app-fallback" in resume
+poller = (Path(sys.argv[1]).parents[2] / "scripts/ci/poll-outer-notarizations.sh").read_text(encoding="utf-8")
+assert "stapled_submitted_at" in poller and "CMUX_STAPLED_APP_FALLBACK_SECONDS:-21600" in poller
+smoke = (Path(sys.argv[1]).parents[2] / "scripts/ci/smoke-dmg.sh").read_text(encoding="utf-8")
+assert '"$XCRUN_TOOL" stapler validate "$APP"' in smoke and "--stapled-app-fallback)" in smoke
+# The fallback record the wrapper writes is the one the verify jobs read.
+assert '"$DMG_IMMUTABLE.stapled-app-fallback"' in (Path(sys.argv[1]).parents[2] / "scripts/ci/resume-stapled-app-notarization.sh").read_text(encoding="utf-8")
+assert 'verified/$immutable.stapled-app-fallback' in auto and '"$dmg.stapled-app-fallback"' in resume
+assert "scripts/ci/stage-outer-notarization-recovery.py" in resume and "steps.prepare-outer.outputs.prepared == 'true'" in resume
+assert "./scripts/ci/resume-stapled-app-notarization.sh" in resume
+stapled = (Path(sys.argv[1]).parents[2] / "scripts/ci/resume-stapled-app-notarization.sh").read_text(encoding="utf-8")
+assert "CMUX_RESUME_APP_ONLY=true" in stapled and "CMUX_NOTARY_SUBMIT_ONLY=true" in stapled
+assert "stapled_app=true" in stapled
+assert "STATE_STAPLED_APP" in resume_script and "RESUME_APP_ONLY" in resume_script
 assert "wait-and-staple:" in auto
 assert "matrix:" in auto and "[arm64, x86_64, universal]" in auto
 assert "needs.wait-and-staple.result == 'success'" in auto
