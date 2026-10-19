@@ -1,6 +1,7 @@
 // Session reference hover cards (started/SessionHoverCard.tsx): a started chat's card, its name
-// chip and a session id in a reply show the session's state pill, project, age and title after a
-// short rest of the pointer, at once for keyboard focus, and a click on the card opens it.
+// chip and a session id in a reply show the session's title, then its state, project and age, and its
+// pull request (Claude Code's PR list rows: the title over `Status · repo #N`), after a short rest of
+// the pointer, at once for keyboard focus, and a click on the card opens it.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { JSDOM } from "jsdom";
@@ -12,7 +13,7 @@ import {
   hoverState,
   withSessionIds,
 } from "../src/agent-session/acpmux/started/sessionHover";
-import { SessionHoverContent, SessionStatePill } from "../src/agent-session/acpmux/started/SessionHoverCard";
+import { SessionHoverContent, SessionStateLabel } from "../src/agent-session/acpmux/started/SessionHoverCard";
 
 const ID = "01a0ebd5-0efe-721d-9edc-cf1a6ba78d98";
 const entry = (extra: Record<string, unknown> = {}) =>
@@ -41,6 +42,16 @@ describe("hover state", () => {
       project: "cmux",
       updatedAt: 5,
     });
+  });
+
+  test("the card names the session's pull request as its chat card does", () => {
+    const info = hoverInfo(
+      entry({
+        pullRequests: ["https://github.com/manaflow-ai/cmux/pull/22092"],
+        pullRequest: { number: 22092, title: "x", state: "open", checks: "failing" },
+      }),
+    );
+    expect(info.pullRequests).toEqual({ count: 1, tone: "failing", number: 22092, repo: "cmux" });
   });
 });
 
@@ -97,25 +108,41 @@ describe("the card", () => {
     updatedAt: 1_000,
   };
 
-  test("a running session's pill draws the bare spinner, with no fill behind it", () => {
+  // Claude Code's PR list rows: the title on the first line, the status on the next in its colour
+  // with its glyph (no outline around it), then the dim rest of the line.
+  test("the title comes first; a running session's state draws the bare spinner, with no pill behind it", () => {
     const html = renderToStaticMarkup(
       <SessionHoverContent info={{ ...info, state: "running" }} now={1_000} onOpen={() => undefined} />,
     );
     expect(html).toContain('data-state="running"');
-    expect(html).toContain("acpmux-session-pill-spinner");
-    expect(html).toContain(">Running<");
+    expect(html).toContain("acpmux-session-state-spinner");
+    expect(html).not.toContain("acpmux-session-pill");
     expect(html).toContain(">cmux<");
     expect(html).toContain(">now<");
-    expect(html).toContain("Switch gh-merge-green to merge-freeze issues");
+    const title = html.indexOf("Switch gh-merge-green to merge-freeze issues");
+    expect(title).toBeGreaterThan(-1);
+    expect(title).toBeLessThan(html.indexOf(">Running<"));
+    expect(html).not.toContain("acpmux-session-hover-pr");
+  });
+
+  test("a session with a pull request names its status and `repo #N` on a line of its own", () => {
+    const html = renderToStaticMarkup(
+      <SessionHoverContent
+        info={{ ...info, state: "done", pullRequests: { count: 1, tone: "failing", number: 22092, repo: "cmux" } }}
+        now={1_000}
+        onOpen={() => undefined}
+      />,
+    );
+    expect(html).toMatch(/class="acpmux-session-hover-pr"[^]*data-tone="failing"[^]*>Checks failed<[^]*>cmux #22092</);
   });
 
   test("unread, needs input, done and failed each name their state with their glyph", () => {
     const labels = { unread: "New activity", waiting: "Needs input", done: "Done", failed: "Failed" } as const;
     for (const [state, label] of Object.entries(labels)) {
-      const html = renderToStaticMarkup(<SessionStatePill state={state as keyof typeof labels} />);
+      const html = renderToStaticMarkup(<SessionStateLabel state={state as keyof typeof labels} />);
       expect(html).toContain(`data-state="${state}"`);
       expect(html).toContain(label);
-      expect(html).not.toContain("acpmux-session-pill-spinner");
+      expect(html).not.toContain("acpmux-session-state-spinner");
     }
   });
 });
