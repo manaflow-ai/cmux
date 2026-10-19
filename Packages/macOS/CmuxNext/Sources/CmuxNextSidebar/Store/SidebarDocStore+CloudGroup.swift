@@ -1,3 +1,4 @@
+import CmuxNextDesign
 import Foundation
 
 /// The Cloud group (`sidebar.cloudGroup`): new Cloud workspaces go into one
