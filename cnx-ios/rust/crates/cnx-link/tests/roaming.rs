@@ -386,12 +386,12 @@ async fn wireguard_replaces_a_dead_turn_tls_stream() {
 }
 
 /// The baseline: the network goes away and nothing roams. With no TURN
-/// server and no backend relay, nothing carries the stream until a roam.
-/// Run with `--ignored` to measure.
+/// server and no backend relay (retired), nothing carries the stream again
+/// without a roam: the bytes sent meanwhile never come back. Run with
+/// `--ignored` to see it.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[ignore = "takes about 20 s; the before-roaming measurement"]
-async fn wireguard_without_roaming_stalls() {
-    let run = stream_across_a_change(options(), options(), None, Duration::from_secs(18)).await;
-    eprintln!("no roam: {run:?}");
-    assert!(run.stall > Duration::from_secs(5), "stalled only {:?}", run.stall);
+#[ignore = "takes about 35 s; the before-roaming baseline"]
+#[should_panic(expected = "bytes lost")]
+async fn wireguard_without_roaming_never_recovers() {
+    let _ = stream_across_a_change(options(), options(), None, Duration::from_secs(5)).await;
 }
