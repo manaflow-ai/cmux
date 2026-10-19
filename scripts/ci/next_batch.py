@@ -1371,8 +1371,9 @@ class Controller:
     def merge_one(self, helper: Path, pr: PullRequest, validation: Validation) -> str:
         ref = f"{self.args.repo}#{pr.number}"
         env = {**self.writer.env, "GH_MERGE_GREEN_NO_AUTO_UPDATE": "1"}
+        passed = ", ".join(validation.heavy_passed) or "no heavy-tier job"
         reason = (f"cmux-next batch {self.run_url} validated this exact head in stack "
-                  f"{validation.stack.head[:12]}: every cmux-next tier and the fleet production build passed")
+                  f"{validation.stack.head[:12]}: these passed there: {passed}, and the fleet production build")
         deadline = time.monotonic() + 30 * 60
         override = False
         while True:
@@ -1383,7 +1384,9 @@ class Controller:
                 return "landed" + (" (override: own heavy check red, batch green)" if override else "")
             line = next((item for item in output.splitlines() if item.startswith("not green")), output[-300:])
             pending = re.search(r"is (queued|in_progress|waiting|pending|requested)/", line) or "has not run" in line
-            heavy_red = any(name in line for name in HEAVY_CHECKS) and "is not successful" in line
+            red = [name for name in HEAVY_CHECKS if name in line] if "is not successful" in line else []
+            # Waive the PR's own red heavy check only for a job the stack ran green.
+            heavy_red = bool(red) and all(any(job.endswith(name) for job in validation.heavy_passed) for name in red)
             if heavy_red and not override:
                 override = True  # the batch ran that tier on this head's stack
                 continue
