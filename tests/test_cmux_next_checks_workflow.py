@@ -117,6 +117,18 @@ class ChecksJobStructure(unittest.TestCase):
             "::error title=cmux-next check failed::100%25 coverage, really (failure)",
         ])
 
+    def test_aggregate_says_when_annotations_are_cut_off(self):
+        # GitHub shows 10 error annotations per step: 9 named, then how many more.
+        names = ["Check %d" % i for i in range(1, 13)]
+        result = self.run_aggregate("".join("failure|%s\n" % n for n in names))
+        self.assertEqual(result.returncode, 1, result.stdout)
+        errors = [line for line in result.stdout.splitlines() if line.startswith("::error")]
+        self.assertEqual(len(errors), 10, errors)
+        self.assertEqual(errors[8], "::error title=cmux-next check failed::Check 9 (failure)")
+        self.assertEqual(errors[9], "::error title=cmux-next check failed::3 more red checks; the job summary lists all 12")
+        for name in names:
+            self.assertIn("- %s (failure)" % name, result.stdout)
+
     def test_ratchet_ceilings_are_set_only_on_their_own_steps(self):
         # Job-wide, the warning ceilings reach the script tests in this job, which
         # expect every hit to fail (#18894's first run: check-scrollbars.test.sh and
