@@ -39,6 +39,7 @@ const account: AccountsRow = {
   paste: null,
 };
 const accounts = (patch: Partial<AccountsRow> = {}, state: Partial<AccountsState> = {}): AccountsState => ({
+  teams: null,
   refresh: "Refresh",
   refreshing: false,
   signIn: null,
@@ -682,6 +683,25 @@ Object.assign(variants, {
       },
     }),
     note: "Empty credential form; fixtures never contain credentials.",
+  }),
+  "accounts-teams": variant("accounts", {
+    accounts: accounts(
+      {},
+      {
+        teams: {
+          title: "Active Team",
+          help: "Cloud machines, CodeRouter accounts and phone access use this team.",
+          options: [
+            { id: "sample-team-1", name: "Sample team", active: true },
+            { id: "sample-team-2", name: "Another sample team", active: false },
+          ],
+          disabled: false,
+          note: null,
+          error: null,
+        },
+      },
+    ),
+    note: "The active team switcher: one radio per team, the active one checked.",
   }),
   "accounts-success": variant("accounts", {
     accounts: accounts({ outcome: { kind: "success", text: "Account connected." } }),
