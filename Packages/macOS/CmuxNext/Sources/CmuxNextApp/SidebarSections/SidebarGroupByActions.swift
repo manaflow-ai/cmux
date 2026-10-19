@@ -14,27 +14,21 @@ enum SidebarGroupByActions {
         let choices: [(ActionID, SidebarGroupBy)] = [("sidebar.groupBy.none", .none), ("sidebar.groupBy.folder", .folder)]
         for (id, value) in choices {
             registry.bind(id, unavailable: { current() == value ? SidebarSectionStrings.alreadyGrouped : nil }) { invocation in
-                try write(SidebarSectionsSetting.groupByPath, .string(value.rawValue), invocation, context)
-            }
-        }
-        // The session tree's Keep Rows in Place / Move Sessions That Need You: this window's own choice.
-        for (id, order) in [("sidebar.rowOrder.stable", SidebarRowOrder.stable), ("sidebar.rowOrder.attention", .attention)] as [(ActionID, SidebarRowOrder)] {
-            registry.bind(id, run: { invocation in let sidebar = try context.window(invocation).sidebar; sidebar.model.rowOrder = order; sidebar.rows.show() })
-            ActionTargetVisibility.hide(id, in: registry) { invocation in
-                !(context.services.settings?.snapshot.sidebarSections.sessionTree ?? false) || (try? context.window(invocation))?.sidebar.model.resolvedRowOrder == order
+                try write(value, invocation, context)
             }
         }
     }
 
-    /// Writes one sidebar setting through the settings schema (a managed key refuses); Density's too.
-    static func write(_ path: [String], _ value: CmuxNextSettings.JSONValue, _ invocation: ActionInvocation, _ context: AppActionContext) throws {
+    /// Writes through the settings schema (a managed key refuses).
+    private static func write(_ value: SidebarGroupBy, _ invocation: ActionInvocation, _ context: AppActionContext) throws {
         guard let settings = context.services.settings else { return }
+        let path = SidebarSectionsSetting.groupByPath
         try AppearanceHandlers.requireUnmanaged(path, context)
         guard let descriptor = SettingsSchema.descriptor(for: path) else { return }
         let writer = SettingWriter(invocation.origin)
         Task {
-            do { try await settings.setSetting(descriptor, to: value, by: writer) } catch {
-                logger.error("\(path.joined(separator: "."), privacy: .public) failed: \(String(describing: error), privacy: .public)")
+            do { try await settings.setSetting(descriptor, to: .string(value.rawValue), by: writer) } catch {
+                logger.error("sidebar.groupBy failed: \(String(describing: error), privacy: .public)")
             }
         }
     }

@@ -14,8 +14,7 @@ extension NotificationCenterService {
     /// loose rows, as Move Workspace to Top does. A pinned workspace, a muted one, one a window shows
     /// and every row of a session tree that keeps rows in place (`sidebar.rowOrder`) stay where they are.
     func moveToTop(_ workspace: WorkspaceModel) {
-        guard let services, !workspace.pinned,
-              !preferences.mutedWorkspaces.contains(workspace.id),
+        guard let services, !workspace.pinned, !preferences.mutedWorkspaces.contains(workspace.id),
               !services.windows.controllers.contains(where: { $0.state.workspaceID == workspace.id }),
               let owner = services.windows.registry.value.owner(of: workspace.id),
               let controller = services.windows.controller(for: owner), controller.sidebar.model.priorityOrdering else { return }
