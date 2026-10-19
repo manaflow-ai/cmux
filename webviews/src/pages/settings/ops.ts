@@ -258,7 +258,7 @@ export type HarnessRow = {
   auth?: "signedIn" | "signedOut" | "unknown";
   /** How to update it; `elevated`: needs sudo, so the page shows `command` and never runs it. */
   update?: { command: string; elevated: boolean } | null;
-  /** The update owner runs this channel (npm or native); without it Update is not offered. */
+  /** The update owner runs this channel (npm, Bun or native); without it Update is not offered. */
   ownerUpdate?: boolean;
   /** acpmux runs its update on its own when a check finds it outdated (off by default). */
   autoUpdate?: boolean;
