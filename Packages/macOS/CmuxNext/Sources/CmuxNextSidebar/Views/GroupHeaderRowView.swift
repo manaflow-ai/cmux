@@ -34,6 +34,10 @@ final class GroupHeaderRowView: SidebarRowView {
     /// The group's icon inside its chip, before the name (`workspace-group-icon-v1`).
     let glyph = SidebarIconView()
     private let pill = CALayer()
+    /// `sidebar.groupLineJoinsHeader`: the members' line joins this bar at its left edge.
+    var joinsLine = false {
+        didSet { if joinsLine != oldValue { needsLayout = true } }
+    }
     /// The group's color as a dot on its line (cx-25az, Leo 2026-10-10: no full
     /// pastel fill): the line starts under it and runs to the last member.
     private let dot = CALayer()
@@ -294,7 +298,13 @@ final class GroupHeaderRowView: SidebarRowView {
         pill.isHidden = renaming
         // The cx-rcby chip: one full-width rounded bar, a little inset top and bottom.
         pill.frame = NSRect(x: 0, y: (b.height - barHeight) / 2, width: b.width, height: barHeight)
-        pill.cornerRadius = (barHeight * 0.23).rounded()
+        pill.cornerRadius = min(SidebarStyle.groupHeaderCornerRadius, barHeight / 2)
+        // Joined to its members' line (`sidebar.groupLineJoinsHeader`), the corner over the line is
+        // square, so bar and line are one L shape (SidebarGroupLine.lines).
+        let joined = joinsLine && !collapsed && !isEmpty
+        let bottomLeft: CACornerMask = layer?.contentsAreFlipped() == true ? .layerMinXMaxYCorner : .layerMinXMinYCorner
+        let all: CACornerMask = [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMinXMaxYCorner, .layerMaxXMaxYCorner]
+        pill.maskedCorners = joined ? all.subtracting(bottomLeft) : all
         // The dot is centred on the group line's x, where the line starts (SidebarListView+GroupLines).
         let dotSide = SidebarStyle.groupDotSize
         dot.frame = CGRect(x: SidebarStyle.groupBarX + SidebarStyle.groupBarWidth / 2 - dotSide / 2, y: (b.height - dotSide) / 2,

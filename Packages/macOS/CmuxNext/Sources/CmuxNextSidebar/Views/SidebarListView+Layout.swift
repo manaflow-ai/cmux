@@ -225,6 +225,7 @@ extension SidebarListViewComponents {
         case let (.group(id), view as GroupHeaderRowView):
             guard let group = groups[id] else { return }
             view.configure(group, row: row, animated: animated)
+            view.joinsLine = groupLineJoinsHeader
             view.isDropTarget = drag?.target == .intoGroup(id) || external?.proposal == .intoGroup(id)
         case let (.section(id), view as SectionHeaderRowView):
             guard let section = sections[id] else { return }

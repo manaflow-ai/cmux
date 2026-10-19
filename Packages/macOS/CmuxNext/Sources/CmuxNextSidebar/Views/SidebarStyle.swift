@@ -64,7 +64,7 @@ enum SidebarStyle {
     static var titleLeading: CGFloat { horizontalInset }
     /// How far a group member's content moves in past the row's own
     /// leading edge, which already starts right of the line (`groupGutter`).
-    static var groupMemberIndent: CGFloat { Metrics.space1 }
+    static var groupMemberIndent: CGFloat { Metrics.space2 }
     /// The header bar inside its row: 26 of 32 pt, scaled with the row height.
     static func groupHeaderBarHeight(rowHeight: CGFloat) -> CGFloat { rowHeight - 2 * (rowHeight * 0.09).rounded() }
     /// The header's name: medium weight (cx-qno.17: more contrast on the
@@ -72,8 +72,8 @@ enum SidebarStyle {
     static func groupHeaderFont(barHeight: CGFloat) -> NSFont {
         NSFont.systemFont(ofSize: min(15, max(11, (barHeight * 0.54).rounded())), weight: .medium)
     }
-    /// The members' bar: 3 pt at the 32 pt row, scaled; at the members' leading edge.
-    static var groupBarWidth: CGFloat { max(2, (Metrics.sidebarRowHeight * 0.1).rounded()) }
+    /// The members' line: thin, as Chrome's (Leo 2026-10-19); at the members' leading edge.
+    static var groupBarWidth: CGFloat { Metrics.space1 }
     static var groupBarX: CGFloat { (Metrics.sidebarRowHeight * 0.12).rounded() }
     /// A member row starts right of its group's line (cx-q5jw, the Edge
     /// group line): its hover and selection fills never cover the line, so
@@ -82,7 +82,9 @@ enum SidebarStyle {
     /// The deliberate cut between a group's header bar and its members' line
     /// (Leo 2026-10-19, Chrome's tab groups: "a neat little cut"), unless
     /// `sidebar.groupLineJoinsHeader` joins them.
-    static var groupLineCut: CGFloat { Metrics.space1 }
+    static var groupLineCut: CGFloat { Metrics.space3 }
+    /// The group header bar's corners (Chrome's, about 6 pt).
+    static var groupHeaderCornerRadius: CGFloat { Metrics.space3 }
     /// The group header's color dot, on the line's x (cx-25az).
     static var groupDotSize: CGFloat { max(6, (Metrics.sidebarRowHeight * 0.28).rounded()) }
     static var headerFont: NSFont { Typography.header }
