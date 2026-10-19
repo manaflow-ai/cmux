@@ -1,62 +1,92 @@
-import { env } from "cloudflare:workers"
-import { expect, it, vi } from "vitest"
-import { CloudDO } from "../src/cloud-do.ts"
-import type { Env } from "../src/env.ts"
-import { mirroredTeam } from "./team-stack-support.ts"
-import { inDO } from "./team-ssh-support.ts"
-import { DAEMON, vmKey, WG_KEY } from "./cloud-bind-support.ts"
+import { expect, it } from "vitest"
+import { MESH, OTHER_MESH, VM, mesh, withMeshMachine } from "./cloud-vm-api-machine-mesh-support.ts"
 
-const MESH = "mesh_" + "0".repeat(26), VM = "vm_" + "1".repeat(26)
-const mesh = { id: MESH, ipv4Cidr: "10.128.0.0/20", displayName: "Cloud", createdAt: "2026-10-19T00:00:00Z" }
-
-it.each([false, true])("attaches the actual Cloud VM before binding and preserves its mesh across restart (lost create reply: %s)", async (lostReply) => {
-  const t = await mirroredTeam("Cloud machine mesh")
-  const e = { ...(env as Env), CLOUD_ALLOWED_TEAMS: t.team, CLOUD_VM_TRANSPORT: "vm-api", CLOUD_VM_API_ORIGIN: "https://vm.test", CLOUD_VM_API_SERVICE_KEY: "test-machine-mesh-key", CLOUD_VM_API_IMAGE: "cloud-agent", CLOUD_VM_API_IMAGE_REVISION: "v1" }
-  const calls: string[] = []
-  let vm: Record<string, any> | undefined, bind: Record<string, any> | undefined, creates = 0
-  const spy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
-    const r = new Request(input, init), url = new URL(r.url)
-    expect(url.origin).toBe(e.CLOUD_VM_API_ORIGIN)
-    expect(r.headers.get("x-cmux-team-id")).toBe(t.stackTeam)
-    expect(r.headers.get("authorization")).toBe(`Bearer ${e.CLOUD_VM_API_SERVICE_KEY}`)
-    expect(r.redirect).toBe("manual")
-    calls.push(`${r.method} ${url.pathname}`)
-    if (url.pathname === "/v1/meshes") return Response.json({ items: [mesh] })
-    if (url.pathname === `/v1/meshes/${MESH}`) return Response.json(mesh)
-    if (url.pathname === `/v1/meshes/${MESH}/vms/${VM}`) return Response.json({ meshId: MESH, vmId: VM, ipv4: "10.128.0.5", attachedAt: mesh.createdAt })
-    if (url.pathname === "/v1/vms" && r.method === "GET") return Response.json({ items: vm ? [vm] : [], nextCursor: null })
-    if (url.pathname === "/v1/vms" && r.method === "POST") {
-      const body = await r.json() as { displayName: string; labels: Record<string, string> }
-      creates++
-      vm = { id: VM, displayName: body.displayName, labels: body.labels, state: "running", resources: { vcpus: 2, memoryMib: 4096, diskMib: 16384 }, idleTimeoutSeconds: -1, maxRunSeconds: null, autoDeleteSeconds: null, createdAt: mesh.createdAt, updatedAt: mesh.createdAt }
-      if (lostReply && creates === 1) throw new Error("test lost create reply")
-      return Response.json({ ...vm, bootImage: { id: "cloud-agent", revision: "v1", displayName: "Cloud" }, initialNetwork: { publicEgress: true, httpsProxyHosts: [] } }, { status: 201 })
+it.each([false, true])("attaches the actual Cloud VM before binding and preserves its mesh across restart (lost create reply: %s)", async (lostCreate) => {
+  await withMeshMachine({ lostCreate }, async (f) => {
+    const reply = await f.create()
+    if (lostCreate) {
+      expect(reply.frames).toContainEqual(expect.objectContaining({ t: "reject", code: "mutation.indeterminate" }))
+      await f.restart(); await f.retry()
     }
-    if (r.method === "PUT") { bind = JSON.parse(await r.text()); return new Response(null, { status: 204 }) }
-    return vm ? Response.json(vm) : new Response(null, { status: 404 })
+    expect(f.bindFile()).toBeDefined()
+    expect(f.creates()).toBe(1)
+    expect(f.calls).toContain(`PUT /v1/meshes/${MESH}/vms/${VM}`)
+    await f.restart()
+    expect(await f.connect()).toMatchObject({ network: { tenant: f.tenant, mesh: MESH, ipv4_cidr: mesh().ipv4Cidr, ipv4: "10.128.0.5" } })
   })
-  try {
-    const key = await vmKey()
-    await inDO(e.CLOUD_DO.get(e.CLOUD_DO.idFromName(t.team)), async (_instance, state) => {
-      let owner = new CloudDO(state, e)
-      const p = { identity: `user:${t.user}`, kind: "session" as const, user: t.user, team: t.team }
-      const request = { t: "op" as const, op: "cloud.machine.create", params: { size: { memory_mb: 4096 } }, idempotency_key: crypto.randomUUID(), origin: "user" as const }
-      const reply = await owner.submit(t.team, p, request)
-      if (lostReply) {
-        expect(reply.frames).toContainEqual(expect.objectContaining({ t: "reject", code: "mutation.indeterminate" }))
-        owner = new CloudDO(state, e)
-        expect((await owner.readOp(t.team, p, "cloud.machine.list", {})).ok).toBe(true)
-        await owner.fakeControl({ advance_ms: 60_000 })
-        await owner.alarm()
-      }
-      expect(bind).toBeDefined()
-      expect(creates).toBe(1)
-      expect(calls).toContain(`PUT /v1/meshes/${MESH}/vms/${VM}`)
-      const bound = bind!
-      expect(await owner.bindMachine(t.team, { ...bound, wg_public_key: WG_KEY, daemon: DAEMON, install_public_jwk: key.jwk } as any)).toMatchObject({ ok: true })
-      owner = new CloudDO(state, e)
-      const read = await owner.readOp(t.team, p, "cloud.machine.connect_info", { machine: bound.machine })
-      expect(read).toMatchObject({ ok: true, value: { network: { tenant: t.stackTeam, mesh: MESH, ipv4_cidr: mesh.ipv4Cidr, ipv4: "10.128.0.5" } } })
-    })
-  } finally { spy.mockRestore() }
+})
+
+it("recovers a lost attachment answer with the same pinned mesh and VM before writing a bind token", async () => {
+  await withMeshMachine({ lostAttach: true }, async (f) => {
+    expect((await f.create()).frames).toContainEqual(expect.objectContaining({ t: "reject", code: "mutation.indeterminate" }))
+    expect(f.bindFile()).toBeUndefined()
+    f.setMeshes([mesh(OTHER_MESH), mesh()])
+    await f.restart(); await f.retry()
+    expect(f.creates()).toBe(1)
+    expect(f.calls.filter((c) => c === `PUT /v1/meshes/${MESH}/vms/${VM}`)).toHaveLength(2)
+    expect(f.calls).toContain(`GET /v1/meshes/${MESH}`)
+    expect(f.calls.filter((c) => c === "GET /v1/meshes")).toHaveLength(1)
+    expect(await f.connect()).toMatchObject({ network: { mesh: MESH } })
+    expect(JSON.stringify(await f.owner().debug(f.team))).not.toContain("test-machine-mesh-key")
+  })
+})
+
+it.each([{ meshes: [] }, { meshes: [mesh(), mesh(OTHER_MESH)] }])("refuses an absent or ambiguous mesh before allocating a VM %#", async ({ meshes }) => {
+  await withMeshMachine({ meshes }, async (f) => {
+    await f.create()
+    expect(f.creates()).toBe(0)
+    expect(f.bindFile()).toBeUndefined()
+    expect(f.calls.every((c) => c.startsWith("GET "))).toBe(true)
+  })
+})
+
+it.each([
+  { meshId: OTHER_MESH }, { vmId: "vm_" + "3".repeat(26) },
+  { ipv4: "10.129.0.5" }, { ipv4: "10.128.0.0" }, { ipv4: "10.128.15.255" }, { ipv4: "10.128.000.5" }
+])("does not bind after a mismatched attachment receipt %#", async (member) => {
+  await withMeshMachine({ member }, async (f) => { await f.create(); expect(f.bindFile()).toBeUndefined() })
+})
+
+it("keeps an unknown provider address explicit instead of inventing a reachable endpoint", async () => {
+  await withMeshMachine({ member: { ipv4: null } }, async (f) => {
+    await f.create()
+    expect(await f.connect()).toMatchObject({ network: { ipv4: null }, gateway: null, peer: { vpc_endpoint: null } })
+  })
+})
+
+it("rechecks VM ownership immediately before attaching", async () => {
+  await withMeshMachine({ badVmLookup: true }, async (f) => {
+    await f.create()
+    expect(f.bindFile()).toBeUndefined()
+    expect(f.calls.some((c) => c.startsWith("PUT /v1/meshes/"))).toBe(false)
+  })
+})
+
+it("does not reinterpret a persisted mesh after changing the configured service origin", async () => {
+  await withMeshMachine({ lostAttach: true }, async (f) => {
+    await f.create()
+    const count = f.calls.length
+    await f.restart({ CLOUD_VM_API_ORIGIN: "https://another.test" }); await f.retry()
+    expect(f.calls).toHaveLength(count)
+    expect(f.bindFile()).toBeUndefined()
+  })
+})
+
+it.each(["discovery", "attachment"] as const)("cancels during %s without writing a bind token or starting more network work", async (phase) => {
+  await withMeshMachine({}, async (f) => {
+    let entered!: () => void, resume!: () => void, deleted!: () => void
+    const ready = new Promise<void>((r) => { entered = r }), release = new Promise<void>((r) => { resume = r }), committed = new Promise<void>((r) => { deleted = r })
+    const hook = async () => { entered(); await release }
+    if (phase === "discovery") f.setNetworkHook(hook); else f.setAttachHook(hook)
+    const owner = f.owner(), after = Reflect.get(owner, "afterOp")
+    Reflect.set(owner, "afterOp", (...args: unknown[]) => { Reflect.apply(after, owner, args); if (args[1] === "cloud.machine.delete") deleted() })
+    const creating = f.create()
+    await ready
+    const removing = f.remove(await f.pendingMachine())
+    await committed; resume()
+    await Promise.all([creating, removing])
+    expect(f.bindFile()).toBeUndefined()
+    expect(f.creates()).toBe(phase === "discovery" ? 0 : 1)
+    expect(f.calls.filter((c) => c.startsWith("PUT /v1/meshes/"))).toHaveLength(phase === "discovery" ? 0 : 1)
+  })
 })

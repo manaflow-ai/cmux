@@ -1,6 +1,7 @@
 import { Schema } from "effect"
 import { def, mutationErrors } from "./op-def.ts"
 import { HostId, Revision, TeamId, UserId } from "./schemas.ts"
+import { CloudVmNetwork } from "./cloud-network.ts"
 
 /**
  * cmux-next Cloud machines (plans/cmux-next/cloud-client-contract.md 1.2, 1.3 and 1.7;
@@ -82,6 +83,8 @@ export const CloudConnectInfo = Schema.Struct({
   /** A restore or re-bind raises it; the link refuses a hello from a lower epoch. */
   epoch: Schema.Int,
   state: CloudMachineStatus,
+  /** Native VM membership only; current tunnel, peer policy and serving permissions are separate. */
+  network: Schema.optionalKey(CloudVmNetwork),
   peer: Schema.Struct({
     wg_public_key: Schema.String,
     overlay_address: Schema.String,

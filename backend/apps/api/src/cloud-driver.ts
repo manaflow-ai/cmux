@@ -10,6 +10,8 @@ import { createBody, type EdgeTlsRule } from "./cloud-driver-body.ts"
 import { freestyleExecStdin, type GuestExecResult } from "./cloud-driver-exec.ts"
 import { vmApiSettings } from "./cloud-vm-api-config.ts"
 import { VmApiSnapshotOutcome } from "./cloud-vm-api-snapshot.ts"
+import type { CloudNetworkTarget } from "./cloud-vm-api-network.ts"
+import type { CloudVmNetwork } from "@cmux/protocol"
 export { createBody, type EdgeTlsRule } from "./cloud-driver-body.ts"
 
 /**
@@ -31,6 +33,9 @@ export interface RawCloudDriver {
   find(name: string): Promise<{ readonly id: string; readonly tag: Record<string, unknown>; readonly state?: string | null } | null>
   /** `tag` null: this call made the VM; else the VM already under the name (checked by the guard). */
   create(name: string, tag: VmTag, opts: CreateOptions): Promise<{ readonly id: string; readonly tag: Record<string, unknown> | null }>
+  /** Native Cloud provisioning only: pin the team mesh before allocating, then verify the owned VM's membership. */
+  prepareNetwork?(): Promise<CloudNetworkTarget>
+  attachNetwork?(id: string, tag: VmTag, target: CloudNetworkTarget): Promise<typeof CloudVmNetwork.Type>
   delete(id: string): Promise<void>
   /** Pause (memory kept) or start a VM (Freestyle `POST /v5/vms/{id}/pause` and `/start`). */
   pause(id: string): Promise<void>
@@ -149,6 +154,16 @@ export class GuardedCloudDriver {
     const created = await this.raw.create(name, tag, opts)
     if (created.tag !== null && !ours(created.tag, tag)) throw new DriverError("cloud.provider.name_conflict", "the name belongs to another VM", true)
     return { id: created.id }
+  }
+
+  async prepareNetwork(): Promise<CloudNetworkTarget | undefined> { return this.raw.prepareNetwork?.() }
+
+  async attachNetwork(name: string, tag: VmTag, target: CloudNetworkTarget | undefined): Promise<typeof CloudVmNetwork.Type | undefined> {
+    if (!target) return undefined
+    this.guard(name)
+    const found = await this.raw.find(name)
+    if (!found || !ours(found.tag, tag) || !this.raw.attachNetwork) throw new DriverError("cloud.provider.name_conflict", "cannot attach an unconfirmed Cloud VM", true)
+    return this.raw.attachNetwork(found.id, tag, target)
   }
 
   /**
