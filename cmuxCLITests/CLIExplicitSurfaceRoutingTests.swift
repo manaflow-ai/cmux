@@ -205,6 +205,7 @@ struct CLIExplicitSurfaceRoutingTests {
                 "--window", Self.reproWindowId,
                 "--type", "browser",
                 "--url", "https://example.com",
+                "--profile", "work",
                 "--focus", "true",
             ],
             [
@@ -212,6 +213,7 @@ struct CLIExplicitSurfaceRoutingTests {
                 "--window=\(Self.reproWindowId)",
                 "--type=browser",
                 "--url=https://example.com",
+                "--profile=work",
                 "--focus=true",
             ],
         ]
@@ -250,6 +252,7 @@ struct CLIExplicitSurfaceRoutingTests {
             #expect(params["type"] as? String == "browser")
             #expect(params["url"] as? String == "https://example.com")
             #expect(params["focus"] as? Bool == true)
+            #expect(params["profile"] as? String == "work")
             projectedPayloads.append([
                 "window_id": params["window_id"] as? String ?? "",
                 "type": params["type"] as? String ?? "",
