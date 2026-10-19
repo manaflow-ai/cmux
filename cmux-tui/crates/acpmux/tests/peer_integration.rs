@@ -1156,9 +1156,12 @@ async fn listed_through_a_peer(tag: &str, trusted: Vec<String>) -> (Value, Value
     let s = cb.call(method::SESSION_NEW, json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"name": name}}})).await.unwrap();
     let id = s["sessionId"].as_str().unwrap().to_owned();
     let text = format!("push with {}", github_token());
-    cb.call(method::SESSION_PROMPT, json!({"sessionId": id, "prompt": [{"type": "text", "text": text}]}))
-        .await
-        .unwrap();
+    cb.call(
+        method::SESSION_PROMPT,
+        json!({"sessionId": id, "prompt": [{"type": "text", "text": text}]}),
+    )
+    .await
+    .unwrap();
 
     let a = hub(config(PermissionPolicy::Ask)).await;
     a.add_peer("b", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), Some(peer_token), true)
