@@ -56,6 +56,9 @@ Examples ship in `cmux-tui/crates/acpmux/harnesses/`: `claude.toml`, `codex.toml
 1. Managed folder, for companies: `/Library/Application Support/cmux/harnesses/` (macOS),
    `/etc/cmux/harnesses/` (Linux). A managed profile wins over a user file with the same id.
 2. Your folder: `~/.config/cmux/harnesses/` (or `$XDG_CONFIG_HOME/cmux/harnesses/`).
+   A DEV build uses `harnesses/` in its own acpmux home instead (`~/.acpmux/builds/<build>/`,
+   or the old `~/.acpmux/tags/<tag>/`), so a test harness never shows in NIGHTLY, cmux NEXT or
+   release. An explicit `XDG_CONFIG_HOME` still wins.
 3. `~/.config/cmux/cmux.json`, key `agents.harnesses.<id>`, with the same keys as JSON.
 4. A repository or workspace: `<folder>/.cmux/harnesses/<id>.toml`. Never loaded on its own;
    see [Folder profiles](#folder-profiles).

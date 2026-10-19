@@ -60,10 +60,12 @@ pub struct ProfileSources {
 }
 
 impl ProfileSources {
-    /// The folders of this user and machine.
+    /// The folders of this user and machine. A DEV build keeps its user
+    /// folder in its own acpmux home ([`build_harness_dir`]).
     pub fn current() -> Self {
-        let config_dir = std::env::var_os("XDG_CONFIG_HOME")
-            .filter(|v| !v.is_empty())
+        let xdg = std::env::var_os("XDG_CONFIG_HOME").filter(|v| !v.is_empty());
+        let explicit_config = xdg.is_some();
+        let config_dir = xdg
             .map(|v| PathBuf::from(v).join("cmux"))
             .or_else(|| dirs::home_dir().map(|home| home.join(".config").join("cmux")));
         let managed = if std::env::consts::OS == "macos" {
@@ -71,9 +73,13 @@ impl ProfileSources {
         } else {
             PathBuf::from("/etc/cmux/harnesses")
         };
+        // A run that names its config root (a test, a capture script) gets it.
+        let build_dir = (!explicit_config)
+            .then(|| build_harness_dir(&crate::config::home(), &crate::config::default_home()))
+            .flatten();
         Self {
             managed: vec![managed],
-            user_dir: config_dir.as_ref().map(|d| d.join("harnesses")),
+            user_dir: build_dir.or_else(|| config_dir.as_ref().map(|d| d.join("harnesses"))),
             cmux_json: config_dir.map(|d| d.join("cmux.json")),
         }
     }
@@ -82,6 +88,32 @@ impl ProfileSources {
     pub fn none() -> Self {
         Self::default()
     }
+}
+
+/// The user harness folder of a DEV build: `<home>/harnesses` when the acpmux
+/// home `home` is a DEV or staging build's own (`<root>/builds/<key>`, see
+/// `BuildIdentity::acpmux_home`) or an old tag home (`<root>/tags/<tag>`);
+/// `root` is the default acpmux home. `None` for every other home: NIGHTLY,
+/// cmux NEXT, RC, release and a standalone acpmux keep the person's folder.
+///
+/// The user folder (`~/.config/cmux/harnesses`) is per person, not per
+/// build, so a profile a DEV build or a dogfood script wrote there showed in
+/// every shipped build's model picker (hq#2569 item 11: a fake agent "P"
+/// with models m1 and m2 in cmux NEXT). A DEV build neither reads nor writes
+/// it.
+pub fn build_harness_dir(home: &Path, root: &Path) -> Option<PathBuf> {
+    use cmux_agent_pane_policy::build_identity::{BuildIdentity, BuildKind};
+    let parent = home.parent()?;
+    let key = home.file_name()?.to_str()?;
+    let dev = if parent == root.join("tags") {
+        true
+    } else if parent == root.join("builds") {
+        let kind = BuildIdentity::new(Some(key), None).kind();
+        !matches!(kind, BuildKind::Nightly | BuildKind::Release | BuildKind::Rc)
+    } else {
+        false
+    };
+    dev.then(|| home.join("harnesses"))
 }
 
 /// Where a loaded profile came from.

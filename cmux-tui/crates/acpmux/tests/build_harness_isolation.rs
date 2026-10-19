@@ -102,7 +102,8 @@ fn a_dev_builds_harness_never_shows_in_a_shipped_build() {
     assert!(!tag_list.contains(&"p4rtfake".into()), "{tag_list:?}");
 
     // Shipped builds list the person's harness and no DEV fake.
-    for (name, acpmux_home) in [("NIGHTLY", &nightly), ("cmux NEXT", &next), ("release", &release)] {
+    for (name, acpmux_home) in [("NIGHTLY", &nightly), ("cmux NEXT", &next), ("release", &release)]
+    {
         let ids = listed(&root, acpmux_home);
         assert!(ids.contains(&"mine".into()), "{name} lost the user's harness: {ids:?}");
         for fake in ["p4rtfake", "tagfake"] {
