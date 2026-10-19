@@ -1,3 +1,5 @@
+import CmuxNextFocus
+
 /// A snapshot of the combined input state: each window's focus model next
 /// to what AppKit, Ghostty, WebKit and Chromium actually show
 /// (plans/cmux-next/input-spec.md section 2). Built from the live app by

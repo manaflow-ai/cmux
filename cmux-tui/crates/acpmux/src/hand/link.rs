@@ -50,6 +50,12 @@ pub async fn run(cfg: HandConfig) -> Result<()> {
         anyhow::bail!("the hand cannot protect its person key: {e}");
     }
     pair::check_api(&cfg.api)?;
+    // A sandbox starts its agent daemon now, so the first agent.start does not wait for it (about 1.3 s).
+    if cfg.profile == super::config::Profile::Sandbox {
+        tokio::spawn(async {
+            let _ = super::daemon::connect().await;
+        });
+    }
     // One running hand per hand home: a second copy (a service plus a manual
     // run) would take turns replacing each other's socket.
     let _lock = single_instance()?;

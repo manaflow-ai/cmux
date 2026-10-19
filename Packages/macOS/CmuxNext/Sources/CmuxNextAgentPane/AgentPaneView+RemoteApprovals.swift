@@ -8,9 +8,9 @@ extension AgentPaneView {
     func showRemoteApprovalsOff(_ approvals: AgentPaneRemoteApprovals?) {
         guard remoteApprovalsNotice == nil else { return }
         let machine = approvals?.label ?? Self.remoteApprovalsThisMachine
-        let title = NSTextField(wrappingLabelWithString: Self.remoteApprovalsOffTitle(machine))
+        let title = ChromeLabel(wrappingLabelWithString: Self.remoteApprovalsOffTitle(machine))
         title.font = .boldSystemFont(ofSize: NSFont.smallSystemFontSize)
-        let detail = NSTextField(wrappingLabelWithString: Self.remoteApprovalsOffDetail(machine))
+        let detail = ChromeLabel(wrappingLabelWithString: Self.remoteApprovalsOffDetail(machine))
         detail.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
         var views: [NSView] = [title, detail]
         remoteApprovals = approvals
@@ -19,7 +19,7 @@ extension AgentPaneView {
             restart.bezelStyle = .rounded
             views.append(restart)
         }
-        for case let label as NSTextField in views {
+        for case let label as ChromeLabel in views {
             label.alignment = .center
             label.textColor = themeTokens.textSecondary.nsColor
         }
@@ -43,7 +43,7 @@ extension AgentPaneView {
     /// without a notice. Reads the views a person sees, nothing else.
     public var remoteApprovalsNoticeLines: (lines: [String], restart: Bool)? {
         guard let notice = remoteApprovalsNotice else { return nil }
-        let lines = notice.arrangedSubviews.compactMap { ($0 as? NSTextField)?.stringValue }
+        let lines = notice.arrangedSubviews.compactMap { ($0 as? any ShownText)?.stringValue }
         return (lines, notice.arrangedSubviews.contains { ($0 as? NSButton)?.isEnabled == true })
     }
 
@@ -71,7 +71,7 @@ extension AgentPaneView {
             guard let self, let notice, self.remoteApprovalsNotice === notice else { return }
             guard let failure else { return self.hideRemoteApprovalsOff() }
             sender?.isEnabled = true
-            if let detail = notice.arrangedSubviews.dropFirst().first as? NSTextField {
+            if let detail = notice.arrangedSubviews.dropFirst().first as? any ShownText {
                 detail.stringValue = Self.remoteApprovalsRestartFailed(approvals.label, failure)
             }
         }

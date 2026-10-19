@@ -42,6 +42,9 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// no computer headers; a workspace of another computer names it on its
     /// second line.
     public var groupsByComputer = false
+    /// `workspaces.autoName` (hq#1957): a workspace the user never named
+    /// takes its front tab's name (a page's, a chat's, a terminal's). On by default.
+    public var autoNamesWorkspaces = true
     /// What each workspace row shows (`sidebar.workspaceRow.*`): by default
     /// the name, the user's icon and the unread/attention mark only
     /// (SIDEBAR-ROWS-MINIMAL-AND-CUSTOMIZABLE).

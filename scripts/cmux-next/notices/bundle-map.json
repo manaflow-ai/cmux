@@ -17,6 +17,11 @@
       "notices": ["section:manual-sentry-cocoa"]
     },
     {
+      "path": "Contents/Frameworks/MediaRemoteAdapter.framework/*",
+      "what": "ungive/mediaremote-adapter (BSD-3-Clause, vendor/mediaremote-adapter) for Now Playing; loaded by /usr/bin/perl, not linked (scripts/cmux-next/bundle-mediaremote-adapter.sh)",
+      "notices": ["section:manual-mediaremote-adapter-now-playing"]
+    },
+    {
       "path": "Contents/Frameworks/Iroh.framework/*",
       "what": "iroh-ffi (Rust), manaflow-ai/iroh-ffi at the Package.resolved revision; in Release a stub, its code is merged into Contents/MacOS/cmux (a Mach-O that names rustc std paths without rust-std fails)",
       "notices": ["section:rust-iroh-ffi", "section:manual-rust-and-zig-standard-libraries"]

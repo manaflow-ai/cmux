@@ -1,6 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Parse this whole file before anything runs. bash reads a script one command
+# at a time, and macOS /bin/bash 3.2 exits 0 on a parse error once the EXIT
+# trap below is set: nightly-next runs 39014131817 and 39014922771 left the
+# notarize step "green" with no stapled app. A parse error here exits 2.
+if ! "${BASH:-/bin/bash}" -n "${BASH_SOURCE[0]}"; then
+  echo "$0 does not parse under ${BASH:-/bin/bash} ${BASH_VERSION:-}; nothing was signed, submitted or stapled" >&2
+  exit 2
+fi
+
 if [ "$#" -ne 3 ]; then
   echo "usage: $0 <signed-app> <release-dmg> <immutable-dmg>" >&2
   exit 2
@@ -59,6 +68,11 @@ case "$STAPLED_APP_FALLBACK_SECONDS" in
 esac
 STAPLED_APP_FALLBACK=false
 STAPLED_APP_FALLBACK_ID=""
+# CMUX_STAPLED_DMG_HANDOFF_FILE: submit the DMG around the stapled app without
+# a wait, keep it as <release-dmg>.stapled-app.dmg, write this record and stop
+# after the app checks; scripts/ci/finish-stapled-app-dmgs.sh waits for several
+# such submissions at once and finishes them (main's release.yml thin variants).
+STAPLED_DMG_HANDOFF_FILE="${CMUX_STAPLED_DMG_HANDOFF_FILE:-}"
 case "$STAPLE_APP_IN_DMG" in
   true|false) ;;
   *) echo "CMUX_STAPLE_APP_IN_DMG must be true or false, got: $STAPLE_APP_IN_DMG" >&2; exit 2 ;;
@@ -145,6 +159,9 @@ detach_mounted_dmg() {
 }
 RESTAPLE_KEYCHAIN_OPEN=false
 cleanup() {
+  # Keep the script's own exit status: the trap must never turn a failure into
+  # a success.
+  local status=$?
   if [ -n "$MOUNT_DIR" ]; then
     detach_mounted_dmg || true
   fi
@@ -152,6 +169,7 @@ cleanup() {
     "${SIGNING_KEYCHAIN_TOOL}" delete || true
   fi
   rm -rf "$DMG_TMP_DIR"
+  exit "$status"
 }
 trap cleanup EXIT
 NOTARY_DIR="$DMG_TMP_DIR/notary"
@@ -237,6 +255,14 @@ package_signed_dmg() {
 }
 
 if [ -z "$CONTINUE_STATE" ]; then
+  # CMUX_PACKAGE_CREATES_KEYCHAIN=true: make the signing keychain just before
+  # this signature (resume-stapled-app-notarization.sh, which passes the
+  # certificate only to this tool).
+  if [ "${CMUX_PACKAGE_CREATES_KEYCHAIN:-false}" = true ]; then
+    package_signed_dmg "$APP_PATH" "$DMG_RELEASE" "$DMG_TMP_DIR" create-keychain
+  else
+    package_signed_dmg "$APP_PATH" "$DMG_RELEASE" "$DMG_TMP_DIR"
+  fi
   package_signed_dmg "$APP_PATH" "$DMG_RELEASE" "$DMG_TMP_DIR"
 fi
 # This is the last signature. Delete the CI signing keychain before Apple's
@@ -285,6 +311,9 @@ else
 fi >"$NOTARY_SUBMIT_OUTPUT" 2>&1
 NOTARY_SUBMIT_EXIT=$?
 set -e
+# The 6 h stapled-app fallback counts from here, after the upload returned
+# (write_notary_state).
+DMG_SUBMITTED_AT="$(date +%s)"
 
 extract_notary_value() {
   local file="$1" key="$2"
@@ -318,13 +347,12 @@ PY
 #               (an earlier attempt of the same build number does not count).
 # Sets STAPLED_APP_FALLBACK_ID to the newest such submission (recovery). An
 # unknown clock (nothing recorded, history unreadable) is not passed.
-stapled_app_deadline_passed() {
-  local mode="$1" recorded="${2:-}" when="${3:-}" history="$NOTARY_DIR/history.json" verdict
-  : >"$history"
-  if [ "$mode" = recovery ]; then
-    "$XCRUN_TOOL" notarytool history "${NOTARY_AUTH_ARGS[@]}" --output-format json >"$history" 2>/dev/null || : >"$history"
-  fi
-  verdict="$(python3 - "$mode" "$history" "$STAPLED_DMG_NAME" "$recorded" "$when" "$STAPLED_APP_FALLBACK_SECONDS" <<'PY'
+# The clock of the DMG around the stapled app. Its own function, not a heredoc
+# inside $(...): macOS /bin/bash 3.2 reads quotes in such a heredoc as shell
+# quotes, and an apostrophe in the Python broke the whole script (nightly-next
+# run 39011132580: "unexpected EOF while looking for matching `'").
+stapled_app_clock() {
+  python3 - "$@" <<'PY'
 import datetime, json, re, sys, time
 mode, path, name, recorded, when, limit = sys.argv[1:]
 def epoch(text):
@@ -366,7 +394,15 @@ else:
     age = time.time() - min(times)
     print(("passed" if age >= int(limit) else "waiting"), newest[0] or "-", int(age))
 PY
-)"
+}
+
+stapled_app_deadline_passed() {
+  local mode="$1" recorded="${2:-}" when="${3:-}" history="$NOTARY_DIR/history.json" verdict
+  : >"$history"
+  if [ "$mode" = recovery ]; then
+    "$XCRUN_TOOL" notarytool history "${NOTARY_AUTH_ARGS[@]}" --output-format json >"$history" 2>/dev/null || : >"$history"
+  fi
+  verdict="$(stapled_app_clock "$mode" "$history" "$STAPLED_DMG_NAME" "$recorded" "$when" "$STAPLED_APP_FALLBACK_SECONDS")"
   echo "Stapled-app DMG clock ($mode) for $STAPLED_DMG_NAME: $verdict (limit ${STAPLED_APP_FALLBACK_SECONDS}s)"
   case "$verdict" in
     passed\ *)
@@ -388,6 +424,7 @@ write_notary_state() {
   if command -v shasum >/dev/null 2>&1; then
     dmg_sha256="$(shasum -a 256 "$DMG_RELEASE" | awk '{print $1}')"
   fi
+  (
   umask 077
   {
     printf 'submission_id=%s\n' "$DMG_SUBMIT_ID"
@@ -401,22 +438,33 @@ write_notary_state() {
     printf 'variant=%s\n' "${NIGHTLY_VARIANT:-}"
     printf 'channel=%s\n' "$CHANNEL"
     printf 'output_file=%s\n' "$NOTARY_OUTPUT_FILE"
+    # STATE_*: the in-run hand-off below. CMUX_NOTARY_STATE_*: the DMG around
+    # the stapled app submitted by resume-stapled-app-notarization.sh.
     if [ "${STATE_STAPLED_APP:-false}" = true ]; then
       printf 'stapled_app=true\n'
       printf 'first_submission_id=%s\n' "${STATE_FIRST_SUBMISSION_ID:-}"
       printf 'first_dmg_sha256=%s\n' "${STATE_FIRST_DMG_SHA256:-}"
       printf 'stapled_submitted_at=%s\n' "${STATE_STAPLED_SUBMITTED_AT:-}"
+    elif [ "${CMUX_NOTARY_STATE_STAPLED_APP:-false}" = true ]; then
+      printf 'stapled_app=true\n'
+      # The 6 h fallback clock and the accepted first DMG it ships.
+      printf 'stapled_submitted_at=%s\n' "$DMG_SUBMITTED_AT"
+      printf 'first_submission_id=%s\n' "${CMUX_NOTARY_STATE_FIRST_SUBMISSION_ID:-}"
+      printf 'first_dmg_sha256=%s\n' "${CMUX_NOTARY_STATE_FIRST_DMG_SHA256:-}"
     fi
     if [ "$NOTARY_WAIT_TIMED_OUT" = true ]; then
       printf 'wait_timed_out=true\n'
     fi
   } > "$state_tmp"
+  )
   /bin/mv "$state_tmp" "$NOTARY_SUBMISSION_FILE"
 }
 
 save_notary_output() {
   # The output file is intentionally retained after a failed run. It is the
   # evidence needed to resume the exact Apple submission in a follow-up job.
+  # Only the sidecar is private; the app stapled later must not inherit 077.
+  (
   umask 077
   /bin/cp "$NOTARY_SUBMIT_OUTPUT" "$NOTARY_OUTPUT_FILE"
   if [ -n "$DMG_SUBMIT_ID" ] && [ "${CMUX_SKIP_NOTARY_LOG:-false}" != true ]; then
@@ -425,6 +473,7 @@ save_notary_output() {
       "$XCRUN_TOOL" notarytool log "$DMG_SUBMIT_ID" "${NOTARY_AUTH_ARGS[@]}" || true
     } >> "$NOTARY_OUTPUT_FILE" 2>&1
   fi
+  )
   cat "$NOTARY_OUTPUT_FILE" >&2
 }
 
@@ -585,7 +634,7 @@ elif [ "$STAPLE_APP_IN_DMG" = true ] && [ -n "$CONTINUE_STATE" ] && [ "${CMUX_ST
   fi
   exit 0
 elif [ "$STAPLE_APP_IN_DMG" = true ]; then
-  if [ -z "$CONTINUE_STATE" ]; then
+  if [ -z "$CONTINUE_STATE" ] && [ -z "$STAPLED_DMG_HANDOFF_FILE" ]; then
     # Record the accepted first submission: when the second one fails, a
     # later run continues this one (the first DMG stays at $DMG_RELEASE) and
     # builds and submits the stapled-app DMG again.
@@ -616,14 +665,34 @@ elif [ "$STAPLE_APP_IN_DMG" = true ]; then
   RESTAPLE_KEYCHAIN_OPEN=false
   restaple_output="$NOTARY_DIR/stapled-app-dmg-submit-output"
   restaple_submitted_at="$(date +%s)"
+  restaple_wait=(--wait --timeout "$STAPLED_DMG_WAIT_TIMEOUT")
+  if [ -n "$STAPLED_DMG_HANDOFF_FILE" ]; then
+    restaple_wait=()
+  fi
   set +e
   "$XCRUN_TOOL" notarytool submit "$FINAL_DMG" "${NOTARY_AUTH_ARGS[@]}" \
-    --output-format json --wait --timeout "$STAPLED_DMG_WAIT_TIMEOUT" >"$restaple_output" 2>&1
+    --output-format json ${restaple_wait[@]+"${restaple_wait[@]}"} >"$restaple_output" 2>&1
   restaple_exit=$?
   set -e
   restaple_id="$(extract_notary_value "$restaple_output" id || true)"
   restaple_status="$(extract_notary_value "$restaple_output" status || true)"
-  if [ "$restaple_exit" -ne 0 ] || [ "$restaple_status" != "Accepted" ]; then
+  if [ -n "$STAPLED_DMG_HANDOFF_FILE" ]; then
+    if [ "$restaple_exit" -ne 0 ] || ! [[ "$restaple_id" =~ ^[A-Za-z0-9._-]+$ ]]; then
+      cat "$restaple_output" >&2
+      echo "The DMG around the stapled app was not submitted (exit $restaple_exit); nothing is published" >&2
+      exit 1
+    fi
+    /bin/mv -f "$FINAL_DMG" "$DMG_RELEASE.stapled-app.dmg"
+    {
+      printf 'submission_id=%s\n' "$restaple_id"
+      printf 'stapled_dmg=%s\n' "$DMG_RELEASE.stapled-app.dmg"
+      printf 'dmg_sha256=%s\n' "$(python3 -c 'import hashlib,sys; print(hashlib.sha256(open(sys.argv[1],"rb").read()).hexdigest())' "$DMG_RELEASE.stapled-app.dmg")"
+      printf 'release_dmg=%s\n' "$DMG_RELEASE"
+      printf 'immutable_dmg=%s\n' "$DMG_IMMUTABLE"
+      printf 'channel=%s\n' "$CHANNEL"
+    } > "$STAPLED_DMG_HANDOFF_FILE"
+    echo "Submitted the DMG around the stapled app (submission $restaple_id); finish-stapled-app-dmgs.sh finishes it"
+  elif [ "$restaple_exit" -ne 0 ] || [ "$restaple_status" != "Accepted" ]; then
     if [ "$restaple_exit" -ne 0 ] && [ "$PENDING_ON_TIMEOUT" = true ] \
       && { [ "$WROTE_ACCEPTED_STATE" = true ] || [ -n "$CONTINUE_STATE" ]; } \
       && grep -Eiq 'timeout|timed out' "$restaple_output"; then
@@ -661,14 +730,19 @@ elif [ "$STAPLE_APP_IN_DMG" = true ]; then
     restaple_handoff
     echo "Notarization of the DMG around the stapled app failed (submission ${restaple_id:-none}, status ${restaple_status:-unknown}, exit $restaple_exit); the first DMG (submission $DMG_SUBMIT_ID) stays unpublished" >&2
     exit 1
+  else
+    echo "Apple accepted the DMG around the stapled app (submission $restaple_id)"
   fi
-  echo "Apple accepted the DMG around the stapled app (submission $restaple_id)"
 fi
 # Apple is done with this artifact; the app below must not find the key.
 notary_auth_forget "$NOTARY_DIR"
 launch_smokes "$APP_PATH"
 "$VERIFY_METADATA_TOOL" "$APP_PATH" "$CHANNEL"
 "$VERIFY_LICENSES_TOOL" "$APP_PATH"
+if [ "$STAPLE_APP_IN_DMG" = true ] && [ -n "$STAPLED_DMG_HANDOFF_FILE" ]; then
+  # finish-stapled-app-dmgs.sh staples and checks the DMG and the app inside.
+  exit 0
+fi
 
 "$XCRUN_TOOL" stapler staple "$FINAL_DMG"
 "$XCRUN_TOOL" stapler validate "$FINAL_DMG"

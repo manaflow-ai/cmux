@@ -11,9 +11,11 @@ import { clip, clipInput, flushMarks, lastTalk, markPending, runError, readRun, 
 import { type BrainConfig, patchError, readConfig, SCHEMA, writeConfig } from "./brain-store.ts"
 import { AUTH_FAILED, claudeAuthFor, forgetClaudeAuth, holderAuth, holderInvalidate, HOLDER, leaseTotal, ownerTurn, turnsObject } from "./claude-auth.ts"
 import { Compactor, type CallRecord } from "./compactor.ts"
+import { PrefixCache, ttlMs } from "./cache-prefix.ts"
 import { prunePiEntries } from "./pi-prune.ts"
 import { type LedgerAnswer, type LedgerOp, runLedger } from "../model-gateway/run-ledger.ts"
 import { capText, type Kind, Memory, RETRY_MS } from "./memory.ts"
+import { meteredOwner } from "../model-gateway/routes.ts"
 import { brainModels, CLAUDE, compactorDefault, compactorModel, creditsCanStart, creditsNotice, FAKE, turnFailedNotice, gatewayOptions, isClaude, isMetered, liveOf, modelRefusal, pickTurnModel, validModelName } from "./models.ts"
 import { clipReply, formatMessage, isNoReply, replyTarget, systemFirst, textParts, stripStaleThinking } from "./brain-text.ts"
 import { AGENT, systemPrompt } from "./prompts.ts"
@@ -48,8 +50,15 @@ import * as turnLoop from "./brain-turn.ts"
 export const POST_RETRY_MS = 2_500
 export const MAX_POST_TRIES = 6
 export const HOST = "cloud-chief"
-/** A turn waits at most this long for the compactor to settle the view, then runs on the view as it is. */
-export const SETTLE_MS = 3_000 // only before a forced re-render (Memory.foldDue); a turn never waits on the compactor otherwise
+/**
+ * A turn waits at most this long for every message before its new ones to be summarized (the reference
+ * client's `Memory.settle`, which has no bound), and only while the compactor is healthy (no failing
+ * node, no rate-limit wait); otherwise, or after it, the turn runs on the last rendered view plus the
+ * unsummarized messages whole (Memory.turnInput, not fresh).
+ */
+export const SETTLE_MS = 5_000
+/** A millisecond setting (CHIEF_BRAIN_SETTLE_MS, CHIEF_BRAIN_PREFIX_WAIT_MS), else `d`. */
+export const msOr = (v: string | undefined, d: number): number => (v !== undefined && /^\d{1,9}$/.test(v.trim()) ? Number(v.trim()) : d)
 /** A turn that runs longer is stopped and recorded failed. */
 export const TURN_MS = 10 * 60_000
 const DEFAULT_DAILY_TURNS = 300
@@ -62,11 +71,51 @@ export type ConfigPatch = Partial<Pick<BrainConfig, "enabled" | "model" | "effor
 /** The continuation message after a turn made or found the Chief's first hand (one per run). */
 export const HANDS_CONTINUE = "Your new hand is ready, and the full hands and agent tools are now available. Continue the person's request from where you stopped; do not repeat what you already did."
 
+type HandInfo = { hand: string; name: string; online: boolean; vm: boolean }
+
+/** The hand a compact hands step returned (new_sandbox: the new hand; list: the first online one), or null. */
+const handOfResult = (action: string, result: string): HandInfo | null => {
+  try {
+    const v = JSON.parse(result) as unknown
+    const pick = (x: { hand?: unknown; name?: unknown; online?: unknown; sandbox?: unknown }): HandInfo | null =>
+      typeof x.hand === "string" && typeof x.name === "string" ? { hand: x.hand, name: x.name, online: x.online !== false, vm: x.sandbox === true || action === "new_sandbox" } : null
+    if (action === "new_sandbox" && v && typeof v === "object") return pick(v as never)
+    if (Array.isArray(v)) return pick((v.find((h) => h && (h as { online?: unknown }).online) ?? v[0] ?? {}) as never)
+  } catch {
+    // Not JSON: the continuation gives no hand details.
+  }
+  return null
+}
+
+const parseHandInfo = (info: string | undefined): HandInfo | null => {
+  try {
+    return info ? (JSON.parse(info) as HandInfo) : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * The continuation's message: the hand the first part made or found (id, name, online, work folder), so the model
+ * starts the agent at once (it does not list its hands again). A paired machine picks its own name, so the name is
+ * only a quoted label (control characters removed, capped); the model addresses the hand by its id.
+ */
+export const handsContinueText = (info: string | undefined, workdir: string): string => {
+  const h = parseHandInfo(info)
+  if (!h || typeof h.hand !== "string" || !/^[A-Za-z0-9_-]{1,80}$/.test(h.hand)) return HANDS_CONTINUE
+  const label = JSON.stringify(String(h.name ?? "").replace(/[\u0000-\u001f\u007f]/g, " ").slice(0, 60))
+  const folder = h.vm ? ` Its work folder is ${workdir}.` : ""
+  const use = h.online ? ` Use it directly with the agent or hands tools (hand "${h.hand}"${h.vm ? `, cwd "${workdir}"` : ""}); there is no need to list your hands.` : ` Check it once with the hands tool before you start an agent on it (hand "${h.hand}").`
+  return `${HANDS_CONTINUE} Your hand: ${label} (${h.hand}), ${h.online ? "online" : "not online yet"}.${folder}${use}`
+}
+
 export class ChiefBrainDO extends DurableObject<Env> {
   readonly sql = this.ctx.storage.sql
   /** The object's state and env for the split-out modules (brain-turn.ts, brain-sub.ts); DurableObject keeps them protected. */
   readonly doCtx = this.ctx
   readonly doEnv = this.env
+  /** When this object was made, until the first wake reports it (Run.timing boot_at: a cold start). */
+  bootAt: number | undefined = Date.now()
   readonly models = brainModels(this.env, this.ctx.id.toString(), { claude: { auth: () => claudeAuthFor(this.env, this.holder), refused: () => (forgetClaudeAuth(), this.holder().claudeInvalidate()) }, effort: () => this.config().effort, ...gatewayOptions(this.ctx, this.env, () => ({ run: this.turnId, conversation: this.turnConversation, config: this.config(), live: !this.childOf() })) })
   readonly registry = createRegistry()
   memory: Memory
@@ -142,14 +191,16 @@ export class ChiefBrainDO extends DurableObject<Env> {
     super(ctx, env)
     for (const q of [...SCHEMA, ...SPAWN_SCHEMA]) this.sql.exec(q)
     this.memory = new Memory(this.sql, Number(env.CHIEF_BRAIN_VIEW_BUDGET ?? "0") || 0)
+    const compactCache = new PrefixCache(ttlMs(env.CHIEF_BRAIN_CACHE_TTL), msOr(env.CHIEF_BRAIN_PREFIX_WAIT_MS, PrefixCache.WAIT_MS))
     this.compactor = new Compactor({
       memory: this.memory,
       deps: () => {
-        const set = this.config().compactor_model
-        const name = compactorModel(this.env, set, this.env.CHIEF_BRAIN_FALLBACK_MODEL || FAKE)
-        return { memory: this.memory, models: this.models.models, model: this.models.model(name), thinking: name === FAKE ? "off" : "medium", prompt: "cmux", agent: AGENT, record: (_c: CallRecord) => undefined }
+        const name = this.compactorName()
+        if (name === undefined) throw new Error("compactor: this owner may not use the paid compactor, and this deployment has no free one")
+        return { memory: this.memory, models: this.models.models, model: this.models.model(name), thinking: name === FAKE ? "off" : isClaude(name) ? "high" : "medium", prompt: "cmux", agent: AGENT, cache: compactCache, record: (_c: CallRecord) => undefined }
       },
       onBuilt: () => undefined,
+      off: () => (this.compactorName() === undefined ? "no compactor model this owner may use" : undefined),
       onFirstFailure: (l, i, error) => console.warn(JSON.stringify({ msg: "chief_brain.compactor_failed", node: `${l}:${i}`, error: error.slice(0, 300) })),
       onRetryWait: (at) => this.schedule("compact", "compact", at),
       retryBaseMs: Number(env.CHIEF_BRAIN_COMPACT_RETRY_BASE_MS) || undefined
@@ -163,14 +214,33 @@ export class ChiefBrainDO extends DurableObject<Env> {
     if (this.sql.exec(`SELECT 1 FROM cb_spawn WHERE posted = 0 LIMIT 1`).toArray().length > 0) void this.deliverReports()
     if (this.sql.exec(`SELECT 1 FROM cb_agent_out WHERE posted = 0 LIMIT 1`).toArray().length > 0) void this.flushOutcomes()
     if (this.sql.exec(`SELECT 1 FROM cb_spawn_slot LIMIT 1`).toArray().length > 0) void this.pumpSlots()
-    if (!this.memory.settled()) await this.schedule("compact", "compact", Date.now() + RETRY_MS)
+    if (!this.memory.settled() && !this.compactor.off()) await this.schedule("compact", "compact", Date.now() + RETRY_MS)
+  }
+
+  /**
+   * The compactor's model: a paid one (Haiku) only for an owner allowed paid models, as for turns (modelRefusal);
+   * else the free fallback or the Chief's own unpaid turn model. undefined: none (production with a refused owner):
+   * compaction is off and the nodes stay unbuilt, never a fake summary kept as a permanent node.
+   */
+  private compactorName(): string | undefined {
+    const cfg = this.config()
+    const fallback = this.env.CHIEF_BRAIN_FALLBACK_MODEL || FAKE
+    const picked = compactorModel(this.env, cfg.compactor_model, fallback)
+    if (!isMetered(picked) || meteredOwner(this.env, cfg.owner ?? null)) return picked
+    return !isMetered(fallback) ? fallback : !isMetered(cfg.model) && cfg.model ? cfg.model : undefined
   }
 
   // ------------------------------------------------------------------ settings object (name = agent)
 
   defaults() {
     const fallback = this.env.CHIEF_BRAIN_FALLBACK_MODEL || FAKE
-    return { model: this.env.CHIEF_BRAIN_MODEL || FAKE, compactor_model: compactorDefault(this.env, this.env.CHIEF_BRAIN_MODEL || FAKE, fallback) }
+    const compactor = compactorDefault(this.env, this.env.CHIEF_BRAIN_MODEL || FAKE, fallback)
+    // The paid compactor (Haiku) is the default only for an owner allowed paid models (modelRefusal refuses it otherwise,
+    // and the chiefs tool copies this value into the Chiefs it makes); other owners get the free fallback, or keep the
+    // paid name where there is none (the compactor then builds nothing for them; never a fake summary).
+    if (!isMetered(compactor) || isMetered(fallback)) return { model: this.env.CHIEF_BRAIN_MODEL || FAKE, compactor_model: compactor }
+    const owner = this.sql.exec<{ value: string }>(`SELECT value FROM cb_config WHERE name = 'owner'`).toArray()[0]?.value ?? null
+    return { model: this.env.CHIEF_BRAIN_MODEL || FAKE, compactor_model: meteredOwner(this.env, owner) ? compactor : fallback }
   }
   config(): BrainConfig {
     return readConfig(this.sql, this.defaults())
@@ -194,8 +264,21 @@ export class ChiefBrainDO extends DurableObject<Env> {
     })
   }
   leasing: Promise<number> | undefined
-  /** A no-op: the caller warms this object (a new Chief's first turn then meets a running object). */
+  /**
+   * The caller warms this object: a new Chief's first turn then meets a running object. A conversation brain
+   * that knows its Chief also starts its wake's reads (the settings object and chief record, the team's meter,
+   * the route's auth, pi) while MuxDO commits the wake (mux-wake-delivery.ts warmBrain).
+   */
   async warm(): Promise<true> {
+    const cfg = this.config()
+    // Only an enabled pi Chief's conversation brain (an opencode, local or disabled Chief's old object stays asleep).
+    if (!cfg.agent || !cfg.owner || !cfg.enabled || cfg.brain_impl !== "pi" || this.childOf()) return true
+    await this.lifecycle.start()
+    const [agent, owner] = [cfg.agent, cfg.owner]
+    this.ctx.waitUntil(this.settingsOf(agent).admit(agent, owner, false).catch(() => undefined))
+    this.ctx.waitUntil(creditsCanStart(this.env, cfg).catch(() => undefined))
+    if (isClaude(cfg.model)) this.ctx.waitUntil(claudeAuthFor(this.env, this.holder).catch(() => undefined))
+    this.ctx.waitUntil(this.harness.pi().catch(() => undefined))
     return true
   }
   /** Holder only: a lease of today's deployment-wide bound (CHIEF_BRAIN_CLAUDE_DAILY_TURNS_TOTAL) for an owner's turns object. */
@@ -245,12 +328,12 @@ export class ChiefBrainDO extends DurableObject<Env> {
     const cfg = this.config()
     if (!cfg.enabled) return { ok: false, reason: "disabled" }
     if (cfg.agent !== agent || cfg.owner !== owner) return { ok: false, reason: "other_chief" }
-    const record = await chiefRecordFresh(this.env, owner, agent).catch(() => undefined)
+    // The chief record and the credits check go at the same time (two other objects, independent reads).
+    const [record, credits] = await Promise.all([chiefRecordFresh(this.env, owner, agent).catch(() => undefined), turn ? creditsCanStart(this.env, cfg) : Promise.resolve("ok" as const)])
     if (record === undefined) return { ok: false, reason: "owner.unreachable" }
     if (!record) return { ok: false, reason: "chief_archived" }
     if (record.brain_place) return { ok: false, reason: "chief_placed" }
     if (record.display_name !== cfg.display_name) writeConfig(this.sql, { display_name: record.display_name })
-    const credits = turn ? await creditsCanStart(this.env, cfg) : "ok"
     if (credits !== "ok") return { ok: false, reason: credits === "exhausted" ? "credits_exhausted" : "owner.unreachable" }
     if (turn) {
       const key = `turns:${new Date().toISOString().slice(0, 10)}`
@@ -310,7 +393,7 @@ export class ChiefBrainDO extends DurableObject<Env> {
   }
 
   /** MuxDO forwards a committed wake here. Pulls the conversation's new messages as the chief and starts a turn. */
-  async wake(w: { agent: string; owner: string; conversation: string; seq: number; reason: string }): Promise<{ queued: number } | { skipped: string }> {
+  async wake(w: { agent: string; owner: string; conversation: string; seq: number; reason: string; at?: number }): Promise<{ queued: number } | { skipped: string }> {
     return turnLoop.wake(this, w)
   }
 
@@ -379,8 +462,8 @@ export class ChiefBrainDO extends DurableObject<Env> {
   }
 
   /** Logs the new messages, then builds the cache-stable input (frozen view + delta, OptChat 5a) with the turn row in one transaction (a restart resubmits the same bytes). */
-  openTurn(conversation: string, rows: ReadonlyArray<{ n: number; message: string; seq: number; kind: string; thread_root: string | null; text: string; woke: number }>): void {
-    return turnLoop.openTurn(this, conversation, rows)
+  openTurn(conversation: string, rows: ReadonlyArray<{ n: number; message: string; seq: number; kind: string; thread_root: string | null; text: string; woke: number }>, fresh = false): void {
+    return turnLoop.openTurn(this, conversation, rows, fresh)
   }
 
   async runTurn(id: string): Promise<void> {
@@ -419,11 +502,13 @@ export class ChiefBrainDO extends DurableObject<Env> {
    * turn boundary (startTurnHands): after new_sandbox or pairing, the next turn has the full tools.
    */
   installHands(): void {
+    // Hands off on this deployment (HANDS_ENABLED): no hands tools at all.
+    if (this.env.HANDS_ENABLED !== "1") return
     const v = (k: string) => this.sql.exec<{ value: string }>(`SELECT value FROM cb_config WHERE name = ?`, k).toArray()[0]?.value
     // The tools are fixed for a whole turn (a model signs its thinking for the tools list; a change inside the
     // turn makes the next request a 400). The running turn's mode wins, also when the object opens again mid-turn.
     const full = this.childOf() !== null || (v("hands_turn_mode") ?? v("hands_full")) === "1"
-    this.registry.install({ name: "chief-hands", tools: full ? [...this.hands()] : [handsEntryTool(this.env, () => ({ ...this.config() }), (action) => this.handFoundInTurn(action))] })
+    this.registry.install({ name: "chief-hands", tools: full ? [...this.hands()] : [handsEntryTool(this.env, () => ({ ...this.config() }), (action, result) => this.handFoundInTurn(action, result))] })
   }
 
   /** At a turn boundary only: this turn's hands mode (full once a hand was found), recorded for the whole turn. */
@@ -435,6 +520,7 @@ export class ChiefBrainDO extends DurableObject<Env> {
 
   /** Checks for a hand (one list call) and records it; true when it found the first one now. The full tools come at the next pi turn, never inside one. */
   async refreshHands(): Promise<boolean> {
+    if (this.env.HANDS_ENABLED !== "1") return false
     if (this.childOf() !== null || this.sql.exec<{ value: string }>(`SELECT value FROM cb_config WHERE name = 'hands_full'`).toArray()[0]?.value === "1") return false
     if (!(await hasHand(this.env, () => ({ ...this.config() })))) return false
     writeConfig(this.sql, { hands_full: "1" })
@@ -442,14 +528,20 @@ export class ChiefBrainDO extends DurableObject<Env> {
   }
 
   /** The entry tool made or found the first hand during a turn: the turn continues once with the full tools (runTurn). */
-  async handFoundInTurn(action: string): Promise<void> {
+  async handFoundInTurn(action: string, result = ""): Promise<void> {
     const turn = this.turnId
     const foundNow = await this.refreshHands()
-    // A list continues the run only when this call found the first hand; new_sandbox also when the turn-start check did.
-    if (action === "list" && !foundNow) return
+    // A list continues the run when this call found the first hand, or when it shows a hand that the turn-start check
+    // found in the background (a sandbox made or a machine paired just before the message): else the turn would end
+    // with no agent tool. new_sandbox continues also when the turn-start check found it first.
+    if (action === "list" && !foundNow && handOfResult(action, result) === null) return
     const v = (k: string) => this.sql.exec<{ value: string }>(`SELECT value FROM cb_config WHERE name = ?`, k).toArray()[0]?.value
     // A hand exists now while this turn runs with the compact tools (also when the turn-start check found it first).
-    if (turn && v("hands_full") === "1" && v("hands_turn_mode") === "0" && v(`hands_cont:${turn}`) === undefined) writeConfig(this.sql, { [`hands_cont:${turn}`]: "pending" })
+    if (turn && v("hands_full") === "1" && v("hands_turn_mode") === "0" && v(`hands_cont:${turn}`) === undefined) {
+      // What the step returned (the hand), so the continuation starts from it instead of listing again.
+      const hand = handOfResult(action, result)
+      writeConfig(this.sql, { [`hands_cont:${turn}`]: "pending", ...(hand ? { [`hands_cont_info:${turn}`]: JSON.stringify(hand) } : {}) })
+    }
   }
 
   /** The hands tools; a child's caller and agent tokens name its own object (`<conversation>:spawn:<n>`), so a hand's session-end revoke reaches it. */
@@ -561,7 +653,7 @@ export class ChiefBrainDO extends DurableObject<Env> {
     if (job.fn === "spawn-post") return void (await this.deliverReports())
     if (job.fn === "spawn-gc") return this.childGc()
     if (job.fn === "agent-out") return void (await this.flushOutcomes())
-    if (job.fn !== "compact") return
+    if (job.fn !== "compact" || this.compactor.off()) return
     this.compactor.pump()
     if (!(await this.compactor.settle(AbortSignal.timeout(60_000)))) return { rescheduleAt: Date.now() + RETRY_MS }
   }

@@ -75,9 +75,8 @@ own; the sweeper finds them among the unfinished CI runs (owned_reruns()) and
 watches them like attempt 1, and a job stuck or refused there gets the bot's
 next re-run, which every runs-on sends to retry_runner (Blacksmith) from
 attempt 3 on, so a refusal costs two re-runs at most. cmux-next's bot attempt
-3 is the exception: it keeps macos-placement's mini label, so it is watched
-for refusals only and a refused one goes to Blacksmith as attempt 4
-(REFUSAL_RESCUE_ATTEMPT), three re-runs at most.
+3 also drops the stale placement label and takes Blacksmith, so the sweeper
+stops after attempt 2 and cannot issue a redundant attempt 4.
 
 Dispatch runs (DISPATCH_WORKFLOW_PATHS) are watched the same way; see below
 for the iOS and Iroh release gate workflows. A stuck dispatch run that
@@ -352,13 +351,6 @@ REFUSAL_SECONDS = 360
 # is watched whatever its attempt (owned_rerun()); the rescue's re-run of it is
 # the bot's, on Blacksmith.
 LAST_OWNED_ATTEMPT = 2
-# cmux-next's bot attempt 3 keeps macos-placement's mini label (a re-run reuses
-# attempt 1's outputs), so a lend drain can refuse it too, and before 2026-10-07
-# nothing re-ran it (#18147's scheme compile, 02:23Z). It is watched for
-# refusals only: when every failed job of it was refused, its failed jobs are
-# re-run as attempt 4, which cmux-next.yml sends to Blacksmith. Minis-first
-# still holds for attempts 1 to 3, and no attempt past 3 is watched.
-REFUSAL_RESCUE_ATTEMPT = LAST_OWNED_ATTEMPT + 1
 RESCUE_ACTOR = "github-actions[bot]"
 
 
@@ -372,8 +364,8 @@ def owned_rerun(run: Mapping[str, Any]) -> bool:
     if run.get("path") == CMUX_NEXT_WORKFLOW_PATH:
         # Manual side-lane reruns stay minis-first at any attempt. The bot's
         # second attempt is still watched so a second long queue can overflow
-        # on attempt three; bot attempt three is watched for refusals only.
-        return actor != RESCUE_ACTOR or attempt <= REFUSAL_RESCUE_ATTEMPT
+        # on attempt three; that attempt is Blacksmith and is not watched again.
+        return actor != RESCUE_ACTOR or attempt <= LAST_OWNED_ATTEMPT
     return run.get("path") == CI_WORKFLOW_PATH and (attempt <= LAST_OWNED_ATTEMPT or (
         run.get("event") == "pull_request" and actor != RESCUE_ACTOR))
 # The runner's own steps, which run before glaeda's hook decides.
@@ -801,9 +793,6 @@ class Target:
     # A side lane's push run: its branch. Push runs of a side lane may each hold
     # their own concurrency group, so a newer push does not cancel this one.
     push_branch: str = ""
-    # cmux-next's bot attempt 3 (REFUSAL_RESCUE_ATTEMPT): still on the minis, so a
-    # refusal there goes to Blacksmith as attempt 4; a long queue is not moved.
-    refusals_only: bool = False
 
     @property
     def picker_job(self) -> str:
@@ -1031,8 +1020,6 @@ def next_attempt(target: Target) -> str:
     if target.path == CMUX_NEXT_WORKFLOW_PATH:
         if following <= LAST_OWNED_ATTEMPT:
             return f"attempt {following} stays on the side lane's owned label"
-        if following > REFUSAL_RESCUE_ATTEMPT:
-            return f"attempt {following} takes Blacksmith: a mini refused attempt {target.attempt}"
         return f"attempt {following} takes the side lane's Blacksmith overflow after the long mini queue"
     if target.side:
         return f"attempt {following} takes the side lane's Blacksmith default"
@@ -1051,6 +1038,13 @@ def pull_moved(api: GitHub, target: Target, sleep: Callable[[float], None],
         newer = read(lambda: api.newer_unfinished_runs(target.path, target.run_id, target.push_branch or MAIN_BRANCH), sleep, log)
         if newer:
             return f"a newer nightly run on {target.push_branch or MAIN_BRANCH} ({newer[0]}) has not finished and builds instead"
+        # nightly-next runs are never pending at the workflow level (a run-scoped
+        # group); their builds share one job-level slot instead, where a rerun of
+        # this older run would replace the newest push's waiting build.
+        if target.push_branch == "nightly-next":
+            head = read(lambda: api.branch_head("nightly-next"), sleep, log)
+            if head != target.head_sha:
+                return "nightly-next has moved on, and the newer push's run builds it"
         return ""
     if target.push_branch:
         # Not the branch head: a head commit outside the workflow's paths has no
@@ -1280,16 +1274,6 @@ def follow(client: GitHub, target: Target, *, seconds: int, queue_rounds: str | 
                             log=log, deadline=deadline, floor_seconds=effective_seconds)
     if outcome not in ("rescue", "refused"):
         return f"stopped: {reason}"
-    if target.refusals_only:
-        if outcome != "refused":
-            return f"stopped: {reason}; attempt {target.attempt} stays on the minis (refusals only)"
-        jobs = read(lambda: client.jobs(target.run_id, target.attempt), sleep, log)
-        other = [str(job.get("name")) for job in jobs if job.get("conclusion") in ("failure", "timed_out")
-                 and not carried(job, target.attempt_started_at) and not refused(job)]
-        if other:
-            # A re-run of failed jobs would re-run these too: a real failure is never retried here.
-            return (f"not rescued: attempt {target.attempt} also failed for a reason that is not a refusal "
-                    f"({', '.join(sorted(other))})")
     log(f"{'rescue' if outcome == 'rescue' else 'refused'}: {reason}")
     while True:
         # From attempt 2 on, keep what passed: only the owned jobs are moved.
@@ -1379,11 +1363,8 @@ def sweep_target(run: Mapping[str, Any], repository: str, *, late: bool, full_re
         return target
     if attempt > 1:
         # A re-run (a rescue, the failure attribution, or a person): follow its owned jobs, if any.
-        actor = str((run.get("triggering_actor") or {}).get("login") or "")
         return dataclasses.replace(target, attempt=attempt, full_rerun=full_rerun,
-                                   late=full_rerun and not (target.e2e or target.main or target.side),
-                                   refusals_only=(run.get("path") == CMUX_NEXT_WORKFLOW_PATH and actor == RESCUE_ACTOR
-                                                  and attempt == REFUSAL_RESCUE_ATTEMPT))
+                                   late=full_rerun and not (target.e2e or target.main or target.side))
     if late and not (target.e2e or target.main or target.side):
         return dataclasses.replace(target, late=True)
     return target

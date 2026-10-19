@@ -115,7 +115,7 @@ final class PaneContentView: NSView, PaneContentChrome {
     }
 
 
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
 
     override func layout() {
         let stripHeight = self.stripHeight
@@ -273,17 +273,16 @@ final class PaneContentView: NSView, PaneContentChrome {
         return previous
     }
 
-    /// Lets the content view go without touching it if another pane took
-    /// it.
-    func detachContent() {
+    /// Lets the content view go without touching it if another pane took it. `parks` (a first
+    /// visit, whose surface comes next frame): it stays here, hidden (`retire`), not out of the window.
+    func detachContent(parks: Bool = false) {
         // The strip's band pins end before the browser leaves (R109).
         releaseBand()
         endPaintHold()
-        if hostsContent {
-            (content as? PaneContentChrome)?.onPaneHeaderHeightChange = nil
-            content?.removeFromSuperview()
-        }
+        let shown = hostsContent ? content : nil
+        (shown as? PaneContentChrome)?.onPaneHeaderHeightChange = nil
         content = nil
+        if let shown { if parks { retire(shown) } else { shown.removeFromSuperview() } }
         applyCornerRadius()
         updateBand()
         reportHeaderIfChanged()

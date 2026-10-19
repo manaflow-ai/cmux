@@ -35,13 +35,15 @@ export const gatewayOptions = (ctx: DurableObjectState, env: Env, now: () => Bra
   return {
     who: () => {
       const n = now()
-      return { run: n.run, generation: live.generationId, conversation: n.conversation, agent: n.config.agent, owner: n.config.owner }
+      const marks = n.run ? ctx.storage.sql.exec<{ value: string }>(`SELECT value FROM cb_config WHERE name = ?`, `marks:${n.run}`).toArray()[0]?.value : undefined
+      return { run: n.run, generation: live.generationId, conversation: n.conversation, agent: n.config.agent, owner: n.config.owner, cache_blocks: marks }
     },
     hooks: {
       event: (e) => live.event(e),
       usage: (run, u) => addUsage(ctx.storage.sql, run, u),
       // The newest model error of the run (Run.error names it when the run fails).
       failed: (run, message) => void ctx.storage.sql.exec(`INSERT INTO cb_run_error (turn, text) VALUES (?, ?) ON CONFLICT (turn) DO UPDATE SET text = excluded.text`, run, message),
+      mark: (run, name) => void ctx.storage.sql.exec(`INSERT INTO cb_marks (turn, mark, at) VALUES (?, ?, ?) ON CONFLICT DO NOTHING`, run, name, Date.now()),
       region: (run, region) => void ctx.storage.sql.exec(`INSERT INTO cb_marks (turn, mark, at) VALUES (?, ?, ?) ON CONFLICT DO NOTHING`, run, `region:${region}`, Date.now()),
       notice: async (conversation, text) => {
         const { agent, owner } = now().config
