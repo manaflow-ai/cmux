@@ -564,7 +564,6 @@ impl Mux {
         {
             return;
         }
-        entry.applied.set(Some((state.cols, state.rows)));
         let Some(surface) = entry
             .placements
             .iter()
@@ -573,8 +572,13 @@ impl Mux {
         else {
             return;
         };
-        if surface.size() != (state.cols, state.rows) {
-            let _ = self.resize_surface(surface.id, state.cols, state.rows);
+        // Compare with the size last requested (a hosted mirror lags the
+        // host by a round trip), and record the decision only once it is in
+        // effect so that a failed resize is retried on the next decision.
+        if surface.requested_size() == (state.cols, state.rows)
+            || self.resize_surface(surface.id, state.cols, state.rows).is_ok()
+        {
+            entry.applied.set(Some((state.cols, state.rows)));
         }
     }
 
