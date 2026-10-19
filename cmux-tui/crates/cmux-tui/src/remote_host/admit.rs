@@ -1,0 +1,60 @@
+//! Who may use this host (remote-hosts.md 6). Decided per connection,
+//! before any daemon byte, from the peer's tailnet identity.
+
+use std::net::IpAddr;
+
+use super::config::{Config, same_login};
+use super::tailnet::Identity;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum Decision {
+    /// The owner login on an untagged node.
+    Owner(Identity),
+    /// A login on the allow list (full access, granted by name).
+    Allowed(Identity),
+    /// Refused; the reason is logged on the host, never sent.
+    Refused(&'static str),
+}
+
+impl Decision {
+    pub(crate) fn access(&self) -> Option<&'static str> {
+        match self {
+            Self::Owner(_) => Some("owner"),
+            Self::Allowed(_) => Some("allowed"),
+            Self::Refused(_) => None,
+        }
+    }
+}
+
+pub(crate) fn decide(
+    config: &Config,
+    self_ips: &[IpAddr],
+    peer: IpAddr,
+    identity: anyhow::Result<Identity>,
+) -> Decision {
+    if !config.enabled {
+        return Decision::Refused("remote hosting is disabled");
+    }
+    // A process of any OS user on this machine that connects to the node's
+    // own address would be identified as this node (and so as its owner).
+    if self_ips.contains(&peer) || peer.is_loopback() {
+        return Decision::Refused("connection from this machine's own address");
+    }
+    if !super::tailnet::is_tailnet_ip(peer) {
+        return Decision::Refused("peer address is not a tailnet address");
+    }
+    let identity = match identity {
+        Ok(identity) => identity,
+        Err(_) => return Decision::Refused("tailnet could not identify the peer"),
+    };
+    let Some(login) = identity.login.as_deref() else {
+        return Decision::Refused("tagged nodes have no login");
+    };
+    if config.owner.as_deref().is_some_and(|owner| same_login(owner, login)) {
+        return Decision::Owner(identity);
+    }
+    if config.allow.iter().any(|allowed| same_login(allowed, login)) {
+        return Decision::Allowed(identity);
+    }
+    Decision::Refused("login is neither the owner nor allowed")
+}
