@@ -4,6 +4,8 @@ import { makeHarness } from "../support/harness.ts";
 import { memoryLedgerStorage, TenantLedger, type LedgerStorage } from "../../src/limits/ledger.ts";
 import { memoryLimitsLayer } from "../../src/limits/service.ts";
 import { newVmCreationKey, newVmId } from "../../src/lib/ids.ts";
+import { Effect, Layer } from "effect";
+import { TenantLimits } from "../../src/limits/service.ts";
 
 let h: Awaited<ReturnType<typeof makeHarness>>;
 beforeEach(async () => { h = await makeHarness({ maxVms: 3 }); });
@@ -51,6 +53,39 @@ it("pages pending work newest first, independently of the permanent history's di
   const second = await h.request(`/v1/vm-creations?state=pending&limit=1&cursor=${page.nextCursor}`, headers);
   expect(await second.json()).toMatchObject({ items: [{ creationKey: older.key }], nextCursor: null, pendingIndex: "ready" });
   expect(h.upstreamRequests).toHaveLength(0);
+});
+
+it("preserves service scope and current labels and never reveals private caller keys", async () => {
+  const labels = { role: "cloud" }, service = await h.addServiceKey({ id: "pending-owner", labels });
+  const headers = { ...bearer(service), "x-cmux-team-id": "team_alpha" };
+  h.recordFault.before = 1;
+  const response = await h.request("/v1/vms", headers, { method: "POST", body: { labels: { role: "cloud" } } });
+  expect(response.status).toBe(503);
+  const { creationKey } = await response.json<{ creationKey: string }>();
+  const page = await h.request("/v1/vm-creations?state=pending", headers);
+  expect(await page.json()).toMatchObject({ items: [{ creationKey }], pendingIndex: "ready" });
+  const other = await h.addServiceKey({ id: "other-driver", labels: { role: "cloud" } });
+  expect(await (await h.request("/v1/vm-creations?state=pending", { ...headers, ...bearer(other) })).json()).toEqual({ items: [], nextCursor: null, pendingIndex: "ready" });
+  labels.role = "other";
+  expect(await (await h.request("/v1/vm-creations?state=pending", headers)).json()).toEqual({ items: [], nextCursor: null, pendingIndex: "ready" });
+  const member = bearer(await h.addKey("team_alpha", ["vm:read", "vm:write"]));
+  h.recordFault.before = 1;
+  expect((await h.request("/v1/vms", { ...member, "idempotency-key": "private-caller-key-never-return" }, { method: "POST", body: {} })).status).toBe(503);
+  const own = await h.request("/v1/vm-creations?state=pending", member);
+  expect(await own.json()).toEqual({ items: [], nextCursor: null, pendingIndex: "ready" });
+  const limited = bearer(await h.addKey("team_alpha", ["vm:read"], { allowlist: [] }));
+  expect((await h.request("/v1/vm-creations?state=pending", limited)).status).toBe(403);
+  expect((await h.request(`/v1/vm-creations?state=pending&cursor=${"a".repeat(64)}`, member)).status).toBe(400);
+  expect((await h.request(`/v1/vm-creations?cursor=p1_001fffffffffffff-${"a".repeat(64)}`, member)).status).toBe(400);
+});
+
+it("refuses an older limits object that silently ignores the pending selector", async () => {
+  await h.dispose();
+  const limits = await Effect.runPromise(Effect.provide(TenantLimits, memoryLimitsLayer()));
+  h = await makeHarness({ limits: Layer.succeed(TenantLimits, { ...limits,
+    listGenerated: (tenant, scope, cursor, limit) => limits.listGenerated(tenant, scope, cursor, limit) }) });
+  const headers = bearer(await h.addKey("team_alpha", ["vm:read"]));
+  expect((await h.request("/v1/vm-creations?state=pending", headers)).status).toBe(503);
 });
 
 it("backfills older retained slots in bounded steps before claiming complete pending history", async () => {

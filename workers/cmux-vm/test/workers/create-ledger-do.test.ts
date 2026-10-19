@@ -44,8 +44,10 @@ it("persists generated history and permanent replay through native RPC serializa
   await stub.reserve("vm", 1, 0, now, "held-generated");
   expect(await stub.advance("native-generated", { phase: "creating", vmId: id, reservationId: "held-generated", context: "provider", createdBy: "key:owner" }, now + 1)).toBe(true);
   expect(await Effect.runPromise(limits.listGenerated(tenant, "tenant", undefined, 1))).toEqual({ items: [generated], nextCursor: null });
+  expect(await Effect.runPromise(limits.listGenerated(tenant, "tenant", undefined, 1, true))).toEqual({ items: [generated], nextCursor: null, pendingIndex: "ready" });
   expect(await Effect.runPromise(limits.listGenerated(tenant, "service:other", undefined, 1))).toEqual({ items: [], nextCursor: null });
   expect(await stub.advance("native-generated", { phase: "done", vmId: id }, now + 2)).toBe(true);
+  expect(await Effect.runPromise(limits.listGenerated(tenant, "tenant", undefined, 1, true))).toEqual({ items: [], nextCursor: null, pendingIndex: "ready" });
   expect(await stub.begin("native-generated", "request", now + IDEMPOTENCY_TTL_MS * 3)).toMatchObject({ state: "resume", progress: { phase: "done", vmId: id } });
   expect((await Effect.runPromise(limits.inspect(tenant, "native-generated")))?.generated).toEqual(generated);
 });

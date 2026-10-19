@@ -10,6 +10,7 @@
 pub mod exit;
 
 mod config;
+mod creation_history;
 mod error;
 mod output;
 mod prompt;
@@ -149,6 +150,12 @@ struct CreationArgs {
 
 #[derive(Args, Debug)]
 struct CreationListArgs {
+    /// List pending server-issued work newest first, without scanning completed history
+    #[arg(long)]
+    pending: bool,
+    /// Backfill pages to advance before returning a resumable cursor (default 32)
+    #[arg(long, requires = "pending", value_parser = clap::value_parser!(u32).range(1..=128))]
+    index_pages: Option<u32>,
     /// Page size (1-100)
     #[arg(long, value_parser = clap::value_parser!(u32).range(1..=100))]
     limit: Option<u32>,
@@ -547,18 +554,15 @@ async fn dispatch(
         Command::Creation(command) => {
             let body = match command {
                 CreationCommand::List(args) => {
-                    let cursor = parse_opt::<types::VmCreationsListVmCreationsCursor>(
-                        "--cursor",
+                    let page = creation_history::fetch(
+                        &client,
                         args.cursor,
-                    )?;
-                    let limit = args.limit.map(|value| value.to_string());
-                    let page = fetch_body(client.vm_creations_list_vm_creations(
-                        cursor.as_ref(),
-                        limit.as_deref(),
-                        None,
-                    ))
+                        args.limit,
+                        args.pending,
+                        args.index_pages.unwrap_or(32),
+                    )
                     .await?;
-                    return out.creation_list(&page);
+                    return out.creation_list(&page, args.pending, args.index_pages);
                 }
                 CreationCommand::Get(args) => {
                     let key = parse_key::<types::VmCreationsGetVmCreationIdempotencyKey>(

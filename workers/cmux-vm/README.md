@@ -188,6 +188,17 @@ identity and current resource labels still apply. Client-supplied keys are
 never returned or indexed in this history. History persists with its operation. The compatibility check runs the pinned preceding ledger against these
 protected records; that version refuses them and needs current software for recovery.
 
+Use `cmux-vm creation list --pending` or `GET /v1/vm-creations?state=pending`
+for unfinished server-issued work, newest first, including requested cancellations.
+This view follows retained VM quota slots and rechecks current authorization and
+canonical receipts. Keep `--pending` or `state=pending` with its page cursor.
+`pendingIndex: ready` confirms that the retained slots were correlated. Older
+slots are linked to their journals in bounded steps: `building` returns an index
+cursor, and `unavailable` means some retained work needs manual reconciliation.
+Neither value is complete history, and listing never releases quota or contacts
+the provider. The CLI advances at most 32 backfill pages per command; set
+`--index-pages 1..128` to change that budget or resume from the printed cursor.
+
 An uncertain send or failed grow retains the VM and its quota reservation.
 Use the original intent to recover it, or cancel with its handle. A fork that
 used the older snapshot stage without a VM receipt reports unresolved. New

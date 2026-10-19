@@ -8,7 +8,7 @@
  * keep request/provider digests, public creation intent and public cmux ids.
  */
 import { SnapshotCapture, SnapshotKeyFence, snapshotCapture, type SnapshotCaptureCommand, type SnapshotCaptureResult } from "./snapshot-capture.ts";
-import { pendingCreations, VmReservationLink } from "./pending-creations.ts";
+import { pendingCreations } from "./pending-creations.ts";
 import { Schema } from "effect";
 import { GeneratedCreation, GeneratedCreationPage } from "../domain/generated-creation.ts";
 import { VmCreationReceipt } from "../api/creations.ts";
@@ -106,7 +106,7 @@ export const IdempotencyRecord = Schema.Struct({
 
 export type IdempotencyRecord = typeof IdempotencyRecord.Type;
 
-const Reservation = Schema.Struct({ kind: Schema.String, expiresMs: Schema.Number, retained: Schema.optional(Schema.Boolean), vmCreation: Schema.optional(VmReservationLink) });
+const Reservation = Schema.Struct({ kind: Schema.String, expiresMs: Schema.Number, retained: Schema.optional(Schema.Boolean) });
 
 const isBucket = Schema.is(Bucket);
 const isRecord = Schema.is(IdempotencyRecord);

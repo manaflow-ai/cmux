@@ -8893,6 +8893,12 @@ pub mod types {
             deserialize_with = "::std::option::Option::deserialize"
         )]
         pub next_cursor: ::std::option::Option<::std::string::String>,
+        ///Present for state=pending. Building needs the next cursor; unavailable means some older retained slots have no recoverable journal. Never treat either as complete history.
+        #[serde(
+            rename = "pendingIndex",
+            skip_serializing_if = "::std::option::Option::is_none"
+        )]
+        pub pending_index: ::std::option::Option<::std::string::String>,
     }
     ///`VmCreationListItem`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
@@ -9396,7 +9402,7 @@ pub mod types {
                 })
         }
     }
-    ///a string matching the pattern ^[a-f0-9]{64}$
+    ///a string matching the pattern ^(?:[a-f0-9]{64}|p1_[a-f0-9]{16}-[a-f0-9]{64}|i1_[a-f0-9]{32})$
     #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
     #[serde(transparent)]
     pub struct VmCreationsListVmCreationsCursor(::std::string::String);
@@ -9415,9 +9421,17 @@ pub mod types {
         type Err = self::error::ConversionError;
         fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
             static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
-                ::std::sync::LazyLock::new(|| ::regress::Regex::new("^[a-f0-9]{64}$").unwrap());
+                ::std::sync::LazyLock::new(|| {
+                    ::regress::Regex::new(
+                        "^(?:[a-f0-9]{64}|p1_[a-f0-9]{16}-[a-f0-9]{64}|i1_[a-f0-9]{32})$",
+                    )
+                    .unwrap()
+                });
             if PATTERN.find(value).is_none() {
-                return Err("doesn't match pattern \"^[a-f0-9]{64}$\"".into());
+                return Err(
+                    "doesn't match pattern \"^(?:[a-f0-9]{64}|p1_[a-f0-9]{16}-[a-f0-9]{64}|i1_[a-f0-9]{32})$\""
+                        .into(),
+                );
             }
             Ok(Self(value.to_string()))
         }
@@ -9446,6 +9460,53 @@ pub mod types {
                 .map_err(|e: self::error::ConversionError| {
                     <D::Error as ::serde::de::Error>::custom(e.to_string())
                 })
+        }
+    }
+    ///`VmCreationsListVmCreationsState`
+    #[derive(
+        ::serde::Deserialize,
+        ::serde::Serialize,
+        Clone,
+        Copy,
+        Debug,
+        Eq,
+        Hash,
+        Ord,
+        PartialEq,
+        PartialOrd,
+    )]
+    pub enum VmCreationsListVmCreationsState {
+        #[serde(rename = "pending")]
+        Pending,
+    }
+    impl ::std::fmt::Display for VmCreationsListVmCreationsState {
+        fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+            match *self {
+                Self::Pending => f.write_str("pending"),
+            }
+        }
+    }
+    impl ::std::str::FromStr for VmCreationsListVmCreationsState {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            match value {
+                "pending" => Ok(Self::Pending),
+                _ => Err("invalid value".into()),
+            }
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for VmCreationsListVmCreationsState {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for VmCreationsListVmCreationsState {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
         }
     }
     ///a string at most 128 character(s) long
@@ -13498,14 +13559,16 @@ impl Client {
     Sends a `GET` request to `/v1/vm-creations`
 
     Arguments:
-    - `cursor`: a string matching the pattern ^[a-f0-9]{64}$
+    - `cursor`: a string matching the pattern ^(?:[a-f0-9]{64}|p1_[a-f0-9]{16}-[a-f0-9]{64}|i1_[a-f0-9]{32})$
     - `limit`: a string to be decoded into a number
+    - `state`
     - `x_cmux_team_id`: a string at most 128 character(s) long
     */
     pub async fn vm_creations_list_vm_creations<'a>(
         &'a self,
         cursor: Option<&'a types::VmCreationsListVmCreationsCursor>,
         limit: Option<&'a str>,
+        state: Option<types::VmCreationsListVmCreationsState>,
         x_cmux_team_id: Option<&'a types::VmCreationsListVmCreationsXCmuxTeamId>,
     ) -> Result<ResponseValue<types::VmCreationList>, Error<ByteStream>> {
         let url = format!("{}/v1/vm-creations", self.baseurl,);
@@ -13527,6 +13590,7 @@ impl Client {
             )
             .query(&progenitor_client::QueryParam::new("cursor", &cursor))
             .query(&progenitor_client::QueryParam::new("limit", &limit))
+            .query(&progenitor_client::QueryParam::new("state", &state))
             .headers(header_map)
             .build()?;
         let info = OperationInfo {

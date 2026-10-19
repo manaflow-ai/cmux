@@ -57,6 +57,40 @@ async fn pending_history_refuses_an_older_api_that_ignored_the_filter() {
 }
 
 #[tokio::test]
+async fn pending_history_respects_the_index_budget_and_rejects_a_stalled_cursor() {
+    let server = MockServer::start().await;
+    let cursor = format!("i1_{}", "c".repeat(32));
+    Mock::given(method("GET"))
+        .and(path("/v1/vm-creations"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({"items":[], "nextCursor":cursor, "pendingIndex":"building"})),
+        )
+        .expect(2)
+        .mount(&server)
+        .await;
+    let bounded = cli(
+        &server,
+        &["creation", "list", "--pending", "--index-pages", "1"],
+    )
+    .await;
+    assert_eq!(bounded.code, exit::OK, "{}", bounded.stderr);
+    assert!(
+        bounded
+            .stdout
+            .contains(&format!("--pending --index-pages 1 --cursor {cursor}"))
+    );
+    assert!(!bounded.stdout.contains("no pending creations"));
+    let stalled = cli(
+        &server,
+        &["creation", "list", "--pending", "--cursor", &cursor],
+    )
+    .await;
+    assert_eq!(stalled.code, exit::UNEXPECTED);
+    assert!(stalled.stderr.contains("made no progress"));
+}
+
+#[tokio::test]
 async fn pending_history_reports_incomplete_legacy_work_and_preserves_the_view_in_its_cursor_hint()
 {
     let server = MockServer::start().await;

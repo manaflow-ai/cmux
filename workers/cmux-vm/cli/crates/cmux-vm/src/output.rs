@@ -48,7 +48,12 @@ impl<'a> Printer<'a> {
         Ok(())
     }
 
-    pub fn creation_list(&mut self, body: &[u8]) -> Result<(), CliError> {
+    pub fn creation_list(
+        &mut self,
+        body: &[u8],
+        pending: bool,
+        index_pages: Option<u32>,
+    ) -> Result<(), CliError> {
         let _: cmux_vm_client::types::VmCreationList = decode(body)?;
         if self.json {
             return self.raw_json(body);
@@ -57,8 +62,20 @@ impl<'a> Printer<'a> {
         let items = page["items"]
             .as_array()
             .ok_or_else(|| CliError::unexpected("invalid creation page"))?;
+        let indexing = page["pendingIndex"].as_str();
+        if indexing == Some("building") {
+            self.line("pending history is being indexed; continue with the cursor below")?;
+        } else if indexing == Some("unavailable") {
+            self.line("pending history is incomplete; some retained work needs reconciliation")?;
+        }
         if items.is_empty() {
-            self.line("no creations on this page")?;
+            if !pending || indexing == Some("ready") {
+                self.line(if pending {
+                    "no pending creations on this page"
+                } else {
+                    "no creations on this page"
+                })?;
+            }
         } else {
             self.line(&format!("{:<31} {:<12} VM", "CREATION_KEY", "STATE"))?;
             for item in items {
@@ -72,8 +89,12 @@ impl<'a> Printer<'a> {
             }
         }
         if let Some(cursor) = page["nextCursor"].as_str() {
+            let mode = if pending { " --pending" } else { "" };
+            let budget = index_pages
+                .map(|value| format!(" --index-pages {value}"))
+                .unwrap_or_default();
             self.line(&format!(
-                "more: cmux-vm creation list --cursor {}",
+                "more: cmux-vm creation list{mode}{budget} --cursor {}",
                 cursor.escape_debug()
             ))?;
         }

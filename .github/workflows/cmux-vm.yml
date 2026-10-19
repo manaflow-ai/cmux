@@ -180,6 +180,9 @@ jobs:
       - name: Fork capture intent survives the previous ledger
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: bun scripts/test-fork-capture-compat.ts
+      - name: Pending history discovers slots from the previous writer
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: bun scripts/test-pending-history-compat.ts
       - name: Store tests on PGlite against the migration
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: bun run test:pg

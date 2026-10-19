@@ -3,7 +3,7 @@ import { Schema } from "effect";
 import type { GeneratedCreation, GeneratedCreationPage } from "../domain/generated-creation.ts";
 import type { IdempotencyRecord, LedgerStorage } from "./ledger.ts";
 
-export const VmReservationLink = Schema.Struct({ key: Schema.String, vmId: Schema.String });
+const VmReservationLink = Schema.Struct({ key: Schema.String, vmId: Schema.String });
 const Reservation = Schema.Struct({ kind: Schema.String, expiresMs: Schema.Number,
   retained: Schema.optional(Schema.Boolean), vmCreation: Schema.optional(Schema.Unknown) });
 type Reservation = typeof Reservation.Type;
