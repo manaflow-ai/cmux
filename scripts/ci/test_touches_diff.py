@@ -29,7 +29,8 @@ code. The head's web/ is extracted with `git archive` (the commit must exist
 locally: `git fetch origin pull/N/head`). The check then refuses, as "can't
 analyse safely" (exit 2), any tree where bundling might run code: a symlink, an import
 attribute clause anywhere (bun runs `with { type: "macro" }` imports while
-bundling), import() with attributes, or a package.json that mentions macros.
+bundling), an import() with a second argument (or one it can't read to its
+end), or a package.json that mentions macros.
 The head's bunfig.toml is read as data and never handed to bun.
 
 The sandbox is the guarantee. bun runs only in a Linux user namespace with
@@ -105,13 +106,14 @@ def deleted_files(repo: Path, base: str, head: str) -> list[str]:
 
 
 def changed_lines(repo: Path, base: str, head: str, path: str) -> set[int]:
-    """Head-side line numbers the diff adds or changes in one file."""
+    """Head-side line numbers the diff adds or changes in one file. A pure deletion
+    (`+N,0`) names the lines on either side of it, so the block that lost code is checked."""
     out = str(git(repo, "diff", "-U0", f"{base}...{head}", "--", path))
     lines: set[int] = set()
     for line in out.splitlines():
         if found := HUNK.match(line):
             start, count = int(found["start"]), int(found["count"] or 1)
-            lines.update(range(start, start + count))
+            lines.update(range(start, start + count) if count else {max(start, 1), start + 1})
     return lines
 
 
@@ -124,7 +126,7 @@ def preloads(web_root: Path) -> list[str]:
         import tomllib
     except ImportError:  # Python < 3.11
         return []
-    data = tomllib.loads(config.read_text())
+    data = tomllib.loads(config.read_text(encoding="utf-8"))
     value = (data.get("test") or {}).get("preload") or []
     return [str(Path(p))
             for p in ([value] if isinstance(value, str) else value)]
@@ -160,9 +162,11 @@ _GAP = r"(?:[ \n]|/\*[^*]*\*+(?:[^/*][^*]*\*+)*/|//[^\n]*(?:\n|$))*"
 # --no-macros does not stop it. Rather than recognise macros (a denylist), any attribute
 # clause after a module specifier is refused: nothing in web/ uses one.
 ATTRIBUTE_CLAUSE = re.compile(r"""["'`]""" + _GAP + r"(?:with|assert)" + _GAP + r"\{")
-# import(specifier, { with: {...} }) carries attributes too, so any options argument
-# naming with/assert counts.
-DYNAMIC_OPTIONS = re.compile(r"\bimport" + _GAP + r"\([^;]{0,400}?[\"'`]?\b(?:with|assert)\b[\"'`]?" + _GAP + r":")
+# import(specifier, { with: {...} }) carries attributes in its second argument, which can be
+# spelled any number of ways ([key], a variable), so any second argument is refused.
+DYNAMIC_IMPORT = re.compile(r"\bimport" + _GAP + r"\(")
+MAX_IMPORT_CALL = 4096
+MAX_TEMPLATE_NESTING = 16
 MAX_SCAN_BYTES = 2_000_000
 # bun's config files: withheld from bun, and package.json may remap imports to macros.
 BUN_CONFIG = ("bunfig.toml", ".bunfig.toml")
@@ -170,6 +174,102 @@ BUN_CONFIG = ("bunfig.toml", ".bunfig.toml")
 
 def normalized(text: str) -> str:
     return _WHITESPACE.sub(" ", _TERMINATORS.sub("\n", text))
+
+
+class _Unreadable(Exception):
+    """An import() call the scan can't read to its end."""
+
+
+def _string_end(text: str, i: int, limit: int) -> int:
+    quote, i = text[i], i + 1
+    while i < limit:
+        if text[i] == "\\":
+            i += 2
+        elif text[i] == quote:
+            return i + 1
+        elif text[i] == "\n":
+            break
+        else:
+            i += 1
+    raise _Unreadable("an unterminated string")
+
+
+def _template_end(text: str, i: int, limit: int, nesting: int) -> int:
+    i += 1
+    while i < limit:
+        if text[i] == "\\":
+            i += 2
+        elif text[i] == "`":
+            return i + 1
+        elif text.startswith("${", i):
+            i, _ = _code_until(text, i + 2, limit, "}", nesting + 1)
+        else:
+            i += 1
+    raise _Unreadable("an unterminated template")
+
+
+def _code_until(text: str, i: int, limit: int, closer: str, nesting: int) -> tuple[int, bool]:
+    """(index just past `closer`, whether a second argument came after a top-level comma).
+    Strings, templates, brackets and comments are skipped; anything ambiguous is unreadable:
+    a `/` (regex or division), another import, or no closer within the limit."""
+    if nesting > MAX_TEMPLATE_NESTING:
+        raise _Unreadable("templates nested too deep")
+    depth, after_comma, second = 0, False, False
+    while i < limit:
+        c = text[i]
+        if c in " \n":
+            i += 1
+            continue
+        if text.startswith("//", i):
+            end = text.find("\n", i, limit)
+            if end < 0:
+                break
+            i = end + 1
+            continue
+        if text.startswith("/*", i):
+            end = text.find("*/", i + 2, limit)
+            if end < 0:
+                break
+            i = end + 2
+            continue
+        if depth == 0 and c == closer:
+            return i + 1, second
+        second = second or (after_comma and depth == 0)
+        if c in "\"'":
+            i = _string_end(text, i, limit)
+            continue
+        if c == "`":
+            i = _template_end(text, i, limit, nesting)
+            continue
+        if c == "/":
+            raise _Unreadable("a `/` it can't tell from a regular expression")
+        if text.startswith("import", i) and not re.match(r"[\w$]", text[i - 1] if i else " ") \
+                and not re.match(r"[\w$]", text[i + 6:i + 7]):
+            raise _Unreadable("an import inside import()")
+        if c in "([{":
+            depth += 1
+        elif c in ")]}":
+            depth -= 1
+            if depth < 0:
+                raise _Unreadable("unbalanced brackets")
+        elif c == "," and depth == 0:
+            after_comma = True
+        i += 1
+    raise _Unreadable("no end within reach")
+
+
+def dynamic_import_problem(text: str) -> str | None:
+    """Why some import(...) in normalized text may carry options, or None when every call
+    provably takes one argument (a trailing comma allowed). Linear: each call is read once."""
+    pos = 0
+    while found := DYNAMIC_IMPORT.search(text, pos):
+        try:
+            pos, second = _code_until(text, found.end(), min(len(text), found.end() + MAX_IMPORT_CALL), ")", 0)
+        except _Unreadable as error:
+            return f"has an import() it can't read ({error})"
+        if second:
+            return "passes a second argument (options) to import()"
+    return None
 
 
 def unsafe_reasons(web_root: Path) -> list[str]:
@@ -183,7 +283,7 @@ def unsafe_reasons(web_root: Path) -> list[str]:
         if not path.is_file():
             continue
         if path.name == "package.json":
-            if "macro" in path.read_text(errors="replace").lower():
+            if "macro" in path.read_text(encoding="utf-8", errors="replace").lower():
                 reasons.append(f"{rel} mentions macros")
             continue
         if not SOURCE.search(path.name) or path.suffix == ".json":
@@ -191,11 +291,12 @@ def unsafe_reasons(web_root: Path) -> list[str]:
         if path.stat().st_size > MAX_SCAN_BYTES:
             reasons.append(f"{rel} is too large to scan")
             continue
-        text = normalized(path.read_text(errors="replace"))
+        # UTF-8 as bun reads it: under another locale, U+2028/U+2029 would not end a comment here.
+        text = normalized(path.read_text(encoding="utf-8", errors="replace"))
         if ATTRIBUTE_CLAUSE.search(text):
             reasons.append(f"{rel} has an import attribute clause")
-        elif DYNAMIC_OPTIONS.search(text):
-            reasons.append(f"{rel} passes import attributes to import()")
+        elif problem := dynamic_import_problem(text):
+            reasons.append(f"{rel} {problem}")
     return reasons
 
 
@@ -218,7 +319,11 @@ def can_sandbox() -> bool:
         return False
     with tempfile.TemporaryDirectory(prefix="test-touches-diff-probe-") as tmp:
         cmd = sandbox_command(["true"], Path(tmp), {})
-        return subprocess.run(cmd, capture_output=True, env=bun_env(Path(tmp) / "home")).returncode == 0
+        try:
+            probe = subprocess.run(cmd, capture_output=True, env=bun_env(Path(tmp) / "home"), timeout=30)
+        except subprocess.TimeoutExpired:
+            return False
+        return probe.returncode == 0
 
 
 # Runs as root (pid 1) in a new user, mount, pid and network namespace, then execs argv[2:].
@@ -543,7 +648,8 @@ def check(repo: Path, test: str, base: str | None, head: str, *, changed: list[s
                 lines = {}
                 for p in changed:
                     source = web_root / p[len(WEB) + 1:] if p.startswith(f"{WEB}/") else None
-                    code = code_lines(source.read_text(errors="replace")) if source and source.exists() else None
+                    code = code_lines(source.read_text(encoding="utf-8", errors="replace")) \
+                        if source and source.exists() else None
                     found = changed_lines(repo, base, head, p)
                     lines[p] = found & code if code is not None else found
         files = verdicts(changed, edges, sizes, entries, lines, hits)

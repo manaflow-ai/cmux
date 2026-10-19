@@ -239,6 +239,35 @@ class Census(unittest.TestCase):
         self.assertEqual(sorted(f["branch"] for f in report["failures"]), ["fix/repause", "main", "other"])
         self.assertTrue(all(f["kind"] == "timeout" for f in report["failures"]))
 
+    def logs_census(self, error):
+        run = lambda i: {"id": i, "run_attempt": 1, "status": "completed", "conclusion": "failure",
+                         "head_sha": f"s{i}", "head_branch": "main"}
+
+        class Erroring(FakeSource):
+            def jobs(self, run, attempt=None):
+                if run["id"] == 2:
+                    raise RuntimeError(error)
+                return super().jobs(run, attempt)
+
+        src = Erroring(runs={"main": [run(1), run(2)]},
+                       jobs={1: [{"id": 10, "name": "web / Web tests (2/4)", "run_attempt": 1,
+                                  "conclusion": "failure", "html_url": "https://github.com/x/job/10"}]},
+                       logs={10: LOG})
+        return census.census(src, test=None, file="vm-route-deadlines.test.ts", days=7, source="logs",
+                             max_main_runs=10, max_runs=0, now=NOW)
+
+    def test_one_unreadable_run_is_skipped_and_reported(self):
+        report = self.logs_census("GET repos/x/actions/runs/2/jobs: HTTP 404 Not Found")
+        self.assertEqual(report["runs_unreadable"], 1)
+        self.assertEqual(len(report["failures"]), 1)
+        self.assertIn("1 run(s) unreadable", census.render(report))
+
+    def test_a_rate_limit_aborts_instead_of_returning_partial_history(self):
+        for status in ("403 API rate limit exceeded", "429 Too Many Requests"):
+            with self.subTest(status), self.assertRaises(SystemExit) as raised:
+                self.logs_census(f"GET repos/x/actions/runs/2/jobs: HTTP {status}")
+            self.assertIn("rate limit", str(raised.exception))
+
     def test_auto_falls_back_to_logs_when_no_reports_exist(self):
         src = FakeSource(runs={"main": []})
         report = census.census(src, test=None, file="a.test.ts", days=7, now=NOW)

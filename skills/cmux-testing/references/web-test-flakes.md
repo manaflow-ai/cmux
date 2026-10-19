@@ -7,6 +7,9 @@ command before rerunning, de-flaking or holding the merge:
 python3 scripts/ci/web_test_verdict.py --pr 21651
 ```
 
+The CI failure attribution comment names this command, with the test file,
+when a red web test isn't one of the PR's files.
+
 On Linux it reads the PR's code only inside a sandbox (see [What runs](#what-runs)). It prints one line per failed test file, for example:
 
 > `tests/vm-route-deadlines.test.ts`: **also red on main**. 1 other failure in 7 days (1 on main, 0 other PR branches); vm-route-deadlines.test.ts imports 1 changed file(s); 2 of 2 failure(s) here passed on a re-run of the same SHA
@@ -25,7 +28,8 @@ run anyway; the script refuses it for forks.
 | probably unrelated | the PR can't reach it, and nothing else failed it in the window | rerun the shard; a pass settles it |
 | can't analyse safely | the head has an import attribute clause or similar, so no import graph | read the diff yourself; the history is still printed |
 
-`--post` comments the verdict on the PR. Without it, the script only prints.
+`--post` comments the verdict on the PR, editing its earlier verdict comment
+rather than adding another. Without it, the script only prints.
 
 ## The two parts
 
@@ -57,8 +61,9 @@ Each part also runs on its own:
   For an untrusted PR, use a Linux machine or a throwaway VM.
 - **The scan is a second line of defence.** bun runs `with { type: "macro" }`
   imports while bundling, and `--no-macros` doesn't stop it. So the check also
-  refuses heads with any import attribute clause, attributes passed to
-  `import()`, a package.json mentioning macros, or a symlink. JS line
+  refuses heads with any import attribute clause, an `import()` with a second
+  argument (or one it can't read to its closing parenthesis), a package.json
+  mentioning macros, or a symlink. Files are read as UTF-8, and JS line
   terminators and whitespace are normalised first. The head's bunfig.toml is
   read as data and never handed to bun.
 
@@ -70,7 +75,9 @@ Each part also runs on its own:
   reports, it falls back to job logs: all of main's failed runs, the PR's
   branch, and a sample of the newest `--max-runs` other failed runs. ci.yml
   fails about 300 times a day, so the fallback costs one call per run it
-  reads; it says how many it read.
+  reads; it says how many it read, and how many it couldn't (an expired log).
+  A rate limit partway through stops the census: no partial history is
+  reported, since a missing failure could flip the verdict.
 - A failure counts as main only when it ran on this repository's `main`; a
   fork's `main` is a PR branch.
 - Downloads and completed job lists are cached under
@@ -80,4 +87,5 @@ Each part also runs on its own:
   spawn), `import()` of a computed path, `mock.module()` targets, or deleted
   files; the output says so and lists the deleted files. bun's
   coverage marks only the start of each block, so a changed line counts under
-  the block above it. Comment, blank and type-declaration lines are skipped.
+  the block above it. Comment, blank and type-declaration lines are skipped. A
+  change that only deletes lines counts as the lines on either side of it.

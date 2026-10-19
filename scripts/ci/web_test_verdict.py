@@ -3,7 +3,7 @@
 
     python3 scripts/ci/web_test_verdict.py --pr 21651
     python3 scripts/ci/web_test_verdict.py --pr 21651 --file vm-route-deadlines.test.ts --coverage
-    python3 scripts/ci/web_test_verdict.py --pr 21651 --post      # also comment the verdict on the PR
+    python3 scripts/ci/web_test_verdict.py --pr 21651 --post      # also comment it on the PR (one comment, edited)
 
 For each web test file that failed on the PR's branch (or the one --file/--test
 names), it combines:
@@ -54,6 +54,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import test_touches_diff as graph  # noqa: E402
 import web_test_failure_census as census  # noqa: E402
+from guard_attribution import Writer, upsert_comment  # noqa: E402
 
 MARKER = "<!-- cmux-web-test-verdict -->"
 LIKELY, TOUCHED_FLAKY, ON_MAIN, FLAKE, PROBABLY = "likely this PR's", "touched, also flaky", "also red on main", \
@@ -62,8 +63,9 @@ UNSAFE = "can't analyse safely"
 MAX_FILES = 5
 
 
-def decide(own: list[Mapping], others: list[Mapping], touch: Mapping, days: int) -> dict:
-    """The verdict for one test file from its failures here, elsewhere, and its import graph."""
+def decide(own: list[Mapping], others: list[Mapping], touch: Mapping, days: int, unreadable: int = 0) -> dict:
+    """The verdict for one test file from its failures here, elsewhere, and its import graph.
+    `unreadable` CI runs the census skipped are named, since a failure may hide in them."""
     on_main = sum(1 for f in others if f.get("where") == "main")
     elsewhere = sorted({str(f.get("pr") or f.get("branch")) for f in others if f.get("where") != "main"})
     reran = sum(1 for f in own if f.get("rerun") == "passed")
@@ -82,6 +84,8 @@ def decide(own: list[Mapping], others: list[Mapping], touch: Mapping, days: int)
     parts = [history, reach]
     if reran:
         parts.append(f"{reran} of {len(own)} failure(s) here passed on a re-run of the same SHA")
+    if unreadable:
+        parts.append(f"{unreadable} CI run(s) unreadable, so the history may be incomplete")
     return {"verdict": verdict, "line": f"{verdict}: " + "; ".join(parts)}
 
 
@@ -103,6 +107,11 @@ def refuse_fork_coverage(pr: Mapping, repo: str, flag: str = "--coverage") -> No
     if head_repo.get("full_name") != repo:
         raise SystemExit(f"#{pr.get('number')} comes from {head_repo.get('full_name') or 'a deleted fork'}; "
                          f"{flag} would run its code on this machine. Rerun without {flag}.")
+
+
+def post(gh, repo: str, number: int, body: str) -> None:
+    """One verdict comment per PR: edit the one carrying MARKER, or add it."""
+    upsert_comment(Writer(gh, dry_run=False), repo, number, MARKER, body, gh.comments(number))
 
 
 def safe(text: object, limit: int = 160) -> str:
@@ -185,15 +194,15 @@ def main(argv: list[str] | None = None) -> int:
         except graph.UnsafeToAnalyse as error:
             touch = {"touches": None, "summary": str(error), "files": []}
         results.append({"file": file, "own": own, "others": others, "touch": touch, "source": history["source"],
-                        "verdict": decide(own, others, touch, args.days)})
+                        "verdict": decide(own, others, touch, args.days, int(history.get("runs_unreadable") or 0))})
     body = render(pr, results, args.days)  # type: ignore[arg-type]
     if args.json:
         print(json.dumps({"pr": args.pr, "head": head, "base": base, "results": results}, indent=2, default=str))
     else:
         print(body)
     if args.post:
-        src.gh.request("POST", f"repos/{args.repo}/issues/{args.pr}/comments", {"body": body})
-        print("posted the verdict on the pull request", file=sys.stderr)
+        post(src.gh, args.repo, args.pr, body)
+        print("posted the verdict on the pull request (editing an earlier one)", file=sys.stderr)
     print(f"{src.gh.calls} REST calls", file=sys.stderr)
     return 0
 

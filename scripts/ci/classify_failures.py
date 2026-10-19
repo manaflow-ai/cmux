@@ -920,7 +920,21 @@ def verdict_line(report: Mapping, rerun: bool, rerun_line: str) -> str:
     return line
 
 
-def render_failures(jobs: list[Mapping]) -> list[str]:
+def import_graph_hint(jobs: list[Mapping], pr: object) -> list[str]:
+    """For a red web test the PR doesn't own by file or runner: the command that checks whether
+    the PR's code reaches it. This bot never fetches PR code, so it can't build the import graph."""
+    files = sorted({str(item["file"]) for job in jobs if job["verdict"] != MACHINE
+                    for item in job.get("failures") or []
+                    if item.get("kind") == "test" and str(item.get("file") or "").startswith("web/")
+                    and item.get("owner") != YOURS})
+    if not files or not pr:
+        return []
+    return ["", f"A web test can import code this PR changes without being one of its files: "
+                f"`python3 scripts/ci/web_test_verdict.py --pr {pr} --file {files[0]}` checks its import graph "
+                "(on Linux, in a sandbox) and its failures on other branches."]
+
+
+def render_failures(jobs: list[Mapping], pr: object = None) -> list[str]:
     rows = []
     for job in jobs:
         if job["verdict"] == MACHINE:
@@ -935,7 +949,7 @@ def render_failures(jobs: list[Mapping]) -> list[str]:
     out = ["", "Failures:", *rows[:MAX_RENDERED_FAILURES]]
     if len(rows) > MAX_RENDERED_FAILURES:
         out.append(f"- ... {len(rows) - MAX_RENDERED_FAILURES} more in the job logs")
-    return out
+    return out + import_graph_hint(jobs, pr)
 
 
 def render_comment(report: Mapping, rerun: str, reran: bool = False) -> str:
@@ -966,7 +980,7 @@ def render_comment(report: Mapping, rerun: str, reran: bool = False) -> str:
                 out.append(f"| {name.replace('|', '/')} | **{job['verdict']}** | {job['why']}{where_} |")
             if len(jobs) > MAX_RENDERED_JOBS:
                 out.append(f"| ... {len(jobs) - MAX_RENDERED_JOBS} more | | |")
-            out += render_failures(jobs)
+            out += render_failures(jobs, report.get("pr"))
             evidence = [f"{job['name']}: {job['evidence']}" for job in jobs[:MAX_RENDERED_JOBS] if job["evidence"]]
             if evidence:
                 out += ["", "<details><summary>Matched log lines</summary>", "", fence("\n".join(evidence)),
@@ -1110,6 +1124,7 @@ def act(gh: GitHub, writer: Writer, run: Mapping, report: dict) -> dict:
     if report.get("conclusion") == "cancelled" and not report["jobs"]:
         return {"pr": pr, "rerun": False, "line": "skipped: cancelled with no failed job"}
     report["merged"] = merged
+    report["pr"] = pr
     files = own_failures(gh, pr, report, None)
     now = now_utc()
     try:
