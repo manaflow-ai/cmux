@@ -47,6 +47,7 @@ import { newTabChipSnapshot } from "./newtab/chipDefaults";
 import { HarnessesScreen } from "./harnesses/HarnessesScreen";
 import { openHarnessesPage, registerHarnessesPage, useHarnessesPage } from "./harnesses/harnessesPage";
 import { injectedNewTabContext, useEarlyNewTabContext, useNewTabAdoption, useNewTabPlaces } from "./newtab/adoption";
+import { rememberMachineName, settledMachineName } from "./newtab/settledCache";
 import { heldPick, withDraftFolder } from "./newtab/draftFolder";
 import { StyleSwitch } from "./newtab/StyleSwitch";
 import { pageStyle, pickNewTabStyle, screenTemplate, shownTemplate } from "./newtab/templates";
@@ -2387,8 +2388,9 @@ function AcpmuxPane() {
   /// Shell mode's commands (shell/shellRuns.ts), across the chats this page showed.
   const [shellRuns] = useState(() => new ShellRuns(callNative));
   const allShellRuns = useSyncExternalStore(shellRuns.subscribe, shellRuns.snapshot, shellRuns.snapshot);
-  /// This Mac's name, from the handshake.
-  const [machineName, setMachineName] = useState<string | undefined>();
+  /// This Mac's name, from the handshake; until then the name the last page's handshake gave
+  /// (newtab/settledCache.ts), so the machine chip never flips from "This Mac" to it.
+  const [machineName, setMachineName] = useState<string | undefined>(settledMachineName);
   const [scrollAnchor, setScrollAnchor] = useState<(ScrollAnchor & { sessionId: string }) | undefined>();
   const [githubRepository, setGithubRepository] = useState<string | undefined>();
   /// What the direct client (or the host) last reported; `snapshot` draws a pending harness or
@@ -3813,7 +3815,9 @@ function AcpmuxPane() {
         )
           setSnapshot(emptySnapshot());
         if (!reconnect) setSurface(readSurface(host.surface));
-        setMachineName(typeof host.machineName === "string" && host.machineName ? host.machineName : undefined);
+        const hostMachine = typeof host.machineName === "string" && host.machineName ? host.machineName : undefined;
+        rememberMachineName(hostMachine);
+        setMachineName(hostMachine ?? settledMachineName());
         // Before the transcript's rows arrive: it opens where the reader left it (cx-6bgzj).
         // A woken page (its last one let go while hidden) comes back as it was left.
         const wake = !reconnect ? readWake(host.wake) : undefined;

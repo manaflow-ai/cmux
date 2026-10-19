@@ -11,7 +11,8 @@
 // Filter (cx-htpk0, Claude desktop parity) narrows the list to the live chats that are working or
 // wait on the user, or to the finished ones: live chats at rest, then every indexed chat.
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { subscribeDeviceChats } from "./deviceChats";
+import { devicePushCount, subscribeDeviceChats } from "./deviceChats";
+import { chatsChangedSinceSettled, rememberChats, settledChats } from "./settledCache";
 import { ContextMenu } from "../../../ui/ContextMenu";
 import { VirtualList } from "../../../ui/VirtualList";
 import { useT } from "../i18n";
@@ -85,6 +86,21 @@ const initial: State = {
   design: "age",
 };
 
+/// The list a page starts with: the first page the last page read (settledCache.ts), drawn on the
+/// first frame, else empty until its read lands.
+function initialState(): State {
+  const settled = settledChats();
+  if (!settled) return initial;
+  return {
+    ...initial,
+    rows: settled.rows,
+    ...(settled.nextCursor ? { nextCursor: settled.nextCursor } : {}),
+    loaded: true,
+    ready: settled.ready,
+    design: settled.design ?? initial.design,
+  };
+}
+
 function design(value: unknown): AllChatsDesign | undefined {
   return value === "quiet" || value === "age" || value === "project" ? value : undefined;
 }
@@ -143,7 +159,9 @@ function listEntries(rows: AllChatsRow[], view: "chats" | "projects", folded: Re
 /// dropped (latest wins). `load` may change identity on every parent render: the list keeps the
 /// latest one in a ref, so a parent render never restarts the list.
 function useChatPages(load: LoadChatsPage) {
-  const [state, setState] = useState<State>(initial);
+  const [state, setState] = useState<State>(initialState);
+  // Rows from the settled first page: the mount reads only a change pushed since (see below).
+  const [seeded] = useState(() => state.loaded);
   const latestLoad = useRef(load);
   latestLoad.current = load;
   const generation = useRef(0);
@@ -153,6 +171,7 @@ function useChatPages(load: LoadChatsPage) {
     const marker = `${ticket}:${cursor ?? ""}`;
     if (inFlight.current === marker) return;
     inFlight.current = marker;
+    const atPush = devicePushCount();
     setState((s) => (cursor ? { ...s, loading: true } : { ...s, query, nextCursor: undefined, loading: true }));
     void latestLoad
       .current({ ...(query ? { query } : {}), ...(cursor ? { cursor } : {}), limit: PAGE })
@@ -172,12 +191,23 @@ function useChatPages(load: LoadChatsPage) {
                 : { failed: true, rows: s.rowsQuery === query ? s.rows : [], nextCursor: undefined }),
             };
           const fresh = rowsOf(page);
+          const nextCursor = page.nextCursor && fresh.length > 0 ? page.nextCursor : undefined;
+          if (!cursor && !query)
+            rememberChats(
+              {
+                rows: fresh,
+                ready: page.ready !== false,
+                ...(nextCursor ? { nextCursor } : {}),
+                ...(design(page.design) ? { design: design(page.design) } : {}),
+              },
+              atPush,
+            );
           const known = new Set(s.rows.map((row) => row.key));
           const rows = cursor ? [...s.rows, ...fresh.filter((row) => !known.has(row.key))] : fresh;
           return {
             ...s,
             rows,
-            nextCursor: page.nextCursor && fresh.length > 0 ? page.nextCursor : undefined,
+            nextCursor,
             loading: false,
             loaded: true,
             ready: page.ready !== false,
@@ -188,10 +218,6 @@ function useChatPages(load: LoadChatsPage) {
         });
       });
   }, []);
-  // The first page when the list mounts (the page is a fresh view each time it shows).
-  useEffect(() => {
-    fetchPage("", undefined);
-  }, [fetchPage]);
   // A loaded list reads its first page again when the index pushes a change and puts it on top of
   // its rows, keeping the later pages and the cursor (cx-heu). One read at a time: a push during
   // one reads once more after it. A query's list, or a new query meanwhile, is left alone.
@@ -203,10 +229,24 @@ function useChatPages(load: LoadChatsPage) {
     }
     refreshing.current = "busy";
     const ticket = generation.current;
+    const atPush = devicePushCount();
     void latestLoad
       .current({ limit: PAGE })
       .catch(() => undefined)
       .then((page) => {
+        if (page) {
+          const fresh = rowsOf(page);
+          const nextCursor = page.nextCursor && fresh.length > 0 ? page.nextCursor : undefined;
+          rememberChats(
+            {
+              rows: fresh,
+              ready: page.ready !== false,
+              ...(nextCursor ? { nextCursor } : {}),
+              ...(design(page.design) ? { design: design(page.design) } : {}),
+            },
+            atPush,
+          );
+        }
         if (page && ticket === generation.current) {
           setState((s) => {
             if (s.query) return s;
@@ -230,6 +270,13 @@ function useChatPages(load: LoadChatsPage) {
         if (again) refreshFirstPage();
       });
   }, []);
+  // The first page when the list mounts. A list that drew the settled first page (a workspace
+  // closed or opened and its page mounted again) reads it only for a change the chat index pushed
+  // since; a later push reads it as on any loaded list (Leo 2026-10-18: the list emptied and refilled).
+  useEffect(() => {
+    if (!seeded) fetchPage("", undefined);
+    else if (chatsChangedSinceSettled()) refreshFirstPage();
+  }, [seeded, fetchPage, refreshFirstPage]);
   // A page opened before the chat index finished its first scan (`ready: false`, or no rows yet)
   // reads its first page from the start when the host pushes the index's chats (cx-ztlw: the first
   // Cmd-T page stayed empty for good); a loaded one refreshes it. A search is left alone.
