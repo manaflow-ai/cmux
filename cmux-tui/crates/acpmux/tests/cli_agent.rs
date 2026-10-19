@@ -121,3 +121,18 @@ fn cli_agent_cancel_stops_a_running_prompt() {
     let (done, _) = agent.until(3);
     assert_eq!(done.pointer("/result/stopReason"), Some(&json!("cancelled")));
 }
+
+#[cfg(unix)]
+#[test]
+fn cli_agent_tty_reads_a_program_that_writes_to_its_terminal() {
+    // Like unii: the prompt comes on stdin, the reply goes to /dev/tty only.
+    let script = "read -r line; echo \"tty says: $line\" > /dev/tty; echo not-on-the-pipe";
+    let mut agent = Agent::start(&["--tty", "--", "sh", "-c", script]);
+    let sid = session(&mut agent);
+    agent.send(json!({"jsonrpc":"2.0","id":3,"method":"session/prompt","params":{
+        "sessionId": sid, "prompt": [{"type":"text","text":"hello\n"}]
+    }}));
+    let (done, text) = agent.until(3);
+    assert_eq!(done.pointer("/result/stopReason"), Some(&json!("end_turn")), "{done}");
+    assert!(text.contains("tty says: hello\n"), "{text:?}");
+}

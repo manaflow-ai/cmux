@@ -120,7 +120,8 @@ program once in the session folder and streams its stdout; cancel kills it.
 Flags: `--prompt-arg` (prompt as the last argument), `--last-block` (only the
 prompt's last text block: for a program that keeps its own memory),
 `--after-echo` (drop output up to the frame that echoes the prompt),
-`--instructions` (prefix the session folder's AGENTS.md).
+`--instructions` (prefix the session folder's AGENTS.md), `--tty` (a terminal as
+its stdout and controlling terminal, for a program that prints only there).
 Example: `--example unii`.
 
 ## Where cmux looks

@@ -49,6 +49,10 @@ pub struct Options {
     /// Put the session folder's `AGENTS.md` (the instructions acpmux and the
     /// Chief write for a non-Claude harness) before the prompt.
     pub instructions: bool,
+    /// Run the program with a terminal as its stdout and controlling
+    /// terminal (stdin stays the prompt pipe), for a program that prints
+    /// only to a terminal: unii writes to /dev/tty.
+    pub tty: bool,
 }
 
 /// The text one prompt sends to the program.
@@ -326,7 +330,6 @@ async fn run_prompt(
     cmd.args(&options.command[1..])
         .current_dir(cwd)
         .env("NO_COLOR", "1")
-        .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true);
     if options.prompt_arg {
@@ -334,7 +337,15 @@ async fn run_prompt(
     } else {
         cmd.stdin(Stdio::piped());
     }
+    let master = if options.tty {
+        Some(attach_tty(&mut cmd).map_err(|e| format!("opening a terminal: {e}"))?)
+    } else {
+        cmd.stdout(Stdio::piped());
+        None
+    };
     let mut child = cmd.spawn().map_err(|e| format!("starting {}: {e}", options.command[0]))?;
+    // The terminal's other end now lives only in the child: its exit ends the reads.
+    drop(cmd);
     if let Some(mut stdin) = child.stdin.take() {
         let text = prompt.clone();
         tokio::spawn(async move {
@@ -363,39 +374,158 @@ async fn run_prompt(
             }}
         }));
     };
+    let mut lines = match master {
+        Some(master) => read_lines(master),
+        None => {
+            let stdout = child.stdout.take().expect("piped stdout");
+            let (line_tx, line_rx) = mpsc::unbounded_channel();
+            tokio::spawn(async move {
+                let mut lines = BufReader::new(stdout).lines();
+                while let Ok(Some(line)) = lines.next_line().await {
+                    if line_tx.send(line).is_err() {
+                        break;
+                    }
+                }
+            });
+            line_rx
+        }
+    };
+    // The child lives in its own task, so its exit and a cancel can both be
+    // waited for while the output is read.
+    let (kill_tx, kill_rx) = oneshot::channel::<()>();
+    let (exit_tx, mut exit_rx) = oneshot::channel();
+    tokio::spawn(async move {
+        tokio::select! {
+            _ = kill_rx => {
+                let _ = child.kill().await;
+            }
+            status = child.wait() => {
+                let _ = exit_tx.send(status);
+            }
+        }
+    });
     let mut filter = ReplyFilter::new(&prompt, options.after_echo);
-    let mut lines = BufReader::new(child.stdout.take().expect("piped stdout")).lines();
+    let mut status = None;
     loop {
         tokio::select! {
             _ = &mut cancel => {
-                let _ = child.kill().await;
+                let _ = kill_tx.send(());
                 return Ok("cancelled");
             }
-            line = lines.next_line() => match line {
-                Ok(Some(line)) => {
+            line = lines.recv() => match line {
+                Some(line) => {
                     if let Some(text) = filter.push(&line) {
                         chunk(text);
                     }
                 }
-                Ok(None) | Err(_) => break,
+                None => break,
+            },
+            // A program that exits while something it started keeps the
+            // terminal open: read what is already written, then stop.
+            exited = &mut exit_rx, if status.is_none() && options.tty => {
+                status = Some(exited);
+                while let Ok(Some(line)) =
+                    tokio::time::timeout(TTY_DRAIN, lines.recv()).await
+                {
+                    if let Some(text) = filter.push(&line) {
+                        chunk(text);
+                    }
+                }
+                break;
             }
         }
     }
     if let Some(text) = filter.finish() {
         chunk(text);
     }
-    let status = tokio::select! {
-        _ = &mut cancel => {
-            let _ = child.kill().await;
-            return Ok("cancelled");
-        }
-        status = child.wait() => status.map_err(|e| format!("waiting for {}: {e}", options.command[0]))?,
-    };
+    let status = match status {
+        Some(status) => status,
+        None => tokio::select! {
+            _ = &mut cancel => {
+                let _ = kill_tx.send(());
+                return Ok("cancelled");
+            }
+            status = exit_rx => status,
+        },
+    }
+    .map_err(|_| format!("{} was stopped", options.command[0]))?
+    .map_err(|e| format!("waiting for {}: {e}", options.command[0]))?;
     if !status.success() {
         let tail = stderr_tail.await.unwrap_or_default();
         return Err(format!("{} exited with {status}: {tail}", options.command[0]));
     }
     Ok("end_turn")
+}
+
+/// How long the output of an exited `--tty` program is still read: what it
+/// wrote before it exited is already in the terminal's buffer.
+const TTY_DRAIN: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// Gives `cmd` a new pseudo-terminal (160 by 50) as its stdout and
+/// controlling terminal; the terminal's controller, to read its output.
+#[cfg(unix)]
+fn attach_tty(cmd: &mut tokio::process::Command) -> std::io::Result<std::fs::File> {
+    use std::os::fd::{FromRawFd, OwnedFd};
+    let (mut master, mut slave) = (-1, -1);
+    let mut size = libc::winsize { ws_row: 50, ws_col: 160, ws_xpixel: 0, ws_ypixel: 0 };
+    // SAFETY: openpty writes two descriptors it opened; they are owned below.
+    let rc = unsafe {
+        libc::openpty(
+            &mut master,
+            &mut slave,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            &mut size,
+        )
+    };
+    if rc != 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    // SAFETY: both descriptors are open and nothing else owns them.
+    let (master, slave) = unsafe { (OwnedFd::from_raw_fd(master), OwnedFd::from_raw_fd(slave)) };
+    cmd.stdout(Stdio::from(slave));
+    // SAFETY: setsid and ioctl are async-signal-safe. The child makes its
+    // stdout (the terminal) its controlling terminal, so a program that
+    // opens /dev/tty writes to it.
+    unsafe {
+        cmd.pre_exec(|| {
+            if libc::setsid() < 0 || libc::ioctl(1, libc::TIOCSCTTY as _, 0) < 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
+    Ok(std::fs::File::from(master))
+}
+
+#[cfg(not(unix))]
+fn attach_tty(_cmd: &mut tokio::process::Command) -> std::io::Result<std::fs::File> {
+    Err(std::io::Error::other("--tty needs a Unix terminal"))
+}
+
+/// The lines of a terminal's output, read on a thread (a terminal read
+/// blocks; it fails with EIO once the program and its children closed it).
+fn read_lines(file: std::fs::File) -> mpsc::UnboundedReceiver<String> {
+    use std::io::BufRead;
+    let (tx, rx) = mpsc::unbounded_channel();
+    std::thread::spawn(move || {
+        let mut reader = std::io::BufReader::new(file);
+        let mut buf = Vec::new();
+        loop {
+            buf.clear();
+            match reader.read_until(b'\n', &mut buf) {
+                Ok(0) | Err(_) => break,
+                Ok(_) => {
+                    let line = String::from_utf8_lossy(&buf);
+                    let line = line.trim_end_matches(['\n', '\r']).to_owned();
+                    if tx.send(line).is_err() {
+                        break;
+                    }
+                }
+            }
+        }
+    });
+    rx
 }
 
 #[cfg(test)]

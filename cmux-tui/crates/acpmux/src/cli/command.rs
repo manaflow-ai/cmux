@@ -212,6 +212,10 @@ pub enum Command {
         /// Put the session folder's AGENTS.md before the prompt.
         #[arg(long)]
         instructions: bool,
+        /// Give the program a terminal as stdout and controlling terminal
+        /// (stdin stays the prompt), for one that prints only to a terminal.
+        #[arg(long)]
+        tty: bool,
         /// The program and its arguments, after `--`.
         #[arg(trailing_var_arg = true, allow_hyphen_values = true, required = true)]
         command: Vec<String>,
