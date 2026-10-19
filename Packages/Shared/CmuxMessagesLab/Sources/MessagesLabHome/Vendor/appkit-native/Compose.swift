@@ -11,6 +11,10 @@ final class FieldTextView: NSTextView {
     /// cmux: the host's attachment intake reads the pasteboard first
     /// (files and pictures, Home's type rule); true when it took the paste.
     var onPastePasteboard: (NSPasteboard) -> Bool = { _ in false }
+    /// cmux: whether the host's intake would take the pasteboard (types only).
+    /// A plain-text NSTextView enables Paste only for text types, so a
+    /// picture alone (a copied screenshot) left Cmd+V disabled.
+    var acceptsPastePasteboard: (NSPasteboard) -> Bool = { _ in false }
     /// Marked (IME) text changed. UITextView reports marked text through
     /// `textViewDidChange`, so the draft (and the field height) follows the
     /// composition; NSTextView does not post a text change for it.
@@ -236,6 +240,7 @@ final class FieldTextView: NSTextView {
         if DeferredSpellChecker.useAppKit { super.toggleContinuousSpellChecking(sender) } else { spell.enabled.toggle() }
     }
     override func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
+        if item.action == #selector(paste(_:)), acceptsPastePasteboard(pasteboard) { return true }  // cmux
         if !DeferredSpellChecker.useAppKit, item.action == #selector(toggleContinuousSpellChecking(_:)) {
             (item as? NSMenuItem)?.state = spell.enabled ? .on : .off
             return true
