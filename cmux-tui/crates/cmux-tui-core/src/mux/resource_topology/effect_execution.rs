@@ -212,7 +212,10 @@ impl Mux {
                         name: optional_owned_string(fields, "terminal_name")?,
                         created_screen_name: None,
                         size: effect_cell_size(fields)?,
-                        on_exit: None,
+                        // Internal owner jobs retain their terminal view.
+                        // Generic workspace.create still rejects this field
+                        // at catalog admission, preserving its public shape.
+                        on_exit: effect_on_exit(fields)?,
                     },
                 )
                 .map(|created| created.path)
