@@ -2382,6 +2382,20 @@
     "unit": "s",
     "use": "Agent cursor fades out once its agent goes idle"
    },
+   "hibernateIcon": {
+    "value": 0.25,
+    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift (MotionTunables.fadeDefaults)",
+    "unit": "s",
+    "use": "Hibernated tab favicon shrinks into its dotted ring and grows back on wake (Chromium TabIcon, 250 ms ease-in)",
+    "curve": "easeIn"
+   },
+   "hibernateRing": {
+    "value": 1.0,
+    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift (MotionTunables.fadeDefaults)",
+    "unit": "s",
+    "use": "Hibernated tab dotted ring fades in (Chromium TabIcon discard animation, 1 s ease-in)",
+    "curve": "easeIn"
+   },
    "pinLift": {
     "value": 0.15,
     "source": "cmux-tui/crates/cmux-motion (MotionFade): MessagesLab SidebarPinDragging.swift",
