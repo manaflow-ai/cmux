@@ -24,6 +24,7 @@ fn output(value: Value) -> Output {
             format!("{} {}\n", messages.paired, value["host"].as_str().unwrap_or_default())
         }
         Some("pending") => format!("{}\n", messages.pending),
+        Some("network_pending") => format!("{}\n", messages.network_pending),
         Some("indeterminate") => format!("{}\n", messages.indeterminate),
         _ => format!("{}\n", messages.unpaired),
     };
