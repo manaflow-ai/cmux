@@ -28,6 +28,7 @@ import { OpenableImage, ReplyImage } from "../chips/ReplyImage";
 import "../../../markdown-task-checkbox.css";
 import { TaskCheckbox } from "../../../ui/TaskCheckbox";
 import { githubReferences } from "../../../githubReferences";
+import { openingFence, closesFence } from "./markdownFence";
 import { acpmuxPerf } from "../perf";
 
 export type Align = "left" | "center" | "right" | null;
@@ -76,16 +77,16 @@ function parseLines(lines: string[], depth = 0): MdBlock[] {
       i++;
       continue;
     }
-    const fence = line.match(/^\s*```([^\s`]*)[^`]*$/);
+    const fence = openingFence(line);
     if (fence) {
       const body: string[] = [];
       i++;
-      while (i < lines.length && !/^\s*```\s*$/.test(lines[i])) body.push(lines[i++]);
+      while (i < lines.length && !closesFence(lines[i]!, fence)) body.push(lines[i++]);
       const open = i >= lines.length;
       i++;
       out.push({
         type: "code",
-        lang: fence[1] || "text",
+        lang: fence.lang,
         code: body.join("\n"),
         ...(open ? { open: true as const } : {}),
       });
@@ -159,7 +160,7 @@ function parseLines(lines: string[], depth = 0): MdBlock[] {
       lines[i].trim() &&
       !/^(#{1,6})\s/.test(lines[i]) &&
       !FOOTNOTE_DEF.test(lines[i]) &&
-      !/^\s*```/.test(lines[i]) &&
+      !openingFence(lines[i]!) &&
       !/^\s*\$\$/.test(lines[i]) &&
       !/^\s*>/.test(lines[i]) &&
       !LIST_RE.test(lines[i])
@@ -972,8 +973,8 @@ export function Markdown({
     streaming && fresh
       ? { steps: fresh, text: freshChars ? children.slice(children.length - freshChars) : "", now }
       : undefined;
-  // An odd number of fence lines: the last block is a fence still arriving.
-  const openFence = streaming && (children.match(/^\s*```/gm)?.length ?? 0) % 2 === 1;
+  const lastBlock = revealedBlocks.at(-1)?.block;
+  const openFence = streaming && lastBlock?.type === "code" && lastBlock.open;
   const draw = (entry: KeyedBlock) => {
     const live = !atMount.current!.has(entry.key);
     const fromReceived = renderByKey.has(entry.key) && receivedRender(entry.block);

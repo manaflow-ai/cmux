@@ -617,8 +617,12 @@ const MessageRow = memo(
         </div>
       );
     return (
-      <RenderLiveContext.Provider value={row.renderLive === true}>
-        <RevealedMarkdown text={row.text ?? ""} streaming={row.streaming === true} githubRepository={githubRepository} />
+      <RenderLiveContext.Provider value={row.renderLive === true ? { attachment: row.renderAttachment ?? 0 } : false}>
+        <RevealedMarkdown
+          text={row.text ?? ""}
+          streaming={row.streaming === true}
+          githubRepository={githubRepository}
+        />
       </RenderLiveContext.Provider>
     );
   },
@@ -710,7 +714,7 @@ const RenderRow = memo(
     const live = useLab("liveRender");
     const call = tool && (canRender() || live) ? renderCall(tool) : undefined;
     return call ? (
-      <RenderLiveContext.Provider value={row.renderLive === true}>
+      <RenderLiveContext.Provider value={row.renderLive === true ? { attachment: row.renderAttachment ?? 0 } : false}>
         <RenderCard call={call} />
       </RenderLiveContext.Provider>
     ) : null;
@@ -5120,10 +5124,11 @@ function AcpmuxPane() {
   const renderBridge = useRenderBridge({
     prefill: (text: string) => composerHandle.current?.restore(text, []),
     send: sendComposerPrompt,
-    openLink: (url) => callNative("browser.open", { url }).then(
-      (value) => value !== false,
-      () => false,
-    ),
+    openLink: (url) =>
+      callNative("browser.open", { url }).then(
+        (value) => value !== false,
+        () => false,
+      ),
   });
   const transcript = (
     // Quick Chat's panel has no room beside it: its fences have no Open preview.
@@ -5138,53 +5143,55 @@ function AcpmuxPane() {
                     <SessionCwdContext.Provider value={snapshot.summary?.cwd}>
                       <SubagentNavContext.Provider value={setSubagentView}>
                         <SubagentPaneContext.Provider value={showSubagent}>
-                        <WorkingCountsContext.Provider value={workingCounts}>
-                          <SubagentStopContext.Provider value={stopSubagent}>
-                            <SubagentHarnessContext.Provider
-                              value={knownMark(snapshot.summary?.harness, snapshot.summary?.family)}
-                            >
-                              <ChatFindScope
-                                rows={childRows ?? sourceRows}
-                                shown={childRows ? undefined : transcriptRows}
-                                openFold={openFold}
-                                findRef={findRef}
+                          <WorkingCountsContext.Provider value={workingCounts}>
+                            <SubagentStopContext.Provider value={stopSubagent}>
+                              <SubagentHarnessContext.Provider
+                                value={knownMark(snapshot.summary?.harness, snapshot.summary?.family)}
                               >
-                                {(find) => (
-                                  <VirtualTranscript
-                                    rows={transcriptRows}
-                                    working={snapshot.isWorking}
-                                    // Its stage positions Jump to latest; the Quick Composer's panel has no room for it.
-                                    jumpButton={!quick}
-                                    focusComposer={() => composerHandle.current?.focus()}
-                                    find={quick ? undefined : find}
-                                    sessionId={childRows ? `${shownSessionId}:subagent:${subagentView}` : shownSessionId}
-                                    canLoadOlder={!childRows && snapshot.canLoadOlder}
-                                    onLoadOlder={() => directClient.current?.loadOlder() ?? Promise.resolve()}
-                                    openAt={
-                                      !childRows && shownSessionId && scrollAnchor?.sessionId === shownSessionId
-                                        ? scrollAnchor
-                                        : undefined
-                                    }
-                                    anchorNow={quick || childRows ? undefined : transcriptAnchor}
-                                    revealRow={childRows ? undefined : revealPlanRow}
-                                    onAnchor={
-                                      quick || childRows || !shownSessionId
-                                        ? undefined
-                                        : (anchor) => postScrollAnchor(shownSessionId, anchor)
-                                    }
-                                    expanded={expanded}
-                                    reveal={childRows ? undefined : revealRow}
-                                    registry={registry}
-                                    githubRepository={githubRepository}
-                                    // The Quick Composer has no room for the changes view; its file rows stay plain.
-                                    onOpenDiff={quick ? undefined : openDiff}
-                                    onToggleActivity={toggleActivity}
-                                  />
-                                )}
-                              </ChatFindScope>
-                            </SubagentHarnessContext.Provider>
-                          </SubagentStopContext.Provider>
-                        </WorkingCountsContext.Provider>
+                                <ChatFindScope
+                                  rows={childRows ?? sourceRows}
+                                  shown={childRows ? undefined : transcriptRows}
+                                  openFold={openFold}
+                                  findRef={findRef}
+                                >
+                                  {(find) => (
+                                    <VirtualTranscript
+                                      rows={transcriptRows}
+                                      working={snapshot.isWorking}
+                                      // Its stage positions Jump to latest; the Quick Composer's panel has no room for it.
+                                      jumpButton={!quick}
+                                      focusComposer={() => composerHandle.current?.focus()}
+                                      find={quick ? undefined : find}
+                                      sessionId={
+                                        childRows ? `${shownSessionId}:subagent:${subagentView}` : shownSessionId
+                                      }
+                                      canLoadOlder={!childRows && snapshot.canLoadOlder}
+                                      onLoadOlder={() => directClient.current?.loadOlder() ?? Promise.resolve()}
+                                      openAt={
+                                        !childRows && shownSessionId && scrollAnchor?.sessionId === shownSessionId
+                                          ? scrollAnchor
+                                          : undefined
+                                      }
+                                      anchorNow={quick || childRows ? undefined : transcriptAnchor}
+                                      revealRow={childRows ? undefined : revealPlanRow}
+                                      onAnchor={
+                                        quick || childRows || !shownSessionId
+                                          ? undefined
+                                          : (anchor) => postScrollAnchor(shownSessionId, anchor)
+                                      }
+                                      expanded={expanded}
+                                      reveal={childRows ? undefined : revealRow}
+                                      registry={registry}
+                                      githubRepository={githubRepository}
+                                      // The Quick Composer has no room for the changes view; its file rows stay plain.
+                                      onOpenDiff={quick ? undefined : openDiff}
+                                      onToggleActivity={toggleActivity}
+                                    />
+                                  )}
+                                </ChatFindScope>
+                              </SubagentHarnessContext.Provider>
+                            </SubagentStopContext.Provider>
+                          </WorkingCountsContext.Provider>
                         </SubagentPaneContext.Provider>
                       </SubagentNavContext.Provider>
                     </SessionCwdContext.Provider>

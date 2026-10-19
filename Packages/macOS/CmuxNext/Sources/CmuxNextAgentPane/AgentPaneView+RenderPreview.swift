@@ -13,22 +13,27 @@ extension AgentPaneView {
     /// - Throws: If disabled, busy, oversized, timed out, or WebKit fails.
     public func renderPreview(html: String, width: Int? = nil, dataStore: WKWebsiteDataStore,
                               park: @MainActor (WKWebView) -> (@MainActor () -> Void)) async throws -> String {
+        let preparation = AgentPaneRenderPreviewPreparation { [webView] completion in
+            webView.callAsyncJavaScript(
+                "if (typeof window.cmuxPrepareRenderPreview !== 'function') return {error: 'not_laid_out'}; try { return window.cmuxPrepareRenderPreview(html, width === null ? undefined : width); } catch (error) { return {error: error.code || 'render_failed'}; }",
+                arguments: ["html": html, "width": width.map { $0 as Any } ?? NSNull()], in: nil, in: .page,
+                completionHandler: completion)
+        }
+        return try await renderPreview(html: html, width: width, dataStore: dataStore, park: park, preparation: preparation)
+    }
+
+    func renderPreview(html: String, width: Int? = nil, dataStore: WKWebsiteDataStore,
+                       park: @MainActor (WKWebView) -> (@MainActor () -> Void),
+                       preparation: AgentPaneRenderPreviewPreparation) async throws -> String {
+        try Task.checkCancellation()
         _ = try AgentPaneRenderPreviewInput(html: html, width: width)
         guard !renderPreviewInFlight else { throw AgentPaneRenderPreviewError.busy }
         renderPreviewInFlight = true
         defer { renderPreviewInFlight = false }
-        let raw = try await webView.callAsyncJavaScript(
-            "if (typeof window.cmuxPrepareRenderPreview !== 'function') return {error: 'not_laid_out'}; try { return window.cmuxPrepareRenderPreview(html, width === null ? undefined : width); } catch (error) { return {error: error.code || 'render_failed'}; }",
-            arguments: ["html": html, "width": width.map { $0 as Any } ?? NSNull()], in: nil, contentWorld: .page)
-        if let prepared = raw as? [String: Any], let code = prepared["error"] as? String {
-            throw AgentPaneRenderPreviewError(rawValue: code) ?? .failed
-        }
-        guard let prepared = raw as? [String: Any], let document = prepared["document"] as? String,
-              let width = prepared["width"] as? Int, (1...1440).contains(width) else {
-            throw AgentPaneRenderPreviewError.notLaidOut
-        }
+        let prepared = try await preparation.run()
+        try Task.checkCancellation()
         let preview = AgentPaneRenderPreview()
-        return try await preview.capture(document: document, width: width,
-                                         dark: prepared["theme"] as? String == "dark", dataStore: dataStore, park: park)
+        return try await preview.capture(document: prepared.html, width: prepared.width,
+                                         dark: prepared.dark, dataStore: dataStore, park: park)
     }
 }

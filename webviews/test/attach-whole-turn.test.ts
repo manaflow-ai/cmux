@@ -77,7 +77,11 @@ function fakeDaemon() {
         if (message.id !== undefined)
           queueMicrotask(() =>
             socket.onmessage?.({
-              data: JSON.stringify({ jsonrpc: "2.0", id: message.id, result: answer(message.method, message.params ?? {}) }),
+              data: JSON.stringify({
+                jsonrpc: "2.0",
+                id: message.id,
+                result: answer(message.method, message.params ?? {}),
+              }),
             }),
           );
       },

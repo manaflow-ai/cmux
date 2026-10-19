@@ -49,6 +49,36 @@ struct AgentPaneNavigationTests {
                                              userClicked: true, sourceFrameURL: render) == .cancel)
     }
 
+    @Test func alternateDevRenderFrameCannotNavigateAfterItsFirstLoad() throws {
+        for (paneURL, frameURL) in [
+            ("http://127.0.0.1:4176/", "http://localhost:4176/__cmux-render-frame"),
+            ("http://localhost:4176/", "http://127.0.0.1:4176/__cmux-render-frame"),
+        ] {
+            let source = AgentPaneSource.devServer(try #require(URL(string: paneURL)))
+            let frame = try #require(URL(string: frameURL))
+            #expect(AgentPaneNavigation.decision(for: frame, source: source, userClicked: false,
+                                                 mainFrame: false, targetFrameURL: URL(string: "about:blank")) == .allow)
+            for destination in ["http://127.0.0.1:3000/mutate", "http://localhost:8080/", frameURL,
+                                frameURL + "#again", "about:blank", "https://example.com/"] {
+                let url = try #require(URL(string: destination))
+                for clicked in [false, true] {
+                    for (target, origin) in [(frame, source.pageURL), (frame, frame)] {
+                        #expect(AgentPaneNavigation.decision(for: url, source: source, userClicked: clicked,
+                                                             mainFrame: false, targetFrameURL: target,
+                                                             sourceFrameURL: origin) == .cancel)
+                    }
+                    #expect(AgentPaneNavigation.decision(for: url, source: source, userClicked: clicked,
+                                                         sourceFrameURL: frame) == .cancel)
+                }
+            }
+            // A preview on a different port remains an ordinary preview, even at this path.
+            let preview = try #require(URL(string: frameURL.replacingOccurrences(of: ":4176", with: ":4177")))
+            #expect(AgentPaneNavigation.decision(for: URL(string: "http://localhost:8080/"), source: source,
+                                                 userClicked: false, mainFrame: false,
+                                                 targetFrameURL: preview, sourceFrameURL: preview) == .allow)
+        }
+    }
+
     @Test func previewSubframesKeepTheirLoopbackNavigation() {
         let preview = URL(string: "http://localhost:3000/")!
         for source in [bundled, dev] {
