@@ -715,9 +715,12 @@ impl Hub {
         Some(to)
     }
 
-    /// Build a plain-text transcript from the log for rehydration.
+    /// Build a plain-text transcript from the log for rehydration. After a
+    /// compaction it is the latest compaction summary and the messages
+    /// since, and only those messages are cut to fit `max_chars`.
     pub(super) fn transcript(&self, session: &Session, max_chars: usize) -> Option<String> {
         let events = self.store.events(&session.id, 0, 200_000).ok()?;
+        let mut summary: Option<String> = None;
         let mut lines: Vec<String> = Vec::new();
         let mut agent_buf = String::new();
         let flush = |agent_buf: &mut String, lines: &mut Vec<String>| {
@@ -741,22 +744,42 @@ impl Hub {
                         agent_buf.push_str(t);
                     }
                 }
+                // What came before is in the summary.
+                "compaction_summary" => {
+                    if let Some(t) = e.msg.pointer("/params/update/text").and_then(Value::as_str) {
+                        agent_buf.clear();
+                        lines.clear();
+                        summary = Some(t.to_owned());
+                    }
+                }
                 _ => {}
             }
         }
         flush(&mut agent_buf, &mut lines);
-        if lines.is_empty() {
+        if lines.is_empty() && summary.is_none() {
             return None;
         }
+        // The summary keeps at most half the room (its end, where Claude
+        // writes the current work and next step); the messages since get the rest.
+        let head = summary.map(|s| {
+            let skip = s.chars().count().saturating_sub(max_chars / 2);
+            let s: String = s.chars().skip(skip).collect();
+            format!("<compaction_summary>\n{s}\n</compaction_summary>")
+        });
+        let room = max_chars.saturating_sub(head.as_ref().map_or(0, |h| h.chars().count()));
         let mut text = lines.join("\n\n");
-        if text.chars().count() > max_chars {
-            let skip = text.chars().count() - max_chars;
+        if text.chars().count() > room {
+            let skip = text.chars().count() - room;
             text = format!(
                 "[… {skip} earlier characters omitted …]\n{}",
                 text.chars().skip(skip).collect::<String>()
             );
         }
-        Some(text)
+        Some(match head {
+            Some(head) if text.is_empty() => head,
+            Some(head) => format!("{head}\n\n{text}"),
+            None => text,
+        })
     }
 
     /// Pass a session-scoped request to the child, rewriting the session id.

@@ -6,6 +6,7 @@ import type {
   AcpmuxSessionOffer,
   AcpmuxOfferResult,
   AcpmuxBackgroundTask,
+  AcpmuxCompaction,
   AcpmuxPlanEntry,
   AcpmuxRow,
   AcpmuxSnapshot,
@@ -1750,6 +1751,20 @@ export class AcpmuxDirectClient {
         bookmarksHeard(event.sessionId ?? this.selectedSessionId, event.msg?.bookmarks);
       } else if (event.kind === "forked") {
         this.forkedAtSeq = event.seq;
+      } else if (event.kind === "failover") {
+        // acpmux moved the chat to its fallback harness (`hub/turns.rs`); the turn goes on there.
+        if (typeof msg.from === "string" && typeof msg.to === "string") {
+          this.endAssistantSegment();
+          this.streamingActivity = undefined;
+          const id = `failover-${event.seq}`;
+          this.rows.set(id, {
+            id,
+            version: 1,
+            at: event.at,
+            kind: "failover",
+            failover: { from: msg.from, to: msg.to },
+          });
+        }
       } else if (event.kind === "session_offer") {
         // Off by default: off, an offer draws nothing (offer/offersShown.ts).
         const offer = offersShown() ? sessionOffer(msg) : undefined;
@@ -1971,6 +1986,24 @@ export class AcpmuxDirectClient {
       this.streamingActivity = undefined;
       const id = `bgtask-${event.seq}`;
       this.rows.set(id, { id, version: 1, at: event.at, kind: "backgroundTask", backgroundTask: task });
+    } else if (event.kind === "compaction") {
+      const compaction = compactionOf(update);
+      if (!compaction) return;
+      // A note between messages: the text and tool fold before it close.
+      this.endAssistantSegment();
+      this.streamingActivity = undefined;
+      // One row per compaction: the running note becomes how it ended.
+      const running = [...this.rows.values()]
+        .reverse()
+        .find((row) => row.kind === "compaction" && row.compaction?.state === "running");
+      const id = running?.id ?? `compaction-${event.seq}`;
+      this.rows.set(id, {
+        id,
+        version: (running?.version ?? 0) + 1,
+        at: running?.at ?? event.at,
+        kind: "compaction",
+        compaction,
+      });
     } else if (event.kind === "plan") {
       const plan = planEntries(update.entries);
       const existing = this.planRow ? this.rows.get(this.planRow) : undefined;
@@ -3219,6 +3252,19 @@ export function harnessBlock(error: unknown): HarnessBlock | undefined {
         : undefined;
   if (!reason || typeof data?.harness !== "string" || typeof data.folder !== "string") return undefined;
   return { reason, harness: data.harness, folder: data.folder };
+}
+
+/// A `compaction` update's state and sizes; undefined for a state acpmux does not send.
+function compactionOf(update: any): AcpmuxCompaction | undefined {
+  const state = update?.state;
+  if (state !== "running" && state !== "completed" && state !== "failed") return undefined;
+  const count = (value: unknown) => (typeof value === "number" && Number.isFinite(value) ? value : undefined);
+  return {
+    state,
+    ...(typeof update.reason === "string" && update.reason ? { reason: update.reason } : {}),
+    ...(count(update.preTokens) !== undefined ? { preTokens: count(update.preTokens) } : {}),
+    ...(count(update.postTokens) !== undefined ? { postTokens: count(update.postTokens) } : {}),
+  };
 }
 
 /// A `background_task_update`'s shell and how it ended; undefined when it names neither.
