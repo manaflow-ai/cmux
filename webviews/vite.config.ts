@@ -206,6 +206,8 @@ const VIEWER_SHARED =
 function lazyChunkName(id: string): string | null {
   const diffLocale = id.match(/\/pages\/diff\/generated\/locales\/([^/]+)\.json$/);
   if (diffLocale && diffLocale[1] !== "en") return `diff-labels-${diffLocale[1]}`;
+  const markdownLocale = id.match(/\/pages\/markdown\/generated\/locales\/([^/]+)\.json$/);
+  if (markdownLocale && markdownLocale[1] !== "en") return `markdown-labels-${markdownLocale[1]}`;
   const shikiLanguage = id.match(/\/@shikijs\/langs\/dist\/([^/]+)\.mjs$/);
   if (shikiLanguage) {
     return `shiki-lang-${shikiLanguage[1]}`;

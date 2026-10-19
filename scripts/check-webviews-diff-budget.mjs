@@ -28,7 +28,7 @@ function budgetFromEnvironment(name, fallback) {
   return value;
 }
 
-const lazyOnlyChunkPattern = /^chunks\/(shiki-lang-|shiki-theme-|shiki-wasm|pierre-theme-|monaco-lang-|monaco-nls-|diff-labels-)/;
+const lazyOnlyChunkPattern = /^chunks\/(shiki-lang-|shiki-theme-|shiki-wasm|pierre-theme-|monaco-lang-|monaco-nls-|diff-labels-|markdown-labels-)/;
 // Monaco (the code editor page's `view` chunk and its worker) loads only after the editor opens a
 // file; no page reaches it through static imports, the editor page's own entry included.
 const monacoChunks = ["chunks/view.mjs", "chunks/editor-worker.mjs", "chunks/editorWorkerHost.mjs"];

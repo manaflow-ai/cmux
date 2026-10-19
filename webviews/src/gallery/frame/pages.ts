@@ -47,8 +47,9 @@ const hash = (text: string) => {
 
 export async function mountMarkdownPage(state: MarkdownPageVariant, context: StageContext): Promise<void> {
   // The page reads its tables once, as it loads: the pseudo-locales go in first.
+  const markdownStrings = await import("../../pages/markdown/stringTable");
   for (const table of [
-    (await import("../../pages/markdown/stringTable")).markdownTable,
+    markdownStrings.markdownTable,
     (await import("../../viewer-empty/generated/strings.json")).default,
   ])
     addPseudoLocales(table as unknown as Record<string, Record<string, string>>);
@@ -116,6 +117,8 @@ export async function mountMarkdownPage(state: MarkdownPageVariant, context: Sta
   const root = document.documentElement;
   root.dataset.cmuxPage = "markdown";
   root.dataset.cmuxWebviewKind = "markdown";
+  // The page's translation loads first, so the page mounts as it is imported (stringTable.ts).
+  await markdownStrings.markdownTableFor([context.env.locale]);
   await import("../../pages/markdown/main");
 }
 
