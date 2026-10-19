@@ -29,6 +29,7 @@ public final class Events {
     public static final EventMetadata CLOUD_CONVERSATION_RESYNCED = new EventMetadata("cloud-conversation-resynced", 12, "cloud-conversations-v1", List.of("subscribe"), true);
     public static final EventMetadata CLOUD_CONVERSATION_RUN_CHANGED = new EventMetadata("cloud-conversation-run-changed", 12, "cloud-conversation-runs-v1", List.of("subscribe"), true);
     public static final EventMetadata CLOUD_CONVERSATION_TYPING = new EventMetadata("cloud-conversation-typing", 12, "cloud-conversation-typing-v1", List.of("subscribe"), true);
+    public static final EventMetadata CLOUD_HOST_REPLICA_NEEDED = new EventMetadata("cloud-host-replica-needed", 12, "cloud-host-replica-v1", List.of("subscribe"), true);
     public static final EventMetadata CLOUD_INBOX_CHANGED = new EventMetadata("cloud-inbox-changed", 12, "cloud-conversations-v1", List.of("subscribe"), true);
     public static final EventMetadata CLOUD_INBOX_RESET = new EventMetadata("cloud-inbox-reset", 12, "cloud-conversations-v1", List.of("subscribe"), true);
     public static final EventMetadata CLOUD_MUX_RESYNCED = new EventMetadata("cloud-mux-resynced", 12, "cloud-conversations-v1", List.of("subscribe"), true);
@@ -119,6 +120,7 @@ public final class Events {
         values.put("cloud-conversation-resynced", CLOUD_CONVERSATION_RESYNCED);
         values.put("cloud-conversation-run-changed", CLOUD_CONVERSATION_RUN_CHANGED);
         values.put("cloud-conversation-typing", CLOUD_CONVERSATION_TYPING);
+        values.put("cloud-host-replica-needed", CLOUD_HOST_REPLICA_NEEDED);
         values.put("cloud-inbox-changed", CLOUD_INBOX_CHANGED);
         values.put("cloud-inbox-reset", CLOUD_INBOX_RESET);
         values.put("cloud-mux-resynced", CLOUD_MUX_RESYNCED);

@@ -616,6 +616,29 @@ def handle_prompt(rid, params):
             time.sleep(0.05)
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
+    # "parallel-tools: PATH" starts two tool calls at once, titled with their
+    # input the way Claude Code's adapter titles them. The second ends first;
+    # the first ends once the test writes to the FIFO at PATH.
+    if text.startswith("parallel-tools:"):
+        update(sid, {"sessionUpdate": "tool_call", "toolCallId": "slow-1", "kind": "execute", "status": "pending",
+                     "title": "curl -H 'Authorization: Bearer fake-secret' https://example.invalid"})
+        update(sid, {"sessionUpdate": "tool_call", "toolCallId": "fast-1", "kind": "read", "status": "pending",
+                     "title": "Read /home/fake/secret-notes.txt"})
+        update(sid, {"sessionUpdate": "tool_call_update", "toolCallId": "fast-1", "status": "completed"})
+        with open(text[len("parallel-tools:"):].strip()) as gate:
+            gate.read()
+        update(sid, {"sessionUpdate": "tool_call_update", "toolCallId": "slow-1", "status": "completed"})
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "both done"}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # "thoughts: N" streams N thought chunks in one burst, then a short answer.
+    if text.startswith("thoughts:"):
+        send_all([{"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": sid, "update": {
+            "sessionUpdate": "agent_thought_chunk", "content": {"type": "text", "text": "."}}}}
+            for _ in range(int(text[len("thoughts:"):].strip()))])
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "thought through"}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     if text == "slow":
         for i in range(3):
             if sid in cancelled:
