@@ -135,7 +135,21 @@ fn signal(pid: u32, _kill: bool) {
         .output();
 }
 
-/// Starts `serve` detached from this terminal, logging to `serve.log`.
+/// The environment variable that names the readiness pipe's write end in a
+/// detached `serve` (Unix): `serve` writes one line there once every
+/// listener is bound, so the starter returns only when the host answers.
+pub(crate) const READY_FD_ENV: &str = "CMUX_HOST_READY_FD";
+/// The fd number the readiness pipe gets in the child.
+#[cfg(unix)]
+const READY_FD: libc::c_int = 3;
+/// How long a detached `serve` has to bind its listeners.
+#[cfg(unix)]
+const READY_BOUND: Duration = Duration::from_secs(20);
+
+/// Starts `serve` detached from this terminal, logging to `serve.log`. On
+/// Unix it returns once the listener is bound (or fails with the reason
+/// when `serve` exits first), so a client that runs right after `enable`
+/// or `deny` finds the host answering.
 pub(crate) fn spawn_detached(exe: &Path) -> anyhow::Result<u32> {
     let dir = super::config::ensure_dir()?;
     let log = log_path()?;
@@ -148,12 +162,22 @@ pub(crate) fn spawn_detached(exe: &Path) -> anyhow::Result<u32> {
     let mut command = Command::new(exe);
     command.args(["host", "serve", "--dir"]).arg(&dir).stdin(Stdio::null()).stdout(out).stderr(err);
     #[cfg(unix)]
+    let (ready_reader, ready_writer) =
+        std::io::pipe().context("cannot create the readiness pipe")?;
+    #[cfg(unix)]
     {
+        use std::os::fd::AsRawFd as _;
         use std::os::unix::process::CommandExt as _;
-        // SAFETY: setsid only, between fork and exec.
+        let writer_fd = ready_writer.as_raw_fd();
+        command.env(READY_FD_ENV, READY_FD.to_string());
+        // SAFETY: setsid and dup2 only, between fork and exec. dup2 gives
+        // the child the pipe's write end as fd 3 without close-on-exec.
         unsafe {
-            command.pre_exec(|| {
+            command.pre_exec(move || {
                 libc::setsid();
+                if libc::dup2(writer_fd, READY_FD) < 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
                 Ok(())
             });
         }
@@ -168,7 +192,61 @@ pub(crate) fn spawn_detached(exe: &Path) -> anyhow::Result<u32> {
     }
     let child =
         command.spawn().with_context(|| format!("cannot start {} host serve", exe.display()))?;
+    #[cfg(unix)]
+    {
+        // Only the child may hold the write end now: EOF then means it exited.
+        drop(command);
+        drop(ready_writer);
+        wait_ready(ready_reader, &log)?;
+    }
     Ok(child.id())
+}
+
+#[cfg(unix)]
+fn wait_ready(reader: std::io::PipeReader, log: &Path) -> anyhow::Result<()> {
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        let mut line = String::new();
+        let _ = std::io::BufRead::read_line(&mut std::io::BufReader::new(reader), &mut line);
+        let _ = tx.send(line);
+    });
+    match rx.recv_timeout(READY_BOUND) {
+        Ok(line) if line.trim() == "ready" => Ok(()),
+        Ok(_) => bail!("cmux host serve stopped before it listened; see {}", log.display()),
+        Err(_) => bail!(
+            "cmux host serve did not listen within {}s; see {}",
+            READY_BOUND.as_secs(),
+            log.display()
+        ),
+    }
+}
+
+/// `serve` side: takes the readiness pipe from the environment (so no
+/// child process inherits it) and returns a function that reports ready.
+pub(crate) fn take_ready_signal() -> impl FnOnce() {
+    let fd = std::env::var(READY_FD_ENV).ok().and_then(|v| v.parse::<i32>().ok());
+    // SAFETY: removing our own variable before any thread reads the
+    // environment of this process for a child.
+    unsafe { std::env::remove_var(READY_FD_ENV) };
+    #[cfg(unix)]
+    let file = fd.filter(|fd| *fd >= 3).map(|fd| {
+        use std::os::fd::FromRawFd as _;
+        // SAFETY: the starter dup2'd the pipe's write end to this fd for us.
+        unsafe {
+            libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC);
+            File::from_raw_fd(fd)
+        }
+    });
+    #[cfg(not(unix))]
+    let file: Option<File> = {
+        let _ = fd;
+        None
+    };
+    move || {
+        if let Some(mut file) = file {
+            let _ = file.write_all(b"ready\n");
+        }
+    }
 }
 
 /// What `status` reports about the service.
