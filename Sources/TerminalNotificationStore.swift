@@ -653,6 +653,11 @@ final class TerminalNotificationStore: ObservableObject {
         let count = unreadCount(forTabId: tabId)
         let latestNotification = indexes.latestByTabId[tabId]
         let latestText: String? = latestNotification.flatMap { notification in
+            // Workspace notices have no pane activity to replace their preview.
+            // Hide them once read, including notices restored from older sessions.
+            if notification.isRead && notification.matches(tabId: tabId, surfaceId: nil) {
+                return nil
+            }
             let text = notification.body.isEmpty ? notification.title : notification.body
             let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
             return trimmed.isEmpty ? nil : trimmed
