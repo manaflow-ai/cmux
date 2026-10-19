@@ -88,14 +88,14 @@
   outline-offset: 2px;
 }
 
-/* Send is the one accent-filled control (the terminal theme's text color, or its own hue with
-   appearance.accent; never the ANSI blue); Stop is the same disc in the text color
-   (composerLocation.css). Each steps toward the base on hover and further on press. */
+/* Send is the one filled control, iMessage's blue (styles.css --acpmux-send-fill, never the ANSI
+   blue); Stop is the same disc in the text color (composerLocation.css). Each steps toward the
+   base on hover and further on press. */
 .acpmux-send.acpmux-send-ready:hover {
-  background: color-mix(in srgb, var(--agent-accent, var(--agent-text)) 88%, var(--acpmux-base));
+  background: color-mix(in srgb, var(--acpmux-send-fill) 88%, var(--acpmux-base));
 }
 .acpmux-send.acpmux-send-ready:active {
-  background: color-mix(in srgb, var(--agent-accent, var(--agent-text)) 76%, var(--acpmux-base));
+  background: color-mix(in srgb, var(--acpmux-send-fill) 76%, var(--acpmux-base));
 }
 .acpmux-composer-bar .acpmux-send.acpmux-cancel:hover {
   background: color-mix(in srgb, var(--agent-text) 88%, var(--acpmux-base));
