@@ -547,6 +547,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_bead_autoclose.py
 
+      - name: Validate the idea ledger joins beads, pull requests and asks
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_idea_ledger.py
+
       - name: Validate fresh-merge on feat-cmux-next pull requests
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_cmux_next_fresh_merge.py

@@ -1,0 +1,10 @@
+[Unit]
+Description=Nightly cmux idea ledger (scripts/cmux-next/idea-ledger.py)
+
+[Service]
+Type=oneshot
+Nice=10
+Environment=LEDGER_CHECKOUT=%h/Projects/cmux
+EnvironmentFile=-%h/.config/cmux-idea-ledger.env
+# Run the runner as merged on feat-cmux-next, whatever branch the checkout has out.
+ExecStart=/bin/bash -c 'git -C "$LEDGER_CHECKOUT" fetch --quiet origin feat-cmux-next && git -C "$LEDGER_CHECKOUT" show origin/feat-cmux-next:scripts/cmux-next/idea-ledger-nightly.sh | bash'
