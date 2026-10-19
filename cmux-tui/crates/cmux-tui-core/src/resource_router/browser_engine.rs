@@ -116,7 +116,7 @@ pub(super) fn refuse_without_provider(
 /// instead: refusing it would orphan the tab its original created.
 fn received_before(mux: &Arc<Mux>, request: &ParsedResourceRequest) -> bool {
     let Some(key) = request.envelope.idempotency_key.as_deref() else { return false };
-    let correlation = request.fields.get("correlation_key").and_then(serde_json::Value::as_str);
+    let correlation = request.fields.get("correlation_key").and_then(Value::as_str);
     let registry = mux.workspace_registry.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     // A failed lookup refuses: the request is new as far as the gate can tell.
     registry.has_resource_receipt(key, correlation).unwrap_or(false)
