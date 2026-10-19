@@ -29,7 +29,9 @@ extension ControlRouter {
         given.callerApp = call.request.callerApp
         // The caller is part of the fingerprint; where it places is resolved
         // per run (`execute`), so a retry with the key replays, never conflicts.
-        given.callerAgentSession = try ControlCaller(call.params)?.agentSession
+        let caller = try ControlCaller(call.params)
+        given.callerAgentSession = caller?.agentSession
+        given.callerTerminal = caller?.terminalID
         let key = try Self.idempotencyKey(call.params)
         guard let key else { return try await execute(action, given, key: nil, call: call) }
         switch idempotency.claim(key, fingerprint: given) {

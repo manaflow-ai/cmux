@@ -36,6 +36,17 @@ pub struct SessionSummary {
     /// The session whose agent started this one (its `spawnedBy` tag), kept
     /// only while that parent is listed; one level.
     pub spawned_by: Option<String>,
+    /// The session whose agent started this one with its `start_session`
+    /// tool (`hub/subsessions.rs`); null for a session a person or client
+    /// started. Kept when the parent is closed or gone, so a client draws
+    /// the tree from these links at any depth.
+    pub started_by: Option<String>,
+    /// Its name among its parent's sub-sessions; null for a root.
+    pub short_name: Option<String>,
+    /// 0 for a root session, 1 for its sub-sessions, and so on.
+    pub depth: u32,
+    /// Its sub-sessions that are not closed.
+    pub children: u32,
     pub title: Option<String>,
     pub last_prompt: Option<String>,
     pub preview: Option<String>,

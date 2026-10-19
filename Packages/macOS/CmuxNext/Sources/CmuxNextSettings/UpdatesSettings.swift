@@ -14,7 +14,7 @@ public nonisolated struct UpdatesSettings: Sendable, Equatable {
     /// Previous builds kept for rollback (`cmux update rollback`).
     public var keepPreviousVersions = Int(UpdatesSettings.keepPreviousVersionsDefault)
     public var meteredNetwork = UpdatesSettings.meteredNetworkDefault
-    /// The What's New item at the top of the sidebar after an update
+    /// The bottom-left "cmux Updated!" card after an update
     /// (WHATS-NEW-AFTER-UPDATE W1); managed config can force it off.
     public var showWhatsNew = UpdatesSettings.showWhatsNewDefault
 

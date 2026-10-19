@@ -35,4 +35,7 @@ nonisolated struct KeyFacts: Equatable, Sendable {
     /// The top page the window shows (`home`), which fills the content
     /// area without a pane: its `surfaceKind`.
     var topPage: String?
+    /// The focused code editor waits for the second key of its own key sequence (Monaco's
+    /// Cmd-K Cmd-0): the next key goes to it, not to an app binding (`cmux.editor.keySequence`).
+    var pageKeySequencePending = false
 }
