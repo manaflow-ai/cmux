@@ -319,6 +319,7 @@ final class TabCell {
             isPinned: item.isPinned,
             isSelected: isSelected,
             isHovered: isHovered,
+            isClosable: item.isClosable,
             style: style,
             metrics: m
         )
