@@ -393,6 +393,8 @@ public struct AgentRestorePlanner: Sendable {
                     return (arguments, true)
                 }
                 return preparedArguments.map { ($0, false) }
+            case .rejected:
+                return nil
             case .passthrough:
                 if let arguments = AgentResumeArgv().builtInKind(
                     kind: kind,

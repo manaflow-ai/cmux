@@ -35758,6 +35758,8 @@ struct CMUXCLI {
                 arguments: launchCommand?.arguments ?? [],
                 observedPermissionMode: observedPermissionMode
             )
+        case .rejected:
+            return nil
         }
 
         guard let argv, !argv.isEmpty else { return nil }

@@ -787,6 +787,8 @@ enum AgentResumeCommandBuilder {
             return argv
         case .passthrough:
             break
+        case .rejected:
+            return nil
         }
         if case .custom = kind {
             guard let customRegistration else { return nil }
