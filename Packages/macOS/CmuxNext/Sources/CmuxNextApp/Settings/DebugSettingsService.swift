@@ -25,10 +25,32 @@ import Foundation
 /// store's validation and the exports agree.
 enum TunableCatalog {
     static var all: [TunableDescriptor] {
-        DesignTunables.all + LayoutTunables.all + TabTunables.all + SidebarTunables.all + DragTunables.all
-            + [AgentPaneTunables.sessionRail.descriptor]
-            + AgentActivityTunables.all + TasksTunables.all + AppsTunables.all + PageTunables.all + AgentPaneTunables.all + PaletteTunables.all + ServerTunables.all + FeedTunables.all
-            + SettingsPresentation.tunables + NewTabTunables.all + WhatsNewTunables.all + WorkspaceAutoNameTunables.all + QuickComposerTunables.all + HomeTunables.all + [SidebarToggleIcon.tunable.descriptor]
+        // One module per line, so two pull requests that each add a module insert different
+        // lines (#21946). Debug Settings lists the modules in this order.
+        let modules: [[TunableDescriptor]] = [
+            DesignTunables.all,
+            LayoutTunables.all,
+            TabTunables.all,
+            SidebarTunables.all,
+            DragTunables.all,
+            [AgentPaneTunables.sessionRail.descriptor],
+            AgentActivityTunables.all,
+            TasksTunables.all,
+            AppsTunables.all,
+            PageTunables.all,
+            AgentPaneTunables.all,
+            PaletteTunables.all,
+            ServerTunables.all,
+            FeedTunables.all,
+            SettingsPresentation.tunables,
+            NewTabTunables.all,
+            WhatsNewTunables.all,
+            WorkspaceAutoNameTunables.all,
+            QuickComposerTunables.all,
+            HomeTunables.all,
+            [SidebarToggleIcon.tunable.descriptor],
+        ]
+        return modules.flatMap { $0 }
     }
 }
 
