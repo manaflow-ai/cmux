@@ -1,6 +1,7 @@
 //! Remote hosting state on this machine: `<home>/.cmux/host/remote.json`
 //! (0600 in a 0700 directory). The running listener rereads it on every
-//! connection, so `cmux host allow|deny|disable` take effect at once.
+//! connection, so `cmux host allow|disable` take effect for the next
+//! connection; `deny` also restarts the listener to close open ones.
 
 use std::path::{Path, PathBuf};
 
@@ -53,8 +54,19 @@ impl Default for Config {
     }
 }
 
-/// `CMUX_HOST_DIR`, else `<home>/.cmux/host`.
+static DIR_OVERRIDE: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+
+/// `serve --dir DIR`: the services pass the directory `enable` used, so a
+/// `CMUX_HOST_DIR` in the enabling shell reaches the listener too.
+pub(crate) fn set_dir(dir: PathBuf) {
+    let _ = DIR_OVERRIDE.set(dir);
+}
+
+/// `serve --dir`, else `CMUX_HOST_DIR`, else `<home>/.cmux/host`.
 pub(crate) fn dir() -> anyhow::Result<PathBuf> {
+    if let Some(dir) = DIR_OVERRIDE.get() {
+        return Ok(dir.clone());
+    }
     if let Some(dir) = std::env::var_os("CMUX_HOST_DIR").filter(|v| !v.is_empty()) {
         return Ok(PathBuf::from(dir));
     }
@@ -82,15 +94,29 @@ pub(crate) fn load_from(path: &Path) -> anyhow::Result<Config> {
 
 /// Writes the file atomically (temp file + rename), owner-only.
 pub(crate) fn save(config: &Config) -> anyhow::Result<()> {
-    let dir = dir()?;
-    std::fs::create_dir_all(&dir).with_context(|| format!("cannot create {}", dir.display()))?;
-    cmux_tui_core::platform::restrict_directory(&dir)?;
+    let dir = ensure_dir()?;
     let path = dir.join("remote.json");
     let tmp = dir.join(format!(".remote.json.{}", std::process::id()));
-    std::fs::write(&tmp, serde_json::to_vec_pretty(config)?)?;
+    {
+        use std::io::Write as _;
+        let mut options = std::fs::OpenOptions::new();
+        options.write(true).create(true).truncate(true);
+        #[cfg(unix)]
+        std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+        let mut file = options.open(&tmp)?;
+        file.write_all(&serde_json::to_vec_pretty(config)?)?;
+    }
     cmux_tui_core::platform::restrict_file(&tmp)?;
     std::fs::rename(&tmp, &path).with_context(|| format!("cannot write {}", path.display()))?;
     Ok(())
+}
+
+/// Creates the state directory owner-only (config, pid lock and log).
+pub(crate) fn ensure_dir() -> anyhow::Result<PathBuf> {
+    let dir = dir()?;
+    std::fs::create_dir_all(&dir).with_context(|| format!("cannot create {}", dir.display()))?;
+    cmux_tui_core::platform::restrict_directory(&dir)?;
+    Ok(dir)
 }
 
 /// Logins compare without case (tailnet logins are email-shaped).

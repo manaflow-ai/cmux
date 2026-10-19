@@ -26,7 +26,7 @@ const USAGE: &str = "usage: cmux host enable [--owner LOGIN] [--session NAME] [-
        cmux host allow LOGIN | deny LOGIN
        cmux host list [--json] [--all] [--port N]
        cmux host dial HOST [--port N]
-       cmux host serve";
+       cmux host serve [--dir DIR]";
 
 const VERBS: &[&str] =
     &["enable", "disable", "serve", "serve-detached", "allow", "deny", "list", "dial"];
@@ -65,8 +65,8 @@ pub(crate) fn run(rest: &[String]) -> i32 {
         "enable" => enable(args),
         "disable" => disable(args),
         "status" => status(args),
-        "serve" => no_args(args).and_then(|()| serve::run(self_exe()?)),
-        "serve-detached" => no_args(args).and_then(|()| {
+        "serve" => serve_dir(args).and_then(|()| serve::run(self_exe()?)),
+        "serve-detached" => serve_dir(args).and_then(|()| {
             service::spawn_detached(&self_exe()?)?;
             Ok(())
         }),
@@ -165,8 +165,17 @@ impl Flags {
     }
 }
 
-fn no_args(args: &[String]) -> anyhow::Result<()> {
-    if args.is_empty() { Ok(()) } else { Err(usage("takes no arguments")) }
+/// `serve [--dir DIR]`: the services name the state directory `enable`
+/// wrote, so the listener reads the same config.
+fn serve_dir(args: &[String]) -> anyhow::Result<()> {
+    let flags = Flags::parse(args, &["dir"], &[])?;
+    if !flags.positional.is_empty() {
+        return Err(usage("takes no positional arguments"));
+    }
+    if let Some(dir) = flags.value("dir") {
+        config::set_dir(PathBuf::from(dir));
+    }
+    Ok(())
 }
 
 /// The program the service runs: an absolute argv[0] named `cmux` (the
@@ -197,6 +206,9 @@ fn enable(args: &[String]) -> anyhow::Result<()> {
         );
     }
     let owner = match flags.value("owner") {
+        Some(owner) if owner.trim().eq_ignore_ascii_case(tailnet::TAGGED_LOGIN) => {
+            return Err(usage("--owner needs a person's tailnet login"));
+        }
         Some(owner) if !owner.trim().is_empty() => owner.trim().to_owned(),
         _ => match status.this.login.clone() {
             Some(login) => login,
@@ -224,30 +236,23 @@ fn enable(args: &[String]) -> anyhow::Result<()> {
         config.spawn = false;
     }
     config::save(&config)?;
-    // A running `serve` keeps its old port and session; replace it.
-    service::stop_running();
     let exe = self_exe()?;
     let mut notes = Vec::new();
-    let started = if flags.has("no-service") {
-        false
-    } else {
+    let with_service = !flags.has("no-service");
+    if with_service {
         match service::install(&exe) {
-            Ok(installed) => {
-                notes.push(format!("service: {}", installed.what));
-                installed.started
-            }
-            Err(e) => {
-                notes.push(format!(
-                    "service not installed ({e:#}); started for this login session only"
-                ));
-                false
-            }
+            Ok(what) => notes.push(format!("service: {what}")),
+            Err(e) => notes.push(format!(
+                "service not installed ({e:#}); started for this login session only"
+            )),
         }
-    };
-    if !started {
-        let pid = service::spawn_detached(&exe)?;
-        notes.push(format!("started cmux host serve (pid {pid})"));
+    } else {
+        // A service from an earlier `enable` would start a second listener
+        // at the next login.
+        service::uninstall()?;
     }
+    // A running `serve` keeps its old port and session; replace it.
+    notes.push(service::restart(&exe, with_service)?);
     if cfg!(target_os = "linux") && !flags.has("no-service") {
         notes.push(
             "headless machine: run `loginctl enable-linger $USER` once so hosting survives logout"
@@ -286,6 +291,9 @@ fn print_status(
     notes: &[String],
 ) -> anyhow::Result<()> {
     let pid = service::running_pid();
+    // A listener this command just started takes its lock after it checks
+    // the tailnet, so right after a start it is "starting", not "off".
+    let starting = pid.is_none() && notes.iter().any(|n| n.starts_with("started"));
     let addresses: Vec<String> = status
         .map(|s| {
             s.this
@@ -299,6 +307,7 @@ fn print_status(
     let value = json!({
         "enabled": config.enabled,
         "serving": pid.is_some(),
+        "starting": starting,
         "pid": pid,
         "owner": config.owner,
         "allow": config.allow,
@@ -326,6 +335,7 @@ fn print_human(value: &Value) {
     let text = |key: &str| value[key].as_str().unwrap_or("-").to_owned();
     let state = match (value["enabled"].as_bool(), value["serving"].as_bool()) {
         (Some(true), Some(true)) => "on, serving",
+        (Some(true), _) if value["starting"].as_bool() == Some(true) => "on, starting",
         (Some(true), _) => "on, not serving",
         _ => "off",
     };
@@ -370,8 +380,15 @@ fn edit_allow(args: &[String], add: bool) -> anyhow::Result<()> {
         );
     }
     config::save(&config)?;
+    let mut notes = Vec::new();
+    // New connections read the file; connections already open were admitted
+    // under the old list, so `deny` restarts the listener to close them.
+    if !add && config.enabled && service::running_pid().is_some() {
+        notes.push(service::restart(&self_exe()?, service::installed())?);
+        notes.push("open connections were closed".to_owned());
+    }
     let status = tailnet::Tailnet::locate().and_then(|t| t.status()).ok();
-    print_status(&config, status.as_ref(), flags.has("json"), &[])
+    print_status(&config, status.as_ref(), flags.has("json"), &notes)
 }
 
 fn list(args: &[String]) -> anyhow::Result<()> {

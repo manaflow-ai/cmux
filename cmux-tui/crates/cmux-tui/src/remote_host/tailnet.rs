@@ -35,6 +35,8 @@ pub(crate) struct Node {
     pub tags: Vec<String>,
     pub ips: Vec<IpAddr>,
     pub online: bool,
+    /// Shared into this tailnet from another one (`ShareeNode`).
+    pub shared: bool,
 }
 
 impl Node {
@@ -73,6 +75,17 @@ pub(crate) struct Identity {
     /// The node's MagicDNS name without the trailing dot.
     pub node: String,
     pub tags: Vec<String>,
+    /// The node was shared into this tailnet by another user (`Node.Sharer`
+    /// is set); its login is the sharer's, not proof of who runs it.
+    pub shared: bool,
+}
+
+/// The profile login of every tagged node; never a person.
+pub(crate) const TAGGED_LOGIN: &str = "tagged-devices";
+
+fn person(login: &str) -> Option<String> {
+    let login = login.trim();
+    (!login.is_empty() && !login.eq_ignore_ascii_case(TAGGED_LOGIN)).then(|| login.to_owned())
 }
 
 pub(crate) struct Tailnet {
@@ -211,7 +224,7 @@ fn trim_dot(name: &str) -> String {
 fn node(value: &Value, users: &HashMap<u64, String>) -> Node {
     let tags = strings(&value["Tags"]);
     let login = if tags.is_empty() {
-        value["UserID"].as_u64().and_then(|id| users.get(&id).cloned())
+        value["UserID"].as_u64().and_then(|id| users.get(&id)).and_then(|l| person(l.as_str()))
     } else {
         None
     };
@@ -223,6 +236,7 @@ fn node(value: &Value, users: &HashMap<u64, String>) -> Node {
         tags,
         ips: ips(&value["TailscaleIPs"]),
         online: value["Online"].as_bool().unwrap_or(false),
+        shared: value["ShareeNode"].as_bool().unwrap_or(false),
     }
 }
 
@@ -258,11 +272,12 @@ pub(crate) fn parse_whois(raw: &[u8]) -> anyhow::Result<Identity> {
     }
     let tags = strings(&node["Tags"]);
     let login = if tags.is_empty() {
-        doc["UserProfile"]["LoginName"].as_str().filter(|l| !l.is_empty()).map(str::to_owned)
+        doc["UserProfile"]["LoginName"].as_str().and_then(person)
     } else {
         None
     };
-    Ok(Identity { login, node: trim_dot(node["Name"].as_str().unwrap_or_default()), tags })
+    let shared = node["Sharer"].as_u64().is_some_and(|id| id != 0);
+    Ok(Identity { login, node: trim_dot(node["Name"].as_str().unwrap_or_default()), tags, shared })
 }
 
 /// A tailnet address: 100.64.0.0/10 or fd7a:115c:a1e0::/48.

@@ -1,6 +1,8 @@
 //! The one-line preface on a remote host connection (remote-hosts.md 7).
 
 use std::io::{self, Read, Write};
+use std::net::TcpStream;
+use std::time::Instant;
 
 use serde_json::{Value, json};
 
@@ -34,12 +36,19 @@ pub(crate) fn parse_request(line: &str) -> Option<Op> {
     }
 }
 
-/// Reads one `\n`-terminated line, one byte at a time so that nothing after
-/// it (the daemon protocol) is consumed. `None` when the peer closed first.
-pub(crate) fn read_line(stream: &mut impl Read) -> io::Result<Option<String>> {
+/// Reads one `\n`-terminated line by `deadline` (one bound for the whole
+/// line, not per byte: a peer that trickles bytes is cut off), one byte at a
+/// time so that nothing after it (the daemon protocol) is consumed. `None`
+/// when the peer closed first.
+pub(crate) fn read_line(stream: &mut TcpStream, deadline: Instant) -> io::Result<Option<String>> {
     let mut line = Vec::with_capacity(128);
     let mut byte = [0u8; 1];
     loop {
+        let left = deadline.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            return Err(io::Error::new(io::ErrorKind::TimedOut, "preface line timed out"));
+        }
+        stream.set_read_timeout(Some(left))?;
         match stream.read(&mut byte)? {
             0 => return Ok(None),
             _ if byte[0] == b'\n' => break,

@@ -4,8 +4,12 @@
 //! Hosting always runs as the user, never as root or SYSTEM: the daemon it
 //! serves is the user's.
 
+use std::fs::{File, OpenOptions, TryLockError};
+use std::io::{Read as _, Write as _};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::mpsc;
+use std::time::Duration;
 
 #[cfg(not(windows))]
 use anyhow::anyhow;
@@ -18,7 +22,14 @@ const SYSTEMD_UNIT: &str = "cmux-host-remote.service";
 #[cfg(windows)]
 const RUN_VALUE: &str = "cmux-host-remote";
 
-pub(crate) fn pid_path() -> anyhow::Result<PathBuf> {
+/// How long a stopped `serve` has to release its lock before SIGKILL.
+const STOP_BOUND: Duration = Duration::from_secs(5);
+
+fn lock_path() -> anyhow::Result<PathBuf> {
+    Ok(super::config::dir()?.join("serve.lock"))
+}
+
+fn pid_path() -> anyhow::Result<PathBuf> {
     Ok(super::config::dir()?.join("serve.pid"))
 }
 
@@ -26,70 +37,116 @@ pub(crate) fn log_path() -> anyhow::Result<PathBuf> {
     Ok(super::config::dir()?.join("serve.log"))
 }
 
-pub(crate) fn write_pid() -> anyhow::Result<()> {
-    let path = pid_path()?;
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir)?;
-    }
-    std::fs::write(&path, std::process::id().to_string())?;
-    Ok(())
+/// Held by the running `serve` for its whole life. The OS drops the lock
+/// when the process ends, however it ends, so a stale pid file never names
+/// a live process (pid reuse). The pid is a separate file: on Windows a
+/// locked file cannot be read by another handle.
+pub(crate) struct ServeLock {
+    _file: File,
 }
 
-/// The recorded `serve` pid when that process still runs.
+pub(crate) fn acquire() -> anyhow::Result<ServeLock> {
+    super::config::ensure_dir()?;
+    let file = open_lock(true)?.ok_or_else(|| anyhow::anyhow!("cannot create the lock file"))?;
+    match file.try_lock() {
+        Ok(()) => {}
+        Err(TryLockError::WouldBlock) => bail!(
+            "another `cmux host serve` runs for this state directory (pid {})",
+            read_pid().map(|p| p.to_string()).unwrap_or_else(|| "unknown".to_owned())
+        ),
+        Err(TryLockError::Error(e)) => return Err(e).context("cannot lock serve.lock"),
+    }
+    let mut pid = new_private_file(&pid_path()?)?;
+    pid.write_all(std::process::id().to_string().as_bytes())?;
+    Ok(ServeLock { _file: file })
+}
+
+fn open_lock(create: bool) -> anyhow::Result<Option<File>> {
+    let path = lock_path()?;
+    let mut options = OpenOptions::new();
+    options.read(true).write(true).create(create).truncate(false);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    match options.open(&path) {
+        Ok(file) => Ok(Some(file)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(e).with_context(|| format!("cannot open {}", path.display())),
+    }
+}
+
+fn new_private_file(path: &Path) -> anyhow::Result<File> {
+    let mut options = OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    options.open(path).with_context(|| format!("cannot write {}", path.display()))
+}
+
+fn read_pid() -> Option<u32> {
+    let mut text = String::new();
+    File::open(pid_path().ok()?).ok()?.read_to_string(&mut text).ok()?;
+    text.trim().parse().ok()
+}
+
+/// The pid of the running `serve`: someone holds the lock.
 pub(crate) fn running_pid() -> Option<u32> {
-    let pid: u32 = std::fs::read_to_string(pid_path().ok()?).ok()?.trim().parse().ok()?;
-    alive(pid).then_some(pid)
+    let file = open_lock(false).ok()??;
+    match file.try_lock() {
+        Ok(()) => None,
+        Err(TryLockError::WouldBlock) => read_pid(),
+        Err(TryLockError::Error(_)) => None,
+    }
+}
+
+/// Stops the running `serve` (the pid that holds the lock) and returns when
+/// its lock is released.
+pub(crate) fn stop_running() {
+    let Some(pid) = running_pid() else { return };
+    signal(pid, false);
+    if !lock_released_within(STOP_BOUND) {
+        signal(pid, true);
+        let _ = lock_released_within(STOP_BOUND);
+    }
+}
+
+fn lock_released_within(bound: Duration) -> bool {
+    let Ok(Some(file)) = open_lock(false) else { return true };
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = tx.send(file.lock().is_ok());
+    });
+    rx.recv_timeout(bound).unwrap_or(false)
 }
 
 #[cfg(unix)]
-fn alive(pid: u32) -> bool {
-    // SAFETY: signal 0 only checks that the process exists.
-    let rc = unsafe { libc::kill(pid as libc::pid_t, 0) };
-    rc == 0 || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
+fn signal(pid: u32, kill: bool) {
+    let sig = if kill { libc::SIGKILL } else { libc::SIGTERM };
+    // SAFETY: a signal to the exact pid that holds this host's serve lock.
+    unsafe {
+        libc::kill(pid as libc::pid_t, sig);
+    }
 }
 
 #[cfg(windows)]
-fn alive(pid: u32) -> bool {
-    Command::new("tasklist")
-        .args(["/FI", &format!("PID eq {pid}"), "/NH", "/FO", "CSV"])
+fn signal(pid: u32, _kill: bool) {
+    let _ = Command::new("taskkill")
+        .args(["/PID", &pid.to_string(), "/F"])
         .stdin(Stdio::null())
-        .output()
-        .map(|out| String::from_utf8_lossy(&out.stdout).contains(&format!("\"{pid}\"")))
-        .unwrap_or(false)
-}
-
-/// Stops the recorded `serve` process (exact pid only).
-pub(crate) fn stop_running() {
-    let Some(pid) = running_pid() else { return };
-    #[cfg(unix)]
-    {
-        // SAFETY: SIGTERM to the exact pid this host recorded for itself.
-        unsafe {
-            libc::kill(pid as libc::pid_t, libc::SIGTERM);
-        }
-    }
-    #[cfg(windows)]
-    {
-        let _ = Command::new("taskkill")
-            .args(["/PID", &pid.to_string(), "/F"])
-            .stdin(Stdio::null())
-            .output();
-    }
-    if let Ok(path) = pid_path() {
-        let _ = std::fs::remove_file(path);
-    }
+        .output();
 }
 
 /// Starts `serve` detached from this terminal, logging to `serve.log`.
 pub(crate) fn spawn_detached(exe: &Path) -> anyhow::Result<u32> {
+    let dir = super::config::ensure_dir()?;
     let log = log_path()?;
-    if let Some(dir) = log.parent() {
-        std::fs::create_dir_all(dir)?;
-    }
-    let out = std::fs::OpenOptions::new().create(true).append(true).open(&log)?;
+    let mut options = OpenOptions::new();
+    options.create(true).append(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    let out = options.open(&log)?;
     let err = out.try_clone()?;
     let mut command = Command::new(exe);
-    command.args(["host", "serve"]).stdin(Stdio::null()).stdout(out).stderr(err);
+    command.args(["host", "serve", "--dir"]).arg(&dir).stdin(Stdio::null()).stdout(out).stderr(err);
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt as _;
@@ -116,29 +173,41 @@ pub(crate) fn spawn_detached(exe: &Path) -> anyhow::Result<u32> {
 
 /// What `status` reports about the service.
 pub(crate) fn describe() -> String {
-    match installed_path() {
+    match imp::installed() {
         Some(path) => format!("installed ({path})"),
         None => "not installed".to_owned(),
     }
 }
 
-/// Installs the service. `started` is true when the service manager runs
-/// `serve` now; otherwise the caller starts a detached one.
-pub(crate) struct Installed {
-    pub what: String,
-    pub started: bool,
+/// Writes the service definition (does not start it); returns what it is.
+pub(crate) fn install(exe: &Path) -> anyhow::Result<String> {
+    let dir = super::config::ensure_dir()?;
+    imp::write(exe, &dir)
 }
 
-pub(crate) fn install(exe: &Path) -> anyhow::Result<Installed> {
-    imp::install(exe)
-}
-
+/// Stops and removes the service definition.
 pub(crate) fn uninstall() -> anyhow::Result<()> {
-    imp::uninstall()
+    imp::remove()
 }
 
-fn installed_path() -> Option<String> {
-    imp::installed()
+pub(crate) fn installed() -> bool {
+    imp::installed().is_some()
+}
+
+/// Replaces any running `serve` (the service's or a detached one) with a
+/// fresh one: through the service manager when `with_service` and one is
+/// installed, else detached. Returns a note for `status`.
+pub(crate) fn restart(exe: &Path, with_service: bool) -> anyhow::Result<String> {
+    let service = with_service && installed();
+    if installed() {
+        imp::stop();
+    }
+    stop_running();
+    if service && imp::start()? {
+        return Ok("started by the service manager".to_owned());
+    }
+    let pid = spawn_detached(exe)?;
+    Ok(format!("started cmux host serve (pid {pid})"))
 }
 
 fn run_quiet(program: &str, args: &[&str]) -> anyhow::Result<()> {
@@ -167,11 +236,15 @@ mod imp {
         Ok(home.join("Library").join("LaunchAgents").join(format!("{LAUNCHD_LABEL}.plist")))
     }
 
-    fn escape(text: &str) -> String {
-        text.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
+    fn escape(path: &Path) -> String {
+        path.display().to_string().replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
     }
 
-    pub(super) fn install(exe: &Path) -> anyhow::Result<Installed> {
+    fn domain() -> String {
+        format!("gui/{}", cmux_tui_core::platform::effective_uid())
+    }
+
+    pub(super) fn write(exe: &Path, dir: &Path) -> anyhow::Result<String> {
         let path = plist_path()?;
         let log = log_path()?;
         let plist = format!(
@@ -181,7 +254,7 @@ mod imp {
 <dict>
   <key>Label</key><string>{LAUNCHD_LABEL}</string>
   <key>ProgramArguments</key>
-  <array><string>{}</string><string>host</string><string>serve</string></array>
+  <array><string>{}</string><string>host</string><string>serve</string><string>--dir</string><string>{}</string></array>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
   <key>ThrottleInterval</key><integer>10</integer>
@@ -191,24 +264,29 @@ mod imp {
 </dict>
 </plist>
 "#,
-            escape(&exe.display().to_string()),
-            escape(&log.display().to_string()),
-            escape(&log.display().to_string()),
+            escape(exe),
+            escape(dir),
+            escape(&log),
+            escape(&log),
         );
-        if let Some(dir) = path.parent() {
-            std::fs::create_dir_all(dir)?;
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
         }
         std::fs::write(&path, plist)?;
-        let domain = format!("gui/{}", cmux_tui_core::platform::effective_uid());
-        // A loaded older job is replaced; an absent one is fine.
-        let _ = run_quiet("launchctl", &["bootout", &format!("{domain}/{LAUNCHD_LABEL}")]);
-        run_quiet("launchctl", &["bootstrap", &domain, &path.display().to_string()])?;
-        Ok(Installed { what: format!("launchd agent {LAUNCHD_LABEL}"), started: true })
+        Ok(format!("launchd agent {LAUNCHD_LABEL}"))
     }
 
-    pub(super) fn uninstall() -> anyhow::Result<()> {
-        let domain = format!("gui/{}", cmux_tui_core::platform::effective_uid());
-        let _ = run_quiet("launchctl", &["bootout", &format!("{domain}/{LAUNCHD_LABEL}")]);
+    pub(super) fn stop() {
+        let _ = run_quiet("launchctl", &["bootout", &format!("{}/{LAUNCHD_LABEL}", domain())]);
+    }
+
+    pub(super) fn start() -> anyhow::Result<bool> {
+        run_quiet("launchctl", &["bootstrap", &domain(), &plist_path()?.display().to_string()])?;
+        Ok(true)
+    }
+
+    pub(super) fn remove() -> anyhow::Result<()> {
+        stop();
         let path = plist_path()?;
         if path.exists() {
             std::fs::remove_file(&path)?;
@@ -234,7 +312,17 @@ mod imp {
         Ok(base.join("systemd").join("user").join(SYSTEMD_UNIT))
     }
 
-    pub(super) fn install(exe: &Path) -> anyhow::Result<Installed> {
+    /// A path for `ExecStart=`: quoted, and refused when it holds a
+    /// character systemd would expand or unescape (`%`, `$`, `\`, `"`).
+    fn quoted(path: &Path) -> anyhow::Result<String> {
+        let text = path.to_str().ok_or_else(|| anyhow!("{} is not UTF-8", path.display()))?;
+        if text.chars().any(|c| matches!(c, '%' | '$' | '\\' | '"') || c.is_control()) {
+            bail!("{text} has a character a systemd unit cannot hold; move it to a plain path");
+        }
+        Ok(format!("\"{text}\""))
+    }
+
+    pub(super) fn write(exe: &Path, dir: &Path) -> anyhow::Result<String> {
         if cmux_tui_core::platform::effective_uid() == 0 {
             bail!(
                 "remote hosting runs as a user, not root: run `cmux host enable` as the user whose sessions to serve"
@@ -242,19 +330,29 @@ mod imp {
         }
         let path = unit_path()?;
         let unit = format!(
-            "[Unit]\nDescription=cmux remote hosting (cmux host serve)\nAfter=network-online.target\n\n[Service]\nExecStart=\"{}\" host serve\nRestart=on-failure\nRestartSec=10\n\n[Install]\nWantedBy=default.target\n",
-            exe.display()
+            "[Unit]\nDescription=cmux remote hosting (cmux host serve)\nAfter=network-online.target\n\n[Service]\nExecStart={} host serve --dir {}\nRestart=on-failure\nRestartSec=10\n\n[Install]\nWantedBy=default.target\n",
+            quoted(exe)?,
+            quoted(dir)?,
         );
-        if let Some(dir) = path.parent() {
-            std::fs::create_dir_all(dir)?;
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
         }
         std::fs::write(&path, unit)?;
         run_quiet("systemctl", &["--user", "daemon-reload"])?;
-        run_quiet("systemctl", &["--user", "enable", "--now", SYSTEMD_UNIT])?;
-        Ok(Installed { what: format!("systemd user unit {SYSTEMD_UNIT}"), started: true })
+        Ok(format!("systemd user unit {SYSTEMD_UNIT}"))
     }
 
-    pub(super) fn uninstall() -> anyhow::Result<()> {
+    pub(super) fn stop() {
+        let _ = run_quiet("systemctl", &["--user", "stop", SYSTEMD_UNIT]);
+    }
+
+    pub(super) fn start() -> anyhow::Result<bool> {
+        run_quiet("systemctl", &["--user", "enable", SYSTEMD_UNIT])?;
+        run_quiet("systemctl", &["--user", "start", SYSTEMD_UNIT])?;
+        Ok(true)
+    }
+
+    pub(super) fn remove() -> anyhow::Result<()> {
         let _ = run_quiet("systemctl", &["--user", "disable", "--now", SYSTEMD_UNIT]);
         let path = unit_path()?;
         if path.exists() {
@@ -275,13 +373,23 @@ mod imp {
 
     const RUN_KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
 
-    pub(super) fn install(exe: &Path) -> anyhow::Result<Installed> {
-        let command = format!("\"{}\" host serve-detached", exe.display());
+    pub(super) fn write(exe: &Path, dir: &Path) -> anyhow::Result<String> {
+        // Windows paths cannot hold `"`, so plain quoting is exact.
+        let command =
+            format!("\"{}\" host serve-detached --dir \"{}\"", exe.display(), dir.display());
         run_quiet("reg", &["add", RUN_KEY, "/v", RUN_VALUE, "/t", "REG_SZ", "/d", &command, "/f"])?;
-        Ok(Installed { what: format!("logon entry {RUN_KEY}\\{RUN_VALUE}"), started: false })
+        Ok(format!("logon entry {RUN_KEY}\\{RUN_VALUE}"))
     }
 
-    pub(super) fn uninstall() -> anyhow::Result<()> {
+    /// The Run entry starts `serve` at logon only; the running one is
+    /// stopped through its lock.
+    pub(super) fn stop() {}
+
+    pub(super) fn start() -> anyhow::Result<bool> {
+        Ok(false)
+    }
+
+    pub(super) fn remove() -> anyhow::Result<()> {
         if installed().is_some() {
             run_quiet("reg", &["delete", RUN_KEY, "/v", RUN_VALUE, "/f"])?;
         }
@@ -302,11 +410,17 @@ mod imp {
 mod imp {
     use super::*;
 
-    pub(super) fn install(_exe: &Path) -> anyhow::Result<Installed> {
+    pub(super) fn write(_exe: &Path, _dir: &Path) -> anyhow::Result<String> {
         bail!("no service manager support on this platform; run `cmux host serve` yourself")
     }
 
-    pub(super) fn uninstall() -> anyhow::Result<()> {
+    pub(super) fn stop() {}
+
+    pub(super) fn start() -> anyhow::Result<bool> {
+        Ok(false)
+    }
+
+    pub(super) fn remove() -> anyhow::Result<()> {
         Ok(())
     }
 

@@ -2,9 +2,10 @@
 //! contract as `cmux link dial`) and `cmux host list` (discovery).
 
 use std::io::{self, Read, Write};
-use std::net::{IpAddr, Shutdown, SocketAddr, TcpStream, ToSocketAddrs};
+use std::net::{IpAddr, Shutdown, SocketAddr, TcpStream};
 use std::sync::mpsc;
 use std::time::Duration;
+use std::time::Instant;
 
 use anyhow::{Context as _, anyhow, bail};
 use serde_json::{Value, json};
@@ -28,31 +29,55 @@ pub(crate) struct Target {
     pub addr: SocketAddr,
 }
 
-pub(crate) fn resolve(host: &str, port: u16, status: Option<&Status>) -> anyhow::Result<Target> {
-    if let Ok(addr) = host.parse::<SocketAddr>() {
-        return Ok(Target { name: host.to_owned(), addr });
-    }
-    if let Ok(ip) = host.parse::<IpAddr>() {
-        return Ok(Target { name: host.to_owned(), addr: SocketAddr::new(ip, port) });
-    }
+/// Resolves `<host>` to a peer of this tailnet that may be a host for this
+/// login: a node of the same login, or a tagged node (servers), never a
+/// node shared in from another tailnet. A literal address must be such a
+/// node's tailnet address. There is no DNS fallback: the daemon protocol
+/// only ever goes to a tailnet peer.
+pub(crate) fn resolve(host: &str, port: u16, status: &Status) -> anyhow::Result<Target> {
+    let literal = host
+        .parse::<SocketAddr>()
+        .ok()
+        .or_else(|| host.parse::<IpAddr>().ok().map(|ip| SocketAddr::new(ip, port)));
     let wanted = host.trim_end_matches('.').to_ascii_lowercase();
-    if let Some(status) = status {
-        let found = status.peers.iter().find(|node| {
+    let node = status.peers.iter().find(|node| match literal {
+        Some(addr) => node.ips.contains(&addr.ip()),
+        None => {
             node.short_name().eq_ignore_ascii_case(&wanted)
                 || node.dns_name.eq_ignore_ascii_case(&wanted)
                 || node.host_name.eq_ignore_ascii_case(&wanted)
-        });
-        if let Some(node) = found {
-            let ip = node.dial_ip().ok_or_else(|| anyhow!("{host} has no tailnet address"))?;
-            return Ok(Target { name: node.short_name(), addr: SocketAddr::new(ip, port) });
         }
+    });
+    let Some(node) = node else {
+        bail!("{host} is not a machine on this tailnet");
+    };
+    if !may_host_for(node, status) {
+        bail!(
+            "{host} belongs to another tailnet user; only your own or tagged machines are dialed"
+        );
     }
-    let addr = (wanted.as_str(), port)
-        .to_socket_addrs()
-        .with_context(|| format!("cannot find host {host} on the tailnet"))?
-        .next()
-        .ok_or_else(|| anyhow!("cannot find host {host} on the tailnet"))?;
-    Ok(Target { name: host.to_owned(), addr })
+    let addr = match literal {
+        Some(addr) => addr,
+        None => SocketAddr::new(
+            node.dial_ip().ok_or_else(|| anyhow!("{host} has no tailnet address"))?,
+            port,
+        ),
+    };
+    if !super::tailnet::is_tailnet_ip(addr.ip()) {
+        bail!("{addr} is not a tailnet address");
+    }
+    Ok(Target { name: node.short_name(), addr })
+}
+
+/// A node this login may treat as its host: same login, or tagged; not a
+/// node shared in from another tailnet.
+fn may_host_for(node: &Node, status: &Status) -> bool {
+    if node.shared {
+        return false;
+    }
+    let me = status.this.login.as_deref();
+    node.tagged()
+        || matches!((me, node.login.as_deref()), (Some(me), Some(them)) if super::config::same_login(me, them))
 }
 
 /// Opens a connection and sends the preface; returns the stream and the
@@ -66,10 +91,9 @@ fn open(
     let mut stream = TcpStream::connect_timeout(&addr, connect_bound)
         .with_context(|| format!("cannot reach {addr}"))?;
     stream.set_nodelay(true)?;
-    stream.set_read_timeout(Some(reply_bound))?;
     stream.set_write_timeout(Some(reply_bound))?;
     stream.write_all(preface::request(op).as_bytes())?;
-    let line = preface::read_line(&mut stream)?
+    let line = preface::read_line(&mut stream, Instant::now() + reply_bound)?
         .ok_or_else(|| anyhow!("{addr} closed without an answer"))?;
     let reply: Value = serde_json::from_str(&line).context("the host's answer is not JSON")?;
     Ok((stream, reply))
@@ -79,8 +103,11 @@ fn open(
 /// one JSON line on stderr first; then stdin and stdout carry the daemon
 /// protocol until either side ends.
 pub(crate) fn dial(host: &str, port: u16) -> i32 {
-    let status = Tailnet::locate().and_then(|t| t.status()).ok();
-    let target = match resolve(host, port, status.as_ref()) {
+    let status = match Tailnet::locate().and_then(|t| t.status()) {
+        Ok(status) => status,
+        Err(e) => return dial_failed("unreachable", &format!("{e:#}")),
+    };
+    let target = match resolve(host, port, &status) {
         Ok(target) => target,
         Err(e) => return dial_failed("unreachable", &format!("{e:#}")),
     };
@@ -136,18 +163,12 @@ pub(crate) struct Found {
 /// Peers worth a probe: online, not this node, a platform that can host,
 /// and either owned by this node's login or tagged (servers are tagged).
 pub(crate) fn candidates(status: &Status) -> Vec<Node> {
-    let me = status.this.login.as_deref();
     status
         .peers
         .iter()
         .filter(|node| node.online)
         .filter(|node| matches!(node.os.as_str(), "linux" | "macOS" | "windows" | "freebsd"))
-        .filter(|node| {
-            node.tagged()
-                || (me.is_some()
-                    && node.login.as_deref().map(str::to_ascii_lowercase)
-                        == me.map(str::to_ascii_lowercase))
-        })
+        .filter(|node| may_host_for(node, status))
         .cloned()
         .collect()
 }

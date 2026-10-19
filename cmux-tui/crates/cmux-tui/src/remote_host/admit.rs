@@ -47,6 +47,9 @@ pub(crate) fn decide(
         Ok(identity) => identity,
         Err(_) => return Decision::Refused("tailnet could not identify the peer"),
     };
+    if identity.shared {
+        return Decision::Refused("node is shared in from another tailnet");
+    }
     let Some(login) = identity.login.as_deref() else {
         return Decision::Refused("tagged nodes have no login");
     };

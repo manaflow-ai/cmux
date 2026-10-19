@@ -1,12 +1,13 @@
 //! `cmux host serve`: the listener on this machine's tailnet addresses
 //! (remote-hosts.md 6-8). Accept and splice block in threads; nothing polls.
 
+use std::collections::HashMap;
 use std::io::{self, Read, Write};
 use std::net::{IpAddr, Shutdown, SocketAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context as _, anyhow, bail};
 use serde_json::{Value, json};
@@ -20,6 +21,11 @@ use super::tailnet::{self, Tailnet};
 const PREFACE_BOUND: Duration = Duration::from_secs(5);
 /// Bound on `daemon ensure` (a restoring daemon can take a while).
 const ENSURE_BOUND: Duration = Duration::from_secs(60);
+/// Connections not yet admitted and answered, in total and per peer
+/// address. Excess connections are closed at once, so no peer can hold
+/// every thread (or start a `tailscale whois` per byte it trickles).
+const MAX_PENDING: usize = 32;
+const MAX_PENDING_PER_PEER: usize = 4;
 
 pub(crate) struct Host {
     tailnet: Tailnet,
@@ -27,6 +33,47 @@ pub(crate) struct Host {
     name: String,
     exe: PathBuf,
     socket: Mutex<Option<PathBuf>>,
+    pending: Mutex<HashMap<IpAddr, usize>>,
+}
+
+/// One pending connection; released when the connection is answered.
+struct Pending {
+    host: Arc<Host>,
+    peer: IpAddr,
+}
+
+impl Pending {
+    fn enter(host: &Arc<Host>, peer: IpAddr) -> Option<Self> {
+        let mut pending = host.pending.lock().ok()?;
+        let total: usize = pending.values().sum();
+        let mine = pending.entry(peer).or_insert(0);
+        if total >= MAX_PENDING || *mine >= MAX_PENDING_PER_PEER {
+            return None;
+        }
+        *mine += 1;
+        drop(pending);
+        Some(Self { host: Arc::clone(host), peer })
+    }
+}
+
+impl Drop for Pending {
+    fn drop(&mut self) {
+        if let Ok(mut pending) = self.host.pending.lock()
+            && let Some(count) = pending.get_mut(&self.peer)
+        {
+            *count -= 1;
+            if *count == 0 {
+                pending.remove(&self.peer);
+            }
+        }
+    }
+}
+
+fn plain_ip(addr: SocketAddr) -> IpAddr {
+    match addr.ip() {
+        IpAddr::V6(v6) => v6.to_ipv4_mapped().map(IpAddr::V4).unwrap_or(IpAddr::V6(v6)),
+        v4 => v4,
+    }
 }
 
 pub(crate) fn run(exe: PathBuf) -> anyhow::Result<()> {
@@ -45,14 +92,19 @@ pub(crate) fn run(exe: PathBuf) -> anyhow::Result<()> {
     if self_ips.is_empty() {
         bail!("this machine has no tailnet address");
     }
+    // One listener per state directory; the OS drops the lock with the
+    // process, so `status` and `stop` never act on a stale pid.
+    let _lock = super::service::acquire()?;
     let mut listeners = Vec::new();
     for ip in &self_ips {
         let addr = SocketAddr::new(*ip, config.port);
         match TcpListener::bind(addr) {
             Ok(listener) => listeners.push(listener),
+            // Not this user's listener (that one holds the lock): another
+            // program or OS user has the port. Fail, so nothing that answers
+            // there looks like this host.
             Err(e) if e.kind() == io::ErrorKind::AddrInUse => {
-                eprintln!("cmux host: {addr} is already served (another `cmux host serve` runs)");
-                return Ok(());
+                bail!("{addr} is in use by another program; pass --port to `cmux host enable`")
             }
             // An IPv6 tailnet address can be missing from the OS when the
             // node runs without IPv6; IPv4 alone is enough.
@@ -60,13 +112,13 @@ pub(crate) fn run(exe: PathBuf) -> anyhow::Result<()> {
             Err(e) => return Err(e).with_context(|| format!("cannot listen on {addr}")),
         }
     }
-    super::service::write_pid()?;
     let host = Arc::new(Host {
         tailnet,
         self_ips,
         name: status.this.short_name(),
         exe,
         socket: Mutex::new(None),
+        pending: Mutex::new(HashMap::new()),
     });
     let owner = config.owner.as_deref().unwrap_or("(none)");
     for listener in &listeners {
@@ -91,14 +143,15 @@ fn accept_loop(host: &Arc<Host>, listener: &TcpListener) {
     for stream in listener.incoming() {
         match stream {
             Ok(stream) => {
+                let Ok(peer) = stream.peer_addr().map(plain_ip) else { continue };
+                let Some(pending) = Pending::enter(host, peer) else {
+                    eprintln!("cmux host: refused {peer}: too many pending connections");
+                    continue;
+                };
                 let host = Arc::clone(host);
                 std::thread::spawn(move || {
-                    let peer = stream.peer_addr().ok();
-                    if let Err(e) = serve_one(&host, stream) {
-                        eprintln!(
-                            "cmux host: {}: {e:#}",
-                            peer.map(|p| p.to_string()).unwrap_or_default()
-                        );
+                    if let Err(e) = serve_one(&host, stream, peer, pending) {
+                        eprintln!("cmux host: {peer}: {e:#}");
                     }
                 });
             }
@@ -107,21 +160,17 @@ fn accept_loop(host: &Arc<Host>, listener: &TcpListener) {
     }
 }
 
-fn serve_one(host: &Host, mut stream: TcpStream) -> anyhow::Result<()> {
-    let peer = stream.peer_addr()?.ip();
-    let peer = match peer {
-        IpAddr::V6(v6) => v6.to_ipv4_mapped().map(IpAddr::V4).unwrap_or(IpAddr::V6(v6)),
-        v4 => v4,
-    };
-    stream.set_read_timeout(Some(PREFACE_BOUND))?;
+fn serve_one(
+    host: &Host,
+    mut stream: TcpStream,
+    peer: IpAddr,
+    pending: Pending,
+) -> anyhow::Result<()> {
+    let deadline = Instant::now() + PREFACE_BOUND;
     stream.set_write_timeout(Some(PREFACE_BOUND))?;
-    let Some(line) = preface::read_line(&mut stream)? else { return Ok(()) };
-    let Some(op) = preface::parse_request(&line) else {
-        preface::write_value(&mut stream, &preface::refusal("bad_preface"))?;
-        return Ok(());
-    };
-    // The config is reread for every connection: allow/deny/disable apply
-    // at once, without a restart.
+    // Admission first, from the address alone: a refused peer learns only
+    // `not_allowed`, never whether its preface was well formed. The config
+    // is reread for every connection, so allow/deny/disable apply at once.
     let config = config::load()?;
     let decision = admit::decide(&config, &host.self_ips, peer, host.tailnet.whois(peer));
     let identity = match &decision {
@@ -131,6 +180,11 @@ fn serve_one(host: &Host, mut stream: TcpStream) -> anyhow::Result<()> {
             preface::write_value(&mut stream, &preface::refusal("not_allowed"))?;
             return Ok(());
         }
+    };
+    let Some(line) = preface::read_line(&mut stream, deadline)? else { return Ok(()) };
+    let Some(op) = preface::parse_request(&line) else {
+        preface::write_value(&mut stream, &preface::refusal("bad_preface"))?;
+        return Ok(());
     };
     let access = decision.access().unwrap_or_default();
     let who = format!("{} ({})", identity.login.as_deref().unwrap_or_default(), identity.node);
@@ -149,8 +203,10 @@ fn serve_one(host: &Host, mut stream: TcpStream) -> anyhow::Result<()> {
                 }
             };
             preface::write_value(&mut stream, &json!({"ok": true, "access": access}))?;
+            drop(pending);
             stream.set_read_timeout(None)?;
             stream.set_write_timeout(None)?;
+            keepalive(&stream);
             eprintln!("cmux host: connected {who} as {access}");
             splice(stream, daemon)?;
             eprintln!("cmux host: closed {who}");
@@ -232,6 +288,40 @@ pub(crate) fn ensure_session(exe: &Path, session: &str) -> anyhow::Result<PathBu
     let socket = value["socket"].as_str().or_else(|| value["result"]["socket"].as_str());
     socket.map(PathBuf::from).ok_or_else(|| anyhow!("`daemon ensure` named no socket"))
 }
+
+/// TCP keepalive on a spliced connection, so a client that vanished (a
+/// laptop that slept, a network change) frees its threads and daemon client
+/// within about a minute.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn keepalive(stream: &TcpStream) {
+    use std::os::fd::AsRawFd as _;
+    #[cfg(target_os = "linux")]
+    const IDLE: libc::c_int = libc::TCP_KEEPIDLE;
+    #[cfg(target_os = "macos")]
+    const IDLE: libc::c_int = libc::TCP_KEEPALIVE;
+    let fd = stream.as_raw_fd();
+    let set = |level: libc::c_int, name: libc::c_int, value: libc::c_int| {
+        // SAFETY: setsockopt on a live socket fd with an int option value.
+        unsafe {
+            libc::setsockopt(
+                fd,
+                level,
+                name,
+                (&raw const value).cast(),
+                size_of::<libc::c_int>() as libc::socklen_t,
+            );
+        }
+    };
+    set(libc::SOL_SOCKET, libc::SO_KEEPALIVE, 1);
+    set(libc::IPPROTO_TCP, IDLE, 30);
+    set(libc::IPPROTO_TCP, libc::TCP_KEEPINTVL, 10);
+    set(libc::IPPROTO_TCP, libc::TCP_KEEPCNT, 3);
+}
+
+/// Windows: no keepalive without a socket crate; a vanished client is
+/// noticed when the next write fails.
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+fn keepalive(_stream: &TcpStream) {}
 
 /// Copies both ways until either side ends, then closes both.
 fn splice(tcp: TcpStream, daemon: DaemonStream) -> io::Result<()> {
