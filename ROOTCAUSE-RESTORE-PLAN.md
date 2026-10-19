@@ -266,3 +266,14 @@ stalled filesystem call from holding the job indefinitely. These are confirmed
 storage-stall amplifiers and cleanup targets, not evidence that the SSD has
 failed. SMART remains `Verified`; `diskutil verifyVolume` is still blocked by
 Sandbox/TCC and the fsync probe still hangs, so hardware is not fully ruled out.
+
+The current read-only `tartci governor show` also matters for the fleet audit:
+the role is `dev-overflow`, the TOML requests `background_share_cores = 12`,
+and the resolved budget is 26 lease-capacity cores, 20 reserved for gates, and
+6 background-share cores. The profile currently resolves `agent_floor_cores`
+and `agent_floor_pool_cores` to 8. The profile file was modified at
+`2026-10-18 10:47:22 -0700`, several hours before the October 18 crash, while
+the governor TOML itself dates to October 1. This is a real configuration
+change to correlate with workload pressure, but the governor does not explain
+the WindowServer watchdog by itself; the storage timeouts and cmux resident
+resource fan-out remain the stronger mechanisms.
