@@ -10,6 +10,7 @@ import CmuxNextDesign
 import CmuxNextDaemon
 import CmuxNextPalette
 import CmuxNextPages
+import CmuxNextPopups
 import CmuxNextBrowserImport
 import CmuxNextSettings
 import CmuxNextSidebar
@@ -170,8 +171,7 @@ final class AppServices {
     var borderObservation: Task<Void, Never>?
     /// Page menus and the open-menu diagnostic shared by browser hosts.
     let contextMenus: BrowserContextMenuBuilder
-    /// Sized browser popups (OAuth, payment) in floating panels.
-    let popups: BrowserPopupPanels
+    let popups: BrowserPopupPanels  // sized browser popups (OAuth, payment) in floating panels
     /// The link-hint session (`f`, `F`) on a focused Chromium page.
     let linkHints = LinkHintController()
     /// Click by Hint over the whole window (`hints.show`, Cmd-J).
