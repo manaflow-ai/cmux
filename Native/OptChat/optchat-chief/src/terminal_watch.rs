@@ -305,12 +305,13 @@ pub fn spawn(
                             Action::Continue { id, text } => {
                                 if let Err(e) = terminals.submit(&id, &text) {
                                     log(&format!(
-                                        "terminal {id}: the auto-resume could not be typed: {e}"
+                                        "ERROR terminal {id}: the auto-resume could not be typed: {e}"
                                     ));
                                 }
                             }
                             Action::Note { text, quiet } => {
-                                log(&text);
+                                // WARN: `cmux errors` harvests host.log lines by level word.
+                                log(&format!("WARN terminal auto-resume: {text}"));
                                 if tx
                                     .send(crate::brain::Input::TerminalStopped { text, quiet })
                                     .is_err()

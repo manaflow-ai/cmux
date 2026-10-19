@@ -34,14 +34,22 @@ struct ChiefHomeAcpmux {
     /// with this Mac's host) attaches to the Chief home's acpmux, any other to `local`.
     let localRouter: @Sendable (any AgentPaneHostProviding) -> any AgentPaneHostProviding
 
-    init(home: ChiefHome) {
+    /// - Parameter ensureHost: starts the Chief brain host when none runs
+    ///   (`ChiefBrainKeeper.ensure`), after a heal stopped the stale one.
+    init(home: ChiefHome, ensureHost: @escaping @Sendable () async -> Void = {}) {
         host = Self.host(muxHome: home.muxHome)
         let bin = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true)
         let environment = AcpmuxEnvironment.resolve(build: nil, bundledBinDirectory: bin,
                                                     environment: ["ACPMUX_HOME": home.acpmuxHome.path])
         // The Chief host owns this daemon (it starts it, with the Chief's env): a
-        // tab only attaches, never hands it off or starts one (cx-ebm.54).
-        let chief = AcpmuxHost(environment: environment, startsDaemons: false)
+        // tab only attaches, never starts one (cx-ebm.54). A daemon that runs a
+        // replaced bundle is healed through its owner (ChiefAcpmuxHeal), while the app runs.
+        var healReplaced: (@Sendable () async -> Bool)?
+        if let environment {
+            let heal = ChiefAcpmuxHeal(home: home, environment: environment, ensureHost: ensureHost)
+            healReplaced = { @Sendable () async -> Bool in await heal.heal() }
+        }
+        let chief = AcpmuxHost(environment: environment, startsDaemons: false, healReplaced: healReplaced)
         paneHost = chief
         // optchat-chief `brain::parent_tag`: optchat-chief:<home id>.
         let tag = "optchat-chief:" + host.dropFirst("chief:".count)
