@@ -60,7 +60,7 @@ extension TerminalSurfaceView {
 
     /// Moves Ghostty's pointer off-grid so link hover state clears.
     public override func mouseExited(with event: NSEvent) {
-        guard let surface else { return }
+        guard let surface, !isOutOfSight else { return }
         ghostty_surface_mouse_pos(surface, -1, -1, GhosttyInput.mods(event.modifierFlags))
     }
 
@@ -108,6 +108,7 @@ extension TerminalSurfaceView {
     // MARK: Cursor
 
     public override func cursorUpdate(with event: NSEvent) {
+        guard !isOutOfSight else { return }
         cursor.set()
     }
 
@@ -120,7 +121,7 @@ extension TerminalSurfaceView {
         guard newCursor != cursor else { return }
         cursor = newCursor
         window?.invalidateCursorRects(for: self)
-        if let window, let event = NSApp.currentEvent, event.window === window,
+        if let window, !isOutOfSight, let event = NSApp.currentEvent, event.window === window,
            bounds.contains(convert(event.locationInWindow, from: nil)) {
             newCursor.set()
         }

@@ -32,15 +32,7 @@ extension BrowserChromeView: PaneParkableContent {}
 /// a window-server fence (cx-8w027.19, one per tab switch).
 /// A host that shows a control of its own (`parksByLayer` false) parks by AppKit's hidden state.
 extension TerminalHostView: PaneParkableContent {
-    func setParked(_ parked: Bool) {
-        if parked, !parksByLayer {
-            isParked = false
-            isHidden = true
-        } else {
-            if isHidden { isHidden = false }
-            isParked = parked
-        }
-    }
+    func setParked(_ parked: Bool) { park(parked) }
     var isParkedInPane: Bool { isParked || isHidden }
 }
 /// An agent page (a chat or New Tab page) too: putting a WKWebView back into a window waits

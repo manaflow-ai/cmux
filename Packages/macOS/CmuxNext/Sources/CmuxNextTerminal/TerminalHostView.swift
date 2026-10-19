@@ -29,9 +29,27 @@ public final class TerminalHostView: NSView, LayerParkable {
     /// Whether the host can park by its layer: only while it shows no control of its own (the find
     /// bar, Restart or Retry), whose cursor rects and key views AppKit would keep live in a parked
     /// view. A host that shows one parks by AppKit's hidden state.
+    /// A find bar counts once built: it shows and hides itself with find.
     public var parksByLayer: Bool {
-        restartButton.isHidden && retryButton.isHidden
-            && !subviews.contains { $0 is TerminalFindBarView && !$0.isHidden }
+        restartButton.isHidden && retryButton.isHidden && !subviews.contains { $0 is TerminalFindBarView }
+    }
+
+    /// Parks hidden or by layer, whichever `parksByLayer` allows now (`park(_:)` sets the mode at
+    /// retire; a control that shows while parked moves the host to a hidden park). The hidden state
+    /// goes first, so the view never shows for a moment between the two.
+    public func park(_ parked: Bool) {
+        if parked, !parksByLayer {
+            isHidden = true
+            isParked = false
+        } else {
+            isParked = parked
+            if isHidden { isHidden = false }
+            isParked = parked // an AppKit unhide shows the layer again
+        }
+    }
+
+    private func reparkIfNeeded() {
+        if isParked, !parksByLayer { park(true) }
     }
     /// The session's theme; nil paints the config background.
     var theme: GhosttyThemeConfig? {
@@ -130,6 +148,7 @@ public final class TerminalHostView: NSView, LayerParkable {
         bar.translatesAutoresizingMaskIntoConstraints = true // framed in layout()
         addSubview(bar, positioned: .above, relativeTo: banner)
         needsLayout = true
+        reparkIfNeeded()
     }
 
     /// The link status label over the terminal (hidden while connected).
@@ -143,6 +162,7 @@ public final class TerminalHostView: NSView, LayerParkable {
         restartButton.show(status)
         retryButton.show(status)
         needsLayout = true
+        reparkIfNeeded()
     }
 
     func showHostLoss(_ loss: TerminalHostLoss?, cause: TerminalHostLossCause?) {
