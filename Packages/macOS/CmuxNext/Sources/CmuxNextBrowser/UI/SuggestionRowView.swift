@@ -4,8 +4,8 @@ import CmuxNextIcons
 
 /// One suggestion: 16 pt icon, then "title – detail" on one line with the
 /// detail dimmed ("query - Engine Search"). The one highlighted row
-/// (keyboard or mouse, the state machine decides) gets an 8 pt rounded gray
-/// fill. The row itself only reports the pointer and clicks.
+/// (keyboard or mouse, the state machine decides) gets a rounded gray fill
+/// concentric with the card (`OmnibarStyle.rowCornerRadius`). The row itself only reports the pointer and clicks.
 final class SuggestionRowView: NSView {
     var onClick: ((NSEvent.ModifierFlags) -> Void)?
     /// Pointer inside (true) or leaving (false), at a screen point.
@@ -31,7 +31,6 @@ final class SuggestionRowView: NSView {
         detail = suggestion.detail
         super.init(frame: .zero)
         wantsLayer = true
-        layer?.cornerRadius = OmnibarStyle.rowCornerRadius
         layer?.cornerCurve = .continuous
 
         let kind: IconName = switch suggestion.kind {
@@ -62,6 +61,7 @@ final class SuggestionRowView: NSView {
 
     override func layout() {
         super.layout()
+        layer?.cornerRadius = OmnibarStyle.rowCornerRadius
         let side: CGFloat = 16
         icon.frame = NSRect(x: (leadingIconCenter - side / 2).rounded(), y: ((bounds.height - side) / 2).rounded(), width: side, height: side)
         let height = label.intrinsicContentSize.height
