@@ -215,10 +215,10 @@ extension AgentSessionRecovery {
         var restored: [String] = []
         let ordered = plan.startNow.map { ($0, true) } + plan.startOnVisit.map { ($0, false) }
         for (candidate, startsNow) in ordered {
-            if let cwd = candidate.cwd,
-               (!FileManager.default.fileExists(atPath: cwd) ||
-                !FileManager.default.isDirectory(atPath: cwd)) {
-                continue
+            if let cwd = candidate.cwd {
+                var isDirectory: ObjCBool = false
+                guard FileManager.default.fileExists(atPath: cwd, isDirectory: &isDirectory),
+                      isDirectory.boolValue else { continue }
             }
             guard let launch = launch(for: candidate) else { continue }
             let directory = candidate.cwd
