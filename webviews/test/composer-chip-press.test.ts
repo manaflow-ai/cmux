@@ -266,7 +266,9 @@ await requireBrowserLane("composer-chip-press.test.ts", async () => {
     });
 
   for (const [engine] of engines)
-    test(`${engine}: the 400 px picker rail uses tonal pills and visible hover/open fills`, async () => {
+    // Leo 2026-10-19: the chips are plain text and icon at rest; hover and an open menu draw a
+    // small-radius rect, never a capsule (composer-chip-plain-rest.test.ts covers focus).
+    test(`${engine}: the 400 px picker rail is plain at rest, with visible hover/open fills`, async () => {
       const page = await open(engine, PILL_STAGE, 400);
       const state = (name: string) =>
         page
@@ -284,9 +286,9 @@ await requireBrowserLane("composer-chip-press.test.ts", async () => {
           });
       const idle = await Promise.all(PILL_STAGE.chips.map(state));
       for (const [index, value] of idle.entries()) {
-        expect(value.background, `${PILL_STAGE.chips[index]} has a tonal idle fill`).not.toBe("rgba(0, 0, 0, 0)");
-        expect(value.radius, `${PILL_STAGE.chips[index]} is pill-shaped`).toBeGreaterThanOrEqual(
-          value.height / 2 - 0.5,
+        expect(value.background, `${PILL_STAGE.chips[index]} draws no idle fill`).toBe("rgba(0, 0, 0, 0)");
+        expect(value.radius, `${PILL_STAGE.chips[index]} is a small-radius rect, not a capsule`).toBeLessThan(
+          value.height / 2 - 2,
         );
         expect(value.height, `${PILL_STAGE.chips[index]} remains a usable target`).toBeGreaterThanOrEqual(24);
       }
@@ -296,12 +298,12 @@ await requireBrowserLane("composer-chip-press.test.ts", async () => {
       await page.mouse.move(modelBox.x + modelBox.width / 2, modelBox.y + modelBox.height / 2);
       await page.waitForTimeout(100);
       const hover = await state("Model");
-      expect(hover.background, "hover strengthens the pill fill").not.toBe(idle[0]!.background);
+      expect(hover.background, "hover draws a fill").not.toBe(idle[0]!.background);
 
       await page.locator(chip("Effort")).first().click();
       await page.locator('[role="menuitemradio"][aria-checked="true"]:visible').first().waitFor();
       const openEffort = await state("Effort");
-      expect(openEffort.background, "open keeps the pill's hover step").not.toBe(idle[1]!.background);
+      expect(openEffort.background, "open keeps the hover fill").not.toBe(idle[1]!.background);
       expect(openEffort.boxShadow, "open draws no edge ring (Leo 2026-10-18)").toBe("none");
       await page.close();
     });
