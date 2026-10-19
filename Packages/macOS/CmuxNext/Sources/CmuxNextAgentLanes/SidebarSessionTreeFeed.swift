@@ -95,14 +95,14 @@ public final class SidebarSessionTreeFeed {
         item(pullRequest).state.badgeStatus
     }
 
-    /// One pull request's line in the hover card. An open one with a conflict says so before its
-    /// checks; a pending check reads as passing until it fails.
+    /// One pull request's line in the hover card. Failed checks say so before a conflict (red wins
+    /// over orange); a pending check reads as passing until it fails.
     static func item(_ pullRequest: AgentPanePullRequest) -> SidebarPullRequestItem {
         let state: SidebarPullRequestItem.State = switch pullRequest.state {
         case "merged": .merged
         case "closed": .closed
         case "draft": .draft
-        default: pullRequest.mergeable == "conflicting" ? .conflict : pullRequest.checks.state == "failing" ? .failing : .passing
+        default: pullRequest.checks.state == "failing" ? .failing : pullRequest.mergeable == "conflicting" ? .conflict : .passing
         }
         return SidebarPullRequestItem(url: pullRequest.url, repository: SidebarPullRequestItem.repository(of: pullRequest.url),
                                       number: pullRequest.number, title: pullRequest.title, state: state,
@@ -124,6 +124,10 @@ final class SidebarPullRequestStore {
     private(set) var answers: [String: AgentPanePullRequest] = [:]
     @ObservationIgnored private var asked: [String: ContinuousClock.Instant] = [:]
     @ObservationIgnored private var asking: Set<String> = []
+    /// Failed reads in a row, by URL: each doubles its wait, up to ``maximumBackoff``.
+    @ObservationIgnored private var failures: [String: Int] = [:]
+    /// The most doublings of `freshness` a failing URL waits (5 minutes become 80).
+    static let maximumBackoff = 4
     @ObservationIgnored private let reader: AgentChatPullRequestReader
     @ObservationIgnored private let freshness: Duration
 
@@ -136,7 +140,7 @@ final class SidebarPullRequestStore {
     /// missing or older than `freshness`.
     func refresh(_ asks: Set<String>) {
         let stale = asks.filter { key in
-            !asking.contains(key) && asked[key].map { ContinuousClock.now - $0 >= freshness } ?? true
+            !asking.contains(key) && !isSettled(key) && asked[key].map { ContinuousClock.now - $0 >= wait(key) } ?? true
         }
         let urls = stale.filter { $0.hasPrefix("https://") }.sorted()
         for folder in stale.subtracting(urls).sorted() { ask(folder) }
@@ -165,8 +169,27 @@ final class SidebarPullRequestStore {
             let read = await reader.read(urls: urls)
             guard let self else { return }
             asking.subtract(urls)
-            // A URL whose read failed keeps its last answer; one GitHub has no pull request for clears.
-            for (url, answer) in read where answers[url] != answer { answers[url] = answer }
+            // A URL whose read failed keeps its last answer and waits longer; one GitHub has no pull
+            // request for clears.
+            for url in urls {
+                guard let answer = read[url] else {
+                    failures[url, default: 0] += 1
+                    continue
+                }
+                failures[url] = nil
+                if answers[url] != answer { answers[url] = answer }
+            }
         }
+    }
+
+    /// A merged or closed pull request's URL: it never changes again, so it is not asked again.
+    /// (A folder's branch can get a new pull request after one merges, so folders always are.)
+    func isSettled(_ key: String) -> Bool {
+        key.hasPrefix("https://") && ["merged", "closed"].contains(answers[key]?.state ?? "")
+    }
+
+    /// How long `key`'s answer stays fresh: `freshness`, doubled for each failed read in a row.
+    func wait(_ key: String) -> Duration {
+        freshness * (1 << min(failures[key] ?? 0, Self.maximumBackoff))
     }
 }

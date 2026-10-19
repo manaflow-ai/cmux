@@ -27,8 +27,9 @@ import Testing
         #expect(SidebarSessionTreeFeed.item(Self.pr(1)).state == .passing)
         #expect(SidebarSessionTreeFeed.item(Self.pr(1, checks: "pending")).state == .passing)
         #expect(SidebarSessionTreeFeed.item(Self.pr(1, checks: "failing")).state == .failing)
-        // A conflict says so before its checks.
-        #expect(SidebarSessionTreeFeed.item(Self.pr(1, mergeable: "conflicting", checks: "failing")).state == .conflict)
+        // Failed checks say so before a conflict: red wins over orange.
+        #expect(SidebarSessionTreeFeed.item(Self.pr(1, mergeable: "conflicting", checks: "failing")).state == .failing)
+        #expect(SidebarSessionTreeFeed.item(Self.pr(1, mergeable: "conflicting")).state == .conflict)
         #expect(SidebarSessionTreeFeed.item(Self.pr(1, state: "draft")).state == .draft)
         #expect(SidebarSessionTreeFeed.item(Self.pr(1, state: "merged")).state == .merged)
         #expect(SidebarSessionTreeFeed.item(Self.pr(1, state: "closed")).state == .closed)
@@ -163,6 +164,82 @@ import Testing
         card.configure(items)
         #expect(card.reportedLines.first?.hasPrefix("Sidebar pull request hover card") == true)
         #expect(SidebarPullRequestBadge.combining(items: items)?.status == .failing)
+    }
+
+    /// The card opens only a pull request page on github.com or the user's GH_HOST: a URL a peer
+    /// or a harness put in the summary never opens anything else.
+    @Test func theCardOpensOnlyPullRequestPages() {
+        func item(_ url: String) -> SidebarPullRequestItem {
+            SidebarPullRequestItem(url: url, repository: "", number: 1, title: "", state: .passing)
+        }
+        #expect(item("https://github.com/manaflow-ai/cmux/pull/21959").isOpenable(enterpriseHost: nil))
+        #expect(item("https://ghe.example.com/team/app/pull/3").isOpenable(enterpriseHost: "ghe.example.com"))
+        for bad in ["https://ghe.example.com/team/app/pull/3", "https://evil.example/o/r/pull/1", "http://github.com/o/r/pull/1",
+                    "https://github.com/o/r/pull/1/files", "https://github.com/o/r/pull/1?x=1", "https://github.com/o/r/pull/1#frag",
+                    "https://user@github.com/o/r/pull/1", "https://github.com:8443/o/r/pull/1", "https://github.com/o/r/issues/1",
+                    "https://github.com.evil.example/o/r/pull/1", "https://github.com/o/r/pull/x", "javascript:alert(1)"] {
+            #expect(!item(bad).isOpenable(enterpriseHost: nil), "\(bad)")
+        }
+    }
+
+    /// A fake `gh` in a fresh folder: `graphql` prints `answer` (or nothing) and exits `status`;
+    /// each call appends a line to `<gh>.calls`.
+    private static func fakeGitHub(answer: String?, status: Int32) throws -> String {
+        let base = FileManager.default.temporaryDirectory.appending(path: "sidebar-pr-store-\(UUID().uuidString)").path
+        try FileManager.default.createDirectory(atPath: base, withIntermediateDirectories: true)
+        let gh = base + "/gh"
+        if let answer { try answer.write(toFile: base + "/answer.json", atomically: true, encoding: .utf8) }
+        let script = """
+            #!/bin/sh
+            echo "$*" >> "$0.calls"
+            case "$*" in *graphql*) [ -f "$(dirname "$0")/answer.json" ] && cat "$(dirname "$0")/answer.json"; exit \(status);; esac
+            exit 1
+            """
+        try script.write(toFile: gh, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: gh)
+        return gh
+    }
+
+    private static func calls(_ gh: String) -> Int {
+        ((try? String(contentsOfFile: gh + ".calls", encoding: .utf8)) ?? "").split(separator: "\n").count
+    }
+
+    private static func waitUntil(_ done: () -> Bool) async throws {
+        for _ in 0..<250 where !done() { try await Task.sleep(for: .milliseconds(20)) }
+    }
+
+    /// A merged pull request never changes again: once read, it is not asked again.
+    @Test func aMergedPullRequestIsReadOnce() async throws {
+        let url = "https://github.com/o/r/pull/1"
+        let gh = try Self.fakeGitHub(answer: """
+            {"data":{"p0":{"pullRequest":{"url":"\(url)","number":1,"title":"Done","state":"MERGED","isDraft":false,"mergeable":"UNKNOWN",
+             "createdAt":"2026-10-01T00:00:00Z","mergedAt":"2026-10-02T00:00:00Z","additions":1,"deletions":1,"commits":{"nodes":[]}}}}}
+            """, status: 0)
+        let store = SidebarPullRequestStore(reader: AgentChatPullRequestReader(gh: gh), freshness: .zero)
+        store.refresh([url])
+        try await Self.waitUntil { store.answers[url] != nil }
+        #expect(store.answers[url]?.state == "merged")
+        #expect(store.isSettled(url))
+        store.refresh([url])
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(Self.calls(gh) == 1)
+    }
+
+    /// A read that keeps failing waits twice as long each time, up to 16 times `freshness`.
+    @Test func aFailingReadBacksOff() async throws {
+        let url = "https://github.com/o/r/pull/2"
+        let gh = try Self.fakeGitHub(answer: nil, status: 1)
+        let store = SidebarPullRequestStore(reader: AgentChatPullRequestReader(gh: gh), freshness: .zero)
+        #expect(store.wait(url) == .zero)
+        store.refresh([url])
+        try await Self.waitUntil { Self.calls(gh) == 1 }
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(store.answers[url] == nil)
+        let slow = SidebarPullRequestStore(reader: AgentChatPullRequestReader(gh: gh), freshness: .seconds(300))
+        slow.refresh([url])
+        try await Self.waitUntil { slow.wait(url) > .seconds(300) }
+        #expect(slow.wait(url) == .seconds(600))
+        #expect(!slow.isSettled(url))
     }
 
     @Test func theCardIsADebugSettingOnByDefault() {

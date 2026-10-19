@@ -87,7 +87,7 @@ final class SidebarPullRequestCardController {
     }
 
     private func activate(_ item: SidebarPullRequestItem) {
-        guard let url = URL(string: item.url), url.scheme == "https" else { return }
+        guard item.isOpenable(), let url = URL(string: item.url) else { return }
         let open = open
         dismiss()
         open?(url)

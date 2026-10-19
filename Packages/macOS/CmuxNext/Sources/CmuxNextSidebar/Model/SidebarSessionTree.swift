@@ -87,6 +87,20 @@ public nonisolated struct SidebarPullRequestItem: Hashable, Sendable, Codable {
         self.createdAt = createdAt
     }
 
+    /// A pull request page the card may open: `https://github.com/<owner>/<repo>/pull/<n>`, or the
+    /// same on `enterpriseHost` (the user's `GH_HOST`). Anything else the summary carried (a peer's,
+    /// a harness's) is never opened.
+    public func isOpenable(enterpriseHost: String? = ProcessInfo.processInfo.environment["GH_HOST"]) -> Bool {
+        guard let parts = URLComponents(string: url), parts.scheme == "https", let host = parts.host?.lowercased(),
+              parts.user == nil, parts.password == nil, parts.port == nil, parts.query == nil, parts.fragment == nil,
+              host == "github.com" || (enterpriseHost.map { !$0.isEmpty && host == $0.lowercased() } ?? false)
+        else { return false }
+        let path = parts.path.split(separator: "/", omittingEmptySubsequences: false)
+        let plain = { (s: Substring) in !s.isEmpty && s.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || "-_.".contains($0)) } }
+        return path.count == 5 && path[0].isEmpty && plain(path[1]) && plain(path[2]) && path[3] == "pull"
+            && !path[4].isEmpty && path[4].allSatisfy(\.isASCII) && path[4].allSatisfy(\.isNumber)
+    }
+
     /// `owner/repo` of a `https://<host>/owner/repo/pull/N` URL; empty for another.
     public static func repository(of url: String) -> String {
         let parts = url.split(separator: "/")
