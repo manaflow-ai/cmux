@@ -33,7 +33,7 @@ struct AgentPaneSourceIconTests {
     private func loader(_ resolver: Resolver, _ transport: Transport) -> AgentPaneSourceIcons {
         AgentPaneSourceIcons(fetch: GuardedRemoteFetch(maximumBytes: 1 << 20, timeout: .seconds(10),
                                                       accept: GuardedRemoteFetch.imageAccept,
-                                                      resolver: resolver, transport: transport))
+                                                      resolver: resolver, transport: transport), decode: { $0 })
     }
 
     @Test(arguments: ["localhost", "127.0.0.1", "10.0.0.1", "172.16.0.1", "192.168.1.1", "169.254.169.254", "[::1]", "[fe80::1]", "[fc00::1]"])
@@ -63,6 +63,16 @@ struct AgentPaneSourceIconTests {
         #expect(request.address == .v4([93, 184, 216, 34]))
         #expect(request.host == "rebind.example")
         #expect(request.port == 8443)
+    }
+
+    @Test func defaultDecoderRefusesNonImageResponses() async throws {
+        let transport = Transport()
+        let icons = AgentPaneSourceIcons(fetch: GuardedRemoteFetch(maximumBytes: 1 << 20, timeout: .seconds(10),
+                                                                 accept: GuardedRemoteFetch.imageAccept,
+                                                                 resolver: Resolver(), transport: transport))
+        let url = try #require(URL(string: "https://public.example/favicon.ico"))
+        #expect(await icons.data(at: url) == nil)
+        #expect(await transport.requests.count == 1)
     }
 
     @Test(arguments: ["https://127.0.0.1/admin", "https://169.254.169.254/meta", "https://localhost/", "https://private.example/", "http://public.example/"])

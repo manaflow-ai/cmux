@@ -1,9 +1,12 @@
 public import CmuxNextPages
 public import Foundation
 
-/// The app's bounded, cookieless fetch queue for passive Thread details icons.
+/// The pane module's bounded, cookieless fetch queue for passive Thread details icons.
 /// Duplicate origins share a checked fetch; cancelling the last reader cancels its transport.
 public actor AgentPaneSourceIcons {
+    // Share one admission budget across panes, including readers of the same origin.
+    static let shared = AgentPaneSourceIcons()
+
     private struct Entry {
         let id = UUID()
         var readers: [UUID: AsyncStream<Data?>.Continuation] = [:]
@@ -20,11 +23,11 @@ public actor AgentPaneSourceIcons {
     public init(maximumConcurrent: Int = 4, maximumQueued: Int = 128,
                 fetch: GuardedRemoteFetch = GuardedRemoteFetch(maximumBytes: 1 << 20, timeout: .seconds(10),
                                                               accept: GuardedRemoteFetch.imageAccept),
-                decode: @escaping @Sendable (Data) -> Data? = { $0 }) {
+                decode: (@Sendable (Data) -> Data?)? = nil) {
         self.maximumConcurrent = max(1, maximumConcurrent)
         self.maximumQueued = max(0, maximumQueued)
         self.fetch = fetch
-        self.decode = decode
+        self.decode = decode ?? { AgentPaneSourceIconPNG().decode($0) }
     }
 
     /// The bounded, decoded data at a public HTTPS origin, or nil on refusal, overload or cancellation.

@@ -48,7 +48,7 @@ struct AgentPaneSourceIconAdmissionTests {
         AgentPaneSourceIcons(maximumConcurrent: concurrent, maximumQueued: queued,
                              fetch: GuardedRemoteFetch(maximumBytes: 1 << 20, timeout: .seconds(10),
                                                        accept: GuardedRemoteFetch.imageAccept,
-                                                       resolver: Resolver(), transport: transport))
+                                                       resolver: Resolver(), transport: transport), decode: { $0 })
     }
 
     @Test func aThousandOriginsStayWithinTheNativeAdmissionBound() async throws {

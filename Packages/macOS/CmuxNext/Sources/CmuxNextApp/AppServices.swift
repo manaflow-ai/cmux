@@ -197,7 +197,6 @@ final class AppServices {
     var importedBookmarkSink: (any ImportedBookmarkSink)?
     /// Browser tab favicons per profile, for tab strips.
     let favicons = TabFaviconStore()
-    let sourceIcons = AgentPaneSourceIcons(decode: { BrowserFaviconLoader.png($0) })
     /// The one owner of hover cards in the app: at most one card, ever
     /// (plans/cmux-next/hovercards.md).
     let hoverCards = HoverCardCoordinator()
