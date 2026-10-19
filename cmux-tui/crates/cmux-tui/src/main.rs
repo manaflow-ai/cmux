@@ -41,6 +41,8 @@ mod page_listener;
 mod private_mode;
 #[cfg(unix)]
 mod signal_sender;
+mod startup_args;
+use startup_args::{Args, RelayCredentialArg, startup_option_value_end};
 mod websocket_credential;
 // The agent hook helper, also built as the standalone `cmux-tui-hook`.
 #[path = "bin/cmux-tui-hook.rs"]
@@ -527,94 +529,6 @@ fn usage_for_platform(catalog: &localization::Catalog, supports_machine_agent: b
 
 fn usage() -> String {
     usage_for(localization::catalog())
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct Args {
-    attach: bool,
-    session: String,
-    socket: Option<PathBuf>,
-    terminal: Option<String>,
-    state: Option<PathBuf>,
-    ephemeral: bool,
-    machine_provider: Option<PathBuf>,
-    machine_provider_command: Option<Vec<String>>,
-    cloud: bool,
-    cloud_host: Option<String>,
-    cloud_user: Option<String>,
-    cloud_port: Option<u16>,
-    cloud_identity: Option<PathBuf>,
-    headless: bool,
-    ws: Option<String>,
-    ws_token: Option<String>,
-    ws_insecure_bind: bool,
-    ws_access: cmux_tui_core::server::WebSocketAccess,
-    link_entry: bool,
-    supervised_link_state: Option<PathBuf>,
-    remote: bool,
-    remote_ws: Option<String>,
-    remote_ws_insecure_bind: bool,
-    remote_ws_trusted_carrier: bool,
-    remote_http: Option<String>,
-    remote_state_dir: Option<PathBuf>,
-    remote_link_socket: Option<PathBuf>,
-    remote_admin_socket: Option<PathBuf>,
-    remote_resume_lease_seconds: u64,
-    relay_endpoints: Vec<String>,
-    relay_slots: Vec<String>,
-    relay_credentials: Vec<RelayCredentialArg>,
-    iroh: bool,
-    advertised_routes: Vec<String>,
-    term: Option<String>,
-    agent_browser_provider: bool,
-    owner_host_fg: Option<cmux_tui_core::Rgb>,
-    owner_host_bg: Option<cmux_tui_core::Rgb>,
-    /// Private launch contract of `local_owner`: readiness and install key pipes.
-    owner_ready_fd: Option<i32>,
-    owner_install_key_fd: Option<i32>,
-    terminal_reap_grace: Option<std::time::Duration>,
-}
-
-#[derive(Clone, PartialEq, Eq)]
-enum RelayCredentialArg {
-    File(PathBuf),
-    Command { program: String, args: Vec<String> },
-}
-
-impl std::fmt::Debug for RelayCredentialArg {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::File(path) => formatter.debug_tuple("File").field(path).finish(),
-            Self::Command { program, args } => formatter
-                .debug_struct("Command")
-                .field("program", program)
-                .field("argument_count", &args.len())
-                .finish(),
-        }
-    }
-}
-
-impl Args {
-    fn should_attach_existing(&self, ws_addr: &Option<String>, ws_token: &Option<String>) -> bool {
-        !self.headless
-            && ws_addr.is_none()
-            && ws_token.is_none()
-            && !self.ws_insecure_bind
-            && !self.link_entry
-            && self.supervised_link_state.is_none()
-            && self.ws_access.origins.is_empty()
-            && self.ws_access.hosts.is_empty()
-            && !self.remote
-            && self.term.is_none()
-    }
-
-    fn owner_host_colors(&self) -> cmux_tui_core::DefaultColors {
-        cmux_tui_core::DefaultColors {
-            fg: self.owner_host_fg,
-            bg: self.owner_host_bg,
-            ..Default::default()
-        }
-    }
 }
 
 fn parse_args(args: impl IntoIterator<Item = String>) -> Args {
@@ -1415,63 +1329,6 @@ fn rewrite_server_start(args: &mut Vec<String>) {
             _ => return,
         }
     }
-}
-
-const STARTUP_VALUE_OPTIONS: &[&str] = &[
-    "--socket",
-    "--session",
-    "--machine",
-    "--terminal",
-    "--state",
-    "--machine-provider",
-    "--cloud-host",
-    "--cloud-user",
-    "--cloud-port",
-    "--cloud-identity",
-    "--ws",
-    "--ws-token",
-    "--ws-allow-origin",
-    "--ws-allow-host",
-    "--remote-ws",
-    "--remote-http",
-    "--remote-state-dir",
-    "--remote-link-socket",
-    "--supervised-link-state",
-    "--remote-admin-socket",
-    "--remote-resume-lease-seconds",
-    "--terminal-reap-grace-seconds",
-    "--relay",
-    "--relay-slot",
-    "--relay-ticket",
-    "--relay-ticket-file",
-    "--relay-ticket-command",
-    "--relay-ticket-command-arg",
-    "--advertise",
-    "--term",
-    "--owner-host-fg",
-    "--owner-host-bg",
-    local_owner::OWNER_READY_FD_ARG,
-    local_owner::OWNER_INSTALL_KEY_FD_ARG,
-];
-
-/// Return the first argument after a startup option and its value.
-///
-/// Startup routing, relay-ticket protection, and lifecycle rewriting all need
-/// to skip the same value-bearing options. Keeping the spans in one helper
-/// prevents a new startup option from being handled by only one scanner.
-fn startup_option_value_end(args: &[String], index: usize) -> Option<usize> {
-    let option = args.get(index)?.as_str();
-    if STARTUP_VALUE_OPTIONS.contains(&option) {
-        return args.get(index + 1).map(|_| index + 2);
-    }
-    if option == "--machine-provider-command" {
-        let mut end = index + 1;
-        while end < args.len() && args[end] != "--" {
-            end += 1;
-        }
-        return Some(end + 1);
-    }
-    None
 }
 
 fn is_inline_relay_ticket(value: &str) -> bool {
