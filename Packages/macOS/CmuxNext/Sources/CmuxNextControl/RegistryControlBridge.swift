@@ -110,6 +110,7 @@ public final class RegistryControlBridge: ControlActionExecutor {
         invocation.besideCaller = request.besideCaller
         invocation.newColumnBeside = request.newColumnBeside
         invocation.callerAgentSession = request.callerAgentSession
+        invocation.callerTerminal = request.callerTerminal
         guard registry.isAvailable(id, for: invocation) else { return .unavailable }
         guard action.isEnabled() else { return .disabled }
         if registry.needsConfirmation(id, invocation) { return .confirmationRequired }
@@ -184,6 +185,7 @@ public final class RegistryControlBridge: ControlActionExecutor {
         info.startsTerminal = descriptor.startsTerminal
         info.isCLI = descriptor.cli
         info.waitsForResult = descriptor.waitsForResult
+        info.waitsForPerson = descriptor.waitsForPerson
         info.focuses = descriptor.focuses
         return info
     }

@@ -176,6 +176,7 @@
         "CmuxNextCompat",
         "CmuxNextComputerUse",
         "CmuxNextControl",
+        "CmuxNextCookieImport",
         "CmuxNextCrashReporting",
         "CmuxNextDaemon",
         "CmuxNextDaemonRecovery",
@@ -254,6 +255,7 @@
         "CmuxNextBrowserHistory",
         "CmuxNextCompat",
         "CmuxNextComputerUse",
+        "CmuxNextCookieImport",
         "CmuxNextCopyMode",
         "CmuxNextCrashReporting",
         "CmuxNextDaemon",
@@ -488,6 +490,18 @@
       ],
       "packages": [],
       "reads": []
+    },
+    "CmuxNextCookieImport": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextCookieImport",
+      "targets": [
+        "CmuxNextActions",
+        "CmuxNextBrowser",
+        "CmuxNextBrowserImport",
+        "CmuxNextDesign",
+        "CmuxNextWakeups"
+      ],
+      "packages": []
     },
     "CmuxNextCopyMode": {
       "kind": "regular",
@@ -822,7 +836,9 @@
         "CmuxNextPalette"
       ],
       "packages": [],
-      "reads": []
+      "reads": [
+        "app/"
+      ]
     },
     "CmuxNextPhoneAccess": {
       "kind": "regular",
