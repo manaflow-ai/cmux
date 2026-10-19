@@ -31,7 +31,7 @@ extension RemoteDaemonRPCClient {
     }
 
     func sendTransportKeepaliveLocked() {
-        guard !isClosed, webSocketTask == nil else {
+        guard !isClosed, webSocketConnection == nil else {
             stopTransportKeepaliveLocked()
             return
         }

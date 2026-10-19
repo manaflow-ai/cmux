@@ -39,4 +39,76 @@ struct WorkspacePresenceSessionTests {
         await opened.connection.disconnect()
         #expect(await PresenceTestTransport.next(snapshots) == [])
     }
+
+    @Test("receiving an authoritative snapshot resets reconnect backoff and closes old socket on reconnect")
+    func snapshotResetsBackoffAndClosesOldSocketOnReconnect() async throws {
+        let scope = try #require(WorkspacePresenceScope(kind: .cloud, ownerID: "vm", workspaceID: "one", teamID: "team"))
+        let transport = PresenceTestTransport()
+        let session = WorkspacePresenceSession(transport: transport)
+        let snapshots = session.snapshots()
+        let run = Task { await session.run(scope: scope, accessToken: { "test" }, isCurrent: { true }) }
+        defer { run.cancel(); session.stop() }
+
+        let firstOpened = try #require(await PresenceTestTransport.next(transport.connections))
+        let ada = WorkspacePresenceParticipant(id: "ada", displayName: "Ada")
+        await firstOpened.connection.deliver(WorkspacePresenceSnapshot(scope: scope, participants: [ada]))
+        #expect(await PresenceTestTransport.next(snapshots, matching: { !$0.isEmpty }) == [ada])
+
+        await firstOpened.connection.disconnect()
+        #expect(await PresenceTestTransport.next(snapshots) == [])
+
+        let secondOpened = try #require(await PresenceTestTransport.next(transport.connections))
+        #expect(secondOpened.scope == scope)
+        #expect(await firstOpened.connection.isEnded)
+    }
+
+    @Test("a valid snapshot resets the next reconnect delay")
+    func snapshotResetsReconnectDelay() async throws {
+        let scope = try #require(WorkspacePresenceScope(kind: .cloud, ownerID: "vm", workspaceID: "one", teamID: "team"))
+        let transport = PresenceTestTransport()
+        let clock = ImmediatePresenceClock()
+        let session = WorkspacePresenceSession(transport: transport, clock: clock)
+        let run = Task { await session.run(scope: scope, accessToken: { "test" }, isCurrent: { true }) }
+        defer { run.cancel(); session.stop() }
+
+        let first = try #require(await PresenceTestTransport.next(transport.connections))
+        await first.connection.disconnect()
+        let second = try #require(await PresenceTestTransport.next(transport.connections))
+        await second.connection.deliver(WorkspacePresenceSnapshot(scope: scope, participants: []))
+        await second.connection.disconnect()
+
+        let deadline = ContinuousClock.now.advanced(by: .seconds(3))
+        while clock.shortSleeps.count < 2, ContinuousClock.now < deadline {
+            await Task.yield()
+        }
+        let delays = Array(clock.shortSleeps.prefix(2))
+        #expect(delays.count == 2)
+        #expect(delays.allSatisfy { $0 >= .seconds(1) && $0 < .milliseconds(1500) })
+    }
+}
+
+private final class ImmediatePresenceClock: Clock, @unchecked Sendable {
+    typealias Duration = Swift.Duration
+    typealias Instant = ContinuousClock.Instant
+
+    private let lock = NSLock()
+    private var recordedSleeps: [Duration] = []
+
+    nonisolated var now: Instant { .now }
+    nonisolated var minimumResolution: Duration { .zero }
+
+    var shortSleeps: [Duration] {
+        lock.lock()
+        defer { lock.unlock() }
+        return recordedSleeps.filter { $0 < .seconds(5) }
+    }
+
+    func sleep(until deadline: Instant, tolerance: Duration? = nil) async throws {
+        let duration = now.duration(to: deadline)
+        lock.lock()
+        recordedSleeps.append(duration)
+        lock.unlock()
+        guard duration >= .seconds(5) else { return }
+        try await ContinuousClock().sleep(for: .hours(1))
+    }
 }
