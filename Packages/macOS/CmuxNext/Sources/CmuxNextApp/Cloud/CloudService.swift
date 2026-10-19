@@ -26,7 +26,7 @@ final class CloudService {
     @ObservationIgnored let installIdentity: MacInstallIdentity
     /// Chief hands: levels, the presence key and requests waiting for the owner (cx-om025).
     @ObservationIgnored let hands: HandsService
-    @ObservationIgnored private let machines: MachineRegistry
+    @ObservationIgnored let machines: MachineRegistry
     @ObservationIgnored private let binary: URL?
     /// This Mac's `cmux link` across the session (cx-rtipa S3).
     @ObservationIgnored private let link: CloudLinkLifecycle
@@ -346,30 +346,6 @@ final class CloudService {
         if let existing = machines.session(machine.id) { return existing }
         guard let session = addSession(machine, scope: scope) else { throw ActionFailure(message: CloudStrings.noClient) }
         return session
-    }
-
-    func deleteMachine(_ machineID: String) async throws {
-        try await api.deleteMachine(machineID)
-        creations.machineRemoved(machineID)
-        machines.remove(machineID)?.disconnect()
-        logger.info("deleted machine \(machineID, privacy: .public)")
-    }
-
-    func pauseMachine(_ machineID: String) async throws {
-        try await api.pauseMachine(machineID)
-        await refresh()
-        logger.info("paused machine \(machineID, privacy: .public)")
-    }
-
-    func resumeMachine(_ machineID: String) async throws {
-        try await api.resumeMachine(machineID)
-        await refresh()
-        logger.info("resumed machine \(machineID, privacy: .public)")
-    }
-
-    func renameMachine(_ machineID: String, to name: String) async throws {
-        try await api.renameMachine(machineID, to: name.isEmpty ? nil : name)
-        machines.session(machineID)?.machine.displayName = name.isEmpty ? nil : name
     }
 
     func signOut() async {

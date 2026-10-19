@@ -109,7 +109,7 @@ extension CloudHandlers {
         }
         bind("cloudRenameMachine", registry, reason: reason) { invocation in
             let session = try machine(invocation, context)
-            let rename = { (name: String) in run("rename machine", context) { try await cloud.renameMachine(session.machineID, to: name) } }
+            let rename = { (name: String) in run("rename machine", context) { try await cloud.renameMachine(session.machineID, to: name, origin: connectOrigin(for: invocation)) } }
             if let name = invocation["name"]?.stringValue { return rename(name) }
             CloudPresenter.askText(CloudStrings.renameMachineTitle, initial: session.machine.displayName ?? "", button: CloudStrings.rename,
                                    in: window(context)) { name in if let name { rename(name) } }
@@ -117,18 +117,18 @@ extension CloudHandlers {
         // Destructive: the registry confirmed it (sheet, or `confirm: true`).
         bind("cloudKillMachine", registry, reason: reason) { invocation in
             let session = try machine(invocation, context)
-            run("kill machine", context) { try await cloud.deleteMachine(session.machineID) }
+            run("kill machine", context) { try await cloud.deleteMachine(session.machineID, origin: connectOrigin(for: invocation)) }
         }
         bind("cloudPauseMachine", registry, reason: reason) { invocation in
             let session = try machine(invocation, context)
             runTracked("pause machine", context) {
-                try await cloud.pauseMachine(session.machineID)
+                try await cloud.pauseMachine(session.machineID, origin: connectOrigin(for: invocation))
             }
         }
         bind("cloudResumeMachine", registry, reason: reason) { invocation in
             let session = try machine(invocation, context)
             runTracked("resume machine", context) {
-                try await cloud.resumeMachine(session.machineID)
+                try await cloud.resumeMachine(session.machineID, origin: connectOrigin(for: invocation))
             }
         }
         bind("cloudCopyMachineID", registry, reason: reason) { invocation in CloudPresenter.copy(try machine(invocation, context).machineID) }
