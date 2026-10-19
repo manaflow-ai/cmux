@@ -845,6 +845,7 @@ fn legacy_resize_resyncs_instead_of_replaying_partial_utf8() {
             queued_output_bytes: Arc::new(AtomicUsize::new(0)),
             shutdown: Arc::new(host_socket),
             max_queued_bytes: usize::MAX,
+            wake: None,
         },
     );
 

@@ -326,7 +326,7 @@ fn spawn_adopting_host(
         None => crate::host_exe::spawn_host(configure),
     }
     .context("spawn adopting terminal-host process")?;
-    let mut process = SpawnedHostProcess { child: Some(child) };
+    let mut process = SpawnedHostProcess { child: Some(child), slot: None };
     host_scope::place_host(process.child_mut().id());
     let stdin = process.child_mut().stdin.take().context("open terminal-host bootstrap stdin")?;
     let stdout =

@@ -20,6 +20,10 @@ use super::host_state::*;
 
 mod stdio;
 // Only the Unix host process runs this loop until the Windows host lands.
+#[cfg(unix)]
+pub(crate) use stdio::serve_shared_terminal;
+#[cfg(debug_assertions)]
+pub(crate) use stdio::wait_at_test_gate;
 #[cfg_attr(not(unix), allow(unused_imports))]
 pub use stdio::{serve_terminal_host_process, serve_terminal_host_stdio};
 
@@ -265,6 +269,17 @@ pub(crate) fn serve_client_with_snapshot_timeout(
     // as a renderer disconnect.
     let (sender, receiver) = mpsc_channel();
     let tap = HostTap::new(sender, Arc::new(stream.try_clone()?), MAX_HOST_CLIENT_QUEUED_BYTES);
+    // A shared host's writer is a serial job that every queued frame wakes.
+    #[cfg(unix)]
+    let writer_job = unix::shared_exec::SerialJob::new();
+    #[cfg(unix)]
+    let tap = match unix::shared_exec::executor() {
+        Some(executor) => {
+            let job = writer_job.clone();
+            tap.with_wake(Arc::new(move || job.wake(executor)))
+        }
+        None => tap,
+    };
     let command_sender = tap.clone();
     let (snapshot, colors, snapshot_sequence, replay_gap, _active_client_stream) = {
         // Wait for a parser boundary without blocking resize or cell-metric
@@ -432,268 +447,327 @@ pub(crate) fn serve_client_with_snapshot_timeout(
         write_frame(&mut stream, &ready)?;
     }
 
+    let input = ClientInput {
+        host: host.clone(),
+        sender: command_sender,
+        client,
+        selected_version,
+        granted_rights,
+        launch_owner_claimed,
+        viewer_size_acks,
+        smart_renderer,
+    };
+    #[cfg(unix)]
+    if let Some(executor) = unix::shared_exec::executor() {
+        // A shared host reads and writes this connection on its event loop.
+        unix::shared_client::serve(
+            executor,
+            unix::shared_client::Connection {
+                input,
+                stream,
+                receiver,
+                tap,
+                writer_job,
+                keep: Box::new((launch_owner, _active_client_stream)),
+            },
+        )?;
+        client_setup.disarm();
+        return Ok(());
+    }
     let mut command_stream = stream.try_clone()?;
-    let command_host = host.clone();
-    thread::Builder::new().name("terminal-host-client-input".into()).spawn(move || {
+    super::host_crash::spawn("terminal-host-client-input", move || {
         let mut detached = false;
         while let Ok(Some(frame)) = read_frame(&mut command_stream, MAX_FRAME_PAYLOAD) {
-            // Client-to-host messages currently define no flags and never
-            // participate in the host live-stream sequence.
-            if frame.version != selected_version || frame.flags != 0 || frame.sequence != 0 {
-                break;
-            }
-            match frame.kind {
-                MessageKind::Activate => {
-                    if selected_version < LAUNCH_ACTIVATION_PROTOCOL_VERSION
-                        || !launch_owner_claimed
-                        || frame.request_id != 0
-                        || !frame.payload.is_empty()
-                    {
-                        break;
-                    }
-                    command_host.mark_launch_owner_stream_ready();
-                }
-                MessageKind::Input => {
-                    if !granted_rights.contains(CapabilityRights::INPUT)
-                        || !input_request_is_supported(selected_version, frame.request_id)
-                        || !command_host.write_input(
-                            &frame.payload,
-                            frame.request_id,
-                            &command_sender,
-                        )
-                    {
-                        break;
-                    }
-                }
-                MessageKind::Paste => {
-                    if !granted_rights.contains(CapabilityRights::INPUT) {
-                        break;
-                    }
-                    let bracketed = command_host.term.lock().unwrap().mode(2004, false);
-                    let mut writer = command_host.writer.lock().unwrap();
-                    if bracketed {
-                        let _ = writer.write_all(b"\x1b[200~");
-                    }
-                    let _ = writer.write_all(&frame.payload);
-                    if bracketed {
-                        let _ = writer.write_all(b"\x1b[201~");
-                    }
-                    let _ = writer.flush();
-                }
-                MessageKind::ViewerSize if frame.payload.len() == 4 => {
-                    if !granted_rights.contains(CapabilityRights::RESIZE) {
-                        break;
-                    }
-                    let cols = u16::from_le_bytes([frame.payload[0], frame.payload[1]]);
-                    let rows = u16::from_le_bytes([frame.payload[2], frame.payload[3]]);
-                    let targeted_ack = viewer_size_acks
-                        .then_some((frame.request_id, &command_sender))
-                        .filter(|(request_id, _)| *request_id != 0);
-                    let acknowledge_with_replay = !smart_renderer && targeted_ack.is_none();
-                    if !matches!(
-                        command_host.set_viewer_size(
-                            client,
-                            cols,
-                            rows,
-                            acknowledge_with_replay,
-                            targeted_ack,
-                        ),
-                        Ok(true)
-                    ) {
-                        // Invalid geometry or a PTY/parser resize failure
-                        // rejects this admin stream. A failed targeted
-                        // acknowledgement closes only this renderer; the
-                        // committed canonical transition remains valid.
-                        break;
-                    }
-                }
-                MessageKind::ReleaseViewer => {
-                    if !granted_rights.contains(CapabilityRights::RESIZE) {
-                        break;
-                    }
-                    command_host.remove_viewer_size(client);
-                }
-                MessageKind::Terminate => {
-                    if !granted_rights.contains(CapabilityRights::TERMINATE) {
-                        break;
-                    }
-                    // Integration failure-injection seam: a host whose
-                    // termination receipt reaches the daemon late. Only a
-                    // receipted request waits; bounded so an accidental
-                    // setting cannot wedge a real host.
-                    if frame.request_id != 0
-                        && let Ok(delay) = std::env::var("CMUX_TUI_TEST_TERMINATE_ACK_DELAY_MS")
-                        && let Ok(delay) = delay.parse::<u64>()
-                        && delay > 0
-                    {
-                        thread::sleep(Duration::from_millis(delay.min(5_000)));
-                    }
-                    if launch_owner_claimed {
-                        command_host.mark_launch_owner_stream_ready();
-                    }
-                    let receipt_queued = if frame.request_id == 0 {
-                        true
-                    } else {
-                        let mut response = Frame::new(MessageKind::TerminateAck, Vec::new());
-                        response.request_id = frame.request_id;
-                        let _broadcast = command_host.broadcast_lock.lock().unwrap();
-                        command_sender.try_send(response)
-                    };
-                    command_host.request_termination();
-                    if !receipt_queued {
-                        break;
-                    }
-                }
-                MessageKind::Detach => {
-                    if !granted_rights.contains(CapabilityRights::TERMINATE)
-                        || frame.request_id == 0
-                    {
-                        break;
-                    }
-                    if !command_host.fence_client_detach(client, frame.request_id, &command_sender)
-                    {
-                        break;
-                    }
-                    command_sender.wake_writer();
+            match input.handle(frame) {
+                InputFlow::Continue => {}
+                InputFlow::Stop => break,
+                InputFlow::Detached => {
                     detached = true;
                     break;
                 }
-                MessageKind::SetDefaults => {
-                    if !granted_rights.contains(CapabilityRights::MINT_CAPABILITY) {
-                        break;
-                    }
-                    let Ok(colors) = decode_default_colors_payload(&frame.payload) else {
-                        break;
-                    };
-                    command_host.set_default_colors(colors);
-                }
-                MessageKind::SetCellPixelSize
-                    if frame.request_id != 0 && frame.payload.len() == 4 =>
-                {
-                    if !granted_rights.contains(CapabilityRights::RESIZE) {
-                        break;
-                    }
-                    let width_px = u16::from_le_bytes([frame.payload[0], frame.payload[1]]);
-                    let height_px = u16::from_le_bytes([frame.payload[2], frame.payload[3]]);
-                    if !matches!(
-                        command_host.set_cell_pixel_size(
-                            width_px,
-                            height_px,
-                            frame.request_id,
-                            &command_sender,
-                        ),
-                        Ok(true)
-                    ) {
-                        break;
-                    }
-                }
-                MessageKind::SetKittyGraphicsLimits
-                    if frame.request_id != 0
-                        && frame.payload.len() == KITTY_GRAPHICS_LIMITS_ENCODED_LEN =>
-                {
-                    if !granted_rights.contains(CapabilityRights::MINT_CAPABILITY) {
-                        break;
-                    }
-                    let mut decoder = PayloadDecoder::new(&frame.payload);
-                    let Ok(limits) = decode_kitty_graphics_limits(&mut decoder) else {
-                        break;
-                    };
-                    if decoder.finish().is_err()
-                        || !matches!(
-                            command_host.set_kitty_graphics_limits(
-                                limits,
-                                frame.request_id,
-                                &command_sender,
-                            ),
-                            Ok(true)
-                        )
-                    {
-                        break;
-                    }
-                }
-                MessageKind::ClearHistory => {
-                    if !granted_rights.contains(CapabilityRights::INPUT) || frame.request_id == 0 {
-                        break;
-                    }
-                    let Ok(fallback_key) =
-                        crate::server::decode_terminal_host_clear_history(&frame.payload)
-                    else {
-                        break;
-                    };
-                    let status = match command_host.clear_history_or_encode_key(
-                        fallback_key.as_ref(),
-                        smart_renderer.then_some((frame.request_id, &command_sender)),
-                    ) {
-                        Ok(ClearHistoryAckDisposition::Queued) => continue,
-                        Ok(ClearHistoryAckDisposition::ConnectionClosed) => break,
-                        Ok(ClearHistoryAckDisposition::Pending) => CLEAR_HISTORY_ACK_OK,
-                        Err(failure) => clear_history_ack_status(Err(failure)),
-                    };
-                    let mut response = Frame::new(MessageKind::ClearHistoryAck, vec![status]);
-                    response.request_id = frame.request_id;
-                    let _broadcast = command_host.broadcast_lock.lock().unwrap();
-                    if !command_sender.try_send(response) {
-                        break;
-                    }
-                }
-                MessageKind::MintCapability => {
-                    if !granted_rights.contains(CapabilityRights::MINT_CAPABILITY)
-                        || frame.request_id == 0
-                    {
-                        break;
-                    }
-                    let Ok(token) = mint_renderer_capability(&command_host, &frame.payload) else {
-                        break;
-                    };
-                    let mut response =
-                        Frame::new(MessageKind::Capability, token.as_bytes().to_vec());
-                    response.request_id = frame.request_id;
-                    // Targeted control responses share the socket writer
-                    // with live frames. Serialize enqueueing with coupled
-                    // Output/Resized + Colors publication so even an admin
-                    // response cannot physically split an atomic pair.
-                    let _broadcast = command_host.broadcast_lock.lock().unwrap();
-                    if !command_sender.try_send(response) {
-                        break;
-                    }
-                }
-                MessageKind::ClipboardReadReply => {
-                    if !command_host.apply_clipboard_read_reply(
-                        client,
-                        granted_rights,
-                        &frame,
-                        selected_version,
-                    ) {
-                        break;
-                    }
-                }
-                _ => break,
             }
         }
-        // Wake a writer that is waiting on an otherwise-empty live-frame
-        // channel. The socket is shut down first, so this private wakeup
-        // frame can never be mistaken for a sequenced host transition.
-        if !detached {
-            command_sender.close_and_wake_writer();
-        }
-        command_host.remove_client(client);
+        input.end(detached);
     })?;
     client_setup.disarm();
 
     while let Ok(frame) = receiver.recv() {
-        if frame.kind == MessageKind::ResyncRequired && frame.sequence == 0 {
-            tap.release(&frame);
-            break;
-        }
-        let write_result = write_frame(&mut stream, &frame);
-        tap.release(&frame);
-        if write_result.is_err() {
-            break;
-        }
-        if frame.kind == MessageKind::Exit {
+        if !write_client_frame(&mut stream, &tap, frame) {
             break;
         }
     }
     host.remove_client(client);
     Ok(())
+}
+
+/// Write one queued frame to a client. False ends the writer: the private
+/// wakeup sentinel, a failed write, or the final `Exit`.
+pub(crate) fn write_client_frame(stream: &mut HostStream, tap: &HostTap, frame: Frame) -> bool {
+    if frame.kind == MessageKind::ResyncRequired && frame.sequence == 0 {
+        tap.release(&frame);
+        return false;
+    }
+    let write_result = write_frame(stream, &frame);
+    tap.release(&frame);
+    write_result.is_ok() && frame.kind != MessageKind::Exit
+}
+
+/// What one client frame does to its connection.
+pub(crate) enum InputFlow {
+    Continue,
+    Stop,
+    /// `Detach` was fenced: stop reading; the writer ends at `DetachAck`.
+    Detached,
+}
+
+/// The client-to-host half of one connection: what a frame may do, given
+/// the handshake that admitted it.
+pub(crate) struct ClientInput {
+    pub(crate) host: Arc<HostShared>,
+    pub(crate) sender: HostTap,
+    pub(crate) client: u64,
+    pub(crate) selected_version: u16,
+    pub(crate) granted_rights: CapabilityRights,
+    pub(crate) launch_owner_claimed: bool,
+    pub(crate) viewer_size_acks: bool,
+    pub(crate) smart_renderer: bool,
+}
+
+impl ClientInput {
+    /// Apply one client frame, in arrival order.
+    pub(crate) fn handle(&self, frame: Frame) -> InputFlow {
+        // Client-to-host messages currently define no flags and never
+        // participate in the host live-stream sequence.
+        if frame.version != self.selected_version || frame.flags != 0 || frame.sequence != 0 {
+            return InputFlow::Stop;
+        }
+        match frame.kind {
+            MessageKind::Activate => {
+                if self.selected_version < LAUNCH_ACTIVATION_PROTOCOL_VERSION
+                    || !self.launch_owner_claimed
+                    || frame.request_id != 0
+                    || !frame.payload.is_empty()
+                {
+                    return InputFlow::Stop;
+                }
+                self.host.mark_launch_owner_stream_ready();
+            }
+            MessageKind::Input => {
+                if !self.granted_rights.contains(CapabilityRights::INPUT)
+                    || !input_request_is_supported(self.selected_version, frame.request_id)
+                    || !self.host.write_input(&frame.payload, frame.request_id, &self.sender)
+                {
+                    return InputFlow::Stop;
+                }
+            }
+            MessageKind::Paste => {
+                if !self.granted_rights.contains(CapabilityRights::INPUT) {
+                    return InputFlow::Stop;
+                }
+                let bracketed = self.host.term.lock().unwrap().mode(2004, false);
+                let mut writer = self.host.writer.lock().unwrap();
+                if bracketed {
+                    let _ = writer.write_all(b"\x1b[200~");
+                }
+                let _ = writer.write_all(&frame.payload);
+                if bracketed {
+                    let _ = writer.write_all(b"\x1b[201~");
+                }
+                let _ = writer.flush();
+            }
+            MessageKind::ViewerSize if frame.payload.len() == 4 => {
+                if !self.granted_rights.contains(CapabilityRights::RESIZE) {
+                    return InputFlow::Stop;
+                }
+                let cols = u16::from_le_bytes([frame.payload[0], frame.payload[1]]);
+                let rows = u16::from_le_bytes([frame.payload[2], frame.payload[3]]);
+                let targeted_ack = self
+                    .viewer_size_acks
+                    .then_some((frame.request_id, &self.sender))
+                    .filter(|(request_id, _)| *request_id != 0);
+                let acknowledge_with_replay = !self.smart_renderer && targeted_ack.is_none();
+                if !matches!(
+                    self.host.set_viewer_size(
+                        self.client,
+                        cols,
+                        rows,
+                        acknowledge_with_replay,
+                        targeted_ack,
+                    ),
+                    Ok(true)
+                ) {
+                    // Invalid geometry or a PTY/parser resize failure
+                    // rejects this admin stream. A failed targeted
+                    // acknowledgement closes only this renderer; the
+                    // committed canonical transition remains valid.
+                    return InputFlow::Stop;
+                }
+            }
+            MessageKind::ReleaseViewer => {
+                if !self.granted_rights.contains(CapabilityRights::RESIZE) {
+                    return InputFlow::Stop;
+                }
+                self.host.remove_viewer_size(self.client);
+            }
+            MessageKind::Terminate => {
+                if !self.granted_rights.contains(CapabilityRights::TERMINATE) {
+                    return InputFlow::Stop;
+                }
+                // Integration failure-injection seam: a host whose
+                // termination receipt reaches the daemon late. Only a
+                // receipted request waits; bounded so an accidental
+                // setting cannot wedge a real host.
+                if frame.request_id != 0
+                    && let Ok(delay) = std::env::var("CMUX_TUI_TEST_TERMINATE_ACK_DELAY_MS")
+                    && let Ok(delay) = delay.parse::<u64>()
+                    && delay > 0
+                {
+                    thread::sleep(Duration::from_millis(delay.min(5_000)));
+                }
+                if self.launch_owner_claimed {
+                    self.host.mark_launch_owner_stream_ready();
+                }
+                let receipt_queued = if frame.request_id == 0 {
+                    true
+                } else {
+                    let mut response = Frame::new(MessageKind::TerminateAck, Vec::new());
+                    response.request_id = frame.request_id;
+                    let _broadcast = self.host.broadcast_lock.lock().unwrap();
+                    self.sender.try_send(response)
+                };
+                self.host.request_termination();
+                if !receipt_queued {
+                    return InputFlow::Stop;
+                }
+            }
+            MessageKind::Detach => {
+                if !self.granted_rights.contains(CapabilityRights::TERMINATE)
+                    || frame.request_id == 0
+                {
+                    return InputFlow::Stop;
+                }
+                if !self.host.fence_client_detach(self.client, frame.request_id, &self.sender) {
+                    return InputFlow::Stop;
+                }
+                self.sender.wake_writer();
+                return InputFlow::Detached;
+            }
+            MessageKind::SetDefaults => {
+                if !self.granted_rights.contains(CapabilityRights::MINT_CAPABILITY) {
+                    return InputFlow::Stop;
+                }
+                let Ok(colors) = decode_default_colors_payload(&frame.payload) else {
+                    return InputFlow::Stop;
+                };
+                self.host.set_default_colors(colors);
+            }
+            MessageKind::SetCellPixelSize if frame.request_id != 0 && frame.payload.len() == 4 => {
+                if !self.granted_rights.contains(CapabilityRights::RESIZE) {
+                    return InputFlow::Stop;
+                }
+                let width_px = u16::from_le_bytes([frame.payload[0], frame.payload[1]]);
+                let height_px = u16::from_le_bytes([frame.payload[2], frame.payload[3]]);
+                if !matches!(
+                    self.host.set_cell_pixel_size(
+                        width_px,
+                        height_px,
+                        frame.request_id,
+                        &self.sender,
+                    ),
+                    Ok(true)
+                ) {
+                    return InputFlow::Stop;
+                }
+            }
+            MessageKind::SetKittyGraphicsLimits
+                if frame.request_id != 0
+                    && frame.payload.len() == KITTY_GRAPHICS_LIMITS_ENCODED_LEN =>
+            {
+                if !self.granted_rights.contains(CapabilityRights::MINT_CAPABILITY) {
+                    return InputFlow::Stop;
+                }
+                let mut decoder = PayloadDecoder::new(&frame.payload);
+                let Ok(limits) = decode_kitty_graphics_limits(&mut decoder) else {
+                    return InputFlow::Stop;
+                };
+                if decoder.finish().is_err()
+                    || !matches!(
+                        self.host
+                            .set_kitty_graphics_limits(limits, frame.request_id, &self.sender,),
+                        Ok(true)
+                    )
+                {
+                    return InputFlow::Stop;
+                }
+            }
+            MessageKind::ClearHistory => {
+                if !self.granted_rights.contains(CapabilityRights::INPUT) || frame.request_id == 0 {
+                    return InputFlow::Stop;
+                }
+                let Ok(fallback_key) =
+                    crate::server::decode_terminal_host_clear_history(&frame.payload)
+                else {
+                    return InputFlow::Stop;
+                };
+                let status = match self.host.clear_history_or_encode_key(
+                    fallback_key.as_ref(),
+                    self.smart_renderer.then_some((frame.request_id, &self.sender)),
+                ) {
+                    Ok(ClearHistoryAckDisposition::Queued) => return InputFlow::Continue,
+                    Ok(ClearHistoryAckDisposition::ConnectionClosed) => return InputFlow::Stop,
+                    Ok(ClearHistoryAckDisposition::Pending) => CLEAR_HISTORY_ACK_OK,
+                    Err(failure) => clear_history_ack_status(Err(failure)),
+                };
+                let mut response = Frame::new(MessageKind::ClearHistoryAck, vec![status]);
+                response.request_id = frame.request_id;
+                let _broadcast = self.host.broadcast_lock.lock().unwrap();
+                if !self.sender.try_send(response) {
+                    return InputFlow::Stop;
+                }
+            }
+            MessageKind::MintCapability => {
+                if !self.granted_rights.contains(CapabilityRights::MINT_CAPABILITY)
+                    || frame.request_id == 0
+                {
+                    return InputFlow::Stop;
+                }
+                let Ok(token) = mint_renderer_capability(&self.host, &frame.payload) else {
+                    return InputFlow::Stop;
+                };
+                let mut response = Frame::new(MessageKind::Capability, token.as_bytes().to_vec());
+                response.request_id = frame.request_id;
+                // Targeted control responses share the socket writer
+                // with live frames. Serialize enqueueing with coupled
+                // Output/Resized + Colors publication so even an admin
+                // response cannot physically split an atomic pair.
+                let _broadcast = self.host.broadcast_lock.lock().unwrap();
+                if !self.sender.try_send(response) {
+                    return InputFlow::Stop;
+                }
+            }
+            MessageKind::ClipboardReadReply => {
+                if !self.host.apply_clipboard_read_reply(
+                    self.client,
+                    self.granted_rights,
+                    &frame,
+                    self.selected_version,
+                ) {
+                    return InputFlow::Stop;
+                }
+            }
+            _ => return InputFlow::Stop,
+        }
+        InputFlow::Continue
+    }
+
+    /// The input side ended: wake a writer that waits on an otherwise-empty
+    /// live-frame channel (the socket is shut down first, so this private
+    /// wakeup frame can never be mistaken for a sequenced host transition),
+    /// then drop the client.
+    pub(crate) fn end(&self, detached: bool) {
+        if !detached {
+            self.sender.close_and_wake_writer();
+        }
+        self.host.remove_client(self.client);
+    }
 }

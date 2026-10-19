@@ -98,38 +98,60 @@ fn read_host_orphan_grace() -> Option<Duration> {
         .map(|seconds| Duration::from_secs(seconds.min(HOST_ORPHAN_GRACE_MAX_SECS)))
 }
 
-/// Since when this host process (one terminal per process) has had no
-/// client stream, as the accept loop last saw it.
-static ORPHAN_SINCE: Mutex<Option<Instant>> = Mutex::new(None);
-/// The host ended its terminal because its owner was gone: its exit record
-/// says [`crate::terminal_end::EXIT_OWNER_GONE`].
-static OWNER_GONE: AtomicBool = AtomicBool::new(false);
+/// This process is a shared host (`unix/shared_host.rs`): it runs many
+/// terminals, so no single terminal's failure may end the process.
+static SHARED_HOST_PROCESS: AtomicBool = AtomicBool::new(false);
 
-pub(crate) fn set_orphan_since(since: Option<Instant>) {
-    *ORPHAN_SINCE.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = since;
+/// Mark this process as a shared host, before its first terminal.
+pub(crate) fn mark_shared_host_process() {
+    SHARED_HOST_PROCESS.store(true, Ordering::Release);
 }
 
-/// No client stream for at least `min`.
-pub(crate) fn orphaned_for(min: Duration) -> bool {
-    ORPHAN_SINCE
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .is_some_and(|since| since.elapsed() >= min)
+pub(crate) fn shared_host_process() -> bool {
+    SHARED_HOST_PROCESS.load(Ordering::Acquire)
 }
 
-/// Record that the terminal is ended because the owner is gone.
-pub(crate) fn mark_owner_gone() {
-    OWNER_GONE.store(true, Ordering::Release);
+/// The orphan clock and owner-gone mark of one terminal. A host process
+/// runs one terminal, or many in a shared host (`unix/shared_host.rs`), so
+/// these belong to the terminal, not to the process.
+#[derive(Default)]
+pub(crate) struct HostLifetime {
+    /// Since when this terminal has had no client stream, as its accept
+    /// loop last saw it.
+    orphan_since: Mutex<Option<Instant>>,
+    /// The terminal ended because its owner was gone: its exit record says
+    /// [`crate::terminal_end::EXIT_OWNER_GONE`].
+    owner_gone: AtomicBool,
 }
 
-/// The exit to persist and publish: an owner-gone end is a host loss.
-pub(crate) fn owner_gone_exit(exit: TerminalExit) -> TerminalExit {
-    if OWNER_GONE.load(Ordering::Acquire) {
-        TerminalExit::unknown(crate::terminal_end::EXIT_OWNER_GONE)
-    } else {
-        exit
+impl HostLifetime {
+    pub(crate) fn set_orphan_since(&self, since: Option<Instant>) {
+        *self.orphan_since.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = since;
+    }
+
+    /// No client stream for at least `min`.
+    pub(crate) fn orphaned_for(&self, min: Duration) -> bool {
+        self.orphan_since
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .is_some_and(|since| since.elapsed() >= min)
+    }
+
+    /// Record that the terminal is ended because the owner is gone.
+    pub(crate) fn mark_owner_gone(&self) {
+        self.owner_gone.store(true, Ordering::Release);
+    }
+
+    /// The exit to persist and publish: an owner-gone end is a host loss.
+    pub(crate) fn owner_gone_exit(&self, exit: TerminalExit) -> TerminalExit {
+        if self.owner_gone.load(Ordering::Acquire) {
+            TerminalExit::unknown(crate::terminal_end::EXIT_OWNER_GONE)
+        } else {
+            exit
+        }
     }
 }
+
 pub(crate) const HOST_CLIENT_WRITE_TIMEOUT: Duration = Duration::from_secs(2);
 pub(crate) const HOST_HANDSHAKE_TRANSIENT_RETRIES: usize = 1;
 pub(crate) const HOST_EXIT_PERSIST_RETRY_MIN: Duration = Duration::from_millis(100);
@@ -248,6 +270,9 @@ pub(crate) struct HostTap {
     pub(crate) queued_output_bytes: Arc<AtomicUsize>,
     pub(crate) shutdown: Arc<HostStream>,
     pub(crate) max_queued_bytes: usize,
+    /// Runs after every queued frame: a shared host's writer job
+    /// (`unix/shared_client.rs`); none for a writer thread.
+    pub(crate) wake: Option<Arc<dyn Fn() + Send + Sync>>,
 }
 
 impl HostTap {
@@ -262,6 +287,18 @@ impl HostTap {
             queued_output_bytes: Arc::new(AtomicUsize::new(0)),
             shutdown,
             max_queued_bytes,
+            wake: None,
+        }
+    }
+
+    pub(crate) fn with_wake(mut self, wake: Arc<dyn Fn() + Send + Sync>) -> Self {
+        self.wake = Some(wake);
+        self
+    }
+
+    fn notify(&self) {
+        if let Some(wake) = &self.wake {
+            wake();
         }
     }
 
@@ -305,7 +342,10 @@ impl HostTap {
         // frame-count limit that disconnects a client while most of its
         // declared byte budget is still free.
         match self.sender.send(frame) {
-            Ok(()) => true,
+            Ok(()) => {
+                self.notify();
+                true
+            }
             Err(_) => {
                 self.queued_bytes.fetch_sub(retained, Ordering::AcqRel);
                 if is_output {
@@ -342,6 +382,7 @@ impl HostTap {
         if self.sender.send(wake).is_err() {
             self.queued_bytes.fetch_sub(retained, Ordering::AcqRel);
         }
+        self.notify();
     }
 
     pub(crate) fn wake_writer(&self) {
@@ -354,6 +395,7 @@ impl HostTap {
         if self.sender.send(wake).is_err() {
             self.queued_bytes.fetch_sub(retained, Ordering::AcqRel);
         }
+        self.notify();
     }
 }
 
@@ -591,8 +633,40 @@ impl ParserBudget {
     }
 }
 
+/// The parser's command queue. A shared host's parser is a serial job
+/// (`unix/shared_exec.rs`) that every command wakes; a one-terminal host's
+/// parser thread waits on the channel.
+pub(crate) struct ParserSender {
+    sender: SyncSender<ParserCommand>,
+    wake: std::sync::OnceLock<Box<dyn Fn() + Send + Sync>>,
+}
+
+impl From<SyncSender<ParserCommand>> for ParserSender {
+    fn from(sender: SyncSender<ParserCommand>) -> Self {
+        Self { sender, wake: std::sync::OnceLock::new() }
+    }
+}
+
+impl ParserSender {
+    pub(crate) fn send(
+        &self,
+        command: ParserCommand,
+    ) -> Result<(), std::sync::mpsc::SendError<ParserCommand>> {
+        self.sender.send(command)?;
+        if let Some(wake) = self.wake.get() {
+            wake();
+        }
+        Ok(())
+    }
+
+    /// Run `wake` after every command from now on.
+    pub(crate) fn set_wake(&self, wake: Box<dyn Fn() + Send + Sync>) {
+        let _ = self.wake.set(wake);
+    }
+}
+
 pub(crate) fn enqueue_parser_output(
-    parser_commands: &SyncSender<ParserCommand>,
+    parser_commands: &ParserSender,
     parser_budget: &ParserBudget,
     smart: &SmartStreamState,
     bytes: Vec<u8>,

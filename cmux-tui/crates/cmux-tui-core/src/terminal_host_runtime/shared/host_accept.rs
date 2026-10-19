@@ -78,8 +78,7 @@ pub(crate) fn serve_accepted(shared: &Arc<HostShared>, stream: HostStream) -> st
     // protocol threads use blocking framed reads, so normalize it here.
     stream.set_nonblocking(false)?;
     let host = shared.clone();
-    thread::Builder::new().name("terminal-host-client".into()).spawn(move || {
+    super::host_crash::run_task("terminal-host-client", move || {
         let _ = serve_client(host, stream);
-    })?;
-    Ok(())
+    })
 }
