@@ -34,7 +34,9 @@ impl Brain {
         if tasks.is_empty() {
             return Err("spawn needs at least one task".into());
         }
-        let mut free = crate::subagents::MAX_LIVE.saturating_sub(self.live_subs());
+        let mut free = self
+            .max_live
+            .map_or(usize::MAX, |n| n.saturating_sub(self.live_subs()));
         let first = self.state.next_subagent.max(1);
         let ids: Vec<String> = (0..tasks.len() as u64)
             .map(|k| format!("a{}", first + k))
@@ -83,8 +85,18 @@ impl Brain {
             spawn,
             ids,
             queued,
+            limit: self.max_live,
             engine: self.spawn_engine(),
         })
+    }
+
+    pub(super) fn sub_queued(&mut self, id: &str, launch: crate::state::QueuedLaunch) {
+        if let Some(sub) = self.state.sub_mut(id)
+            && sub.status == SubStatus::Queued
+        {
+            sub.queued_launch = Some(launch);
+            self.save();
+        }
     }
 
     pub(super) fn sub_started(&mut self, id: &str, session_id: String, policy: Option<String>) {
@@ -216,6 +228,12 @@ impl Brain {
         let Some(spawn) = self.state.sub(id).map(|(s, _)| s.clone()) else {
             return;
         };
+        // A run that stopped on an error: its report becomes "stopped: ..."
+        // (quiet while an auto-resume is planned) and the continue is set up.
+        let (report, stopped) = match self.plan_auto_resume(id, &report, stopped) {
+            Some((note, quiet)) => (note, quiet),
+            None => (report, stopped),
+        };
         let run_ms = if let Some(sub) = self.state.sub_mut(id) {
             sub.status = SubStatus::Done;
             sub.report = Some(report.clone());
@@ -251,6 +269,151 @@ impl Brain {
         self.mark_workspace(id, true);
         self.deliver(&spawn);
         self.start_queued();
+    }
+
+    /// Auto-resume (auto_resume.rs) of subagent `id`, whose run just ended
+    /// with `report`: None when there is nothing to do (a real report, a
+    /// user stop, or auto-resume off); else the note that replaces its
+    /// report (`stopped: ...`) and whether it is quiet (a continue is
+    /// planned, so the Chief need not act).
+    fn plan_auto_resume(
+        &mut self,
+        id: &str,
+        report: &str,
+        stopped: bool,
+    ) -> Option<(String, bool)> {
+        use crate::auto_resume::{Decision, StopKind, chief_note, classify, decide};
+        let policy = self.resume_policy?;
+        let kind = classify(report, stopped);
+        let attempts = self.state.sub(id).map_or(0, |(_, s)| s.resume_attempts);
+        if matches!(kind, StopKind::Done | StopKind::UserStopped) {
+            if attempts != 0
+                && let Some(sub) = self.state.sub_mut(id)
+            {
+                sub.resume_attempts = 0;
+            }
+            return None;
+        }
+        // A network stop always waits on the probe (off this thread); it
+        // returns at once when the endpoint answers.
+        let decision = decide(&kind, attempts, &policy, false);
+        let note = chief_note(&decision)?;
+        self.trace.emit(
+            "subagent.auto_resume",
+            json!({"id": id, "kind": format!("{kind:?}"), "attempts": attempts, "decision": format!("{decision:?}")}),
+        );
+        (self.log)(&format!("subagent {id}: {note}"));
+        match decision {
+            Decision::Report { .. } => {
+                if let Some(sub) = self.state.sub_mut(id) {
+                    sub.resume_attempts = 0;
+                }
+                Some((note, false))
+            }
+            Decision::Retry {
+                reason,
+                attempt,
+                delay,
+            } => {
+                if let Some(sub) = self.state.sub_mut(id) {
+                    sub.resume_attempts = attempt;
+                }
+                let (tx, id) = (self.tx.clone(), id.to_owned());
+                std::thread::spawn(move || {
+                    // A bounded backoff before the retry (auto_resume.rs).
+                    std::thread::sleep(delay);
+                    let _ = tx.send(super::Input::AutoResume {
+                        id,
+                        attempt,
+                        reason,
+                        after_network: false,
+                        online: true,
+                    });
+                });
+                Some((note, true))
+            }
+            Decision::WaitOnline { reason, attempt } => {
+                if let Some(sub) = self.state.sub_mut(id) {
+                    sub.resume_attempts = attempt;
+                }
+                let (tx, id, reach) = (self.tx.clone(), id.to_owned(), self.reach.clone());
+                let settle = policy.backoff(1).min(std::time::Duration::from_secs(15));
+                std::thread::spawn(move || {
+                    let online = crate::auto_resume::wait_online(
+                        &*reach,
+                        crate::auto_resume::NETWORK_POLL,
+                        crate::auto_resume::NETWORK_WAIT_MAX,
+                        std::thread::sleep,
+                    );
+                    if online {
+                        // Let the link settle before the request.
+                        std::thread::sleep(settle);
+                    }
+                    let _ = tx.send(super::Input::AutoResume {
+                        id,
+                        attempt,
+                        reason,
+                        after_network: true,
+                        online,
+                    });
+                });
+                Some((note, true))
+            }
+        }
+    }
+
+    /// An auto-resume of `id` is due: it is told to continue (its chat shows
+    /// the `[auto-resume N]` message), unless it runs again already, a newer
+    /// stop replaced this one, or the network never came back (then the
+    /// stop is reported).
+    pub(super) fn auto_resume_due(
+        &mut self,
+        id: &str,
+        attempt: u32,
+        reason: &str,
+        after_network: bool,
+        online: bool,
+    ) {
+        let Some((_, sub)) = self.state.sub(id) else {
+            return;
+        };
+        let current = sub.resume_attempts == attempt
+            && matches!(sub.status, SubStatus::Done | SubStatus::Reported);
+        if !current {
+            self.trace.emit(
+                "subagent.auto_resume.skip",
+                json!({"id": id, "attempt": attempt, "status": format!("{:?}", sub.status)}),
+            );
+            return;
+        }
+        if !online {
+            let spawn = self.state.sub(id).map(|(s, _)| s.clone());
+            if let Some(sub) = self.state.sub_mut(id) {
+                sub.resume_attempts = 0;
+                sub.status = SubStatus::Done;
+                sub.stopped = false;
+                sub.report = Some(format!(
+                    "stopped: {reason}. The model endpoint did not answer for {} min, so auto-resume stopped waiting; tell it to continue when the network is back.",
+                    crate::auto_resume::NETWORK_WAIT_MAX.as_secs() / 60
+                ));
+            }
+            self.save();
+            if let Some(spawn) = spawn {
+                self.deliver(&spawn);
+            }
+            return;
+        }
+        let message = crate::auto_resume::continue_prompt(reason, attempt, after_network);
+        match self.tell(id, &message) {
+            Ok(_) => {
+                (self.log)(&format!("subagent {id}: auto-resume {attempt} sent"));
+                self.trace.emit(
+                    "subagent.auto_resume.sent",
+                    json!({"id": id, "attempt": attempt, "after_network": after_network}),
+                );
+            }
+            Err(e) => (self.log)(&format!("subagent {id}: auto-resume {attempt} failed: {e}")),
+        }
     }
 
     /// The subagent's tool calls, model requests and the messages the user
@@ -517,24 +680,31 @@ impl Brain {
 
     /// Starts queued subagents, oldest first, while slots are free.
     pub(super) fn start_queued(&mut self) {
-        while self.live_subs() < crate::subagents::MAX_LIVE {
+        while self.max_live.is_none_or(|n| self.live_subs() < n) {
             let next = self
                 .state
                 .spawns
-                .values()
-                .flat_map(|r| r.subs.iter())
-                .filter(|s| s.status == SubStatus::Queued)
-                .min_by_key(|s| {
+                .iter()
+                .flat_map(|(spawn, r)| r.subs.iter().map(move |s| (spawn, s)))
+                .filter(|(_, s)| s.status == SubStatus::Queued)
+                .min_by_key(|(_, s)| {
                     s.id.trim_start_matches('a')
                         .parse::<u64>()
                         .unwrap_or(u64::MAX)
                 })
-                .map(|s| s.id.clone());
-            let Some(id) = next else { return };
+                .map(|(spawn, s)| crate::subagents::QueuedStart {
+                    id: s.id.clone(),
+                    spawn: spawn.clone(),
+                    launch: s.queued_launch.clone(),
+                    engine: None,
+                });
+            let Some(mut queued) = next else { return };
+            queued.engine = self.spawn_engine();
+            let id = queued.id.clone();
             let sent = self
                 .sub_starter
                 .as_ref()
-                .is_some_and(|starter| starter.send(id.clone()).is_ok());
+                .is_some_and(|starter| starter.send(queued).is_ok());
             if !sent {
                 self.sub_failed(&id, "this Chief host cannot start queued subagents");
                 continue;
@@ -542,6 +712,7 @@ impl Brain {
             if let Some(sub) = self.state.sub_mut(&id) {
                 sub.status = SubStatus::Starting;
                 sub.run_ms = now_ms();
+                sub.queued_launch = None;
             }
             self.save();
             (self.log)(&format!("subagent {id}: a slot is free, starting it"));

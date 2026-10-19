@@ -127,7 +127,7 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
         let router = LinkRouter.shared
         router.routing = { [weak services] in services?.settings?.snapshot.linkRouting ?? .fallback }
         router.textEditor = { [weak services] in services?.settings?.snapshot.textEditor.application ?? "" }
-        router.appLink = { [weak services] url in services.map { ChiefSubagentLinks.open(url, services: $0) } ?? false }
+        router.appLink = { [weak services] url in services.map { CmuxAppLinks.open(url, services: $0) } ?? false }
         router.openInCmux = { [weak services] url, background in
             guard let pane = services?.windows.active?.focusedPane else { services?.externalOpen.perform(.browserTab(url)); return }
             pane.newBrowserTab(url: url, background: background)
