@@ -23,8 +23,9 @@ const SELECTORS: [&str; 7] =
 /// Longest typed text the hint repeats in its command.
 const MAX_QUOTED_CHARS: usize = 200;
 
-/// How long the hint's lookups may wait: the input already succeeded, so a
-/// slow daemon costs at most this before the CLI exits, and no hint.
+/// How long each read of the hint's two lookups may wait: the input already
+/// succeeded and its result is printed, so a slow daemon only delays the
+/// exit (by about a second at worst) and gives no hint.
 const LOOKUP_TIMEOUT: Duration = Duration::from_millis(500);
 
 /// [`wire::print_result`] for a request's result, then the hint on stderr
@@ -74,7 +75,10 @@ fn after_input(global: &GlobalArgs, plan: &RequestPlan, reader: &mut Reader) -> 
         })
         .map_or_else(|| "'…'".to_owned(), shell_quote);
     let mut command = "cmux".to_owned();
-    for (flag, value) in [("--machine", &global.machine), ("--session", &global.session)] {
+    let socket = global.socket.as_ref().map(|path| path.to_string_lossy().into_owned());
+    for (flag, value) in
+        [("--machine", &global.machine), ("--session", &global.session), ("--socket", &socket)]
+    {
         if let Some(value) = value {
             command.push_str(&format!(" {flag} {}", shell_word(value)));
         }
