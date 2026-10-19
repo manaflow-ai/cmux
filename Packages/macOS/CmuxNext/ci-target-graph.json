@@ -134,6 +134,7 @@
       "packages": [],
       "reads": [
         "cmux-tui/crates/cmux-agent-pane-policy/tests/cases/environment.json",
+        "cmux-tui/spec/",
         "scripts/cmux-next/pin-cmux-tui.sh"
       ]
     },
@@ -215,6 +216,7 @@
         "CmuxNextTasks",
         "CmuxNextTerminal",
         "CmuxNextTerminalFind",
+        "CmuxNextTerminalGeometry",
         "CmuxNextUpdater",
         "CmuxNextWakeups",
         "CmuxNextWorkspaceNaming"
@@ -269,6 +271,7 @@
         "CmuxNextRemoteLocalhostService",
         "CmuxNextTabs",
         "CmuxNextTasks",
+        "CmuxNextTerminalGeometry",
         "CmuxNextWakeups"
       ],
       "packages": [
