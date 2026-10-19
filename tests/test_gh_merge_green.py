@@ -799,6 +799,26 @@ class InstalledHelperRegression(unittest.TestCase):
             self.assertFalse(marker.exists())
             self.assertIn("god-file, l10n or concurrency lint job", result.stderr)
 
+    def test_the_fast_gate_refuses_an_untrusted_fork(self):
+        """The full gate refuses an untrusted fork in merged_head_checks (#21587); the fast
+        gate skips those checks, so it must refuse the fork itself, before the wait."""
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "merged"
+            result = self.run_helper(directory, marker, full=False, changed_files=self.SWIFT, rollup=self.FAST_GREEN,
+                                     is_cross_repository=True)
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertIn("untrusted fork", result.stderr)
+            self.assertIn("--trust-fork-head", result.stderr)
+
+    def test_the_fast_gate_merges_a_fork_head_trusted_by_sha(self):
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "merged"
+            result = self.run_helper(directory, marker, full=False, changed_files=self.SWIFT, rollup=self.FAST_GREEN,
+                                     is_cross_repository=True, extra_args=("--trust-fork-head", HEAD))
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue(marker.exists())
+
     def test_main_keeps_the_full_wait_without_full(self):
         """Only feat-cmux-next gets the fast gate: a main PR with green fast lanes and a
         pending ci-status still waits on everything, without --full."""

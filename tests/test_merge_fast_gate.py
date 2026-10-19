@@ -215,6 +215,23 @@ class FastGate(unittest.TestCase):
             with self.subTest(conclusion=conclusion), self.assertRaisesRegex(gate.Refused, "cmux-next fast tier.*no verdict"):
                 run(Reader(rollup))
 
+    def test_a_skipped_fast_tier_has_no_verdict(self):
+        """cmux-next.yml skips the fast tier on a PR when push-head-preflight is not current
+        (a runner failure or its timeout): that is no verdict, not a pass."""
+        rollup = [c for c in GREEN if c["name"] != "cmux-next fast tier"] + [check("cmux-next fast tier", conclusion="SKIPPED")]
+        with self.assertRaisesRegex(gate.Refused, "cmux-next fast tier.*no verdict"):
+            run(Reader(rollup))
+        self.assertEqual(run(Reader(rollup, files=("docs/README.md",)), covered=False)[2], [])
+
+    def test_the_callers_full_file_list_routes_web(self):
+        """gh pr view --json files stops at 100 files; the helper passes its paginated list,
+        so a web file past the first 100 still waits for react-apps-check."""
+        clock = Clock()
+        reader = Reader([], files=tuple(f"docs/{i}.md" for i in range(100)))
+        with self.assertRaisesRegex(gate.Refused, "react-apps-check"):
+            gate.run("manaflow-ai/cmux", "42", HEAD, 60, 30, False, read=reader, clock=clock, sleep=clock.sleep,
+                     base="feat-cmux-next", files=[*reader.files, "webviews/src/a.ts"])
+
     def test_a_raw_expression_name_is_the_lane_it_names(self):
         """A job whose name is an expression can report under the raw text (#21981)."""
         raw = "inputs.dev_daily == true && 'cmux NEXT DEV Release compile' || 'cmux app scheme compile (Debug)'"
