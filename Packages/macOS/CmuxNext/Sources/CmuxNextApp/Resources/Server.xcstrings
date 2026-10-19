@@ -1,6 +1,661 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "remoteHost.dial.offline": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This host is offline or asleep."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "هذا المضيف غير متصل أو في وضع السكون."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ovaj host je van mreže ili spava."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne vært er offline eller i dvale."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dieser Host ist offline oder im Ruhezustand."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este host está desconectado o en reposo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cet hôte est hors ligne ou en veille."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questo host è offline o in stop."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このホストはオフラインかスリープ中です。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ម៉ាស៊ីននេះគ្មានអ៊ីនធឺណិត ឬកំពុងដេក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 호스트는 오프라인이거나 잠자기 상태입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne verten er frakoblet eller i dvale."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ten host jest offline lub uśpiony."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este host está offline ou em repouso."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Этот хост не в сети или в режиме сна."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "โฮสต์นี้ออฟไลน์หรือพักเครื่องอยู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu ana bilgisayar çevrimdışı veya uyku modunda."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Цей хост не в мережі або в режимі сну."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Máy chủ này đang ngoại tuyến hoặc ở chế độ ngủ."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此主机已离线或处于睡眠状态。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此主機已離線或處於睡眠狀態。"
+          }
+        }
+      }
+    },
+    "remoteHost.dial.notServing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote hosting is not on for this host."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الاستضافة عن بُعد غير مفعّلة على هذا المضيف."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Udaljeno hostovanje nije uključeno na ovom hostu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fjernhosting er ikke slået til på denne vært."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Remote-Hosting ist auf diesem Host nicht aktiviert."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El alojamiento remoto no está activado en este host."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’hébergement à distance n’est pas activé sur cet hôte."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’hosting remoto non è attivo su questo host."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このホストではリモートホスティングがオンになっていません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការបង្ហោះពីចម្ងាយមិនបានបើកនៅលើម៉ាស៊ីននេះទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 호스트에서 원격 호스팅이 켜져 있지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ekstern hosting er ikke slått på for denne verten."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hostowanie zdalne nie jest włączone na tym hoście."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A hospedagem remota não está ativada neste host."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Удалённый хостинг на этом хосте не включён."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "โฮสต์นี้ยังไม่ได้เปิดการโฮสต์ระยะไกล"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu ana bilgisayarda uzaktan barındırma açık değil."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Віддалений хостинг на цьому хості не ввімкнено."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lưu trữ từ xa chưa được bật trên máy chủ này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此主机未开启远程托管。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此主機未開啟遠端託管。"
+          }
+        }
+      }
+    },
+    "remoteHost.dial.refused": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This host refused the connection."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "رفض هذا المضيف الاتصال."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ovaj host je odbio vezu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne vært afviste forbindelsen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dieser Host hat die Verbindung abgelehnt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este host rechazó la conexión."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cet hôte a refusé la connexion."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questo host ha rifiutato la connessione."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このホストは接続を拒否しました。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ម៉ាស៊ីននេះបានបដិសេធការតភ្ជាប់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 호스트가 연결을 거부했습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne verten avviste tilkoblingen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ten host odrzucił połączenie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este host recusou a conexão."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Этот хост отклонил подключение."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "โฮสต์นี้ปฏิเสธการเชื่อมต่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu ana bilgisayar bağlantıyı reddetti."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Цей хост відхилив підключення."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Máy chủ này đã từ chối kết nối."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此主机拒绝了连接。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此主機拒絕了連線。"
+          }
+        }
+      }
+    },
+    "remoteHosting.status.otherBuild": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On for another cmux app on this Mac."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مفعّلة لتطبيق cmux آخر على هذا الـ Mac."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uključeno za drugu cmux aplikaciju na ovom Macu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Slået til for en anden cmux-app på denne Mac."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Für eine andere cmux-App auf diesem Mac aktiviert."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Activado para otra app de cmux en este Mac."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Activé pour une autre app cmux sur ce Mac."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Attivo per un’altra app cmux su questo Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac の別の cmux アプリでオンになっています。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បានបើកសម្រាប់កម្មវិធី cmux ផ្សេងទៀតនៅលើ Mac នេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 Mac의 다른 cmux 앱에서 켜져 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Slått på for en annen cmux-app på denne Macen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Włączone dla innej aplikacji cmux na tym Macu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ativado para outro app cmux neste Mac."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Включено для другого приложения cmux на этом Mac."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เปิดอยู่สำหรับแอป cmux อื่นบน Mac เครื่องนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu Mac’teki başka bir cmux uygulaması için açık."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Увімкнено для іншої програми cmux на цьому Mac."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đang bật cho một ứng dụng cmux khác trên máy Mac này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已为此 Mac 上的另一个 cmux App 开启。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已為此 Mac 上的另一個 cmux App 開啟。"
+          }
+        }
+      }
+    },
+    "remoteHosting.status.readOnly": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Only the cmux or cmux NIGHTLY app can turn remote hosting on or off."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يمكن لتطبيق cmux أو cmux NIGHTLY فقط تشغيل الاستضافة عن بُعد أو إيقافها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Samo aplikacija cmux ili cmux NIGHTLY može uključiti ili isključiti udaljeno hostovanje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kun appen cmux eller cmux NIGHTLY kan slå fjernhosting til eller fra."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nur die App cmux oder cmux NIGHTLY kann Remote-Hosting ein- oder ausschalten."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Solo la app cmux o cmux NIGHTLY puede activar o desactivar el alojamiento remoto."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Seule l’app cmux ou cmux NIGHTLY peut activer ou désactiver l’hébergement à distance."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Solo l’app cmux o cmux NIGHTLY può attivare o disattivare l’hosting remoto."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートホスティングをオン・オフできるのは cmux または cmux NIGHTLY アプリだけです。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មានតែកម្មវិធី cmux ឬ cmux NIGHTLY ប៉ុណ្ណោះដែលអាចបើក ឬបិទការបង្ហោះពីចម្ងាយ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 또는 cmux NIGHTLY 앱만 원격 호스팅을 켜거나 끌 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bare appen cmux eller cmux NIGHTLY kan slå ekstern hosting av eller på."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tylko aplikacja cmux lub cmux NIGHTLY może włączyć lub wyłączyć hostowanie zdalne."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Somente o app cmux ou cmux NIGHTLY pode ativar ou desativar a hospedagem remota."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Включать и выключать удалённый хостинг может только приложение cmux или cmux NIGHTLY."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "มีเพียงแอป cmux หรือ cmux NIGHTLY เท่านั้นที่เปิดหรือปิดการโฮสต์ระยะไกลได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uzaktan barındırmayı yalnızca cmux veya cmux NIGHTLY uygulaması açıp kapatabilir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вмикати й вимикати віддалений хостинг може лише програма cmux або cmux NIGHTLY."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chỉ ứng dụng cmux hoặc cmux NIGHTLY mới có thể bật hoặc tắt lưu trữ từ xa."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "只有 cmux 或 cmux NIGHTLY App 可以开启或关闭远程托管。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "只有 cmux 或 cmux NIGHTLY App 可以開啟或關閉遠端託管。"
+          }
+        }
+      }
+    },
     "remoteHost.dial.notAllowed": {
       "extractionState": "manual",
       "localizations": {

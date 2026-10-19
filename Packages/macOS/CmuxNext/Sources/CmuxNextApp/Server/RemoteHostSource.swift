@@ -13,12 +13,12 @@ import os
 /// Discovery, probing and admission are the CLI's (Rust); this type only runs
 /// it and applies the list. It reads at launch, when the app becomes active and
 /// when a sidebar opens, never on a timer. A host that leaves the list is
-/// closed; a failed read (the private network is off, no CLI) changes nothing,
-/// so a host that is down shows as unreachable with the dial's reason.
+/// closed only when it is gone from the private network (see ``apply(_:)``); a failed
+/// read (the private network is off, no CLI) changes nothing.
 @MainActor
 final class RemoteHostSource {
-    /// One `cmux host list --json` read: the listed host names, or nil when the read failed.
-    typealias List = @MainActor () async -> [String]?
+    /// One `cmux host list --json --all` read, or nil when the read failed.
+    typealias List = @MainActor () async -> Listing?
 
     private let machines: MachineRegistry
     private let cli: URL?
@@ -83,10 +83,10 @@ final class RemoteHostSource {
             return
         }
         reading = Task { [weak self, list] in
-            let names = await list()
+            let listing = await list()
             guard let self, !Task.isCancelled else { return }
             reading = nil
-            if let names, !policyDisabled { apply(names) }
+            if let listing, !policyDisabled { apply(listing) }
             if readAgain {
                 readAgain = false
                 refresh()
@@ -94,54 +94,84 @@ final class RemoteHostSource {
         }
     }
 
-    /// Adds the listed hosts that are not shown and closes the shown ones that are not listed.
-    func apply(_ names: [String]) {
-        var desired: [String: ServerReach] = [:]
-        for name in names {
-            guard let reach = try? ServerReach.tailnetHost(name: name) else {
-                logger.error("remote host \(name, privacy: .public): not a host name")
-                continue
-            }
-            desired[reach.machineID] = reach
+    /// Applies one `cmux host list --json --all` read:
+    /// - a host that answered shows and connects;
+    /// - a host this Mac knows (shown now, or recorded in the home session) that is on the
+    ///   private network but did not answer (asleep, offline, not serving) stays shown as
+    ///   unreachable with the reason, and does not dial until it answers again;
+    /// - a shown host the list no longer names at all (gone from the private network, or no
+    ///   longer one this account may use) closes. Its home registry record and personal
+    ///   organization stay: a transient absence never forgets anything.
+    func apply(_ listing: Listing) {
+        var desired: [String: (reach: ServerReach, reason: String?)] = [:]
+        for name in listing.hosts {
+            guard let reach = Self.reach(name) else { continue }
+            desired[reach.machineID] = (reach, nil)
         }
-        lastListed = names
+        let known = Set(hosts.map(\.machineID)).union(recordedHosts())
+        for (name, reason) in listing.unavailable {
+            guard let reach = Self.reach(name), desired[reach.machineID] == nil, known.contains(reach.machineID) else { continue }
+            desired[reach.machineID] = (reach, reason)
+        }
+        lastListed = listing.hosts
         for session in hosts where desired[session.machineID] == nil {
-            // Its home registry record (SessionRegistrar) goes with it, as a removed paired server's does.
-            let record = machines.sessionID(machine: session.machineID)
             session.close()
             _ = machines.removeServer(session.machineID)
-            logger.info("remote host \(session.name, privacy: .public) left the list")
-            if let record { forget(record) }
+            logger.info("remote host \(session.name, privacy: .public) left the private network")
         }
-        for reach in desired.values.sorted(by: { $0.name < $1.name }) where machines.server(reach.machineID) == nil {
-            add(reach)
+        for (reach, reason) in desired.values.sorted(by: { $0.reach.name < $1.reach.name }) {
+            if let session = machines.server(reach.machineID) {
+                update(session, unavailable: reason, fresh: false)
+            } else {
+                add(reach, unavailable: reason)
+            }
         }
     }
 
-    private func add(_ reach: ServerReach) {
+    /// One read of the list: the hosts that answered, and the other eligible peers with why.
+    struct Listing: Equatable, Sendable {
+        var hosts: [String]
+        /// Name to reason (`offline`, `not serving`, `no answer`, `not_allowed`, `session_down`, ...).
+        var unavailable: [String: String]
+    }
+
+    private static func reach(_ name: String) -> ServerReach? {
+        try? ServerReach.tailnetHost(name: name)
+    }
+
+    /// The machine ids of remote hosts the home session has a record for (connected before).
+    private func recordedHosts() -> Set<String> {
+        let store = machines.local.store
+        guard store.personal.isLoaded, !store.isProvisional else { return [] }
+        return Set(store.personal.sessions.compactMap { record in
+            record.transport.flatMap(SSHService.fields).flatMap(ServerReach.init(transportFields:))
+                .flatMap { $0.isTailnetHost ? $0.machineID : nil }
+        })
+    }
+
+    private func add(_ reach: ServerReach, unavailable reason: String?) {
         // No SSH binary: the tailnet route never uses the SSH carrier.
         let session = ServerMachineSession(reach: reach, binary: nil, paths: paths, environment: SSHService.environment,
                                            localIdentity: { [machines] in machines.local.identity }, cli: cli)
         session.daemon.workTracker = machines.local.workTracker
         machines.add(session)
         logger.info("remote host \(reach.name, privacy: .public) added")
-        // Connects once the home daemon's identity is known (ServerReachService
-        // connects every waiting server then), so the admit check can refuse
-        // a route back to this Mac.
-        session.connect()
+        update(session, unavailable: reason, fresh: true)
     }
 
-    private func forget(_ sessionID: String) {
-        guard sessionID != machines.local.identity?.sessionID, machines.local.store.personal.session(sessionID) != nil,
-              machines.local.supports(DaemonCapabilities.shared.profiles),
-              let home = machines.local.connection else { return }
-        // task-owner: one bounded forget-session request per removed host
-        Task { [logger] in
-            do {
-                _ = try await home.forgetSession(sessionID, force: true)
-            } catch {
-                logger.error("forget-session \(sessionID, privacy: .public) failed: \(String(describing: error), privacy: .public)")
-            }
+    /// A host that answers connects (once the home daemon's identity is known; ServerReachService
+    /// connects every waiting server then, so the admit check can refuse a route back to this Mac).
+    /// A host that does not answer keeps its section, unreachable with the list's reason, and does
+    /// not dial.
+    private func update(_ session: ServerMachineSession, unavailable reason: String?, fresh: Bool) {
+        let was = session.unavailableReason
+        session.unavailableReason = reason
+        if reason != nil {
+            if fresh || was == nil { session.disconnect() }
+            // Not dialed on the home identity or app activation until a read lists it again.
+            session.autoConnect = false
+        } else if fresh || was != nil {
+            session.connect()
         }
     }
 
@@ -152,24 +182,33 @@ final class RemoteHostSource {
         }
     }
 
-    /// `cmux host list --json` through the bundled CLI: the names of the hosts
-    /// that answered the probe, except this machine; nil when the CLI is missing,
-    /// fails (the private network is off) or prints something else.
-    nonisolated static func readList(cli: URL?) async -> [String]? {
+    /// `cmux host list --json --all` through the bundled CLI: the hosts that answered the
+    /// probe and the other eligible peers with why (offline ones included), except this
+    /// machine; nil when the CLI is missing, fails (the private network is off) or prints
+    /// something else.
+    nonisolated static func readList(cli: URL?) async -> Listing? {
         guard let cli,
-              let result = try? await ProcessRunner.run(executable: cli, arguments: ["host", "list", "--json"], environment: nil,
+              let result = try? await ProcessRunner.run(executable: cli, arguments: ["host", "list", "--json", "--all"], environment: nil,
                                                         timeout: .seconds(15), clock: ContinuousClock()),
               result.status == 0 else { return nil }
         return parseList(result.stdout)
     }
 
-    /// The host names of a `cmux host list --json` reply (`{"hosts":[{"name",…}],"self":…}`);
-    /// nil when the reply has no `hosts` array.
-    nonisolated static func parseList(_ data: Data) -> [String]? {
+    /// A `cmux host list --json --all` reply
+    /// (`{"hosts":[{"name",…}],"not_hosts":[{"name","reason"}],"self":…}`); nil when the reply
+    /// has no `hosts` array.
+    nonisolated static func parseList(_ data: Data) -> Listing? {
         guard let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
               let hosts = object["hosts"] as? [Any] else { return nil }
         let me = (object["self"] as? String)?.lowercased()
-        return hosts.compactMap { ($0 as? [String: Any])?["name"] as? String }.filter { !$0.isEmpty && $0.lowercased() != me }
+        let keep = { (name: String) in !name.isEmpty && name.lowercased() != me }
+        var unavailable: [String: String] = [:]
+        for case let entry as [String: Any] in object["not_hosts"] as? [Any] ?? [] {
+            guard let name = entry["name"] as? String, keep(name) else { continue }
+            unavailable[name] = entry["reason"] as? String ?? "unreachable"
+        }
+        return Listing(hosts: hosts.compactMap { ($0 as? [String: Any])?["name"] as? String }.filter(keep),
+                       unavailable: unavailable)
     }
 }
 

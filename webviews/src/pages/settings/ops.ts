@@ -103,9 +103,16 @@ export type HostLists = {
   computer_use?: ComputerUseState | null;
   /**
    * Remote Hosting (Machines): the app's one localized status line of `cmux host status --remote`
-   * (null while unknown); `disabled_by_policy` when the organization turned remote hosts off.
+   * (null while unknown); `disabled_by_policy` when the organization turned remote hosts off;
+   * `read_only` (with its `note`) when this build may not change hosting (only the release and
+   * NIGHTLY apps do).
    */
-  remote_hosting?: { status: string | null; disabled_by_policy?: boolean } | null;
+  remote_hosting?: {
+    status: string | null;
+    disabled_by_policy?: boolean;
+    read_only?: boolean;
+    note?: string | null;
+  } | null;
   /**
    * Wallpaper choices; thumbnails at `backdrop/<id>` on the page's own origin. Each carries its
    * picker collection (`darkArt`, `museumIcons`, `calm`, `dore`, `yours`, `apple`, `video`) and

@@ -13,13 +13,16 @@ public struct DaemonBridge: Hashable, Sendable {
     /// An absolute path inside the app bundle (never looked up on PATH).
     public var executable: String
     public var arguments: [String]
+    /// How long the dial line may take (a quiet stderr for this long fails the dial).
+    public var replyTimeoutMs: Int32
 
-    public init(executable: String, arguments: [String]) {
+    /// `replyTimeoutMs`: 10 s, the link dial's bound; a route whose dial can take longer
+    /// (a remote host's `cmux host dial`, 75 s) passes a longer one.
+    public init(executable: String, arguments: [String], replyTimeoutMs: Int32 = 10_000) {
         self.executable = executable
         self.arguments = arguments
+        self.replyTimeoutMs = replyTimeoutMs
     }
-
-    static let replyTimeoutMs: Int32 = 10_000
     static let maxReplyBytes = 1024
 
     /// Spawns the bridge and waits for its dial line: the descriptor of the
@@ -62,7 +65,7 @@ public struct DaemonBridge: Hashable, Sendable {
         }
         let child = BridgeChild(pid: pid, stderr: errRead)
         do {
-            try DaemonBridge.check(try Self.readLine(errRead))
+            try DaemonBridge.check(try Self.readLine(errRead, timeoutMs: replyTimeoutMs))
         } catch {
             child.terminate()
             Darwin.close(mine)
@@ -72,11 +75,11 @@ public struct DaemonBridge: Hashable, Sendable {
     }
 
     /// One line from the child's stderr within the deadline.
-    static func readLine(_ fd: Int32) throws(DaemonError) -> Data {
+    static func readLine(_ fd: Int32, timeoutMs: Int32) throws(DaemonError) -> Data {
         var line: [UInt8] = []
         for _ in 0...(maxReplyBytes + 8) {
             var poller = pollfd(fd: fd, events: Int16(clamping: POLLIN), revents: 0)
-            let ready = poll(&poller, 1, replyTimeoutMs)
+            let ready = poll(&poller, 1, timeoutMs)
             if ready < 0, errno == EINTR { continue }
             guard ready > 0 else { throw .endpointBlocked("the link dial gave no answer") }
             var byte: UInt8 = 0

@@ -60,12 +60,16 @@ export const SettingRow = memo(function SettingRow({
   const labelId = useId();
   const { managed, customized, diagnostics, error } = state;
   // Remote Hosting's toggle shows the app's live status under it, and is off while the
-  // organization turned remote hosts off. Only that row subscribes to the host status.
+  // organization turned remote hosts off or this build may not change hosting. Only that row subscribes to the host status.
   const remoteHosting = useSettingsSelector((all) =>
     row.key === REMOTE_HOSTING_KEY ? (all.host?.remote_hosting ?? null) : null,
   );
   const disabled =
-    !state.connected || !state.readable || managed !== null || remoteHosting?.disabled_by_policy === true;
+    !state.connected ||
+    !state.readable ||
+    managed !== null ||
+    remoteHosting?.disabled_by_policy === true ||
+    remoteHosting?.read_only === true;
   const menu = rowMenu(row.key, state, store);
   return (
     <div
@@ -94,6 +98,11 @@ export const SettingRow = memo(function SettingRow({
           {remoteHosting?.status && (
             <div className="row-help" data-remote-hosting-status="">
               {remoteHosting.status}
+            </div>
+          )}
+          {remoteHosting?.note && (
+            <div className="row-help" data-remote-hosting-note="">
+              {remoteHosting.note}
             </div>
           )}
           {query && (

@@ -11,13 +11,37 @@ public struct DaemonEndpoint: Hashable, Sendable {
     /// (``DaemonBridge``: a paired server's owner session through `cmux link
     /// dial`). `socketPath` then only names what to watch for changes.
     public var bridge: DaemonBridge?
+    /// The check a second connection to this endpoint (an agent chat on a remote machine)
+    /// runs on the daemon's identity before use, as the machine's own connection does.
+    public var admit: DaemonAdmit?
 
-    public init(socketPath: String, pid: Int32? = nil, generation: DaemonGeneration? = nil, bridge: DaemonBridge? = nil) {
+    public init(socketPath: String, pid: Int32? = nil, generation: DaemonGeneration? = nil, bridge: DaemonBridge? = nil,
+                admit: DaemonAdmit? = nil) {
         self.socketPath = socketPath
         self.pid = pid
         self.generation = generation
         self.bridge = bridge
+        self.admit = admit
     }
+}
+
+/// An identity check for connections to a remote endpoint (for example "not this Mac's own
+/// daemon"); throws to refuse. Runs on the main actor, as the machine's own `admit` does.
+/// Equal only to itself.
+@MainActor
+public final class DaemonAdmit: Hashable, Sendable {
+    private let check: @MainActor (DaemonIdentity) throws -> Void
+
+    public init(_ check: @escaping @MainActor (DaemonIdentity) throws -> Void) {
+        self.check = check
+    }
+
+    public func callAsFunction(_ identity: DaemonIdentity) throws {
+        try check(identity)
+    }
+
+    public nonisolated static func == (lhs: DaemonAdmit, rhs: DaemonAdmit) -> Bool { lhs === rhs }
+    public nonisolated func hash(into hasher: inout Hasher) { hasher.combine(ObjectIdentifier(self)) }
 }
 
 /// Capabilities the GUI relies on (plans/cmux-next/cmux-tui-contract.md 2.2).

@@ -4,8 +4,9 @@ import Foundation
 /// host that does not connect and the Settings status line of Remote Hosting.
 /// Never names the network's vendor ("your private network").
 enum RemoteHostStrings {
-    /// The header tooltip of a remote host whose dial failed; `reason` is the
-    /// connection's error, ending in the dial's `error_code`.
+    /// The header tooltip of a remote host that is not connected; `reason` is the
+    /// connection's error, ending in the dial's `error_code`, or the reason `cmux host
+    /// list --all` gave (`offline`, `not serving`, `no answer`, an `error_code`).
     static func dialFailure(_ reason: String) -> String {
         let code = reason.split(separator: ":").last.map { $0.trimmingCharacters(in: .whitespaces) } ?? ""
         switch code {
@@ -15,7 +16,16 @@ enum RemoteHostStrings {
         case "session_down":
             return String(localized: "remoteHost.dial.sessionDown", defaultValue: "cmux is not running on this host.",
                           table: "Server", bundle: .module)
-        case "unreachable":
+        case "offline":
+            return String(localized: "remoteHost.dial.offline", defaultValue: "This host is offline or asleep.",
+                          table: "Server", bundle: .module)
+        case "not serving":
+            return String(localized: "remoteHost.dial.notServing", defaultValue: "Remote hosting is not on for this host.",
+                          table: "Server", bundle: .module)
+        case "refused", "bad_preface", "disabled":
+            return String(localized: "remoteHost.dial.refused", defaultValue: "This host refused the connection.",
+                          table: "Server", bundle: .module)
+        case "unreachable", "no answer":
             return String(localized: "remoteHost.dial.unreachable", defaultValue: "Can’t reach this host on your private network.",
                           table: "Server", bundle: .module)
         default:
@@ -40,6 +50,19 @@ enum RemoteHostStrings {
 
     static var notServing: String {
         String(localized: "remoteHosting.status.notServing", defaultValue: "On, but this Mac is not serving yet.", table: "Server", bundle: .module)
+    }
+
+    /// Hosting is on, for another cmux build's session on this Mac.
+    static var otherBuild: String {
+        String(localized: "remoteHosting.status.otherBuild", defaultValue: "On for another cmux app on this Mac.",
+               table: "Server", bundle: .module)
+    }
+
+    /// The note of a build that may not change hosting (a tagged DEV, RC or staging build).
+    static var readOnly: String {
+        String(localized: "remoteHosting.status.readOnly",
+               defaultValue: "Only the cmux or cmux NIGHTLY app can turn remote hosting on or off.",
+               table: "Server", bundle: .module)
     }
 
     static var networkOff: String {

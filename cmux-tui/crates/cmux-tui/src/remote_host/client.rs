@@ -163,14 +163,16 @@ pub(crate) struct Found {
 /// Peers worth a probe: online, not this node, a platform that can host,
 /// and either owned by this node's login or tagged (servers are tagged).
 pub(crate) fn candidates(status: &Status) -> Vec<Node> {
+    eligible(status).filter(|node| node.online).cloned().collect()
+}
+
+/// Peers that could host for this caller, online or not.
+fn eligible(status: &Status) -> impl Iterator<Item = &Node> {
     status
         .peers
         .iter()
-        .filter(|node| node.online)
         .filter(|node| matches!(node.os.as_str(), "linux" | "macOS" | "windows" | "freebsd"))
-        .filter(|node| may_host_for(node, status))
-        .cloned()
-        .collect()
+        .filter(move |node| may_host_for(node, status))
 }
 
 /// Probes every candidate at once; each probe has its own bound, so the
@@ -225,6 +227,13 @@ pub(crate) fn list(json_out: bool, all: bool, port: Option<u16>) -> anyhow::Resu
             Err(e) => {
                 others.push(json!({"name": item.node.short_name(), "reason": short_error(e)}));
             }
+        }
+    }
+    // `--all` also names the eligible peers that are offline (asleep, off the
+    // network), so a client can tell "not answering now" from "gone from the tailnet".
+    if all {
+        for node in eligible(&status).filter(|node| !node.online) {
+            others.push(json!({"name": node.short_name(), "reason": "offline"}));
         }
     }
     if json_out {

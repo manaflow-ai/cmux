@@ -27,6 +27,9 @@ final class ServerMachineSession {
     @ObservationIgnored private let localIdentity: @MainActor () -> DaemonIdentity?
     /// Connect at launch: true until the user disconnects (kept in the registry).
     var autoConnect = true
+    /// A remote host (`tailnet` route) on the private network that did not answer the last
+    /// `cmux host list` (`offline`, `not serving`, ...): shown unreachable with this reason, not dialed.
+    var unavailableReason: String?
     @ObservationIgnored private var started = false
 
     /// Runs when an overlay connection ends (EOF or heartbeat), so the
@@ -105,8 +108,10 @@ final class ServerMachineSession {
             let localIdentity = localIdentity
             // Each connection runs the bundled `cmux host dial`; the host admits only its
             // owner (or a login it allows) before any daemon byte. The endpoint path only
-            // names what the retry loop watches (the bundled CLI's folder).
-            let bridge = DaemonBridge(executable: cli.path, arguments: ServerReach.dialArguments(tailnetHost: host))
+            // names what the retry loop watches (the bundled CLI's folder). The dial may take
+            // up to the host's 75 s bound (a waking host, a slow admission), so its line gets 90 s.
+            let bridge = DaemonBridge(executable: cli.path, arguments: ServerReach.dialArguments(tailnetHost: host),
+                                      replyTimeoutMs: 90_000)
             daemon.start(remote: { cli.path }, bridge: bridge, admit: { identity in
                 // A route that leads back to this Mac's own daemon is refused (fails closed).
                 try CloudAppLinks.checkNotLocal(remote: identity, local: localIdentity())

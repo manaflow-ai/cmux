@@ -109,6 +109,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
                 group("settings.group.windowBackground"), group("settings.group.panes"), group("settings.group.focusRing"),
                 group("settings.group.sidebar"), group("settings.group.workspaceRows"),
                 group("settings.group.statusIndicator"), group("settings.group.surfaces"),
+                // The markdown viewer's default text size (markdown.font.size; section appearance).
+                group("settings.group.markdownViewer"),
             ],
             // Change Background… lands here: the art picker draws appearance.background and
             // appearance.backgroundOpacity (search still shows them as rows).

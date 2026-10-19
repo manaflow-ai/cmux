@@ -156,7 +156,7 @@ The Mac app uses it as `DaemonEndpoint.bridge`, the same contract as `cmux link 
 | `cmux host status [--json]` | config, service state, tailnet addresses, owner, allow list, session socket. On a Cloud machine whose supervisor status file exists, it stays the supervisor's status (unchanged contract); `cmux host status --remote` always shows remote hosting |
 | `cmux host serve` | the listener (what the service runs); foreground |
 | `cmux host allow <login>` / `deny <login>` | edit the allow list; the running listener rereads the file on each connection |
-| `cmux host list [--json] [--all]` | discovery: online tailnet peers (owned by the caller's login, or tagged), probed in parallel with a 1.5 s connect bound; `--all` also lists peers that did not answer, with the reason |
+| `cmux host list [--json] [--all]` | discovery: online tailnet peers (owned by the caller's login, or tagged), probed in parallel with a 1.5 s connect bound; `--all` also lists peers that did not answer, with the reason, and offline eligible peers (`offline`) |
 | `cmux host dial <host>` | the bridge (section 7) |
 
 Services: macOS `~/Library/LaunchAgents/com.cmuxterm.host-remote.plist` (launchctl
@@ -184,7 +184,12 @@ only connects, and answers `session_down` when the app is not running.
   (`sidebar.groupByComputer` off), because a remote host is a group, not a row decoration.
   Settings: Accounts > Machines gains "Remote hosting" (toggle `remoteHosting.enabled`,
   status line, owner, "Allow a teammate…"). The toggle calls `cmux host enable --no-spawn
-  --session <app session>`; the MDM `remoteHosts` kill switch hides both.
+  --session <app session>`; the MDM `remoteHosts` kill switch disables both. Hosting is one
+  per user (`~/.cmux/host`): only the release and NIGHTLY apps change it, and only for their
+  own session (never another build's); a tagged DEV, RC or staging build shows the status with
+  the toggle disabled. The app lists hosts with `--all`: a known host that is offline or not
+  serving stays as an unreachable section with the reason; a host gone from the private network
+  closes, and no transient absence forgets its records.
 - iOS: the same shape as cnx's Mac list: a remote host is one more machine in the mixed inbox
   with its workspaces tagged by host; an offline or unreachable host folds into one line. The
   phone reaches the host directly when it is on the tailnet; otherwise it needs the HostDO

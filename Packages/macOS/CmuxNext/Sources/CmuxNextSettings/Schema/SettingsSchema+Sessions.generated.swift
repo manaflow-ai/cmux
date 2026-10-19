@@ -89,7 +89,7 @@ nonisolated enum SessionSettingsSchema {
         ]
     }
 
-    /// Settings > Accounts > Machines > Remote Hosting: whether this Mac serves the app's own cmux session to your other devices on your private network (RemoteHostingFollower runs `cmux host enable --no-spawn --session <app session>` or `cmux host disable`; plans/cmux-next/remote-hosts.md 9). MDM DisabledFeatures remoteHosts hides it.
+    /// Settings > Accounts > Machines > Remote Hosting: whether this Mac serves the app's own cmux session to your other devices on your private network (RemoteHostingFollower runs `cmux host enable --no-spawn --session <app session>` or `cmux host disable`; plans/cmux-next/remote-hosts.md 9). MDM DisabledFeatures remoteHosts disables it (hosting off, toggle disabled); only the release and NIGHTLY apps change hosting, other builds show its status.
     static var remoteHostingDescriptors: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.remoteHosting", "Remote Hosting")
         return [

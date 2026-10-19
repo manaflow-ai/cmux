@@ -184,7 +184,8 @@ public actor AgentSessionAttachClient {
 
     private func connect() async throws -> LineTransport {
         let endpoint = try await self.endpoint()
-        let transport = try LineTransport(path: endpoint.socketPath)
+        // A bridged endpoint (a paired server or remote host) connects through its child.
+        let transport = try LineTransport(path: endpoint.socketPath, bridge: endpoint.bridge)
         let handler = handler
         let surface = surface
         transport.start(
@@ -201,6 +202,8 @@ public actor AgentSessionAttachClient {
             })
         do {
             let identity = try await DaemonConnection.perform(IdentifyRequest(), on: transport, timeout: requestTimeout)
+            // The machine's admit check (for example: never this Mac's own daemon) before any verb.
+            if let admit = endpoint.admit { try await admit(identity) }
             guard identity.supports(Self.capability) else {
                 transport.close()
                 throw AgentSessionAttachError(code: "agent_session.unsupported", message: "the daemon does not serve agent session attach")

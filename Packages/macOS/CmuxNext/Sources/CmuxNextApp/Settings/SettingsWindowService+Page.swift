@@ -45,7 +45,10 @@ extension SettingsWindowService {
             "computer_use": services.onboarding.computerUseSetup.pageJSON,
             // Remote Hosting (Machines): the status line of `cmux host status --remote` (null while unknown).
             "remote_hosting": ["status": services.remoteHosting.statusLine.map(JSONValue.string) ?? .null,
-                               "disabled_by_policy": .bool(services.remoteHosting.policyDisabled)],
+                               "disabled_by_policy": .bool(services.remoteHosting.policyDisabled),
+                               // A build that may not change hosting (not release or NIGHTLY): toggle off, with a note.
+                               "read_only": .bool(!services.remoteHosting.owner),
+                               "note": services.remoteHosting.readOnlyNote.map(JSONValue.string) ?? .null],
             "settings_file": services.settings.map { .string($0.file.url.path(percentEncoded: false)) } ?? .null,
             "backdrops": Self.backdrops.pageRows,
             "derived": .object(pageDerivedNumbers()),

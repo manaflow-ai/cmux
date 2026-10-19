@@ -11,7 +11,10 @@ extension ServerMachineSession {
         let session = self
         let compatibility = machines.compatibility(of: session.daemon)
         let status: SidebarMachine.Status
-        if let link = session.link {
+        if session.unavailableReason != nil {
+            // A remote host that did not answer the list: not dialed, unreachable with the list's reason.
+            status = .unreachable
+        } else if let link = session.link {
             status = switch SidebarBridge.sshStatus(link, compatibility: compatibility) {
             // Nothing to install from here: the brain's binaries belong to its installer.
             case .installRequired, .installing: .unreachable
@@ -29,7 +32,7 @@ extension ServerMachineSession {
         case .ssh(let host): [host.destination.description, session.link.flatMap(RemoteStrings.detail)].compactMap { $0 }.joined(separator: "\n")
         case .unix, .overlay: nil
         // Why the host is not connected (the dial's refusal), as the header's tooltip.
-        case .tailnet: status == .unreachable ? session.notConnectedReason.map(RemoteHostStrings.dialFailure) : nil
+        case .tailnet: status == .unreachable ? (session.unavailableReason ?? session.notConnectedReason).map(RemoteHostStrings.dialFailure) : nil
         }
         // A remote host is a group of its own, also in the one-list sidebar.
         return SidebarMachine(id: MachineID(session.machineID), name: session.name, kind: .server, status: status, detail: detail,

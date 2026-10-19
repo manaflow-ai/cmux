@@ -237,8 +237,10 @@ public final class DaemonService {
     public func start(remote endpoint: @escaping @Sendable () async throws -> String, bridge: DaemonBridge? = nil,
                admit: (@MainActor (DaemonIdentity) throws -> Void)? = nil, onEnd: (@MainActor () -> Void)? = nil) {
         guard runTask == nil, !policyBlock.isBlocked else { return }
-        // A second connection (an agent chat on that machine) goes through the same bridge.
-        remoteEndpoint = { DaemonEndpoint(socketPath: try await endpoint(), bridge: bridge) }
+        // A second connection (an agent chat on that machine) goes through the same bridge
+        // and the same identity check.
+        let secondAdmit = admit.map { DaemonAdmit($0) }
+        remoteEndpoint = { DaemonEndpoint(socketPath: try await endpoint(), bridge: bridge, admit: secondAdmit) }
         let store = store
         if let onEnd { store.onDisconnected = onEnd }
         let machineID = machineID
