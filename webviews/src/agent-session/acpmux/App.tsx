@@ -5587,6 +5587,7 @@ function AcpmuxPane() {
                   <WatchBanner
                     family={snapshot.summary.watching}
                     onTakeOver={() => void directClient.current?.takeOver().catch(() => undefined)}
+                    onContinue={() => void directClient.current?.continueWatched().catch(() => undefined)}
                   />
                 )}
                 {snapshot.summary?.watching && snapshot.liveTakeOver && (

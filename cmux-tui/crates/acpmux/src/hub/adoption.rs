@@ -75,7 +75,10 @@ impl Hub {
                 "only Claude Code chats fork on adopt; open this {family} chat anyway or close it where it runs"
             )));
         }
-        if let Some(existing) = self.adopted_session(family, &a.agent_session_id) {
+        // A fork is a new conversation, never the chat that already adopted (or views) this one.
+        if a.if_live != IfLive::Fork
+            && let Some(existing) = self.adopted_session(family, &a.agent_session_id)
+        {
             return Ok(Adoption::Existing(existing));
         }
         // The store the resuming harness reads: its spawn env's home, else

@@ -282,3 +282,45 @@ async fn a_claude_turn_ends_with_its_text_and_take_over_settles_an_open_one() {
     assert_eq!(ends(&hub), 2);
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// Viewing never blocks starting a session (Leo 2026-10-19): while a Claude Code chat is viewed, a
+/// new chat in the same folder runs, and Continue in New Chat (adopt with `ifLive: "fork"`) starts
+/// a new chat from the conversation instead of returning the viewed one, which goes on viewing.
+#[tokio::test]
+async fn viewing_a_chat_never_blocks_starting_a_new_one() {
+    let (hub, mut c, root) = watch_setup().await;
+    let id = uuid::Uuid::now_v7().to_string();
+    let project = root.join("project");
+    let file = root.join(format!("claude/projects/-tmp-watch/{id}.jsonl"));
+    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+    let user = json!({"type": "user", "cwd": project, "sessionId": id, "timestamp": "2026-10-18T09:00:00.000Z", "message": {"role": "user", "content": "fix the build"}});
+    append(&file, &[user]);
+    backdate(&file);
+    let s = c.request(method::SESSION_NEW, watch("fakeclaude", &id)).await.unwrap();
+    let viewed = s["sessionId"].as_str().unwrap().to_owned();
+    until_prompts(&hub, &viewed, 1).await;
+
+    // A new chat in the same folder starts and runs.
+    let fresh = c
+        .request(method::SESSION_NEW, json!({"cwd": project, "mcpServers": [], "_meta": {"acpmux": {"harness": "fakecodex"}}}))
+        .await
+        .unwrap();
+    let fresh = fresh["sessionId"].as_str().unwrap().to_owned();
+    assert_ne!(fresh, viewed);
+    let r = c.request(method::SESSION_PROMPT, prompt(&fresh, "hello", None)).await.unwrap();
+    assert_eq!(r["stopReason"], "end_turn", "{r}");
+
+    // Continue in New Chat: a fork of the viewed conversation is its own chat.
+    let adopt = json!({"agentSessionId": id, "ifLive": "fork"});
+    let forked = c
+        .request(method::SESSION_NEW, json!({"mcpServers": [], "_meta": {"acpmux": {"harness": "fakeclaude", "adopt": adopt}}}))
+        .await
+        .unwrap();
+    let forked = forked["sessionId"].as_str().unwrap().to_owned();
+    assert_ne!(forked, viewed, "a fork is a new chat, not the viewed one");
+    let r = c.request(method::SESSION_PROMPT, prompt(&forked, "carry on", None)).await.unwrap();
+    assert_eq!(r["stopReason"], "end_turn", "{r}");
+    let summary = hub.session_summary(&hub.resolve(&viewed).unwrap());
+    assert_eq!(summary["watching"], "claude", "the viewed chat goes on viewing: {summary}");
+    let _ = std::fs::remove_dir_all(&root);
+}

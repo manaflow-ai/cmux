@@ -14,3 +14,11 @@ test("the banner names the app the watched session runs in and offers Take Over"
 test("an unknown family is named as acpmux reports it", () => {
   expect(watchedApp("opencode")).toBe("opencode");
 });
+
+// Viewing never blocks starting a session (Leo 2026-10-19): the banner always offers a way on.
+test("the banner offers a new chat from the viewed session", () => {
+  const claude = renderToStaticMarkup(<WatchBanner family="claude" onTakeOver={() => {}} onContinue={() => {}} />);
+  expect(claude).toContain("Continue in New Chat");
+  const codex = renderToStaticMarkup(<WatchBanner family="codex" onTakeOver={() => {}} onContinue={() => {}} />);
+  expect(codex).toContain("New Chat Here");
+});
