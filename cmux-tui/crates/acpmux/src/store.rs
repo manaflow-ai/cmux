@@ -493,7 +493,8 @@ struct SegmentWriter {
 
 impl LocalStore {
     pub fn new(root: PathBuf, segment_bytes: u64) -> Result<Self> {
-        std::fs::create_dir_all(&root).with_context(|| format!("create {}", root.display()))?;
+        crate::config::private_state_dir(&root)
+            .with_context(|| format!("create private store {}", root.display()))?;
         Ok(Self {
             root,
             segment_bytes: segment_bytes.max(64 * 1024),
@@ -525,13 +526,14 @@ impl LocalStore {
 
     fn open_writer(&self, id: &str) -> Result<SegmentWriter> {
         let dir = self.dir(id).join("events");
-        std::fs::create_dir_all(&dir)?;
+        crate::config::private_state_dir(&self.dir(id))?;
+        crate::config::private_state_dir(&dir)?;
         let segs = self.segments(id)?;
         let (index, path) = match segs.last() {
             Some((i, p)) => (*i, p.clone()),
             None => (1, dir.join("000001.ndjson")),
         };
-        let file = OpenOptions::new().create(true).append(true).open(&path)?;
+        let file = open_private_append(&path)?;
         let written = file.metadata().map(|m| m.len()).unwrap_or(0);
         Ok(SegmentWriter { index, file, written })
     }
@@ -577,7 +579,7 @@ impl Store for LocalStore {
 
     fn save(&self, meta: &SessionMeta) -> Result<()> {
         let dir = self.dir(&meta.id);
-        std::fs::create_dir_all(&dir)?;
+        crate::config::private_state_dir(&dir)?;
         write_atomic(&dir.join("session.json"), serde_json::to_string_pretty(meta)?.as_bytes())
     }
 
@@ -590,7 +592,7 @@ impl Store for LocalStore {
         if w.written >= self.segment_bytes {
             let index = w.index + 1;
             let path = self.dir(id).join("events").join(format!("{index:06}.ndjson"));
-            let file = OpenOptions::new().create(true).append(true).open(&path)?;
+            let file = open_private_append(&path)?;
             *w = SegmentWriter { index, file, written: 0 };
         }
         let mut line = serde_json::to_string(record)?;
@@ -709,6 +711,29 @@ impl Store for LocalStore {
     fn handoff_dir(&self) -> Option<PathBuf> {
         self.root.parent().map(|home| home.join("handoffs"))
     }
+}
+
+/// Open one event segment for append, owner-only from creation and after an
+/// older build left it with wider permissions.
+#[cfg(unix)]
+fn open_private_append(path: &Path) -> Result<File> {
+    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+
+    let file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW)
+        .open(path)?;
+    if file.metadata()?.permissions().mode() & 0o077 != 0 {
+        file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+    }
+    Ok(file)
+}
+
+#[cfg(windows)]
+fn open_private_append(path: &Path) -> Result<File> {
+    Ok(crate::owner_only::open_append(path)?)
 }
 
 #[cfg(all(test, unix))]

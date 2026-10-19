@@ -145,8 +145,8 @@ impl Mailbox {
 
     pub fn open(root: impl AsRef<Path>) -> Result<Self> {
         let root = root.as_ref();
-        std::fs::create_dir_all(root)
-            .with_context(|| format!("create mailbox {}", root.display()))?;
+        crate::config::private_state_dir(root)
+            .with_context(|| format!("create private mailbox {}", root.display()))?;
         let path = root.join("mailbox.json");
         let state = if path.exists() {
             let bytes = std::fs::read(&path).with_context(|| format!("read {}", path.display()))?;
@@ -445,12 +445,7 @@ fn persist_state(
     let bytes = serde_json::to_vec_pretty(state)
         .map_err(|e| MailboxError::Storage(anyhow::Error::new(e)))?;
     let tmp = path.with_extension("json.tmp");
-    std::fs::write(&tmp, bytes).map_err(|e| MailboxError::Storage(anyhow::Error::new(e)))?;
-    std::fs::OpenOptions::new()
-        .read(true)
-        .open(&tmp)
-        .and_then(|file| file.sync_all())
-        .map_err(|e| MailboxError::Storage(anyhow::Error::new(e)))?;
+    write_private(&tmp, &bytes).map_err(|e| MailboxError::Storage(anyhow::Error::new(e)))?;
     std::fs::rename(&tmp, path).map_err(|e| MailboxError::Storage(anyhow::Error::new(e)))?;
     if let Some(parent) = path.parent() {
         #[cfg(unix)]
@@ -459,6 +454,41 @@ fn persist_state(
             .map_err(|e| MailboxError::Storage(anyhow::Error::new(e)))?;
     }
     Ok(())
+}
+
+/// Write a temporary mailbox state owner-only, then let `persist_state`
+/// durably rename it into place.
+#[cfg(unix)]
+fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW)
+        .open(path)?;
+    if file.metadata()?.permissions().mode() & 0o077 != 0 {
+        file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+    }
+    file.write_all(bytes)?;
+    file.sync_all()
+}
+
+#[cfg(windows)]
+fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+
+    match std::fs::remove_file(path) {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error),
+    }
+    let mut file = crate::owner_only::create_new(path)?;
+    file.write_all(bytes)?;
+    file.sync_all()
 }
 
 #[cfg(test)]

@@ -30,6 +30,45 @@ pub fn default_home() -> PathBuf {
     dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")).join(".acpmux")
 }
 
+/// Make one acpmux state directory owner-only, including an existing directory
+/// created by an older build under a permissive umask. Refuse links and a
+/// directory owned by another user before changing its permissions.
+#[cfg(unix)]
+pub(crate) fn private_state_dir(dir: &Path) -> Result<()> {
+    use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt};
+
+    std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir)?;
+    let opened = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW)
+        .open(dir)
+        .with_context(|| format!("open private state directory {}", dir.display()))?;
+    let metadata = opened.metadata()?;
+    // SAFETY: getuid has no preconditions.
+    let uid = unsafe { libc::getuid() };
+    anyhow::ensure!(
+        metadata.is_dir() && metadata.uid() == uid,
+        "{} is not a state directory owned by this user",
+        dir.display()
+    );
+    if metadata.mode() & 0o077 != 0 {
+        opened
+            .set_permissions(std::fs::Permissions::from_mode(0o700))
+            .with_context(|| format!("make {} owner-only", dir.display()))?;
+    }
+    Ok(())
+}
+
+/// Windows: owner-only DACL on the directory and children, including a
+/// directory an older build made with inherited wider permissions.
+#[cfg(windows)]
+pub(crate) fn private_state_dir(dir: &Path) -> Result<()> {
+    crate::owner_only::create_dir_all(dir)?;
+    crate::owner_only::restrict(dir)?;
+    crate::owner_only::private_dir(dir)?;
+    Ok(())
+}
+
 /// Unix socket path, by the rule every host and client shares
 /// (cmux-agent-pane-policy `environment::socket_path`): `ACPMUX_SOCKET`, else
 /// `<home>/acpmux.sock`. A long home, or an absolute `ACPMUX_SOCKET` past the
@@ -833,7 +872,7 @@ impl Config {
             return Ok(());
         };
         if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)?;
+            private_state_dir(parent)?;
         }
         let mut on_disk = self.clone();
         on_disk
@@ -891,6 +930,7 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
             .create(true)
             .truncate(true)
             .mode(0o600)
+            .custom_flags(libc::O_NOFOLLOW)
             .open(&tmp)
             .with_context(|| format!("write {}", tmp.display()))?;
         f.write_all(bytes).with_context(|| format!("write {}", tmp.display()))?;
