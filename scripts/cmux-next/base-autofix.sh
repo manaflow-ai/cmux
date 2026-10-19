@@ -37,7 +37,7 @@
 #     webviews/, or into its package.json or lockfile, is not applied
 #     (with --webviews-fmt-patch PATCH);
 #   - cmux-tui tree inputs: reports each embed check_cmux_tui_tree_inputs.py
-#     finds missing (the fix edits a workflow file, which GITHUB_TOKEN cannot push);
+#     finds missing;
 #   - the app FFI pin: reports a stale pin (Package.swift is frozen; the
 #     app-ffi-repin pull request carries it);
 #   - formatting: cargo fmt over the cmux-tui workspace and each OptChat crate
@@ -259,12 +259,10 @@ if [[ -n "$webviews_patch" && -s "$webviews_patch" ]]; then
   fi
 fi
 
-# 2. cmux-tui tree inputs: reported only. Each must also be a pull_request_target
-# path of cmux-tui-artifacts.yml, a workflow file GITHUB_TOKEN cannot push, and
-# the two lists must change together.
+# 2. cmux-tui tree inputs: reported only; a person adds them by hand.
 missing="$(python3 -I "$script_dir/../ci/check_cmux_tui_tree_inputs.py" --root "$repo" 2>&1 >/dev/null | grep -E '^(blob|tree) ' || true)"
 while IFS= read -r entry; do
-  [[ -n "$entry" ]] && echo "left: cmux-tui tree input $entry (add it to scripts/cmux-next/cmux-tui-tree-inputs.txt and .github/workflows/cmux-tui-artifacts.yml by hand)"
+  [[ -n "$entry" ]] && echo "left: cmux-tui tree input $entry (add it to scripts/cmux-next/cmux-tui-tree-inputs.txt by hand)"
 done <<<"$missing"
 
 # 3. The app FFI pin (reported only: Package.swift is frozen).
