@@ -257,7 +257,9 @@ class FormatPostEditTests(unittest.TestCase):
         self.assertTrue(calls[0].startswith("pinned --edition 2021 "), calls)
         self.assertTrue(calls[0].endswith(str(path)), calls)
 
-    def test_a_missing_pinned_toolchain_warns_and_never_fails_the_edit(self):
+    def test_a_missing_pinned_toolchain_falls_back_to_path_rustfmt_with_a_warning(self):
+        # rustfmt keeps a stable style across versions, so the PATH rustfmt
+        # beats leaving the edit unformatted.
         package = self.repo / "cmux-tui"
         (package / "src").mkdir(parents=True)
         (package / "Cargo.toml").write_text('[package]\nname = "probe"\nedition = "2021"\n')
@@ -268,7 +270,9 @@ class FormatPostEditTests(unittest.TestCase):
         returncode, stdout, stderr = self.run_hook("codex", path)
         self.assert_hook_ok("codex", returncode, stdout)
         self.assertIn("rustup toolchain install 1.95.0", stderr)
-        self.assertFalse(self.rustfmt_log.exists(), "an unpinned rustfmt would fight CI")
+        calls = self.rustfmt_log.read_text().splitlines() if self.rustfmt_log.exists() else []
+        self.assertEqual(len(calls), 1, stderr)
+        self.assertTrue(calls[0].startswith("default --edition 2021 "), calls)
 
     def test_skip_variable_leaves_the_edit_alone(self):
         self.webviews()

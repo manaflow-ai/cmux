@@ -219,7 +219,7 @@ class InstallGitHooksTests(unittest.TestCase):
     # Formatters at the commit boundary: the hook formats staged Rust in every
     # Cargo package (not only cmux-tui), and a missing formatter stops an agent's
     # commit instead of skipping silently.
-    AGENT_VARS = ("CMUX_AGENT", "CMUX_REQUIRE_FORMATTERS", "CI", "CLAUDECODE", "CODEX_CI", "CODEX_THREAD_ID", "CODEX_SANDBOX")
+    AGENT_VARS = ("CMUX_AGENT", "CMUX_REQUIRE_FORMATTERS", "CI", "CLAUDECODE", "CODEX_CI", "CODEX_THREAD_ID", "CODEX_SANDBOX", "CMUX_SKIP_FORMAT_HOOKS")
 
     def formatter_env(self, with_rustfmt, **extra):
         """Only the tools the hook needs on PATH, plus a recording rustfmt."""
@@ -287,6 +287,92 @@ class InstallGitHooksTests(unittest.TestCase):
         person = self.run_pre_commit(self.formatter_env(with_rustfmt=False))
         self.assertEqual(person.returncode, 0, person.stderr)
         self.assertIn("rustfmt is unavailable", person.stderr)
+
+    # A recording vp: logs "cwd<TAB>args" and replaces each file argument's text.
+    FAKE_VP = """#!/bin/sh
+printf '%s\\t%s\\n' "$(pwd)" "$*" >> "$FAKE_VP_LOG"
+for arg in "$@"; do
+    case "$arg" in fmt|-*) ;; *) printf 'formatted\\n' > "$arg" ;; esac
+done
+"""
+
+    def stage_web_file(self, package, relative="src/app.ts", text="const   x=1\n"):
+        directory = self.repo / package
+        vp = directory / "node_modules/.bin/vp"
+        vp.parent.mkdir(parents=True, exist_ok=True)
+        vp.write_text(self.FAKE_VP)
+        vp.chmod(0o755)
+        path = directory / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text)
+        self.git("add", f"{package}/{relative}")
+        return path
+
+    def test_pre_commit_formats_staged_files_of_each_vite_plus_package_with_its_vp(self):
+        self.assertEqual(self.install().returncode, 0)
+        vp_log = self.root / "vp.log"
+        for package in ("webviews", "cmux-tui/frontends/web"):
+            with self.subTest(package=package):
+                vp_log.unlink(missing_ok=True)
+                self.stage_web_file(package)
+                result = self.run_pre_commit(self.formatter_env(with_rustfmt=False, FAKE_VP_LOG=str(vp_log)))
+                self.assertEqual(result.returncode, 0, result.stderr)
+                runs = vp_log.read_text().splitlines() if vp_log.exists() else []
+                self.assertEqual(len(runs), 1, result.stderr)
+                cwd, args = runs[0].split("\t")
+                self.assertEqual(Path(cwd).resolve(), (self.repo / package).resolve())
+                self.assertEqual(args.split()[-1], "src/app.ts")
+                staged = self.git("show", f":{package}/src/app.ts").stdout
+                self.assertEqual(staged, "formatted\n", "the formatted file is restaged")
+
+    def test_skip_variable_commits_without_formatting(self):
+        self.assertEqual(self.install().returncode, 0)
+        vp_log = self.root / "vp.log"
+        self.stage_web_file("webviews")
+        self.stage_rust_package("Native/OptChat/probe", "2021")
+        result = self.run_pre_commit(self.formatter_env(
+            with_rustfmt=True, FAKE_VP_LOG=str(vp_log), CMUX_AGENT="1", CMUX_SKIP_FORMAT_HOOKS="1"))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("CMUX_SKIP_FORMAT_HOOKS", result.stderr)
+        self.assertFalse(vp_log.exists())
+        self.assertFalse(self.rustfmt_log.exists())
+
+    def fake_rustup(self, bin_dir, installed, pinned):
+        rustup = bin_dir / "rustup"
+        rustup.write_text(
+            "#!/bin/sh\n"
+            f'if [ "$1 $2 $3 $4" = "which --toolchain {installed} rustfmt" ]; then echo {shlex.quote(str(pinned))}; exit 0; fi\n'
+            "exit 1\n")
+        rustup.chmod(0o755)
+
+    def test_pre_commit_uses_the_rustfmt_of_the_pinned_toolchain(self):
+        self.assertEqual(self.install().returncode, 0)
+        source = self.stage_rust_package("cmux-tui", "2021")
+        (self.repo / "cmux-tui/rust-toolchain.toml").write_text('[toolchain]\nchannel = "1.95.0"\n')
+        env = self.formatter_env(with_rustfmt=True)
+        pinned = self.root / "pinned-rustfmt"
+        pinned.write_text(f'#!/bin/sh\nprintf "pinned %s\\n" "$*" >> {shlex.quote(str(self.rustfmt_log))}\n')
+        pinned.chmod(0o755)
+        self.fake_rustup(self.root / "bin-rustfmt", "1.95.0", pinned)
+        result = self.run_pre_commit(env)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        calls = self.rustfmt_log.read_text().splitlines()
+        self.assertEqual(len(calls), 1, calls)
+        self.assertTrue(calls[0].startswith("pinned --edition 2021 "), calls)
+        self.assertTrue(calls[0].endswith(str(source.resolve())), calls)
+
+    def test_a_missing_pinned_toolchain_falls_back_to_path_rustfmt_with_a_warning(self):
+        # rustfmt keeps a stable style across versions, so formatting with the
+        # PATH rustfmt beats committing unformatted code.
+        self.assertEqual(self.install().returncode, 0)
+        self.stage_rust_package("cmux-tui", "2021")
+        (self.repo / "cmux-tui/rust-toolchain.toml").write_text('[toolchain]\nchannel = "1.95.0"\n')
+        env = self.formatter_env(with_rustfmt=True, CMUX_AGENT="1")
+        self.fake_rustup(self.root / "bin-rustfmt", "1.99.0", "/nonexistent")
+        result = self.run_pre_commit(env)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("rustup toolchain install 1.95.0", result.stderr)
+        self.assertEqual(len(self.rustfmt_log.read_text().splitlines()), 1)
 
     def test_merge_driver_does_not_follow_checked_out_script_changes(self):
         result = self.install()
