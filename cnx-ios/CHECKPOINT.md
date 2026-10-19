@@ -1,3 +1,25 @@
+# cnx-ios checkpoint — 2026-10-19 (latest; older entries below)
+
+Branch `feat-cnx-ios` (integration), head `3d125593` plus this note. Checkpoint branch:
+`feat-cnx-ios-checkpoint-20261019`. Not a state we're satisfied with; it goes to cmux INTERNAL
+so the team can dogfood it.
+
+| Piece | State | Where |
+| --- | --- | --- |
+| iOS app | Production build `3d125593` on the user's phone (2026-10-16) | `~/cnx-ios-builds/20261016-3d1255930b-prod/` |
+| Mac app | Integrated build `6b2ed0bb` (Codex from phone, browser host, terminal daemon fixes, Codex hook fix) | `~/cnx-ios-builds/20261015-6b2ed0bb5d-mac-prod/`, branch `feat-cnx-ios-macnext`, notes `cnx-ios/verify/mac-build.md` |
+| Prod backend | `https://cnx-ios-api.cmux.dev` Worker 0.8.0, prod Stack only | `cnx-ios/backend` |
+| Parity | Rounds 1–3 done; table and gaps | `cnx-ios/verify/parity-mac.md` |
+| Terminal | Gate `verify/design/terminal/ACCEPTANCE.md` NOT passed; latest verifier REJECT (round 11); round-12 fixes (tab close confirm, N3 cursor row, N1 prune black, A6, N5) merged but not re-verified | `verify/design/terminal/qa-round-12.md`, `VERIFY-round11.md` |
+| Open PRs (not merged) | #20757 Codex hooks (main, green), #20770 port to cmux-next, #20809 attach sizing (cmux-next) | GitHub |
+| Overnight summary and pending decisions | | `cnx-ios/verify/MORNING-2026-10-15.md` |
+
+Known open terminal items: Jump-to-bottom pill on the first frame (N4), active-card cut (N6),
+review items A3/A4/A5/A7, timing rows never measured under acceptable load, 60-minute sessions.
+
+TestFlight (cmux INTERNAL, `dev.cmux.app.internal`, app 6791408425): blocked only on a
+distribution signing identity; prod backend live; ASC key `cmux-shared Team Key` validates.
+
 # cnx-ios checkpoint — 2026-10-13 ~21:50 PT
 
 Branch `feat-cnx-ios` (integration). Checkpoint branch: `feat-cnx-ios-checkpoint-20261013`.
