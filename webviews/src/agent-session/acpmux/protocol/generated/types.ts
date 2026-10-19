@@ -51,7 +51,13 @@ export type Enforcement = {
   policy: string;
 } & Record<string, unknown>;
 
+export interface HarnessUpdatePlanParams {
+  cli: string;
+}
+
 export type Indicator = "input" | "working" | "failed" | "lost" | "done";
+
+export type InventoryRefreshParams = Record<string, never>;
 
 export interface InventoryWatchParams {
   enabled: boolean;
