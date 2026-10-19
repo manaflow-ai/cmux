@@ -125,7 +125,7 @@ public final class BookmarksBarView: NSView {
                                   width: max(0, bounds.width - 2 * inset - otherWidth - Metrics.space4), height: labelHeight)
     }
 
-    public override var wantsUpdateLayer: Bool { true }
+    nonisolated public override var wantsUpdateLayer: Bool { true }
 
     public override func updateLayer() {
         performWithTheme {

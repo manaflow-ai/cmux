@@ -138,8 +138,9 @@ fn shutdown_daemon_end_terminals_keep_layout_keeps_tabs_across_restart() {
             }
         }
     }
-    // A frontend restarts a kept tab by opening a new tab next to it and
-    // closing the dead one, which has no runtime surface after the restart.
+    // A kept tab closes although it has no runtime surface after the
+    // restart, and a new tab carries no relaunch record. (A frontend
+    // restarts a kept tab in place with `restart-tab`, tab_restart.rs e.)
     let kept_surface = after["screens"][0]["panes"][1]["tabs"][0]["surface"].as_u64().unwrap();
     let pane = after["screens"][0]["panes"][1]["id"].as_u64().unwrap();
     request(&harness.socket, serde_json::json!({"id": 13, "cmd": "new-tab", "pane": pane}));
