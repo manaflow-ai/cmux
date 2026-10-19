@@ -175,6 +175,35 @@ private final class CallCounter: @unchecked Sendable {
         #expect(!driver.relaunchGate.isWaiting)
     }
 
+    @Test func aMenuInstallWithTheIdlePolicyOnIsAUserInstall() {
+        let controller = UpdateController(
+            log: NoopUpdateLog(),
+            clock: clock,
+            isDevLikeBundle: false,
+            updaterFactory: { _, _ in FakeUpdater() }
+        )
+        controller.actionDelegate = host
+        controller.installsUpdatesInBackground = true
+        controller.installsUpdatesWhenIdle = true
+
+        controller.attemptUpdate()
+        controller.driver.showReady(toInstallAndRelaunch: { _ in })
+        host.blockers = Self.clickTimeBlockers
+
+        #expect(!controller.driver.handleShouldPostponeRelaunch(installHandler: {}))
+        #expect(!controller.driver.relaunchGate.isWaiting)
+    }
+
+    @Test func aFinishedCycleSpendsAnUnusedAutomaticMark() {
+        let driver = makeDriver()
+        stageWithIdlePolicy(driver)
+        #expect(driver.relaunchIsAutomatic)
+
+        driver.handleDidFinishUpdateCycle(.updates, error: nil)
+
+        #expect(!driver.relaunchIsAutomatic)
+    }
+
     @Test func waitsForBusyAgentsThenRelaunches() async {
         let driver = makeDriver()
         let installs = CallCounter()
