@@ -75,7 +75,7 @@ describe("migration 0009", () => {
 
   it("the schema gate names the column when 0009 was not applied", async () => {
     const old = new PGlite();
-    for (const migration of [...BEFORE, creationReceipts, creationReceiptIndex, overlayPolicy, overlayServers]) await old.exec(migration);
+    for (const migration of [...BEFORE, creationReceipts, creationReceiptIndex, overlayPolicy, overlayServers, overlayServerCodes]) await old.exec(migration);
     expect(await Effect.runPromise(Effect.provide(checkSchema, sqlOver(old)))).toEqual(["cmux_vm.mesh_devices.public_ipv6: missing"]);
   });
 

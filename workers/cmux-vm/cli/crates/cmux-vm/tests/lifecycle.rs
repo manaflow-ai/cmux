@@ -87,6 +87,53 @@ async fn approved_server_codes_redeem_without_account_configuration_or_headers()
 }
 
 #[tokio::test]
+async fn signed_server_codes_do_not_follow_redirects_or_echo_invalid_files() {
+    let server = MockServer::start().await;
+    let destination = MockServer::start().await;
+    let mesh = "mesh_00000000000000000000000000";
+    let code = "msc_00000000000000000000000000";
+    let request = json!({"code":code,"name":"server","wgPublicKey":"dGVzdC1kZXZpY2UtcHVibGljLWtleS0wMDAwMDAwMDE=","installPublicKey":"BGD+1LolWp0xyWHrdMY1bWjASbiSO2H6bOZpYi5g8p+2eQP+EAi4vJmkGunpVii8ZPLxsgwtfp9Rd6PClNRGIpk=","signedAt":1792370000000_i64,"nonce":"AAECAwQFBgcICQoLDA0ODw","signature":"A".repeat(86)+"=="});
+    let dir =
+        std::env::temp_dir().join(format!("cmux-server-code-redirect-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("signed.json");
+    std::fs::write(&file, serde_json::to_vec(&request).unwrap()).unwrap();
+    Mock::given(method("POST"))
+        .and(path(format!(
+            "/v1/meshes/{mesh}/overlay-server-enrollments"
+        )))
+        .respond_with(
+            ResponseTemplate::new(307)
+                .insert_header("Location", format!("{}/leak", destination.uri())),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+    let uri = server.uri();
+    let args = [
+        "--json",
+        "device",
+        "redeem-server-code",
+        mesh,
+        "--request",
+        file.to_str().unwrap(),
+    ];
+    let output = cli_with_env(&args, &[("CMUX_VM_BASE_URL", uri.as_str())]).await;
+    assert_ne!(output.code, exit::OK);
+    assert!(destination.received_requests().await.unwrap().is_empty());
+    std::fs::write(&file, format!("{code} privateKey invalid-json")).unwrap();
+    let output = cli_with_env(&args, &[("CMUX_VM_BASE_URL", uri.as_str())]).await;
+    assert_eq!(output.code, exit::USAGE);
+    assert!(!output.stderr.contains(code));
+    assert!(!output.stderr.contains("privateKey"));
+    std::fs::write(&file, "x".repeat(16_385)).unwrap();
+    let output = cli_with_env(&args, &[("CMUX_VM_BASE_URL", uri.as_str())]).await;
+    assert_eq!(output.code, exit::USAGE);
+    assert!(output.stderr.contains("16 KiB"));
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[tokio::test]
 async fn provider_free_server_enrollment_and_policy_use_their_own_routes() {
     let server = MockServer::start().await;
     let mesh = "mesh_00000000000000000000000000";
