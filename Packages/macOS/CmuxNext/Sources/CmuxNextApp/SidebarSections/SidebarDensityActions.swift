@@ -29,7 +29,22 @@ enum SidebarDensityActions {
             }
             ActionTargetVisibility.hide(id, in: registry) { _ in current() == value }
         }
-        // The session tree's Keep Rows in Place / Move Sessions That Need You to Top: this window's own choice (`sidebar.rowOrder`).
-        for (id, order) in [("sidebar.rowOrder.stable", SidebarRowOrder.stable), ("sidebar.rowOrder.attention", .attention)] as [(ActionID, SidebarRowOrder)] { registry.bind(id, run: { invocation in let sidebar = try context.window(invocation).sidebar; sidebar.model.rowOrder = order; sidebar.rows.show() }); ActionTargetVisibility.hide(id, in: registry) { invocation in !context.design.sidebarSections.sessionTree || (try? context.window(invocation))?.sidebar.model.resolvedRowOrder == order } }
+        // The session tree's Keep Rows in Place / Move Sessions That Need You to Top: this window's own choice
+        // (`sidebar.rowOrder`). Off with the tree in every surface (palette, CLI, MCP), not only the menu.
+        let orders: [(ActionID, SidebarRowOrder)] = [("sidebar.rowOrder.stable", .stable), ("sidebar.rowOrder.attention", .attention)]
+        for (id, order) in orders {
+            registry.bind(id, isEnabled: { context.design.sidebarSections.sessionTree }, invoke: { [weak registry] invocation in
+                do {
+                    let sidebar = try context.window(invocation).sidebar
+                    sidebar.model.rowOrder = order
+                    sidebar.rows.show()
+                } catch {
+                    registry?.refuse(RefusalStrings.describe(error))
+                }
+            })
+            ActionTargetVisibility.hide(id, in: registry) { invocation in
+                !context.design.sidebarSections.sessionTree || (try? context.window(invocation))?.sidebar.model.resolvedRowOrder == order
+            }
+        }
     }
 }
