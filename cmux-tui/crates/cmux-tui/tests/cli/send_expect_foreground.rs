@@ -64,8 +64,7 @@ fn a_reply_for_an_exited_program_never_reaches_the_shell() {
     let server = HeadlessServer::start("send-expect-foreground-exited");
     let (terminal, surface) = terminal(&server);
     send(&server, surface, "sleep 1000\n");
-    let program =
-        wait_for_foreground(&server, surface, "sleep", |name| name.ends_with("sleep"));
+    let program = wait_for_foreground(&server, surface, "sleep", |name| name.ends_with("sleep"));
     // The program exits: its shell is the foreground again.
     send(&server, surface, "\u{3}");
     wait_for_foreground(&server, surface, "the shell", |name| !name.ends_with("sleep"));

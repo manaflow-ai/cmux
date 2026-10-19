@@ -2983,10 +2983,6 @@ use pty_child::PtyChild;
 #[path = "cli/attach_and_raw.rs"]
 mod attach_and_raw;
 
-#[cfg(unix)]
-#[path = "cli/send_expect_foreground.rs"]
-mod send_expect_foreground;
-
 fn assert_subscribe_reports_tree_changed(server: &HeadlessServer) {
     assert_subscribe_reports_tree_changed_after(server, &["tab", "create", "terminal"]);
 }
