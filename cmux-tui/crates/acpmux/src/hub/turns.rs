@@ -1,5 +1,6 @@
 //! Part of `Hub`; see `hub/mod.rs`.
 
+use super::exit_reason::explains_exit;
 use super::*;
 use std::sync::atomic::Ordering;
 
@@ -505,10 +506,8 @@ impl Hub {
             if bare {
                 let tail: Vec<String> =
                     session.stderr_tail.lock().unwrap().iter().cloned().collect();
-                // The last stderr line that is not a stack frame or a wrapper tag.
-                if let Some(last) = tail.iter().rev().map(|l| l.trim()).find(|l| {
-                    !l.is_empty() && !l.starts_with("at ") && !l.starts_with("[SYSTEM_ERROR]")
-                }) {
+                // The last stderr line that says why: not a stack frame, a wrapper tag or a wrapper exit line.
+                if let Some(last) = tail.iter().rev().map(|l| l.trim()).find(|l| explains_exit(l)) {
                     let agent = session.meta().harness;
                     e.message = format!("{} ({agent}): {last}", e.message);
                 }
@@ -783,9 +782,9 @@ impl Hub {
                 if e.message == "agent process closed" {
                     let tail: Vec<String> =
                         session.stderr_tail.lock().unwrap().iter().cloned().collect();
-                    if let Some(last) = tail.iter().rev().map(|l| l.trim()).find(|l| {
-                        !l.is_empty() && !l.starts_with("at ") && !l.starts_with("[SYSTEM_ERROR]")
-                    }) {
+                    if let Some(last) =
+                        tail.iter().rev().map(|l| l.trim()).find(|l| explains_exit(l))
+                    {
                         e.message =
                             format!("agent process closed ({}): {last}", session.meta().harness);
                     }

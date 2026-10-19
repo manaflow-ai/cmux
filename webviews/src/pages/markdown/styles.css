@@ -203,7 +203,8 @@ body {
   margin: 0 auto;
   padding: var(--cmux-md-page-padding) var(--cmux-md-page-padding) calc(var(--cmux-md-page-padding) * 3);
   font-family: var(--cmux-md-font-family);
-  font-size: var(--cmux-md-font-size);
+  /* `--cmux-md-zoom`: the viewer's Cmd-= / Cmd-- size over the default (fontZoom.ts). */
+  font-size: calc(var(--cmux-md-font-size) * var(--cmux-md-zoom, 1));
   font-weight: var(--cmux-md-font-weight);
   line-height: var(--cmux-md-line-height);
 }
@@ -222,7 +223,7 @@ body {
   color: var(--cmux-md-text-color);
   caret-color: var(--cmux-md-caret-color);
   font-family: var(--cmux-md-code-font-family);
-  font-size: var(--cmux-md-code-block-size);
+  font-size: calc(var(--cmux-md-code-block-size) * var(--cmux-md-zoom, 1));
   line-height: var(--cmux-md-code-line-height);
   tab-size: 4;
 }
@@ -396,7 +397,7 @@ body {
   padding: 0;
   background: transparent;
   font-family: var(--cmux-md-code-font-family);
-  font-size: var(--cmux-md-code-block-size);
+  font-size: calc(var(--cmux-md-code-block-size) * var(--cmux-md-zoom, 1));
   line-height: var(--cmux-md-code-line-height);
 }
 
@@ -472,7 +473,7 @@ body {
   padding: 0;
   background: transparent;
   font-family: var(--cmux-md-code-font-family);
-  font-size: var(--cmux-md-code-block-size);
+  font-size: calc(var(--cmux-md-code-block-size) * var(--cmux-md-zoom, 1));
   line-height: var(--cmux-md-code-line-height);
   color: var(--cmux-md-muted-color);
 }
