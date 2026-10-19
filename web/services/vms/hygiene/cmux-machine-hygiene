@@ -21,13 +21,18 @@
 # Usage: cmux-machine-hygiene [--apply] --home DIR --root DIR [--root DIR]...
 #          [--tmp-dir DIR] [--min-age-days N] [--log-age-days N]
 #          [--pressure-pct N] [--only CATEGORY]... [--skip CATEGORY]...
+#          [--include docker]
 # Categories: interrupted project-artifacts package-caches agent-logs
-#             temp-files git-worktrees docker
-# Home must be /root, /var/root, /home/NAME or /Users/NAME; roots lie inside
-# home; the temp directory is /tmp, /var/tmp (or their /private forms), the
-# user's macOS $TMPDIR, or ~/.cache/tmp.
+#             temp-files git-worktrees; docker only with --include docker
+#             (a Docker prune affects the whole machine, not just one home),
+#             and never under CMUX_HYGIENE_SANDBOX.
+# It never runs as root. Home must be /home/NAME or /Users/NAME; roots lie
+# inside home; the temp directory is /tmp, /var/tmp (or their /private
+# forms), the user's macOS $TMPDIR, or ~/.cache/tmp. Only one --apply run per
+# user at a time.
 # Output: one JSON object on stdout. Exit 0 on success, 2 on bad usage, 3 when
-# a home, root or temp directory is unsafe.
+# a home, root or temp directory is unsafe or the user is root, 4 when
+# another --apply run holds the lock.
 #
 # Shipped to machines through exec (images do not bake it yet), so keep it
 # self-contained, well under the provider's 64 KiB command limit, runnable
@@ -46,10 +51,12 @@ pressure_pct=85
 roots=()
 only=""
 skip=""
+include=""
 
 usage() {
   echo "usage: cmux-machine-hygiene [--apply] --home DIR --root DIR... [--tmp-dir DIR]" >&2
   echo "         [--min-age-days N] [--log-age-days N] [--pressure-pct N] [--only C]... [--skip C]..." >&2
+  echo "         [--include docker]" >&2
   exit 2
 }
 
@@ -65,6 +72,7 @@ while [ $# -gt 0 ]; do
     --pressure-pct) shift; pressure_pct="${1:-}" ;;
     --only) shift; only="$only ${1:-} " ;;
     --skip) shift; skip="$skip ${1:-} " ;;
+    --include) shift; include="$include ${1:-} " ;;
     -h|--help) usage ;;
     *) echo "unknown argument: $1" >&2; usage ;;
   esac
@@ -72,6 +80,7 @@ while [ $# -gt 0 ]; do
 done
 
 case "$min_age_days$log_age_days$pressure_pct" in *[!0-9]*|"") echo "ages and percentages must be whole numbers" >&2; exit 2 ;; esac
+if [ "$(id -u)" = 0 ]; then echo "refusing to run as root" >&2; exit 3; fi
 if [ "$mode" = apply ] && { [ "$home_given" = 0 ] || [ ${#roots[@]} -eq 0 ]; }; then
   echo "--apply needs an explicit --home and at least one --root" >&2; exit 2
 fi
@@ -119,7 +128,6 @@ else
   is_temp_dir "$tmp_dir" || [ "$tmp_dir" = "$home_dir/.cache/tmp" ] || unsafe tmp-dir "$tmp_dir"
   # Home is a real user's home, exactly.
   case "$home_dir" in
-    /root|/var/root) ;;
     /home/*/*|/Users/*/*) unsafe home "$home_dir" ;;
     /home/?*|/Users/?*) ;;
     *) unsafe home "$home_dir" ;;
@@ -141,6 +149,11 @@ roots=("${resolved_roots[@]}")
 enabled() {
   local category="$1"
   case "$skip" in *" $category "*) return 1 ;; esac
+  # Docker is opt-in, and never runs under the test sandbox.
+  if [ "$category" = docker ]; then
+    case "$include" in *" docker "*) ;; *) return 1 ;; esac
+    [ -z "$sandbox" ] || { add_item docker docker 0 skipped sandbox; return 1; }
+  fi
   [ -z "$only" ] && return 0
   case "$only" in *" $category "*) return 0 ;; esac
   return 1
@@ -157,7 +170,23 @@ agent_homes=("$home_dir/.claude" "$home_dir/.codex" "$home_dir/.opencode" "$home
 agent_log_dirs=("$home_dir/.claude/debug" "$home_dir/.codex/log" "$home_dir/.npm/_logs")
 
 state_dir="$(mktemp -d "${tmp_dir}/.cmux-hygiene-state.XXXXXX")" || exit 1
-trap 'rm -rf "$state_dir"' EXIT
+lock_dir=""
+trap 'rm -rf "$state_dir"; [ -z "$lock_dir" ] || rm -rf "$lock_dir"' EXIT
+
+# One --apply run per user at a time; a lock whose process is gone is taken over.
+if [ "$mode" = apply ]; then
+  lock="$tmp_dir/.cmux-hygiene-$(id -u).lock"
+  if ! mkdir "$lock" 2>/dev/null; then
+    holder="$(cat "$lock/pid" 2>/dev/null)"
+    if [ -n "$holder" ] && kill -0 "$holder" 2>/dev/null; then
+      echo "another cmux-machine-hygiene --apply is running (pid $holder)" >&2; exit 4
+    fi
+    rm -rf "$lock"
+    mkdir "$lock" 2>/dev/null || { echo "another cmux-machine-hygiene --apply is starting" >&2; exit 4; }
+  fi
+  lock_dir="$lock"
+  echo $$ > "$lock/pid"
+fi
 in_use_file="$state_dir/in-use"
 mounts_file="$state_dir/mounts"
 
@@ -169,21 +198,6 @@ if rm -rf --one-file-system -- "$state_dir/probe" 2>/dev/null; then
   rm_flags="-rf --one-file-system"
 elif rm -rfx -- "$state_dir/probe" 2>/dev/null; then
   rm_flags="-rfx"
-fi
-
-# Paths running processes hold open, run from or work in, collected once:
-# /proc on Linux, lsof elsewhere. With neither, nothing counts as idle.
-in_use_evidence=1
-if [ -d /proc/self/fd ]; then
-  for pid_dir in /proc/[0-9]*; do
-    readlink "$pid_dir/cwd" 2>/dev/null
-    readlink "$pid_dir/exe" 2>/dev/null
-    for fd in "$pid_dir"/fd/*; do readlink "$fd" 2>/dev/null; done
-  done | grep '^/' | sort -u > "$in_use_file"
-elif command -v lsof >/dev/null 2>&1; then
-  lsof -n -F n 2>/dev/null | sed -n 's/^n//p' | grep '^/' | sort -u > "$in_use_file"
-else
-  in_use_evidence=0; : > "$in_use_file"
 fi
 
 # Mount points other than /, from `mount`: Linux "SRC on X type T (opts)" or
@@ -233,6 +247,22 @@ done < "$mounts_file"
 if [ -n "$sandbox" ]; then
   [ "$mount_evidence" = 1 ] || unsafe sandbox "$sandbox (no mount evidence)"
   grep -q -F -x -e "$sandbox" "$mounts_file" && unsafe sandbox "$sandbox (mount point)"
+fi
+
+# Paths running processes hold open, run from or work in, collected once
+# (after the cheap mount and sandbox checks, so a refused run exits fast):
+# /proc on Linux, lsof elsewhere. With neither, nothing counts as idle.
+in_use_evidence=1
+if [ -d /proc/self/fd ]; then
+  for pid_dir in /proc/[0-9]*; do
+    readlink "$pid_dir/cwd" 2>/dev/null
+    readlink "$pid_dir/exe" 2>/dev/null
+    for fd in "$pid_dir"/fd/*; do readlink "$fd" 2>/dev/null; done
+  done | grep '^/' | sort -u > "$in_use_file"
+elif command -v lsof >/dev/null 2>&1; then
+  lsof -n -F n 2>/dev/null | sed -n 's/^n//p' | grep '^/' | sort -u > "$in_use_file"
+else
+  in_use_evidence=0; : > "$in_use_file"
 fi
 
 # True when a listed path equals the path or lies under it. The path goes
