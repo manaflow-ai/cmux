@@ -213,9 +213,7 @@ impl ChildAgent {
         let mut cmd = harness_command(name, profile, cwd, command_line, session)?;
         #[cfg(windows)]
         cmd.creation_flags(crate::job::AGENT_FLAGS);
-        let mut child = cmd
-            .spawn()
-            .with_context(|| format!("spawn agent {name}: {}", profile.argv.join(" ")))?;
+        let mut child = cmd.spawn().with_context(|| format!("spawn agent {name}"))?;
         #[cfg(windows)]
         let job = {
             let contained = child
