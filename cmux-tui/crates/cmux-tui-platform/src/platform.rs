@@ -1368,5 +1368,8 @@ fn restrict_permissions(_path: &Path, _mode: u32) -> std::io::Result<()> {
     Ok(())
 }
 
+mod job_launch;
+pub use job_launch::{JobLaunch, foreground_job_launch};
+
 #[cfg(test)]
 mod tests;

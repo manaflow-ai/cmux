@@ -27,7 +27,9 @@
 //!   history: reopen never runs a command again, so it has no use there.
 //! - `env`: values of the named keys in [`ENV_KEYS`] only, minus any key that
 //!   names a secret ([`names_secret`]).
-//! - `title`, `agent` (`{harness, session_id}`), `updated_at_ms`.
+//! - `title`, `agent` (`{harness, session_id, args?, env?}`: the session
+//!   the terminal's agent CLI runs, from its hooks, and how that CLI was
+//!   started, see [`agent_launch`]), `updated_at_ms`.
 //!
 //! Rows of tombstoned terminals are removed when the registry opens. A closed
 //! tab keeps its own copy in the closed history (`closed_fields`), so reopen
@@ -40,6 +42,12 @@ use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde_json::{Map, Value, json};
 
 use super::WorkspaceRegistry;
+
+mod agent_launch;
+pub(crate) use agent_launch::{
+    AGENT_JOB_ENV_KEYS, AgentLaunch, account_env_key, agent_launch_from_job, bypasses_approvals,
+    kept_agent_args,
+};
 
 /// The environment keys a relaunch record keeps, by exact name.
 ///
@@ -76,7 +84,8 @@ pub(crate) const ARGV_CAP: usize = 64 * 1024;
 /// Prefixes of well-known tokens (OpenAI and Anthropic `sk-`, GitHub,
 /// Slack `xox?-`). An argument or `name=value` value starting with one is
 /// never stored.
-const TOKEN_PREFIXES: &[&str] = &["sk-", "ghp_", "gho_", "ghs_", "ghu_", "github_pat_", "xox"];
+pub(crate) const TOKEN_PREFIXES: &[&str] =
+    &["sk-", "ghp_", "gho_", "ghs_", "ghu_", "github_pat_", "xox"];
 
 /// Shells whose argv may still be "the user's shell" with integration flags.
 const SHELLS: &[&str] = &["bash", "zsh", "fish", "nu", "elvish", "sh", "dash", "ksh", "tcsh"];
@@ -342,6 +351,8 @@ pub(crate) struct StoredRelaunch {
     pub env: Vec<(String, String)>,
     /// `(harness, session_id)` of the agent the terminal last ran.
     pub agent: Option<(String, String)>,
+    /// How that agent's CLI was started, when it was read at its session start.
+    pub agent_launch: Option<AgentLaunch>,
 }
 
 /// Whether `session_id` may be stored and offered to a resume command:
@@ -389,31 +400,51 @@ impl WorkspaceRegistry {
             .filter(|(key, _)| keeps_env_key(key))
             .filter_map(|(key, value)| value.as_str().map(|value| (key.clone(), value.into())))
             .collect();
-        let agent =
-            agent.and_then(|agent| serde_json::from_str::<Value>(&agent).ok()).and_then(|agent| {
-                let harness = agent["harness"].as_str()?.to_string();
-                let session_id = agent["session_id"].as_str()?.to_string();
-                resumable_session_id(&session_id).then_some((harness, session_id))
-            });
+        let agent = agent.and_then(|agent| serde_json::from_str::<Value>(&agent).ok());
+        let agent_launch = agent.as_ref().and_then(stored_agent_launch);
+        let agent = agent.and_then(|agent| {
+            let harness = agent["harness"].as_str()?.to_string();
+            let session_id = agent["session_id"].as_str()?.to_string();
+            resumable_session_id(&session_id).then_some((harness, session_id))
+        });
         let argv = argv
             .filter(|_| kind == RelaunchKind::Command)
             .and_then(|argv| serde_json::from_str::<Vec<String>>(&argv).ok())
             .and_then(|argv| stored_argv(&argv));
         let cwd = cwd.and_then(|cwd| absolute(&cwd));
-        Ok(Some(StoredRelaunch { cwd, kind, shell_path, program, argv, env, agent }))
+        let agent_launch = agent_launch.filter(|_| agent.is_some());
+        Ok(Some(StoredRelaunch { cwd, kind, shell_path, program, argv, env, agent, agent_launch }))
     }
 
     /// Record (`Some`) or forget (`None`) the agent session terminal
-    /// `terminal_public_id` runs, from its agent hooks. An id that is not
+    /// `terminal_public_id` runs, from its agent hooks, with how its CLI was
+    /// started when `launch` was read (its session start). Without one, a
+    /// launch already stored for the same session is kept. An id that is not
     /// resumable is never stored.
     pub(crate) fn record_terminal_relaunch_agent(
         &mut self,
         terminal_public_id: &str,
         agent: Option<(&str, &str)>,
+        launch: Option<&AgentLaunch>,
     ) -> anyhow::Result<()> {
         let agent = match agent {
             Some((harness, session_id)) if resumable_session_id(session_id) => {
-                Some(json!({"harness": harness, "session_id": session_id}).to_string())
+                let kept = match launch {
+                    Some(launch) => Some(launch.clone()),
+                    // A failed lookup costs only the stored launch, never the agent record.
+                    None => self
+                        .stored_agent_launch_of(terminal_public_id, harness, session_id)
+                        .ok()
+                        .flatten(),
+                };
+                let mut record = json!({"harness": harness, "session_id": session_id});
+                if let Some(launch) = kept {
+                    record["args"] = json!(launch.args);
+                    record["env"] = Value::Object(
+                        launch.env.into_iter().map(|(key, value)| (key, json!(value))).collect(),
+                    );
+                }
+                Some(record.to_string())
             }
             Some(_) => return Ok(()),
             None => None,
@@ -428,6 +459,53 @@ impl WorkspaceRegistry {
         )?;
         Ok(())
     }
+}
+
+impl WorkspaceRegistry {
+    /// The launch stored with `harness` session `session_id` of terminal
+    /// `terminal_public_id`, if that is the session its record names.
+    fn stored_agent_launch_of(
+        &self,
+        terminal_public_id: &str,
+        harness: &str,
+        session_id: &str,
+    ) -> anyhow::Result<Option<AgentLaunch>> {
+        let stored = self
+            .connection
+            .get()
+            .query_row(
+                "SELECT r.agent_json FROM terminal_relaunch r
+                 JOIN resource_terminals t ON t.terminal_id = r.terminal_id
+                 WHERE t.public_id = ?1 AND t.deleted_revision IS NULL",
+                [terminal_public_id],
+                |row| row.get::<_, Option<String>>(0),
+            )
+            .optional()?
+            .flatten()
+            .and_then(|agent| serde_json::from_str::<Value>(&agent).ok());
+        Ok(stored
+            .filter(|agent| agent["harness"] == harness && agent["session_id"] == session_id)
+            .as_ref()
+            .and_then(stored_agent_launch))
+    }
+}
+
+/// The launch in a stored agent record, filtered again as on write: its
+/// arguments only when none looks like a credential, its environment only the
+/// harness's account directory.
+fn stored_agent_launch(agent: &Value) -> Option<AgentLaunch> {
+    let harness = agent["harness"].as_str()?;
+    let args = agent.get("args")?.as_array()?;
+    let args =
+        args.iter().map(|arg| arg.as_str().map(str::to_string)).collect::<Option<Vec<_>>>()?;
+    let args = kept_agent_args(harness, &args);
+    let key = account_env_key(harness)?;
+    let env = agent["env"][key]
+        .as_str()
+        .filter(|dir| Path::new(dir).is_absolute() && !dir.chars().any(char::is_control))
+        .map(|dir| vec![(key.to_string(), dir.to_string())])
+        .unwrap_or_default();
+    Some(AgentLaunch { args, env })
 }
 
 /// The relaunch fields a closed tab keeps for the terminal `terminal_public_id`.

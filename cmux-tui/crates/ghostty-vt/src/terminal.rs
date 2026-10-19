@@ -1319,6 +1319,18 @@ impl Terminal {
     /// live cursor semantic, so the wrapper also retains OSC 133's current
     /// prompt phase across cursor movement and soft wrapping. Terminals without
     /// shell integration conservatively return false.
+    /// Whether shell integration itself marked the primary screen as at a
+    /// prompt (OSC 133 prompt or input), with no guess from cell contents.
+    pub fn prompt_is_marked(&self) -> bool {
+        self.active_screen() != Screen::Alternate
+            && matches!(
+                self.prompt_semantic.semantic(Screen::Primary),
+                PromptSemantic::Prompt
+                    | PromptSemantic::Input
+                    | PromptSemantic::InputUntilEndOfLine
+            )
+    }
+
     pub fn cursor_is_at_prompt(&self) -> bool {
         if self.active_screen() == Screen::Alternate {
             return false;

@@ -103,11 +103,7 @@ impl Mux {
         let env = record.map(|record| usable_env(&record.env)).unwrap_or_default();
         let (mut options, creation_cell_pixels) =
             self.terminal_spawn_options(cwd, None, size, &env);
-        let shell = record
-            .filter(|record| record.kind == RelaunchKind::Shell)
-            .and_then(|record| record.shell_path.clone())
-            .filter(|shell| Path::new(shell).is_file())
-            .unwrap_or_else(crate::platform::default_shell);
+        let shell = respawn_shell(record);
         let integrated = crate::shell_integration::integrate_default_shell(
             vec![shell],
             options.extra_env.clone(),
@@ -127,6 +123,16 @@ impl Mux {
             seed: respawn_seed(previous.map(|previous| previous.bytes), Some(&marker)),
         }
     }
+}
+
+/// The shell a respawn starts: the recorded shell of a shell terminal while
+/// it exists, else the platform's default shell.
+pub(in crate::mux) fn respawn_shell(record: Option<&StoredRelaunch>) -> String {
+    record
+        .filter(|record| record.kind == RelaunchKind::Shell)
+        .and_then(|record| record.shell_path.clone())
+        .filter(|shell| Path::new(shell).is_file())
+        .unwrap_or_else(crate::platform::default_shell)
 }
 
 /// The record's environment, without `TERM` and `TERMINFO` when the

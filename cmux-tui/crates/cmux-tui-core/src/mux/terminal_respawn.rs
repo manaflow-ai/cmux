@@ -24,8 +24,9 @@
 //! that typed end instead of a generic host loss.
 //!
 //! The launch and seed (`terminal_respawn/launch.rs`) and the pre-fill
-//! (`terminal_respawn/prefill.rs`): an agent resume command or the terminal's
-//! command line is typed on the new prompt without a newline. The manual
+//! (`terminal_respawn/prefill.rs`): an agent resume command, run on a marked
+//! prompt when its rules allow and typed otherwise, or the terminal's command
+//! line, typed on the new prompt without a newline. The manual
 //! restart of a tab this path leaves dead (`terminal_respawn/manual.rs`,
 //! `restart-tab`) runs the same worker.
 
