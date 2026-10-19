@@ -2105,6 +2105,32 @@ pre.cv-math-source {
 .acpmux-render-card-head .acpmux-review-changes {
   height: 24px;
 }
+/* A page from history, waiting for Run: the space it will take, one click target (Lucas 2026-10-19). */
+.acpmux-render-card-gate {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 112px;
+  border: 0;
+  background: transparent;
+  color: var(--agent-text);
+  font: inherit;
+  font-weight: 500;
+  cursor: default;
+}
+.acpmux-render-card-gate:hover { background: color-mix(in srgb, currentColor 5%, transparent); }
+.acpmux-render-card-gate:focus-visible { outline: 2px solid var(--agent-accent); outline-offset: -2px; }
+.acpmux-render-card-gate-icon {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--agent-accent);
+  color: var(--agent-on-accent, #fff);
+}
 .acpmux-render-card-title {
   flex: 1;
   min-width: 0;

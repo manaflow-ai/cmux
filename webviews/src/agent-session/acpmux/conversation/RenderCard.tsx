@@ -4,7 +4,7 @@ import { useContext, useEffect, useLayoutEffect, useRef, useState } from "react"
 import { translate, useT } from "../i18n";
 import { useLab } from "../labs";
 import { ArtifactContext, documentName } from "./artifactPreview";
-import { Expand } from "./icons";
+import { Expand, PlayTriangle } from "./icons";
 import { Dialog } from "../../../ui/Dialog";
 import { renderFrameCSS, embeddedFrameCSS } from "./renderBase";
 import { RENDER_FRAME_MIN_HEIGHT, type RenderCall } from "./renderCall";
@@ -286,11 +286,6 @@ export function RenderCard({
       {(!live || !running) && (
         <div className="acpmux-render-card-head">
           <span className="acpmux-render-card-title">{title}</span>
-          {!running && (
-            <button type="button" className="acpmux-review-changes" onClick={run}>
-              {t("render.run")}
-            </button>
-          )}
           {running && tall && (
             <button
               type="button"
@@ -301,7 +296,8 @@ export function RenderCard({
               {expanded ? t("render.collapse") : t("render.expand")}
             </button>
           )}
-          {open && !panel && (
+          {/* Only a page that runs opens larger: a waiting one would show its source (Lucas 2026-10-19). */}
+          {open && !panel && running && (
             <button
               type="button"
               className="cv-iconbtn cv-iconbtn--compact"
@@ -319,6 +315,16 @@ export function RenderCard({
             </button>
           )}
         </div>
+      )}
+      {!running && (
+        // A page from history waits for a click: one target where the page will show, not a small
+        // button in the title line (Lucas 2026-10-19).
+        <button type="button" className="acpmux-render-card-gate" onClick={run}>
+          <span className="acpmux-render-card-gate-icon" aria-hidden="true">
+            <PlayTriangle size={12} />
+          </span>
+          {t("render.run")}
+        </button>
       )}
       {running && !stopped && (
         <iframe
