@@ -123,8 +123,9 @@ pub(super) fn shape(rows: Value, terminals: &[Value], view: AgentRosterView, now
         let Some(object) = agent.as_object_mut() else { continue };
         object.insert("age_ms".into(), json!(age_ms));
         for field in ["title", "cwd"] {
-            if let Some(value) =
-                terminal.and_then(|terminal| terminal.get(field)).filter(|v| v.is_string())
+            if let Some(value) = terminal
+                .and_then(|terminal| terminal.get(field))
+                .filter(|v| v.as_str().is_some_and(|s| !s.is_empty()))
             {
                 object.insert(field.into(), value.clone());
             }
@@ -214,8 +215,14 @@ fn needs_me_rank(state: &str) -> u8 {
     }
 }
 
+/// The agent's state, `unknown` for a state the CLI does not know (a newer
+/// daemon's, or an `--all-sessions` error row), so every row is counted once.
 fn state_of(agent: &Value) -> &str {
-    agent.get("state").and_then(Value::as_str).unwrap_or("unknown")
+    agent
+        .get("state")
+        .and_then(Value::as_str)
+        .filter(|state| STATES.contains(state))
+        .unwrap_or("unknown")
 }
 
 fn id_of(agent: &Value) -> &str {
