@@ -6,7 +6,16 @@
 import type { ReactNode } from "react";
 import { StatusGlyph } from "../../ui/StatusGlyph";
 import type { StatusGlyphName } from "../../ui/statusGlyphs.generated";
-import { buildForest, childrenOf, descendants, HARNESS_LABEL, STATE_LABEL, type AgentNode, type AgentState, type Harness } from "./hierarchy";
+import {
+  buildForest,
+  childrenOf,
+  descendants,
+  HARNESS_LABEL,
+  STATE_LABEL,
+  type AgentNode,
+  type AgentState,
+  type Harness,
+} from "./hierarchy";
 
 export type Platform = "mac" | "iphone";
 
@@ -146,7 +155,14 @@ export function GlassCircle({
   return (
     <button type="button" className="sa-glass" aria-label={label} onClick={onClick}>
       <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true">
-        <path d={paths[glyph]} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+        <path
+          d={paths[glyph]}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
       </svg>
     </button>
   );
@@ -155,8 +171,22 @@ export function GlassCircle({
 /** A small chevron, rotated when open. */
 export function Chevron({ open }: { open: boolean }) {
   return (
-    <svg className="sa-chevron" data-open={open || undefined} viewBox="0 0 12 12" width="10" height="10" aria-hidden="true">
-      <path d="M4 2.5 7.5 6 4 9.5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    <svg
+      className="sa-chevron"
+      data-open={open || undefined}
+      viewBox="0 0 12 12"
+      width="10"
+      height="10"
+      aria-hidden="true"
+    >
+      <path
+        d="M4 2.5 7.5 6 4 9.5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </svg>
   );
 }

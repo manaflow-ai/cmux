@@ -32,9 +32,30 @@ export default componentEntry<SubagentSidebarProps>({
   widths: { narrow: 440, normal: 1280, wide: 1600 },
   options: [
     PLATFORM,
-    { id: "fanout", label: "Children", kind: "choice", choices: ["5", "12", "50", "80"], defaultValue: "12", numeric: true },
-    { id: "depth", label: "Depth", kind: "choice", choices: ["1", "2", "3", "4", "10", "12"], defaultValue: "4", numeric: true },
-    { id: "visibleColumns", label: "Columns", kind: "choice", choices: ["2", "3", "4"], defaultValue: "3", numeric: true },
+    {
+      id: "fanout",
+      label: "Children",
+      kind: "choice",
+      choices: ["5", "12", "50", "80"],
+      defaultValue: "12",
+      numeric: true,
+    },
+    {
+      id: "depth",
+      label: "Depth",
+      kind: "choice",
+      choices: ["1", "2", "3", "4", "10", "12"],
+      defaultValue: "4",
+      numeric: true,
+    },
+    {
+      id: "visibleColumns",
+      label: "Columns",
+      kind: "choice",
+      choices: ["2", "3", "4"],
+      defaultValue: "3",
+      numeric: true,
+    },
     {
       id: "groupBy",
       label: "Group by",
@@ -70,7 +91,10 @@ export default componentEntry<SubagentSidebarProps>({
       note: "The whole family flat, by status; Done folds by default.",
       props: { platform: "mac", layout: "grouped", groupBy: "status", fanout: 12, depth: 4 },
     },
-    "grouped-task": { note: "By task kind.", props: { platform: "mac", layout: "grouped", groupBy: "task", fanout: 12, depth: 4 } },
+    "grouped-task": {
+      note: "By task kind.",
+      props: { platform: "mac", layout: "grouped", groupBy: "task", fanout: 12, depth: 4 },
+    },
     "grouped-harness": {
       note: "By harness.",
       props: { platform: "mac", layout: "grouped", groupBy: "harness", fanout: 12, depth: 4 },

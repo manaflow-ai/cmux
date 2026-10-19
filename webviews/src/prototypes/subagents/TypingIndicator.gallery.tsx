@@ -48,10 +48,25 @@ export default componentEntry<TypingIndicatorProps>({
     },
   ],
   variants: {
-    dots: { note: "Three crisp dots, then the text itself.", props: { platform: "mac", design: "dots", phase: "waiting" } },
-    shimmer: { note: "cnx-ios WorkingLabel: the word shimmers; elapsed time from 5 s.", props: { platform: "mac", design: "shimmer", phase: "waiting" } },
-    bubble: { note: "Messages typing bubble (Chief on iPhone).", props: { platform: "iphone", design: "bubble", phase: "waiting" } },
-    caret: { note: "A block caret where the text will start; it rides the end while streaming.", props: { platform: "mac", design: "caret", phase: "streaming" } },
-    composer: { note: "Original: the state lives on the composer (with Stop), the transcript stays still.", props: { platform: "mac", design: "composer", phase: "streaming" } },
+    dots: {
+      note: "Three crisp dots, then the text itself.",
+      props: { platform: "mac", design: "dots", phase: "waiting" },
+    },
+    shimmer: {
+      note: "cnx-ios WorkingLabel: the word shimmers; elapsed time from 5 s.",
+      props: { platform: "mac", design: "shimmer", phase: "waiting" },
+    },
+    bubble: {
+      note: "Messages typing bubble (Chief on iPhone).",
+      props: { platform: "iphone", design: "bubble", phase: "waiting" },
+    },
+    caret: {
+      note: "A block caret where the text will start; it rides the end while streaming.",
+      props: { platform: "mac", design: "caret", phase: "streaming" },
+    },
+    composer: {
+      note: "Original: the state lives on the composer (with Stop), the transcript stays still.",
+      props: { platform: "mac", design: "composer", phase: "streaming" },
+    },
   },
 });

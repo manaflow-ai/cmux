@@ -132,7 +132,12 @@ export function ColumnsView({ nodes, platform, path, onSelect, header, visible }
         // Width counts open children (PROTOCOL.md): a finished child holds its slot until it is closed.
         const used = level.items.length;
         return (
-          <section key={level.parent?.id ?? "roots"} className="sa-column" data-platform={platform} aria-label={level.parent?.name ?? "Sessions"}>
+          <section
+            key={level.parent?.id ?? "roots"}
+            className="sa-column"
+            data-platform={platform}
+            aria-label={level.parent?.name ?? "Sessions"}
+          >
             <header className="sa-column-header">
               <span className="sa-column-title">{level.parent ? level.parent.name : "Sessions"}</span>
               <span className="sa-muted">
@@ -261,9 +266,17 @@ export function GroupedView({ nodes, platform, path, onSelect, header, groupBy }
   const byId = new Map(nodes.map((node) => [node.id, node]));
   const sections: { key: string; label: string; items: AgentNode[] }[] =
     groupBy === "status"
-      ? STATE_ORDER.map((state) => ({ key: state, label: STATE_LABEL[state], items: family.filter((node) => node.state === state) }))
+      ? STATE_ORDER.map((state) => ({
+          key: state,
+          label: STATE_LABEL[state],
+          items: family.filter((node) => node.state === state),
+        }))
       : groupBy === "task"
-        ? KIND_ORDER.map((kind) => ({ key: kind, label: KIND_LABEL[kind], items: family.filter((node) => node.kind === kind) }))
+        ? KIND_ORDER.map((kind) => ({
+            key: kind,
+            label: KIND_LABEL[kind],
+            items: family.filter((node) => node.kind === kind),
+          }))
         : HARNESS_ORDER.map((harness) => ({
             key: harness,
             label: HARNESS_LABEL[harness],
@@ -349,7 +362,8 @@ export function LanesView({ nodes, platform, path, onSelect, header }: ViewProps
       </div>
       {family.map((node) => {
         const start = 1 - node.startedAgo / span;
-        const endAgo = node.state === "running" || node.state === "waiting" ? 0 : Math.max(0, node.startedAgo - node.elapsed);
+        const endAgo =
+          node.state === "running" || node.state === "waiting" ? 0 : Math.max(0, node.startedAgo - node.elapsed);
         const end = 1 - endAgo / span;
         return (
           <button
@@ -366,7 +380,10 @@ export function LanesView({ nodes, platform, path, onSelect, header }: ViewProps
               <span className="sa-lane-name">{node.name}</span>
             </span>
             <span className="sa-lane-track">
-              <span className="sa-lane-bar" style={{ left: `${start * 100}%`, width: `${Math.max(1.5, (end - start) * 100)}%` }} />
+              <span
+                className="sa-lane-bar"
+                style={{ left: `${start * 100}%`, width: `${Math.max(1.5, (end - start) * 100)}%` }}
+              />
             </span>
           </button>
         );
@@ -392,7 +409,12 @@ export function StackView({ nodes, platform, path, onSelect, header }: ViewProps
         {path.slice(0, -1).map((node, index) => (
           <span key={node.id} className="sa-crumb-step">
             <span className="sa-muted">›</span>
-            <button type="button" className="sa-crumb" data-current={index + 1 === level || undefined} onClick={() => setLevel(index + 1)}>
+            <button
+              type="button"
+              className="sa-crumb"
+              data-current={index + 1 === level || undefined}
+              onClick={() => setLevel(index + 1)}
+            >
               {node.name}
             </button>
           </span>
@@ -486,7 +508,12 @@ export function DigestView({ nodes, platform, path, onSelect, header }: ViewProp
                 indent={18}
                 second={
                   <>
-                    <span className="sa-muted">{pathTo(nodes, node.id).slice(1, -1).map((step) => step.name).join(" › ") || root.name}</span>
+                    <span className="sa-muted">
+                      {pathTo(nodes, node.id)
+                        .slice(1, -1)
+                        .map((step) => step.name)
+                        .join(" › ") || root.name}
+                    </span>
                   </>
                 }
               />
