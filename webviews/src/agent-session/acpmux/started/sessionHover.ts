@@ -1,47 +1,34 @@
-// What a session reference's hover card says (SessionHoverCard.tsx), the way Claude Code desktop's
-// PR list rows do: the title, then its state, the project and how long ago it last changed, and its
-// pull request's status and `repo #N`.
+// What a session reference's hover card says (SessionHoverCard.tsx), the way a row of Claude Code
+// desktop's PR list does: the title, then the status line (the status, then `· repo #N`).
 // The pane keeps it in one small store fed from the session list, so a chip in a reply reads the
 // session's current state when its card opens, and a reply never redraws because a session changed.
 import { useSyncExternalStore } from "react";
-import { type AcpmuxSessionEntry, listed, projectLabel } from "../sessionList";
+import { type AcpmuxSessionEntry, listed } from "../sessionList";
 import {
   MIN_TITLE_MENTION,
   type SessionMention,
+  type SessionStatus,
   type StartedPullRequests,
+  sessionStatus,
   startedPullRequests,
   startedState,
 } from "./startedSessions";
 
-/// The state: its turn runs, it waits on the person, it failed, it finished with nothing read yet,
-/// or it finished and was read.
-export type HoverState = "running" | "waiting" | "failed" | "unread" | "done";
-
 export type SessionHoverInfo = {
   sessionId: string;
   title: string;
-  state: HoverState;
-  /// The project folder's name (`projectLabel`), absent when acpmux names no folder.
-  project?: string;
-  updatedAt?: number;
-  /// Its pull requests, as its chat card names them (``startedPullRequests``).
+  /// What its status line leads with, as on a started chat's row (``sessionStatus``).
+  status: SessionStatus;
+  /// Its pull requests, as its row names them (``startedPullRequests``).
   pullRequests?: StartedPullRequests;
 };
-
-export function hoverState(entry: AcpmuxSessionEntry): HoverState {
-  const state = startedState(entry);
-  if (state !== "idle") return state;
-  return entry.unread ? "unread" : "done";
-}
 
 export function hoverInfo(entry: AcpmuxSessionEntry): SessionHoverInfo {
   const pullRequests = startedPullRequests(entry);
   return {
     sessionId: entry.sessionId,
     title: entry.displayTitle || entry.title || entry.sessionId,
-    state: hoverState(entry),
-    ...(entry.cwd ? { project: projectLabel(entry.cwd) } : {}),
-    ...(entry.updatedAt !== undefined ? { updatedAt: entry.updatedAt } : {}),
+    status: sessionStatus(startedState(entry), entry.unread, pullRequests),
     ...(pullRequests ? { pullRequests } : {}),
   };
 }

@@ -6,7 +6,12 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { JSDOM } from "jsdom";
 import { sessionEntry } from "../src/agent-session/acpmux/sessionList";
-import { MIN_ID_MENTION, SessionHoverStore, hoverInfo, withSessionIds } from "../src/agent-session/acpmux/started/sessionHover";
+import {
+  MIN_ID_MENTION,
+  SessionHoverStore,
+  hoverInfo,
+  withSessionIds,
+} from "../src/agent-session/acpmux/started/sessionHover";
 import { SessionHoverContent, hoverCardSide } from "../src/agent-session/acpmux/started/SessionHoverCard";
 
 const ID = "01a0ebd5-0efe-721d-9edc-cf1a6ba78d98";
@@ -115,7 +120,9 @@ describe("the card", () => {
   });
 
   test("a running session's status draws the bare spinner", () => {
-    const html = renderToStaticMarkup(<SessionHoverContent info={{ ...info, status: "running" }} onOpen={() => undefined} />);
+    const html = renderToStaticMarkup(
+      <SessionHoverContent info={{ ...info, status: "running" }} onOpen={() => undefined} />,
+    );
     expect(html).toContain("acpmux-session-status-spinner");
     expect(html).toContain(">Running<");
     expect(html).not.toContain("acpmux-session-status-pr");

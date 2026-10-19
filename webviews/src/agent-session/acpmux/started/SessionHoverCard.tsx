@@ -1,11 +1,11 @@
-// The hover card of a session reference (a started chat's card or name chip, a session id in a
-// reply), the way Claude Code desktop's PR list rows show one: the title, then a line with its state
-// (glyph and word in the state's colour, no outline), the project and, at the end, how long ago it
-// changed; a session with a pull request adds the PR's status and `repo #N` as its chat card names
-// them. A running session's state draws the pane's working spinner bare, with nothing filled behind
-// it (Leo, 2026-10-19). The card waits for a short rest
-// of the pointer, shows at once for keyboard focus (ArrowDown moves into it, Escape leaves it),
-// and a click on it opens the session. Behind the `started-session-cards` experiment.
+// The hover card of a session reference (a name chip or session id in a reply), as a row of Claude
+// Code desktop's PR list reads: the title, then the status line (the status's glyph and word in its
+// colour, then `· repo #N`; StartedSessionCard.tsx `SessionStatusLine`), and nothing more. A running
+// session's status draws the pane's working spinner bare (Leo, 2026-10-19). The card's left edge
+// meets the chip's, 6px off it: below the chip, or above it when more of the reply runs under the
+// chip, so it never covers the next line (``hoverCardSide``). It waits for a short rest of the
+// pointer, shows at once for keyboard focus (ArrowDown moves into it, Escape leaves it), and a
+// click on it opens the session. Behind the `started-session-cards` experiment.
 import {
   createContext,
   type FocusEvent,
@@ -18,14 +18,10 @@ import {
   useRef,
   useState,
 } from "react";
-import { Icon } from "../icons/Icon";
-import { useT, type StringKey } from "../i18n";
-import { Spinner } from "../conversation/icons";
-import { shortAge } from "../sessionList";
 import { AnchoredCard } from "../../../ui/Tooltip";
 import { HOVER_INTENT, HoverGroup, useHoverIntent } from "../../../ui/hoverIntent";
-import { type HoverState, type SessionHoverInfo, type SessionHoverStore, useSessionHoverInfo } from "./sessionHover";
-import { PR_STATUS_WORDS, pullRequestName } from "./startedSessions";
+import { type SessionHoverInfo, type SessionHoverStore, useSessionHoverInfo } from "./sessionHover";
+import { SessionStatusLine } from "./SessionStatusLine";
 import "./sessionHover.css";
 
 /// The pointer's rest on a reference before its card shows: shorter than a sidebar row's
@@ -40,13 +36,13 @@ export const SessionHoverContext = createContext<SessionHover | null>(null);
 /// One group for every reference: after one card, the next shows at once while the pointer moves on.
 const group = new HoverGroup(HOVER_INTENT.cardGrace);
 
-const LABELS: Record<HoverState, StringKey> = {
-  running: "subagents.state.running",
-  waiting: "home.needsInput",
-  failed: "subagents.state.failed",
-  unread: "sidebar.markUnread",
-  done: "subagents.state.completed",
-};
+/// Which side of reference `anchor` its card takes: below, unless more of its text block (the
+/// paragraph or list item it sits in) runs under it, where the card would cover the next line.
+export function hoverCardSide(anchor: Element): "top" | "bottom" {
+  const block = anchor.closest("p, li, blockquote, td, th, h1, h2, h3, h4, h5, h6");
+  if (!block) return "bottom";
+  return block.getBoundingClientRect().bottom - anchor.getBoundingClientRect().bottom > 2 ? "top" : "bottom";
+}
 
 export type SessionHoverTrigger = {
   onPointerEnter?(event: PointerEvent<HTMLElement>): void;
@@ -64,14 +60,14 @@ export function useSessionHover(sessionId: string): { trigger: SessionHoverTrigg
   const hover = useContext(SessionHoverContext);
   const intent = useHoverIntent<HTMLElement>({ delay: SESSION_HOVER_DELAY, group });
   const { hover: point, dismiss } = intent;
-  const [placed, setPlaced] = useState<HTMLElement | null>(null);
+  const [placed, setPlaced] = useState<{ anchor: HTMLElement; side: "top" | "bottom" } | null>(null);
   const leave = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const inside = useRef<HTMLButtonElement | null>(null);
   // Escape in the card hands focus back to the reference: that focus must not show the card again.
   const returning = useRef(false);
   const cardId = useId();
   useEffect(() => {
-    if (intent.shown) setPlaced(intent.shown);
+    if (intent.shown) setPlaced({ anchor: intent.shown, side: hoverCardSide(intent.shown) });
   }, [intent.shown]);
   useEffect(() => () => clearTimeout(leave.current), []);
   if (!hover) return { trigger: {}, card: null };
@@ -96,7 +92,7 @@ export function useSessionHover(sessionId: string): { trigger: SessionHoverTrigg
     dismiss();
   };
   const ownsFocus = (target: EventTarget | null) =>
-    target instanceof Node && (inside.current?.contains(target) || placed?.contains(target));
+    target instanceof Node && (inside.current?.contains(target) || placed?.anchor.contains(target));
   const trigger: SessionHoverTrigger = {
     onPointerEnter: (event) => {
       stay();
@@ -130,7 +126,8 @@ export function useSessionHover(sessionId: string): { trigger: SessionHoverTrigg
   const card = placed ? (
     <AnchoredCard
       id={cardId}
-      anchor={placed}
+      anchor={placed.anchor}
+      side={placed.side}
       open={intent.shown !== null}
       instant={intent.instant}
       interactive
@@ -150,7 +147,7 @@ export function useSessionHover(sessionId: string): { trigger: SessionHoverTrigg
         onEscape={() => {
           now();
           returning.current = true;
-          placed.focus();
+          placed.anchor.focus();
           returning.current = false;
         }}
         onBlur={(event) => {
@@ -197,7 +194,6 @@ function SessionHoverBody({
 /// The card's content: the whole card is one button that opens the session.
 export function SessionHoverContent({
   info,
-  now = Date.now(),
   buttonRef,
   onOpen,
   onEscape,
@@ -205,15 +201,12 @@ export function SessionHoverContent({
   onFocus,
 }: {
   info: SessionHoverInfo;
-  now?: number;
   buttonRef?: { current: HTMLButtonElement | null };
   onOpen(): void;
   onEscape?(): void;
   onBlur?(event: FocusEvent<HTMLElement>): void;
   onFocus?(): void;
 }) {
-  const t = useT();
-  const age = shortAge(info.updatedAt, now, t);
   return (
     <button
       ref={(element) => {
@@ -221,7 +214,6 @@ export function SessionHoverContent({
       }}
       type="button"
       className="acpmux-session-hover"
-      data-state={info.state}
       onClick={onOpen}
       onBlur={onBlur}
       onFocus={onFocus}
@@ -233,50 +225,7 @@ export function SessionHoverContent({
       }}
     >
       <span className="acpmux-session-hover-title">{info.title}</span>
-      <span className="acpmux-session-hover-meta">
-        <SessionStateLabel state={info.state} />
-        {info.project && <span className="acpmux-session-hover-project">{info.project}</span>}
-        {age && <span className="acpmux-session-hover-age">{age}</span>}
-      </span>
-      {info.pullRequests && <PullRequestRow pullRequests={info.pullRequests} />}
+      <SessionStatusLine status={info.status} pullRequests={info.pullRequests} />
     </button>
   );
 }
-
-/// The state: its glyph and its name in the state's colour. Running draws the bare spinner.
-export function SessionStateLabel({ state }: { state: HoverState }) {
-  const t = useT();
-  return (
-    <span className="acpmux-session-state" data-state={state}>
-      {state === "running" ? (
-        <Spinner size={11} className="acpmux-session-state-spinner" />
-      ) : (
-        <Icon name={GLYPHS[state]} size={11} />
-      )}
-      {t(LABELS[state])}
-    </span>
-  );
-}
-
-/// The session's pull request: its status in its colour, then `repo #N` (and how many more).
-function PullRequestRow({ pullRequests }: { pullRequests: NonNullable<SessionHoverInfo["pullRequests"]> }) {
-  const t = useT();
-  const word = PR_STATUS_WORDS[pullRequests.tone];
-  return (
-    <span className="acpmux-session-hover-pr">
-      <span className="acpmux-session-hover-pr-status" data-tone={pullRequests.tone}>
-        <Icon name="git.pullrequest" size={11} />
-        {word && <span>{t(word)}</span>}
-      </span>
-      <span className="acpmux-session-hover-pr-name">{pullRequestName(pullRequests)}</span>
-      {pullRequests.count > 1 && <span>{t("started.morePullRequests", { count: pullRequests.count - 1 })}</span>}
-    </span>
-  );
-}
-
-const GLYPHS = {
-  waiting: "status.needsinput",
-  failed: "status.error",
-  unread: "status.dot",
-  done: "status.complete",
-} as const satisfies Record<Exclude<HoverState, "running">, string>;

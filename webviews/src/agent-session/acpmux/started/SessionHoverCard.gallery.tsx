@@ -2,34 +2,45 @@
 import { componentEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
 import { sessionEntry } from "../sessionList";
-import { type HoverState, SessionHoverStore } from "./sessionHover";
-import type { StartedPullRequests } from "./startedSessions";
+import { type SessionHoverInfo, SessionHoverStore } from "./sessionHover";
 import { SessionHoverContent, SessionHoverContext } from "./SessionHoverCard";
 import { StartedSessionChip } from "./StartedSessionCard";
 
 type Props = { mode: "states" | "chip" };
 
 const NOW = Date.now();
-const titles: Record<HoverState, string> = {
-  running: "Switch gh-merge-green to merge-freeze issues",
-  unread: "Triage the 10 failing Swift tests at the tip",
-  waiting: "Rename the settings keys",
-  done: "Bump the Ghostty pin",
-  failed: "Fix the flaky sidebar test",
-};
-const prs: Partial<Record<HoverState, StartedPullRequests>> = {
-  running: { count: 2, tone: "ready", number: 22092, repo: "cmux" },
-  failed: { count: 1, tone: "failing", number: 22163, repo: "cmux" },
-  done: { count: 1, tone: "merged", number: 22164, repo: "cmux" },
-};
-const ages: Record<HoverState, number> = { running: 0, unread: 4, waiting: 12, done: 180, failed: 60 * 26 };
+/// One card for each kind of status line: a PR's status, needs input, failed, running, new activity, done.
+const cards: SessionHoverInfo[] = [
+  {
+    sessionId: "c-1",
+    title: "Switch gh-merge-green to merge-freeze issues",
+    status: "failing",
+    pullRequests: { count: 2, tone: "failing", number: 22092, repo: "cmux" },
+  },
+  {
+    sessionId: "c-2",
+    title: "Bump the Ghostty pin",
+    status: "merged",
+    pullRequests: { count: 1, tone: "merged", number: 22164, repo: "cmux" },
+  },
+  { sessionId: "c-3", title: "Rename the settings keys", status: "waiting" },
+  {
+    sessionId: "c-4",
+    title: "Fix the flaky sidebar test",
+    status: "failed",
+    pullRequests: { count: 1, tone: "failing", number: 22163, repo: "cmux" },
+  },
+  { sessionId: "c-5", title: "Draft the release notes", status: "running" },
+  { sessionId: "c-6", title: "Triage the 10 failing Swift tests at the tip", status: "unread" },
+  { sessionId: "c-7", title: "Read the theme after applyTheme", status: "done" },
+];
 
 const CHIP_ID = "01a0ebd5-0efe-721d-9edc-cf1a6ba78d98";
 const store = new SessionHoverStore();
 store.set([
   sessionEntry({
     sessionId: CHIP_ID,
-    title: titles.running,
+    title: "Switch gh-merge-green to merge-freeze issues",
     cwd: "/Users/you/Projects/cmux",
     indicator: "working",
     updatedAt: NOW,
@@ -49,8 +60,13 @@ function GallerySessionHover({ mode }: Props) {
             <p className="cv-md">
               Started{" "}
               <StartedSessionChip
-                mention={{ text: titles.running, sessionId: CHIP_ID, title: titles.running, state: "running" }}
-                text={titles.running}
+                mention={{
+                  text: "Switch gh-merge-green to merge-freeze issues",
+                  sessionId: CHIP_ID,
+                  title: "Switch gh-merge-green to merge-freeze issues",
+                  state: "running",
+                }}
+                text="Switch gh-merge-green to merge-freeze issues"
                 onOpen={() => undefined}
               />{" "}
               in the background.
@@ -62,20 +78,13 @@ function GallerySessionHover({ mode }: Props) {
   return (
     <div className="acpmux-shell">
       <div data-hover-fixture style={{ display: "flex", flexWrap: "wrap", gap: 12, padding: 12 }}>
-        {(Object.keys(titles) as HoverState[]).map((state) => (
-          <div key={state} className="ui-tooltip ui-card acpmux-session-hover-card" style={{ position: "static" }}>
-            <SessionHoverContent
-              info={{
-                sessionId: state,
-                title: titles[state],
-                state,
-                project: "cmux",
-                updatedAt: NOW - ages[state] * 60_000,
-                ...(prs[state] ? { pullRequests: prs[state] } : {}),
-              }}
-              now={NOW}
-              onOpen={() => undefined}
-            />
+        {cards.map((info) => (
+          <div
+            key={info.sessionId}
+            className="ui-tooltip ui-card acpmux-session-hover-card"
+            style={{ position: "static" }}
+          >
+            <SessionHoverContent info={info} onOpen={() => undefined} />
           </div>
         ))}
       </div>
@@ -99,14 +108,13 @@ export default componentEntry<Props>({
   anchors: [{ selector: "[data-hover-fixture]" }],
   covers: [
     "agent-session/acpmux/started/SessionHoverCard.tsx#SessionHoverContent",
-    "agent-session/acpmux/started/SessionHoverCard.tsx#SessionStateLabel",
     "agent-session/acpmux/started/SessionHoverCard.tsx#SessionHoverContext",
   ],
   styles: () => import("../styles.css"),
   load: async () => GallerySessionHover,
   variants: {
     states: {
-      note: "Each state's card, title first: running (the bare spinner) with two PRs, new activity, needs input, done with a merged PR and failed with failing checks, each with the project and age.",
+      note: "Each kind of status line under the title: checks failed and merged PRs, needs input, failed, running (the bare spinner), new activity and done.",
       props: { mode: "states" },
     },
     chip: {
