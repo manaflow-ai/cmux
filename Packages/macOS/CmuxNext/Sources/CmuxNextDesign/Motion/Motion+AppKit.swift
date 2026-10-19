@@ -200,15 +200,7 @@ extension Motion {
     /// that adds it under its own key (a layer whose model value AppKit
     /// rewrites, as a sidebar space page's translation).
     public static func springAnimation(_ token: MotionSpring, _ keyPath: String, from: Any, to: Any) -> CASpringAnimation {
-        let spring = self.spring(token)
-        let animation = CASpringAnimation(keyPath: keyPath)
-        animation.mass = 1
-        animation.stiffness = spring.stiffness
-        animation.damping = spring.damping
-        animation.duration = spring.settlingTime(within: 0.002)
-        animation.fromValue = from
-        animation.toValue = to
-        return animation
+        policy.springAnimation(token, keyPath, from: from, to: to)
     }
 
     /// An animation that shows `keyPath` at `value` until it is replaced or
