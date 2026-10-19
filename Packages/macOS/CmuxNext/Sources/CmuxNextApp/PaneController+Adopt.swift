@@ -11,6 +11,7 @@ extension PaneController {
         DebugLayoutCounters.note("pane adopt", #fileID, #line)
         #endif
         pane = model
+        dropDrawnCells() // the cells read the pane record (its workspace lookup)
         syncDrawnCells()
         observe()
     }

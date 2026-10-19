@@ -41,7 +41,8 @@ final class PaneController: SurfacePresenter, PresentablePane {
     private(set) var pendingSelectTab: String?
     private var observation: Task<Void, Never>?
     /// Each tab's drawn values from app state, kept by their own observation (`PaneController+DrawnValues`).
-    var drawnCells: [ObjectIdentifier: TabDrawnCell] = [:]
+    var drawnCells: [String: TabDrawnCell] = [:]
+    var drawnCellsEnded = false // set by teardown
     /// The strip's selected tab as last set, unobserved: a tab switch does not re-run `snapshot()` (I2).
     private(set) var stripSelection: String?
     private var sentFocusPane: FocusTopology.Pane? // this pane's topology part as last sent (I4)
@@ -89,6 +90,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
 
     func teardown() {
         observation?.cancel()
+        drawnCellsEnded = true
         dropDrawnCells()
         services.presentation.cancel(self)
         // No-op for a tab that moved to another pane: its new pane owns it.

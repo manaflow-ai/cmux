@@ -23,9 +23,13 @@ struct TabDrawnValue: Equatable, Sendable {
 @Observable
 final class TabDrawnCell {
     private(set) var value: TabDrawnValue
+    /// The tab record the cell follows: a cell answers only for this record (a resync's new
+    /// record of the same tab id gets a new cell).
+    @ObservationIgnored weak var tab: TabModel?
     @ObservationIgnored private var task: Task<Void, Never>?
 
-    init(_ compute: @escaping @MainActor @Sendable () -> TabDrawnValue) {
+    init(tab: TabModel, _ compute: @escaping @MainActor @Sendable () -> TabDrawnValue) {
+        self.tab = tab
         let (first, later) = ObservationStream.current(compute)
         value = first
         task = Task { [weak self] in
@@ -45,21 +49,23 @@ extension PaneController {
     /// Runs outside the snapshot's evaluation: before the first one (init, adopt) and after each
     /// apply, so only a tab that just arrived is computed inside a snapshot, once.
     func syncDrawnCells() {
+        guard !drawnCellsEnded else { return } // an apply after teardown makes no cell nothing would end
         let tabs = pane.tabs
-        let live = Set(tabs.map(ObjectIdentifier.init))
+        let live = Set(tabs.map(\.id))
         for (id, cell) in drawnCells where !live.contains(id) {
             cell.cancel()
             drawnCells[id] = nil
         }
-        for tab in tabs where drawnCells[ObjectIdentifier(tab)] == nil {
-            drawnCells[ObjectIdentifier(tab)] = TabDrawnCell { [weak self, weak tab] in
+        for tab in tabs where drawnCells[tab.id]?.tab !== tab {
+            drawnCells[tab.id]?.cancel()
+            drawnCells[tab.id] = TabDrawnCell(tab: tab) { [weak self, weak tab] in
                 guard let self, let tab else { return TabDrawnValue() }
                 return computeDrawn(tab)
             }
         }
     }
 
-    /// Ends every cell (teardown).
+    /// Ends every cell (teardown; adopt, whose new pane record the cells must read).
     func dropDrawnCells() {
         for cell in drawnCells.values { cell.cancel() }
         drawnCells.removeAll()
@@ -67,7 +73,8 @@ extension PaneController {
 
     /// What `tab` draws: its cell's value, or (a tab that arrived since the last apply) computed now.
     func drawn(_ tab: TabModel) -> TabDrawnValue {
-        drawnCells[ObjectIdentifier(tab)]?.value ?? computeDrawn(tab)
+        guard let cell = drawnCells[tab.id], cell.tab === tab else { return computeDrawn(tab) }
+        return cell.value
     }
 
     private func computeDrawn(_ tab: TabModel) -> TabDrawnValue {

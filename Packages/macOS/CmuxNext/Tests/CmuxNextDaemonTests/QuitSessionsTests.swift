@@ -193,7 +193,9 @@ struct QuitSessionsTests {
             #expect(tabs.map(\.count) == [1, 1], "\(tabs)")
             // In place: the kept tabs themselves run again (no new tab took their slot).
             #expect(tabs.flatMap { $0 }.map(\.tabResourceID) == keptTabs.map(\.tabResourceID), "\(tabs)")
-            #expect(tabs.flatMap { $0 }.map(\.terminalResourceID) == keptTabs.map(\.terminalResourceID), "\(tabs)")
+            // The same terminals as before the quit (a dead kept tab reports none).
+            let terminalsBefore = before.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).map(\.terminalResourceID)
+            #expect(tabs.flatMap { $0 }.map(\.terminalResourceID) == terminalsBefore, "\(tabs)")
         } catch {
             await BranchDaemonHarness.shutDown(next)
             throw error
