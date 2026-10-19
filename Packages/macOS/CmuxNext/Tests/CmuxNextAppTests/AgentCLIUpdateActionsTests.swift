@@ -42,6 +42,8 @@ import Testing
                 self.observations += 1
                 let result = self.outcome == "pending"
                     ? #"{"state":"pending","lifecycle":"running","revision":"7"}"#
+                    : self.outcome == "lost"
+                    ? #"{"state":"exited","lifecycle":"exited","revision":"8","exited_at":"1","outcome":{"kind":"lost"}}"#
                     : #"{"state":"exited","lifecycle":"exited","revision":"8","exited_at":"1","outcome":{"kind":"exit","code":23}}"#
                 var value = try JSONValue.parse(Data(result.utf8)).objectValue ?? [:]
                 value["terminal_id"] = .string(receipt.path.terminalID.rawValue)
@@ -61,7 +63,8 @@ import Testing
 
     private func make() -> (Owner, AgentCLIUpdateActions, ActionRegistry) {
         let owner = Owner()
-        let updates = AgentCLIUpdateActions(capture: { _ in owner.route() })
+        let ledger = AgentCLIUpdateRecoveryTests.Ledger()
+        let updates = AgentCLIUpdateActions(capture: { _ in owner.route() }, persistence: ledger.port)
         let registry = ActionRegistry.standard()
         updates.bind(into: registry)
         return (owner, updates, registry)
