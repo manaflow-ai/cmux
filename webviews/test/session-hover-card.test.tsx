@@ -1,19 +1,13 @@
-// Session reference hover cards (started/SessionHoverCard.tsx): a started chat's card, its name
-// chip and a session id in a reply show the session's title, then its state, project and age, and its
-// pull request (Claude Code's PR list rows: the title over `Status · repo #N`), after a short rest of
-// the pointer, at once for keyboard focus, and a click on the card opens it.
+// Session reference hover cards (started/SessionHoverCard.tsx): a started chat's name chip and a
+// session id in a reply show the session as a row of Claude Code's PR list does, the title over
+// `Status · repo #N` and nothing more, beside the chip (above it when more of the reply runs under
+// it), after a short rest of the pointer, at once for keyboard focus, and a click on it opens it.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { JSDOM } from "jsdom";
 import { sessionEntry } from "../src/agent-session/acpmux/sessionList";
-import {
-  MIN_ID_MENTION,
-  SessionHoverStore,
-  hoverInfo,
-  hoverState,
-  withSessionIds,
-} from "../src/agent-session/acpmux/started/sessionHover";
-import { SessionHoverContent, SessionStateLabel } from "../src/agent-session/acpmux/started/SessionHoverCard";
+import { MIN_ID_MENTION, SessionHoverStore, hoverInfo, withSessionIds } from "../src/agent-session/acpmux/started/sessionHover";
+import { SessionHoverContent, hoverCardSide } from "../src/agent-session/acpmux/started/SessionHoverCard";
 
 const ID = "01a0ebd5-0efe-721d-9edc-cf1a6ba78d98";
 const entry = (extra: Record<string, unknown> = {}) =>
@@ -24,33 +18,34 @@ const entry = (extra: Record<string, unknown> = {}) =>
     ...extra,
   });
 
-describe("hover state", () => {
-  test("running, needs input, failed, unread and done", () => {
-    expect(hoverState(entry({ indicator: "working" }))).toBe("running");
-    expect(hoverState(entry({ indicator: "input" }))).toBe("waiting");
-    expect(hoverState(entry({ indicator: "failed" }))).toBe("failed");
-    expect(hoverState(entry({ indicator: "lost" }))).toBe("failed");
-    expect(hoverState(entry({ indicator: "done", unread: true }))).toBe("unread");
-    expect(hoverState(entry({ indicator: "done" }))).toBe("done");
+describe("hover info", () => {
+  test("its status: needs input, failed, running, new activity or done", () => {
+    const status = (extra: Record<string, unknown>) => hoverInfo(entry(extra)).status;
+    expect(status({ indicator: "working" })).toBe("running");
+    expect(status({ indicator: "input" })).toBe("waiting");
+    expect(status({ indicator: "failed" })).toBe("failed");
+    expect(status({ indicator: "lost" })).toBe("failed");
+    expect(status({ indicator: "done", unread: true })).toBe("unread");
+    expect(status({ indicator: "done" })).toBe("done");
   });
 
-  test("the card names the project folder and the last change", () => {
+  test("the title and status, and nothing more", () => {
     expect(hoverInfo(entry({ updatedAt: 5 }))).toEqual({
       sessionId: ID,
       title: "Switch gh-merge-green to merge-freeze issues",
-      state: "done",
-      project: "cmux",
-      updatedAt: 5,
+      status: "done",
     });
   });
 
-  test("the card names the session's pull request as its chat card does", () => {
+  test("a pull request's status leads, as on the chat's row", () => {
     const info = hoverInfo(
       entry({
+        indicator: "working",
         pullRequests: ["https://github.com/manaflow-ai/cmux/pull/22092"],
         pullRequest: { number: 22092, title: "x", state: "open", checks: "failing" },
       }),
     );
+    expect(info.status).toBe("failing");
     expect(info.pullRequests).toEqual({ count: 1, tone: "failing", number: 22092, repo: "cmux" });
   });
 });
@@ -95,55 +90,61 @@ describe("SessionHoverStore", () => {
     expect(store.get(ID)).toBe(first!);
     expect(told).toBe(1);
     store.set([entry({ indicator: "working" })]);
-    expect(store.get(ID)?.state).toBe("running");
+    expect(store.get(ID)?.status).toBe("running");
     expect(told).toBe(2);
   });
 });
 
 describe("the card", () => {
-  const info = {
-    sessionId: ID,
-    title: "Switch gh-merge-green to merge-freeze issues",
-    project: "cmux",
-    updatedAt: 1_000,
-  };
+  const info = { sessionId: ID, title: "Switch gh-merge-green to merge-freeze issues" };
 
-  // Claude Code's PR list rows: the title on the first line, the status on the next in its colour
-  // with its glyph (no outline around it), then the dim rest of the line.
-  test("the title comes first; a running session's state draws the bare spinner, with no pill behind it", () => {
-    const html = renderToStaticMarkup(
-      <SessionHoverContent info={{ ...info, state: "running" }} now={1_000} onOpen={() => undefined} />,
-    );
-    expect(html).toContain('data-state="running"');
-    expect(html).toContain("acpmux-session-state-spinner");
-    expect(html).not.toContain("acpmux-session-pill");
-    expect(html).toContain(">cmux<");
-    expect(html).toContain(">now<");
-    const title = html.indexOf("Switch gh-merge-green to merge-freeze issues");
-    expect(title).toBeGreaterThan(-1);
-    expect(title).toBeLessThan(html.indexOf(">Running<"));
-    expect(html).not.toContain('class="acpmux-session-hover-pr"');
-  });
-
-  test("a session with a pull request names its status and `repo #N` on a line of its own", () => {
+  // Claude Code's PR list rows: the title, then the status line (glyph and word in its colour, then
+  // `· repo #N`). No project, no age, no outline around the status.
+  test("the title over the status line, and nothing more", () => {
     const html = renderToStaticMarkup(
       <SessionHoverContent
-        info={{ ...info, state: "done", pullRequests: { count: 1, tone: "failing", number: 22092, repo: "cmux" } }}
-        now={1_000}
+        info={{ ...info, status: "failing", pullRequests: { count: 1, tone: "failing", number: 22092, repo: "cmux" } }}
         onOpen={() => undefined}
       />,
     );
-    expect(html).toMatch(/class="acpmux-session-hover-pr"[^]*data-tone="failing"[^]*>Checks failed<[^]*>cmux #22092</);
+    expect(html).toMatch(
+      /class="acpmux-session-hover-title">Switch gh-merge-green to merge-freeze issues<[^]*class="acpmux-session-status" data-status="failing"[^]*>Checks failed<[^]*>cmux #22092</,
+    );
+    expect(html).not.toContain("pill");
+    expect(html).not.toContain("age");
   });
 
-  test("unread, needs input, done and failed each name their state with their glyph", () => {
-    const labels = { unread: "New activity", waiting: "Needs input", done: "Done", failed: "Failed" } as const;
-    for (const [state, label] of Object.entries(labels)) {
-      const html = renderToStaticMarkup(<SessionStateLabel state={state as keyof typeof labels} />);
-      expect(html).toContain(`data-state="${state}"`);
-      expect(html).toContain(label);
-      expect(html).not.toContain("acpmux-session-state-spinner");
+  test("a running session's status draws the bare spinner", () => {
+    const html = renderToStaticMarkup(<SessionHoverContent info={{ ...info, status: "running" }} onOpen={() => undefined} />);
+    expect(html).toContain("acpmux-session-status-spinner");
+    expect(html).toContain(">Running<");
+    expect(html).not.toContain("acpmux-session-status-pr");
+  });
+
+  test("done, new activity, needs input and failed each name their status", () => {
+    const labels = { done: "Done", unread: "New activity", waiting: "Needs input", failed: "Failed" } as const;
+    for (const [status, label] of Object.entries(labels)) {
+      const html = renderToStaticMarkup(
+        <SessionHoverContent info={{ ...info, status: status as keyof typeof labels }} onOpen={() => undefined} />,
+      );
+      expect(html).toContain(`data-status="${status}"`);
+      expect(html).toContain(`>${label}<`);
     }
+  });
+});
+
+describe("where the card goes", () => {
+  const rect = (top: number, bottom: number) => ({ top, bottom, left: 0, right: 0, width: 0, height: bottom - top });
+  const place = (chip: [number, number], block: [number, number] | undefined) => {
+    const parent = block ? { getBoundingClientRect: () => rect(...block) } : null;
+    const anchor = { closest: () => parent, getBoundingClientRect: () => rect(...chip) } as unknown as Element;
+    return hoverCardSide(anchor);
+  };
+
+  test("below a chip on the last line of its paragraph; above one with more of the reply under it", () => {
+    expect(place([40, 60], [0, 60])).toBe("bottom");
+    expect(place([20, 40], [0, 60])).toBe("top");
+    expect(place([20, 40], undefined)).toBe("bottom");
   });
 });
 
@@ -232,8 +233,7 @@ test("a name chip's card waits for the pointer, shows at once for focus, takes A
   await act(async () => wait(SESSION_HOVER_DELAY));
   expect(card()?.getAttribute("role")).toBe("dialog");
   expect(card()?.getAttribute("aria-label")).toBe("Switch gh-merge-green to merge-freeze issues");
-  expect(card()?.textContent).toContain("Running");
-  expect(card()?.textContent).toContain("cmux");
+  expect(card()?.textContent).toBe("Switch gh-merge-green to merge-freeze issuesRunning");
   expect(chip.getAttribute("aria-describedby")).toBe(card()?.id ?? "missing");
 
   // Pointer away: the card goes after its grace.
