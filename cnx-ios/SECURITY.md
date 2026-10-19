@@ -237,6 +237,49 @@ A phone browser tab streams from a CEF remote browser host the Mac app runs,
 | Mutates or destroys objects the session does not own? | No: a fresh cache per host, removed on exit; the person's browser profiles are not used. |
 | Reads local state the remote should not see? | Only what a web page sees in a fresh profile: no cookies, history or saved logins of the person. |
 
+## Link transport: TURN over TLS, and no backend relay (`feat-cnx-ios-turntls`)
+
+The WireGuard link's paths are plain UDP, TURN over UDP and, where UDP is
+blocked, TURN over TLS on 443 (PROTOCOL.md "WireGuard paths"). The backend's
+WebSocket relay of WireGuard datagrams is retired. None of this adds a way
+into the Mac: every path carries the same WireGuard tunnel, whose keys came
+from the admitted `wg-init` / `wg-resp` exchange.
+
+- **Confidentiality and integrity stay end to end.** WireGuard authenticates
+  and encrypts every datagram between the phone and the Mac. TLS to the TURN
+  server only hides from the local network that the datagrams are WireGuard;
+  the TURN operator sees the same ciphertext it sees over UDP. The TLS server
+  name is the `turns:` URL's host, verified against the public web PKI
+  (webpki roots, ring); a certificate that does not verify fails the
+  allocation, and the dial goes on without that path.
+- **TURN credentials** come only from `/v1/ice` (short-lived Cloudflare TURN
+  credentials, 1 h), never stored, and are the same ones WebRTC uses.
+- **The TeamHub carries no data.** It drops every binary frame and answers
+  `relay_retired` at most once per socket and session every 5 s, naming the
+  session. It still admits and forwards signals only between the two
+  devices of a session (or to a Mac of the sender's own user), now including
+  `wg-endpoints` (a roaming side's new addresses). An endpoint the peer
+  learns this way is only a place to send ciphertext to: the tunnel accepts
+  a datagram only if it authenticates under the session's keys.
+- **Route confirmation** (`reach`) travels inside the tunnel, so only the
+  peer can confirm a route; the retired relay marker was authenticated only
+  by the backend. An older peer that never sends `reach` makes this side
+  trust its authenticated datagrams instead, as before the marker existed.
+- **A Mac takes a TURN allocation** only when its STUN servers never answer
+  (its network drops UDP) or a debug option asks for one. The allocation
+  relays only to the addresses the Mac sends to (TURN permissions), and the
+  Mac's tunnel accepts nothing that does not authenticate.
+- **Debug "Block UDP"** (`block_udp`, simulator `CNX_DEV_BLOCK_UDP`) only
+  narrows the phone's own paths. A Release build ignores the setting; the
+  environment variable is read by the shared Rust core, so it is a test
+  hook for whoever launches the app with it, never a way to reach a Mac.
+
+| Rule 2 question | Answer |
+| --- | --- |
+| Executes commands or opens content on local objects? | No. It changes how the tunnel's ciphertext travels, not what the link may do. |
+| Mutates or destroys objects the session does not own? | No. A `wg-endpoints` signal is admitted only within its session and changes only that session's candidate addresses. |
+| Reads local state the remote should not see? | No. The TURN server and the backend see ciphertext and addresses, as with TURN over UDP and the retired relay. |
+
 ## Media lane: browser video as RTP (WebRTC track or WireGuard UDP)
 
 The media lane (PROTOCOL.md "Media lane") adds a way for bytes to travel, not
