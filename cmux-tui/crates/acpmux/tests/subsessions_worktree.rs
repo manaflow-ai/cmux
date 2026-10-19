@@ -188,6 +188,41 @@ async fn a_worktree_start_runs_nothing_the_agent_wrote_in_its_repository() {
     assert_eq!(staged, "", "the worktree's index differs from its commit");
     assert!(!filter_ran.exists(), "the repository's smudge filter ran outside the agent's sandbox");
 
+    // A partial clone (`--filter=blob:none`) without the commit's files, as
+    // one cloned without a checkout: they are fetched from its promisor
+    // remote, without the clone's own config (its upload-pack would mark).
+    let origin = root.join("origin");
+    std::fs::create_dir_all(origin.join("web")).unwrap();
+    git(&origin, &["init", "-q"]);
+    git(&origin, &["config", "uploadpack.allowFilter", "true"]);
+    git(&origin, &["config", "uploadpack.allowAnySHA1InWant", "true"]);
+    std::fs::write(origin.join("web/page.txt"), "page\n").unwrap();
+    git(&origin, &["add", "."]);
+    git(&origin, &["commit", "-q", "-m", "page"]);
+    let url = format!("file://{}", origin.display());
+    let partial = root.join("partial");
+    git(&root, &["clone", "-q", "--filter=blob:none", "--no-checkout", &url, "partial"]);
+    let missing = git(&partial, &["rev-list", "--objects", "--missing=print", "HEAD"]);
+    assert!(missing.lines().any(|l| l.starts_with('?')), "the clone has every object: {missing}");
+    let upload_ran = root.join("upload-ran");
+    let upload = format!("touch '{}'; git-upload-pack", upload_ran.display());
+    git(&partial, &["config", "remote.origin.uploadpack", &upload]);
+    std::fs::create_dir_all(partial.join("web")).unwrap();
+    let lazy = p
+        .ok(
+            START,
+            json!({"prompt": "echo x", "name": "Partial", "worktree": true, "cwd": partial.join("web")}),
+        )
+        .await;
+    let pwt = home.join(".cmux/worktrees/partial/partial");
+    assert_eq!(lazy["worktree"]["root"], json!(pwt), "{lazy}");
+    assert_eq!(std::fs::read_to_string(pwt.join("web/page.txt")).unwrap(), "page\n");
+    let child = lazy["sessionId"].as_str().unwrap().to_owned();
+    let info = app.ok("_acpmux/info", json!({"sessionId": child})).await;
+    assert_eq!(canonical(info["cwd"].as_str().unwrap().as_ref()), canonical(&pwt.join("web")));
+    assert_eq!(git(&pwt, &["diff", "--cached", "--name-only"]), "");
+    assert!(!upload_ran.exists(), "the clone's own upload-pack config ran");
+
     // A folder that is no repository gets no worktree either.
     let plain = root.join("plain");
     std::fs::create_dir_all(&plain).unwrap();
