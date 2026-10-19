@@ -189,6 +189,182 @@ struct WorkstreamPersistenceTests {
         #expect(snapshot.revision == data.count)
     }
 
+    @Test("an oversized malformed row cannot hide older valid history")
+    func oversizedMalformedRowPreservesOlderCursor() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workstream-oversized-middle-\(UUID().uuidString).jsonl")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let old = WorkstreamItem(
+            workstreamId: "old",
+            source: .claude,
+            kind: .sessionStart,
+            payload: .sessionStart
+        )
+        let newest = WorkstreamItem(
+            workstreamId: "new",
+            source: .claude,
+            kind: .sessionStart,
+            payload: .sessionStart
+        )
+        var data = try encoder.encode(old)
+        data.append(0x0A)
+        data.append(Data(repeating: 0x78, count: 9 * 1024 * 1024))
+        data.append(0x0A)
+        data.append(try encoder.encode(newest))
+        data.append(0x0A)
+        try data.write(to: tmp)
+
+        let persistence = WorkstreamPersistence(fileURL: tmp)
+        let snapshot = try await persistence.loadStartupSnapshot(limit: 1)
+        #expect(snapshot.items.map(\.workstreamId) == ["new"])
+        var cursor = try #require(snapshot.page.startOffset)
+        var foundOld = false
+        for _ in 0..<4 {
+            let page = try await persistence.loadPage(endingBefore: cursor, limit: 1)
+            if page.items.contains(where: { $0.workstreamId == "old" }) {
+                foundOld = true
+                break
+            }
+            guard page.hasMoreBefore, let next = page.startOffset, next < cursor else {
+                break
+            }
+            cursor = next
+        }
+        #expect(foundOld)
+    }
+
+    @Test("an oversized unterminated tail preserves an older-history cursor")
+    func oversizedUnterminatedTailPreservesOlderCursor() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workstream-oversized-tail-\(UUID().uuidString).jsonl")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let item = WorkstreamItem(
+            workstreamId: "old",
+            source: .claude,
+            kind: .sessionStart,
+            payload: .sessionStart
+        )
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        var data = try encoder.encode(item)
+        data.append(0x0A)
+        data.append(Data(repeating: 0x78, count: 9 * 1024 * 1024))
+        try data.write(to: tmp)
+
+        let persistence = WorkstreamPersistence(fileURL: tmp)
+        let snapshot = try await persistence.loadStartupSnapshot(limit: 1)
+        #expect(snapshot.items.isEmpty)
+        var cursor = try #require(snapshot.page.startOffset)
+        var foundOld = false
+        for _ in 0..<4 {
+            let page = try await persistence.loadPage(endingBefore: cursor, limit: 1)
+            if page.items.contains(where: { $0.workstreamId == "old" }) {
+                foundOld = true
+                break
+            }
+            guard page.hasMoreBefore, let next = page.startOffset, next < cursor else {
+                break
+            }
+            cursor = next
+        }
+        #expect(foundOld)
+    }
+
+    @Test("valid rows below the bounded row limit remain restorable")
+    func validLargeRowRemainsRestorable() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workstream-large-valid-\(UUID().uuidString).jsonl")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let item = WorkstreamItem(
+            workstreamId: "large-valid",
+            source: .claude,
+            kind: .permissionRequest,
+            payload: .permissionRequest(
+                requestId: "large",
+                toolName: "Write",
+                toolInputJSON: String(repeating: "x", count: 2 * 1024 * 1024),
+                pattern: nil
+            )
+        )
+        let persistence = WorkstreamPersistence(fileURL: tmp)
+        try await persistence.append(item)
+        let snapshot = try await persistence.loadStartupSnapshot(limit: 1)
+        #expect(snapshot.items.map(\.workstreamId) == ["large-valid"])
+    }
+
+    @Test("exact bounded-window row boundaries retain the first row")
+    func exactWindowBoundaryRetainsRow() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workstream-boundary-\(UUID().uuidString).jsonl")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let first = WorkstreamItem(
+            workstreamId: "first",
+            source: .claude,
+            kind: .sessionStart,
+            payload: .sessionStart
+        )
+        let targetRowBytes = 8 * 1024 * 1024
+        var payloadSize = targetRowBytes
+        var secondData = Data()
+        while true {
+            let second = WorkstreamItem(
+                workstreamId: "second",
+                source: .claude,
+                kind: .toolUse,
+                payload: .toolUse(
+                    toolName: "Write",
+                    toolInputJSON: String(repeating: "x", count: payloadSize)
+                )
+            )
+            secondData = try encoder.encode(second)
+            let delta = targetRowBytes - (secondData.count + 1)
+            if delta == 0 { break }
+            payloadSize = max(0, payloadSize + delta)
+        }
+        #expect(secondData.count + 1 == targetRowBytes)
+        var data = try encoder.encode(first)
+        data.append(0x0A)
+        let secondStart = UInt64(data.count)
+        data.append(secondData)
+        data.append(0x0A)
+        try data.write(to: tmp)
+
+        let page = try await WorkstreamPersistence(fileURL: tmp)
+            .loadPage(endingBefore: secondStart + UInt64(targetRowBytes), limit: 1)
+        #expect(page.items.map(\.workstreamId) == ["second"])
+    }
+
+    @Test("startup retains a row at the exact bounded-tail boundary")
+    func startupExactWindowBoundaryRetainsRow() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workstream-startup-boundary-\(UUID().uuidString).jsonl")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let target = WorkstreamItem(
+            workstreamId: "startup-boundary",
+            source: .claude,
+            kind: .sessionStart,
+            payload: .sessionStart
+        )
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        var data = Data("old\n".utf8)
+        data.append(try encoder.encode(target))
+        data.append(0x0A)
+        let trailingBytes = 8 * 1024 * 1024
+        #expect(data.count < trailingBytes)
+        data.append(Data(repeating: 0x78, count: trailingBytes - data.count - 1))
+        data.append(0x0A)
+        try data.write(to: tmp)
+
+        let snapshot = try await WorkstreamPersistence(fileURL: tmp)
+            .loadStartupSnapshot(limit: 1)
+        #expect(snapshot.items.map(\.workstreamId) == ["startup-boundary"])
+    }
+
     @Test("startup reports bounded-load diagnostics")
     func startupReportsDiagnostics() async throws {
         let tmp = FileManager.default.temporaryDirectory
