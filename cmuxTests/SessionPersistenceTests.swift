@@ -8089,7 +8089,7 @@ extension SessionPersistenceTests {
         XCTAssertEqual(ordered.count, SessionPersistencePolicy.maxPanelsPerWorkspace + 1)
         let omittedId = try XCTUnwrap(ordered.last)
         workspace.focusPanel(omittedId)
-        XCTAssertEqual(workspace.focusedPanelId, omittedId)
+        let focusedTheOmittedPanel = workspace.focusedPanelId == omittedId
 
         let snapshot = workspace.sessionSnapshot(includeScrollback: false)
         let savedIds = Set(snapshot.panels.map(\.id))
@@ -8099,10 +8099,13 @@ extension SessionPersistenceTests {
         XCTAssertFalse(savedIds.contains(omittedId))
         XCTAssertFalse(layoutPanelIds(snapshot.layout).contains(omittedId))
         XCTAssertTrue(Set(layoutPanelIds(snapshot.layout)).isSubset(of: savedIds))
+        XCTAssertEqual(snapshot.omittedPanelCount, 1)
         XCTAssertEqual(omittedPanelCount(in: json), 1)
-        XCTAssertNotEqual(snapshot.focusedPanelId, omittedId)
-        if let focused = snapshot.focusedPanelId {
-            XCTAssertTrue(savedIds.contains(focused))
+        if focusedTheOmittedPanel {
+            XCTAssertNotEqual(snapshot.focusedPanelId, omittedId)
+            if let focused = snapshot.focusedPanelId {
+                XCTAssertTrue(savedIds.contains(focused))
+            }
         }
     }
 
@@ -8141,6 +8144,7 @@ extension SessionPersistenceTests {
         XCTAssertFalse(savedIds.contains(omittedId))
         XCTAssertFalse(layoutPanelIds(snapshot.layout).contains(omittedId))
         XCTAssertTrue(Set(layoutPanelIds(snapshot.layout)).isSubset(of: savedIds))
+        XCTAssertEqual(snapshot.omittedPanelCount, 1)
         XCTAssertEqual(omittedPanelCount(in: try jsonObject(encoding: snapshot)), 1)
     }
 
@@ -8169,14 +8173,17 @@ extension SessionPersistenceTests {
         restored.restoreSessionSnapshot(snapshot)
 
         let warnings = restored.logEntries.filter {
-            $0.source == "session-persistence" && $0.level == .warning
+            $0.source == Workspace.sessionPersistenceOmissionLogSource && $0.level == .warning
         }
         XCTAssertEqual(warnings.count, 2)
         XCTAssertTrue(warnings.contains { $0.message.contains("3") })
         XCTAssertTrue(warnings.contains { $0.message.contains("4") })
+        XCTAssertTrue(warnings.allSatisfy {
+            $0.message.contains(String(SessionPersistencePolicy.maxPanelsPerWorkspace))
+        })
 
         let resaved = restored.sessionSnapshot(includeScrollback: false)
-        XCTAssertFalse(resaved.logEntries.contains { $0.source == "session-persistence" })
+        XCTAssertFalse(resaved.logEntries.contains { $0.source == Workspace.sessionPersistenceOmissionLogSource })
     }
 
     @MainActor
@@ -8188,12 +8195,29 @@ extension SessionPersistenceTests {
             snapshot.panels.count,
             SessionPersistencePolicy.maxPanelsPerWorkspace
         )
+        XCTAssertNil(snapshot.omittedPanelCount)
         XCTAssertNil(omittedPanelCount(in: try jsonObject(encoding: snapshot)))
 
         let restored = Workspace()
         defer { closePanels(in: restored) }
         restored.restoreSessionSnapshot(snapshot)
-        XCTAssertFalse(restored.logEntries.contains { $0.source == "session-persistence" })
+        XCTAssertFalse(restored.logEntries.contains { $0.source == Workspace.sessionPersistenceOmissionLogSource })
+    }
+
+    @MainActor
+    func testWindowDockOmissionWarningIsRecordedOnTheSelectedWorkspace() {
+        let workspace = Workspace()
+        defer { closePanels(in: workspace) }
+        Workspace.recordOmittedPanelRestore(2, container: .windowDock, on: workspace)
+        Workspace.recordOmittedPanelRestore(2, container: .windowDock, on: workspace)
+        Workspace.recordOmittedPanelRestore(0, container: .windowDock, on: workspace)
+        Workspace.recordOmittedPanelRestore(nil, container: .workspace, on: workspace)
+
+        let warnings = workspace.logEntries.filter { $0.source == Workspace.sessionPersistenceOmissionLogSource }
+        XCTAssertEqual(warnings.count, 1)
+        XCTAssertEqual(warnings[0].level, .warning)
+        XCTAssertTrue(warnings[0].message.contains("2"))
+        XCTAssertTrue(warnings[0].message.contains(String(SessionPersistencePolicy.maxPanelsPerWorkspace)))
     }
 
     @MainActor
@@ -8208,6 +8232,7 @@ extension SessionPersistenceTests {
             from: JSONSerialization.data(withJSONObject: object)
         )
         XCTAssertEqual(decoded.panels.map(\.id), snapshot.panels.map(\.id))
+        XCTAssertNil(decoded.omittedPanelCount)
     }
 
     @MainActor

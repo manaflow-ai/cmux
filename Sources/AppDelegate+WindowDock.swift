@@ -69,6 +69,11 @@ extension AppDelegate.MainWindowContext {
                 )
             }
         )
+        Workspace.recordOmittedPanelRestore(
+            dockSnapshot.omittedPanelCount,
+            container: .windowDock,
+            on: tabManager.selectedWorkspace
+        )
     }
 
     func windowDockSessionSnapshot(
