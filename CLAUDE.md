@@ -94,6 +94,16 @@ Do not edit `CHANGELOG.md` in feature PRs; release tooling owns it.
   [the merge-main guide](docs/ci/merge-main.md) and never force-push over its merge.
 - A first implementation pass ends with passed scoped verification and an open PR;
   do not watch CI or run speculative reviews by default.
+- Every `feat-cmux-next` PR gets a `risk:low|medium|high` label from its paths, and the
+  `risk evidence` check stays red until the description has that tier's evidence
+  ([risk tiers](docs/ci/risk-tiers.md)). Low: green CI. Medium (UI): a screenshot under
+  `## Proof`, next to its cmux-design-references match. High (release, migrations, defaults,
+  protocol spec, pins and merge gates at any size; daemon and runtime changes over 40 lines;
+  taking back a change merged in the last week): also `Review:` with the reviewed SHA and
+  `Runtime test:` with the run that executed it; PRs here skip Swift tests, so dispatch `cmux-next.yml`.
+  Ship user-visible high-tier behavior behind a default-off setting. After merging high tier,
+  check the first nightly-next that has it; revert with `gh-merge-green --revert` if it broke
+  and the fix misses the next cut. Never add `risk:waived`; only a maintainer does.
 - Before opening a PR and before merging, check it against [REVIEW.md](REVIEW.md) (draft),
   the mistakes our review history keeps catching.
 - Before merging, use a [review subagent](skills/cmux-review/SKILL.md), correctness

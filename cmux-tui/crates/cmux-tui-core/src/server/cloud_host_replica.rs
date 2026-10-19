@@ -190,7 +190,7 @@ impl HostSource for MuxHostSource {
             ));
         }
         let allowed: Map<String, Value> = given.clone();
-        let message = crate::apps::routing::request(
+        let message = crate::apps::envelope::request(
             op,
             Value::Object(allowed),
             Some(cloud_key(user, idempotency_key)),
@@ -210,7 +210,7 @@ impl HostSource for MuxHostSource {
         }
         let response = crate::resource_router::handle_parsed_resource_request(&mux, parsed)
             .map_err(|error| refusal(&error.code, error.message.clone(), error.retryable))?;
-        crate::apps::routing::answer(op, response).map_err(|error| refusal_of(&error))
+        crate::apps::envelope::answer(op, response).map_err(|error| refusal_of(&error))
     }
 }
 
