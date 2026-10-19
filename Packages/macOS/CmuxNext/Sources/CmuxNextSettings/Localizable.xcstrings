@@ -104279,127 +104279,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux stores this Mac's workspace names, colors and unread counts so your phone can show them while the Mac is off. No folders, titles or terminal output. Turning this off deletes the copy."
+            "value": "cmux stores this Mac's workspace names, colors and unread counts so your phone can show them while the Mac is off. A workspace name can be a folder's name. No paths, tab titles or terminal output. Turning this off deletes the copy."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يخزّن cmux أسماء مساحات عمل هذا الـ Mac وألوانها وأعداد غير المقروء حتى يتمكن هاتفك من عرضها أثناء إيقاف تشغيل الـ Mac. لا يتم تخزين المجلدات أو العناوين أو مخرجات الطرفية. يؤدي إيقاف هذا الخيار إلى حذف النسخة."
+            "value": "يخزّن cmux أسماء مساحات عمل هذا الـ Mac وألوانها وأعداد غير المقروء حتى يتمكن هاتفك من عرضها أثناء إيقاف تشغيل الـ Mac. قد يكون اسم مساحة العمل اسم مجلد. لا يتم تخزين المسارات أو عناوين علامات التبويب أو مخرجات الطرفية. يؤدي إيقاف هذا الخيار إلى حذف النسخة."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux čuva nazive, boje i broj nepročitanih stavki radnih prostora ovog Maca kako bi ih telefon mogao prikazati dok je Mac isključen. Bez mapa, naslova ili izlaza terminala. Isključivanjem ove opcije kopija se briše."
+            "value": "cmux čuva nazive, boje i broj nepročitanih stavki radnih prostora ovog Maca kako bi ih telefon mogao prikazati dok je Mac isključen. Naziv radnog prostora može biti naziv mape. Bez putanja, naslova kartica ili izlaza terminala. Isključivanjem ove opcije kopija se briše."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux gemmer navne, farver og antal ulæste for denne Macs arbejdsområder, så din telefon kan vise dem, mens Mac'en er slukket. Ingen mapper, titler eller terminaloutput. Når du slår dette fra, slettes kopien."
+            "value": "cmux gemmer navne, farver og antal ulæste for denne Macs arbejdsområder, så din telefon kan vise dem, mens Mac'en er slukket. Et arbejdsområdes navn kan være en mappes navn. Ingen stier, fanetitler eller terminaloutput. Når du slår dette fra, slettes kopien."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux speichert Namen, Farben und Anzahl ungelesener Einträge der Arbeitsbereiche dieses Macs, damit dein Telefon sie anzeigen kann, während der Mac aus ist. Keine Ordner, Titel oder Terminalausgaben. Beim Ausschalten wird die Kopie gelöscht."
+            "value": "cmux speichert Namen, Farben und Anzahl ungelesener Einträge der Arbeitsbereiche dieses Macs, damit dein Telefon sie anzeigen kann, während der Mac aus ist. Der Name eines Arbeitsbereichs kann ein Ordnername sein. Keine Pfade, Tab-Titel oder Terminalausgaben. Beim Ausschalten wird die Kopie gelöscht."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux guarda los nombres, colores y recuentos de no leídos de los espacios de trabajo de este Mac para que tu teléfono pueda mostrarlos mientras el Mac está apagado. Sin carpetas, títulos ni salida de terminal. Al desactivarlo se elimina la copia."
+            "value": "cmux guarda los nombres, colores y recuentos de no leídos de los espacios de trabajo de este Mac para que tu teléfono pueda mostrarlos mientras el Mac está apagado. El nombre de un espacio de trabajo puede ser el de una carpeta. Sin rutas, títulos de pestañas ni salida de terminal. Al desactivarlo se elimina la copia."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux conserve les noms, couleurs et nombres de non-lus des espaces de travail de ce Mac pour que votre téléphone puisse les afficher lorsque le Mac est éteint. Aucun dossier, titre ni sortie de terminal. Désactiver cette option supprime la copie."
+            "value": "cmux conserve les noms, couleurs et nombres de non-lus des espaces de travail de ce Mac pour que votre téléphone puisse les afficher lorsque le Mac est éteint. Le nom d'un espace de travail peut être celui d'un dossier. Aucun chemin, titre d'onglet ni sortie de terminal. Désactiver cette option supprime la copie."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux memorizza nomi, colori e conteggi dei non letti degli spazi di lavoro di questo Mac, così il telefono può mostrarli quando il Mac è spento. Nessuna cartella, titolo o output del terminale. Disattivando l'opzione la copia viene eliminata."
+            "value": "cmux memorizza nomi, colori e conteggi dei non letti degli spazi di lavoro di questo Mac, così il telefono può mostrarli quando il Mac è spento. Il nome di uno spazio di lavoro può essere il nome di una cartella. Nessun percorso, titolo di pannello o output del terminale. Disattivando l'opzione la copia viene eliminata."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Macがオフのときもスマートフォンに表示できるよう、cmuxはこのMacのワークスペース名、色、未読数を保存します。フォルダ、タイトル、ターミナル出力は保存しません。オフにするとコピーは削除されます。"
+            "value": "Macがオフのときもスマートフォンに表示できるよう、cmuxはこのMacのワークスペース名、色、未読数を保存します。ワークスペース名がフォルダ名の場合があります。パス、タブのタイトル、ターミナル出力は保存しません。オフにするとコピーは削除されます。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux រក្សាទុកឈ្មោះ ពណ៌ និងចំនួនមិនទាន់អានរបស់កន្លែងធ្វើការលើ Mac នេះ ដើម្បីឱ្យទូរសព្ទរបស់អ្នកអាចបង្ហាញពួកវា ពេល Mac បិទ។ គ្មានថត ចំណងជើង ឬលទ្ធផលស្ថានីយទេ។ ការបិទជម្រើសនេះនឹងលុបច្បាប់ចម្លង។"
+            "value": "cmux រក្សាទុកឈ្មោះ ពណ៌ និងចំនួនមិនទាន់អានរបស់កន្លែងធ្វើការលើ Mac នេះ ដើម្បីឱ្យទូរសព្ទរបស់អ្នកអាចបង្ហាញពួកវា ពេល Mac បិទ។ ឈ្មោះកន្លែងធ្វើការអាចជាឈ្មោះថត។ គ្មានផ្លូវ ចំណងជើងផ្ទាំង ឬលទ្ធផលស្ថានីយទេ។ ការបិទជម្រើសនេះនឹងលុបច្បាប់ចម្លង។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac이 꺼져 있을 때도 휴대폰에 표시할 수 있도록 cmux가 이 Mac의 작업 공간 이름, 색상, 읽지 않은 개수를 저장합니다. 폴더, 제목, 터미널 출력은 저장하지 않습니다. 끄면 사본이 삭제됩니다."
+            "value": "Mac이 꺼져 있을 때도 휴대폰에 표시할 수 있도록 cmux가 이 Mac의 작업 공간 이름, 색상, 읽지 않은 개수를 저장합니다. 작업 공간 이름이 폴더 이름일 수 있습니다. 경로, 탭 제목, 터미널 출력은 저장하지 않습니다. 끄면 사본이 삭제됩니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux lagrer navn, farger og antall uleste for denne Macens arbeidsområder slik at telefonen kan vise dem mens Macen er av. Ingen mapper, titler eller terminalutdata. Når du slår dette av, slettes kopien."
+            "value": "cmux lagrer navn, farger og antall uleste for denne Macens arbeidsområder slik at telefonen kan vise dem mens Macen er av. Navnet på et arbeidsområde kan være navnet på en mappe. Ingen stier, fanetitler eller terminalutdata. Når du slår dette av, slettes kopien."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux przechowuje nazwy, kolory i liczby nieprzeczytanych obszarów roboczych tego Maca, aby telefon mógł je wyświetlać, gdy Mac jest wyłączony. Bez folderów, tytułów ani danych wyjściowych terminala. Wyłączenie tej opcji usuwa kopię."
+            "value": "cmux przechowuje nazwy, kolory i liczby nieprzeczytanych obszarów roboczych tego Maca, aby telefon mógł je wyświetlać, gdy Mac jest wyłączony. Nazwa obszaru roboczego może być nazwą folderu. Bez ścieżek, tytułów kart ani danych wyjściowych terminala. Wyłączenie tej opcji usuwa kopię."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "O cmux armazena os nomes, as cores e as contagens de não lidos dos espaços de trabalho deste Mac para que o celular possa mostrá-los enquanto o Mac estiver desligado. Sem pastas, títulos ou saída do terminal. Desativar esta opção apaga a cópia."
+            "value": "O cmux armazena os nomes, as cores e as contagens de não lidos dos espaços de trabalho deste Mac para que o celular possa mostrá-los enquanto o Mac estiver desligado. O nome de um espaço de trabalho pode ser o nome de uma pasta. Sem caminhos, títulos de abas ou saída do terminal. Desativar esta opção apaga a cópia."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux хранит названия, цвета и число непрочитанных рабочих пространств этого Mac, чтобы телефон мог показывать их, когда Mac выключен. Без папок, заголовков и вывода терминала. При выключении параметра копия удаляется."
+            "value": "cmux хранит названия, цвета и число непрочитанных рабочих пространств этого Mac, чтобы телефон мог показывать их, когда Mac выключен. Название рабочего пространства может совпадать с названием папки. Без путей, заголовков вкладок и вывода терминала. При выключении параметра копия удаляется."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux จัดเก็บชื่อ สี และจำนวนที่ยังไม่ได้อ่านของพื้นที่ทำงานบน Mac เครื่องนี้ เพื่อให้โทรศัพท์แสดงได้ขณะที่ Mac ปิดอยู่ ไม่มีโฟลเดอร์ ชื่อเรื่อง หรือเอาต์พุตเทอร์มินัล การปิดตัวเลือกนี้จะลบสำเนา"
+            "value": "cmux จัดเก็บชื่อ สี และจำนวนที่ยังไม่ได้อ่านของพื้นที่ทำงานบน Mac เครื่องนี้ เพื่อให้โทรศัพท์แสดงได้ขณะที่ Mac ปิดอยู่ ชื่อพื้นที่ทำงานอาจเป็นชื่อโฟลเดอร์ ไม่มีพาธ ชื่อแท็บ หรือเอาต์พุตเทอร์มินัล การปิดตัวเลือกนี้จะลบสำเนา"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux, Mac kapalıyken telefonunun gösterebilmesi için bu Mac'in çalışma alanı adlarını, renklerini ve okunmamış sayılarını saklar. Klasör, başlık veya terminal çıktısı saklanmaz. Bunu kapatmak kopyayı siler."
+            "value": "cmux, Mac kapalıyken telefonunun gösterebilmesi için bu Mac'in çalışma alanı adlarını, renklerini ve okunmamış sayılarını saklar. Bir çalışma alanının adı bir klasörün adı olabilir. Yol, sekme başlığı veya terminal çıktısı saklanmaz. Bunu kapatmak kopyayı siler."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux зберігає назви, кольори й кількість непрочитаних робочих просторів цього Mac, щоб телефон міг показувати їх, коли Mac вимкнений. Без папок, заголовків і виводу термінала. Вимкнення параметра видаляє копію."
+            "value": "cmux зберігає назви, кольори й кількість непрочитаних робочих просторів цього Mac, щоб телефон міг показувати їх, коли Mac вимкнений. Назва робочого простору може бути назвою папки. Без шляхів, заголовків вкладок і виводу термінала. Вимкнення параметра видаляє копію."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux lưu tên, màu và số mục chưa đọc của các không gian làm việc trên máy Mac này để điện thoại có thể hiển thị khi máy Mac tắt. Không lưu thư mục, tiêu đề hay đầu ra terminal. Tắt tùy chọn này sẽ xóa bản sao."
+            "value": "cmux lưu tên, màu và số mục chưa đọc của các không gian làm việc trên máy Mac này để điện thoại có thể hiển thị khi máy Mac tắt. Tên không gian làm việc có thể là tên thư mục. Không lưu đường dẫn, tiêu đề tab hay đầu ra terminal. Tắt tùy chọn này sẽ xóa bản sao."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux 会存储此 Mac 的工作区名称、颜色和未读数，以便在 Mac 关机时手机仍可显示。不包含文件夹、标题或终端输出。关闭此选项会删除该副本。"
+            "value": "cmux 会存储此 Mac 的工作区名称、颜色和未读数，以便在 Mac 关机时手机仍可显示。工作区名称可能是文件夹名称。不包含路径、标签页标题或终端输出。关闭此选项会删除该副本。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux 會儲存此 Mac 的工作區名稱、顏色和未讀數，以便在 Mac 關機時手機仍可顯示。不包含檔案夾、標題或終端機輸出。關閉此選項會刪除該副本。"
+            "value": "cmux 會儲存此 Mac 的工作區名稱、顏色和未讀數，以便在 Mac 關機時手機仍可顯示。工作區名稱可能是檔案夾名稱。不包含路徑、標籤頁標題或終端機輸出。關閉此選項會刪除該副本。"
           }
         }
       }

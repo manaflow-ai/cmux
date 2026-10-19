@@ -88,7 +88,7 @@ nonisolated enum SessionSettingsSchema {
                 section: .machines,
                 group: group,
                 title: SettingsText.keyed("settings.phone.cloudReplica", "Show This Mac's Workspaces on Your Phone While It's Off"),
-                help: SettingsText.keyed("settings.phone.cloudReplica.help", "cmux stores this Mac's workspace names, colors and unread counts so your phone can show them while the Mac is off. No folders, titles or terminal output. Turning this off deletes the copy."),
+                help: SettingsText.keyed("settings.phone.cloudReplica.help", "cmux stores this Mac's workspace names, colors and unread counts so your phone can show them while the Mac is off. A workspace name can be a folder's name. No paths, tab titles or terminal output. Turning this off deletes the copy."),
                 kind: .toggle,
                 default: .bool(SessionSettings.cloudReplicaDefault),
                 keywords: ["iphone", "mobile", "phone", "cloud", "offline", "workspaces", "sync", "privacy"]

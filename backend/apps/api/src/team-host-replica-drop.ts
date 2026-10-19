@@ -12,9 +12,9 @@ import type { OwnerFrame } from "@cmux/ownership"
  * install index, so the same install enrolls again under a new id. An orphaned host is not: its
  * record and id stay, and the former owner can enroll it again after rejoining, so only the stored
  * streams and sockets go, and TeamDO.hostReplicaRole refuses the orphaned record meanwhile. A
- * purged host is not either: it keeps its id, and its install publishes again while the Mac's own
- * switch is on (an open publisher is closed 4403 like every replica socket, and its daemon waits
- * for the app to lease again).
+ * purged host is not either: it keeps its id. A Mac that was off publishes again at its next lease
+ * while its own switch is on; an open publisher is closed 4403 like every replica socket, and its
+ * daemon stays off until the app clears the replica (its off switch or a sign-out).
  */
 
 type Sql = DurableObjectStorage["sql"]

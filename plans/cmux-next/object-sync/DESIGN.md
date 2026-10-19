@@ -691,9 +691,14 @@ Phase 3, slice 1 (2026-10-19): the HostDO replica, backend side.
   default; agents may not change it (`.privacy`). While it is on, the account is signed in, Cloud
   is allowed and the local daemon serves `cloud-host-replica-v1`, the app leases its install token
   (`cloud-host-replica-set`, `expires_at` from the JWT); off sends `clear {purge: true}`;
-  sign-out clears; `cloud-host-replica-needed` invalidates the install token and leases again. A
-  flag in user defaults remembers a lease without a later purge, so an off switch set while the
-  app was closed still purges at the next launch.
+  sign-out clears; `cloud-host-replica-needed` invalidates the install token and leases again (a
+  purge in flight leases and purges again: a lease resets a pending purge). User defaults name the
+  account whose copy may exist until the daemon that was asked to purge shows `off`, so an off
+  switch set while the app was closed, or a purge that did not finish, still purges later. A
+  daemon restart on the same connection leases again. The daemon asks again every 30 s while its
+  token is refused, and paces `expiring` asks to one per 30 s. Cost: the old token's socket still
+  closes 4401 at its expiry after an in-place renewal, so each renewal (about every 8 minutes with
+  10-minute install tokens) costs a reconnect and one full snapshot.
 - Next slice: the phone's reader through `OwnershipMirror` (after the cnx-ios fold-in).
 
 Each phase deletes what it replaces in the same change (no twins). Each phase lands on
