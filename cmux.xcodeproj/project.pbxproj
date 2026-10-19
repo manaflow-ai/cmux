@@ -105,7 +105,6 @@
 		847DA5DFA1DA3BF62840CFCC /* AgentHibernationManualRequestTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C695EA3868F64FC4A60BA06 /* AgentHibernationManualRequestTests.swift */; };
 		8997C0028997C0028997C002 /* AgentHibernationMemoryPressureResponder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8997D0028997D0028997D002 /* AgentHibernationMemoryPressureResponder.swift */; };
 		9090E0039090E0039090E003 /* AgentHibernationPanelCloseCleanupTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9090F0039090F0039090F003 /* AgentHibernationPanelCloseCleanupTests.swift */; };
-		9090E0049090E0049090E004 /* AgentIdleCloseConfirmationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9090F0049090F0049090F004 /* AgentIdleCloseConfirmationTests.swift */; };
 		8997E0028997E0028997E002 /* AgentHibernationPanelPhase.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8997F0028997F0028997F002 /* AgentHibernationPanelPhase.swift */; };
 		9090E0019090E0019090E001 /* AgentHibernationPanelState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9090F0019090F0019090F001 /* AgentHibernationPanelState.swift */; };
 		8997C00C8997C00C8997C00C /* AgentHibernationPlaceholderMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8997D00C8997D00C8997D00C /* AgentHibernationPlaceholderMode.swift */; };
@@ -151,6 +150,7 @@
 		A76110020000000000000001 /* AgentHookNotificationPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A76110020000000000000002 /* AgentHookNotificationPolicyTests.swift */; };
 		751AA9D65BBB1979C7957BAE /* AgentHookTestNotificationPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A0C49412A8AEDDDFA20067B /* AgentHookTestNotificationPipeline.swift */; };
 		C11757000000000000000040 /* AgentHookTestNotificationPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A0C49412A8AEDDDFA20067B /* AgentHookTestNotificationPipeline.swift */; };
+		9090E0049090E0049090E004 /* AgentIdleCloseConfirmationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9090F0049090F0049090F004 /* AgentIdleCloseConfirmationTests.swift */; };
 		D3C184780000000000000003 /* AgentInboxPollIteration.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3C184780000000000000005 /* AgentInboxPollIteration.swift */; };
 		D3C184780000000000000004 /* AgentInboxPollIteration.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3C184780000000000000005 /* AgentInboxPollIteration.swift */; };
 		273504E8019851399CF76909 /* AgentInboxProjection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C5AC198D412FCD62A039CB9 /* AgentInboxProjection.swift */; };
@@ -4895,7 +4895,6 @@
 		7C695EA3868F64FC4A60BA06 /* AgentHibernationManualRequestTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AgentHibernationManualRequestTests.swift"; sourceTree = "<group>"; };
 		8997D0028997D0028997D002 /* AgentHibernationMemoryPressureResponder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/AgentHibernationMemoryPressureResponder.swift; sourceTree = "<group>"; };
 		9090F0039090F0039090F003 /* AgentHibernationPanelCloseCleanupTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHibernationPanelCloseCleanupTests.swift; sourceTree = "<group>"; };
-		9090F0049090F0049090F004 /* AgentIdleCloseConfirmationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentIdleCloseConfirmationTests.swift; sourceTree = "<group>"; };
 		8997F0028997F0028997F002 /* AgentHibernationPanelPhase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHibernation/AgentHibernationPanelPhase.swift; sourceTree = "<group>"; };
 		9090F0019090F0019090F001 /* AgentHibernationPanelState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHibernation/AgentHibernationPanelState.swift; sourceTree = "<group>"; };
 		8997D00C8997D00C8997D00C /* AgentHibernationPlaceholderMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AgentHibernationPlaceholderMode.swift; sourceTree = "<group>"; };
@@ -4938,6 +4937,7 @@
 		A76110010000000000000002 /* AgentHookNotificationPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHookNotificationPolicy.swift; sourceTree = "<group>"; };
 		A76110020000000000000002 /* AgentHookNotificationPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHookNotificationPolicyTests.swift; sourceTree = "<group>"; };
 		2A0C49412A8AEDDDFA20067B /* AgentHookTestNotificationPipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AgentHookTestNotificationPipeline.swift"; sourceTree = "<group>"; };
+		9090F0049090F0049090F004 /* AgentIdleCloseConfirmationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentIdleCloseConfirmationTests.swift; sourceTree = "<group>"; };
 		D3C184780000000000000005 /* AgentInboxPollIteration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentInboxPollIteration.swift; sourceTree = "<group>"; };
 		7C5AC198D412FCD62A039CB9 /* AgentInboxProjection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentInbox/AgentInboxProjection.swift; sourceTree = "<group>"; };
 		05D60F9593550244973C09F2 /* AgentInboxProjectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AgentInboxProjectionTests.swift"; sourceTree = "<group>"; };
@@ -18033,7 +18033,6 @@
 				FFBC336B2DCB6EB7AAAE0212 /* AgentHibernationLaunchFidelityTests.swift in Sources */,
 				847DA5DFA1DA3BF62840CFCC /* AgentHibernationManualRequestTests.swift in Sources */,
 				9090E0039090E0039090E003 /* AgentHibernationPanelCloseCleanupTests.swift in Sources */,
-				9090E0049090E0049090E004 /* AgentIdleCloseConfirmationTests.swift in Sources */,
 				F65760010000000000000001 /* AgentHibernationPlannerSwiftTests.swift in Sources */,
 				D72260010000000000000001 /* AgentHibernationPortalVisibilityTests.swift in Sources */,
 				8997C0138997C0138997C013 /* AgentHibernationProcessSignalBoundaryTests.swift in Sources */,
@@ -18052,6 +18051,7 @@
 				A76110010000000000000003 /* AgentHookNotificationPolicy.swift in Sources */,
 				A76110020000000000000001 /* AgentHookNotificationPolicyTests.swift in Sources */,
 				751AA9D65BBB1979C7957BAE /* AgentHookTestNotificationPipeline.swift in Sources */,
+				9090E0049090E0049090E004 /* AgentIdleCloseConfirmationTests.swift in Sources */,
 				4D13982D1102D5B3A801C310 /* AgentInboxProjectionTests.swift in Sources */,
 				A77A000EA1B2C3D4E5F60001 /* AgentJournalLifecycleCenterTests.swift in Sources */,
 				A77A000CA1B2C3D4E5F60001 /* AgentJournalTestSupport.swift in Sources */,
