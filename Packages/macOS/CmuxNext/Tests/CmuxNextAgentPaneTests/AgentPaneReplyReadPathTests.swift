@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import Testing
 @testable import CmuxNextAgentPane
@@ -5,6 +6,19 @@ import Testing
 /// `link.readPath` (labs chatViewer, Lucas 2026-10-19): a path chip's file as text for the chat's
 /// viewer, behind the same checks as `link.openPath`.
 struct AgentPaneReplyReadPathTests {
+    @Test func refusesFifosWithoutWritersAndCharacterDevicesPromptly() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("read-fifo-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let fifo = folder.appendingPathComponent("pipe").path
+        try #require(mkfifo(fifo, mode_t(0o600)) == 0)
+        let start = ContinuousClock.now
+        #expect(AgentPaneReplyRequest.FileText(path: fifo) == nil)
+        #expect(ContinuousClock.now - start < .seconds(1))
+        #expect(AgentPaneReplyRequest.FileText(path: "/dev/null") == nil)
+        #expect(AgentPaneReplyRequest.FileText(path: "/dev/zero") == nil)
+    }
+
     @Test func takesOnlyItsPathAndSpendsAGesture() {
         #expect(AgentPaneReplyRequest(method: "link.readPath", params: ["path": "src/App.tsx"]) == .readPath("src/App.tsx"))
         #expect(AgentPaneReplyRequest(method: "link.readPath", params: ["path": "src/App.tsx", "extra": "x"]) == nil)

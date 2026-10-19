@@ -95,14 +95,14 @@ const LIST: Record<string, { name: string; kind: string }[]> = {
   [`${ROOT}/src`]: [{ name: "main.ts", kind: "file" }],
 };
 
-async function show(props: { folder?: string; outside?: boolean } = {}) {
+async function show(props: { folder?: string; outside?: boolean; truncated?: boolean } = {}) {
   const { createRoot } = await import("react-dom/client");
   const { FilesView } = await import("../src/agent-session/acpmux/FilesView");
   const events: string[] = [];
   const source = {
     list: async (folder: string) => {
       if (props.outside) throw new Error(`${folder} is not in a git repository`);
-      return { entries: LIST[folder] ?? [] };
+      return { entries: LIST[folder] ?? [], truncated: props.truncated };
     },
     search: async (query: string) => ({ search_root: ROOT, results: query === "mai" ? [{ path: "src/main.ts" }] : [] }),
   };
@@ -114,7 +114,9 @@ async function show(props: { folder?: string; outside?: boolean } = {}) {
         folder={props.folder ?? ROOT}
         source={source}
         onFolder={(folder) => events.push(`folder ${folder}`)}
-        onOpen={(path) => events.push(`open ${path}`)}
+        onOpen={(path) => {
+          events.push(`open ${path}`);
+        }}
         onClose={() => events.push("close")}
       />,
     ),
@@ -177,3 +179,12 @@ test("the viewer's X closes it, and there is no Back to transcript beside it", a
   );
   expect(events).toEqual(["close"]);
 });
+
+for (const truncated of [true, false]) {
+  test(`a truncated folder listing shows a partial-list note only when truncated is ${truncated}`, async () => {
+    await show({ truncated });
+    const note = host.querySelector(".acpmux-file-viewer-note")?.textContent;
+    expect(note).toBe(truncated ? "Some files aren't shown. Search to find more." : undefined);
+    expect(host.querySelector(".acpmux-files-list")?.textContent).toBe("srcREADME.md");
+  });
+}
