@@ -13,6 +13,10 @@ export type IncomingMessage = {
   name: string;
   /// The sending chat, when it is one here that can be opened.
   sessionId?: string;
+  /// The message's id and its thread's (the `agent_message` provenance), which a reply names
+  /// (IncomingMessageCard.tsx's Reply); a Claude Code envelope has neither.
+  msgId?: string;
+  threadId?: string;
   /// What the sender wrote.
   text: string;
   /// The prompt as the agent got it.
@@ -38,7 +42,12 @@ export function incomingPrompt(
       typeof provenance.fromName === "string" && provenance.fromName.trim()
         ? provenance.fromName.trim()
         : provenance.from;
-    return { kind: "message", message: { name, sessionId: provenance.from, text: text.trim(), raw: text } };
+    const id = (key: string) =>
+      typeof provenance[key] === "string" && provenance[key] ? { [key]: provenance[key] as string } : {};
+    return {
+      kind: "message",
+      message: { name, sessionId: provenance.from, ...id("msgId"), ...id("threadId"), text: text.trim(), raw: text },
+    };
   }
   if (msg?.client !== "adopt") return undefined;
   // Claude Code's envelopes start the prompt; one quoted later in it is the person's text.

@@ -17,6 +17,10 @@
 // - Another agent's message (`agent_message` provenance, a Claude Code `<cross-session-message>`
 //   in an adopted chat's history) draws as a message card from that agent, toggle or not; Claude
 //   Code's task notifications and reminders there draw no raw XML.
+// - Reply on such a card (its button, or R with the card focused) sends the typed answer to the
+//   sending chat as send_to_session sends a message: a `session/prompt` to that chat, attached
+//   hidden, whose `agent_message` provenance names this chat, the message's thread and the
+//   message it answers. A Claude Code envelope has no chat to answer: no Reply.
 //
 // Real Chromium from Playwright; skipped where it is not installed (the hosted webviews job).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -536,6 +540,111 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
       // Opened, the card shows the prompt as the agent got it.
       await card.getByRole("button", { name: /Message from leoli-fb/ }).click();
       await card.locator("pre").getByText("from-mode=").first().waitFor({ timeout: 5_000 });
+      await page.close();
+    });
+
+    const fromChild = () =>
+      record("user_message", {
+        text: "The grid fix is on cmux/grid-fix; tests pass.",
+        _meta: {
+          provenance: {
+            kind: "agent_message",
+            from: "child-3",
+            fromName: "Grid fix",
+            to: SESSION,
+            msgId: "m-1",
+            threadId: "t-1",
+          },
+        },
+      });
+    /// The reply's `session/prompt`, once the pane sent it.
+    const replyPrompt = async () => {
+      await waitUntil(() => calls.some((c) => c.method === "session/prompt" && c.params.sessionId === "child-3"));
+      return calls.find((c) => c.method === "session/prompt" && c.params.sessionId === "child-3")!.params;
+    };
+    const expectReply = (params: Record<string, any>, text: string) => {
+      expect(params.prompt).toEqual([{ type: "text", text }]);
+      const mux = params._meta.acpmux;
+      expect(mux.provenance).toEqual({
+        kind: "agent_message",
+        from: SESSION,
+        fromName: "Fix the product grid layout shift",
+        to: "child-3",
+        msgId: mux.promptId,
+        threadId: "t-1",
+        replyTo: "m-1",
+      });
+      expect(mux.promptId).toMatch(/^m-/);
+      // Sent unseen: the pane attached to the sending chat hidden first.
+      const attach = calls.find((c) => c.method === "_acpmux/attach" && c.params.sessionId === "child-3");
+      expect(attach?.params.visible).toBe(false);
+      // This chat got nothing.
+      expect(calls.filter((c) => c.method === "session/prompt" && c.params.sessionId === SESSION)).toEqual([]);
+    };
+
+    test("Reply sends the answer to the sending chat in the message's thread", async () => {
+      const page = await openChat({
+        offered: [],
+        experiment: "off",
+        extra: () => [record("turn_result", { status: "completed", stopReason: "end_turn" }), fromChild()],
+      });
+      const card = incoming(page);
+      await card.waitFor({ timeout: 10_000 });
+      await card.getByRole("button", { name: /^Reply/ }).click();
+      const field = card.getByRole("textbox", { name: "Reply to Grid fix" });
+      await field.waitFor({ timeout: 5_000 });
+      await field.fill("Merged; thanks.");
+      await field.press("Enter");
+      expectReply(await replyPrompt(), "Merged; thanks.");
+      // Sent: the editor closes and the card says so.
+      await card.getByText("Replied").waitFor({ timeout: 5_000 });
+      expect(await field.count()).toBe(0);
+      await page.close();
+    });
+
+    test("R on the focused card opens the reply; Escape closes it unsent", async () => {
+      const page = await openChat({
+        offered: [],
+        experiment: "off",
+        extra: () => [record("turn_result", { status: "completed", stopReason: "end_turn" }), fromChild()],
+      });
+      const card = incoming(page);
+      await card.waitFor({ timeout: 10_000 });
+      await card.getByRole("button", { name: /Message from Grid fix/ }).focus();
+      await page.keyboard.press("r");
+      const field = card.getByRole("textbox", { name: "Reply to Grid fix" });
+      await field.waitFor({ timeout: 5_000 });
+      // Typing in the field is text, R included.
+      await page.keyboard.type("Rebase first");
+      expect(await field.inputValue()).toBe("Rebase first");
+      await page.keyboard.press("Escape");
+      await field.waitFor({ state: "detached", timeout: 5_000 });
+      expect(calls.some((c) => c.method === "session/prompt" && c.params.sessionId === "child-3")).toBe(false);
+      // Again with R, then Enter: sent.
+      await card.getByRole("button", { name: /^Reply/ }).focus();
+      await page.keyboard.press("r");
+      await field.waitFor({ timeout: 5_000 });
+      await page.keyboard.type("Rebased.");
+      await page.keyboard.press("Enter");
+      expectReply(await replyPrompt(), "Rebased.");
+      await page.close();
+    });
+
+    test("a Claude Code envelope's card has no Reply", async () => {
+      const page = await openChat({
+        offered: [],
+        experiment: "off",
+        extra: () => [
+          record("turn_result", { status: "completed", stopReason: "end_turn" }),
+          record("user_message", {
+            text: '<cross-session-message from="uds:/tmp/a.sock" from-name="leoli-fb">hi</cross-session-message>',
+            client: "adopt",
+          }),
+        ],
+      });
+      const card = incoming(page);
+      await card.waitFor({ timeout: 10_000 });
+      expect(await card.getByRole("button", { name: /^Reply/ }).count()).toBe(0);
       await page.close();
     });
 

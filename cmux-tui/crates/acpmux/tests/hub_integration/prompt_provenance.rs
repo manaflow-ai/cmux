@@ -2,7 +2,8 @@
 //! `session/prompt` names the agent that sent it (`cmux agent message`). The recorded
 //! `user_message` carries it as `_meta.provenance`, a queued prompt keeps it until it runs, a
 //! steer records it, and an edit of the waiting prompt drops it. Only the unix socket may
-//! send it.
+//! send it, except the app pane's reply in place: `replyTo` set, from a chat here to the
+//! prompt's chat.
 
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
@@ -215,6 +216,55 @@ async fn a_provenance_from_any_origin_but_the_unix_socket_is_refused() {
         );
     }
     assert!(local.records(&session, "user_message").await.is_empty(), "a refused prompt ran");
+}
+
+/// The app pane's reply in place (IncomingMessageCard.tsx): chat `from` answers message `msg-0`
+/// of thread `thread-1` in chat `to`.
+fn app_reply(from: &str, to: &str) -> Value {
+    json!({"kind": "agent_message", "from": from, "fromName": "Grid fix", "to": to,
+           "msgId": "m-reply", "threadId": "thread-1", "replyTo": "msg-0"})
+}
+
+#[tokio::test]
+async fn the_app_pane_may_send_a_reply_from_a_chat_here_and_nothing_else() {
+    let hub = hub();
+    let mut local = Client::open(&hub);
+    let sender = local.new_session(json!({"harness": "fake"})).await;
+    let replier = local.new_session(json!({"harness": "fake"})).await;
+    let mut app = Client::open_as(&hub, Origin::LocalApp);
+
+    // A reply from the chat the message came to, to the chat that sent it: recorded as is.
+    let reply = app_reply(&replier, &sender);
+    app.call("session/prompt", prompt(&sender, "p-reply", "Rebased; tests pass.", Some(&reply))).await;
+    let ran = local.user_message(&sender, "p-reply").await;
+    assert_eq!(ran["text"], "Rebased; tests pass.", "{ran}");
+    assert_eq!(ran.pointer("/_meta/provenance"), Some(&reply), "{ran}");
+
+    // Not a reply, a sender that is no chat here, the prompt's own chat as its sender, or a
+    // `to` that is not the prompt's chat: refused.
+    let mut no_reply_to = app_reply(&replier, &sender);
+    no_reply_to.as_object_mut().unwrap().remove("replyTo");
+    let refused = [
+        no_reply_to,
+        app_reply("acp:nobody", &sender),
+        app_reply(&sender, &sender),
+        app_reply(&replier, &replier),
+    ];
+    for bad in refused {
+        let value = app.reply("session/prompt", prompt(&sender, "p-bad", "hi", Some(&bad))).await;
+        assert_eq!(
+            value.pointer("/error/data/reason"),
+            Some(&json!("provenance.origin_refused")),
+            "{bad}: {value}"
+        );
+    }
+    let ran = local.records(&sender, "user_message").await;
+    assert_eq!(ran.len(), 1, "a refused reply ran: {ran:?}");
+
+    // A remote browser may not send even a reply.
+    let mut web = Client::open_as(&hub, Origin::Web);
+    let value = web.reply("session/prompt", prompt(&sender, "p-web", "hi", Some(&reply))).await;
+    assert_eq!(value.pointer("/error/data/reason"), Some(&json!("provenance.origin_refused")), "{value}");
 }
 
 #[tokio::test]

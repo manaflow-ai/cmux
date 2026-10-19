@@ -137,6 +137,7 @@ import { loadEditDiffHunks } from "./conversation/EditDiff";
 import { PlanList } from "./conversation/PlanList";
 import { BackgroundTaskNote } from "./conversation/BackgroundTaskNote";
 import { IncomingMessageCard, IncomingNotice } from "./conversation/IncomingMessageCard";
+import type { IncomingMessage } from "./conversation/incomingMessage";
 import { CompactionNote, FailoverNote } from "./conversation/CompactionNote";
 import {
   SessionCwdContext,
@@ -545,7 +546,7 @@ const MessageRow = memo(
     // (conversation/incomingMessage.ts).
     if (row.kind === "user" && row.incoming?.kind === "notice") return <IncomingNotice text={row.incoming.text} />;
     if (row.kind === "user" && row.incoming?.kind === "message")
-      return <IncomingMessageCard message={row.incoming.message} onOpen={openOfferChat} />;
+      return <IncomingMessageCard message={row.incoming.message} onOpen={openOfferChat} onReply={replyToMessage} />;
     if (row.kind === "user") {
       // A Chief subagent's first message: the Chief's view as one collapsed line, the task as
       // the message (the session keeps the whole text).
@@ -763,6 +764,14 @@ const EditedFilesRow = memo(
 
 /// Opens a chat started from an offer (`chat.offer.open`): beside this one, else here.
 const openOfferChat = (sessionId: string) => void callNative("chat.offer.open", { sessionId }).catch(() => undefined);
+/// Reply on another agent's message card (`chat.message.reply`): its sender gets it in the thread.
+const replyToMessage = (message: IncomingMessage, text: string) =>
+  callNative<void>("chat.message.reply", {
+    sessionId: message.sessionId,
+    msgId: message.msgId,
+    threadId: message.threadId,
+    text,
+  });
 const offerActions: OfferActions = {
   start: (offerId, worktree) => callNative("chat.offer.start", { offerId, worktree }),
   here: (offerId) => callNative("chat.offer.here", { offerId }),
@@ -4436,6 +4445,13 @@ function AcpmuxPane() {
             const chat = client.selectedSession;
             if (!chat) throw new Error(translate("error.notOpen"));
             await client.dismissOffer(chat, String(offerId));
+          },
+          // Reply on another agent's message card: the answer goes to the chat that sent it, in
+          // its thread (conversation/IncomingMessageCard.tsx).
+          "chat.message.reply": async ({ sessionId, msgId, threadId, text }) => {
+            const str = (value: unknown) => (typeof value === "string" && value ? value : undefined);
+            const [to, id, thread] = [str(sessionId), str(msgId), str(threadId)];
+            await client.reply({ sessionId: to, msgId: id, threadId: thread }, String(text ?? ""));
           },
           // Open on a started offer: beside this chat, as a side chat opens; else here.
           "chat.offer.open": async ({ sessionId }) => {

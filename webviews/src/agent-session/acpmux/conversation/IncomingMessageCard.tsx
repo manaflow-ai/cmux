@@ -1,18 +1,23 @@
 // Another agent's message to this chat (incomingMessage.ts) as MessageCard draws one this agent
 // sent: sender to this agent, the message's first two lines, and the whole message once opened.
 // Opened, a Claude Code envelope also shows the prompt as the agent got it; a sender that is a
-// chat here opens beside this one.
-import { useId, useLayoutEffect, useRef, useState } from "react";
+// chat here opens beside this one. Reply (R, with the card focused) answers in place: the answer
+// goes to the sending chat in the message's thread (AcpmuxDirectClient.reply).
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { useT } from "../i18n";
 import type { IncomingMessage } from "./incomingMessage";
+import { PromptEditor } from "./UserBubble";
 import { ArrowRight, ChevronDown, ChevronRight, Envelope, TerminalSquare } from "./icons";
 
 export function IncomingMessageCard({
   message,
   onOpen,
+  onReply,
 }: {
   message: IncomingMessage;
   onOpen(sessionId: string): void;
+  /// Sends a reply to the message's sender; rejects when it was not sent.
+  onReply?(message: IncomingMessage, text: string): Promise<void>;
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
@@ -33,8 +38,36 @@ export function IncomingMessageCard({
   }, [open, message.text]);
   const raw = message.raw.trim() === message.text ? undefined : message.raw;
   const sessionId = message.sessionId;
+  // A reply needs a chat to go to and the message's id to answer: acpmux's `agent_message`.
+  const replies = onReply !== undefined && sessionId !== undefined && message.msgId !== undefined;
+  const [reply, setReply] = useState<"closed" | "open" | "sent" | "failed">("closed");
+  const [draft, setDraft] = useState("");
+  const card = useRef<HTMLDivElement>(null);
+  const replyButton = useRef<HTMLButtonElement>(null);
+  const closeReply = (next: "closed" | "sent") => {
+    setReply(next);
+    // The editor unmounts with the focus in it: the Reply button takes it back.
+    requestAnimationFrame(() => replyButton.current?.focus());
+  };
+  // R on the focused card opens the reply; typing in its editor is text. Native, as QuestionCard
+  // and PermissionCard listen: the card is a group, not a control of its own.
+  useEffect(() => {
+    const element = card.current;
+    if (!element || !replies) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey || event.isComposing) return;
+      if (event.key.toLowerCase() !== "r" || event.repeat) return;
+      if ((event.target as HTMLElement).closest("textarea, input")) return;
+      event.preventDefault();
+      setReply("open");
+    };
+    // ui-allow: the card's one action key (R: Reply), as PermissionCard's and QuestionCard's keys.
+    element.addEventListener("keydown", onKeyDown);
+    return () => element.removeEventListener("keydown", onKeyDown);
+  }, [replies]);
+  const editing = reply === "open" || reply === "failed";
   return (
-    <div className="cv-message is-incoming">
+    <div ref={card} className="cv-message is-incoming">
       <button
         type="button"
         className="cv-message__head"
@@ -60,7 +93,7 @@ export function IncomingMessageCard({
       <div ref={body} id={bodyId} className={`cv-message__body selectable${open ? "" : " is-clamped"}`}>
         {message.text || t("message.noText")}
       </div>
-      {(long || raw !== undefined || sessionId) && (
+      {(long || raw !== undefined || sessionId || replies) && (
         <div className="cv-message__foot">
           {(long || raw !== undefined) && (
             <button
@@ -78,6 +111,44 @@ export function IncomingMessageCard({
             <button type="button" className="cv-message__more" onClick={() => onOpen(sessionId)}>
               {t("subagents.open", { name: message.name })}
             </button>
+          )}
+          {replies && !editing && (
+            <button
+              ref={replyButton}
+              type="button"
+              className="cv-message__more"
+              aria-label={t("message.reply")}
+              aria-keyshortcuts="R"
+              onClick={() => setReply("open")}
+            >
+              {t("message.reply")}
+              <kbd className="cv-message__key">R</kbd>
+            </button>
+          )}
+          {reply === "sent" && <span className="cv-message__note">{t("message.replied")}</span>}
+        </div>
+      )}
+      {replies && editing && (
+        <div className="cv-message__reply">
+          <PromptEditor
+            initial={draft}
+            canSend
+            label={t("message.replyTo", { name: message.name })}
+            onCancel={() => closeReply("closed")}
+            onSend={async (text) => {
+              setDraft(text);
+              if (!onReply) return;
+              try {
+                await onReply(message, text);
+                setDraft("");
+                closeReply("sent");
+              } catch {
+                setReply("failed");
+              }
+            }}
+          />
+          {reply === "failed" && (
+            <output className="cv-message__note is-failed">{t("message.replyFailed")}</output>
           )}
         </div>
       )}

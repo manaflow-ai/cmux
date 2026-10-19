@@ -169,14 +169,18 @@ function SentImage({ image }: { image: PromptImage }) {
   );
 }
 
-function PromptEditor({
+/// A prompt open for typing: Enter sends, Shift-Enter breaks the line, Escape cancels. Edit and
+/// resend uses it here; a message card's Reply too (IncomingMessageCard.tsx), under `label`.
+export function PromptEditor({
   initial,
   canSend,
+  label,
   onCancel,
   onSend,
 }: {
   initial: string;
   canSend: boolean;
+  label?: string;
   onCancel(): void;
   onSend(text: string): Promise<void>;
 }) {
@@ -208,7 +212,7 @@ function PromptEditor({
       <textarea
         ref={field}
         className="cv-user__edit-field selectable"
-        aria-label={t("message.editLabel")}
+        aria-label={label ?? t("message.editLabel")}
         value={value}
         rows={1}
         onChange={(event) => setValue(event.target.value)}

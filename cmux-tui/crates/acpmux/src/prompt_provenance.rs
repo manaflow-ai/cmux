@@ -7,6 +7,10 @@
 //!
 //! Only the unix socket may send it (`remote_guard.rs` refuses every other origin with
 //! `provenance.origin_refused`), so a remote client cannot pass its words off as an agent's.
+//! One exception: the app's own pane (`Origin::LocalApp`) may send a reply, one with
+//! `replyTo`, `from` a chat of this daemon and `to` the prompt's chat. It is the person's answer
+//! to another agent's message, typed in place in the chat the message came to
+//! (IncomingMessageCard.tsx), so it lands in the sender's chat in the same thread.
 //! A queued prompt keeps it, across a restart too (`queue.rs`); an edit of a waiting prompt
 //! (`_acpmux/queue_edit`) drops it: the person rewrote the prompt.
 //!
@@ -61,15 +65,28 @@ pub fn withdraw_origin_refused() -> RpcError {
     )
 }
 
+/// Who sent a `session/prompt`, as far as its provenance goes.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Sender {
+    /// The unix socket: any provenance.
+    Local,
+    /// The app's own pane: only a reply (see the module doc).
+    App,
+    /// Anything else: none.
+    Other,
+}
+
 /// The provenance of a `session/prompt`'s `params`, with only the fields above: `None` when
-/// absent or null. `local`: the prompt came over the unix socket.
-pub fn of(params: &Value, local: bool) -> Result<Option<Value>, RpcError> {
+/// absent or null. A reply from the app is checked for its fields here; the caller checks that
+/// `from` and `to` are chats of this daemon (`app_reply_refused`).
+pub fn of(params: &Value, sender: Sender) -> Result<Option<Value>, RpcError> {
     let raw = match params.pointer("/_meta/acpmux/provenance") {
         None | Some(Value::Null) => return Ok(None),
         Some(Value::Object(raw)) => raw,
         Some(_) => return Err(refusal("provenance.value_refused", "provenance must be an object")),
     };
-    if !local {
+    let reply = raw.get("replyTo").is_some_and(|r| !r.is_null());
+    if !(sender == Sender::Local || (sender == Sender::App && reply)) {
         return Err(origin_refused());
     }
     if raw.get("kind").and_then(Value::as_str) != Some("agent_message") {
@@ -94,6 +111,18 @@ pub fn of(params: &Value, local: bool) -> Result<Option<Value>, RpcError> {
         out.insert(key.to_owned(), json!(value));
     }
     Ok(Some(Value::Object(out)))
+}
+
+/// The refusal of an app reply (`Sender::App`) whose `from` is not a chat of this daemon other
+/// than the prompt's, or whose `to` is not the prompt's chat; None when it is one.
+pub fn app_reply_refused(
+    provenance: &Value,
+    to: &str,
+    known: impl Fn(&str) -> bool,
+) -> Option<RpcError> {
+    let from = provenance.get("from").and_then(Value::as_str).unwrap_or_default();
+    let fits = provenance.get("to").and_then(Value::as_str) == Some(to) && from != to && known(from);
+    (!fits).then(origin_refused)
 }
 
 fn valid(key: &str, value: &str) -> bool {

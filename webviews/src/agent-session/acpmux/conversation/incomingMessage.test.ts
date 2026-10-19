@@ -19,7 +19,14 @@ const provenance = {
 test("agent_message provenance names the sending chat", () => {
   expect(incomingPrompt("Tests pass.", { _meta: { provenance } })).toEqual({
     kind: "message",
-    message: { name: "Grid fix", sessionId: "child-3", text: "Tests pass.", raw: "Tests pass." },
+    message: {
+      name: "Grid fix",
+      sessionId: "child-3",
+      msgId: "m-1",
+      threadId: "t-1",
+      text: "Tests pass.",
+      raw: "Tests pass.",
+    },
   });
   // Without a name the chat's id stands in.
   const unnamed = incomingPrompt("hi", { _meta: { provenance: { ...provenance, fromName: undefined } } });
