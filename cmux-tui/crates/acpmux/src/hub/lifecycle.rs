@@ -718,6 +718,7 @@ impl Hub {
         if saved.agent_session_id.is_some() {
             self.replay_config(session, &child, &saved).await;
         }
+        self.leave_full_access_if_off(session, &child).await;
         self.set_status(session, SessionStatus::Ready);
         self.save_meta(session);
         let meta_now = session.meta();

@@ -307,6 +307,13 @@ fn asking_mode(family: &str, available: &[String]) -> Option<String> {
         .map(|m| (*m).to_owned())
 }
 
+/// The mode a chat that must leave full access moves to: the family's asking mode, else the first
+/// offered mode that does not skip approvals.
+pub(crate) fn mode_below_full_access(family: &str, available: &[String]) -> Option<String> {
+    asking_mode(family, available)
+        .or_else(|| available.iter().find(|m| !is_full_access(m)).cloned())
+}
+
 /// What `access` gives a harness of `family` offering `available`.
 fn mode_for(access: DefaultMode, family: &str, available: &[String]) -> Option<String> {
     match access {
@@ -387,6 +394,39 @@ impl Hub {
         let (level, _) = self.start_level().await;
         mode_for(level, &crate::web_modes::family_of(&meta), &offered)
             .filter(|m| crate::web_modes::mode_of(&meta).as_deref() != Some(m.as_str()))
+    }
+
+    /// A respawned ACP chat that came back in full access (its harness restored the mode on
+    /// load) while `sessions.allowFullAccess` is off: moved to a mode that asks
+    /// (`mode_below_full_access`). A resumed chat never runs above the setting.
+    pub(super) async fn leave_full_access_if_off(
+        &self,
+        session: &Arc<Session>,
+        child: &Arc<ChildAgent>,
+    ) {
+        let meta = session.meta();
+        let Some(current) = crate::web_modes::mode_of(&meta) else { return };
+        if !is_full_access(&current) || full_access_allowed() {
+            return;
+        }
+        let Some(sid) = meta.agent_session_id.clone() else { return };
+        let family = crate::web_modes::family_of(&meta);
+        let Some(mode) = mode_below_full_access(&family, &available(&meta)) else {
+            tracing::warn!(session = %session.id, "resume: full access is off, but {current} offers no other mode");
+            return;
+        };
+        match child
+            .request(method::SESSION_SET_MODE, json!({"sessionId": sid, "modeId": mode}))
+            .await
+        {
+            Ok(_) => {
+                tracing::info!(session = %session.id, "resume: full access is off; {current} runs as {mode}");
+                self.write_mode_state(session, [ModeWrite::CurrentMode(json!(mode))]);
+            }
+            Err(e) => {
+                tracing::warn!(session = %session.id, "resume: leaving {current}: {}", e.message)
+            }
+        }
     }
 
     /// The level new chats start at now, and what chose it.

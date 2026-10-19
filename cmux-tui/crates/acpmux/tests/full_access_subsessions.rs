@@ -104,8 +104,11 @@ async fn a_full_access_parent_starts_a_child_outside_full_access_while_it_is_off
     let new = json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"harness": "fake"}}});
     let parent = app.ok("session/new", new).await["sessionId"].as_str().unwrap().to_owned();
     // The parent's harness puts itself in full access while that is allowed.
-    app.ok("session/prompt", json!({"sessionId": parent, "prompt": [{"type": "text", "text": "set-mode: yolo"}]}))
-        .await;
+    app.ok(
+        "session/prompt",
+        json!({"sessionId": parent, "prompt": [{"type": "text", "text": "set-mode: yolo"}]}),
+    )
+    .await;
     assert_eq!(app.mode(&parent).await.as_deref(), Some("yolo"));
 
     // The person turns full access off; the parent stays where it is.

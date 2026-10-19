@@ -163,8 +163,9 @@ async fn a_restarted_chat_saved_in_full_access_comes_back_without_it_when_off() 
     std::fs::write(&settings, r#"{"sessions": {"allowFullAccess": false}}"#).unwrap();
     // The unix socket (the CLI's `cmux harness restart`): only it may restart a harness.
     let mut cli = Client::new(&daemon, Origin::Local, ConnAuth::LocalSocket);
-    let r =
-        cli.call("_acpmux/sessions/restart_harness", json!({"sessions": [&claude, &codex, &restores]})).await;
+    let r = cli
+        .call("_acpmux/sessions/restart_harness", json!({"sessions": [&claude, &codex, &restores]}))
+        .await;
     assert_eq!(r["result"]["restarted"], json!(3), "{r}");
     assert_eq!(app.mode(&claude).await, "default");
     assert_ne!(app.mode(&codex).await, "agent-full-access");
