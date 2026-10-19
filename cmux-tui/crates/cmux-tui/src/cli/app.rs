@@ -14,7 +14,7 @@
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::net::UnixStream;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use serde_json::{Map, Value, json};
@@ -827,7 +827,7 @@ pub(super) fn app_owns_daemon(identity: &AppIdentity, daemon: &std::path::Path) 
 
 /// No app listens at `socket` (no file, or a stale one): the command needs
 /// the app, which a Chief without the app must hear plainly (E17).
-pub(super) fn connect(socket: &PathBuf) -> Result<UnixStream, String> {
+pub(super) fn connect(socket: &Path) -> Result<UnixStream, String> {
     let messages = &crate::localization::catalog().app_control;
     connect_for_uid(socket, cmux_tui_core::platform::effective_uid()).map_err(|error| {
         let template = match error.kind() {
