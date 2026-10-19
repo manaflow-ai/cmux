@@ -127,7 +127,7 @@ export function SummaryCard({
             // The popover keeps its fold control beside the tabs, so a narrow pane can still fold it.
             <button
               type="button"
-              className="acpmux-summary-card__fold"
+              className="acpmux-summary-card__fold acpmux-summary-card__fold--icon"
               aria-expanded={!card.collapsed}
               aria-label={foldLabel}
               title={foldLabel}

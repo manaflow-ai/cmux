@@ -18,6 +18,8 @@
 .acpmux-summary-card[data-placement=inline] .acpmux-summary-card__head{height:28px;padding:0 2px 4px 4px}
 .acpmux-summary-card__fold{flex:1;min-width:0;display:flex;align-items:center;gap:6px;height:26px;padding:0 6px;border:0;border-radius:7px;background:none;color:inherit;font:inherit;text-align:left;cursor:default}
 .acpmux-summary-card__fold>svg{flex:none;color:var(--agent-muted)}
+.acpmux-summary-card__fold--icon{flex:none;justify-content:center;width:26px;padding:0}
+.acpmux-summary-card__fold--icon+.acpmux-summary-tabs{margin-left:0}
 .acpmux-summary-card__title{flex:none;font-weight:500}
 .acpmux-summary-card__counts{flex:1;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:var(--agent-muted);font-size:var(--text-detail);font-variant-numeric:tabular-nums}
 .acpmux-summary-card__close{flex:none;display:grid;place-items:center;width:26px;height:26px;padding:0;border:0;border-radius:7px;background:none;color:var(--agent-muted);cursor:default}
@@ -65,8 +67,6 @@
 .acpmux-summary-title__button:hover{background:var(--acpmux-menu-hover);color:var(--agent-text)}
 .acpmux-summary-title__button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:0}
 .acpmux-summary-card:focus{outline:none}
-/* Beside the tabs the popover's fold button is its icon only: it leaves the row to them. */
-.acpmux-summary-card__head>.acpmux-summary-card__fold:has(+.acpmux-summary-tabs){flex:none}
 .acpmux-summary-tabs{flex:0 1 auto;min-width:0;display:flex;align-items:center;gap:2px;margin-left:-8px}
 .acpmux-summary-tab{flex:none;display:inline-flex;align-items:center;height:24px;padding:0 8px;box-sizing:border-box;border:0;border-radius:6px;background:none;color:var(--agent-muted);font:inherit;font-weight:500;cursor:default;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out),color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
 .acpmux-summary-tab:hover,.acpmux-summary-tab[data-selected]{color:var(--agent-text)}
