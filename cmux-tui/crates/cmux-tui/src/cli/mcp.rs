@@ -28,6 +28,7 @@ mod schema;
 #[cfg(test)]
 mod tests;
 mod transport;
+mod upstream;
 mod v2_tools;
 mod watch;
 
@@ -331,6 +332,10 @@ fn serve(global: GlobalArgs, code_mode: bool) -> i32 {
     server.list_changed = true;
     server.code_mode = code_mode;
     server.allowed = allowed_tools(std::env::var_os(ALLOWED_TOOLS_ENV));
+    server.upstreams = upstream::specs(std::env::var_os(upstream::ENV))
+        .into_iter()
+        .map(upstream::Upstream::new)
+        .collect();
     server.run(io::stdin().lock(), &output)
 }
 
@@ -402,6 +407,8 @@ pub(super) struct Server<B> {
     /// `CMUX_MCP_TOOLS`: the only tools listed and callable. It turns code
     /// mode off (the few tools are listed directly).
     allowed: Option<BTreeSet<String>>,
+    /// The agent chat's other MCP servers (`upstream`), behind this one.
+    upstreams: Vec<upstream::Upstream>,
     /// Where `run` writes, for a call's `notifications/progress`.
     notes: Option<watch::Output>,
 }
@@ -419,6 +426,7 @@ impl<B: Backend> Server<B> {
             code_mode: false,
             script_limits: code_mode::Limits::default(),
             allowed: None,
+            upstreams: Vec::new(),
             notes: None,
         }
     }
@@ -518,6 +526,13 @@ impl<B: Backend> Server<B> {
             keybinding_tools::TOOLS.iter().map(keybinding_tools::KeybindingTool::descriptor_json),
         );
         tools.extend(self.actions.iter().map(ActionTool::descriptor_json));
+        for upstream in &mut self.upstreams {
+            let taken = tools
+                .iter()
+                .filter_map(|tool| tool["name"].as_str().map(str::to_owned))
+                .collect::<BTreeSet<_>>();
+            tools.extend(upstream.descriptors(&taken));
+        }
         if let Some(allowed) = &self.allowed {
             tools.retain(|tool| tool["name"].as_str().is_some_and(|name| allowed.contains(name)));
         }
@@ -571,19 +586,63 @@ impl<B: Backend> Server<B> {
         if name == code_mode::DOCS {
             let tools = self.list();
             return Ok(match code_mode::docs(&tools, &arguments) {
-                Ok(value) => success(value, false),
+                Ok(mut value) => {
+                    // The index carries the other servers' own instructions
+                    // (the computer use consent rules among them).
+                    if value.get("families").is_some() {
+                        let servers = self
+                            .upstreams
+                            .iter()
+                            .filter_map(|u| {
+                                Some((u.name().to_owned(), json!(u.instructions.clone()?)))
+                            })
+                            .collect::<Map<_, _>>();
+                        if !servers.is_empty() {
+                            value["servers"] = Value::Object(servers);
+                        }
+                    }
+                    success(value, false)
+                }
                 Err(message) => tool_error(envelope(v2_tools::invalid(message), "not_run", None)),
             });
         }
         if name == code_mode::EXEC {
             // One tool list per script, for its docs searches.
             let mut tools = None;
+            let mut images = Vec::new();
             let answered = code_mode::exec(&arguments, self.script_limits, &mut |request| {
-                self.script_request(request, &mut tools)
+                self.script_request(request, &mut tools, &mut images)
             });
-            return Ok(answered.unwrap_or_else(|message| {
+            let mut result = answered.unwrap_or_else(|message| {
                 tool_error(envelope(v2_tools::invalid(message), "not_run", None))
-            }));
+            });
+            if let Some(content) = result["content"].as_array_mut() {
+                content.extend(images);
+            }
+            return Ok(result);
+        }
+        if let Some(index) = self.upstreams.iter().position(|u| {
+            name.strip_prefix(u.prefix.as_str()).is_some_and(|rest| rest.starts_with('_'))
+        }) {
+            let upstream = &mut self.upstreams[index];
+            if upstream.owns(name).is_none() {
+                // Not started yet (no list so far), or gone: list it now.
+                upstream.descriptors(&BTreeSet::new());
+            }
+            if let Some(tool) = upstream.owns(name) {
+                return Ok(match upstream.call(&tool, Value::Object(arguments)) {
+                    Ok(result) => result,
+                    Err((message, state)) => {
+                        let error = json!({
+                            "code": "upstream.failed",
+                            "message": format!("{}: {message}", upstream.name()),
+                            "details": {},
+                            "retryable": state == "not_run",
+                        });
+                        tool_error(envelope(error, state, None))
+                    }
+                });
+            }
         }
         if let Some(tool) = v2_tools::find(name) {
             return Ok(self.call_v2(tool, &arguments));
@@ -722,16 +781,18 @@ impl<B: Backend> Server<B> {
         &mut self,
         request: code_mode::Request,
         tools: &mut Option<Vec<Value>>,
+        images: &mut Vec<Value>,
     ) -> Value {
         match request {
             code_mode::Request::Call { name, .. } if name == code_mode::EXEC => {
-                code_mode::script_answer(Err((
-                    -32602,
-                    "a script cannot start another script".into(),
-                )))
+                code_mode::script_answer(
+                    Err((-32602, "a script cannot start another script".into())),
+                    images,
+                )
             }
             code_mode::Request::Call { name, arguments } => {
-                code_mode::script_answer(self.call(&json!({"name": name, "arguments": arguments})))
+                let result = self.call(&json!({"name": name, "arguments": arguments}));
+                code_mode::script_answer(result, images)
             }
             code_mode::Request::Docs { query } => {
                 let tools = match tools {

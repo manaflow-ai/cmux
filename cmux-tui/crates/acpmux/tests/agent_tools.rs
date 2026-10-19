@@ -165,35 +165,44 @@ async fn local_sessions_get_the_browser_and_cua_tools_and_skills() {
     let mut local = client(&hub, Origin::Local);
     let id = local.new_session("fake").await;
     let servers: Value = serde_json::from_str(&local.ask(&id, "mcp").await).unwrap();
+    // Code mode for every agent tool: one `cmux` server, which runs the
+    // computer use, secret (cx-ncc.42) and offer (cx-807da) servers for this
+    // session behind it, each with its own scoped env (CMUX_MCP_UPSTREAMS).
     let names: Vec<&str> = servers
         .as_array()
         .expect("mcpServers is a list")
         .iter()
         .filter_map(|s| s["name"].as_str())
         .collect();
+    assert_eq!(names, ["cmux"], "{servers}");
+    assert_eq!(servers[0]["args"], json!(["mcp", "serve"]), "{servers}");
+    let env = servers[0]["env"].as_array().unwrap();
+    let value = |key: &str| {
+        env.iter().find(|e| e["name"] == key).map(|e| e["value"].as_str().unwrap().to_owned())
+    };
+    let upstreams: Value = serde_json::from_str(&value("CMUX_MCP_UPSTREAMS").unwrap()).unwrap();
+    let names: Vec<&str> =
+        upstreams.as_array().unwrap().iter().filter_map(|s| s["name"].as_str()).collect();
     assert_eq!(
         names,
-        ["cmux-cua", "cmux-secrets", "cmux-sessions", "cmux-subsessions", "cmux"],
-        "{servers}"
+        ["cmux-cua", "cmux-secrets", "cmux-sessions", "cmux-subsessions"],
+        "{upstreams}"
     );
-    assert_eq!(servers[0]["command"], json!(cua), "{servers}");
-    assert_eq!(servers[1]["args"], json!(["secret-mcp"]), "{servers}");
-    let secret_env = servers[1]["env"].to_string();
-    assert!(secret_env.contains("ACPMUX_SECRET_SESSION") && secret_env.contains(&id), "{servers}");
-    assert_eq!(servers[2]["args"], json!(["offer-mcp"]), "{servers}");
-    let offer_env = servers[2]["env"].to_string();
-    assert!(offer_env.contains("ACPMUX_OFFER_SESSION") && offer_env.contains(&id), "{servers}");
+    assert_eq!(upstreams[0]["command"], json!(cua), "{upstreams}");
+    assert_eq!(upstreams[1]["args"], json!(["secret-mcp"]), "{upstreams}");
+    assert_eq!(upstreams[1]["env"]["ACPMUX_SECRET_SESSION"], json!(id), "{upstreams}");
+    assert_eq!(upstreams[2]["args"], json!(["offer-mcp"]), "{upstreams}");
+    assert_eq!(upstreams[2]["env"]["ACPMUX_OFFER_SESSION"], json!(id), "{upstreams}");
     // Sub-sessions (`subsession_mcp.rs`), on by default: the server acts as
     // this session with its caller token, on this daemon's socket only.
-    assert_eq!(servers[3]["args"], json!(["subsession-mcp"]), "{servers}");
-    let sub_env = servers[3]["env"].to_string();
+    assert_eq!(upstreams[3]["args"], json!(["subsession-mcp"]), "{upstreams}");
+    let sub_env = upstreams[3]["env"].to_string();
     for key in ["ACPMUX_SESSION_ID", "ACPMUX_SESSION_TOKEN", "ACPMUX_SESSION_TOKEN_SOCKET"] {
-        assert!(sub_env.contains(key), "{key}: {servers}");
+        assert!(sub_env.contains(key), "{key}: {upstreams}");
     }
-    assert!(sub_env.contains(&id), "{servers}");
-    assert_eq!(servers[4]["args"], json!(["mcp", "serve"]), "{servers}");
+    assert!(sub_env.contains(&id), "{upstreams}");
     // No allowlist: the cmux server speaks code mode.
-    assert!(!servers[4]["env"].to_string().contains("CMUX_MCP_TOOLS"), "{servers}");
+    assert_eq!(value("CMUX_MCP_TOOLS"), None, "{servers}");
 
     // A client cannot set the list on its session: only a preset (the
     // Chief's turns, `chief_builtin_presets.rs`) does.
@@ -243,7 +252,7 @@ async fn local_sessions_get_the_browser_and_cua_tools_and_skills() {
     }
     let config: Value =
         serde_json::from_str(&std::fs::read_to_string(&config_path).unwrap()).unwrap();
-    assert_eq!(config["mcpServers"]["cmux-cua"]["command"], json!(cua), "{config}");
+    assert_eq!(config["mcpServers"].as_object().unwrap().len(), 1, "{config}");
     assert_eq!(config["mcpServers"]["cmux"]["command"], json!(cmux), "{config}");
     assert_eq!(config["mcpServers"]["cmux"]["args"], json!(["mcp", "serve", "--all-tools"]));
     // Fail safe: a Claude Code whose profile turns tool search off keeps it
@@ -290,7 +299,12 @@ async fn local_sessions_get_the_browser_and_cua_tools_and_skills() {
         serde_json::from_str(&std::fs::read_to_string(&settled_argv[at + 1]).unwrap()).unwrap();
     assert_eq!(settled_config["mcpServers"]["cmux"]["args"], json!(["mcp", "serve"]));
     let _ = std::fs::remove_dir_all(&home);
-    assert_eq!(config["mcpServers"]["cmux-sessions"]["args"], json!(["offer-mcp"]), "{config}");
+    let upstreams: Value = serde_json::from_str(
+        config["mcpServers"]["cmux"]["env"]["CMUX_MCP_UPSTREAMS"].as_str().unwrap(),
+    )
+    .unwrap();
+    assert_eq!(upstreams[0]["command"], json!(cua), "{config}");
+    assert_eq!(upstreams[2]["args"], json!(["offer-mcp"]), "{config}");
     assert!(!argv.iter().any(|a| a == "--strict-mcp-config"), "the user's servers stay: {argv:?}");
     let at = argv.iter().position(|a| a == "--plugin-dir").expect("--plugin-dir");
     let plugin = PathBuf::from(&argv[at + 1]);

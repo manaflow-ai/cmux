@@ -667,8 +667,28 @@ fn closed() -> Value {
     json!({"ok": false, "message": "the server stopped", "error": {"state": "not_run"}})
 }
 
-/// A tool result as a script sees it.
-pub(super) fn script_answer(result: Result<Value, (i64, String)>) -> Value {
+/// Images a script's calls returned that one `cmux_exec` result carries
+/// (a computer use screenshot), and their total base64 bytes.
+const MAX_IMAGES: usize = 8;
+const MAX_IMAGE_BYTES: usize = 8 << 20;
+
+/// A tool result as a script sees it. A result without structured content
+/// (another server's tool) becomes its JSON text, or `{content}`; its
+/// images move to `images`, for the `cmux_exec` result, and the script
+/// sees `{type: "image", image: <index>}` in their place.
+pub(super) fn script_answer(
+    result: Result<Value, (i64, String)>,
+    images: &mut Vec<Value>,
+) -> Value {
+    let result = result.map(|result| {
+        if result.get("structuredContent").is_some() {
+            return result;
+        }
+        let mut result = result;
+        let failed = result["isError"] == true;
+        result["structuredContent"] = from_content(&result["content"], images, failed);
+        result
+    });
     match result {
         Err((_, message)) => json!({
             "ok": false,
@@ -686,4 +706,41 @@ pub(super) fn script_answer(result: Result<Value, (i64, String)>) -> Value {
         }
         Ok(result) => json!({"ok": true, "value": result["structuredContent"]}),
     }
+}
+
+/// The value of an MCP `content` list: one text block that is JSON is that
+/// JSON; anything else is `{content}` with images moved to `images`. An
+/// error result's text is its `error.message`.
+fn from_content(content: &Value, images: &mut Vec<Value>, failed: bool) -> Value {
+    let blocks = content.as_array().cloned().unwrap_or_default();
+    if let [block] = blocks.as_slice()
+        && !failed
+        && block["type"] == "text"
+        && let Some(value) = block["text"].as_str().and_then(|t| serde_json::from_str(t).ok())
+    {
+        return value;
+    }
+    let message =
+        blocks.iter().find_map(|block| block["text"].as_str()).unwrap_or_default().to_owned();
+    let used = |images: &Vec<Value>| -> usize {
+        images.iter().map(|image| image["data"].as_str().map_or(0, str::len)).sum()
+    };
+    let blocks = blocks
+        .into_iter()
+        .map(|block| {
+            if block["type"] != "image" {
+                return block;
+            }
+            let size = block["data"].as_str().map_or(0, str::len);
+            if images.len() >= MAX_IMAGES || used(images) + size > MAX_IMAGE_BYTES {
+                return json!({"type": "image", "dropped": true, "mimeType": block["mimeType"]});
+            }
+            images.push(block.clone());
+            json!({"type": "image", "image": images.len() - 1, "mimeType": block["mimeType"]})
+        })
+        .collect::<Vec<_>>();
+    if failed {
+        return json!({"content": blocks, "error": {"message": message}});
+    }
+    json!({"content": blocks})
 }
