@@ -316,11 +316,11 @@ private struct AgentChatSidebar: View {
                 }
             }
             }
-            .listStyle(.insetGrouped)
+            .listStyle(.plain)
             .searchable(text: $searchText, placement: .sidebar, prompt: "Search sessions")
             .refreshable { await refresh() }
         }
-        .background(Color(.systemGroupedBackground))
+        .background(Color(.systemBackground))
         .accessibilityIdentifier("MobileAgentSessionsSidebar")
     }
 }
@@ -398,6 +398,7 @@ private struct AgentChatDetail: View {
         }
         .navigationTitle(model.selectedSession?.title ?? "Agents")
         .navigationBarTitleDisplayMode(.inline)
+        .navigationBarBackButtonHidden()
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
                 Button(action: showSidebar) {
@@ -797,12 +798,7 @@ private struct AgentChatTranscriptView: View {
     var body: some View {
         VStack(spacing: 0) {
             if let session = model.selectedSession {
-                AgentExecutionContextBar(session: session, model: model)
-                if let usage = model.selectedUsage {
-                    AgentUsageContextCard(totals: usage)
-                        .padding(.horizontal, 12)
-                        .padding(.top, 8)
-                }
+                AgentExecutionContextBar(session: session)
                 if case .needsInput = session.state {
                     AgentNeedsInputNotice(actionableCount: model.selectedPendingActionableCount)
                 }
@@ -819,6 +815,9 @@ private struct AgentChatTranscriptView: View {
                 let artifactLoader = model.selectedSessionID.flatMap { model.artifactLoader(for: $0) }
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 16) {
+                        if let usage = model.selectedUsage {
+                            AgentUsageContextCard(totals: usage)
+                        }
                         if model.selectedHasMoreHistory {
                             Button {
                                 let countBeforeLoad = model.selectedMessages.count
@@ -957,18 +956,18 @@ private struct AgentPendingPromptBubble: View {
             VStack(alignment: .leading, spacing: 5) {
                 Text(text.isEmpty ? "Attachment" : text)
                     .font(.body)
-                    .foregroundStyle(.white)
+                    .foregroundStyle(.primary)
                     .textSelection(.enabled)
                 Label(
                     isQueued ? "Queued for the next turn" : "Sending…",
                     systemImage: isQueued ? "clock.arrow.circlepath" : "arrow.up.circle"
                 )
                 .font(.caption2.weight(.medium))
-                .foregroundStyle(.white.opacity(0.78))
+                .foregroundStyle(.secondary)
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 11)
-            .background(Color.accentColor.opacity(0.72), in: RoundedRectangle(cornerRadius: 18))
+            .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 22))
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(isQueued ? "Queued" : "Sending"): \(text.isEmpty ? "Attachment" : text)")
@@ -1061,87 +1060,30 @@ private struct AgentFailedTurnNotice: View {
 
 private struct AgentExecutionContextBar: View {
     let session: ChatSessionDescriptor
-    @Bindable var model: AgentChatModeModel
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
-                HStack(spacing: 7) {
-                    if ["claude", "codex", "opencode"].contains(session.agentKind.sourceName) {
-                        TaskTemplateIcon(
-                            value: "agent:\(session.agentKind.sourceName)",
-                            size: 21
-                        )
-                    } else {
-                        Image(systemName: "sparkles")
-                    }
-                    Text(session.agentKind.displayName)
-                }
-                .font(.subheadline.weight(.semibold))
-                Spacer()
-                AgentStatusIndicator(state: session.state)
+        HStack(spacing: 8) {
+            if ["claude", "codex", "opencode"].contains(session.agentKind.sourceName) {
+                TaskTemplateIcon(value: "agent:\(session.agentKind.sourceName)", size: 18)
+            } else {
+                Image(systemName: "sparkles")
             }
-            Text(session.title ?? "Untitled task")
-                .font(.headline)
-                .foregroundStyle(.primary)
-                .lineLimit(2)
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    AgentContextPill(
-                        title: statusLabel,
-                        subtitle: "Status",
-                        systemImage: statusIcon
-                    )
-                    if let workspaceID = session.workspaceID {
-                        AgentContextPill(
-                            title: workspaceID,
-                            subtitle: "Workspace",
-                            systemImage: "square.grid.2x2"
-                        )
-                    }
-                    if let terminalID = session.terminalID {
-                        AgentContextPill(
-                            title: terminalID,
-                            subtitle: "Host",
-                            systemImage: "desktopcomputer"
-                        )
-                    }
-                    if let cwd = session.workingDirectory {
-                        AgentContextPill(
-                            title: cwd,
-                            subtitle: "Working directory",
-                            systemImage: "folder"
-                        )
-                    }
-                }
+            Text(session.agentKind.displayName)
+                .font(.subheadline.weight(.medium))
+            if let directory = session.workingDirectory, !directory.isEmpty {
+                Label(URL(fileURLWithPath: directory).lastPathComponent, systemImage: "folder")
+                    .font(.caption)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .help(directory)
             }
-            AgentSessionControlsMenu(model: model)
+            Spacer(minLength: 4)
+            AgentStatusIndicator(state: session.state)
         }
         .foregroundStyle(.secondary)
         .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .background(.thinMaterial)
+        .padding(.vertical, 8)
         .accessibilityElement(children: .combine)
-    }
-
-    private var statusLabel: String {
-        switch session.state {
-        case .working: return "Working"
-        case .needsInput: return "Needs input"
-        case .failed: return "Failed"
-        case .idle: return "Idle"
-        case .ended: return "Ended"
-        }
-    }
-
-    private var statusIcon: String {
-        switch session.state {
-        case .working: return "arrow.triangle.2.circlepath"
-        case .needsInput: return "hand.raised.fill"
-        case .failed: return "exclamationmark.triangle.fill"
-        case .idle: return "pause.circle"
-        case .ended: return "checkmark.circle"
-        }
     }
 }
 
@@ -1217,40 +1159,28 @@ private struct AgentSessionControlsMenu: View {
                 }
             }
         } label: {
-            Label("Controls", systemImage: "slider.horizontal.3")
-                .font(.caption.weight(.semibold))
-        }
-        .buttonStyle(.bordered)
-        .controlSize(.small)
-        .disabled(model.selectedSession == nil || model.updatingControlsSessionIDs.contains(model.selectedSessionID ?? ""))
-        .accessibilityIdentifier("MobileAgentSessionControls")
-    }
-}
-
-private struct AgentContextPill: View {
-    let title: String
-    let subtitle: String
-    let systemImage: String
-
-    var body: some View {
-        Label {
-            VStack(alignment: .leading, spacing: 1) {
-                Text(subtitle.uppercased())
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                Text(title)
-                    .font(.caption)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
+            HStack(spacing: 4) {
+                if let option = model.selectedControls.modelOptions.first(where: {
+                    $0.id == model.selectedControls.modelID
+                }) {
+                    Text(option.displayName)
+                    if let effort = model.selectedControls.reasoningEffortOptions.first(where: {
+                        $0.id == model.selectedControls.reasoningEffortID
+                    }) {
+                        Text(effort.displayName).foregroundStyle(.secondary)
+                    }
+                } else {
+                    Label("Controls", systemImage: "slider.horizontal.3")
+                }
             }
-        } icon: {
-            Image(systemName: systemImage)
-                .font(.caption.weight(.semibold))
+            .font(.subheadline)
+            .lineLimit(1)
+            .frame(minHeight: 44)
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 7)
-        .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 12))
-        .accessibilityElement(children: .combine)
+        .buttonStyle(.plain)
+        .disabled(model.selectedSession == nil || model.selectedSession?.state == .ended
+            || model.updatingControlsSessionIDs.contains(model.selectedSessionID ?? ""))
+        .accessibilityIdentifier("MobileAgentSessionControls")
     }
 }
 
@@ -1444,13 +1374,12 @@ private struct AgentProseBubble: View {
     var body: some View {
         HStack {
             if role == .user { Spacer(minLength: 36) }
-            AgentChatMarkdownText(markdown: text, color: role == .user ? .white : .primary)
-                .padding(.horizontal, 14)
+            AgentChatMarkdownText(markdown: text, color: .primary)
+                .padding(.horizontal, role == .user ? 14 : 0)
                 .padding(.vertical, 11)
-                .background(role == .user ? Color.accentColor : Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 18))
-                .foregroundStyle(role == .user ? .white : .primary)
+                .background(role == .user ? Color(.secondarySystemBackground) : Color.clear, in: RoundedRectangle(cornerRadius: 22))
+                .foregroundStyle(.primary)
                 .opacity(isStreaming ? 0.9 : 1)
-            if role != .user { Spacer(minLength: 36) }
         }
     }
 }
@@ -2274,41 +2203,7 @@ private struct AgentChatComposer: View {
                     .padding(.horizontal, 4)
                 }
             }
-            HStack(alignment: .bottom, spacing: 10) {
-                Menu {
-                    Button {
-                        isPhotoPickerPresented = true
-                    } label: {
-                        Label("Photo Library", systemImage: "photo.on.rectangle")
-                    }
-                    Button {
-                        startAttachmentStaging { await model.stagePastedImages() }
-                    } label: {
-                        Label("Paste Image", systemImage: "doc.on.clipboard")
-                    }
-                    Button {
-                        isFileImporterPresented = true
-                    } label: {
-                        Label("Choose File", systemImage: "doc")
-                    }
-                } label: {
-                    Image(systemName: "plus")
-                        .font(.body.weight(.semibold))
-                }
-                .accessibilityLabel("Add attachment")
-                .disabled(isSessionEnded || model.attachments.count >= 10)
-                Button {
-                    toggleDictation()
-                } label: {
-                    Image(systemName: dictation.state.isListening ? "mic.fill" : "mic")
-                }
-                .foregroundStyle(dictation.state.isListening ? .red : .secondary)
-                .symbolEffect(.pulse, isActive: dictation.state.isListening)
-                .disabled(isSessionEnded || !dictation.isAvailable)
-                .accessibilityLabel(
-                    dictation.state.isListening ? "Stop dictation" : "Start dictation"
-                )
-                .accessibilityIdentifier("MobileAgentComposerMic")
+            VStack(alignment: .leading, spacing: 4) {
                 TextField(
                     isSessionEnded ? "Session ended" : "Message your agent",
                     text: $model.draft,
@@ -2324,66 +2219,113 @@ private struct AgentChatComposer: View {
                         guard !isFocused, !dictation.locksComposerField else { return }
                         dictation.stop()
                     }
-                if model.selectedSession?.isWorking == true {
+                HStack(spacing: 10) {
                     Menu {
                         Button {
-                            Task { await model.interrupt() }
+                            isPhotoPickerPresented = true
                         } label: {
-                            Label("Stop turn", systemImage: "stop.circle")
+                            Label("Photo Library", systemImage: "photo.on.rectangle")
                         }
-                        Button(role: .destructive) {
-                            Task { await model.interrupt(hard: true) }
+                        Button {
+                            startAttachmentStaging { await model.stagePastedImages() }
                         } label: {
-                            Label("Force stop", systemImage: "exclamationmark.octagon")
+                            Label("Paste Image", systemImage: "doc.on.clipboard")
+                        }
+                        Button {
+                            isFileImporterPresented = true
+                        } label: {
+                            Label("Choose File", systemImage: "doc")
                         }
                     } label: {
-                        if model.interruptingSessionIDs.contains(model.selectedSessionID ?? "") {
-                            ProgressView().controlSize(.small)
-                        } else {
-                            Image(systemName: "stop.circle.fill")
-                        }
+                        Image(systemName: "plus")
+                            .font(.title3)
+                            .frame(width: 44, height: 44)
                     }
-                    .foregroundStyle(.red)
-                    .accessibilityLabel("Stop agent")
-                    .accessibilityHint("Choose a polite or forceful interruption")
-                    .disabled(isSessionEnded || model.interruptingSessionIDs.contains(model.selectedSessionID ?? ""))
-                }
-                if model.selectedSession?.isWorking == true {
-                    Menu {
+                    .accessibilityLabel("Add attachment")
+                    .disabled(isSessionEnded || model.attachments.count >= 10)
+                    Spacer(minLength: 0)
+                    AgentSessionControlsMenu(model: model)
+                    Button {
+                        toggleDictation()
+                    } label: {
+                        Image(systemName: dictation.state.isListening ? "mic.fill" : "mic")
+                            .font(.title3)
+                            .frame(width: 44, height: 44)
+                    }
+                    .foregroundStyle(dictation.state.isListening ? .red : .secondary)
+                    .symbolEffect(.pulse, isActive: dictation.state.isListening)
+                    .disabled(isSessionEnded || !dictation.isAvailable)
+                    .accessibilityLabel(
+                        dictation.state.isListening ? "Stop dictation" : "Start dictation"
+                    )
+                    .accessibilityIdentifier("MobileAgentComposerMic")
+                    if model.selectedSession?.isWorking == true {
+                        Menu {
+                            Button {
+                                Task { await model.interrupt() }
+                            } label: {
+                                Label("Stop turn", systemImage: "stop.circle")
+                            }
+                            Button(role: .destructive) {
+                                Task { await model.interrupt(hard: true) }
+                            } label: {
+                                Label("Force stop", systemImage: "exclamationmark.octagon")
+                            }
+                        } label: {
+                            if model.interruptingSessionIDs.contains(model.selectedSessionID ?? "") {
+                                ProgressView().controlSize(.small)
+                            } else {
+                                Image(systemName: "stop.circle.fill")
+                                    .font(.system(size: 30))
+                                    .frame(width: 44, height: 44)
+                            }
+                        }
+                        .foregroundStyle(.primary)
+                        .accessibilityLabel("Stop agent")
+                        .accessibilityHint("Choose a polite or forceful interruption")
+                        .disabled(isSessionEnded || model.interruptingSessionIDs.contains(model.selectedSessionID ?? ""))
+                    }
+                    if model.selectedSession?.isWorking == true {
+                        Menu {
+                            Button {
+                                dictation.cancel()
+                                Task { await model.sendDraft() }
+                            } label: {
+                                Label("Queue for next turn", systemImage: "clock.arrow.circlepath")
+                            }
+                            Button {
+                                dictation.cancel()
+                                Task { await model.steerDraft() }
+                            } label: {
+                                Label("Steer current turn", systemImage: "arrow.uturn.forward")
+                            }
+                        } label: {
+                            Image(systemName: "arrow.up.circle.fill")
+                                .font(.system(size: 32))
+                                .frame(width: 44, height: 44)
+                        }
+                        .foregroundStyle(canSend ? Color.primary : Color.secondary)
+                        .disabled(!canSend)
+                        .accessibilityLabel("Send instruction")
+                        .accessibilityHint("Choose whether to queue the instruction or steer the current turn")
+                    } else {
                         Button {
                             dictation.cancel()
                             Task { await model.sendDraft() }
                         } label: {
-                            Label("Queue for next turn", systemImage: "clock.arrow.circlepath")
+                            Image(systemName: "arrow.up.circle.fill")
+                                .font(.system(size: 32))
+                                .frame(width: 44, height: 44)
                         }
-                        Button {
-                            dictation.cancel()
-                            Task { await model.steerDraft() }
-                        } label: {
-                            Label("Steer current turn", systemImage: "arrow.uturn.forward")
-                        }
-                    } label: {
-                        Image(systemName: "arrow.up.circle.fill")
+                        .foregroundStyle(canSend ? Color.primary : Color.secondary)
+                        .disabled(!canSend)
+                        .accessibilityLabel("Send")
                     }
-                    .foregroundStyle(canSend ? Color.accentColor : Color.secondary)
-                    .disabled(!canSend)
-                    .accessibilityLabel("Send instruction")
-                    .accessibilityHint("Choose whether to queue the instruction or steer the current turn")
-                } else {
-                    Button {
-                        dictation.cancel()
-                        Task { await model.sendDraft() }
-                    } label: {
-                        Image(systemName: "arrow.up.circle.fill")
-                    }
-                    .foregroundStyle(canSend ? Color.accentColor : Color.secondary)
-                    .disabled(!canSend)
-                    .accessibilityLabel("Send")
                 }
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
-            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 24))
+            .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 28))
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)

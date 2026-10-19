@@ -19,17 +19,14 @@ public struct AgentUsageContextCard: View {
     public var body: some View {
         HStack(spacing: 8) {
             Image(systemName: presentation.systemImage)
-                .foregroundStyle(presentation.tint)
+                .foregroundStyle(presentation.isNearLimit ? Color.orange : Color.secondary)
             VStack(alignment: .leading, spacing: 3) {
                 Text("Usage and context")
                     .font(.caption.weight(.semibold))
-                HStack(spacing: 6) {
-                    ForEach(presentation.labels, id: \.self) { label in
-                        Text(label)
-                            .font(.caption2.weight(.medium))
-                            .foregroundStyle(.secondary)
-                    }
-                }
+                Text(presentation.labels.joined(separator: " · "))
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 4)
         }
