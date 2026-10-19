@@ -145,6 +145,18 @@ the CI volume is unusable. They are not proof that any one helper caused the
 stall; cleanup must be scoped to confirmed stale jobs and must not terminate
 the protected cmux process.
 
+The fleet correlation is also timestamped. Around the local crash
+(`2026-10-18T23:39:41Z`), TartCI reported the Atelier store stalled since
+`19:07:10Z`, with VM-store/Tart/worktree listings exceeding 15 seconds and a
+suspected system-wide sandbox/TCC stall. The same watchdog cycle reported a
+stuck reclaim operation, a partially unreadable gate-demand query, and stale
+M3 Wi-Fi reachability. Current governor resolution is 30 cores/256 GB with 26
+lease-capacity cores, 20 reserved for gates, and 6 effective background cores;
+the TOML request for 12 background cores is clamped to 6. There are no active
+leases now. This makes the storage/TCC stall a first-class coincident failure
+condition, while the governor/TOML discrepancy remains an amplifier or
+operational concern rather than a proven WindowServer cause.
+
 ## Workstream history evidence
 
 - The local `~/.cmuxterm/workstream.jsonl` is currently approximately 832 MB
