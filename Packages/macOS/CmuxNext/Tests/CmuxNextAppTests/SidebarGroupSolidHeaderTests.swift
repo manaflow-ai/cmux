@@ -14,7 +14,7 @@ import Testing
     private static let busy = WorkspaceID("ws-busy")
     private static let measured = WorkspaceID("ws-measured")
 
-    private static func sidebar(minimal: Bool, name: String = "cmux-next app") -> SidebarView {
+    private static func sidebar(minimal: Bool, name: String = "cmux-next app", joined: Bool = false) -> SidebarView {
         let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
         let busy = SidebarWorkspace(id: busy, title: "sidebar", activity: .working(progress: nil),
                                     progress: SidebarProgress(value: nil))
@@ -27,6 +27,7 @@ import Testing
         ])
         let design = DesignSettings()
         design.sidebarSections.minimal = minimal
+        design.sidebarSections.groupLineJoinsHeader = joined
         let sidebar = SidebarView(model: model, design: design)
         sidebar.frame = NSRect(x: 0, y: 0, width: 240, height: 600)
         // The settings reach the list on an observation a turn later; draw them in this turn.
@@ -59,11 +60,8 @@ import Testing
         #expect(fill.alphaComponent > 0.5, "the bar's fill is see-through (\(fill.alphaComponent))")
     }
 
-    /// Leo 2026-10-18: Chrome's tab groups. The members' line joins the header bar with no gap,
-    /// so bar and line read as one group shape; an unnamed group's header is the same solid bar.
-    @Test(arguments: [false, true], ["cmux-next app", ""])
-    func theMembersLineJoinsTheBar(minimal: Bool, name: String) throws {
-        let sidebar = Self.sidebar(minimal: minimal, name: name)
+    /// How far the members' line runs into the header bar: negative is a gap between them.
+    private static func overlap(_ sidebar: SidebarView, name: String) throws -> (overlap: CGFloat, line: CGRect, bar: CGRect) {
         let header = try Self.header(sidebar)
         let bar = try #require(header.layer?.sublayers?.first { !$0.isHidden && $0.frame.width >= header.bounds.width - 0.5 && $0.cornerRadius > 0 },
                                "name \"\(name)\": no full-width rounded bar")
@@ -74,11 +72,44 @@ import Testing
         let barRect = sidebar.convert(bar.frame, from: header)
         let drawn = sidebar.convert(line.bounds, from: line)
         // The bar's edge nearest the members, in a flipped sidebar or not.
-        let flipped = sidebar.isFlipped
-        let overlap = flipped ? barRect.maxY - drawn.minY : drawn.maxY - barRect.minY
+        let overlap = sidebar.isFlipped ? barRect.maxY - drawn.minY : drawn.maxY - barRect.minY
+        return (overlap, drawn, barRect)
+    }
+
+    /// Leo 2026-10-19: Chrome's tab groups. By default the members' line starts a small,
+    /// deliberate cut below the header bar; an unnamed group's header is the same solid bar.
+    @Test(arguments: [false, true], ["cmux-next app", ""])
+    func theMembersLineStartsACutBelowTheBar(minimal: Bool, name: String) throws {
+        let sidebar = Self.sidebar(minimal: minimal, name: name)
+        let (overlap, drawn, bar) = try Self.overlap(sidebar, name: name)
+        #expect(abs(-overlap - SidebarStyle.groupLineCut) < 0.01,
+                "minimal \(minimal): a \(-overlap) pt gap between the bar and its members' line, want the \(SidebarStyle.groupLineCut) pt cut")
+        #expect(drawn.minX >= bar.minX && drawn.maxX <= bar.maxX, "the line \(drawn) is not under the bar \(bar)")
+    }
+
+    /// `sidebar.groupLineJoinsHeader` (off by default): the line joins the bar as one shape,
+    /// no gap; only its round top end tucks into the bar, so the bar's rounded corner shows no seam.
+    @Test(arguments: [false, true], ["cmux-next app", ""])
+    func theJoinSettingRunsTheLineIntoTheBar(minimal: Bool, name: String) throws {
+        let sidebar = Self.sidebar(minimal: minimal, name: name, joined: true)
+        let (overlap, drawn, bar) = try Self.overlap(sidebar, name: name)
         #expect(overlap >= 0, "minimal \(minimal): a \(-overlap) pt gap between the bar and its members' line")
         #expect(overlap <= drawn.width / 2 + 0.01, "minimal \(minimal): the line runs \(overlap) pt into the bar")
-        #expect(drawn.minX >= barRect.minX && drawn.maxX <= barRect.maxX, "the line \(drawn) is not under the bar \(barRect)")
+        #expect(drawn.minX >= bar.minX && drawn.maxX <= bar.maxX, "the line \(drawn) is not under the bar \(bar)")
+    }
+
+    /// Turning the setting on or off redraws an open sidebar's lines, without a relaunch.
+    @Test func turningTheJoinOnAndOffMovesTheLine() throws {
+        let sidebar = Self.sidebar(minimal: false)
+        #expect(try Self.overlap(sidebar, name: "").overlap < 0, "the default has no cut")
+        sidebar.design.sidebarSections.groupLineJoinsHeader = true
+        sidebar.renderNow()
+        sidebar.layoutSubtreeIfNeeded()
+        #expect(try Self.overlap(sidebar, name: "").overlap >= 0, "turning the join on left the cut")
+        sidebar.design.sidebarSections.groupLineJoinsHeader = false
+        sidebar.renderNow()
+        sidebar.layoutSubtreeIfNeeded()
+        #expect(abs(try Self.overlap(sidebar, name: "").overlap + SidebarStyle.groupLineCut) < 0.01, "turning the join off kept it joined")
     }
 
     /// The line's top end tucks into the bar, so the bar must draw over it: a header the list

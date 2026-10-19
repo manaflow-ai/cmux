@@ -9,7 +9,7 @@ import Testing
 
 /// cg-design-judge's fixes to the shipped Chrome-style group look (2026-10-14, the sidebar
 /// groups Thunderdome): a collapsed header says how many workspaces it holds, the members' line
-/// joins the header bar (Leo 2026-10-18: no gap, as Chrome's tab groups), the header's ink is white
+/// starts a small, deliberate cut below the header bar (Leo 2026-10-19, Chrome's tab groups), the header's ink is white
 /// or near-black on the group's color, and the header's name starts on the ungrouped rows' column.
 @MainActor @Suite(.serialized) struct SidebarGroupChromeLookTests {
     static let open = GroupID("grp-open")
@@ -39,22 +39,24 @@ import Testing
         #expect(laidOut >= roomy * 0.999, "the count draws \(laidOut) of its \(roomy) ink in a \(count.frame.width) pt frame")
     }
 
-    /// Leo 2026-10-18 (Chrome tab groups): the members' line joins the header bar, no gap.
-    /// Its round top end tucks into the bar's bottom edge, no deeper.
-    @Test func theMembersLineJoinsTheHeaderBar() throws {
+    /// Leo 2026-10-19 (Chrome tab groups, "a neat little cut"): by default the members' line
+    /// starts a small, deliberate cut below the header bar (`SidebarStyle.groupLineCut`), with a
+    /// round top end. `sidebar.groupLineJoinsHeader` joins them instead (SidebarGroupSolidHeaderTests).
+    @Test func theMembersLineStartsASmallCutBelowTheHeaderBar() throws {
         let (sidebar, _) = try Self.sidebar()
         let header = try #require(sidebar.list.rowViews[.group(Self.open)] as? GroupHeaderRowView)
         let line = try #require(GroupPaletteDefaultTests.views(GroupLineView.self, in: sidebar).first)
         let head = sidebar.convert(header.bounds, from: header)
         let drawn = sidebar.convert(line.bounds, from: line)
         let bar = SidebarStyle.groupHeaderBarHeight(rowHeight: head.height)
-        // The sidebar is flipped or not; the bar's edge nearest the members is the one the line meets.
+        // The sidebar is flipped or not; the bar's edge nearest the members is the one the line faces.
         let flipped = sidebar.isFlipped
         let barEdge = flipped ? head.midY + bar / 2 : head.midY - bar / 2
         let lineStart = flipped ? drawn.minY : drawn.maxY
-        let overlap = flipped ? barEdge - lineStart : lineStart - barEdge
-        #expect(overlap >= 0, "a \(-overlap) pt gap between the header bar (edge \(barEdge)) and its members' line")
-        #expect(overlap <= drawn.width / 2 + 0.01, "the line runs \(overlap) pt into the header bar")
+        let cut = flipped ? lineStart - barEdge : barEdge - lineStart
+        #expect(SidebarStyle.groupLineCut > 0, "the cut is \(SidebarStyle.groupLineCut) pt")
+        #expect(abs(cut - SidebarStyle.groupLineCut) < 0.01,
+                "the line starts \(cut) pt below the header bar (edge \(barEdge)), want the \(SidebarStyle.groupLineCut) pt cut")
         line.layoutSubtreeIfNeeded()
         #expect(abs((line.layer?.cornerRadius ?? 0) - drawn.width / 2) < 0.01, "the line's ends are not round")
     }

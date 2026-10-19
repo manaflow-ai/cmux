@@ -96,8 +96,9 @@ import Testing
     }
 
     /// The sidebar's groups 1...7 under each theme: the header bar is the palette's
-    /// name background (moved only as far as its ink needs for 4.5:1), the members'
-    /// line the palette color itself.
+    /// name background (moved only as far as its ink needs for 4.5:1), and the members'
+    /// line is that exact bar color (Leo 2026-10-19: bar and line read as one group, as
+    /// Chrome's do; it had been the palette's swatch color, a second color beside the bar).
     @Test func sidebarGroupHeadersAndLinesDrawLawrencesPaletteInEveryTheme() throws {
         for (name, scope) in try Self.themes() {
             let (sidebar, ids) = try Self.sidebar(Self.order)
@@ -118,8 +119,8 @@ import Testing
             for line in lines {
                 line.updateLayer()
                 let drawn = try Self.rgb(line.layer?.backgroundColor)
-                let want = try Self.lawrence(line.color.token, fill: false, dark: dark)
-                #expect(Self.same(drawn, want), "\(name) \(line.color.token) line: \(drawn), want \(want)")
+                let want = scope.tokens.chip(try Self.lawrence(line.color.token, fill: true, dark: dark), inks: .onColor).fill
+                #expect(Self.same(drawn, want), "\(name) \(line.color.token) line: \(drawn), want the header bar's \(want)")
             }
         }
     }
