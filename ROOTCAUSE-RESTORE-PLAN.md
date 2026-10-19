@@ -184,3 +184,19 @@ mixed provider metadata, spoofed structured executables, and conflicting Claude
 marker environments. The isolated app build compiled and codesigned this head;
 the reload wrapper still rejected the external cmux-tui provenance attestation
 after Xcode reported `BUILD SUCCEEDED`.
+
+## Exact-head validation update (2026-10-19)
+
+The current repair branch is
+[`4cc404c865d30137f76eba86f2d89c7ec9e5e371`](https://github.com/danielraffel/cmux/commit/4cc404c865d30137f76eba86f2d89c7ec9e5e371).
+It includes the CLI `cmux feed clear` revision-floor fix and its regression
+test. The CMUXAgentLaunch package passes **883 tests in 100 suites**, including
+the focused persistence/startup set (31 tests in 2 suites); Swift parse checks
+for the changed CLI and persistence source pass. Astra and an independent
+Claude Opus review both found no blocking defect in the exact repair slice.
+
+Native `cmuxTests/FeedCoordinatorTests` and a fresh full app-target build are
+still outstanding. The app build previously stopped while `/Volumes/Atelier`
+was stalling, so those are validation gaps rather than green claims. The
+protected PID, socket, live JSONL, and backup were not touched during this
+repair or review.
