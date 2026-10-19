@@ -27,6 +27,7 @@ mod mesh_cloud;
 mod paired_streams;
 mod process_exit;
 mod state;
+mod supervision;
 
 #[cfg(test)]
 mod e2e_tests;
@@ -67,6 +68,12 @@ fn locked<T>(mutex: &std::sync::Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
+/// Keep the remote entry and its optional owned link alive with the daemon.
+pub(crate) struct DaemonLinkEntry {
+    _entry: cmux_tui_core::server::RemoteEntryServer,
+    _link: Option<supervision::SupervisedLink>,
+}
+
 /// Start the session daemon's remote entry next to `session_socket` when
 /// `enabled` (`--link-entry`): only the link may connect, and its gate
 /// ([`link_entry_gate`]) admits only the seven `fs-v1` ops. On a Cloud host
@@ -75,9 +82,10 @@ fn locked<T>(mutex: &std::sync::Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 /// guards chats moved in (`agent-transfer-v1`).
 pub(crate) fn start_link_entry(
     enabled: bool,
+    supervised_state: Option<&Path>,
     mux: &Arc<cmux_tui_core::Mux>,
     session_socket: &Path,
-) -> anyhow::Result<Option<cmux_tui_core::server::RemoteEntryServer>> {
+) -> anyhow::Result<Option<DaemonLinkEntry>> {
     use cmux_tui_core::server::{LinkVerifier, serve_remote_entry};
     cloud_fs::install_if_cloud_host();
     mux.set_agent_transfer_host(cloud_fs::agent_transfer_host());
@@ -85,17 +93,30 @@ pub(crate) fn start_link_entry(
     // config `main` took from the environment (G4); a real verifier is
     // refused until G1 and G2 hold. The mode is logged once (G3).
     let choice = cmux_link::token::daemon_verifier_choice();
-    let checks = cmux_link::token::StampChecks::at_daemon_start(choice.config);
+    let child = supervised_state
+        .filter(|_| enabled)
+        .map(|state| supervision::SupervisedLink::start(state, session_socket, choice.config))
+        .transpose()?;
+    let process = child.as_ref().map(supervision::SupervisedLink::process);
+    let checks = match &process {
+        Some(process) => {
+            cmux_link::token::StampChecks::at_supervised_daemon_start(choice.config, process)
+        }
+        None => cmux_link::token::StampChecks::at_daemon_start(choice.config),
+    };
     eprintln!("{}", cmux_link::token::mode_log_line(choice, &checks));
     if !enabled {
         return Ok(None);
     }
     let checks = checks?;
-    let verifier: LinkVerifier = Arc::new(|stream: &std::os::unix::net::UnixStream| {
-        cmux_link::caller::verify(stream).map_err(std::io::Error::from)
-    });
+    let verifier: LinkVerifier =
+        Arc::new(move |stream: &std::os::unix::net::UnixStream| match &process {
+            Some(process) => process.verify(stream),
+            None => cmux_link::caller::verify(stream).map_err(std::io::Error::from),
+        });
     let path = cmux_link::entry_path::remote_entry_socket_path(session_socket);
-    Ok(Some(serve_remote_entry(mux.clone(), &path, verifier, link_entry_gate(), checks)?))
+    let entry = serve_remote_entry(mux.clone(), &path, verifier, link_entry_gate(), checks)?;
+    Ok(Some(DaemonLinkEntry { _entry: entry, _link: child }))
 }
 
 /// The gate of the remote entry: exactly the seven `fs-v1` ops, every
@@ -157,10 +178,18 @@ fn run_link(args: &[String]) -> anyhow::Result<()> {
         }
         "show" => run_show(&flags(rest, &["--state-dir"])?),
         "peer" => run_peer(rest),
-        "serve" => run_serve(&flags(
-            rest,
-            &["--state-dir", "--session-socket", "--server-config", "--ready-fd"],
-        )?),
+        "serve" => {
+            let supervised = rest.iter().any(|arg| arg == "--supervised");
+            let rest: Vec<String> =
+                rest.iter().filter(|arg| *arg != "--supervised").cloned().collect();
+            run_serve(
+                &flags(
+                    &rest,
+                    &["--state-dir", "--session-socket", "--server-config", "--ready-fd"],
+                )?,
+                supervised,
+            )
+        }
         "ensure" => {
             // `--handoff` is the one flag without a value.
             let handoff = rest.iter().any(|arg| arg == "--handoff");
@@ -361,7 +390,8 @@ async fn reload(socket: &Path) -> bool {
     reply.trim() == "{\"ok\":true}"
 }
 
-fn run_serve(flags: &Flags) -> anyhow::Result<()> {
+fn run_serve(flags: &Flags, supervised: bool) -> anyhow::Result<()> {
+    let bootstrap = supervised.then(supervision::Bootstrap::receive).transpose()?;
     let state = state(flags)?;
     let session_socket = flags.get("--session-socket").map(PathBuf::from);
     // `server.json` is read once: the owner session is parsed from, and
@@ -377,7 +407,7 @@ fn run_serve(flags: &Flags) -> anyhow::Result<()> {
     // UDP bind: a second `serve` of the same state directory stops here.
     let _lock = serve_lock(&state)?;
     let served = ensure::Served::of(flags, config_path, config_bytes.as_deref());
-    tokio_runtime()?.block_on(serve(state, session_socket, owner, ready, served))
+    tokio_runtime()?.block_on(serve(state, session_socket, owner, ready, served, bootstrap))
 }
 
 /// `<state>/link.lock`, held by a running `serve` (never blocks).
@@ -445,6 +475,7 @@ async fn serve(
     owner: Option<Arc<OwnerSession>>,
     ready: Option<ensure::ReadyPipe>,
     served: ensure::Served,
+    bootstrap: Option<supervision::Bootstrap>,
 ) -> anyhow::Result<()> {
     let config = state.config().context("run `cmux link init --install ID` first")?;
     let private_key = state.private_key()?;
@@ -490,10 +521,12 @@ async fn serve(
     if let Some(ready) = ready {
         ready.send(&ready_line);
     }
+    let lease = bootstrap.map(|bootstrap| bootstrap.ready(&ready_line)).transpose()?;
     let result = tokio::select! {
         served = serve_local(local, overlay.clone(), peers.clone(), resolver, status) => served.map_err(anyhow::Error::from),
         () = serve_overlay(listener, peers.clone(), session_socket, owner) => Ok(()),
         signal = shutdown_signal() => signal,
+        () = supervision::parent_closed(lease) => Ok(()),
     };
     registration::remove_if_owned(&state.registration_dir(), pid);
     let _ = std::fs::remove_file(&socket_path);
