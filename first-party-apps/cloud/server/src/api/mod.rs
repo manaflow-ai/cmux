@@ -9,6 +9,8 @@ pub mod host;
 mod ledger;
 pub mod models;
 mod relay;
+#[cfg(test)]
+mod relay_eof_tests;
 mod serve;
 mod wire;
 
