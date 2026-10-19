@@ -50,6 +50,18 @@ public nonisolated struct SidebarSessionTreeState: Hashable, Sendable {
         self.collapsed = collapsed
     }
 
+    /// Whether a folded ancestor hides `id` (its roll-up counts it).
+    public func hidesInFold(_ id: WorkspaceID) -> Bool {
+        guard !collapsed.isEmpty else { return false }
+        var seen: Set<WorkspaceID> = [id]
+        var current = id
+        while let parent = parents[current], seen.insert(parent).inserted {
+            if collapsed.contains(parent) { return true }
+            current = parent
+        }
+        return false
+    }
+
     /// What the order and the Command-numbers need: the parents and the folds.
     public var shape: SidebarSessionTreeState { SidebarSessionTreeState(parents: parents, collapsed: collapsed) }
 }
@@ -82,6 +94,19 @@ public final class SidebarSessionTree {
     /// Folds or opens the subtree under `id`.
     public func toggle(_ id: WorkspaceID) {
         if collapsed.remove(id) == nil { collapsed.insert(id) }
+        defaults.set(collapsed.map(\.rawValue).sorted(), forKey: Self.collapsedKey)
+    }
+
+    /// Opens every fold above `id` (a selected session, or one the needs-you tray goes to).
+    public func reveal(_ id: WorkspaceID) {
+        var seen: Set<WorkspaceID> = [id]
+        var current = id, opened = collapsed
+        while let parent = state?.parents[current], seen.insert(parent).inserted {
+            opened.remove(parent)
+            current = parent
+        }
+        guard opened != collapsed else { return }
+        collapsed = opened
         defaults.set(collapsed.map(\.rawValue).sorted(), forKey: Self.collapsedKey)
     }
 
