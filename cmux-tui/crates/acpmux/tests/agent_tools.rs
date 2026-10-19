@@ -147,22 +147,12 @@ async fn local_sessions_get_the_browser_and_cua_tools_and_skills() {
     // No allowlist: the cmux server speaks code mode.
     assert!(!servers[3]["env"].to_string().contains("CMUX_MCP_TOOLS"), "{servers}");
 
-    // A session whose env names its cmux tools (the Chief's turn presets)
-    // hands the list to the cmux server only, which then serves only those.
-    let chief = local
-        .new_session_with(
-            json!({"harness": "fake", "env": {"CMUX_MCP_TOOLS": "agents_wait,render"}}),
-        )
-        .await;
-    let scoped: Value = serde_json::from_str(&local.ask(&chief, "mcp").await).unwrap();
-    let cmux_env = scoped[3]["env"].to_string();
-    assert!(
-        cmux_env.contains("CMUX_MCP_TOOLS") && cmux_env.contains("agents_wait,render"),
-        "{scoped}"
-    );
-    for other in &scoped.as_array().unwrap()[..3] {
-        assert!(!other["env"].to_string().contains("CMUX_MCP_TOOLS"), "{scoped}");
-    }
+    // A client cannot set the list on its session: only a preset (the
+    // Chief's turns, `chief_builtin_presets.rs`) does.
+    let params = json!({"cwd": std::env::temp_dir(), "mcpServers": [],
+        "_meta": {"acpmux": {"harness": "fake", "env": {"CMUX_MCP_TOOLS": "render"}}}});
+    let (refused, _) = local.call_text("session/new", params).await;
+    assert_eq!(refused["error"]["data"]["reason"], "env.key_refused", "{refused}");
 
     // Claude Code: the same servers in --mcp-config, the skills as a plugin.
     let id = local.new_session("fakeclaude").await;

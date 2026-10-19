@@ -1395,8 +1395,11 @@ fn code_mode_scripts_see_failed_calls_and_report_partial_runs() {
 #[test]
 fn code_mode_stops_a_script_that_loops_or_allocates_without_end() {
     let mut server = code_mode_server(Fake::with_actions());
-    server.script_limits =
-        code_mode::Limits { memory: 16 << 20, compute: Duration::from_millis(300) };
+    server.script_limits = code_mode::Limits {
+        memory: 16 << 20,
+        compute: Duration::from_millis(300),
+        ..code_mode::Limits::default()
+    };
     let started = Instant::now();
     let looped = call(&mut server, "cmux_exec", json!({"script": "while (true) {}"}));
     assert_eq!(looped["isError"], true);

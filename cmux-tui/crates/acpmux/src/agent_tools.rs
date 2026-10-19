@@ -72,6 +72,14 @@ pub const CUA_SCOPE_ENV: &str = "CMUX_CUA_ALLOWED_TARGET_BUNDLE_IDS";
 /// speaks code mode. Only the session's own env sets it, never the
 /// daemon's (`scoped`).
 pub const MCP_TOOLS_ENV: &str = "CMUX_MCP_TOOLS";
+
+/// The cmux MCP tools of a Chief turn, for the built-in turn presets
+/// (`config::chief_builtins`). Keep equal to optchat-chief's
+/// `session_dir::CHIEF_CMUX_TOOLS`, which sets the same in its own presets.
+pub const CHIEF_TURN_TOOLS: &str = "agents_snapshot,agents_workspace_create,\
+    agents_workspace_select,agents_terminal_split,agents_terminal_focus,agents_tab_select,\
+    agents_dialog_list,agents_dialog_answer,agents_events,agents_wait,render,app_show_pane,\
+    app_show_tab,app_tab_new_page,app_file_open";
 /// The plugin name Claude Code shows before each skill (`cmux:cmux-browser`).
 pub const PLUGIN_NAME: &str = "cmux";
 
