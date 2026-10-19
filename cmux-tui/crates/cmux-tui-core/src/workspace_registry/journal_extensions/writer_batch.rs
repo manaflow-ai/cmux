@@ -113,8 +113,7 @@ impl RegistryConnection {
                 self.journal_hooks.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             (hooks.before_commit.take(), hooks.after_commit_admission.take())
         };
-        // A batch of terminal output (and ordering fences, which write
-        // nothing) commits without a sync. Output is no acknowledged request:
+        // A batch of terminal output only commits without a sync. Output is no acknowledged request:
         // nothing waits on it being on disk, and every later commit that
         // syncs (a control change, an exit after its barrier, any other
         // journal batch) syncs the same WAL, so it also makes this output
@@ -122,17 +121,16 @@ impl RegistryConnection {
         // OS cache); a power loss or kernel panic can lose the output written
         // since the last syncing commit. Under a flood this was one
         // F_FULLFSYNC per batch, held under the registry connection lock.
+        // An ordering fence (`TerminalBarrier`: exit, shutdown) is a
+        // durability point and syncs, as every other event does.
         let relaxed_sync = events.iter().all(|event| {
-            matches!(
-                **event,
-                crate::journal_ingress::JournalIngressEvent::TerminalOutput { .. }
-                    | crate::journal_ingress::JournalIngressEvent::TerminalBarrier
-            )
+            matches!(**event, crate::journal_ingress::JournalIngressEvent::TerminalOutput { .. })
         });
         if relaxed_sync {
             connection.execute_batch("PRAGMA synchronous=NORMAL;")?;
         }
-        let _full_sync = RestoreFullSync { connection, active: relaxed_sync };
+        let _full_sync =
+            RestoreFullSync { connection, relaxed: &self.sync_relaxed, active: relaxed_sync };
         let tx = connection.unchecked_transaction()?;
         // This guard disables the progress callback before `tx` rolls back on
         // every early return. An expired callback must interrupt forward work,
@@ -612,6 +610,8 @@ impl RegistryConnection {
 /// ends, committed or not. It drops after the transaction.
 struct RestoreFullSync<'a> {
     connection: &'a Connection,
+    /// Set when the restore fails, so the next lock holder restores it.
+    relaxed: &'a AtomicBool,
     active: bool,
 }
 
@@ -620,17 +620,12 @@ impl Drop for RestoreFullSync<'_> {
         if !self.active {
             return;
         }
-        // Setting the flag touches no file; retry once before reporting.
-        for attempt in 0..2 {
-            match self.connection.execute_batch("PRAGMA synchronous=FULL;") {
-                Ok(()) => return,
-                Err(error) if attempt == 1 => {
-                    eprintln!(
-                        "cmux-tui: session journal could not restore synchronous=FULL: {error}"
-                    );
-                }
-                Err(_) => {}
-            }
+        // Setting the flag touches no file. It fails only while the
+        // connection is still in a transaction (COMMIT and ROLLBACK both
+        // failed): the next first acquisition of the lock restores it.
+        if let Err(error) = self.connection.execute_batch("PRAGMA synchronous=FULL;") {
+            self.relaxed.store(true, Ordering::Release);
+            eprintln!("cmux-tui: session journal could not restore synchronous=FULL yet: {error}");
         }
     }
 }

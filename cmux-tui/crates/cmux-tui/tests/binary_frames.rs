@@ -174,10 +174,13 @@ fn cat_after_go(daemon: &Daemon, file: &Path, fifo: Option<&Path>) -> u64 {
         Some(fifo) => {
             let status = Command::new("/usr/bin/mkfifo").arg(fifo).status().unwrap();
             assert!(status.success(), "mkfifo");
+            // `head -c 4096` is read live by the viewer before it pauses;
+            // the second line releases the rest of the file.
             format!(
-                "stty raw -echo; read go < '{}'; cat '{}'; exec sleep 600",
-                fifo.display(),
-                file.display()
+                "stty raw -echo; exec 3<'{fifo}'; read go <&3; head -c 4096 '{file}'; \
+                 read go <&3; tail -c +4097 '{file}'; exec sleep 600",
+                fifo = fifo.display(),
+                file = file.display()
             )
         }
         None => format!("read go; stty raw -echo; cat '{}'; exec sleep 600", file.display()),
@@ -318,16 +321,23 @@ fn binary_snapshot_viewer_keeps_positions_and_resyncs_after_a_backlog() {
     let mut history_chunks = 0;
     let mut replied = false;
     let mut checked_bytes = 0u64;
-    let mut go = false;
+    let mut go = 0;
+    let mut fifo_writer = None;
     let deadline = Instant::now() + test_timeout(Duration::from_secs(90));
     // Done when the host's whole payload was seen as positioned output and
     // the viewer's position is the host's.
-    while offset < data.len() as u64 || !replied {
+    while offset < data.len() as u64 || !replied || go < 2 {
         assert!(Instant::now() < deadline, "the snapshot viewer never caught up");
-        if replied && !go {
-            // Opening the fifo waits for the shell's `read`.
-            fs::write(&fifo, b"go\n").unwrap();
-            go = true;
+        if replied && go == 0 {
+            // Opening the fifo waits for the shell's open; one writer for both lines.
+            let mut writer = fs::OpenOptions::new().write(true).open(&fifo).unwrap();
+            writer.write_all(b"go\n").unwrap();
+            fifo_writer = Some(writer);
+            go = 1;
+        }
+        if go == 1 && checked_bytes >= 4096 {
+            fifo_writer.as_mut().unwrap().write_all(b"go\n").unwrap();
+            go = 2;
             // Fall behind: the backlog fills while nothing is read.
             std::thread::sleep(Duration::from_millis(1500));
         }
@@ -370,7 +380,7 @@ fn binary_snapshot_viewer_keeps_positions_and_resyncs_after_a_backlog() {
     assert_eq!(offset, data.len() as u64, "the viewer's position is the host's, byte for byte");
     assert!(readies >= 2, "a paused viewer is resynced with a fresh READY, not dropped");
     assert!(history_chunks >= 1, "the resync READY is followed by its history");
-    assert!(checked_bytes > 0, "positioned output reached the viewer");
+    assert!(checked_bytes >= 4096, "positioned output reached the viewer");
 }
 
 #[test]

@@ -152,10 +152,13 @@ pub(super) fn broadcast_render_scroll_locked(pty: &PtySurface, position: (u64, b
 /// before and after it. Output that only grows the history while the
 /// viewport stays at the bottom moves nothing a viewer shows (it follows the
 /// bottom, and `offset` is then the history length the bytes already give
-/// it), so it sends none: a flood used to pair every output event with one.
-/// Render attach taps still get every position.
+/// a mirror with the same scrollback limit), so it sends none: a flood used
+/// to pair every output event with one. A shrinking offset at the bottom (a
+/// clear, the alternate screen) still sends it, and render attach taps get
+/// every position.
 pub(super) fn output_scroll_event(before: (u64, bool), after: (u64, bool)) -> Option<(u64, bool)> {
-    (before != after && !(before.1 && after.1)).then_some(after)
+    let grew_at_bottom = before.1 && after.1 && after.0 >= before.0;
+    (before != after && !grew_at_bottom).then_some(after)
 }
 
 pub(super) fn terminal_scroll_position(term: &Terminal) -> (u64, bool) {

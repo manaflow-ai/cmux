@@ -76,6 +76,10 @@ pub(crate) struct RegistryConnection {
     pub(super) unsettled: std::sync::Mutex<Vec<super::registry_intent::UnsettledReceipt>>,
     #[cfg(test)]
     pub(super) journal_hooks: std::sync::Mutex<JournalCommitHooks>,
+    /// A relaxed journal batch could not set `synchronous=FULL` again
+    /// (writer_batch.rs `RestoreFullSync`); the next holder of the lock
+    /// restores it before it commits anything.
+    pub(super) sync_relaxed: std::sync::atomic::AtomicBool,
 }
 
 thread_local! {
@@ -138,7 +142,22 @@ impl RegistryConnection {
             unsettled: std::sync::Mutex::default(),
             #[cfg(test)]
             journal_hooks: std::sync::Mutex::default(),
+            sync_relaxed: std::sync::atomic::AtomicBool::new(false),
         })
+    }
+
+    /// Every commit outside a relaxed journal batch syncs: when a restore
+    /// failed, the next first acquisition of the lock sets FULL again. A
+    /// connection still inside a failed transaction cannot change it; the
+    /// flag stays for the next holder.
+    fn restore_full_sync_if_relaxed(&self, connection: &Connection) {
+        use std::sync::atomic::Ordering;
+        if self.sync_relaxed.load(Ordering::Acquire)
+            && connection.is_autocommit()
+            && connection.execute_batch("PRAGMA synchronous=FULL;").is_ok()
+        {
+            self.sync_relaxed.store(false, Ordering::Release);
+        }
     }
 
     /// The connection for a request thread. The caller holds the workspace
@@ -148,7 +167,12 @@ impl RegistryConnection {
     pub(crate) fn get(&self) -> RegistryConnectionGuard<'_> {
         self.debug_assert_lock_order();
         self.check_rank();
-        RegistryConnectionGuard { guard: self.connection.lock(), _rank: record_rank() }
+        let reentry = self.connection.is_owned_by_current_thread();
+        let guard = RegistryConnectionGuard { guard: self.connection.lock(), _rank: record_rank() };
+        if !reentry {
+            self.restore_full_sync_if_relaxed(&guard);
+        }
+        guard
     }
 
     /// Hold the connection lock for a request flow before it takes the
@@ -158,7 +182,12 @@ impl RegistryConnection {
     pub(crate) fn pin(&self) -> RegistryConnectionPin {
         self.debug_assert_lock_order();
         self.check_rank();
-        RegistryConnectionPin { _guard: self.connection.lock_arc(), _rank: record_rank() }
+        let reentry = self.connection.is_owned_by_current_thread();
+        let guard = self.connection.lock_arc();
+        if !reentry {
+            self.restore_full_sync_if_relaxed(&guard);
+        }
+        RegistryConnectionPin { _guard: guard, _rank: record_rank() }
     }
 
     /// Check the lock rank before a blocking acquisition that is not a
@@ -205,7 +234,11 @@ impl RegistryConnection {
     #[track_caller]
     pub(crate) fn get_until(&self, deadline: Instant) -> Option<RegistryConnectionGuard<'_>> {
         self.check_rank();
+        let reentry = self.connection.is_owned_by_current_thread();
         let guard = self.connection.try_lock_until(deadline)?;
+        if !reentry {
+            self.restore_full_sync_if_relaxed(&guard);
+        }
         Some(RegistryConnectionGuard { guard, _rank: record_rank() })
     }
 
