@@ -25,7 +25,12 @@ struct CloudCredentialOwner {
                             return .init(signedIn: await auth.isSignedIn, team: nil, requiresScope: true)
                         }
                         binding = checked
-                    } catch { return .init(signedIn: await auth.isSignedIn, team: nil, requiresScope: true) }
+                    } catch {
+                        await native.retire()
+                        return .init(signedIn: await auth.isSignedIn, team: nil, requiresScope: true)
+                    }
+                } else if let native {
+                    await native.retire()
                 }
                 return CloudCredentialRelay.Session(signedIn: await auth.isSignedIn, team: snapshot?.team,
                     account: snapshot?.account, generation: snapshot?.generation ?? 0, scope: snapshot?.id, requiresScope: true, nativeLink: binding)
