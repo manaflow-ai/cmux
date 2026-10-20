@@ -15,7 +15,7 @@
         "tools": {"type": "array", "items": {"type": "string", "enum": ["browser", "chiefs", "cloud_vms", "memory_import", "spawn", "tell", "workspaces"]}},
         "harnesses": {"type": "array", "items": {"type": "string", "minLength": 1}},
         "self_edit": {"type": "array", "items": {"type": "string", "enum": ["avatar", "display_name", "instructions", "personality", "role"]}},
-        "harness": {"type": "string"},
+        "harness": {"type": "string", "description": "The new Chief's engine harness: claude, codex, or unii (UniiChat: the person's uniichat.com chat, signed in with `unii login` on this Mac)."},
         "model": {"type": "string"},
         "effort": {"type": "string"},
         "avatar_path": {"type": "string", "minLength": 1},
