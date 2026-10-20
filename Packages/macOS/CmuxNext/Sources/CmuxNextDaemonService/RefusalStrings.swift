@@ -197,9 +197,6 @@ public nonisolated enum RefusalStrings {
     public static var sessionLocalHasNoName: String { text("handlers.refusal.sessionLocalHasNoName", "session-local tabs have no name") }
     public static var pinnedTabKept: String { text("handlers.refusal.pinnedTabKept", "Pinned tabs stay open. Right-click the tab and choose Close Tab to close it.") }
     public static var sessionLocalCannotPin: String { text("handlers.refusal.sessionLocalCannotPin", "session-local tabs cannot be pinned") }
-    public static var markUnreadUnsupported: String {
-        text("handlers.refusal.markUnreadNotAvailable", "Marking as unread is not available yet. Only marking as read is.")
-    }
     public static var hibernateVisibleTab: String { text("handlers.refusal.hibernateVisibleTab", "Only a hidden tab can hibernate.") }
     public static var hibernateUnsupported: String {
         text("handlers.refusal.hibernateUnsupported", "This page cannot keep its history when it hibernates.")
