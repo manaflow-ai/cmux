@@ -55,8 +55,9 @@ extension AppOnboardingServices {
     /// The launch's run: after restore, once per classic save. Never throws;
     /// a failure is logged and the ledger keeps what came over.
     ///
-    /// - Parameter firstWorkspace: the New Tab page workspace launch made for
-    ///   an empty tree; closed when the migration brought workspaces into its window.
+    /// - Parameter firstWorkspace: the workspace launch landed on for an empty
+    ///   tree: a New Tab page workspace, closed when the migration brought workspaces
+    ///   into its window, or Home, which stays.
     func migrateClassicAtLaunch(firstWorkspace: String?) async {
         guard classicMigrationRunsAtLaunch else { return }
         do {
@@ -222,9 +223,11 @@ extension AppOnboardingServices {
         if mode == .automatic, !outcome.opened.isEmpty { owner.classicImportNotice = ClassicImportStrings.notice(outcome.summary) }
 
         if let reveal { _ = windows.reveal(workspaceID: reveal) }
-        // The New Tab page launch made for an empty tree gives way to classic's workspaces.
-        if openedInFirstWindow, let firstWorkspace, let key = store.workspace(id: firstWorkspace)?.key,
+        // The New Tab page launch made for an empty tree gives way to classic's workspaces. A first
+        // launch that landed on Home (FirstWorkspaceLaunch) made none: Home stays.
+        if openedInFirstWindow, let firstWorkspace, let made = store.workspace(id: firstWorkspace), made.kind != "home",
            let connection = services.daemon.connection {
+            let key = made.key
             _ = try? await connection.closeWorkspace(key, endTerminals: true, ifEmpty: false)
         }
         return outcome
