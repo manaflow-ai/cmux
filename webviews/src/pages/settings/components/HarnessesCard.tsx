@@ -23,7 +23,8 @@ function sourceText(row: HarnessRow): string {
 function jobText(job: NonNullable<HarnessesState["jobs"]>[number]): string {
   if (job.state === "created") return t("settingsWindow.harnesses.jobCreated");
   if (job.state === "pending") return t("settingsWindow.harnesses.jobPending");
-  if (job.state === "exited" && job.exit_code !== undefined) return t("settingsWindow.harnesses.jobExit", job.exit_code);
+  if (job.state === "exited" && job.exit_code !== undefined)
+    return t("settingsWindow.harnesses.jobExit", job.exit_code);
   if (job.state === "exited" && job.signal !== undefined) return t("settingsWindow.harnesses.jobSignal", job.signal);
   // A lost creation reply (`unknown`) and an end without a process result (`outcome: "unknown"`).
   return t("settingsWindow.harnesses.jobUnknown");
@@ -183,9 +184,32 @@ export function HarnessesCard() {
         )}
       </div>
       {(harnesses?.jobs ?? []).map((job, index) => (
-        <div key={`${job.machine}:${job.terminal ?? index}`} className="row-help" role="status" data-agent-update-job={job.state}>
-          {agentDisplayName(job.cli)}{" · "}
-          {jobText(job)}
+        <div key={`${job.machine}:${job.terminal ?? index}`} className="row-help" data-agent-update-job={job.state}>
+          <output>
+            {agentDisplayName(job.cli)}
+            {" · "}
+            {jobText(job)}
+          </output>
+          {job.can_resume && job.intent_key && job.state === "unknown" && !job.terminal && (
+            <button
+              type="button"
+              className="button"
+              data-harness-action="resumeUpdate"
+              onClick={() => void store.runHarnesses({ action: "resumeUpdate", intent: job.intent_key })}
+            >
+              {t("settingsWindow.harnesses.resumeUpdate")}
+            </button>
+          )}
+          {job.can_dismiss && job.intent_key && job.state === "unknown" && !job.terminal && (
+            <button
+              type="button"
+              className="button"
+              data-harness-action="dismissUpdate"
+              onClick={() => void store.runHarnesses({ action: "dismissUpdate", intent: job.intent_key })}
+            >
+              {t("settingsWindow.harnesses.dismissUpdate")}
+            </button>
+          )}
         </div>
       ))}
       {harnesses?.problem && (
