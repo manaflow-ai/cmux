@@ -36,8 +36,16 @@ class TourFilePathTests(unittest.TestCase):
         self.assertEqual(
             path_map.tours_for_path("agent-chat/src/agent-pane/harnesses.css"), ["agent-pane"])
         self.assertEqual(
+            path_map.tours_for_path("Packages/macOS/CmuxNext/Sources/CmuxNextTabs/TabStripModel+PinnedClose.swift"), ["pinned-tabs"])
+        self.assertEqual(
             path_map.tours_for_path("Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/WorkspaceHoverCard.swift"),
             ["hover-card"])
+        self.assertEqual(
+            path_map.tours_for_path("Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarUpdateCardView.swift"),
+            ["update-card"])
+        # The popup's page is webview UI: the gallery captures it (popover-media, popover-scroll).
+        self.assertEqual(path_map.tours_for_path("webviews/src/pages/changelog/updateSurfaces.css"), [])
+        self.assertTrue(path_map.is_gallery_path("webviews/src/pages/changelog/updateSurfaces.css"))
 
 
 class WebviewPathTests(unittest.TestCase):

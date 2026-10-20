@@ -50,6 +50,7 @@ import { BILLING_LEVELS_PATH, BILLING_SYNC_PATH, handleBillingLevels, handleBill
 import { BILLING_TEAM_MODE_PATH, handleBillingTeamMode } from "./billing-team-mode.ts"
 import { CREDITS_ADMIN_PATH, handleCreditsAdmin } from "./credits-admin.ts"
 import { CREDITS_PATH, CREDITS_WEBHOOK_PATH, handleCredits, handleCreditsWebhook } from "./credits-routes.ts"
+import { HOME_HEALTH_CRON, runHomeHealth, sentryFetch } from "./home-health.ts"
 export { AutomationRunWorkflow } from "./automation-workflow.ts"
 export { AutomationTail } from "./automation-tail.ts"
 export { AutomationEgress } from "./automation-egress.ts"
@@ -271,10 +272,15 @@ export default {
     if (providerHook) return handleProviderHook(request, env, providerHook[1] as "github" | "slack" | "linear")
     return apiHandler(request)
   },
-  // Cron (wrangler triggers): the feed text sweep (feed-sweep.ts), and every 15 minutes the
+  // Cron (wrangler triggers): every 5 minutes the Cloud Home health probe (home-health.ts), the feed text sweep (feed-sweep.ts), and every 15 minutes the
   // Postgres/MySQL projection compare while the MySQL shadow runs (projection-compare-cron.ts).
   // Awaited, not waitUntil: the run gets the cron limit, and a throw shows as a failed run.
   async scheduled(controller: ScheduledController, env: Env): Promise<void> {
+    // Cloud Home health (home-health.ts): a probe round trip and a Sentry Cron check-in; it never throws.
+    if (controller.cron === HOME_HEALTH_CRON) {
+      await runHomeHealth(env, { fetcher: sentryFetch })
+      return
+    }
     if (controller.cron === PROJECTION_COMPARE_CRON) {
       // The usage sync (cx-y79zh S4) runs beside the projection compare; a failure of one does not stop the other.
       const [compare, usage] = await Promise.allSettled([(async () => (await import("./projection-compare-cron.ts")).compareFromEnv(env))(), env.STRIPE_USAGE_KEY ? (async () => (await import("./billing-usage-sync.ts")).syncUsage(env))() : Promise.resolve(null)])

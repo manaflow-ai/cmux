@@ -73,6 +73,9 @@ public final class DesignSettings {
     public var classicHome = false
     /// `home.channelsEnabled`: the sidebar shows the Channels entry after Home (cx-frn2y); off by default.
     public var homeChannelsEnabled = false
+    /// `home.chiefBubbleStyle` is `theme`: the Chief chat's bubbles take the theme's colours; false (the
+    /// default) keeps iMessage's blue and grey. The Home transcript follows it (`HomeNativeTranscriptView.bubbleStyle`).
+    public var homeChiefBubblesThemed = false
     /// Per-metric overrides in points, clamped by `setOverride`.
     public private(set) var overrides: [MetricKey: CGFloat] = [:]
     /// Pane padding, corner radius and border from cmux.json `layout.*`,
@@ -114,6 +117,8 @@ public final class DesignSettings {
     /// `layout.rows`: off hides every row entry point and fits existing
     /// rows into their column (plans/cmux-next/rows.md O1 to O3).
     public var layoutRows = true
+    /// `layout.focusPaneOnScroll`: a scroll over an unfocused pane focuses it.
+    public var focusPaneOnScroll = true
     /// `layout.minimumPaneWidth`, `layout.minimumPaneHeight`: the smallest
     /// content area a pane keeps below its chrome, in points.
     public var minimumPaneContentSize = CGSize(width: 200, height: 64)

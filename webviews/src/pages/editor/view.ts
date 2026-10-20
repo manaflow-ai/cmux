@@ -19,7 +19,7 @@ import { createOnigurumaEngine } from "shiki/engine/oniguruma";
 import { EXTENSION_TO_FILE_FORMAT } from "cmux:pierre-filetypes";
 import { hostTerminalTheme, type DiffViewerAppearance } from "../../appearance";
 import { PLAIN_TEXT_LANGUAGE } from "../../diff-languages/detect";
-import { editorAction, isEditorAction, type EditorCommand } from "./keys";
+import { editorAction, isEditorAction, MONACO_QUICK_COMMAND, type EditorCommand } from "./keys";
 import { keybindingRules } from "./vscodeKeys";
 import type { CodeView, EditorDocument } from "./store";
 import { DARK_THEME, LIGHT_THEME, SyntaxEngine, editorThemes } from "./syntax";
@@ -236,6 +236,12 @@ export interface ViewCallbacks {
   /** Opt-Z (VS Code's Toggle Word Wrap): flips `editor.wordWrap` through the settings store. */
   toggleWordWrap?(): void;
   /**
+   * Opens the app's native command palette (`cmux.app.action.run {action: "commandPalette"}`).
+   * Monaco's own command palette (F1, the context menu's Command Palette) runs this instead: the
+   * editor never shows a palette of its own (Lawrence 2026-10-19).
+   */
+  openCommandPalette?(): void;
+  /**
    * Monaco started or ended a key sequence (Cmd-K, then a second key): while one is pending the
    * app's key dispatcher lets the next key reach the editor (`cmux.editor.keySequence`).
    */
@@ -324,6 +330,12 @@ export class MonacoView implements CodeView {
         run: () => this.callbacks.toggleWordWrap?.(),
       }),
     );
+    this.disposables.push(
+      // Monaco's quick command (F1, the context menu's Command Palette) is the app's native palette:
+      // no web view has a palette of its own. Keys and menus run commands through Monaco's command
+      // registry, where the latest registration of an id wins, so this replaces Monaco's widget.
+      monaco.editor.registerCommand(MONACO_QUICK_COMMAND, () => this.callbacks.openCommandPalette?.()),
+    );
     this.applyKeybindings();
     this.watchKeySequences(container);
   }
@@ -359,6 +371,7 @@ export class MonacoView implements CodeView {
     };
     // After Monaco's own keydown handler (on the editor's node) has run.
     const onKeyDown = () => setTimeout(check, 0);
+    // ui-allow: reads Monaco's chord state after its keydown; Monaco owns the keys.
     container.addEventListener("keydown", onKeyDown);
     const onBlur = () => setTimeout(check, 0);
     container.addEventListener("focusout", onBlur);
