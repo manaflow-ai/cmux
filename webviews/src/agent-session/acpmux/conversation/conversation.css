@@ -159,6 +159,38 @@
   overflow: auto;
 }
 
+/* A prompt the Chief sent a subagent: a quiet "From the Chief" line above it, and a long task
+   collapsed to its first lines with Show all under it (ChiefPromptBubble.tsx). */
+.cv-user__from {
+  margin-bottom: 2px;
+  padding-right: 4px;
+  font-family: var(--cv-font);
+  font-size: var(--text-detail);
+  line-height: 18px;
+  color: var(--cv-text-muted);
+}
+.cv-user__bubble--collapsed {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 6;
+  line-clamp: 6;
+  overflow: hidden;
+}
+.cv-user__expand {
+  margin-top: 2px;
+  padding: 0 4px;
+  border: 0;
+  background: none;
+  font-family: var(--cv-font);
+  font-size: var(--text-detail);
+  line-height: 18px;
+  color: var(--cv-text-muted);
+  cursor: pointer;
+}
+.cv-user__expand:hover {
+  color: var(--agent-text);
+}
+
 /* A prompt queued behind a harness switch: one quiet line under its bubble ("Starting Codex…"). */
 .cv-user__status {
   display: flex;
@@ -2161,6 +2193,15 @@ pre.cv-math-source {
 .cv-diagram__chart svg {
   max-width: 100%;
   height: auto;
+}
+/* Ondine's monochrome diagrams take the pane's colors (its defaults are black on white). */
+.cv-diagram__chart svg.ondine {
+  --ondine-fg: var(--agent-text);
+  --ondine-bg: var(--agent-page-bg);
+  --ondine-muted: var(--agent-text);
+  --ondine-line: var(--agent-text);
+  --ondine-border: var(--agent-text);
+  --ondine-surface-alt: color-mix(in srgb, var(--agent-text) 8%, var(--agent-page-bg));
 }
 .cv-diagram__error {
   padding: 8px 10px;
