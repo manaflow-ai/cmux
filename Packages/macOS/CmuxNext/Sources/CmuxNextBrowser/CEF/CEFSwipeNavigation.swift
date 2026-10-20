@@ -33,12 +33,11 @@ final class CEFSwipeNavigation {
 
     func start() {
         guard monitor == nil else { return }
+        // AppKit calls a local monitor on the main thread (the module's isolation), like
+        // `CEFLinkClickTracker`; an NSEvent cannot leave `MainActor.assumeIsolated`.
         monitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
-            guard Thread.isMainThread else { return event } // main-proof: returns the event off the main thread
-            return MainActor.assumeIsolated { // main-proof: guarded by Thread.isMainThread above
-                guard let self else { return event }
-                return self.handle(event)
-            }
+            guard let self else { return event }
+            return self.handle(event)
         }
     }
 
@@ -120,8 +119,12 @@ final class CEFSwipeNavigation {
         event.trackSwipeEvent(options: [.lockDirection], dampenAmountThresholdMin: canForward ? -1 : 0,
                               max: canBack ? 1 : 0) { [weak self, weak tab] amount, phase, isComplete, _ in
             MainActor.assumeIsolated { // main-proof: AppKit calls the swipe handler on the main thread, from event tracking
+                // A later swipe replaced this one: its pill goes, and never comes back.
+                guard let self, self.indicator === indicator else {
+                    indicator.dismiss()
+                    return
+                }
                 indicator.update(amount: amount)
-                guard let self, self.indicator === indicator else { return }
                 if phase == .ended, !self.navigated, let tab {
                     self.navigated = true
                     Self.navigate(tab, direction: direction, amount: amount)

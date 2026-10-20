@@ -6,15 +6,19 @@ import CoreGraphics
 /// The script answers `[canScrollLeft, canScrollRight, consumesHorizontal]` for the viewport
 /// point (CSS pixels) under the fingers:
 /// - every horizontal scroller from the element there up to the root (`overflow-x` auto or
-///   scroll with room to move; right-to-left scrollers count from their right edge), and the
-///   document unless its `overflow-x` hides or clips it;
+///   scroll with room to move; right-to-left scrollers count from their right edge), through
+///   open shadow roots, and the document unless its `overflow-x` hides or clips it;
+/// - a scroller, or the document, with `overscroll-behavior-x` other than `auto` keeps the
+///   gesture, as in Chrome (canvas apps and maps opt out of history swipes that way);
 /// - inside a same-origin frame under the point, the same walk in the frame's document. A frame
 ///   the page cannot read (another origin, or an embed or object) counts as scrolling both ways,
 ///   so it keeps the gesture: its own scrolling cannot be seen from outside;
 /// - whether a horizontal `wheel` event in the last 600 ms ended `defaultPrevented` (a script
 ///   carousel), in the page or a same-origin frame it walked. The first probe installs that
 ///   listener: one capture listener per window, passive, that reads the event once its dispatch
-///   finished. Its state lives under a registered symbol, not a named global.
+///   finished. Its state lives under a registered symbol, not a named global. The answer waits
+///   for the next frame (at most 50 ms) and that listener's read, so the wheels already sent to
+///   the page are counted: Chromium hands wheels to the page on its next frame.
 nonisolated struct BrowserSwipeProbe: Sendable {
     /// How many frames deep the walk follows.
     static let maxFrameDepth = 8
@@ -25,7 +29,7 @@ nonisolated struct BrowserSwipeProbe: Sendable {
         let px = Double(x).isFinite ? Double(x) : 0
         let py = Double(y).isFinite ? Double(y) : 0
         return """
-        (() => {
+        (async () => {
           const key = Symbol.for('cmux.swipe');
           let left = false, right = false, prevented = false;
           const watch = (win) => {
@@ -41,19 +45,32 @@ nonisolated struct BrowserSwipeProbe: Sendable {
             if (win.performance.now() - state.prevented < 600) prevented = true;
           };
           const room = (position, max) => { if (position > 1) left = true; if (position < max - 1) right = true; };
+          const up = (el) => {
+            if (el.parentElement) return el.parentElement;
+            const node = el.getRootNode();
+            return node && node.host ? node.host : null;
+          };
           const scan = (win, x, y, depth) => {
             const doc = win.document;
             watch(win);
-            const hit = doc.elementFromPoint(x, y);
-            for (let el = hit; el && el !== doc.documentElement && el !== doc.body; el = el.parentElement) {
+            let hit = doc.elementFromPoint(x, y);
+            while (hit && hit.shadowRoot) {
+              const inner = hit.shadowRoot.elementFromPoint(x, y);
+              if (!inner || inner === hit) break;
+              hit = inner;
+            }
+            for (let el = hit; el && el !== doc.documentElement && el !== doc.body; el = up(el)) {
               const style = win.getComputedStyle(el);
               if (style.overflowX !== 'auto' && style.overflowX !== 'scroll') continue;
+              if (style.overscrollBehaviorX && style.overscrollBehaviorX !== 'auto') { left = true; right = true; }
               const max = el.scrollWidth - el.clientWidth;
               if (max <= 1) continue;
               room(style.direction === 'rtl' ? max + el.scrollLeft : el.scrollLeft, max);
             }
             const root = doc.scrollingElement || doc.documentElement;
             const hidden = (el) => el && ['hidden', 'clip'].includes(win.getComputedStyle(el).overflowX);
+            const contained = (el) => el && (win.getComputedStyle(el).overscrollBehaviorX || 'auto') !== 'auto';
+            if (contained(doc.documentElement) || contained(doc.body)) { left = true; right = true; }
             if (root && !hidden(doc.documentElement) && !hidden(doc.body)) {
               const max = root.scrollWidth - root.clientWidth;
               const rtl = win.getComputedStyle(root).direction === 'rtl';
@@ -69,6 +86,12 @@ nonisolated struct BrowserSwipeProbe: Sendable {
             const rect = hit.getBoundingClientRect();
             scan(inner, x - rect.left - hit.clientLeft, y - rect.top - hit.clientTop, depth + 1);
           };
+          await new Promise((resolve) => {
+            let done = false;
+            const finish = () => { if (!done) { done = true; setTimeout(resolve, 0); } };
+            requestAnimationFrame(finish);
+            setTimeout(finish, 50);
+          });
           scan(window, \(px), \(py), 0);
           return [left, right, prevented];
         })()
