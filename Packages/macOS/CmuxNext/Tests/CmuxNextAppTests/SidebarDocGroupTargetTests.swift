@@ -3,6 +3,7 @@ import CmuxNextActions
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
 @testable import CmuxNextSidebar
+import Foundation
 import Testing
 
 /// Leo 2026-10-19 on nightly fc1d07a: "adding and removing groups doesn't work" and "adding new tabs
@@ -64,8 +65,41 @@ struct SidebarDocShownGroupIDTests {
         #expect(model.groupID(personal: "not-shown") == CmuxNextSidebar.GroupID("not-shown"))
     }
 
+    /// Next/Previous Workspace Group start from the group the active workspace is in, by its personal id:
+    /// compared with the sidebar's `itm_g_g1`, no room group matched and the walk always began at an end.
+    @Test func theActiveGroupIsNamedByItsPersonalID() {
+        let row = CmuxNextSidebar.SidebarWorkspace(id: CmuxNextSidebar.WorkspaceID("w1"), title: "w1")
+        let model = CmuxNextSidebar.SidebarModel(sections: [
+            CmuxNextSidebar.SidebarSection(kind: .machine(CmuxNextSidebar.SidebarMachine(id: .local, name: "This Mac", kind: .local)), nodes: [
+                .group(CmuxNextSidebar.SidebarGroup(id: CmuxNextSidebar.GroupID("doc-made"), name: "made on the document", workspaces: [])),
+                .group(CmuxNextSidebar.SidebarGroup(id: CmuxNextSidebar.GroupID("itm_g_g1"), name: "migrated", workspaces: [row])),
+            ]),
+        ], activeWorkspaceID: row.id)
+        #expect(model.activeGroupPersonalID == "g1")
+        #expect(Self.model().activeGroupPersonalID == nil)
+    }
+
     @Test func itemIDsMapBackToPersonalIDs() {
         #expect(SidebarDocStore.personalGroupID(item: "itm_g_g1") == "g1")
         #expect(SidebarDocStore.personalGroupID(item: "doc-made") == "doc-made")
+    }
+}
+
+/// The header's + (SidebarListView+Reuse `onAdd`) and the group editor's rows reach the registry through
+/// `onGroupEditorItem` with the group the sidebar shows (`itm_g_g1` on the sidebar document); the action
+/// must get the personal group id the personal store and `workspaceGroup.newWorkspace` place into.
+@MainActor @Suite(.serialized)
+struct SidebarDocGroupEditorTargetTests {
+    @Test func theHeaderPlusTargetsThePersonalGroup() throws {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        let record = try JSONDecoder().decode(WindowRecord.self, from: Data(#"{"id":"plus","workspace_key":"plus-home"}"#.utf8))
+        let bridge = SidebarBridge(services: services, state: WindowState(record: record))
+        var targets: [String] = []
+        #expect(services.registry.bind("workspaceGroup.newWorkspace", invoke: { invocation in targets.append(invocation.target?.id ?? "") }))
+        let perform = try #require(bridge.container.onGroupEditorItem)
+        perform(CmuxNextSidebar.GroupID("itm_g_g1"), "workspaceGroup.newWorkspace")
+        perform(CmuxNextSidebar.GroupID("doc-made"), "workspaceGroup.newWorkspace")
+        #expect(targets == ["g1", "doc-made"])
     }
 }
