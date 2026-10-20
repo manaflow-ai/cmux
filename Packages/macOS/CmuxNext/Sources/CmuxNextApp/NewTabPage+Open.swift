@@ -138,4 +138,8 @@ extension NewTabPage {
             return
         }
     }
+
+    /// Whether what New Tab page `key` in `pane` opens goes beside it (red commit: never; the
+    /// pick replaces the page in its pane).
+    static func opensBeside(_ key: String, in pane: PaneController) -> Bool { false }
 }
