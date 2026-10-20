@@ -28,6 +28,7 @@ SNAPSHOT = "schemas/defaults/cmux-next.json"
 SHORTCUTS = "web/data/cmux-shortcuts.generated.json"
 SURFACES = "plans/cmux-next/action-surfaces.json"
 WEBVIEWS = "webviews/src/generated.ts"
+APP = "first-party-apps/app/fragment.json"
 
 
 def git(cwd, *args):
@@ -53,7 +54,7 @@ class BaseAutofixFinishes(unittest.TestCase):
         seed = work / "seed"
         git(work, "clone", "-q", "remote.git", "seed")
         git(seed, "checkout", "-q", "-b", "feat-cmux-next")
-        files = {SETTINGS: "k1", EXPORT: "old", SNAPSHOT: "old", SHORTCUTS: "old", SURFACES: "old", WEBVIEWS: "old",
+        files = {SETTINGS: "k1", EXPORT: "old", SNAPSHOT: "old", SHORTCUTS: "old", SURFACES: "old", WEBVIEWS: "old", APP: "a1",
                  "README.md": "r", "unlisted/output.txt": "old",
                  "scripts/cmux-next/autofix-areas.sh": (ROOT / "scripts/cmux-next/autofix-areas.sh").read_text()}
         for path, text in files.items():
@@ -139,6 +140,15 @@ class BaseAutofixFinishes(unittest.TestCase):
                                       repair={EXPORT: "new", SHORTCUTS: "new", WEBVIEWS: "new"})
         self.assertEqual(landed[SHORTCUTS], "someone else's")
         self.assertEqual(landed[EXPORT], "old")
+        self.assertEqual(landed[WEBVIEWS], "new")
+        self.assertEqual(done.returncode, 1, out)
+
+    def test_outputs_built_from_a_left_out_export_wait_with_it(self):
+        # Greptile on #22474: an app-host input change leaves the action export out, and the shortcuts
+        # file built from that export must not land without it.
+        done, landed, out = self.push({APP: "changed"}, repair={SURFACES: "new", SHORTCUTS: "new", WEBVIEWS: "new"})
+        self.assertEqual(landed[SURFACES], "old")
+        self.assertEqual(landed[SHORTCUTS], "old")
         self.assertEqual(landed[WEBVIEWS], "new")
         self.assertEqual(done.returncode, 1, out)
 
