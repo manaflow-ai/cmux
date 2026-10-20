@@ -66,6 +66,8 @@ public final class SettingsApplier {
         if design.hoverCardDelay != hoverCardDelay { design.hoverCardDelay = hoverCardDelay }
         let workspaceHoverCard = snapshot.hoverCards.workspaceCardOptions
         if design.workspaceHoverCard != workspaceHoverCard { design.workspaceHoverCard = workspaceHoverCard }
+        let groupHoverCard = snapshot.hoverCards.groupCardOptions
+        if design.groupHoverCard != groupHoverCard { design.groupHoverCard = groupHoverCard }
         if design.splitSizing != snapshot.splitSizing { design.splitSizing = snapshot.splitSizing }
         if design.newColumnWidth != snapshot.newColumnWidth { design.newColumnWidth = snapshot.newColumnWidth }
         if design.dockColumnEdge != snapshot.dockColumnEdge { design.dockColumnEdge = snapshot.dockColumnEdge }
