@@ -335,7 +335,7 @@ pub use idle_close::{IDLE_CLOSE_REAP_INTERVAL, IdleTerminalReaper, start_idle_te
 pub use layout_ratio_error::LayoutRatioError;
 pub(crate) use pinned_columns::{
     LONE_DOCK_NEIGHBOR_WIDTH, ensure_pane_takes_tabs, ensure_pinned_columns_kept,
-    pane_in_lone_pinned_column, pinned_columns,
+    lone_pinned_dock_taking_no_tabs, pane_in_lone_pinned_column, pinned_columns,
 };
 pub use presentation::{
     PendingTerminal, TabDirectory, TabNotificationAck, TabPinChange, TreeDecorations,

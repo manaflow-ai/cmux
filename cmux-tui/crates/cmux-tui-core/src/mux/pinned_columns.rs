@@ -3,10 +3,10 @@
 //! A pinned column's first tab is its pinned tab (Home's page). It never
 //! closes, never leaves the column and keeps the first place. While the
 //! column's `allow_tabs` is off (the default) no other tab enters it: a new
-//! tab, a move in or a drop is refused, except while the column is alone on
-//! its screen (`pinned-dock-alone-v1`): with no column beside it there is
-//! nowhere else for a tab, so one made there (an agent's tab beside its chat)
-//! enters and the client moves it into a new column. A pinned column is never removed,
+//! tab, a move in or a drop is refused. A browser or conversation tab made in
+//! a pinned column alone on its screen (`pinned-dock-alone-v1`) opens in a new
+//! column right of it instead, in the same commit
+//! ([`lone_pinned_dock_taking_no_tabs`]). A pinned column is never removed,
 //! undocked or moved to another edge either. Closing the whole workspace and
 //! a terminal that exited on its own are not refusals.
 //!
@@ -45,17 +45,11 @@ fn pinned_column_views(state: &State) -> impl Iterator<Item = (PinnedColumn, boo
                     .collect();
                 Some((
                     PinnedColumn { workspace: workspace.id, column: column.id, tabs },
-                    takes_tabs(flag, screen),
+                    flag.allow_tabs,
                 ))
             })
         })
     })
-}
-
-/// Whether a pinned column with `flag` on `screen` takes other tabs: its
-/// `allow_tabs` is on, or it is alone on its screen (`pinned-dock-alone-v1`).
-fn takes_tabs(flag: crate::model::ColumnDock, screen: &crate::model::Screen) -> bool {
-    flag.allow_tabs || screen.layout_columns.len() == 1
 }
 
 /// Why a change breaks a pinned column, if it does.
@@ -105,8 +99,8 @@ pub(crate) fn ensure_pinned_columns_kept(
 }
 
 /// Refuses a new tab in `pane` when its column is pinned and takes no
-/// tabs ([`takes_tabs`]). Tab creation that spawns a process outside the
-/// staged plan checks here first, so nothing starts for a refused tab.
+/// tabs. Tab creation that spawns a process outside the staged plan checks
+/// here first, so nothing starts for a refused tab.
 pub(crate) fn ensure_pane_takes_tabs(
     operation: &str,
     state: &State,
@@ -116,9 +110,9 @@ pub(crate) fn ensure_pane_takes_tabs(
         .workspaces
         .iter()
         .flat_map(|workspace| workspace.screens.iter())
-        .flat_map(|screen| screen.layout_columns.iter().map(move |column| (screen, column)))
-        .any(|(screen, column)| {
-            column.dock.is_some_and(|flag| flag.pinned && !takes_tabs(flag, screen))
+        .flat_map(|screen| screen.layout_columns.iter())
+        .any(|column| {
+            column.dock.is_some_and(|flag| flag.pinned && !flag.allow_tabs)
                 && column.root.contains(pane)
         });
     if !refused {
@@ -146,4 +140,17 @@ pub(crate) fn pane_in_lone_pinned_column(state: &State, pane: PaneId) -> bool {
             _ => false,
         },
     )
+}
+
+/// Whether `pane` is in a pinned column alone on its screen that takes no
+/// tabs: a browser or conversation tab made there opens in a new column right
+/// of it ([`LONE_DOCK_NEIGHBOR_WIDTH`]), so the dock never holds another tab.
+pub(crate) fn lone_pinned_dock_taking_no_tabs(state: &State, pane: PaneId) -> bool {
+    pane_in_lone_pinned_column(state, pane)
+        && state
+            .workspaces
+            .iter()
+            .flat_map(|workspace| workspace.screens.iter())
+            .flat_map(|screen| screen.layout_columns.iter())
+            .any(|column| column.root.contains(pane) && column.dock.is_some_and(|f| !f.allow_tabs))
 }

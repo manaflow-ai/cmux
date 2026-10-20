@@ -1,5 +1,4 @@
 import CmuxNextBridge
-import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextLayout
 import Foundation
@@ -119,8 +118,8 @@ extension ChatColumnPlacement {
     /// right of the dock holds it. A terminal is a new column with its shell, spawned with the
     /// tab's options (cwd, keep); a web page opens the way Home's links do (`workspace.open_url`,
     /// which makes the column right of a lone dock); the New Tab page is a split to the right,
-    /// which the daemon makes a column beside the dock; any other address opens in the dock (a
-    /// lone dock takes tabs) and moves into a new column right of it.
+    /// which the daemon makes a column beside the dock; any other address is a browser tab aimed
+    /// at the dock, which the daemon makes in a new column right of it.
     @MainActor static func openBesideDock(_ controller: PaneController, respawn: SplitRespawn?, services: AppServices) {
         switch respawn {
         case .terminal(let spawn)?:
@@ -132,33 +131,11 @@ extension ChatColumnPlacement {
                 return nil
             })
         case .browser(let url, let engine, let profileID)? where !isNewTabAddress(url, services: services):
-            let anchor = controller.pane
-            controller.newBrowserTab(url: URL(string: url), engine: engine.rawValue, background: true, profile: profileID) { surface in
-                services.registry.track(Task { @MainActor in
-                    await moveOutOfLoneDock(surface, anchor: anchor, services: services)
-                })
-            }
+            // The daemon makes a browser tab aimed at the lone dock in a new column right of it.
+            controller.newBrowserTab(url: URL(string: url), engine: engine.rawValue, profile: profileID)
         case .browser?, nil:
             NewTabPage.split(controller, edge: .right)
         }
-    }
-
-    /// Moves the tab of `surface`, opened in Home's lone dock `anchor`, into a new column right of
-    /// it once the store lists it (a bounded wait); nil, or why it did not move.
-    @MainActor private static func moveOutOfLoneDock(_ surface: SurfaceID, anchor: PaneModel, services: AppServices) async -> String? {
-        let listed = Task { @MainActor () -> Bool in
-            for await found in ObservationStream({ services.locateTab(surface: surface) != nil }) where found { return true }
-            return false
-        }
-        let bound = DemandTimer(owner: "ChatColumnPlacement.besideDock")
-        bound.schedule(after: AgentBesidePlacement.openLimit) { @MainActor in listed.cancel() }
-        let found = await listed.value
-        bound.cancel()
-        guard found, let tab = services.locateTab(surface: surface) else { return "beside-dock: the new tab did not open" }
-        let moved = await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
-            TabMoves.toNewColumn(tab, anchor: anchor, services: services) { done.resume(returning: $0) }
-        }
-        return moved ? nil : "beside-dock: the move into a new column failed (see the app log)"
     }
 
     /// Whether `url` is a New Tab page address (the setting's page or an engine's own).

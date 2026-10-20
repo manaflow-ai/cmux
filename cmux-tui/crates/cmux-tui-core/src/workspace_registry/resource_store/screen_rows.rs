@@ -201,15 +201,20 @@ fn write_lone_dock(transaction: &Transaction<'_>, screen: &RegistryScreen) -> an
 
 /// Overlays each screen's stored lone pinned column. A record is used only
 /// while the screen is a plain tree (or the lone column of rows with the
-/// same id) whose layout is still the column's: a build without
-/// `pinned-dock-alone-v1` may have rewritten the screen meanwhile, and its
-/// record is then dropped (and deleted on the screen's next write).
+/// same id) whose layout is still the column's, and while the column id is
+/// still parked for the screen: a build without `pinned-dock-alone-v1` may
+/// have rewritten the screen meanwhile (a write that keeps the layout still
+/// tombstones the id for good and unparks it), and its record is then dropped
+/// (and deleted on the screen's next write).
 fn overlay_lone_docks(
     connection: &Connection,
     screens: &mut [RegistryScreen],
 ) -> anyhow::Result<()> {
-    let mut statement =
-        connection.prepare("SELECT screen_id, column_json FROM resource_lone_docks")?;
+    let mut statement = connection.prepare(
+        "SELECT lone.screen_id, lone.column_json FROM resource_lone_docks AS lone
+             JOIN resource_parked_splits AS parked
+               ON parked.public_id = lone.column_id AND parked.screen_id = lone.screen_id",
+    )?;
     let records = statement
         .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?
         .collect::<Result<Vec<_>, _>>()?;

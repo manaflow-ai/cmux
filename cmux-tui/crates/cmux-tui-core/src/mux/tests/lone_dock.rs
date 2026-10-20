@@ -159,3 +159,29 @@ fn a_lone_dock_record_that_no_longer_matches_the_screen_is_dropped() {
     drop(mux);
     std::fs::remove_dir_all(root).unwrap();
 }
+
+/// A build without the capability that writes the screen keeping its layout
+/// tombstones the column id for good and unparks it. The record is then
+/// dropped at load (the screen is a plain tree) instead of restoring a column
+/// whose id can never be written again, and the screen stays writable.
+#[test]
+fn a_lone_dock_whose_id_an_older_build_unparked_is_dropped_and_the_screen_stays_writable() {
+    let (root, session) = seed("unparked");
+    let registry = WorkspaceRegistry::open(&root, &session).unwrap();
+    registry.execute_sql_for_test("DELETE FROM resource_parked_splits").unwrap();
+    drop(registry);
+    assert!(stored_screen(&root, &session).viewport.columns.is_empty());
+    let mux = open_restart_mux(&root, &session);
+    assert!(columns(&mux).is_empty(), "the screen loads as a plain tree");
+    let pane = mux.with_state(|state| state.workspaces[0].screens[0].root.first_visible_pane());
+    let created = mux.new_pane_right(pane, 0.5, Some((38, 22)));
+    assert!(created.is_ok(), "the screen is still writable: {:?}", created.err());
+    drop(created);
+    mux.shutdown();
+    drop(mux);
+    let registry = WorkspaceRegistry::open(&root, &session).unwrap();
+    let left = registry.query_text_for_test("SELECT COUNT(*) || '' FROM resource_lone_docks");
+    assert_eq!(left.unwrap(), "0", "the stale record went with the next write");
+    drop(registry);
+    std::fs::remove_dir_all(root).unwrap();
+}
