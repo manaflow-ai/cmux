@@ -188,7 +188,8 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
       const page = await open("agent-pane.composer-strip", variant, 720, remember);
       await page.locator(".acpmux-composer-bar .acpmux-model").waitFor();
       const measured = await page.evaluate(() => {
-        const bar = document.querySelector(".acpmux-composer-bar")!;
+        // The controls sit in the box's row and the quiet row under it (ComposerFoot.tsx).
+        const bar = document.querySelector(".acpmux-composer")!;
         const left = (selector: string) => bar.querySelector(selector)?.getBoundingClientRect().left;
         return {
           placeholders: document.querySelectorAll(
