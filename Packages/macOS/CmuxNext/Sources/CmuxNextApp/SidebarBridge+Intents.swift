@@ -109,8 +109,10 @@ extension SidebarBridge {
              .hideNowPlayingCard:
             SidebarCardFeed.handle(intent, services: services)
         case .nowPlaying(let command): services.cache.pageRequests.sidebarSources.perform(command)
-        case .toggleWorkspaceAudio:
-            break
+        case .toggleWorkspaceAudio(let id):
+            // The row's speaker runs the workspace menu's, palette's and CLI's action.
+            _ = services.registry.perform(BrowserTabAudio.workspaceToggleActionID,
+                                          invocation: ActionInvocation(target: ActionTargetRef(kind: .workspace, id: id.rawValue), origin: .user))
         case .layout(let op):
             applyLayoutOp(op)
         case .dropOnLayoutSection(let ids, let section, let index):

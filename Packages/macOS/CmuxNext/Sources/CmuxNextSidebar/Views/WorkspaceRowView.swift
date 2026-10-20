@@ -30,7 +30,7 @@ final class WorkspaceRowView: SidebarRowView {
     /// The workspace's tabs play sound (or are muted): a small speaker in the
     /// trailing cluster, always shown while they do, crossed out while they
     /// are muted. A click mutes or unmutes them (`onToggleAudio`).
-    let audioButton = SidebarIconButton(icon: .mediaAudio, pointSize: { Metrics.smallIconSize - Metrics.space2 }, label: Strings.muted)
+    let audioButton = SidebarIconButton(icon: .mediaAudio, pointSize: { Metrics.smallIconSize - Metrics.space2 }, label: Strings.muteTabs)
     internal(set) var audio: SidebarWorkspaceAudio?
     let closeButton = SidebarIconButton(icon: .actionClose, pointSize: { Metrics.smallIconSize - Metrics.space2 }, label: Strings.closeButton)
     /// The row's menu (cx-a9h6, ChatGPT project style): the right-click menu,
@@ -262,7 +262,9 @@ final class WorkspaceRowView: SidebarRowView {
             ? NSImage.icon(symbol: "bell.slash", size: .iconRowSize(forLabelPointSize: SidebarStyle.indicatorSize - Metrics.space1)) : nil
         mutedMark.isHidden = mutedMark.image == nil
         audio = isShowingPlaceholder ? nil : ws.audio
-        audioButton.isHidden = true
+        audioButton.isHidden = audio == nil
+        audioButton.icon = audio == .muted ? .mediaMuted : .mediaAudio
+        audioButton.label = audio == .muted ? Strings.unmuteTabs : Strings.muteTabs
         disclosure = row.tabDisclosure
         count = row.tabCount
         disclosureButton.icon = row.tabDisclosure == .expanded ? .disclosureExpanded : .disclosureCollapsed

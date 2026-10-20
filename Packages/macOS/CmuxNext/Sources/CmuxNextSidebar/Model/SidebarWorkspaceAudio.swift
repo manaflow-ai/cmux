@@ -14,7 +14,12 @@ public nonisolated enum SidebarWorkspaceAudio: Hashable, Sendable {
     /// playing when any tab plays sound, else muted when any tab is muted,
     /// else none.
     public static func merge(_ tabs: some Sequence<SidebarWorkspaceAudio?>) -> SidebarWorkspaceAudio? {
-        nil
+        var muted = false
+        for tab in tabs {
+            if tab == .playing { return .playing }
+            if tab == .muted { muted = true }
+        }
+        return muted ? .muted : nil
     }
 
     /// What a click on a row showing `self` does to one of its tabs, whose
@@ -22,6 +27,9 @@ public nonisolated enum SidebarWorkspaceAudio: Hashable, Sendable {
     /// leaves it. A playing row mutes its playing tabs; a muted row unmutes
     /// its muted tabs.
     public func change(for tab: SidebarWorkspaceAudio?) -> Bool? {
-        nil
+        switch self {
+        case .playing: tab == .playing ? true : nil
+        case .muted: tab == .muted ? false : nil
+        }
     }
 }
