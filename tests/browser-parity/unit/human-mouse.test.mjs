@@ -192,3 +192,29 @@ test("human mouse: a locator click (Page._clickAt) dwells before the press and h
   assert.ok(down.t - calls.at(-3).t >= 40, "hover dwell");
   assert.ok(up.t - down.t >= 50, "press hold");
 });
+
+test("human mouse: a wheel scroll glides out like a trackpad fling: decaying parts that sum to the asked delta", async () => {
+  const { page, calls, now } = fakePage();
+  await page.mouse.wheel(0, 900);
+  const wheels = calls.filter((c) => c.type === "wheel");
+  assert.ok(wheels.length >= 5, `several parts, got ${wheels.length}`);
+  const sum = wheels.reduce((s, w) => s + w.deltaY, 0);
+  assert.equal(sum, 900, "nothing lost to rounding");
+  assert.ok(wheels.every((w) => w.deltaX === 0));
+  for (let i = 1; i < wheels.length; i++) assert.ok(wheels[i].deltaY <= wheels[i - 1].deltaY, "each part is no bigger than the one before");
+  assert.ok(wheels[0].deltaY > wheels.at(-1).deltaY * 2, "it slows down");
+  assert.ok(now() >= 120 && now() <= 400, `about a fling's length, got ${now()} ms`);
+  // Instant motion and tiny scrolls stay one event.
+  const b = fakePage({ agentMouse: { motion: "instant" } });
+  await b.page.mouse.wheel(0, 900);
+  assert.equal(b.calls.length, 1);
+  const c = fakePage();
+  await c.page.mouse.wheel(0, 3);
+  assert.equal(c.calls.length, 1);
+  // Up and sideways too.
+  const d = fakePage();
+  await d.page.mouse.wheel(-300, -600);
+  const dw = d.calls.filter((x) => x.type === "wheel");
+  assert.equal(dw.reduce((s, w) => s + w.deltaX, 0), -300);
+  assert.equal(dw.reduce((s, w) => s + w.deltaY, 0), -600);
+});
