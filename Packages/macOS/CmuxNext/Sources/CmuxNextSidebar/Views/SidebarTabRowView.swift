@@ -6,11 +6,14 @@ import CmuxNextIcons
 /// reads as the workspace's child by indent alone, no bars: a grouped
 /// workspace's line is the only bar in a hierarchy (cx-ai79). It draws no
 /// kind or agent glyph; only a browser tab's page favicon (Lawrence
-/// 2026-10-14, cx-im75u). An unread tab shows a small muted unread dot
-/// at its trailing edge; its title keeps the primary color and regular weight.
-/// A session's status (the running mark while its agent works, Leo 2026-10-18) sits on the
-/// workspace rows' side (`sidebar.statusIconSide`): on the left in a fixed slot, so titles line up
-/// whether a session has a state or not; on the right before the unread dot.
+/// 2026-10-14, cx-im75u). Its title keeps the primary color and regular weight, read or unread.
+/// With the status icon row badge (the default), a session shows one mark, its most urgent state
+/// with unread folded in as a workspace row's is (the running mark while its agent works, else a
+/// done mark when unread), on the workspace rows' side (`sidebar.statusIconSide`): on the right by
+/// default, the only mark there (Lawrence 2026-10-19: "a single unread indicator for the right
+/// side"); on the left (Debug Settings) in a fixed slot, so titles line up whether a session has a
+/// state or not. With another row badge, an unread session shows a small muted unread dot at its
+/// trailing edge and no status.
 final class SidebarTabRowView: SidebarRowView {
     private let icon = NSImageView()
     let title = SidebarRowView.label(font: SidebarStyle.subtitleFont)
@@ -71,13 +74,16 @@ final class SidebarTabRowView: SidebarRowView {
         let iconSide = SidebarStyle.tabIconSize
         icon.image = tab.favicon.map { NSImage(cgImage: $0.image, size: NSSize(width: iconSide, height: iconSide)) }
         icon.isHidden = icon.image == nil
-        unreadDot.configure(tab.isUnread ? .dot : .none)
-        activity.configure(side == nil ? .idle : tab.activity)
+        // With the status icon, unread folds into the one mark (`WorkspaceRowView.rowStatus`).
+        let unread: UnreadState = tab.isUnread ? .dot : .none
+        let shown: StatusIndicatorState = side == nil ? .idle : WorkspaceRowBadges(unread: unread, activity: tab.activity).first ?? .idle
+        unreadDot.configure(side == nil ? unread : .none)
+        activity.configure(shown)
         setAccessibilityElement(true)
         setAccessibilityRole(.row)
         let workspaceIdentifier = row.workspace?.rawValue ?? "unknown"
         setAccessibilityIdentifier("cmux.sidebar.tab.\(workspaceIdentifier).\(tab.id.rawValue)")
-        setAccessibilityLabel([tab.title, side == nil ? nil : Strings.activity(tab.activity)].compactMap { $0 }.joined(separator: ", "))
+        setAccessibilityLabel([tab.title, side == nil ? nil : Strings.activity(shown)].compactMap { $0 }.joined(separator: ", "))
         needsLayout = true
         needsDisplay = true
     }
