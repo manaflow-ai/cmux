@@ -87,6 +87,8 @@ pub struct Session {
     pub(super) subagents: StdMutex<crate::subagents::SubagentTree>,
     /// The commands its harness runs in the background (`processes.rs`).
     pub(super) processes: StdMutex<processes::ProcessTable>,
+    /// The places typing into it, and who sent its prompts (`composers.rs`).
+    pub(super) composers: StdMutex<super::composers::Composers>,
 }
 
 impl Session {
