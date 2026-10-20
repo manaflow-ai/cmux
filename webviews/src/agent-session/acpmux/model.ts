@@ -249,9 +249,6 @@ export type AcpmuxSnapshot = {
   /// (subagents/childRows.ts).
   subagentViews?: Record<string, AcpmuxRow[]>;
   sessions: AcpmuxSessionEntry[];
-  /// The latest tool call's title of each chat the open chat started that runs and the pane
-  /// watches, by session (offer/offerChildren.ts); only with started session cards on.
-  childActivity?: Record<string, string>;
   /** Connected peer names advertised by the acpmux daemon, including peers without chats yet. */
   peers?: string[];
   /// Each peer's transport by name: `ssh` for an `ssh://` peer, `cloud` for any other (environments.ts).

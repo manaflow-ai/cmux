@@ -72,11 +72,13 @@ export function startedPullRequests(entry: AcpmuxSessionEntry): StartedPullReque
   }
   const branch = entry.pullRequest;
   const urls = [...recorded.values()];
-  // The branch PR carries a number only: a recorded URL with that number is the same one.
-  const same = branch ? urls.find((pr) => pr.number === branch.number) : undefined;
-  const count = urls.length + (branch && !same ? 1 : 0);
+  // The branch PR carries a number only: a recorded URL with that number is the same one. When
+  // recorded URLs in more than one repository have that number, it is one of them, but which is
+  // not known, so the badge names no repository.
+  const sameNumber = branch ? urls.filter((pr) => pr.number === branch.number) : [];
+  const count = urls.length + (branch && sameNumber.length === 0 ? 1 : 0);
   if (count === 0) return undefined;
-  const named = branch ? same : urls[urls.length - 1];
+  const named = branch ? (sameNumber.length === 1 ? sameNumber[0] : undefined) : urls[urls.length - 1];
   return {
     count,
     number: branch?.number ?? named!.number,
@@ -142,6 +144,11 @@ export function startedSessions(
     .sort((a, b) => (a.createdAt ?? Infinity) - (b.createdAt ?? Infinity));
 }
 
+/// The chats chat `chatId` started that are not archived, as the session list gives them.
+export function spawnedSessions(sessions: readonly AcpmuxSessionEntry[], chatId: string): AcpmuxSessionEntry[] {
+  return sessions.filter((entry) => entry.spawnedBy === chatId && !entry.archived);
+}
+
 /// The chats an offer's started tasks name, which their suggested tasks card draws.
 export function offerChildren(rows: readonly AcpmuxRow[]): Set<string> {
   const children = new Set<string>();
@@ -169,10 +176,13 @@ export function withStartedSessions(
   rows.forEach((row, index) => {
     if (row.kind === "user" && index > 0) starts.push(index);
   });
+  // One pass: `children` is oldest first, those with no `createdAt` last.
   const groups = new Map<number, StartedSession[]>();
+  let next = 0;
   for (const child of children) {
-    let turn = starts.length - 1;
-    if (child.createdAt !== undefined) while (turn > 0 && rows[starts[turn]!]!.at > child.createdAt) turn -= 1;
+    if (child.createdAt === undefined) next = starts.length - 1;
+    else while (next + 1 < starts.length && rows[starts[next + 1]!]!.at <= child.createdAt) next += 1;
+    const turn = next;
     const group = groups.get(turn);
     if (group) group.push(child);
     else groups.set(turn, [child]);
@@ -183,10 +193,12 @@ export function withStartedSessions(
     const end = starts[turn + 1] ?? rows.length;
     const group = groups.get(turn);
     let at = end;
-    if (group) {
-      const summary = rows.findIndex((row, index) => index >= start && index < end && row.kind === "turnSummary");
-      if (summary >= 0) at = summary;
-    }
+    if (group)
+      for (let index = start; index < end; index++)
+        if (rows[index]!.kind === "turnSummary") {
+          at = index;
+          break;
+        }
     for (let index = start; index < end; index++) {
       if (group && index === at) place(group, rows[index - 1]?.at ?? rows[index]!.at);
       out.push(rows[index]!);
@@ -220,11 +232,15 @@ export const MIN_TITLE_MENTION = 8;
 /// The chats a reply can name, longest name first so a title holding another wins.
 export type SessionMention = { text: string; sessionId: string; title: string; state: StartedState };
 
+/// A title more than one chat has stays text: which chat it names is not known. Session ids still name theirs.
 export function sessionMentions(children: readonly StartedSession[]): SessionMention[] {
+  const titled = (child: StartedSession) => child.named && child.title.length >= MIN_TITLE_MENTION;
+  const claims = new Map<string, number>();
+  for (const child of children) if (titled(child)) claims.set(child.title, (claims.get(child.title) ?? 0) + 1);
   const mentions: SessionMention[] = [];
   for (const child of children) {
     const base = { sessionId: child.sessionId, title: child.title, state: child.state };
-    if (child.named && child.title.length >= MIN_TITLE_MENTION) mentions.push({ ...base, text: child.title });
+    if (titled(child) && claims.get(child.title) === 1) mentions.push({ ...base, text: child.title });
     mentions.push({ ...base, text: child.sessionId });
   }
   return mentions.sort((a, b) => b.text.length - a.text.length);

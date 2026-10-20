@@ -1225,8 +1225,6 @@ export class AcpmuxDirectClient {
     if (first.next && !(await this.sessionPages.rest(first, () => list, add))) return;
     // Changes that came while the pages did are newer than the pages.
     this.sessions = this.sessionPages.settle(list);
-    // A chat opened with its started chats already running watches them now, not at their next change.
-    this.watchOfferChildren();
     const missing =
       this.selectedSessionId !== undefined &&
       !this.sessions.some((session) => session.sessionId === this.selectedSessionId);
@@ -2278,7 +2276,6 @@ export class AcpmuxDirectClient {
       }),
       peers: this.peers,
       peerKinds: this.peerKinds,
-      ...this.withChildActivity(),
       ...(this.forkedAtSeq !== undefined ? { forkedAtSeq: this.forkedAtSeq } : {}),
       summary: summary
         ? {
@@ -2810,31 +2807,14 @@ export class AcpmuxDirectClient {
   private isStartedChild(session: Session): boolean {
     return !!this.selectedSessionId && session.spawnedBy === this.selectedSessionId && startedCardsShown();
   }
-  /// The chats the shown chat's agent started, for their cards' activity lines.
-  private startedChildIds(): string[] {
-    return this.sessions.filter((session) => this.isStartedChild(session)).map((session) => session.sessionId);
-  }
-  /// The latest tool call of each started chat the pane watches (``AcpmuxSnapshot.childActivity``).
-  private childActivity(): Record<string, string> | undefined {
-    let activity: Record<string, string> | undefined;
-    for (const child of this.startedChildIds()) {
-      const title = this.offerChildren.activity(child);
-      if (title) (activity ??= {})[child] = title;
-    }
-    return activity;
-  }
   /// Attaches to the started chats that run, for their rows' subtitles (offer/offerChildren.ts).
   private watchOfferChildren(): void {
     this.offerChildren.want(
-      [...new Set([...this.offerChildIds(), ...this.startedChildIds()])].map((child) => ({
+      this.offerChildIds().map((child) => ({
         child,
         status: this.sessions.find((session) => session.sessionId === child)?.status,
       })),
     );
-  }
-  private withChildActivity(): { childActivity?: Record<string, string> } {
-    const activity = this.childActivity();
-    return activity ? { childActivity: activity } : {};
   }
   /// Chat `child`, started from an offer here, changed: its row redraws.
   private childChanged(child: string): void {

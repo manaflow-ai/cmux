@@ -7,7 +7,7 @@ export const startedSessionCards = defineExperiment({
   id: "started-session-cards",
   title: "Started session cards",
   description:
-    "Each chat this chat's agent started shows as a card in the transcript, with what it does now, its pull requests and a status dot; its name in a reply links to it.",
+    "The chats this chat's agent started in a turn show as one card after that turn's reply, each with its status and pull request; a chat's name in a reply links to it.",
   arms: {
     off: { label: "Off", description: "Started chats show only in the sidebar." },
     on: { label: "On", description: "Started chats show as cards and name chips in the transcript." },
