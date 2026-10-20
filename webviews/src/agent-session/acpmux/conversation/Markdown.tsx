@@ -987,12 +987,8 @@ export function Markdown({
     streaming && fresh
       ? { steps: fresh, text: freshChars ? children.slice(children.length - freshChars) : "", now }
       : undefined;
-  const lastRevealed = revealedBlocks.at(-1);
-  // The cached fence count handles ordinary fences without rescanning the reply. The revealed
-  // block wins for longer/tilde fences and a closing line that safeTail still holds back.
-  let openFence = streaming && parser.current.fenceOpen;
-  if (lastRevealed?.block.type !== "code" || openFence !== !!lastRevealed.block.open)
-    openFence = streaming && lastRevealed?.block.type === "code" && !!lastRevealed.block.open;
+  const lastBlock = revealedBlocks.at(-1)?.block;
+  const openFence = streaming && lastBlock?.type === "code" && lastBlock.open;
   // A block that streamed in while the chat was hidden, or that lands before its first frame back,
   // came while the user was away: it never enters (WebKit would play its suspended entrance on
   // return, shared/pageReveal.ts). It still hands its code over like any live block.
@@ -1003,9 +999,8 @@ export function Markdown({
     const fromReceived = renderByKey.has(entry.key) && receivedRender(entry.block);
     const open = fromReceived
       ? entry.block.type === "code" && !!entry.block.open
-      : openFence && entry.key === lastRevealed?.key;
+      : openFence && entry.key === revealedBlocks.at(-1)?.key;
     if (open) streamedFences.current.add(entry.key);
-    // plainCode must suppress live render cards even while their fence is open.
     return (
       <BlockView
         key={entry.key}
@@ -1016,7 +1011,7 @@ export function Markdown({
         turnStreaming={turnStreaming}
         enter={streaming && live && !awayBlocks.current.has(entry.key)}
         code={plainCode ? "plain" : open ? "open" : live || streamedFences.current.has(entry.key) ? "handoff" : "final"}
-        tail={entry.key === lastRevealed?.key && !receivedRender(entry.block) ? freshTail : undefined}
+        tail={entry.key === revealedBlocks.at(-1)?.key && !receivedRender(entry.block) ? freshTail : undefined}
       />
     );
   };

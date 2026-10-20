@@ -1331,9 +1331,7 @@
     "CmuxNextVSCodeServer": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextVSCodeServer",
-      "targets": [
-        "CmuxNextWakeups"
-      ],
+      "targets": [],
       "packages": []
     },
     "CmuxNextVSCodeServerTests": {
