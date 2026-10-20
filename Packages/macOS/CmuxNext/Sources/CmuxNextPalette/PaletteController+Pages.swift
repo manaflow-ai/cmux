@@ -80,6 +80,7 @@ extension PaletteController {
         case PaletteScopeID.shortcuts: page = keyboardShortcutsPage()
         case PaletteScopeID.scopes: page = scopeListPage()
         case PaletteScopeID.search: page = searchPage()
+        case PaletteScopeID.chats: page = chatsPage()
         default: page = sources.scopes.first { $0.descriptor.id == id }?.page(context)
         }
         page?.scope = id

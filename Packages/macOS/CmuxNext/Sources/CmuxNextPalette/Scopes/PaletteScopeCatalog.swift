@@ -13,6 +13,9 @@ nonisolated extension PaletteScopeID {
     /// search-everything-DESIGN.md section 10): every kind the other scopes and the App's
     /// contributed pages list, in one page.
     public static let search: PaletteScopeID = "search"
+    /// Chats & agents (Cmd-Shift-A, `search.chats`): Search narrowed to the agent chats and
+    /// sessions the App contributes; it opens on top of Search, so Backspace searches everything.
+    public static let chats: PaletteScopeID = "chats"
 }
 
 /// The built-in scopes and the root, as descriptors.
@@ -30,6 +33,8 @@ nonisolated extension PaletteScopeDescriptor {
         var scopes: [PaletteScopeDescriptor] = [
             scope(PaletteScopeID.search, PaletteStrings.searchEverythingTitle, "magnifyingglass", PaletteStrings.searchEverythingPlaceholder,
                   keywords: ["search", "everything", "all"], openAction: "goToWorkspace"),
+            scope(PaletteScopeID.chats, PaletteStrings.chatsAndAgentsTitle, "bubble.left.and.bubble.right", PaletteStrings.chatsAndAgentsPlaceholder,
+                  keywords: ["chats", "agents", "chat"], openAction: "search.chats"),
         ]
         if tabs {
             scopes.append(scope(PaletteScopeID.tabs, PaletteStrings.sectionTabs, "rectangle.on.rectangle", PaletteStrings.tabSearchPlaceholder,

@@ -8,10 +8,11 @@ import CmuxNextSettings
 enum PaletteSourcesBridge {
     static func make(services: AppServices) -> PaletteSources {
         var sources = makeBase(services: services)
-        // Search (the sidebar's Search button, plans/cmux-next/sidebar-search.md): history by kind and
-        // the agent chats join the palette's own sources.
+        // Search (Cmd-P and the sidebar's Search button, plans/cmux-next/sidebar-search.md): history by kind
+        // and the agent chats join the palette's own sources. Agent chats and agent sessions also make up
+        // the Chats & agents chip (Cmd-Shift-A).
         sources.searchContributions = HistoryPalettePages.searchContributions(services) + [
-            PaletteSearchContribution(id: "agentChats", title: AgentChatsPaletteStrings.title, order: 30) { [weak services] in
+            PaletteSearchContribution(id: "agentChats", title: AgentChatsPaletteStrings.title, order: 30, searchesChats: true) { [weak services] in
                 services.map { AgentChatsPalettePage(services: $0).page() }
             },
         ]

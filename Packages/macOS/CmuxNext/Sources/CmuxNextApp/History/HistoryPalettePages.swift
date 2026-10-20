@@ -44,7 +44,8 @@ enum HistoryPalettePages {
             ("history.agents", HistoryAppStrings.agentsTitle, 43, .agent, "arrow.clockwise.circle"),
         ]
         return kinds.map { id, title, order, kind, symbol in
-            PaletteSearchContribution(id: id, title: title, order: order) { [weak services] in
+            // Agent sessions also make up the Chats & agents chip (Cmd-Shift-A).
+            PaletteSearchContribution(id: id, title: title, order: order, searchesChats: kind == .agent) { [weak services] in
                 services.map { page($0, id: id, title: title, placeholder: "", symbol: symbol, kinds: [kind]) }
             }
         }

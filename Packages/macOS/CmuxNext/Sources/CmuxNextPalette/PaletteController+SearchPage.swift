@@ -1,3 +1,5 @@
+public import AppKit
+
 extension PaletteController {
     /// Search (scope `search`, the sidebar's Search button;
     /// plans/cmux-next/sidebar-search.md): the providers Go to Workspace and
@@ -22,13 +24,7 @@ extension PaletteController {
         if let source = sources.recentDirectories {
             providers.append(RecentDirectoriesPaletteProvider(source: source, showsItemsForEmptyQuery: false))
         }
-        for contribution in sources.searchContributions {
-            guard let page = contribution.page() else { continue }
-            let section = PaletteSection(id: "search.\(contribution.id)", title: contribution.title, order: contribution.order)
-            for provider in page.providers {
-                providers.append(PaletteSearchSectionedProvider(provider, id: "search.\(contribution.id).\(provider.id)", section: section))
-            }
-        }
+        providers += contributedProviders(sources.searchContributions)
         if let source = sources.settings {
             providers.append(SettingsPaletteProvider(source: source, showsItemsForEmptyQuery: false))
         }
@@ -47,5 +43,43 @@ extension PaletteController {
         )
         page.queryItems = goToRows()
         return previewingActions(page)
+    }
+
+    /// Chats & agents (scope `chats`, Cmd-Shift-A): the contributed pages that list chats and agent
+    /// sessions, nothing else. It opens on top of Search (`search.chats`), so Backspace on the empty
+    /// field searches everything with the same query.
+    func chatsPage() -> PalettePageSpec {
+        PalettePageSpec(
+            id: "chats",
+            title: PaletteStrings.chatsAndAgentsTitle,
+            placeholder: PaletteStrings.chatsAndAgentsPlaceholder,
+            symbol: "bubble.left.and.bubble.right",
+            providers: contributedProviders(sources.searchContributions.filter(\.searchesChats), showsItemsForEmptyQuery: true),
+            showsRecent: true,
+            scope: PaletteScopeID.chats
+        )
+    }
+
+    /// Opens Search with the Chats & agents chip on top (`search.chats`, Cmd-Shift-A).
+    @discardableResult
+    public func showChats(query: String = "", relativeTo window: NSWindow? = nil) -> Bool {
+        guard show(scope: PaletteScopeID.search, relativeTo: window) else { return false }
+        model.send(.push(PaletteScopeID.chats, row: nil, query: query))
+        return true
+    }
+
+    /// Each contribution's providers, its rows under the contribution's section unless they carry one.
+    private func contributedProviders(_ contributions: [PaletteSearchContribution],
+                                      showsItemsForEmptyQuery: Bool = false) -> [any PaletteProvider] {
+        var providers: [any PaletteProvider] = []
+        for contribution in contributions {
+            guard let page = contribution.page() else { continue }
+            let section = PaletteSection(id: "search.\(contribution.id)", title: contribution.title, order: contribution.order)
+            for provider in page.providers {
+                providers.append(PaletteSearchSectionedProvider(provider, id: "search.\(contribution.id).\(provider.id)", section: section,
+                                                               showsItemsForEmptyQuery: showsItemsForEmptyQuery))
+            }
+        }
+        return providers
     }
 }

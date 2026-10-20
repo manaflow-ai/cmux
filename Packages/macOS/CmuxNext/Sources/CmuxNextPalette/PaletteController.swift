@@ -109,6 +109,10 @@ public final class PaletteController {
     public func bindRegistryActions() {
         registry.bind("commandPalette") { [weak self] in self?.toggle(.commands) }
         registry.bind("palette.searchShortcuts") { [weak self] in self?.show(.keyboardShortcuts) }
+        // Cmd-Shift-A: Search with the Chats & agents chip (search-everything-DESIGN.md section 10.1).
+        registry.bind("search.chats", invoke: { [weak self] invocation in
+            self?.showChats(query: invocation["query"]?.stringValue ?? "")
+        })
         if sources.workspaces != nil {
             // With a workspace (a palette row's typed ref, `palette.run`,
             // the CLI) it switches to it; without one it opens the page.
