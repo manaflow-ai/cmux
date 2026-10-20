@@ -19,6 +19,7 @@ struct AgentActivityEventCapTests {
         let model = AgentActivityModel(source: AgentActivityMockSource())
         model.apply(.events(session: "s", events(0...(cap + 499))))
         let kept = model.eventsBySession["s"] ?? []
+        #expect(AgentActivityModel.maxEventsPerSession == Int(cap))
         #expect(kept.count == Int(cap))
         #expect(kept.first?.seq == 500)
         #expect(kept.last?.seq == cap + 499)
