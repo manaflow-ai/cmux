@@ -120,6 +120,34 @@ struct ProviderDetectionSourcesTests {
         #expect(row.canConnect)
     }
 
+    @Test(arguments: [
+        "model_provider = \"router\"\nmodel_providers = { router = { name = \"Router\", experimental_bearer_token = \"t\" } }",
+        "model_provider = \"router\"\n[model_providers]\nrouter = { name = \"Router\", experimental_bearer_token = \"t\" }",
+        "model_provider = \"router\"\n[model_providers]\nrouter.name = \"Router\"\nrouter.auth = { command = \"print-token\", args = [\"a,}\"] }",
+    ])
+    func codexInlineProviderTablesAreRead(config: String) {
+        let detection = Self.detector(files: [Self.codexConfig: config]).detectCodex()
+        #expect(detection.status == .signedIn)
+        #expect(detection.detail == "Router")
+    }
+
+    @Test func miniTOMLReadsInlineTables() {
+        let toml = MiniTOML("""
+            t = { a = "x, }", b.c = true, d = { e = 'y' }, list = [1, { f = "no" }], n = 3 } # done
+            after = "z"
+            """)
+        #expect(toml.string(["t", "a"]) == "x, }")
+        #expect(toml.bool(["t", "b", "c"]) == true)
+        #expect(toml.string(["t", "d", "e"]) == "y")
+        #expect(toml.hasTable(["t"]))
+        #expect(toml.hasTable(["t", "b"]))
+        #expect(toml.hasTable(["t", "d"]))
+        #expect(toml.has(["t", "list"]))
+        #expect(toml.string(["f"]) == nil)
+        #expect(toml.has(["t", "n"]))
+        #expect(toml.string(["after"]) == "z")
+    }
+
     @Test func miniTOMLReadsQuotedDottedKeysAndSkipsArrays() {
         let toml = MiniTOML("""
             a.b = "x"
