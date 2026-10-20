@@ -97,6 +97,7 @@
     "key.groupSelectedWorkspaces": ["shift+cmd+g"],
     "key.hideFind": ["opt+shift+cmd+f"],
     "key.hints.show": ["cmd+j f"],
+    "key.home.messageChiefFromAnyApp": ["ctrl+opt+cmd+c"],
     "key.home.replyToSelection": ["shift+cmd+r when topPage == home || surfaceKind == home || surfaceKind == home-dock"],
     "key.increaseWorkspaceTerminalFontSize": ["cmd+="],
     "key.inspectBrowserElement": ["opt+cmd+c"],
