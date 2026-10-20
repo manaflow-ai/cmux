@@ -304,7 +304,7 @@ fn native_token_receiver_refuses_ambiguous_stale_and_cross_mesh_snapshots() {
                     "same_host" => other.binding.host = p.peers[0].binding.host.clone(),
                     "same_device" => other.binding.device = p.peers[0].binding.device.clone(),
                     "same_key" => {
-                        other.binding.wg_public_key = p.peers[0].binding.wg_public_key.clone()
+                        other.binding.wg_public_key = p.peers[0].binding.wg_public_key.clone();
                     }
                     _ => unreachable!(),
                 }
