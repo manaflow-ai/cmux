@@ -2,6 +2,7 @@ import { useMemo, useRef, useState, type CSSProperties, type KeyboardEvent } fro
 import { Icon } from "./icons/Icon";
 import { type StringKey, useT } from "./i18n";
 import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
+import { KeyboardScope } from "../../ui/KeyboardScope";
 import {
   listed,
   sessionTitle,
@@ -141,149 +142,150 @@ export function ChiefDock({
     mascotButton.current?.focus();
   };
   return (
-    // oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- Escape from the buttons inside folds the dock; the landmark itself is not a control.
     <aside
       className="acpmux-chief-dock"
       data-attached={attached}
       data-expanded={expanded}
       data-attention={attention > 0 ? "true" : undefined}
       aria-label={t("header.agentChat")}
-      onKeyDown={foldOnEscape}
     >
-      {/* Folded, the deck is a picture of the chats: inert, so none of its buttons is a Tab stop. */}
-      <div ref={cardsRef} className="acpmux-chief-dock-cards" aria-hidden={!expanded} inert={!expanded}>
-        <div className="acpmux-chief-dock-stack">
-          {cards.length === 0 && <p className="acpmux-chief-dock-empty">{t("sidebar.noSessions")}</p>}
-          {cards.map((session, index) => {
-            const selected = session.sessionId === currentId;
-            const title = sessionTitle(session);
-            const queued = queueCounts?.get(session.sessionId) ?? 0;
-            const steering = steeringIds?.has(session.sessionId) === true;
-            const mark = sessionMark(session, selected);
-            const cardStatus = status(session, selected);
-            const markLabel = mark ? t(MARK_LABELS[mark]) : undefined;
-            const queueLabel = queued > 0 ? `${queued} ${t("composer.queued")}` : undefined;
-            const menuItems: ContextMenuItem[] = [
-              {
-                id: "move-to-tab",
-                label: t("floating.moveToTab"),
-                icon: <Icon name="link.open.newtab" size={14} />,
-                onSelect: () => onMoveToTab(session.sessionId),
-              },
-            ];
-            return (
-              <ContextMenu
-                key={session.sessionId}
-                className="acpmux-chief-card-menu-host"
-                popupClassName="acpmux-chief-card-context-menu"
-                items={menuItems}
-                targets="own"
-              >
-                <article
-                  className="acpmux-chief-card"
-                  data-selected={selected}
-                  data-status={cardStatus}
-                  data-steering={steering ? "true" : undefined}
-                  data-depth={index}
-                  style={{ "--chief-depth": index } as CSSProperties}
+      {/* Escape from any control inside folds the dock (ui/KeyboardScope keeps the key wiring in ui/). */}
+      <KeyboardScope className="acpmux-chief-dock-keys" handleKeyDown={foldOnEscape}>
+        {/* Folded, the deck is a picture of the chats: inert, so none of its buttons is a Tab stop. */}
+        <div ref={cardsRef} className="acpmux-chief-dock-cards" aria-hidden={!expanded} inert={!expanded}>
+          <div className="acpmux-chief-dock-stack">
+            {cards.length === 0 && <p className="acpmux-chief-dock-empty">{t("sidebar.noSessions")}</p>}
+            {cards.map((session, index) => {
+              const selected = session.sessionId === currentId;
+              const title = sessionTitle(session);
+              const queued = queueCounts?.get(session.sessionId) ?? 0;
+              const steering = steeringIds?.has(session.sessionId) === true;
+              const mark = sessionMark(session, selected);
+              const cardStatus = status(session, selected);
+              const markLabel = mark ? t(MARK_LABELS[mark]) : undefined;
+              const queueLabel = queued > 0 ? `${queued} ${t("composer.queued")}` : undefined;
+              const menuItems: ContextMenuItem[] = [
+                {
+                  id: "move-to-tab",
+                  label: t("floating.moveToTab"),
+                  icon: <Icon name="link.open.newtab" size={14} />,
+                  onSelect: () => onMoveToTab(session.sessionId),
+                },
+              ];
+              return (
+                <ContextMenu
+                  key={session.sessionId}
+                  className="acpmux-chief-card-menu-host"
+                  popupClassName="acpmux-chief-card-context-menu"
+                  items={menuItems}
+                  targets="own"
                 >
-                  <button
-                    type="button"
-                    className="acpmux-chief-card-main"
-                    aria-current={selected ? "true" : undefined}
-                    aria-haspopup="menu"
-                    aria-label={[title, markLabel, queueLabel].filter(Boolean).join(", ") || undefined}
-                    disabled={!expanded}
-                    onClick={() => onSelect(session.sessionId)}
+                  <article
+                    className="acpmux-chief-card"
+                    data-selected={selected}
+                    data-status={cardStatus}
+                    data-steering={steering ? "true" : undefined}
+                    data-depth={index}
+                    style={{ "--chief-depth": index } as CSSProperties}
                   >
-                    <span className="acpmux-chief-card-copy">
-                      <strong>
-                        {cardStatus !== "idle" && (
-                          <span className="acpmux-chief-dock-status" data-status={cardStatus} aria-hidden="true">
-                            <Icon name={STATUS_ICONS[cardStatus]} size={20} row />
-                          </span>
-                        )}
-                        <span className="acpmux-chief-card-title">{title}</span>
-                      </strong>
-                      <small>{session.preview || session.branch || session.cwd || t("sidebar.sessions")}</small>
-                    </span>
-                    {queued > 0 && <span className="acpmux-chief-card-queue">{queued}</span>}
-                  </button>
-                  <div className="acpmux-chief-card-actions">
                     <button
                       type="button"
-                      className="acpmux-chief-card-action"
-                      aria-label={t("floating.moveToTab")}
-                      onClick={() => onMoveToTab(session.sessionId)}
+                      className="acpmux-chief-card-main"
+                      aria-current={selected ? "true" : undefined}
+                      aria-haspopup="menu"
+                      aria-label={[title, markLabel, queueLabel].filter(Boolean).join(", ") || undefined}
+                      disabled={!expanded}
+                      onClick={() => onSelect(session.sessionId)}
                     >
-                      <Icon name="action.go" size={18} />
+                      <span className="acpmux-chief-card-copy">
+                        <strong>
+                          {cardStatus !== "idle" && (
+                            <span className="acpmux-chief-dock-status" data-status={cardStatus} aria-hidden="true">
+                              <Icon name={STATUS_ICONS[cardStatus]} size={20} row />
+                            </span>
+                          )}
+                          <span className="acpmux-chief-card-title">{title}</span>
+                        </strong>
+                        <small>{session.preview || session.branch || session.cwd || t("sidebar.sessions")}</small>
+                      </span>
+                      {queued > 0 && <span className="acpmux-chief-card-queue">{queued}</span>}
                     </button>
-                  </div>
-                  <button
-                    type="button"
-                    className="acpmux-chief-card-dismiss"
-                    aria-label={t("render.collapse")}
-                    onClick={fold}
-                  >
-                    <span aria-hidden="true">×</span>
-                  </button>
-                </article>
-              </ContextMenu>
-            );
-          })}
+                    <div className="acpmux-chief-card-actions">
+                      <button
+                        type="button"
+                        className="acpmux-chief-card-action"
+                        aria-label={t("floating.moveToTab")}
+                        onClick={() => onMoveToTab(session.sessionId)}
+                      >
+                        <Icon name="action.go" size={18} />
+                      </button>
+                    </div>
+                    <button
+                      type="button"
+                      className="acpmux-chief-card-dismiss"
+                      aria-label={t("render.collapse")}
+                      onClick={fold}
+                    >
+                      <span aria-hidden="true">×</span>
+                    </button>
+                  </article>
+                </ContextMenu>
+              );
+            })}
+          </div>
         </div>
-      </div>
-      <div className="acpmux-chief-dock-mascot-wrap">
-        <button
-          ref={mascotButton}
-          type="button"
-          className="acpmux-chief-dock-mascot"
-          aria-label={t("header.agentChat")}
-          aria-expanded={expanded}
-          onClick={() => setExpanded((value) => !value)}
-        >
-          <img src={CHIEF_MASCOTS[mascot]} alt="" aria-hidden="true" />
-          {attention > 0 && (
-            <span className="acpmux-chief-dock-badge" aria-label={`${attention}`}>
-              {attention}
-            </span>
-          )}
-        </button>
-        <div className="acpmux-chief-dock-rail">
+        <div className="acpmux-chief-dock-mascot-wrap">
           <button
+            ref={mascotButton}
             type="button"
-            className="acpmux-chief-dock-tool"
-            aria-label={t("sidebar.newChat")}
-            onClick={onNewChat}
-          >
-            <Icon name="action.edit" size={20} />
-          </button>
-          <button
-            type="button"
-            className="acpmux-chief-dock-tool"
-            aria-label={t("chiefDock.detach")}
-            aria-pressed={!attached}
-            onClick={() => setAttached((value) => !value)}
-          >
-            <span className="acpmux-chief-dock-wave" aria-hidden="true">
-              <i />
-              <i />
-              <i />
-              <i />
-              <i />
-            </span>
-          </button>
-          <button
-            type="button"
-            className="acpmux-chief-dock-tool"
-            aria-label={expanded ? t("render.collapse") : t("render.expand")}
+            className="acpmux-chief-dock-mascot"
+            aria-label={t("header.agentChat")}
             aria-expanded={expanded}
             onClick={() => setExpanded((value) => !value)}
           >
-            <Icon name="disclosure.collapsed" size={18} className="acpmux-chief-dock-collapse-mark" />
+            <img src={CHIEF_MASCOTS[mascot]} alt="" aria-hidden="true" />
+            {attention > 0 && (
+              <span className="acpmux-chief-dock-badge" aria-label={`${attention}`}>
+                {attention}
+              </span>
+            )}
           </button>
+          <div className="acpmux-chief-dock-rail">
+            <button
+              type="button"
+              className="acpmux-chief-dock-tool"
+              aria-label={t("sidebar.newChat")}
+              onClick={onNewChat}
+            >
+              <Icon name="action.edit" size={20} />
+            </button>
+            <button
+              type="button"
+              className="acpmux-chief-dock-tool"
+              aria-label={t("chiefDock.detach")}
+              aria-pressed={!attached}
+              onClick={() => setAttached((value) => !value)}
+            >
+              <span className="acpmux-chief-dock-wave" aria-hidden="true">
+                <i />
+                <i />
+                <i />
+                <i />
+                <i />
+              </span>
+            </button>
+            <button
+              type="button"
+              className="acpmux-chief-dock-tool"
+              aria-label={expanded ? t("render.collapse") : t("render.expand")}
+              aria-expanded={expanded}
+              onClick={() => setExpanded((value) => !value)}
+            >
+              <Icon name="disclosure.collapsed" size={18} className="acpmux-chief-dock-collapse-mark" />
+            </button>
+          </div>
         </div>
-      </div>
+      </KeyboardScope>
     </aside>
   );
 }
