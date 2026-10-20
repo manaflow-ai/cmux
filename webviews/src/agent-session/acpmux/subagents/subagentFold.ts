@@ -13,12 +13,21 @@ export type Subagent = {
   parent: string | null;
   name: string;
   task?: string;
+  /// The kind of agent it is, when the harness names one (Claude's subagent_type: Explore,
+  /// general-purpose, a user agent).
+  kind?: string;
   /// `running`, `completed`, `failed`, `cancelled` or `disconnected`.
   state: string;
   startedAt: number;
   endedAt?: number;
-  /// The title of its latest tool call.
+  /// The title of its latest tool call, or what the harness says it does now (Claude's progress
+  /// summary or last tool; a workflow's current step).
   action?: string;
+  /// Tokens it has used and tool calls it has made so far (Claude's task progress).
+  tokens?: number;
+  toolUses?: number;
+  /// A Claude workflow's agents: how many returned of how many started.
+  agents?: { done: number; started: number };
 };
 
 export type Event = { seq: number; at: number; msg?: any };
@@ -31,6 +40,9 @@ export class SubagentFold {
   private readonly agents = new Map<string, Subagent>();
   private readonly groupOf = new Map<string, Group>();
   private readonly spawnCalls = new Set<string>();
+  /// Codex's `wait` and `closeAgent` calls between its subagents, by call id: a later update of
+  /// the same call may come without its `_meta`, and must draw no row either.
+  private readonly collabCalls = new Set<string>();
   private readonly changed = new Set<Group>();
   private open: Group | undefined;
   /// Each subagent's own updates and the points where it spawned subagents, in order: its view.
@@ -54,9 +66,17 @@ export class SubagentFold {
       return true;
     }
     const kind = update?.sessionUpdate;
-    if (kind === "subagent_spawned" || kind === "subagent_state_update") return true;
+    if (kind === "subagent_spawned" || kind === "subagent_state_update" || kind === "subagent_progress") return true;
     const call = typeof update?.toolCallId === "string" ? update.toolCallId : undefined;
     if (call && this.spawnCalls.has(call)) return true;
+    // Codex's own bookkeeping between its subagents (`wait` for them, `closeAgent`): the group
+    // row already shows who is working and who is done, so these draw no row of their own.
+    if (call && this.collabCalls.has(call)) return true;
+    const collab = update?._meta?.codex?.collaboration?.tool;
+    if (this.agents.size > 0 && (collab === "wait" || collab === "closeAgent")) {
+      if (call) this.collabCalls.add(call);
+      return true;
+    }
     return events.length > 0;
   }
 
@@ -117,7 +137,15 @@ export class SubagentFold {
     if (!agent) {
       const parent = typeof change.parent === "string" ? change.parent : null;
       const name = text(change.name) ?? text(change.task) ?? change.id;
-      agent = { id: change.id, parent, name, task: text(change.task), state: "running", startedAt: event.at };
+      agent = {
+        id: change.id,
+        parent,
+        name,
+        task: text(change.task),
+        kind: text(change.kind),
+        state: "running",
+        startedAt: event.at,
+      };
       this.agents.set(agent.id, agent);
       if (parent === null) {
         this.open ??= { id: `${SUBAGENTS}-${event.seq}`, at: event.at, version: 0, ids: [] };
@@ -127,7 +155,14 @@ export class SubagentFold {
     } else {
       agent.name = text(change.name) ?? agent.name;
       agent.task = text(change.task) ?? agent.task;
+      agent.kind = text(change.kind) ?? agent.kind;
     }
+    agent.action = text(change.action) ?? agent.action;
+    agent.tokens = count(change.tokens) ?? agent.tokens;
+    agent.toolUses = count(change.toolUses) ?? agent.toolUses;
+    const done = count(change.agents?.done);
+    const started = count(change.agents?.started);
+    if (done !== undefined && started !== undefined) agent.agents = { done, started };
     const state = text(change.state);
     if (state && state !== agent.state) {
       agent.state = state;
@@ -147,3 +182,5 @@ export class SubagentFold {
 }
 
 const text = (value: unknown) => (typeof value === "string" && value.trim() ? value.trim() : undefined);
+const count = (value: unknown) =>
+  typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;

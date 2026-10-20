@@ -5,13 +5,13 @@ import { useSyncExternalStore, type KeyboardEvent } from "react";
 import type { Strings } from "../shared/i18n";
 import { AppDetailView } from "./AppDetailView";
 import { InstalledView } from "./InstalledView";
-import { categoryLabel, TierLabel } from "./model";
+import { categoryLabel, isRemovable, TierLabel } from "./model";
 import { AppIcon, Badge } from "./parts";
 import type { AppsSnapshot, AppsStore } from "./store";
 import type { CatalogApp } from "./types";
 
 export function AppsPage({ store, strings }: { store: AppsStore; strings: Strings }) {
-  const snap = useSyncExternalStore(store.subscribe, store.getSnapshot);
+  const snap = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
   const { t } = strings;
   return (
     <div className="apps-page">
@@ -46,6 +46,17 @@ export function AppsPage({ store, strings }: { store: AppsStore; strings: String
           }}
         />
       </header>
+      {snap.catalogError && snap.connection !== "disconnected" && (
+        <div className="apps-error" role="alert">
+          <span className="apps-error-copy">
+            <strong>{t("store.error.load")}</strong>
+            <span className="selectable">{snap.catalogError}</span>
+          </span>
+          <button type="button" className="apps-button" onClick={() => void store.reload()}>
+            {t("store.action.reload")}
+          </button>
+        </div>
+      )}
       {snap.error && snap.connection !== "disconnected" && (
         <output className="apps-error selectable">{snap.error}</output>
       )}
@@ -57,6 +68,17 @@ export function AppsPage({ store, strings }: { store: AppsStore; strings: String
         <Discover snap={snap} store={store} strings={strings} />
       )}
     </div>
+  );
+}
+
+function LoadingGrid({ strings }: { strings: Strings }) {
+  return (
+    <output className="apps-state" aria-busy="true">
+      <span className="apps-state-mark" aria-hidden="true">
+        …
+      </span>
+      <strong>{strings.t("store.detail.loading")}</strong>
+    </output>
   );
 }
 
@@ -87,8 +109,16 @@ function Discover({ snap, store, strings }: { snap: AppsSnapshot; store: AppsSto
           </button>
         ))}
       </div>
-      {snap.visible.length === 0 ? (
-        <div className="apps-empty">{snap.loading ? "" : t("store.empty.noMatches")}</div>
+      {snap.loading && snap.visible.length === 0 ? (
+        <LoadingGrid strings={strings} />
+      ) : snap.visible.length === 0 && snap.catalogStatus === "error" ? null : snap.visible.length === 0 ? (
+        <output className="apps-state apps-state-empty">
+          <span className="apps-state-mark" aria-hidden="true">
+            ⌕
+          </span>
+          <strong>{t("store.empty.noMatches")}</strong>
+          <span>{t("store.search")}</span>
+        </output>
       ) : (
         <div className={snap.layout === "grid" ? "apps-grid" : "apps-rows"}>
           {snap.visible.map((app) =>
@@ -124,6 +154,21 @@ function Discover({ snap, store, strings }: { snap: AppsSnapshot; store: AppsSto
 }
 
 function InstallButton({ app, store, strings }: { app: CatalogApp; store: AppsStore; strings: Strings }) {
+  // A first-party app ships with cmux: it is hidden or shown, never removed (FIRST-PARTY-APPS).
+  if (app.installed && !isRemovable(app)) {
+    return (
+      <button
+        type="button"
+        className="apps-button"
+        onClick={(event) => {
+          event.stopPropagation();
+          void store.setHidden(app.id, !app.hidden);
+        }}
+      >
+        {strings.t(app.hidden ? "store.action.show" : "store.action.hide")}
+      </button>
+    );
+  }
   return (
     <button
       type="button"

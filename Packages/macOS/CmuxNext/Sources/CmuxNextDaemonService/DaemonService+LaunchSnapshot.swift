@@ -1,4 +1,5 @@
 import CmuxNextApps
+import CmuxNextCompat
 public import CmuxNextControl
 public import CmuxNextDaemon
 import Foundation
@@ -42,9 +43,10 @@ extension DaemonService {
     public nonisolated static func prestart(launch: LaunchIdentity, terminalEnvironment: [String: String],
                                      terminalEnvironmentProvider: @escaping @Sendable () async -> [String: String],
                                      resolvesShellIntegration: Bool = false) -> DaemonPrestart? {
-        guard let launcher = try? DaemonLauncher.forApp(tag: launch.tag, bundleID: launch.bundleID,
+        guard let launcher = try? DaemonLauncher.forApp(build: launch.build,
                                                 terminalEnvironment: terminalEnvironment,
-                                                daemonEnvironment: firstPartyAppsEnvironment) else { return nil }
+                                                daemonEnvironment: firstPartyAppsEnvironment,
+                                                webSocketPageOrigins: pageOrigins) else { return nil }
         return DaemonPrestart(launcher: launcher, configuration: localConfiguration(
             terminalEnvironment: terminalEnvironmentProvider, resolvesShellIntegration: resolvesShellIntegration,
             installKey: launcher.configuration.installKey))
@@ -52,8 +54,32 @@ extension DaemonService {
 
     /// What the local daemon's supervisor needs from this app at launch: the
     /// first-party app packages shipped in the app bundle (its default apps).
+    /// Also the page bundle the daemon serves on its loopback listener (`CMUX_TUI_PAGES_DIR`,
+    /// cmux-tui spec/transports.md "App listener and page files").
     nonisolated static var firstPartyAppsEnvironment: [String: String] {
-        ["CMUX_APPS_FIRST_PARTY_DIR": AppPlatformResources.firstParty.path]
+        var environment = ["CMUX_APPS_FIRST_PARTY_DIR": AppPlatformResources.firstParty.path]
+        if let pages = pageBundleDirectory { environment["CMUX_TUI_PAGES_DIR"] = pages.path }
+        return environment
+    }
+
+    /// The page origins the daemon's loopback listener admits: every first-party page of the app
+    /// (`cmux-page://cmux.home-channels`, `cmux-page://cmux.history`, ...; cx-hnmbt.2, cx-hnmbt.10),
+    /// so each can open its own daemon WebSocket and gets its page id from its Origin. No other
+    /// origin.
+    nonisolated static var pageOrigins: [String] { FirstPartyPages.origins }
+    /// The origin an owner without `ws-listen-origins-v1` gets on `ws-listen`: the Channels page,
+    /// the app's one WebSocket client before cx-hnmbt.10.
+    nonisolated static let channelsPageOrigin = "cmux-page://cmux.home-channels"
+
+    /// `pages/` of the CmuxNextPages resource bundle inside this app (built by
+    /// build-pages-web.sh), nil when it is not there (tests, a bare binary).
+    nonisolated static var pageBundleDirectory: URL? {
+        guard let resources = Bundle.main.resourceURL,
+              let bundle = Bundle(url: resources.appending(path: "CmuxNext_CmuxNextPages.bundle")),
+              let pages = bundle.resourceURL?.appending(path: "pages", directoryHint: .isDirectory),
+              FileManager.default.fileExists(atPath: pages.appending(path: "home-channels/index.html").path)
+        else { return nil }
+        return pages
     }
 
     /// The local daemon's connection configuration, for the first connect
@@ -63,9 +89,13 @@ extension DaemonService {
                                                retryWake: RetryWake? = nil) -> DaemonConnection.Configuration {
         // sessionEvents: the state resources (closed history, workspace status,
         // tab records) come only through session.events (nxdog50).
-        DaemonConnection.Configuration(retryWake: retryWake, terminalEnvironment: terminalEnvironment,
-                                       resolvesShellIntegration: resolvesShellIntegration, sessionEvents: true,
-                                       clientHello: ClientHelloIdentity(installKey: installKey))
+        var configuration = DaemonConnection.Configuration(retryWake: retryWake, terminalEnvironment: terminalEnvironment,
+                                                           resolvesShellIntegration: resolvesShellIntegration, sessionEvents: true,
+                                                           clientHello: ClientHelloIdentity(installKey: installKey))
+        // A stopped or wedged owner keeps its socket open: only the heartbeat
+        // shows it not connected (cx-jniyz.4).
+        configuration.localHeartbeat = true
+        return configuration
     }
 
     /// Records the local daemon's socket for the next launch

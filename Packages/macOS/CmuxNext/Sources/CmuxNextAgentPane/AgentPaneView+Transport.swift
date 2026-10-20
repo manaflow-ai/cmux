@@ -1,4 +1,4 @@
-import AppKit
+public import AppKit
 import CmuxNextDesign
 import WebKit
 
@@ -8,14 +8,14 @@ extension AgentPaneView {
     func installTransport() {
         // A config option that is not free (paired devices): the user confirms it natively.
         model.onConfirmMode = { [weak self] asked, answer in
-            guard let self, self.window != nil else { return answer(false) }
+            guard let self, self.window != nil, !self.isHiddenOrHasHiddenAncestor else { return answer(false) }
             let spec = Self.confirmationSpec(asked)
             // Pane scope: a closed pane ends the sheet as Cancel, so the app-wide gate never stays shut.
             _ = CmuxDialogCenter.shared.present(spec, in: .tab(self)) { reply in answer(reply.button == "switch") }
         }
         // A folder harness profile: the user reads acpmux's prompt and enables it natively.
         model.onConfirmHarness = { [weak self] prompt, answer in
-            guard let self, self.window != nil else { return answer(false) }
+            guard let self, self.window != nil, !self.isHiddenOrHasHiddenAncestor else { return answer(false) }
             _ = CmuxDialogCenter.shared.present(Self.harnessEnableSpec(prompt), in: .tab(self)) { reply in
                 answer(reply.button == "enable")
             }
@@ -70,16 +70,16 @@ extension AgentPaneView {
     /// decision reads event-time state, once, and is never made again later.
     func monitored(_ event: NSEvent) { judge(event, eventWindow: event.window) }
 
-    /// A key press with the page focused, or a click on the page: the user's gesture. `eventWindow`
-    /// is the event's window (tests pass it: a synthesized event cannot resolve it).
-    func judge(_ event: NSEvent, eventWindow: NSWindow?) {
-        guard let window, eventWindow === window else { return }
+    /// A key press with the page focused, or a click on the page, by the person (``AgentPanePersonInput``):
+    /// the user's gesture. `eventWindow` is the event's window (tests pass it: a synthesized event cannot resolve it).
+    public func judge(_ event: NSEvent, eventWindow: NSWindow?) {
+        guard let window, eventWindow === window, AgentPanePersonInput.isPerson(event) else { return }
         switch event.type {
         case .keyDown:
             guard !event.isARepeat, (window.firstResponder as? NSView)?.isDescendant(of: webView) == true else { return }
         default:
             guard webView.bounds.contains(webView.convert(event.locationInWindow, from: nil)) else { return }
         }
-        model.transport.gestures.record()
+        model.transport.gestures.record(click: event.type != .keyDown)
     }
 }

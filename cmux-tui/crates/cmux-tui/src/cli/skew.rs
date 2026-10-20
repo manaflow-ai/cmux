@@ -293,7 +293,7 @@ fn tunnel_ssh_destination(socket: &Path) -> Option<String> {
 }
 
 fn own_build_id() -> &'static str {
-    cmux_remote::ssh_bootstrap::BUILD_IDENTITY
+    cmux_build_identity::BUILD_IDENTITY
 }
 
 fn team_check(path: &Path) -> Result<(), String> {

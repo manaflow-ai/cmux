@@ -79,7 +79,9 @@ export const HARNESS_OVERRIDES: HarnessOverride[] = [
     families: ["claude"],
     modelSource: "catalog",
     sources: [{ provider: "anthropic", include: ["claude-"], exclude: [DATED, "claude-3"] }],
-    defaultModel: "claude-sonnet-5",
+    // New Claude chats start on the latest Opus at medium effort (Lawrence 2026-10-13).
+    defaultModel: "claude-opus-5-5",
+    defaultEffort: "medium",
     shortNamePrefix: "Claude ",
     familyNames: { "claude-fable": "Fable", "claude-opus": "Opus", "claude-sonnet": "Sonnet", "claude-haiku": "Haiku" },
     familyAliases: { "claude-fable": "fable", "claude-opus": "opus", "claude-sonnet": "sonnet", "claude-haiku": "haiku" },
@@ -93,7 +95,8 @@ export const HARNESS_OVERRIDES: HarnessOverride[] = [
     sources: [
       { provider: "openai", include: ["gpt-"], exclude: ["gpt-oss", "gpt-realtime", "gpt-image", "gpt-audio", "*-latest", "*-nano", "*-pro"], minReleaseDate: "2026-04-01" },
     ],
-    defaultModel: "gpt-5.5",
+    // New Codex chats start on GPT-6.1 Sol at medium effort (Lawrence 2026-10-13).
+    defaultModel: "gpt-6.1-sol",
     defaultEffort: "medium",
     dropEfforts: ["none"],
     familyNames: {

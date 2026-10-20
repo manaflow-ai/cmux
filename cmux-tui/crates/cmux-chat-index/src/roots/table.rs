@@ -165,6 +165,11 @@ pub(super) fn roots(
             add(sub(b.var("OPENHANDS_PERSISTENCE_DIR"), "conversations"), Env);
             add(Some(b.home(".openhands/conversations")), Default);
         }
+        AdapterKind::Muse => {
+            // Muse resolves its data dir the XDG way on every platform.
+            add(sub(b.var("XDG_DATA_HOME"), "muse"), Env);
+            add(Some(b.home(".local/share/muse")), Default);
+        }
     }
 }
 

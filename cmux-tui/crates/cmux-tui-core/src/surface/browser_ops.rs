@@ -74,6 +74,13 @@ impl Surface {
         self.as_browser().map(BrowserSurface::status)
     }
 
+    /// See `BrowserSurface::mark_frontend_rendered`.
+    pub(crate) fn mark_browser_frontend_rendered(&self) {
+        if let Some(browser) = self.as_browser() {
+            browser.mark_frontend_rendered();
+        }
+    }
+
     pub fn browser_frames_stalled(&self) -> Option<bool> {
         self.as_browser().map(BrowserSurface::frames_stalled)
     }

@@ -16,18 +16,20 @@ extension UpdaterService {
             if tip != nil { tip = nil }
             return
         }
-        let (next, state) = TipChooser.choose(TipCatalog.all, state: tipState, today: TipState.day(date))
+        let (next, state) = TipChooser.choose(TipCatalog.all, state: tipState, today: TipState.day(date), showing: tip?.id)
         storeTipState(state)
         if tip != next { tip = next }
     }
 
     /// A return to cmux re-picks the tip (a new day's tip, or the end of a
-    /// timed mute); the App calls this once at launch.
+    /// timed mute) and re-reads the update card's reminder (a Mac that slept
+    /// past it); the App calls this once at launch.
     public func refreshTipOnActivation() {
         activationObservation?.cancel()
         activationObservation = Task { [weak self] in
             for await _ in NotificationCenter.default.notifications(named: NSApplication.didBecomeActiveNotification) {
                 self?.refreshTip()
+                self?.refreshUpdateSnooze()
             }
         }
     }

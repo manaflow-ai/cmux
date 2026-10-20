@@ -1,16 +1,60 @@
 --- a/Sources/MessagesLabHome/Vendor/appkit-native/Compose.swift
 +++ b/Sources/MessagesLabHome/Vendor/appkit-native/Compose.swift
-@@ -8,6 +8,9 @@
+@@ -8,6 +8,16 @@
      var onSend: () -> Void = {}
      var onEscape: () -> Void = {}
      var onPasteImage: (NSImage) -> Void = { _ in }
 +    /// cmux: the host's attachment intake reads the pasteboard first
 +    /// (files and pictures, Home's type rule); true when it took the paste.
 +    var onPastePasteboard: (NSPasteboard) -> Bool = { _ in false }
++    /// cmux: whether the host's intake would take the pasteboard (types only).
++    /// A plain-text NSTextView enables Paste only for text types, so a
++    /// picture alone (a copied screenshot) left Cmd+V disabled.
++    var acceptsPastePasteboard: (NSPasteboard) -> Bool = { _ in false }
++    /// cmux: a drop on the field that the host's intake takes (the paste's
++    /// type rule). A plain-text NSTextView would type a dropped file's path.
++    var onDropPasteboard: (NSPasteboard) -> Bool = { _ in false }
      /// Marked (IME) text changed. UITextView reports marked text through
      /// `textViewDidChange`, so the draft (and the field height) follows the
      /// composition; NSTextView does not post a text change for it.
-@@ -413,6 +416,7 @@
+@@ -101,6 +111,12 @@
+     }
+     var caretSuspended = false { didSet { updateCaret(reset: false) } }
+ 
++    /// cmux: the caret's colour after a palette change (it was set once, when the field was made).
++    func recolorCaret() {
++        caretLayer.backgroundColor = Fixture.caret.cgColor
++        if !Self.ownCaret, insertionPointColor != .clear { insertionPointColor = Fixture.caret }
++    }
++
+     func installCaret() {
+         guard Self.ownCaret else { return }
+         insertionPointColor = .clear
+@@ -183,11 +199,13 @@
+     /// not depend on the blink's phase at the grab (Messages' still references show it solid).
+     static let solidCaret = ProcessInfo.processInfo.arguments.contains("--still-grab")
+ 
+-    private func startBlink() {
++    // cmux: not private, so a Reduce Motion change restarts or stills the blink (cx-sya4n).
++    func startBlink() {
+         if Self.caretLog { Self.log("blink restart \(CACurrentMediaTime())") }
+         caretLayer.removeAnimation(forKey: "blink")
+         caretLayer.opacity = 1
+-        if Self.solidCaret { return }
++        // cmux: under Reduce Motion the caret holds solid (cx-sya4n: nothing loops).
++        if Self.solidCaret || MessagesLabHomeView.reducesMotion { return }
+         let a = CAKeyframeAnimation(keyPath: "opacity")
+         a.calculationMode = .discrete
+         // One period from the first fade-out: out 1 -> 0 in four steps, off, in 0 -> 1.
+@@ -231,6 +249,7 @@
+         if DeferredSpellChecker.useAppKit { super.toggleContinuousSpellChecking(sender) } else { spell.enabled.toggle() }
+     }
+     override func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
++        if item.action == #selector(paste(_:)), acceptsPastePasteboard(pasteboard) { return true }  // cmux
+         if !DeferredSpellChecker.useAppKit, item.action == #selector(toggleContinuousSpellChecking(_:)) {
+             (item as? NSMenuItem)?.state = spell.enabled ? .on : .off
+             return true
+@@ -424,9 +443,47 @@
  
      override func paste(_ sender: Any?) {
          let pb = pasteboard
@@ -18,17 +62,66 @@
          if pb.string(forType: .string) == nil, let img = NSImage(pasteboard: pb) { onPasteImage(img); return }
          super.paste(sender)
      }
-@@ -870,11 +874,11 @@
++
++    // cmux: files and pictures dropped on the field go to the host's intake
++    // (Home's type rule, as paste); text drags keep NSTextView's own handling.
++    // cmux: the intake's answer depends only on the drag's pasteboard, so it is read once per drag
++    // (its sequence number), not on every drag-over event: the drag server waits for each answer,
++    // and each read is a round trip to the pasteboard server (DragWhileStreamingTests).
++    private var dragAnswer: (sequence: Int, accepts: Bool)?
++    private func takesDrag(_ sender: any NSDraggingInfo) -> Bool {
++        if let a = dragAnswer, a.sequence == sender.draggingSequenceNumber { return a.accepts }
++        let accepts = acceptsPastePasteboard(sender.draggingPasteboard)
++        dragAnswer = (sender.draggingSequenceNumber, accepts)
++        return accepts
++    }
++    override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
++        dragAnswer = nil
++        return takesDrag(sender) ? .copy : super.draggingEntered(sender)
++    }
++    override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
++        takesDrag(sender) ? .copy : super.draggingUpdated(sender)
++    }
++    override func draggingExited(_ sender: (any NSDraggingInfo)?) {
++        dragAnswer = nil
++        super.draggingExited(sender)
++    }
++    override func draggingEnded(_ sender: any NSDraggingInfo) {
++        dragAnswer = nil
++        super.draggingEnded(sender)
++    }
++    override func prepareForDragOperation(_ sender: any NSDraggingInfo) -> Bool {
++        takesDrag(sender) || super.prepareForDragOperation(sender)
++    }
++    override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
++        let takes = takesDrag(sender)
++        dragAnswer = nil
++        if takes { return onDropPasteboard(sender.draggingPasteboard) }
++        return super.performDragOperation(sender)
++    }
+ }
+ 
+ /// The caret's view: drawn only, never hit (clicks at the caret reach the text view).
+@@ -835,6 +892,8 @@
+         if !nativeChrome { renderGlass(); buttons.setNeedsDisplay() }
+         renderPlaceholder()
+         renderChips()
++        // cmux: the caret follows the palette too (the bubble style, the theme, the accent).
++        textView.view.recolorCaret()
+     }
+ 
+     /// The "+" button (opens the file picker).
+@@ -940,11 +999,11 @@
          fmt.opaque = false
          let ph = placeholder
          placeholderLayer.contents = UIGraphicsImageRenderer(size: CGSize(width: 300, height: 30), format: fmt).image { ctx in
--            TextDraw.line(ph, font: ComposeView.font, color: NSColor(white: 123 / 255, alpha: 1), x: 12, baseline: ComposeView.firstBaseline, in: ctx.cgContext)
+-            TextDraw.line(ph, font: ComposeView.font, color: Fixture.placeholderInk, x: 12, baseline: ComposeView.firstBaseline, in: ctx.cgContext)
 +            TextDraw.line(ph, font: ComposeView.font, color: Fixture.placeholder, x: 12, baseline: ComposeView.firstBaseline, in: ctx.cgContext)
          }.cgImage
          placeholderLayer.contentsScale = fmt.scale
          waveLayer.contents = UIGraphicsImageRenderer(size: CGSize(width: 24, height: 30), format: fmt).image { _ in
--            NSColor(white: 144 / 255, alpha: 1).setFill()
-+            Fixture.waveform.setFill()  // cmux: themed (with the placeholder above)
+-            Fixture.waveformInk.setFill()
++            Fixture.waveform.setFill()  // cmux: themed (with the placeholder above); the see-through ink without a theme
              // Messages' glyph is ChatKit's AudioMessageEntryViewButton waveform at 20 pt
              // (fitted to the lossless stills): 5 capsules 1.818 pt wide, 3.636 pt apart,
              // 3.613 / 7.25 / 14.522 pt tall; centre 557.5 pt from the left of a 628 pt window.

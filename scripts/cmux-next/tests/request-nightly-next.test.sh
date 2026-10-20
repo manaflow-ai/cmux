@@ -218,18 +218,96 @@ fetches=$(grep -c . "$TMP/git.log" || true)
 
 # A commit whose generated page strings are stale fails the nightly's web
 # bundle step 30 minutes in (nightly-next run 38348747848): never promoted.
-# A stub node stands in for gen-strings --check (exit 1 = stale).
+# A stub node stands in for gen-strings (exit 1 = stale, or since #21946, for a
+# commit that no longer tracks the tables, a missing translation).
 git_q -C "$src" checkout -q -b strings "$app"
 mkdir -p "$src/webviews/scripts/pages"; echo "// gen-strings" > "$src/webviews/scripts/pages/gen-strings.mjs"
 git_q -C "$src" add -A; git_q -C "$src" commit -m "app with page strings"
 strings=$(git -C "$src" rev-parse HEAD)
-printf '#!/usr/bin/env bash\n[[ "$*" == *"gen-strings.mjs --check"* ]] || exit 9\nexit "${STUB_STRINGS_EXIT:-0}"\n' > "$TMP/bin/node"; chmod +x "$TMP/bin/node"
+# The stub reads the commit it runs in: a STALE marker beside gen-strings.mjs means stale strings.
+printf '#!/usr/bin/env bash\n[[ "$*" == *"gen-strings.mjs"* ]] || exit 9\n[[ ! -f scripts/pages/STALE ]] || exit 1\nexit "${STUB_STRINGS_EXIT:-0}"\n' > "$TMP/bin/node"; chmod +x "$TMP/bin/node"
 STUB_STRINGS_EXIT=1 request --sha "$strings" --release-compile-green
 [[ "$status" == 0 ]] && ! dispatched "$strings" || fail "a commit with stale page strings must not be promoted (exit $status):" "$out" "$(cat "$TMP/gh.log")"
 grep -q "page strings are stale" <<<"$out" || fail "the refusal must name the stale strings:" "$out"
 STUB_STRINGS_EXIT=0 request --sha "$strings" --release-compile-green
 [[ "$status" == 0 ]] && dispatched "$strings" || fail "fresh page strings must not block the promotion (exit $status):" "$out" "$(cat "$TMP/gh.log")"
+# --tree-ready checks every candidate, not only the checkout (cx-5hvb5): a newer
+# green commit with stale strings is passed over for the older fresh one, and a
+# newer fresh commit is requested. Each candidate is checked in its own tree.
+echo fresh > "$src/Fresh.swift"; git_q -C "$src" add -A; git_q -C "$src" commit -m "fresh strings"
+fresh=$(git -C "$src" rev-parse HEAD)
+echo stale > "$src/webviews/scripts/pages/STALE"; git_q -C "$src" add -A; git_q -C "$src" commit -m "stale strings"
+stale=$(git -C "$src" rev-parse HEAD)
+[[ "$(key "$stale")" == "$(key "$head")" && "$(key "$fresh")" == "$(key "$head")" ]] || fail "fixture: the strings commits must share the published tree"
+git_q -C "$src" checkout -q --detach "$head"
+runs 31 "$stale" feat-cmux-next 30 "$fresh" feat-cmux-next 11 "$head" feat-cmux-next
+jobs 31 completed success; jobs 30 completed success; jobs 11 completed success
+request --tree-ready "$head"
+[[ "$status" == 0 ]] && dispatched "$fresh" && ! dispatched "$stale" \
+  || fail "--tree-ready must pass over a newer commit with stale strings for the older fresh one (exit $status):" "$out" "$(cat "$TMP/gh.log")"
+grep -q "${stale:0:12}: its generated page strings are stale" <<<"$out" || fail "the skip must name the stale commit:" "$out"
+[[ "$(git -C "$src" worktree list | wc -l | tr -d ' ')" == 1 ]] || fail "the candidate worktrees must be removed:" "$(git -C "$src" worktree list)"
+git_q -C "$src" checkout -q -b strings2 "$stale"
+rm "$src/webviews/scripts/pages/STALE"; git_q -C "$src" add -A; git_q -C "$src" commit -m "strings fresh again"
+fresh2=$(git -C "$src" rev-parse HEAD)
+git_q -C "$src" checkout -q --detach "$head"
+runs 32 "$fresh2" feat-cmux-next 31 "$stale" feat-cmux-next 30 "$fresh" feat-cmux-next 11 "$head" feat-cmux-next
+jobs 32 completed success
+request --tree-ready "$head"
+[[ "$status" == 0 ]] && dispatched "$fresh2" && ! dispatched "$fresh" \
+  || fail "--tree-ready must request a newer commit whose strings are fresh (exit $status):" "$out" "$(cat "$TMP/gh.log")"
+# At most CMUX_NIGHTLY_NEXT_MAX_REFUSED unpromotable candidates are passed over.
+runs 31 "$stale" feat-cmux-next 30 "$fresh" feat-cmux-next 11 "$head" feat-cmux-next
+CMUX_NIGHTLY_NEXT_MAX_REFUSED=1 request --tree-ready "$head"
+[[ "$status" == 0 ]] && ! dispatched "$fresh" && ! dispatched "$stale" \
+  || fail "the search must stop after CMUX_NIGHTLY_NEXT_MAX_REFUSED refusals (exit $status):" "$out" "$(cat "$TMP/gh.log")"
 rm -f "$TMP/bin/node"
+git_q -C "$src" checkout -q --detach "$head"
+
+# A tree published before its daemon tests ended (source.json daemonTests
+# "separate", chief 2026-10-13) is promoted only once daemon-tests.json exists.
+publish "$other"
+okey=$(key "$other")
+printf '{"key": "%s", "commit": "%s", "daemonTests": "separate"}\n' "$okey" "$other" > "$cdn/tree/$okey/source.json"
+git_q -C "$src" checkout -q --detach "$other"
+request --sha "$other" --release-compile-green
+[[ "$status" == 0 ]] && ! dispatched "$other" && grep -q "daemon tests have not passed" <<<"$out" \
+  || fail "a tree without its daemon-tests marker must not be promoted (exit $status):" "$out" "$(cat "$TMP/gh.log")"
+printf '{"key": "%s", "result": "success"}\n' "$okey" > "$cdn/tree/$okey/daemon-tests.json"
+request --sha "$other" --release-compile-green
+[[ "$status" == 0 ]] && dispatched "$other" || fail "a tree with its daemon-tests marker must be promoted (exit $status):" "$out" "$(cat "$TMP/gh.log")"
+git_q -C "$src" checkout -q --detach "$head"
+
+# The tree's publisher can be NEWER than the green commit (2026-10-14: 2e420aa7a9
+# compiled green at 10:21Z, its tree published later from a newer push whose
+# own compile was replaced). Candidates are bounded below by nightly-next, not
+# by the publisher, so the older green commit is still requested.
+git -C "$src" remote add origin "$src" 2>/dev/null || git -C "$src" remote set-url origin "$src"
+git_q -C "$src" checkout -q -b lowerbound "$head"
+echo x > "$src/GreenX.swift"; git_q -C "$src" add -A; git_q -C "$src" commit -m "green, before the publisher"
+greenx=$(git -C "$src" rev-parse HEAD)
+echo y > "$src/PublisherY.swift"; git_q -C "$src" add -A; git_q -C "$src" commit -m "publisher, compile replaced"
+publisher=$(git -C "$src" rev-parse HEAD)
+[[ "$(key "$greenx")" == "$(key "$head")" && "$(key "$publisher")" == "$(key "$head")" ]] || fail "fixture: X and Y must share the published tree"
+git_q -C "$src" update-ref refs/heads/nightly-next "$head^"
+git_q -C "$src" checkout -q --detach "$publisher"
+runs 41 "$publisher" feat-cmux-next 40 "$greenx" feat-cmux-next
+jobs 41 completed cancelled; jobs 40 completed success
+request --tree-ready "$publisher"
+[[ "$status" == 0 ]] && dispatched "$greenx" \
+  || fail "a green commit older than the tree's publisher but ahead of nightly-next must be requested (exit $status):" "$out" "$(cat "$TMP/gh.log")"
+
+# A commit already on nightly-next is never requested again, from either side:
+# a stale request would evict a newer waiting one in main's promote job group.
+git_q -C "$src" update-ref refs/heads/nightly-next "$greenx"
+request --tree-ready "$publisher"
+[[ "$status" == 0 ]] && ! dispatched "$greenx" \
+  || fail "a commit already on nightly-next must not be requested again (exit $status):" "$out" "$(cat "$TMP/gh.log")"
+git_q -C "$src" checkout -q --detach "$greenx"
+request --sha "$greenx" --release-compile-green
+[[ "$status" == 0 ]] && ! dispatched "$greenx" && grep -q "already on nightly-next" <<<"$out" \
+  || fail "--release-compile-green must not re-request a promoted commit (exit $status):" "$out" "$(cat "$TMP/gh.log")"
+git_q -C "$src" update-ref -d refs/heads/nightly-next
 git_q -C "$src" checkout -q --detach "$head"
 
 # The checkout must be the commit it asks for; bad input is a usage error.

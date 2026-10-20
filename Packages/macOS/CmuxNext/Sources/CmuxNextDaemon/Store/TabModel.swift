@@ -28,6 +28,9 @@ public final class TabModel: Identifiable {
     public internal(set) var terminalState: TerminalTabState?
     /// How a dead terminal ended (R41): the banner names this reason.
     public internal(set) var end: TerminalTabEnd?
+    /// A kept tab's keep-layout record (`end-terminals-keep-layout-v1`): its terminal ended at
+    /// Quit's End Sessions, Keep Layout and this launch restarts it.
+    public internal(set) var relaunch: TabRelaunch?
     public internal(set) var notification: TabNotification?
     public internal(set) var url: String?
     public internal(set) var pinned: Bool
@@ -40,6 +43,8 @@ public final class TabModel: Identifiable {
     public internal(set) var gitBranch: String?
     public internal(set) var gitDetached: Bool
     public internal(set) var browserEngine: String?
+    /// A frontend browser tab's browser profile (`frontend-browser-tab-profile-v1` moves it in place).
+    public internal(set) var browserProfileID: String?
     public internal(set) var faviconURL: String?
     public internal(set) var isFrontendOwned: Bool
     public internal(set) var tabGroup: TabGroupID?
@@ -52,6 +57,15 @@ public final class TabModel: Identifiable {
     /// The icon the user set on the tab record (`tab.update {icon}`; the shared icon
     /// wire string: one emoji or an SF Symbol name). Nil shows the tab kind's icon.
     public internal(set) var userIcon: String?
+    /// The device a browser tab emulates, as the daemon resolved it
+    /// (`extra.emulation`, browser-devices-v1); the engine applies it as is.
+    public internal(set) var emulation: JSONValue?
+    /// Marked unread by hand (Mark Tab Unread, `tab-mark-unread-v1`): a flag on the tab record
+    /// in the daemon, apart from ``notification``. Every client shows it; a client clears it
+    /// when the person views the tab.
+    public internal(set) var markedUnread = false
+    /// The tab's fit as given (`extra.emulation.fit.value`: "16:9" or "1280", browser-fit-v1), nil for none.
+    public var fitValue: String? { emulation?["mode"]?.stringValue == "fit" ? emulation?["fit"]?["value"]?.stringValue ?? "16:9" : nil }
     /// A browser tab's saved back URLs (oldest first) and forward URLs
     /// (nearest first).
     public internal(set) var backURLs: [String] = []
@@ -80,13 +94,16 @@ public final class TabModel: Identifiable {
     /// read the typed fields; this one changes whenever any field does.
     @ObservationIgnored public private(set) var snapshot: TabSnapshot
     @ObservationIgnored private var observedCwd: String?
-
     public var displayTitle: String {
         if let name, !name.isEmpty { return name }
         return title
     }
 
     public var hasUnread: Bool { notification?.unread == true }
+
+    /// Whether the tab shows as unread: an unread notification or the manual mark.
+    /// Acknowledging reads only ``hasUnread``; this is for dots and badges.
+    public var showsUnread: Bool { hasUnread || markedUnread }
 
     /// Public tab id (`tab_…`) on registry daemons. Stored and observed: a
     /// tab can get its id in a later snapshot of the same surface, and an
@@ -130,6 +147,7 @@ public final class TabModel: Identifiable {
         dead = s.dead
         terminalState = s.terminalState
         end = s.end
+        relaunch = s.relaunch
         notification = s.notification
         url = s.url
         pinned = s.pinned
@@ -138,12 +156,19 @@ public final class TabModel: Identifiable {
         gitBranch = s.gitBranch
         gitDetached = s.gitDetached
         browserEngine = s.browserEngine
+        browserProfileID = s.browserProfileID
         faviconURL = s.faviconURL
         isFrontendOwned = s.isFrontendOwned
         tabGroup = s.tabGroup
         remote = s.remote
         conversation = s.conversation
         app = s.app
+        #if DEBUG
+        // A traced new terminal's tab reached the store (its `tab-added`, or a resync's snapshot).
+        if NewTerminalTrace.shared.isArmed, let terminal = s.terminalID {
+            NewTerminalTrace.shared.tabAdded(terminal: terminal.rawValue, surface: s.surface.rawValue)
+        }
+        #endif
     }
 
     static func identity(_ s: TabSnapshot) -> String {
@@ -165,6 +190,7 @@ public final class TabModel: Identifiable {
         if dead != s.dead { dead = s.dead }
         if terminalState != s.terminalState { terminalState = s.terminalState }
         if end != s.end { end = s.end }
+        if relaunch != s.relaunch { relaunch = s.relaunch }
         if notification != s.notification { notification = s.notification }
         if url != s.url { url = s.url }
         if pinned != s.pinned { pinned = s.pinned }
@@ -173,6 +199,7 @@ public final class TabModel: Identifiable {
         if gitBranch != s.gitBranch { gitBranch = s.gitBranch }
         if gitDetached != s.gitDetached { gitDetached = s.gitDetached }
         if browserEngine != s.browserEngine { browserEngine = s.browserEngine }
+        if browserProfileID != s.browserProfileID { browserProfileID = s.browserProfileID }
         if faviconURL != s.faviconURL { faviconURL = s.faviconURL }
         if isFrontendOwned != s.isFrontendOwned { isFrontendOwned = s.isFrontendOwned }
         if tabGroup != s.tabGroup { tabGroup = s.tabGroup }
@@ -187,6 +214,8 @@ public final class TabModel: Identifiable {
         let record = record ?? SessionStateMirror.TabRecord()
         if zoom != record.zoom { zoom = record.zoom }
         if userIcon != record.icon { userIcon = record.icon }
+        if emulation != record.emulation { emulation = record.emulation }
+        if markedUnread != record.markedUnread { markedUnread = record.markedUnread }
         if backURLs != record.back { backURLs = record.back }
         if forwardURLs != record.forward { forwardURLs = record.forward }
         if self.progress != progress { self.progress = progress }

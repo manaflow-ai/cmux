@@ -2,7 +2,7 @@ import CmuxNextControl
 import CmuxNextSettings
 import Darwin
 import Foundation
-import Synchronization
+import CmuxNextCompat
 
 /// Records every request and answers with a fixed outcome.
 final class RecordingExecutor: ControlActionExecutor {
@@ -26,7 +26,10 @@ final class LineClient {
     let descriptor: Int32
 
     init(path: String) throws {
-        descriptor = socket(AF_UNIX, SOCK_STREAM, 0)
+        // `descriptor` is set only once the connect works: a throw after every
+        // stored property is set still runs `deinit`, whose close would hit
+        // whatever descriptor reused the number (another test's listener).
+        let descriptor = socket(AF_UNIX, SOCK_STREAM, 0)
         // A server that closes first (isolation, limits tests) must not end
         // the test process with SIGPIPE on the next write.
         var on: Int32 = 1
@@ -43,9 +46,11 @@ final class LineClient {
             }
         }
         guard result == 0 else {
+            let code = errno
             close(descriptor)
-            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+            throw POSIXError(POSIXErrorCode(rawValue: code) ?? .EIO)
         }
+        self.descriptor = descriptor
         var noSigPipe: Int32 = 1
         setsockopt(descriptor, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout<Int32>.size))
         var timeout = timeval(tv_sec: 5, tv_usec: 0)

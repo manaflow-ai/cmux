@@ -30,7 +30,7 @@ webviews/scripts/agent-pane/dev-slot.sh status
 webviews/scripts/agent-pane/dev-slot.sh down 1
 ```
 
-Slot N runs `acpmux daemon run` with its own `ACPMUX_HOME` (`/tmp/acpdev-N`, sessions kept across restarts), port 47900+N and a fresh token, and the [webviews dev server](../../../README.md#dev-server) on port 4180+N (the pane at `/agent-pane/`), the only extra origin that daemon trusts. The printed pane URL carries the endpoint and token in its fragment, which the browser never sends to Vite; `devHost.ts` answers the handshake in Swift's place. Native-only requests (git, files, tabs, dictation) fail as `native.unsupported`, so the changes view is empty here. Run one slot per worktree to compare variants side by side. The daemon binary is `$ACPMUX_BIN`, else the newest one bundled in a built app (`/tmp/panedev-*-app` or a tagged DerivedData build); it must be new enough for the pane.
+Slot N runs `acpmux daemon run` with its own `ACPMUX_HOME` (`/tmp/acpdev-N`, sessions kept across restarts), port 47900+N and a fresh token, and the [webviews dev server](../../../README.md#dev-server) on port 4180+N (the pane at `/agent-pane/`), the only extra origin that daemon trusts. The printed pane URL carries the endpoint and token in its fragment, which the browser never sends to Vite; `devHost.ts` answers the handshake in Swift's place. The dev server answers the pane's repository reads (`git.status`, `git.diff` and `file.search`) from the slot's folder, read only (`dev-server/agentGitHost.ts`), so the changes view and file search show the real repository; a read outside that folder is refused. `git.checkpoint.diff` lists no files, since a standalone daemon records no checkpoints, and other native-only requests (writes such as stage, commit and push, tabs, dictation) fail as `native.unsupported`. Run one slot per worktree to compare variants side by side. The daemon binary is `$ACPMUX_BIN`, else the newest one bundled in a built app (`/tmp/panedev-*-app` or a tagged DerivedData build); it must be new enough for the pane.
 
 To iterate on the real pane inside a running cmux-next with hot reload:
 
@@ -43,7 +43,7 @@ Only Debug and tagged builds read the variable; Release always loads the bundled
 
 ## Merging feat-cmux-next
 
-The shipped page and the webviews app bundle are not committed (cx-vn5), so merges never collide in them. The strings tables (`generated/strings.json`) are still committed: with the clone's merge drivers registered (`./scripts/install-git-hooks.sh`, run by `setup.sh`), `git merge origin/feat-cmux-next` keeps this branch's copies of them. Resolve any source conflicts, then run `./scripts/cmux-next/regenerate-web-bundles.sh`, which syncs `node_modules` to the merged lockfile, regenerates and stages the strings tables, and removes from the index any bundle file a branch from before cx-vn5 still tracks.
+The shipped page, the webviews app bundle (cx-vn5) and the strings tables (`generated/strings.json`, #21946) are not committed, so merges never collide in them. `bun install`, the test preload and every bundle build write the strings tables from the xcstrings catalogs; `bun run strings` rewrites them by hand. After merging feat-cmux-next, resolve any source conflicts, then run `./scripts/cmux-next/regenerate-web-bundles.sh`, which syncs `node_modules` to the merged lockfile, rewrites the strings tables, and removes from the index any bundle file or strings table a branch from before cx-vn5 or #21946 still tracks.
 
 ## Comparing against reference captures
 

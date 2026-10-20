@@ -13,6 +13,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("agent-pane-secret.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -132,6 +133,7 @@ await requireBrowserLane("agent-pane-secret.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
+    await warmViteServer(vite, "/");
     browser = await chromium.launch({ headless: true });
   });
   afterAll(async () => {
@@ -161,7 +163,8 @@ await requireBrowserLane("agent-pane-secret.test.ts", async () => {
       live = true;
       history = [];
       const page = await openChat();
-      await page.getByText("Create the test webhook").waitFor({ timeout: 10_000 });
+      // The file's first page loads the pane's modules cold; on a busy runner that took over 10 s.
+      await page.getByText("Create the test webhook").waitFor({ timeout: 60_000 });
       await provide(page);
       await page.locator(".acpmux-secret-card").waitFor({ state: "detached" });
       expect(submits).toEqual([{ sessionId: SESSION, secretId: "card-1", value: VALUE }]);

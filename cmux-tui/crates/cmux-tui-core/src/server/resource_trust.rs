@@ -23,6 +23,22 @@ pub(super) fn trusted_local_resource_client(
     }
 }
 
+/// `Ok` for one of the person's own clients of the local conversations: a
+/// Unix connection or an authenticated WebSocket connection
+/// (`ws-conversations-v1`). Every other transport is refused as
+/// [`trusted_local_resource_client`] refuses it.
+pub(super) fn conversation_resource_client(
+    mux: &Mux,
+    client: u64,
+    operation: ResourceOperation,
+) -> Result<(), ResourceError> {
+    if mux.control_clients.is_owner_client(client) {
+        Ok(())
+    } else {
+        trusted_local_resource_client(mux, client, operation)
+    }
+}
+
 /// The operations `handle_resource_connection_message` answers itself (they
 /// need the connection: its streams, its principal, its client record).
 pub(super) const fn handles_resource_connection_operation(operation: ResourceOperation) -> bool {
@@ -63,4 +79,6 @@ pub(super) const fn handles_resource_connection_operation(operation: ResourceOpe
             | ResourceOperation::OriginConfirmationIssue
     ) || super::conversation_resource::handles(operation)
         || super::chief_control::handles(operation)
+        || super::chief_registry_resource::handles(operation)
+        || super::participant_avatars::handles(operation)
 }

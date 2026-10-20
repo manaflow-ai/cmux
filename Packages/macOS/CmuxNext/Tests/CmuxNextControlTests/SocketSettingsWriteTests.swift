@@ -3,7 +3,7 @@ import CmuxNextActions
 import CmuxNextDesign
 @testable import CmuxNextSettings
 import Foundation
-import Synchronization
+import CmuxNextCompat
 import Testing
 
 /// The socket writes settings only through the settings owner
@@ -211,6 +211,7 @@ extension SettingDescriptor {
         case .timeRange: return .object(["start": .string("22:00"), "end": .string("07:00")])
         case .theme: return .string("Dracula")
         case .fontFamily: return .string("Menlo")
+        case .text: return .string("TextEdit")
         }
     }
 }

@@ -14,6 +14,8 @@ import java.util.Objects;
 public final class UpdateFrontendBrowserTabRequest implements WireValue {
     private final Field<String> faviconUrl;
     private final Field<String> owner;
+    /** Move the frontend browser tab to this browser profile; null clears its profile. */
+    private final Field<String> profileId;
     private final UInt64 surface;
     private final Field<String> title;
     private final Field<String> url;
@@ -21,6 +23,7 @@ public final class UpdateFrontendBrowserTabRequest implements WireValue {
     private UpdateFrontendBrowserTabRequest(Builder builder) {
         this.faviconUrl = builder.faviconUrl;
         this.owner = builder.owner;
+        this.profileId = builder.profileId;
         if (!builder.surfaceSet) throw new IllegalArgumentException("surface is required");
         this.surface = Wire.nonNull(builder.surface, "surface");
         this.title = builder.title;
@@ -31,6 +34,7 @@ public final class UpdateFrontendBrowserTabRequest implements WireValue {
 
     public Field<String> faviconUrl() { return faviconUrl; }
     public Field<String> owner() { return owner; }
+    public Field<String> profileId() { return profileId; }
     public UInt64 surface() { return surface; }
     public Field<String> title() { return title; }
     public Field<String> url() { return url; }
@@ -45,6 +49,10 @@ public final class UpdateFrontendBrowserTabRequest implements WireValue {
         Object rawOwner = Wire.optional(object, "owner");
         if (!Wire.isMissing(rawOwner)) {
             builder.owner(rawOwner == null ? null : Wire.string(rawOwner, "UpdateFrontendBrowserTabRequest.owner"));
+        }
+        Object rawProfileId = Wire.optional(object, "profile_id");
+        if (!Wire.isMissing(rawProfileId)) {
+            builder.profileId(rawProfileId == null ? null : Wire.string(rawProfileId, "UpdateFrontendBrowserTabRequest.profile_id"));
         }
         Object rawSurface = Wire.required(object, "surface");
         builder.surface(Wire.uint64(rawSurface, "UpdateFrontendBrowserTabRequest.surface"));
@@ -64,6 +72,7 @@ public final class UpdateFrontendBrowserTabRequest implements WireValue {
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
         Wire.put(object, "favicon_url", faviconUrl);
         Wire.put(object, "owner", owner);
+        Wire.put(object, "profile_id", profileId);
         Wire.put(object, "surface", surface);
         Wire.put(object, "title", title);
         Wire.put(object, "url", url);
@@ -73,11 +82,11 @@ public final class UpdateFrontendBrowserTabRequest implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof UpdateFrontendBrowserTabRequest that)) return false;
-        return Objects.equals(faviconUrl, that.faviconUrl) && Objects.equals(owner, that.owner) && Objects.equals(surface, that.surface) && Objects.equals(title, that.title) && Objects.equals(url, that.url);
+        return Objects.equals(faviconUrl, that.faviconUrl) && Objects.equals(owner, that.owner) && Objects.equals(profileId, that.profileId) && Objects.equals(surface, that.surface) && Objects.equals(title, that.title) && Objects.equals(url, that.url);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(faviconUrl, owner, surface, title, url); }
+    public int hashCode() { return Objects.hash(faviconUrl, owner, profileId, surface, title, url); }
 
     @Override
     public String toString() { return "UpdateFrontendBrowserTabRequest" + toWire(); }
@@ -85,6 +94,7 @@ public final class UpdateFrontendBrowserTabRequest implements WireValue {
     public static final class Builder {
         private Field<String> faviconUrl = Field.omitted();
         private Field<String> owner = Field.omitted();
+        private Field<String> profileId = Field.omitted();
         private UInt64 surface;
         private boolean surfaceSet;
         private Field<String> title = Field.omitted();
@@ -96,6 +106,10 @@ public final class UpdateFrontendBrowserTabRequest implements WireValue {
         }
         public Builder owner(String value) {
             this.owner = Field.ofNullable(value);
+            return this;
+        }
+        public Builder profileId(String value) {
+            this.profileId = Field.ofNullable(value);
             return this;
         }
         public Builder surface(UInt64 value) {

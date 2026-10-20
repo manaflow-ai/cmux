@@ -1,10 +1,10 @@
 //! The connection worker: one owned thread that ensures the daemon, connects
 //! with the SDK, identifies, loads a snapshot, follows `session.events`, and
 //! reports each step to a caller callback. When the daemon advertises
-//! `bookmarks-v1`, `profiles-v1` or `history-v1`, a second thread per
-//! connection follows `bookmarks-changed`, `personal-changed` and
-//! `history-changed` on a protocol-12 `subscribe` stream (the resource API
-//! has none of them). With an install key the worker hands it to a daemon it
+//! `bookmarks-v1`, `profiles-v1`, `history-v1` or `keybindings-v1`, a second
+//! thread per connection follows `bookmarks-changed`, `personal-changed`,
+//! `history-changed` and `keybindings-changed` on a protocol-12 `subscribe`
+//! stream (the resource API has none of them). With an install key the worker hands it to a daemon it
 //! starts and checks on each connect that the daemon accepts the app's
 //! `client-hello` proof ([`ConnectionInfo::verified_app`]).
 //! See the crate docs for the thread contract.
@@ -32,6 +32,8 @@ pub const DEFAULT_SESSION: &str = "cmux2-gpui";
 pub const BOOKMARKS_CAPABILITY: &str = "bookmarks-v1";
 /// The capability of the `history.*` operations and `history-changed`.
 pub const HISTORY_CAPABILITY: &str = "history-v1";
+/// The capability of the `keybindings.*` operations and `keybindings-changed`.
+pub const KEYBINDINGS_CAPABILITY: &str = "keybindings-v1";
 /// How long the subscribe stream waits for one event before it waits again
 /// (a quiet stream is healthy; `stop` closes it at once).
 const SUBSCRIBE_EVENTS_IDLE: Duration = Duration::from_secs(3600);
@@ -73,6 +75,22 @@ pub struct DaemonConfig {
     /// same extra connection, while connected to a daemon with
     /// `history-v1`).
     pub history_events: bool,
+    /// Report `keybindings-changed` as [`DaemonEvent::KeybindingsChanged`]
+    /// (the same extra connection, while connected to a daemon with
+    /// `keybindings-v1`).
+    pub keybinding_events: bool,
+    /// Report EVERY `subscribe` event as [`DaemonEvent::Event`] with its
+    /// frame as the daemon sent it, typed in this crate or not (the same
+    /// extra connection), so a new daemon event needs no client change
+    /// (page-router-v1, generic event delivery). The typed variants above
+    /// still come for the events they name.
+    pub raw_events: bool,
+    /// Report each applied `session.events` delta also as
+    /// [`DaemonEvent::SessionDelta`] with the event the stream delivered,
+    /// just before its typed [`DaemonEvent::Delta`] (cmux2-0b: the app reads
+    /// fields the mirror does not keep). Off by default: then no
+    /// `SessionDelta` comes and nothing is copied.
+    pub raw_session_deltas: bool,
     /// Additive capabilities the mirror's connections declare (for example
     /// `conversation-tabs-v1` and `agent-session-tabs-v1`, so the snapshot
     /// and the event stream read those tabs in their canonical form). Only
@@ -98,6 +116,9 @@ impl DaemonConfig {
             bookmark_events: true,
             personal_events: true,
             history_events: true,
+            keybinding_events: true,
+            raw_events: false,
+            raw_session_deltas: false,
             capabilities: Vec::new(),
         }
     }
@@ -171,6 +192,33 @@ pub enum DaemonEvent {
     HistoryChanged {
         kinds: Vec<String>,
         history_revision: u64,
+    },
+    /// The user's keybindings.json changed (`keybindings-changed`): read it
+    /// again with `keybindings.get`. `origin` names the writer (`user`,
+    /// `cli`, `mcp`, `script`, `remote`, `app`, or `file` for a hand edit).
+    /// Reported after `Connected` and before the connection's
+    /// `Disconnected`, while the daemon has `keybindings-v1`.
+    KeybindingsChanged {
+        origin: String,
+        keybindings_revision: u64,
+    },
+    /// One `subscribe` event exactly as the daemon sent it
+    /// (`DaemonConfig::raw_events`): `name` is its `event` member and
+    /// `frame` the whole object. Reported after `Connected` and before the
+    /// connection's `Disconnected`. `overflow` is never reported: it ends
+    /// the stream and the worker reconnects.
+    Event {
+        name: String,
+        frame: serde_json::Value,
+    },
+    /// One applied `session.events` delta as the stream delivered it
+    /// (`DaemonConfig::raw_session_deltas`). It comes just before the typed
+    /// [`DaemonEvent::Delta`] of the same `revision`, which the mirror
+    /// already holds; snapshots and skipped events give none.
+    SessionDelta {
+        revision: u64,
+        /// Boxed: a delta is large next to the other variants.
+        frame: Box<cmux::SessionEvent>,
     },
     /// The connection failed or ended; the worker retries after `retry_in`.
     Disconnected {
@@ -323,10 +371,18 @@ fn run(
 }
 
 fn emit(shared: &Shared, on_event: &SharedCallback, event: &DaemonEvent) {
+    emit_all(shared, on_event, std::slice::from_ref(event));
+}
+
+/// Reports `events` in order under one hold of the callback, so no event
+/// of the subscribe thread comes between them.
+fn emit_all(shared: &Shared, on_event: &SharedCallback, events: &[DaemonEvent]) {
     let mirror = lock(&shared.mirror);
     let mut callback = lock(on_event);
     IN_CALLBACK.with(|flag| flag.set(true));
-    callback(event, &mirror);
+    for event in events {
+        callback(event, &mirror);
+    }
     IN_CALLBACK.with(|flag| flag.set(false));
 }
 
@@ -440,14 +496,21 @@ fn follow(
         bookmarks: config.bookmark_events && advertised(BOOKMARKS_CAPABILITY),
         personal: config.personal_events && advertised(PROFILES_CAPABILITY),
         history: config.history_events && advertised(HISTORY_CAPABILITY),
+        keybindings: config.keybinding_events && advertised(KEYBINDINGS_CAPABILITY),
+        raw: config.raw_events,
     };
     let socket = info.socket.clone();
     emit(shared, on_event, &DaemonEvent::Connected(info));
     emit(shared, on_event, &DaemonEvent::Reset);
     // Ends (closed and joined) when this function returns, so no
-    // BookmarksChanged, PersonalChanged or HistoryChanged follows the connection's
-    // Disconnected.
-    let _subscribed = if follow.bookmarks || follow.personal || follow.history {
+    // BookmarksChanged, PersonalChanged, HistoryChanged or KeybindingsChanged follows
+    // the connection's Disconnected.
+    let _subscribed = if follow.bookmarks
+        || follow.personal
+        || follow.history
+        || follow.keybindings
+        || follow.raw
+    {
         let follower = SubscribeEvents::start(
             &socket,
             config,
@@ -472,6 +535,7 @@ fn follow(
             Ok(None) => return Ok(()),
             Err(e) => return Err(format!("session.events: {e}")),
         };
+        let frame = config.raw_session_deltas.then(|| Box::new(item.value.clone()));
         let applied = {
             let mut mirror = lock(&shared.mirror);
             let applied = mirror.apply(item.value);
@@ -480,7 +544,15 @@ fn follow(
         match applied {
             Ok((Applied::Reset, _)) => emit(shared, on_event, &DaemonEvent::Reset),
             Ok((Applied::Delta(changes), revision)) => {
-                emit(shared, on_event, &DaemonEvent::Delta { revision, changes });
+                let delta = DaemonEvent::Delta { revision, changes };
+                match frame {
+                    Some(frame) => emit_all(
+                        shared,
+                        on_event,
+                        &[DaemonEvent::SessionDelta { revision, frame }, delta],
+                    ),
+                    None => emit(shared, on_event, &delta),
+                }
             }
             Ok((Applied::Skipped, _)) => {}
             Err(e) => {
@@ -497,9 +569,12 @@ struct Follow {
     bookmarks: bool,
     personal: bool,
     history: bool,
+    keybindings: bool,
+    raw: bool,
 }
 
-/// The `bookmarks-changed`, `personal-changed` and `history-changed` follower of one
+/// The `bookmarks-changed`, `personal-changed`, `history-changed` and
+/// `keybindings-changed` follower of one
 /// connection: a protocol-12 `subscribe` stream read on its own thread.
 /// Dropping it closes the stream and joins the thread.
 struct SubscribeEvents {
@@ -531,31 +606,25 @@ impl SubscribeEvents {
             .name("cmux-daemon-client-subscribe".into())
             .spawn(move || {
                 let error = loop {
-                    match stream.recv_timeout(SUBSCRIBE_EVENTS_IDLE) {
-                        Ok(cmux::raw::Event::BookmarksChanged(changed)) if follow.bookmarks => {
-                            let event = DaemonEvent::BookmarksChanged {
-                                browser_profile_id: changed.browser_profile_id,
-                                bookmarks_revision: changed.bookmarks_revision,
-                            };
-                            emit(&shared, &on_event, &event);
-                        }
-                        Ok(cmux::raw::Event::PersonalChanged(changed)) if follow.personal => {
-                            let event = DaemonEvent::PersonalChanged {
-                                personal_revision: changed.personal_revision,
-                            };
-                            emit(&shared, &on_event, &event);
-                        }
-                        Ok(cmux::raw::Event::HistoryChanged(changed)) if follow.history => {
-                            let event = DaemonEvent::HistoryChanged {
-                                kinds: changed.kinds,
-                                history_revision: changed.revision,
-                            };
-                            emit(&shared, &on_event, &event);
-                        }
-                        Ok(cmux::raw::Event::Overflow(_)) => break "overflow".to_string(),
-                        Ok(_) | Err(cmux::raw::Error::Timeout(_)) => {}
+                    let frame = match stream.recv_frame_timeout(SUBSCRIBE_EVENTS_IDLE) {
+                        Ok(frame) => frame,
+                        Err(cmux::raw::Error::Timeout(_)) => continue,
                         Err(cmux::raw::Error::Closed) => return,
                         Err(e) => break e.to_string(),
+                    };
+                    let name = frame.get("event").and_then(serde_json::Value::as_str);
+                    if name == Some("overflow") {
+                        break "overflow".to_string();
+                    }
+                    let raw = follow.raw.then(|| DaemonEvent::Event {
+                        name: name.unwrap_or_default().to_owned(),
+                        frame: frame.clone(),
+                    });
+                    if let Some(event) = typed_event(cmux::raw::decode_event(frame), follow) {
+                        emit(&shared, &on_event, &event);
+                    }
+                    if let Some(event) = raw {
+                        emit(&shared, &on_event, &event);
                     }
                 };
                 // A lost subscribe stream would hide changes: end the
@@ -566,6 +635,45 @@ impl SubscribeEvents {
             })
             .map_err(|e| format!("thread: {e}"))?;
         Ok(Self { closer, thread: Some(thread) })
+    }
+}
+
+/// The typed report of one `subscribe` event, when `follow` asks for it.
+fn typed_event(event: cmux::raw::Event, follow: Follow) -> Option<DaemonEvent> {
+    Some(match event {
+        cmux::raw::Event::BookmarksChanged(changed) if follow.bookmarks => {
+            DaemonEvent::BookmarksChanged {
+                browser_profile_id: changed.browser_profile_id,
+                bookmarks_revision: changed.bookmarks_revision,
+            }
+        }
+        cmux::raw::Event::PersonalChanged(changed) if follow.personal => {
+            DaemonEvent::PersonalChanged { personal_revision: changed.personal_revision }
+        }
+        cmux::raw::Event::HistoryChanged(changed) if follow.history => {
+            DaemonEvent::HistoryChanged { kinds: changed.kinds, history_revision: changed.revision }
+        }
+        cmux::raw::Event::KeybindingsChanged(changed) if follow.keybindings => {
+            DaemonEvent::KeybindingsChanged {
+                origin: keybindings_origin(changed.origin).to_owned(),
+                keybindings_revision: changed.revision,
+            }
+        }
+        _ => return None,
+    })
+}
+
+/// The wire name of a `keybindings-changed` origin.
+fn keybindings_origin(origin: cmux::raw::KeybindingsChangedEventOrigin) -> &'static str {
+    use cmux::raw::KeybindingsChangedEventOrigin as Origin;
+    match origin {
+        Origin::User => "user",
+        Origin::Cli => "cli",
+        Origin::Mcp => "mcp",
+        Origin::Script => "script",
+        Origin::Remote => "remote",
+        Origin::App => "app",
+        Origin::File => "file",
     }
 }
 

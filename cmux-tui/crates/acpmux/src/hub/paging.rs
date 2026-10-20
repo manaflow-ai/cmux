@@ -4,8 +4,14 @@
 use super::*;
 
 /// `session/update` kinds that carry no renderable transcript content.
-const NON_TRANSCRIPT_UPDATES: &[&str] =
-    &["usage_update", "available_commands_update", "current_mode_update", "config_option_update"];
+const NON_TRANSCRIPT_UPDATES: &[&str] = &[
+    "usage_update",
+    "available_commands_update",
+    "current_mode_update",
+    "config_option_update",
+    // A compaction's summary is context a handoff carries, not a chat row.
+    "compaction_summary",
+];
 
 /// Mux records a chat client renders. `turn_end` and `turn_error` are left
 /// out because every turn also records `turn_result`.
@@ -14,6 +20,7 @@ pub const TRANSCRIPT_MUX_KINDS: &[&str] = &[
     "queued",
     "dequeued",
     "queue_removed",
+    "prompt_retracted",
     "turn_started",
     "turn_result",
     "permission_request",
@@ -25,6 +32,8 @@ pub const TRANSCRIPT_MUX_KINDS: &[&str] = &[
     "failover",
     "forked",
     "imported",
+    "session_offer",
+    "session_offer_decision",
     "mode",
     "model",
     "stopped",
@@ -102,6 +111,12 @@ fn is_wire(rec: &EventRecord) -> bool {
     (rec.dir == "in" || rec.dir == "out") && !live_update
 }
 
+/// About what a record adds to a page's JSON: its message plus the envelope
+/// (`sessionId`, `seq`, `at`, `dir`, `kind`).
+fn record_bytes(rec: &EventRecord) -> usize {
+    serde_json::to_string(&rec.msg).map_or(0, |msg| msg.len()) + rec.kind.len() + 120
+}
+
 /// One page of a session's log, oldest first.
 #[derive(Debug, Default)]
 pub struct EventPage {
@@ -113,18 +128,31 @@ pub struct EventPage {
 
 impl Hub {
     /// Read a page of matching records with `after < seq < before`.
-    /// `newest` picks the last `limit` of them instead of the first.
+    /// `newest` picks the last `limit` of them instead of the first. A page
+    /// also ends before its records' JSON would pass `max_bytes` (the reply a
+    /// remote client downloads); it always holds at least one record.
     pub fn events_page(
         &self,
         id: &str,
         after: u64,
         before: Option<u64>,
         limit: usize,
+        max_bytes: Option<usize>,
         newest: bool,
         filter: &EventFilter,
     ) -> Result<EventPage> {
         let before = before.unwrap_or(u64::MAX);
         let mut page = EventPage::default();
+        let mut bytes = 0usize;
+        // Whether the page is full before `rec`: by count, or by size once it holds a record.
+        let mut full = |rec: &EventRecord, found: usize| {
+            if found == limit {
+                return true;
+            }
+            let Some(max) = max_bytes else { return false };
+            bytes += record_bytes(rec);
+            found > 0 && bytes > max
+        };
         if limit == 0 || !newest {
             let mut found = 0usize;
             self.store.scan(id, after, &mut |rec| {
@@ -134,7 +162,7 @@ impl Hub {
                 if !filter.matches(&rec) {
                     return true;
                 }
-                if found == limit {
+                if full(&rec, found) {
                     page.has_more = true;
                     return false;
                 }
@@ -144,22 +172,20 @@ impl Hub {
             })?;
             return Ok(page);
         }
-        let mut ring: std::collections::VecDeque<EventRecord> =
-            std::collections::VecDeque::with_capacity(limit.min(4096));
-        self.store.scan(id, after, &mut |rec| {
-            if rec.seq >= before {
+        let mut found = Vec::new();
+        self.store.scan_back(id, after, before, &mut |rec| {
+            if !filter.matches(&rec) {
+                return true;
+            }
+            if full(&rec, found.len()) {
+                page.has_more = true;
                 return false;
             }
-            if filter.matches(&rec) {
-                if ring.len() == limit {
-                    ring.pop_front();
-                    page.has_more = true;
-                }
-                ring.push_back(rec);
-            }
+            found.push(rec);
             true
         })?;
-        page.events = ring.into();
+        found.reverse();
+        page.events = found;
         Ok(page)
     }
 }

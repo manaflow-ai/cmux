@@ -26,4 +26,11 @@ public struct SettingsListRow: Identifiable, Hashable, Sendable {
     public static func space(id: String, title: String, icon: String?, isActive: Bool = false) -> SettingsListRow {
         SettingsListRow(id: id, title: title, icon: IconValue(wire: icon) ?? .symbol("square.stack"), isActive: isActive)
     }
+
+    /// A machine's row: its own icon (`session-icon-v1`: an emoji, a symbol or a
+    /// stored asset the page draws as an image), else `symbol`, its kind's.
+    public static func machine(id: String, title: String, subtitle: String? = nil, icon: String?, symbol: String,
+                               isActive: Bool = false) -> SettingsListRow {
+        SettingsListRow(id: id, title: title, subtitle: subtitle, icon: IconValue(wire: icon) ?? .symbol(symbol), isActive: isActive)
+    }
 }

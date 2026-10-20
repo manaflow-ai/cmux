@@ -114,7 +114,9 @@ const RESPONSE_LIMIT: usize = 16 * 1024 * 1024;
 pub(crate) const OWNER_READY_FD_ARG: &str = "--owner-ready-fd";
 
 mod install_key;
+mod replace;
 pub(crate) use install_key::{OWNER_INSTALL_KEY_FD_ARG, install_key_from_launcher};
+pub(crate) use replace::{ReplaceError, replace_if_unresponsive};
 
 /// Takes an inherited descriptor (`option` names it) from argv and keeps it
 /// out of every process the owner starts (terminal hosts): only this owner
@@ -179,6 +181,17 @@ pub(crate) fn signal_ready(fd: i32) {
     let _ = fd;
 }
 
+/// `server ensure --ws-loopback [--ws-allow-origin <origin>[,<origin>...]]` (private app
+/// contract, cx-hnmbt.2): the owner opens `--ws 127.0.0.1:0` and, with no
+/// token configured, mints its credential into a 0600 file next to the
+/// socket (`websocket_credential`), never on argv.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct EnsureWebSocket {
+    /// The extra page origins the listener accepts (the app's first-party
+    /// pages, `cmux-page://cmux.<page>`).
+    pub allow_origins: Vec<String>,
+}
+
 /// How the owner process is launched.
 pub(crate) struct OwnerSpec {
     pub session: String,
@@ -200,6 +213,13 @@ pub(crate) struct OwnerSpec {
     /// Chief brain's tools socket, so the owner serves chief.engine.* and
     /// chief.stop (only `cmux chief` sets it, for its Chief home's owner).
     pub chief_tools_socket: Option<PathBuf>,
+    /// `CMUX_TUI_CHIEF_BRAINS` for an owner this call spawns: the daemon
+    /// starts the brains of the Chiefs that are not the default
+    /// (cmux-tui-core chief_brains).
+    pub chief_brains: Option<String>,
+    /// The loopback WebSocket listener for an owner this call spawns; a
+    /// running owner keeps the listener it was started with.
+    pub websocket: Option<EnsureWebSocket>,
 }
 
 /// A validated, client-ready owner.
@@ -704,6 +724,12 @@ fn spawn_detached_owner(spec: &OwnerSpec) -> io::Result<SpawnedOwner> {
     if let Some(grace) = spec.terminal_reap_grace {
         command.arg("--terminal-reap-grace-seconds").arg(grace.as_secs().to_string());
     }
+    if let Some(websocket) = &spec.websocket {
+        command.arg("--ws").arg("127.0.0.1:0");
+        for origin in &websocket.allow_origins {
+            command.arg("--ws-allow-origin").arg(origin);
+        }
+    }
     if let Some(colors) = spec.initial_host_colors {
         if let Some(foreground) = colors.fg {
             command
@@ -719,6 +745,9 @@ fn spawn_detached_owner(spec: &OwnerSpec) -> io::Result<SpawnedOwner> {
     configure_detached_owner_environment(&mut command);
     if let Some(tools) = &spec.chief_tools_socket {
         command.env("CMUX_TUI_CHIEF_TOOLS_SOCKET", tools);
+    }
+    if let Some(brains) = &spec.chief_brains {
+        command.env(cmux_tui_core::chief_brains::ENV, brains);
     }
     // The app directory settings this client took at start go to the owner
     // daemon it spawns only (cx-e0cs): the owner takes them out of its own

@@ -8,7 +8,7 @@ import Testing
 /// Minimal mode (`sidebar.minimal`, cx-w1r5): "Workspace rows show only their icon, name and
 /// unread mark, and section titles become thin lines." Dogfood nxdog93 (cx-7swgy): with it on, a
 /// sidebar of quiet rows and a New Group header looked exactly as with it off. On, the list is
-/// visibly compact: every row is shorter, a group's header is a thin line, a status line goes.
+/// visibly compact: every row is shorter, a group's header is a shorter solid bar, a status line goes.
 @MainActor
 struct SidebarMinimalModeTests {
     private static let reported = ResourceID(rawValue: "ws-reported")
@@ -16,7 +16,7 @@ struct SidebarMinimalModeTests {
     private static let group = GroupID("grp-new")
 
     /// A sidebar under its own settings: a quiet workspace, and a New Group holding one that
-    /// reports a status entry.
+    /// reports two status entries (a block: one entry would sit on the name's line).
     private static func sidebar() -> (SidebarView, DesignSettings, quiet: WorkspaceID, reported: WorkspaceID) {
         let store = DaemonStore()
         store.apply(snapshot: DaemonTree(workspaces: [
@@ -25,8 +25,9 @@ struct SidebarMinimalModeTests {
         ]))
         var mirror = SessionStateMirror()
         mirror.workspaceStatus[reported] = WorkspaceStatus(
-            workspaceID: reported, entries: [WorkspaceStatus.Entry(key: "build", text: "Building", icon: "hammer", color: "#ff8800")])
-        store.session.apply(.snapshot(mirror), to: store.workspaces)
+            workspaceID: reported, entries: [WorkspaceStatus.Entry(key: "build", text: "Building", icon: "hammer", color: "#ff8800"),
+                                         WorkspaceStatus.Entry(key: "tests", text: "412 passed")])
+        store.session.apply(.snapshot(mirror), in: store)
         let mapped = SidebarMapping.shared.sections(store.sidebarSections,
                                                     machine: SidebarMachine(id: .local, name: "This Mac", kind: .local))
         let section = mapped[0]
@@ -72,16 +73,17 @@ struct SidebarMinimalModeTests {
         let off = try #require(await Self.heights(sidebar, ids) { $0.reported > line })
         design.sidebarSections.minimal = true
         let on = try #require(await Self.heights(sidebar, ids) { $0.reported <= line })
-        // Shorter rows, a thinner group header, and no status line.
+        // Shorter rows, a shorter group header, and no status line.
         #expect(on.quiet < off.quiet)
         #expect(on.header < off.header)
         #expect(on.reported == on.quiet)
         #expect(sidebar.list.displayed.row(for: .workspace(reported))?.content?.status == nil)
-        // The thin header still opens its editor and menu under the whole header, from its name.
+        // The shorter header keeps its solid bar (Lawrence 2026-10-18): the editor opens from it.
         sidebar.layoutSubtreeIfNeeded()
         let header = try #require(sidebar.list.rowViews[.group(Self.group)] as? GroupHeaderRowView)
         header.layoutSubtreeIfNeeded()
-        #expect(header.labelFrame.height == header.bounds.height)
+        #expect(header.labelFrame.width == header.bounds.width)
+        #expect(header.labelFrame.height > Metrics.dividerThickness * 4)
         #expect(header.labelFrame.minX <= header.titleFrame.minX)
         // Off again: the list is as it was.
         design.sidebarSections.minimal = false

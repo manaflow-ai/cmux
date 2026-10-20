@@ -42,12 +42,17 @@ cat > "$src/scripts/ci/upload-r2-object.py" <<PY
 import argparse, pathlib, shutil, sys
 parser = argparse.ArgumentParser()
 parser.add_argument("--write-once", action="store_true")
+parser.add_argument("--conflict-exit-code", type=int)
 for name in ("--file", "--endpoint-url", "--bucket", "--key", "--cache-control"):
     parser.add_argument(name)
 args = parser.parse_args()
 target = pathlib.Path("$cdn") / args.key.removeprefix("cmux-tui/")
 if target.exists():
-    sys.exit(0 if target.read_bytes() == pathlib.Path(args.file).read_bytes() else "write-once object differs: " + args.key)
+    if target.read_bytes() == pathlib.Path(args.file).read_bytes():
+        sys.exit(0)
+    if args.conflict_exit_code is not None:
+        sys.exit(args.conflict_exit_code)
+    sys.exit("write-once object differs: " + args.key)
 target.parent.mkdir(parents=True, exist_ok=True)
 shutil.copy(args.file, target)
 PY
@@ -106,7 +111,7 @@ chmod +x "$TMP/bin/curl"
 
 status=0
 out=$(cd "$src" && env PATH="$TMP/bin:$PATH" GITHUB_SHA="$run_sha" GITHUB_RUN_ID=1 \
-  GITHUB_SERVER_URL=https://github.com GITHUB_REPOSITORY=manaflow-ai/cmux R2_ENDPOINT=https://r2.test \
+  GITHUB_SERVER_URL=https://github.com GITHUB_REPOSITORY=manaflow-ai/cmux GITHUB_REF=refs/heads/feat-cmux-next R2_ENDPOINT=https://r2.test \
   KEY_V2="$v2" LEGACY_KEY="$v1" bash "$TMP/publish.sh" 2>&1) || status=$?
 [[ "$status" == 0 ]] || fail "the publication failed (exit $status):" "$out"
 for n in "${names[@]}"; do
@@ -129,7 +134,7 @@ done
 # (its commit-addressed objects are published by then).
 cp "$src"/assets/run/* "$cdn/$run_sha/"
 out=$(cd "$src" && rm -rf assets/tree tree && mkdir -p assets/tree && cp "$src"/assets/run/* assets/tree/ && env PATH="$TMP/bin:$PATH" GITHUB_SHA="$run_sha" GITHUB_RUN_ID=2 \
-  GITHUB_SERVER_URL=https://github.com GITHUB_REPOSITORY=manaflow-ai/cmux R2_ENDPOINT=https://r2.test \
+  GITHUB_SERVER_URL=https://github.com GITHUB_REPOSITORY=manaflow-ai/cmux GITHUB_REF=refs/heads/feat-cmux-next R2_ENDPOINT=https://r2.test \
   KEY_V2="$v2" LEGACY_KEY="$v1" bash "$TMP/publish.sh" 2>&1) || fail "the second publication failed:" "$out"
 
 # The Windows build is optional: a run that built none (no cmux-tui-windows/<sha>/)
@@ -139,7 +144,7 @@ mkdir -p "$cdn/tree/$v2"
 printf '{"key": "%s", "commit": "%s"}\n' "$v2" "$other" > "$cdn/tree/$v2/source.json"
 for n in "${windows_names[@]}"; do rm -f "$src/assets/run/$n"; done
 out=$(cd "$src" && rm -rf assets/tree tree && mkdir -p assets/tree && cp assets/run/* assets/tree/ && env PATH="$TMP/bin:$PATH" GITHUB_SHA="$run_sha" GITHUB_RUN_ID=3 \
-  GITHUB_SERVER_URL=https://github.com GITHUB_REPOSITORY=manaflow-ai/cmux R2_ENDPOINT=https://r2.test \
+  GITHUB_SERVER_URL=https://github.com GITHUB_REPOSITORY=manaflow-ai/cmux GITHUB_REF=refs/heads/feat-cmux-next R2_ENDPOINT=https://r2.test \
   KEY_V2="$v2" LEGACY_KEY="$v1" bash "$TMP/publish.sh" 2>&1) || fail "a run without a Windows build failed:" "$out"
 for key in "$v2" "$v1"; do
   [[ -f "$cdn/tree/$key/completion.json" ]] || fail "$key: no completion.json without Windows"

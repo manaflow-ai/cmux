@@ -2,13 +2,18 @@
 //! saved token from a build that sent it there is rotated once.
 #![cfg(unix)]
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+// This process starts no agent.
+const HERMETIC: daemon_env::Process = daemon_env::Process::deny();
+
 use acpmux::config::{Config, PeerConfig, StoreMode, WebSocketConfig};
 use acpmux::hub::Hub;
 use acpmux::rpc::{Message, method};
 use acpmux::server::{Origin, serve_connection_with};
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader};
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::time::Duration;
 use tokio::sync::mpsc;
 
@@ -114,7 +119,7 @@ impl Drop for Daemon {
 }
 
 fn start(home: &std::path::Path, extra: &[&str]) -> (Daemon, Value) {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_acpmux"))
+    let mut child = daemon_env::acpmux(home)
         .args([
             "daemon",
             "run",
@@ -129,8 +134,7 @@ fn start(home: &std::path::Path, extra: &[&str]) -> (Daemon, Value) {
         .args(extra)
         .env("ACPMUX_HOME", home)
         .env("ACPMUX_SOCKET", home.join("s.sock"))
-        .env_remove("ACPMUX_LOGIN_ENV")
-        .env_remove("XPC_SERVICE_NAME")
+        .env("ACPMUX_LOGIN_ENV", "0")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit())

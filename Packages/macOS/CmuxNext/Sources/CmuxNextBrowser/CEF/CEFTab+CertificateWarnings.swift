@@ -1,6 +1,7 @@
 import Foundation
 
-/// Proceed on cmux's certificate warning page (`ChromiumNetError.proceed`).
+/// Proceed on cmux's certificate warning page, which an agent-driven tab
+/// shows (`ChromiumNetError.proceed`); other tabs show Chromium's interstitial.
 extension CEFTab: BrowserCertificateBypassing {
     public func proceedPastCertificateError() { ChromiumNetError.proceed(on: self) }
 }

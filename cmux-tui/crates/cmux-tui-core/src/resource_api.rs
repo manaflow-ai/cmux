@@ -10,6 +10,10 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::Weak;
 
+mod machines;
+
+pub(crate) const MACHINE_CATALOG_READ_CAPABILITY: &str = "machine-catalog-read-v1";
+
 use anyhow::Context;
 use serde_json::{Map, Value, json};
 
@@ -120,14 +124,22 @@ impl LocalResourceMachineService {
 impl ResourceMachineService for LocalResourceMachineService {
     fn dispatch(&self, request: &ResourceMachineRequest) -> Result<Value, ResourceError> {
         let context = self.context()?;
+        let catalog = request.fields.get("catalog") == Some(&Value::Bool(true));
         match request.operation {
             ResourceOperation::MachineList => {
                 require_no_selectors(&request.selectors)?;
-                Ok(json!([machine_snapshot(&context)]))
+                let mut machines = vec![machine_snapshot(&context, catalog)];
+                if catalog {
+                    machines.extend(self.remote_machine_snapshots());
+                }
+                Ok(json!(machines))
             }
             ResourceOperation::MachineGet => {
+                if catalog && resolve_local_machine(&request.selectors, &context).is_err() {
+                    return self.remote_machine_snapshot(&request.selectors);
+                }
                 resolve_local_machine(&request.selectors, &context)?;
-                Ok(machine_snapshot(&context))
+                Ok(machine_snapshot(&context, catalog))
             }
             ResourceOperation::SessionList => {
                 resolve_local_machine(&request.selectors, &context)?;
@@ -277,8 +289,8 @@ fn local_indeterminate_error(key: &str, operation: &str) -> ResourceError {
     )
 }
 
-fn machine_snapshot(context: &LocalResourceContext) -> Value {
-    json!({
+fn machine_snapshot(context: &LocalResourceContext, catalog: bool) -> Value {
+    let mut machine = json!({
         "id": context.machine_id,
         "name": "local",
         "origin": "local",
@@ -286,7 +298,25 @@ fn machine_snapshot(context: &LocalResourceContext) -> Value {
         "connectable": true,
         "deleted": false,
         "recoverable": false,
+    });
+    if catalog {
+        // Strict older SDKs reject these fields, even on a local record.
+        // The reader opts in; this metadata grants no execution authority.
+        machine["platform"] = machine_platform();
+        machine["capabilities"] = machine_capabilities();
+    }
+    machine
+}
+
+pub(crate) fn machine_platform() -> Value {
+    json!({
+        "os": std::env::consts::OS,
+        "arch": std::env::consts::ARCH,
     })
+}
+
+pub(crate) fn machine_capabilities() -> Value {
+    json!(["terminal", "workspace", "agent_session"])
 }
 
 fn session_snapshot(context: &LocalResourceContext) -> Value {
@@ -459,10 +489,19 @@ pub(crate) fn public_terminal_snapshot(
     if let Some(status) = surface.and_then(|surface| surface.terminal_program_status(running)) {
         extra.insert("program_status".into(), status);
     }
-    // `terminal-activity-v1`: a shell command runs (OSC 133 C..D). An
-    // exited terminal publishes none.
-    if running && let Some(since) = surface.and_then(crate::Surface::terminal_busy_since_ms) {
-        extra.insert("busy".into(), crate::terminal_activity::busy_json(since));
+    // `terminal-activity-v1`: a shell command runs (OSC 133 C..D), quiet
+    // `running` or interactive `in_use`; the older `busy` names a `running`
+    // one only. An exited terminal publishes none.
+    if running
+        && let Some((state, since)) = surface.and_then(crate::Surface::terminal_command_activity)
+    {
+        extra.insert("activity".into(), crate::terminal_activity::activity_json(state, since));
+        if state == crate::terminal_activity::CommandActivity::Running {
+            extra.insert("busy".into(), crate::terminal_activity::busy_json(since));
+        }
+    }
+    if running && let Some(since) = surface.and_then(crate::Surface::terminal_prompt_since) {
+        extra.insert("prompt".into(), crate::terminal_activity::prompt_json(since));
     }
     if !extra.is_empty() {
         terminal["extra"] = Value::Object(extra);
@@ -565,6 +604,10 @@ pub(crate) fn public_session_snapshot_with_journal_head(
                     "name": workspace.name,
                     "index": checked_index(index)?,
                     "focused": topology.active_workspace.as_ref() == Some(&workspace.public_id),
+                    "extra": crate::resource_name::workspace_name_extra(
+                        workspace.name_source,
+                        workspace.name_revision,
+                    ),
                 }))
             })
             .collect::<anyhow::Result<Vec<_>>>()?;
@@ -766,7 +809,7 @@ pub(crate) fn public_session_snapshot_with_journal_head(
         let _terminal_defaults = public_projections.terminal_defaults;
 
         let mut snapshot = json!({
-            "machine": machine_snapshot(&context),
+            "machine": machine_snapshot(&context, false),
             "session": session_snapshot(&context),
             "workspaces": workspaces,
             "screens": screens,
@@ -846,4 +889,21 @@ fn public_browser_snapshot(
             "rows": rows.max(1),
         },
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{machine_capabilities, machine_platform};
+
+    #[test]
+    fn machine_platform_is_non_secret_and_capabilities_are_stable() {
+        let platform = machine_platform();
+        assert!(platform["os"].as_str().is_some_and(|value| !value.is_empty()));
+        assert!(platform["arch"].as_str().is_some_and(|value| !value.is_empty()));
+
+        assert_eq!(
+            machine_capabilities(),
+            serde_json::json!(["terminal", "workspace", "agent_session"])
+        );
+    }
 }

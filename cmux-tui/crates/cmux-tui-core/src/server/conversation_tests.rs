@@ -365,23 +365,20 @@ fn conversation_typing_is_broadcast_and_never_stored() {
     assert_eq!(snapshot["conversation"]["rev"], 1);
 }
 
+/// `ws-conversations-v1` (cmux#13742): an authenticated WebSocket client is
+/// the person for reads and writes (tests/cli/ws_conversations.rs), but the
+/// agent-identity commands and history import stay on the Unix socket.
 #[test]
-fn conversation_commands_require_a_trusted_local_connection() {
+fn agent_identity_and_import_commands_require_a_unix_connection() {
     let (mux, _) = conversation_mux();
     let remote = mux.control_clients.register(ClientTransport::WebSocket, writer());
     for request in [
-        json!({"cmd":"conversation-list"}),
-        json!({"cmd":"conversation-create","idempotency_key":"k","actor":"user_local",
-               "title":"t","participants":participants()}),
-        json!({"cmd":"conversation-snapshot","conversation":"conv_x","tail":1}),
-        json!({"cmd":"conversation-history","conversation":"conv_x","before_seq":1,"limit":1}),
-        json!({"cmd":"conversation-op","conversation":"conv_x","idempotency_key":"k",
-               "actor":"user_local","op":{"kind":"title.set","title":"t"}}),
-        json!({"cmd":"conversation-typing","conversation":"conv_x","actor":"user_local",
-               "on":true}),
+        json!({"cmd":"conversation-agent-token","participant":"agent_mux"}),
+        json!({"cmd":"conversation-bind","participant":"agent_mux","token":"t"}),
+        json!({"cmd":"conversation-import","conversation":"conv_x","messages":[]}),
     ] {
         let (error, _) = rejection(&mux, remote, request.clone());
-        assert!(error.contains("trusted local connection"), "{request}: {error}");
+        assert!(error.contains("local Unix socket connection"), "{request}: {error}");
     }
 }
 

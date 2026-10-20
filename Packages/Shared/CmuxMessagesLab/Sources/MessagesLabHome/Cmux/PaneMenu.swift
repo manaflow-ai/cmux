@@ -18,7 +18,10 @@ extension ChatController {
         // incoming 59 -> 98, outgoing (72,147,247) -> (45,89,192), in about 0.2 s from
         // the press; back when the menu closes).
         // The drawn balloon with its frame's corners (MessagesLab 2281879 RowDraw.balloon).
-        let hl = MenuHighlight(host: host, body: hit.outline, cornersOf: hit.body.size, outgoing: hit.row.outgoing, tail: hit.row.tail)
+        // MessagesLab 267d218: a 1-line text ends in half circles; 7924f00: my text balloon's soft edge (soft-copies).
+        let hl = MenuHighlight(host: host, body: hit.outline, cornersOf: hit.body.size, outgoing: hit.row.outgoing, tail: hit.row.tail,
+                               circularEnds: RowDraw.circularEnds(hit.row), soft: demo?.softMask(hit),
+                               scale: demo?.renderScale ?? Fixture.renderScale, softOwner: demo?.softMaskOwner(hit))
         menu.delegate = hl
         menuHighlight = hl
         hl.start()
@@ -44,8 +47,12 @@ extension ChatController {
         // cmux: no Edit or Undo Send (HomeOp has no edit or unsend).
         if case let .text(text, _) = hit.row.part {
             menu.addItem(MenuAction(title: Strings.menuCopy) { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(text, forType: .string) })
-            menu.addItem(.separator())
         }
+        // cmux: the message's permalink, the form the Channels page copies (conversation-link-resolve opens it).
+        if let link = intents?.messageLink(ref.messageId) {
+            menu.addItem(MenuAction(title: CmuxStrings.copyLink, symbol: "link") { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(link, forType: .string) })
+        }
+        if menu.items.last.map({ !$0.isSeparatorItem }) == true { menu.addItem(.separator()) }
         // cmux: a video plays in place; opening it in an app is only here.
         if case let .attachment(a) = hit.row.part {
             if a.kind == "video", let intents {
@@ -185,18 +192,37 @@ final class EmojiBubbleButton: NSView {
 /// The context menu's target highlight: a bubble-shaped layer over the row, white (incoming)
 /// or a multiply tint (outgoing), faded in when the menu opens and out when it closes.
 final class MenuHighlight: NSObject, NSMenuDelegate {
-    private let layer = CAShapeLayer()
+    private let layer: CALayer
     private weak var host: NSView?
-    init(host: NSView, body: CGRect, cornersOf frame: CGSize? = nil, outgoing: Bool, tail: Bool) {
+    /// The cell layer the same soft mask masks: the highlight's mask image is drawn the same way up (`start`).
+    private weak var softOwner: CALayer?
+    /// MessagesLab 7924f00 (cx-3cb soft-copies): `soft`, my text balloon's soft mask in the host's coordinates
+    /// (MessagesWindowView.softMask): the highlight has the balloon's soft edge, not the crisp shape over it.
+    /// `scale`: the view's renderScale.
+    init(host: NSView, body: CGRect, cornersOf frame: CGSize? = nil, outgoing: Bool, tail: Bool, circularEnds: Bool = false,
+         soft: SoftBalloon.Mask? = nil, scale: CGFloat = Fixture.renderScale, softOwner: CALayer? = nil) {
         self.host = host
-        super.init()
-        layer.path = BubblePath.make(body: body, outgoing: outgoing, tail: tail, cornersOf: frame).cgPath
-        if outgoing {
-            layer.fillColor = NSColor(srgbRed: 159 / 255, green: 154 / 255, blue: 198 / 255, alpha: 1).cgColor
-            layer.compositingFilter = "multiplyBlendMode"
+        self.softOwner = softOwner
+        // MessagesLab ced183d: incoming 59 -> 98.
+        let tint = outgoing ? NSColor(srgbRed: 159 / 255, green: 154 / 255, blue: 198 / 255, alpha: 1).cgColor : NSColor(white: 1, alpha: 0.2).cgColor
+        if outgoing, let m = soft {
+            let l = CALayer(), mask = CALayer()
+            l.frame = m.frame
+            l.backgroundColor = tint
+            mask.contents = m.image
+            mask.contentsCenter = m.center
+            mask.contentsScale = scale
+            mask.frame = l.bounds
+            l.mask = mask
+            layer = l
         } else {
-            layer.fillColor = NSColor(white: 1, alpha: 0.2).cgColor // MessagesLab ced183d: 59 -> 98
+            let l = CAShapeLayer()
+            l.path = BubblePath.make(body: body, outgoing: outgoing, tail: tail, cornersOf: frame, circularEnds: circularEnds).cgPath
+            l.fillColor = tint
+            layer = l
         }
+        if outgoing { layer.compositingFilter = "multiplyBlendMode" }
+        super.init()
         layer.opacity = 0
     }
     private var keys: Any?
@@ -209,6 +235,13 @@ final class MenuHighlight: NSObject, NSMenuDelegate {
         guard let root = host?.layer, layer.superlayer == nil else { return }
         root.addSublayer(layer)
         layer.zPosition = 10
+        // MessagesLab 7924f00: the mask image upright as in the cell (its tail at the bottom right): a layer under an
+        // odd number of flipped ancestors draws its contents the other way up than one under an even number.
+        if let owner = softOwner, let mask = layer.mask, layer.contentsAreFlipped() != owner.contentsAreFlipped() {
+            CATransaction.begin(); CATransaction.setDisableActions(true)
+            mask.transform = CATransform3DMakeScale(1, -1, 1)
+            CATransaction.commit()
+        }
         fade(to: 1, at: CACurrentMediaTime(), duration: 0.2)
         CATransaction.flush()
     }

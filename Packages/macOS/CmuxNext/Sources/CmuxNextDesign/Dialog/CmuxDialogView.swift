@@ -190,7 +190,7 @@ public final class CmuxDialogView: NSView {
         row.spacing = Metrics.space2
         row.addArrangedSubview(NSView())
         for button in spec.buttons {
-            let view = CmuxDialogButtonView(button, target: self, action: #selector(pressed(_:)))
+            let view = CmuxDialogButtonView(button, hint: CmuxDialogKeys.hint(for: button, in: spec), target: self, action: #selector(pressed(_:)))
             buttonViews.append(view)
             row.addArrangedSubview(view)
         }
@@ -228,13 +228,15 @@ public final class CmuxDialogView: NSView {
 
     private enum TextRole { case primary, secondary }
 
-    private func label(_ text: String, font: NSFont, role: TextRole, width: CGFloat) -> NSTextField {
-        let label = NSTextField(wrappingLabelWithString: text)
+    /// A themed label: it re-reads its ink in the scope it draws in (on joining
+    /// a window and on every theme change), never the scope it was built in.
+    private func label(_ text: String, font: NSFont, role: TextRole, width: CGFloat) -> ThemedLabel {
+        let label = ThemedLabel(wrappingLabelWithString: text)
         label.font = font
         label.preferredMaxLayoutWidth = width
         label.isSelectable = true
         label.focusRingType = .none
-        performWithTheme { label.textColor = role == .primary ? Palette.textPrimary : Palette.textSecondary }
+        label.ink = role == .primary ? .primary : .secondary
         label.widthAnchor.constraint(equalToConstant: width).isActive = true
         return label
     }

@@ -5,7 +5,32 @@ import type { Play } from "../../../gallery/play";
 import { PermissionPanel } from "./Panel";
 import type { PermissionClientState, PermissionGroup } from "./protocol";
 
-type Props = ComponentProps<typeof PermissionPanel>;
+// askStyle: answer-button layouts for a design comparison (cx-ncc.92), drawn by gallery-only rules
+// over the shipped row; "current" is the shipped one.
+type AskStyle = "current" | "under" | "segmented" | "text";
+type Props = ComponentProps<typeof PermissionPanel> & { askStyle?: AskStyle };
+
+const askStyles: Record<Exclude<AskStyle, "current">, string> = {
+  // The answers on a line of their own, under the command, from its text's start.
+  under: `
+    [data-ask-style="under"] .acpmux-ask-row { flex-wrap: wrap; row-gap: 2px; }
+    [data-ask-style="under"] .acpmux-ask-toggle { flex-basis: 100%; }
+    [data-ask-style="under"] .acpmux-ask-actions { margin-inline-start: 18px; padding-block-end: 4px; }`,
+  // One joined control at the row's end: equal segments on one rim, Allow filled.
+  segmented: `
+    [data-ask-style="segmented"] .acpmux-ask-actions { gap: 0; border-radius: 6px; overflow: hidden;
+      box-shadow: inset 0 0 0 var(--cmux-hairline, .5px) var(--cv-card-ring); }
+    [data-ask-style="segmented"] .acpmux-ask-action { min-width: 58px; border-radius: 0; text-align: center; }
+    [data-ask-style="segmented"] .acpmux-ask-action.is-secondary,
+    [data-ask-style="segmented"] .acpmux-ask-action + .acpmux-ask-action { box-shadow: inset var(--cmux-hairline, .5px) 0 0 var(--cv-card-ring); }`,
+  // Quiet text answers at the row's end: Allow in the accent, the others dim, no fills or rims.
+  text: `
+    [data-ask-style="text"] .acpmux-ask-actions { gap: 2px; }
+    [data-ask-style="text"] .acpmux-ask-action { padding: 0 6px; color: var(--cv-text-dim); }
+    [data-ask-style="text"] .acpmux-ask-action.is-primary { background: transparent; color: var(--agent-accent);
+      font-weight: 500; }
+    [data-ask-style="text"] .acpmux-ask-action.is-secondary { box-shadow: none; }`,
+};
 
 const request = (title: string, command: string, path: string) => ({
   toolCall: {
@@ -83,44 +108,52 @@ const uncertainState: PermissionClientState = {
   uncertain: true,
 };
 
-function GalleryPermissionPanel({ state, working, onRespond, onRetry, onRevoke, onRefresh }: Props) {
+function GalleryPermissionPanel({ state, working, onRespond, onRetry, onRevoke, onRefresh, askStyle }: Props) {
   const [action, setAction] = useState<string>();
   return (
-    <div data-permission-gallery>
-      <PermissionPanel
-        state={state}
-        working={working}
-        onRespond={(groupId, revision, decision) => {
-          setAction(decision);
-          onRespond(groupId, revision, decision);
-        }}
-        onRetry={() => {
-          setAction("retry");
-          onRetry();
-        }}
-        onRevoke={() => {
-          setAction("revoke");
-          onRevoke();
-        }}
-        onRefresh={() => {
-          setAction("refresh");
-          onRefresh();
-        }}
-      />
-      <output aria-live="polite" data-permission-action={action}>
-        {action ?? ""}
-      </output>
+    // Inside the shell and the pane's asks stack, as in the pane: the shell defines the card's edge
+    // color (styles.css), and the stack's column sets its width. Straight in the shell's row, the
+    // panel took its command's whole width and ran past a narrow frame (cx-ncc.111).
+    <div className="acpmux-shell" data-permission-gallery data-ask-style={askStyle}>
+      {askStyle && askStyle !== "current" && <style>{askStyles[askStyle]}</style>}
+      <div className="acpmux-main">
+        <div className="acpmux-permission acpmux-asks-stack">
+          <PermissionPanel
+            state={state}
+            working={working}
+            onRespond={(groupId, revision, decision) => {
+              setAction(decision);
+              onRespond(groupId, revision, decision);
+            }}
+            onRetry={() => {
+              setAction("retry");
+              onRetry();
+            }}
+            onRevoke={() => {
+              setAction("revoke");
+              onRevoke();
+            }}
+            onRefresh={() => {
+              setAction("refresh");
+              onRefresh();
+            }}
+          />
+        </div>
+        <output aria-live="polite" data-permission-action={action}>
+          {action ?? ""}
+        </output>
+      </div>
     </div>
   );
 }
 
 const expandDetails: Play = async (ctx) => {
-  await ctx.click({ role: "button", name: "Expand details" });
-  await ctx.waitFor(() => Boolean(ctx.document.querySelector(".acpmux-permission-items details[open]")));
+  await ctx.click({ selector: ".acpmux-ask-toggle" });
+  await ctx.waitFor(() => Boolean(ctx.document.querySelector(".acpmux-ask-details")));
 };
 
 const allowOnce: Play = async (ctx) => {
-  await ctx.click({ role: "button", name: "Allow once" });
+  await ctx.click({ role: "button", name: "Allow" });
   await ctx.waitFor(() => ctx.document.querySelector('[data-permission-action="allow_once"]'));
 };
 
@@ -160,14 +193,21 @@ export default componentEntry<Props>({
   pane: true,
   covers: ["agent-session/acpmux/permissions/Panel.tsx#PermissionPanel"],
   load: async () => GalleryPermissionPanel,
-  styles: () => import("../styles.css"),
+  // The app loads these together (dev.tsx); the card's edge and fill live in composerLocation.css, the
+  // ask row in conversation.css.
+  styles: () =>
+    Promise.all([
+      import("../styles.css"),
+      import("../composerStates.css"),
+      import("../composerLocation.css"),
+      import("../conversation/conversation.css"),
+    ]),
   widths: { narrow: 360, normal: 540, wide: 760 },
   height: 420,
   checks: {
     layoutShiftMax: {
       value: 0.05,
-      reason:
-        "Opening an in-flow permission detail intentionally moves the decision controls below the revealed request.",
+      reason: "Opening a row's details moves the rows below it; the answers stay on the row.",
     },
     longFrameFailMs: {
       value: 33,
@@ -179,17 +219,48 @@ export default componentEntry<Props>({
     },
   },
   variants: {
+    "buttons-current": {
+      note: "cx-ncc.92 comparison, A (shipped): one ask, Allow / Always / Deny at the row's right end.",
+      props: {
+        state: { ...baseState, groups: [{ ...pendingGroup, items: pendingGroup.items.slice(0, 1) }] },
+        ...callbacks,
+      },
+    },
+    "buttons-under": {
+      note: "cx-ncc.92 comparison, B: the answers on their own line under the command, from its text's start.",
+      props: {
+        state: { ...baseState, groups: [{ ...pendingGroup, items: pendingGroup.items.slice(0, 1) }] },
+        ...callbacks,
+        askStyle: "under",
+      },
+    },
+    "buttons-segmented": {
+      note: "cx-ncc.92 comparison, C: one joined Allow | Always | Deny control at the row's end.",
+      props: {
+        state: { ...baseState, groups: [{ ...pendingGroup, items: pendingGroup.items.slice(0, 1) }] },
+        ...callbacks,
+        askStyle: "segmented",
+      },
+    },
+    "buttons-text": {
+      note: "cx-ncc.92 comparison, D: quiet text answers at the row's end, Allow in the accent.",
+      props: {
+        state: { ...baseState, groups: [{ ...pendingGroup, items: pendingGroup.items.slice(0, 1) }] },
+        ...callbacks,
+        askStyle: "text",
+      },
+    },
     pending: {
-      note: "Two grouped tool requests show the pending approval surface.",
+      note: "Two grouped commands wait: one quiet row each, the verb and command once, Allow / Always / Deny at the first row's end.",
       props: { state: baseState, ...callbacks },
     },
     expanded: {
-      note: "Expand details reveals each requested command without losing the decision controls.",
+      note: "A click on a row opens its full command, folder and scope in plain words; the answers stay on the row.",
       props: { state: baseState, ...callbacks },
       play: expandDetails,
     },
     "allow-once": {
-      note: "Allow once records the selected decision while the host owns the eventual state update.",
+      note: "Allow records the selected decision while the host owns the eventual state update.",
       props: { state: baseState, ...callbacks },
       play: allowOnce,
     },

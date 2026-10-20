@@ -34,6 +34,11 @@ export const PartIndex = Schema.Number.check(Schema.isInt(), Schema.isGreaterTha
 
 export const ConversationKind = Schema.Literals(["chief", "dm", "group"]).annotate({ identifier: "ConversationKind" })
 
+/** Group roles (home-core conversation/roles.ts): one owner; admins manage people; read_only members only read. */
+export const ParticipantRole = Schema.Literals(["owner", "admin", "member", "read_only"]).annotate({ identifier: "HomeParticipantRole" })
+/** A role an op may grant (never owner: that is ownership.transfer). */
+export const GrantableRole = Schema.Literals(["admin", "member", "read_only"]).annotate({ identifier: "HomeGrantableRole" })
+
 export const Participant = Schema.Struct({
   id: ParticipantId,
   kind: Schema.Literals(["human", "agent", "address"]),
@@ -41,7 +46,7 @@ export const Participant = Schema.Struct({
   agent_class: Schema.optionalKey(Schema.Literals(["mux", "agent"])),
   acp_session: Schema.optionalKey(Schema.String),
   owner_user: Schema.optionalKey(Schema.String),
-  role: Schema.optionalKey(Schema.Literals(["owner", "member"])),
+  role: Schema.optionalKey(ParticipantRole),
   joined_seq: Schema.optionalKey(Seq),
   added_by: Schema.optionalKey(Schema.String),
   left_at: Schema.optionalKey(Timestamp)
@@ -125,6 +130,18 @@ export const ReactionKind = Schema.Union([
 
 export const Reaction = Schema.Struct({ author: ParticipantId, part_index: PartIndex, kind: ReactionKind, at: Timestamp }).annotate({ identifier: "HomeReaction" })
 
+export const ThreadStatus = Schema.Literals(["open", "resolved"]).annotate({ identifier: "HomeThreadStatus" })
+
+/** The thread object a root message carries (thread.update, conversation-thread-objects-v1). */
+export const ThreadState = Schema.Struct({
+  title: Schema.optionalKey(Schema.String),
+  owner: Schema.optionalKey(ParticipantId),
+  resolved: Schema.optionalKey(Schema.Struct({ by: ParticipantId, at: Timestamp, seq: Seq }))
+}).annotate({
+  identifier: "HomeThreadState",
+  description: "title, owner and resolution of a thread root. The thread reads as resolved only while no live reply has a seq above resolved.seq: a new reply reopens it."
+})
+
 export const Message = Schema.Struct({
   id: MessageId,
   conversation: ConversationId,
@@ -134,6 +151,7 @@ export const Message = Schema.Struct({
   parts: Schema.Array(Part),
   reply_to: Schema.optionalKey(PartRef),
   thread_root: Schema.optionalKey(MessageId),
+  thread: Schema.optionalKey(ThreadState),
   created_at: Timestamp,
   edited_at: Schema.optionalKey(Timestamp),
   retracted_at: Schema.optionalKey(Timestamp),
@@ -149,8 +167,16 @@ export const ThreadSummary = Schema.Struct({
   reply_count: Seq,
   last_reply_seq: Schema.NullOr(Seq),
   last_reply_at: Schema.NullOr(Timestamp),
-  authors: Schema.Array(ParticipantId).check(Schema.isMaxLength(3))
-}).annotate({ identifier: "HomeThreadSummary" })
+  authors: Schema.Array(ParticipantId).check(Schema.isMaxLength(3)),
+  status: Schema.optionalKey(ThreadStatus),
+  title: Schema.optionalKey(Schema.String),
+  owner: Schema.optionalKey(ParticipantId),
+  resolved_by: Schema.optionalKey(ParticipantId),
+  resolved_at: Schema.optionalKey(Timestamp)
+}).annotate({
+  identifier: "HomeThreadSummary",
+  description: "status is derived (resolved while the root's resolution is newer than every live reply); title and owner come from the root's thread object; resolved_by and resolved_at only while resolved."
+})
 
 export const DeliveryState = Schema.Literals(["queued", "sent", "delivered", "bounced", "complained", "failed", "suppressed", "refused_env"]).annotate({ identifier: "HomeDeliveryState" })
 
@@ -201,7 +227,8 @@ export const ConversationSummary = Schema.Struct({
   state: Schema.optionalKey(Schema.Literals(["active", "archived"])),
   settings: Schema.optionalKey(ConversationSettings),
   invites: Schema.optionalKey(Schema.Array(PublicInvite)),
-  retention_days: Schema.optionalKey(Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(30)))
+  retention_days: Schema.optionalKey(Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(30))),
+  member_count: Schema.optionalKey(Seq.annotate({ description: "A large group (more than 64 members): participants is a roster of at most 16 humans plus the owner and agents; this counts every current participant, and conversation.members pages them." }))
 }).annotate({ identifier: "HomeConversationSummary" })
 
 /** The owner's answer to a conversation mutation (home-core domain `value`). */
@@ -227,6 +254,8 @@ export const InboxEntry = Schema.Struct({
   ),
   dm_peer: Schema.optionalKey(ParticipantId),
   removed: Schema.Boolean,
+  large: Schema.optionalKey(Schema.Boolean.annotate({ description: "A large group: inbox.list pulls this row from the conversation, and the inbox stream bumps it only when you are named (a mention, your own message, being added or removed)." })),
+  member_count: Schema.optionalKey(Seq),
   unread: Seq,
   mentions: Seq,
   counts_rev: Seq,

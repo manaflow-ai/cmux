@@ -208,6 +208,10 @@ pub(in crate::cli) fn safe_operation_cases() -> Vec<(Vec<&'static str>, &'static
         (vec!["workspace", WORKSPACE, "rename", "--name", "api"], "workspace.rename"),
         (vec!["workspace", WORKSPACE, "move", "--index", "2"], "workspace.move"),
         (vec!["workspace", WORKSPACE, "focus"], "workspace.focus"),
+        (
+            vec!["workspace", WORKSPACE, "open-url", "--url", "https://example.com/docs"],
+            "workspace.open_url",
+        ),
         (vec!["workspace", WORKSPACE, "close"], "workspace.close"),
         (
             vec![
@@ -623,13 +627,21 @@ pub(in crate::cli) fn safe_operation_cases() -> Vec<(Vec<&'static str>, &'static
                 "--body",
                 "tests passed",
                 "--level",
-                "success",
+                "info",
                 "--terminal",
                 TERMINAL,
             ],
             "notification.create",
         ),
         (vec!["agent", "list", "--terminal", TERMINAL, "--state", "working"], "agent.list"),
+        (
+            vec!["agent", "message", "release", "msg_1", "--recipient", TERMINAL, "--approve"],
+            "agent.message.release",
+        ),
+        (
+            vec!["agent", "message", "unsend", "msg_1", "--recipient", TERMINAL],
+            "agent.message.unsend",
+        ),
         (
             vec![
                 "agent",
@@ -775,6 +787,63 @@ fn state_resource_cases<'a>(
         (vec!["tab", tab, "pin"], "tab.pin"),
         (vec!["tab", tab, "unpin"], "tab.unpin"),
         (vec!["tab", tab, "update", "--zoom", "1.5"], "tab.update"),
+        (
+            vec!["tab", tab, "emulate", "--device", "iPhone 15", "--orientation", "horizontal"],
+            "browser.tab.emulate",
+        ),
+        (vec!["tab", tab, "emulate", "clear"], "browser.tab.emulate.clear"),
+        (vec!["browser", "devices", "list"], "browser.devices.list"),
+        (
+            vec![
+                "browser",
+                "devices",
+                "add",
+                "--device-json",
+                r#"{"title":"Kiosk","screen":{"vertical":{"width":600,"height":1000},"horizontal":{"width":1000,"height":600},"device-pixel-ratio":2}}"#,
+            ],
+            "browser.devices.add_custom",
+        ),
+        (vec!["browser", "devices", "remove", "--title", "Kiosk"], "browser.devices.remove_custom"),
+        (
+            vec!["browser", "tab", tab, "set-profile", "--profile", "Work"],
+            "browser.tab.set_profile",
+        ),
+        (vec!["browser", "profile", "list"], "browser.profile.list"),
+        (
+            vec![
+                "browser",
+                "profile",
+                "create",
+                "--name",
+                "Work",
+                "--color",
+                "blue",
+                "--icon",
+                "briefcase",
+                "--index",
+                "0",
+            ],
+            "browser.profile.create",
+        ),
+        (
+            vec![
+                "browser",
+                "profile",
+                "open",
+                "https://example.com/",
+                "--profile",
+                "Work",
+                "--engine",
+                "cef",
+                "--title",
+                "Example",
+                "--background",
+                "true",
+                "--pane",
+                pane,
+            ],
+            "browser.profile.open",
+        ),
         (vec!["tab", "group", "list", "--pane", pane], "tab_group.list"),
         (vec!["tab", "group", "g", "show"], "tab_group.get"),
         (

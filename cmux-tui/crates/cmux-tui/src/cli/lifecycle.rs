@@ -30,12 +30,26 @@ pub(super) enum ServerAction {
         /// on stdout before the result, so the app bounds its wait by
         /// progress instead of a fixed timeout.
         progress: bool,
+        /// Private app contract (cx-hnmbt.2): an owner this call spawns
+        /// opens its loopback WebSocket listener (`--ws-loopback`).
+        websocket: Option<crate::local_owner::EnsureWebSocket>,
+        /// Private app contract (cx-jniyz, the app's "Restart cmux-tui"):
+        /// first stop an owner that accepts but does not answer `identify`
+        /// (`local_owner::replace_if_unresponsive`), then ensure as usual.
+        replace_unresponsive: bool,
     },
     Stop {
         force: bool,
         end_terminals: bool,
     },
     ReloadConfig,
+    /// cx-ossub: rewrite the session's registry into a compact file with
+    /// incremental auto-vacuum while no owner runs (refused while one does).
+    /// Needs an explicit `--session`; `--state-dir` overrides the default
+    /// state root (`CMUX_TUI_STATE_DIR` or the platform default).
+    CompactRegistry {
+        state_dir: Option<std::path::PathBuf>,
+    },
 }
 
 pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
@@ -63,6 +77,9 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
         );
     }
     let expected_session = global.session.clone();
+    if let ServerAction::CompactRegistry { state_dir } = plan.action {
+        return run_compact_registry(expected_session, state_dir, global.output);
+    }
     let (socket, socket_is_derived) = match super::wire::resolve_socket_with_origin(&global) {
         Ok(resolved) => resolved,
         Err(error) => {
@@ -96,7 +113,14 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
         }
     };
     let socket_output = socket.to_string_lossy().into_owned();
-    if let ServerAction::Ensure { terminal_reap_grace, install_key_stdin, progress } = plan.action {
+    if let ServerAction::Ensure {
+        terminal_reap_grace,
+        install_key_stdin,
+        progress,
+        websocket,
+        replace_unresponsive,
+    } = plan.action
+    {
         // Read before anything else: stdin is the app's pipe, never argv/env.
         let install_key = match install_key_stdin.then(read_install_key_from_stdin).transpose() {
             Ok(key) => key,
@@ -109,9 +133,9 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
             expected_session,
             terminal_reap_grace,
             install_key,
-            socket,
-            socket_is_derived,
-            progress,
+            (socket, socket_is_derived),
+            (progress, replace_unresponsive),
+            websocket,
             global.output,
         );
     }
@@ -141,6 +165,24 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
     let deadline = Instant::now() + Duration::from_secs(10);
     let identity = match exchange(&mut connection, json!({"id":1,"cmd":"identify"}), deadline) {
         Ok(identity) => identity,
+        // A timeout is a busy session, not a foreign one: say so, or the
+        // reader restarts a healthy session with another build.
+        Err(ExchangeError::Timeout) => {
+            return local_error(
+                "server.busy",
+                crate::localization::catalog().local_server.identity_timeout,
+                global.output,
+                3,
+            );
+        }
+        Err(ExchangeError::Closed | ExchangeError::Transport) => {
+            return local_error(
+                "server.unavailable",
+                crate::localization::catalog().local_server.communication_failed,
+                global.output,
+                3,
+            );
+        }
         Err(_) => {
             return local_error(
                 "server.identity_failed",
@@ -212,7 +254,9 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
     }
 
     match plan.action {
-        ServerAction::Ensure { .. } => unreachable!("ensure returns before the lifecycle exchange"),
+        ServerAction::Ensure { .. } | ServerAction::CompactRegistry { .. } => {
+            unreachable!("ensure and compact-registry return before the lifecycle exchange")
+        }
         ServerAction::Status => print_success(
             json!({
                 "status":"running",
@@ -416,14 +460,16 @@ fn read_install_key_from_stdin() -> std::io::Result<cmux_tui_core::server::Front
 
 /// `server ensure`: connect to a ready owner, spawning a detached one when
 /// nothing serves the socket. Reports `running` for an owner that already
-/// existed and `started` for one this call spawned.
+/// existed and `started` for one this call spawned. `socket` is the socket
+/// path and whether it was derived from the session name; the flag pair is
+/// `--restore-progress` and `--replace-unresponsive`.
 fn run_ensure(
     expected_session: Option<String>,
     terminal_reap_grace: Option<Duration>,
     install_key: Option<cmux_tui_core::server::FrontendKey>,
-    socket: std::path::PathBuf,
-    socket_is_derived: bool,
-    progress: bool,
+    (socket, socket_is_derived): (std::path::PathBuf, bool),
+    (progress, replace_unresponsive): (bool, bool),
+    websocket: Option<crate::local_owner::EnsureWebSocket>,
     output: OutputMode,
 ) -> i32 {
     let messages = &crate::localization::catalog().local_server;
@@ -440,6 +486,31 @@ fn run_ensure(
         // The app's Chief owner: the brain tools socket this client was
         // started with (taken out of its environment at start).
         chief_tools_socket: crate::startup_env::chief_tools_socket(),
+        // ...and the Chief brains the app gave it (taken out at start too).
+        chief_brains: cmux_tui_core::chief_brains::taken(),
+        websocket,
+    };
+    let replaced = if replace_unresponsive {
+        match crate::local_owner::replace_if_unresponsive(&spec) {
+            Ok(replaced) => replaced.map(|replaced| replaced.pid),
+            Err(error) => {
+                let details = match &error {
+                    crate::local_owner::ReplaceError::Signal(error) => {
+                        json!({"reason": error.to_string()})
+                    }
+                    _ => json!({}),
+                };
+                return local_error_with_details(
+                    error.code(),
+                    messages.replace_refused,
+                    details,
+                    output,
+                    3,
+                );
+            }
+        }
+    } else {
+        None
     };
     let deadline = Instant::now() + crate::local_owner::ENSURE_DEADLINE;
     let report = |restoring: &crate::local_owner::Restoring| {
@@ -455,43 +526,55 @@ fn run_ensure(
         Ok(ensured) => {
             let (status, message, ready) = match &ensured {
                 crate::local_owner::Ensured::Running(ready) => ("running", messages.running, ready),
+                crate::local_owner::Ensured::Started(ready) if replaced.is_some() => {
+                    ("replaced", messages.replaced, ready)
+                }
                 crate::local_owner::Ensured::Started(ready) => ("started", messages.started, ready),
             };
-            print_success(
-                json!({
-                    "status":status,
-                    "session":ready.session,
-                    "socket":socket_output,
-                    "pid":ready.pid,
-                    "generation":ready.generation,
-                    "message":message,
-                }),
-                output,
-            )
+            let mut result = json!({
+                "status":status,
+                "session":ready.session,
+                "socket":socket_output,
+                "pid":ready.pid,
+                "generation":ready.generation,
+                "message":message,
+            });
+            if let Some(pid) = replaced {
+                result["replaced_pid"] = json!(pid);
+            }
+            print_success(result, output)
         }
-        Err(crate::local_owner::EnsureError::Spawn(_error)) => {
-            local_error("server.spawn_failed", &messages.owner_spawn_failed(), output, 3)
-        }
-        Err(crate::local_owner::EnsureError::NotReady) => {
-            local_error("server.unavailable", messages.owner_not_ready, output, 3)
-        }
-        Err(crate::local_owner::EnsureError::RestoreTimeout) => {
-            local_error("server.restore_timeout", messages.owner_restore_timeout, output, 3)
-        }
-        Err(crate::local_owner::EnsureError::WrongOwner) => {
-            local_error("server.wrong_owner", messages.wrong_owner, output, 1)
-        }
-        Err(crate::local_owner::EnsureError::DifferentSession) => {
-            local_error("server.different_session", messages.different_session, output, 1)
-        }
-        Err(crate::local_owner::EnsureError::DifferentState) => {
-            local_error("server.different_state", messages.different_state, output, 1)
-        }
-        Err(crate::local_owner::EnsureError::InvalidIdentity) => {
-            local_error("server.invalid_identity", messages.invalid_identity, output, 3)
-        }
-        Err(crate::local_owner::EnsureError::UnsupportedProtocol) => {
-            local_error("server.unsupported_protocol", messages.unsupported_protocol, output, 3)
+        Err(error) => {
+            let (code, message, exit_code) = match error {
+                crate::local_owner::EnsureError::Spawn(_error) => {
+                    ("server.spawn_failed", messages.owner_spawn_failed(), 3)
+                }
+                crate::local_owner::EnsureError::NotReady => {
+                    ("server.unavailable", messages.owner_not_ready.to_string(), 3)
+                }
+                crate::local_owner::EnsureError::RestoreTimeout => {
+                    ("server.restore_timeout", messages.owner_restore_timeout.to_string(), 3)
+                }
+                crate::local_owner::EnsureError::WrongOwner => {
+                    ("server.wrong_owner", messages.wrong_owner.to_string(), 1)
+                }
+                crate::local_owner::EnsureError::DifferentSession => {
+                    ("server.different_session", messages.different_session.to_string(), 1)
+                }
+                crate::local_owner::EnsureError::DifferentState => {
+                    ("server.different_state", messages.different_state.to_string(), 1)
+                }
+                crate::local_owner::EnsureError::InvalidIdentity => {
+                    ("server.invalid_identity", messages.invalid_identity.to_string(), 3)
+                }
+                crate::local_owner::EnsureError::UnsupportedProtocol => {
+                    ("server.unsupported_protocol", messages.unsupported_protocol.to_string(), 3)
+                }
+            };
+            // The app learns that the old owner is gone even when the new
+            // one did not start.
+            let details = replaced.map_or_else(|| json!({}), |pid| json!({"replaced_pid": pid}));
+            local_error_with_details(code, &message, details, output, exit_code)
         }
     }
 }
@@ -649,6 +732,66 @@ fn wait_for_close(
 
 fn usage_error(message: &str, output: OutputMode) -> i32 {
     local_error("usage.invalid", message, output, 2)
+}
+
+/// `server compact-registry --session <name> [--state-dir <path>]`: offline,
+/// with the owner's session locks, so it needs no socket. The session is
+/// never guessed: a wrong default would compact another session than the one
+/// the user stopped. Exit 3 with `server.compact_owner_running` while an
+/// owner holds the session.
+fn run_compact_registry(
+    expected_session: Option<String>,
+    state_dir: Option<std::path::PathBuf>,
+    output: OutputMode,
+) -> i32 {
+    let messages = &crate::localization::catalog().local_server;
+    let Some(session) = expected_session else {
+        return local_error("usage.invalid", messages.registry_compact_needs_session, output, 2);
+    };
+    let Some(root) = state_dir.or_else(cmux_tui_core::platform::workspace_state_dir) else {
+        return local_error_with_details(
+            "server.compact_no_registry",
+            messages.registry_compact_no_registry,
+            json!({"session": session, "reason": "no_state_dir"}),
+            output,
+            3,
+        );
+    };
+    match cmux_tui_core::compact_registry(&root, &session) {
+        Ok(compaction) => print_success(
+            json!({
+                "status": "compacted",
+                "session": session,
+                "path": compaction.path.to_string_lossy(),
+                "before_bytes": compaction.before_bytes,
+                "after_bytes": compaction.after_bytes,
+                "warning": compaction.warning,
+                "message": messages.registry_compacted,
+            }),
+            output,
+        ),
+        Err(cmux_tui_core::RegistryCompactError::NoRegistry(path)) => local_error_with_details(
+            "server.compact_no_registry",
+            messages.registry_compact_no_registry,
+            json!({"session": session, "path": path.to_string_lossy()}),
+            output,
+            3,
+        ),
+        Err(cmux_tui_core::RegistryCompactError::OwnerRunning(error)) => local_error_with_details(
+            "server.compact_owner_running",
+            messages.registry_compact_owner_running,
+            json!({"session": session, "reason": format!("{error:#}")}),
+            output,
+            3,
+        ),
+        Err(cmux_tui_core::RegistryCompactError::Failed(error)) => local_error_with_details(
+            "server.compact_failed",
+            messages.registry_compact_failed,
+            json!({"session": session, "reason": format!("{error:#}")}),
+            output,
+            1,
+        ),
+    }
 }
 
 fn local_error(code: &str, message: &str, output: OutputMode, exit_code: i32) -> i32 {

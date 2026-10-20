@@ -1,8 +1,6 @@
 # Files whose contents determine the cmux-next cmux-tui tree key.
 #
-# The first column is the git object type at the revision.  Keep this list in
-# sync with the pull_request_target paths filter; the workflow test checks that
-# the two views do not drift.
+# The first column is the git object type at the revision.
 #
 # `gitlink ghostty` counts only for the v1 key (cmux_tui_tree_key.py
 # V1_ONLY_INPUTS); the v2 key leaves the classic submodule out.
@@ -27,8 +25,7 @@ tree scripts/ci/macos-stubs
 tree first-party-apps/cloud/server
 # Files cmux-tui crates compile in with include_str!/include_bytes! (cx-t3e5,
 # 2026-10-08). scripts/ci/check_cmux_tui_tree_inputs.py fails when a crate
-# embeds a file this list does not cover and prints the line to add; add the
-# same path to cmux-tui-artifacts.yml's pull_request_target paths. A blob a
+# embeds a file this list does not cover and prints the line to add. A blob a
 # revision lacks is left out of its key.
 blob Packages/macOS/CmuxNext/Tests/CmuxNextSidebarTests/Fixtures/sidebar-layout-cases.json
 blob backend/catalog/cloud-operations.json
@@ -37,6 +34,9 @@ blob backend/packages/home-core/conformance/conversation-import-cases.json
 blob backend/packages/home-core/conformance/conversation-search-cases.json
 blob mux/packages/brain/conformance/chief-cases.json
 blob plans/cmux-next/action-surfaces.json
+# Not plans/cmux-next/spec-proposals/visuals/design-tokens.json: cmux-theme-tokens
+# embeds it and cmux-motion's build.rs reads it, but no published binary links
+# either crate (scripts/ci/check_cmux_tui_tree_inputs.py checks the closure).
 blob schemas/chief-home/vectors.json
 blob schemas/agent-url-policy/vectors.json
 blob schemas/chief-cmux-target/vectors.json
@@ -53,7 +53,10 @@ blob schemas/remote-tab/messages.json
 blob schemas/remote-tab/scroll-writer.json
 blob schemas/remote-tab/session.json
 blob schemas/terminal-sizing/fixtures.json
+blob schemas/settings/retired-keys.json
+blob schemas/settings/source/subsessions.json
 blob schemas/settings/settings-schema.json
+blob schemas/settings/source/subsessions.json
 blob scripts/cmux-next/cmux-tui.pin
 blob skills/cmux-browser/SKILL.md
 blob skills/cmux-browser/references/authentication.md

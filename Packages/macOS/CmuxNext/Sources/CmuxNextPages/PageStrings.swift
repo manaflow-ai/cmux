@@ -21,6 +21,12 @@ nonisolated enum PageStrings {
     static var asksFor: String { t("pages.confirm.asksFor", "It asks for:") }
     static var opensWeb: String { t("pages.confirm.opensWeb", "It opens these web addresses:") }
 
+    static var sandboxOff: String { t("pages.confirm.apps.sandboxOff", "Turn off the sandbox for “%@”?") }
+    static var sandboxOn: String { t("pages.confirm.apps.sandboxOn", "Turn on the sandbox for “%@”?") }
+    static var enable: String { t("pages.confirm.apps.enable", "Turn on “%@”?") }
+    static var disable: String { t("pages.confirm.apps.disable", "Turn off “%@”?") }
+    static var change: String { t("pages.confirm.apps.change", "Change “%@”?") }
+
     static var cloudPublish: String { t("pages.confirm.cloud.publish", "Publish “%@” to the internet?") }
     static var cloudFirewall: String { t("pages.confirm.cloud.firewall", "Change the firewall of “%@”?") }
     static var cloudBilling: String { t("pages.confirm.cloud.billing", "Open billing in your browser?") }

@@ -161,7 +161,9 @@ export class HistoryStore {
     try {
       const result = await this.client.call<HistoryListResult>(HistoryOps.list, params);
       if (generation !== this.generation) return;
-      const entries = result.entries;
+      // cmux.protocol/2 sends a decimal as a string ("1791916418192"); `new Date("…")` of that is
+      // an invalid date, and the grouping threw while rendering (a blank page, cx-hnmbt.8).
+      const entries = result.entries.map((entry) => ({ ...entry, at_ms: Number(entry.at_ms) }));
       this.set({
         entries,
         groups: groupEntries(entries, this.snapshot.grouping),

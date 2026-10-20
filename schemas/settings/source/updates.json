@@ -1,0 +1,267 @@
+{
+  "$comment": "HAND-EDITED source of the Updates and Announcements settings (cx-d5b5d). scripts/cmux-next/gen-settings-sources.py writes the Swift descriptors and the parser constants (paths, defaults, ranges, choice values) from this file; schemas/settings/settings-schema.json is still exported from Swift and must not change when this file moves. Row fields: key (dotted cmux.json path), name (identifier for generated constants; default the last path part), title/help/summary {key: string catalog key, text: English}, kind (toggle | number | choice | folder_list), choices [{value, title}], range {min, max, step, unit, placeholder (default min)}, default, aliases {old value: value it loads as}, keywords, note (developer note, not shown).",
+  "lists": [
+    {
+      "name": "updates",
+      "section": "general",
+      "group": {
+        "key": "settings.group.updates",
+        "text": "Updates"
+      },
+      "note": "Automatic updates under General (R114): every step of checking, downloading and installing is a row; the defaults keep cmux current with no clicks beyond the one that relaunches.",
+      "rows": [
+        {
+          "key": "updates.checkAutomatically",
+          "title": {
+            "key": "settings.updates.checkAutomatically",
+            "text": "Check for Updates Automatically"
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "update",
+            "sparkle",
+            "check",
+            "automatic"
+          ]
+        },
+        {
+          "key": "updates.checkIntervalSeconds",
+          "name": "checkInterval",
+          "note": "Seconds between automatic checks.",
+          "title": {
+            "key": "settings.updates.checkInterval",
+            "text": "Check Every"
+          },
+          "kind": "number",
+          "range": {
+            "min": 900,
+            "max": 604800,
+            "step": 900,
+            "unit": "seconds"
+          },
+          "default": 3600,
+          "keywords": [
+            "update",
+            "interval",
+            "frequency",
+            "hourly",
+            "daily"
+          ]
+        },
+        {
+          "key": "updates.downloadAutomatically",
+          "title": {
+            "key": "settings.updates.downloadAutomatically",
+            "text": "Download Updates Automatically"
+          },
+          "help": {
+            "key": "settings.updates.downloadAutomatically.help",
+            "text": "Off: a found update waits, and one click downloads and installs it."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "update",
+            "download",
+            "background",
+            "metered"
+          ]
+        },
+        {
+          "key": "updates.meteredNetwork",
+          "note": "What automatic downloads do on a metered link.",
+          "title": {
+            "key": "settings.updates.meteredNetwork",
+            "text": "On Metered Networks"
+          },
+          "help": {
+            "key": "settings.updates.meteredNetwork.help",
+            "text": "While downloads wait, a found update shows on Settings and one click downloads it."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "defer-low-data",
+              "title": {
+                "key": "settings.choice.updatesDeferLowData",
+                "text": "Wait in Low Data Mode"
+              }
+            },
+            {
+              "value": "defer-expensive",
+              "title": {
+                "key": "settings.choice.updatesDeferExpensive",
+                "text": "Wait on Cellular and Low Data"
+              }
+            },
+            {
+              "value": "download",
+              "title": {
+                "key": "settings.choice.updatesDownloadAlways",
+                "text": "Always Download"
+              }
+            }
+          ],
+          "default": "defer-low-data",
+          "keywords": [
+            "update",
+            "metered",
+            "cellular",
+            "low data",
+            "hotspot"
+          ]
+        },
+        {
+          "key": "updates.installOnQuit",
+          "title": {
+            "key": "settings.updates.installOnQuit",
+            "text": "Install Updates When Quitting"
+          },
+          "help": {
+            "key": "settings.updates.installOnQuit.help",
+            "text": "A downloaded update installs as cmux quits. Terminals keep running."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "update",
+            "install",
+            "quit"
+          ]
+        },
+        {
+          "key": "updates.notify",
+          "note": "How a ready update makes itself known: the control on the Settings item, or nothing (installs on quit). The old card value (the update card, removed 2026-10-05) loads as badge.",
+          "title": {
+            "key": "settings.updates.notify",
+            "text": "When an Update Is Ready"
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "badge",
+              "title": {
+                "key": "settings.choice.updatesBadge",
+                "text": "Badge Settings Only"
+              }
+            },
+            {
+              "value": "silent",
+              "title": {
+                "key": "settings.choice.updatesSilent",
+                "text": "Install Silently on Quit"
+              }
+            }
+          ],
+          "default": "badge",
+          "aliases": {
+            "card": "badge"
+          },
+          "keywords": [
+            "update",
+            "notify",
+            "badge",
+            "silent"
+          ]
+        },
+        {
+          "key": "updates.keepPreviousVersions",
+          "note": "Previous builds kept for rollback (cmux update rollback); a whole number.",
+          "title": {
+            "key": "settings.updates.keepPreviousVersions",
+            "text": "Keep Previous Versions"
+          },
+          "help": {
+            "key": "settings.updates.keepPreviousVersions.help",
+            "text": "Earlier builds kept so you can roll back. Uses almost no disk until files change."
+          },
+          "kind": "number",
+          "range": {
+            "min": 0,
+            "max": 5,
+            "step": 1,
+            "unit": "count"
+          },
+          "default": 1,
+          "keywords": [
+            "update",
+            "rollback",
+            "previous",
+            "downgrade"
+          ]
+        },
+        {
+          "key": "updates.showWhatsNew",
+          "note": "The bottom-left \"cmux Updated!\" card after an update (WHATS-NEW-AFTER-UPDATE W1; never a top-of-sidebar item); managed config can force it off.",
+          "title": {
+            "key": "settings.updates.showWhatsNew",
+            "text": "Show What's New After Updates"
+          },
+          "help": {
+            "key": "settings.updates.showWhatsNew.help",
+            "text": "After an update, a card at the bottom of the sidebar links to What's New until you open or dismiss it."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "whats new",
+            "release notes",
+            "changelog",
+            "update",
+            "sidebar"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "announcements",
+      "section": "general",
+      "group": {
+        "key": "settings.group.announcements",
+        "text": "Announcements"
+      },
+      "note": "The cmux announcement cards above Settings (R114). enabled false hides them for good (Settings or the palette brings them back); fetch false means no network for them.",
+      "rows": [
+        {
+          "key": "announcements.enabled",
+          "title": {
+            "key": "settings.announcements.enabled",
+            "text": "Show Announcements"
+          },
+          "help": {
+            "key": "settings.announcements.enabled.help",
+            "text": "Short cards from the cmux team above Settings, shown when the pointer is over the sidebar."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "announcements",
+            "news",
+            "cards",
+            "whats new"
+          ]
+        },
+        {
+          "key": "announcements.fetch",
+          "title": {
+            "key": "settings.announcements.fetch",
+            "text": "Download Announcements"
+          },
+          "help": {
+            "key": "settings.announcements.fetch.help",
+            "text": "Off: cmux never asks the network for announcements. The request carries no identifiers."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "announcements",
+            "privacy",
+            "offline",
+            "network"
+          ]
+        }
+      ]
+    }
+  ]
+}

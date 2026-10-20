@@ -5,8 +5,9 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use crate::MAX_SMALL_OUTPUT_BYTES;
-use crate::parse;
-use crate::run::{DEADLINE, GitFailure, GitOutput, run_git_within};
+use crate::run::{
+    DEADLINE, GitFailure, GitOutput, Override, run_git_records_within, run_git_within,
+};
 
 /// A repository's top level, which every run works from, and the config
 /// overrides every run carries. A repository opened with
@@ -15,7 +16,7 @@ use crate::run::{DEADLINE, GitFailure, GitOutput, run_git_within};
 #[derive(Debug, Clone)]
 pub struct Repository {
     pub root: PathBuf,
-    pub overrides: Vec<String>,
+    pub overrides: Vec<Override>,
     deadline: Option<Instant>,
 }
 
@@ -163,6 +164,69 @@ impl Repository {
         self.branch_ref(&base).or_else(|| self.commit(&base)).map(|reference| (reference, base))
     }
 
+    /// This repository with the filter drivers of every checked-out
+    /// submodule blanked too, at any depth. git passes the overrides on to
+    /// the `git status` it runs inside a submodule, which would otherwise run
+    /// the submodule's own clean filter. Submodules are found from each
+    /// index's gitlinks, since `.gitmodules` need not list them.
+    pub fn with_submodule_filters(&self) -> Result<Self, GitFailure> {
+        self.with_submodule_filters_limited(MAX_GITLINK_LISTING_BYTES)
+    }
+
+    /// [`Repository::with_submodule_filters`] keeping at most
+    /// `max_listing_bytes` of each index's gitlink entries; the index's
+    /// other files never count.
+    pub fn with_submodule_filters_limited(
+        &self,
+        max_listing_bytes: usize,
+    ) -> Result<Self, GitFailure> {
+        let mut blanked = BTreeSet::new();
+        let mut pending = vec![self.root.clone()];
+        let mut found = 0;
+        while let Some(root) = pending.pop() {
+            let arguments = ["ls-files", "--stage", "-z"];
+            let left = remaining(self.deadline);
+            let is_gitlink: fn(&[u8]) -> bool = |entry| entry.starts_with(b"160000 ");
+            let output = run_git_records_within(
+                &root,
+                &[],
+                &arguments,
+                max_listing_bytes,
+                left,
+                is_gitlink,
+            )?;
+            if output.truncated {
+                return Err(GitFailure::Exit("too many submodules".to_string()));
+            }
+            for entry in output.stdout.split(|byte| *byte == 0) {
+                // Checked out: an uninitialized one is an empty folder.
+                let Some(tab) = entry.iter().position(|byte| *byte == b'\t') else { continue };
+                let checkout = root.join(path_from_bytes(&entry[tab + 1..]));
+                if !checkout.join(".git").exists() {
+                    continue;
+                }
+                found += 1;
+                if found > MAX_SUBMODULES {
+                    return Err(GitFailure::Exit("too many submodules".to_string()));
+                }
+                match filter_overrides_within(&checkout, remaining(self.deadline)) {
+                    Ok(drivers) => blanked.extend(drivers),
+                    // A `.git` file pointing nowhere: git cannot read this
+                    // submodule either, so it runs nothing there.
+                    Err(GitFailure::Exit(stderr)) if stderr.contains("not a git repository") => {
+                        continue;
+                    }
+                    Err(failure) => return Err(failure),
+                }
+                pending.push(checkout);
+            }
+        }
+        let mut overrides = self.overrides.clone();
+        blanked.retain(|setting| !overrides.contains(setting));
+        overrides.extend(blanked);
+        Ok(Self { root: self.root.clone(), overrides, deadline: self.deadline })
+    }
+
     /// The main checkout of a linked worktree (one `git worktree add` made);
     /// `None` in the main checkout itself or a bare repository's.
     pub fn main_checkout(&self) -> Option<PathBuf> {
@@ -179,6 +243,25 @@ impl Repository {
     }
 }
 
+/// The most gitlink entries [`Repository::with_submodule_filters`] keeps
+/// from one index.
+const MAX_GITLINK_LISTING_BYTES: usize = 1024 * 1024;
+/// The most submodules [`Repository::with_submodule_filters`] blanks.
+const MAX_SUBMODULES: usize = 256;
+
+/// A path git printed, byte for byte where the platform allows.
+fn path_from_bytes(bytes: &[u8]) -> PathBuf {
+    #[cfg(unix)]
+    {
+        use std::os::unix::ffi::OsStrExt;
+        PathBuf::from(std::ffi::OsStr::from_bytes(bytes))
+    }
+    #[cfg(not(unix))]
+    {
+        PathBuf::from(String::from_utf8_lossy(bytes).into_owned())
+    }
+}
+
 /// The main checkout a common git folder belongs to: the parent of a `.git`
 /// folder; `None` for a bare repository.
 pub fn main_root(common_dir: &Path) -> Option<&Path> {
@@ -186,10 +269,14 @@ pub fn main_root(common_dir: &Path) -> Option<&Path> {
 }
 
 /// A filter driver runs a program on file contents (`clean`, `smudge`,
-/// `process`), and diffing the working tree would run it. A read never needs
-/// one, so every configured driver is blanked: an empty command is no filter,
-/// and nothing is required.
-pub fn filter_overrides(root: &Path) -> Result<Vec<String>, GitFailure> {
+/// `process`), and diffing the working tree would run it. A read never
+/// needs one, so every configured driver is blanked, from any config file:
+/// an empty command is no filter, and nothing is required. That includes
+/// the user's global ones, since a global driver such as git-lfs reads the
+/// repository's own config, where `lfs.extension.<name>.clean` names a
+/// program for it to run. A driver name that is not UTF-8 cannot be named
+/// in an override, so the read is refused.
+pub fn filter_overrides(root: &Path) -> Result<Vec<Override>, GitFailure> {
     filter_overrides_within(root, DEADLINE)
 }
 
@@ -199,7 +286,7 @@ fn remaining(deadline: Option<Instant>) -> Duration {
     deadline.map_or(DEADLINE, |deadline| deadline.saturating_duration_since(Instant::now()))
 }
 
-fn filter_overrides_within(root: &Path, deadline: Duration) -> Result<Vec<String>, GitFailure> {
+fn filter_overrides_within(root: &Path, deadline: Duration) -> Result<Vec<Override>, GitFailure> {
     let pattern = r"^filter\..*\.(clean|smudge|process|required)$";
     let arguments = ["config", "--null", "--name-only", "--get-regexp", pattern];
     let output = match run_git_within(root, &[], &arguments, MAX_SMALL_OUTPUT_BYTES, deadline) {
@@ -211,22 +298,22 @@ fn filter_overrides_within(root: &Path, deadline: Duration) -> Result<Vec<String
         Err(GitFailure::Exit(stderr)) if stderr.is_empty() => return Ok(Vec::new()),
         Err(failure) => return Err(failure),
     };
-    let drivers = parse::file_list(&output.stdout)
-        .into_iter()
-        .filter_map(|key| {
-            let (driver, _) = key.strip_prefix("filter.")?.rsplit_once('.')?;
-            Some(driver.to_string())
-        })
-        .collect::<BTreeSet<_>>();
+    let mut drivers = BTreeSet::new();
+    for key in output.stdout.split(|byte| *byte == 0).filter(|key| !key.is_empty()) {
+        // A lossy copy would blank some other driver and leave this one.
+        let Ok(key) = std::str::from_utf8(key) else {
+            return Err(GitFailure::Exit("a filter driver name is not UTF-8".to_string()));
+        };
+        if let Some((driver, _)) = key.strip_prefix("filter.").and_then(|key| key.rsplit_once('.'))
+        {
+            drivers.insert(driver.to_string());
+        }
+    }
     Ok(drivers
         .into_iter()
         .flat_map(|driver| {
-            [
-                format!("filter.{driver}.clean="),
-                format!("filter.{driver}.smudge="),
-                format!("filter.{driver}.process="),
-                format!("filter.{driver}.required=false"),
-            ]
+            [("clean", ""), ("smudge", ""), ("process", ""), ("required", "false")]
+                .map(|(setting, value)| (format!("filter.{driver}.{setting}"), value.to_string()))
         })
         .collect())
 }

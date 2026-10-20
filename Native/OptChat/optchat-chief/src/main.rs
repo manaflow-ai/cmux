@@ -12,6 +12,7 @@ optchat-chief mcp [--socket PATH | --mux-home DIR]           stdio MCP server wi
 optchat-chief zoom ID N | date ID [--socket PATH | --mux-home DIR]  the memory tools as commands (harnesses without MCP)
 optchat-chief spawn \"task\" [\"task\" ...] | tell ID \"message\"     section 9's subagent tools as commands
 optchat-chief trace [--since 1h] [--turn ID] [--json] [--mux-home DIR]  the monitoring trace as a timeline
+optchat-chief workspace                                   the person's Home workspace now (panes, terminal tails, browsers)
 optchat-chief engine show | set [--harness H] [--model M] [--effort E] [--compactor-harness H] [--compactor-model M]
 optchat-chief stats [--since 24h] [--json] [--mux-home DIR]      per turn, node and subagent: latency, tools, cache, cost
 optchat-chief agents list | prompt NAME \"text\" | allow NAME [OPTION_ID] | deny NAME
@@ -23,24 +24,49 @@ optchat-chief import-claude-code dry-run|write [--projects DIR] [--mux-home DIR]
                                                            Claude Code transcripts (default ~/.claude/projects) as messages;
                                                            dry-run prints counts only, write appends them (host stopped)
 optchat-chief memory export|import|search|stats ...         the memory database (see `optchat-chief memory`)
+optchat-chief agent-memory search|get|remember|mcp|sync|sources|config ...  long-term memory shared by Codex and Claude Code sessions (see `optchat-chief agent-memory`)
 optchat-chief host --conversation-source cloud --cloud-install FILE --daemon-socket PATH [--mux-home DIR]
                                                              answer the chief's cloud conversation (an always-on brain host)
 optchat-chief cloud pair|enroll|register|chief|status --install FILE   the brain host's cloud identity (see `cloud help`)
 Env: CMUX_DAEMON_SOCKET, MUX_HOME (~/.cmux/mux), MUX_AGENT_TOKEN_FILE,
      OPTCHAT_CHIEF_HARNESS / MUX_HARNESS (claude-cr when acpmux has a configured CodeRouter route, else claude), OPTCHAT_COMPACTOR_HARNESS (the Chief's),
      MUX_POLICY (approve-all), OPTCHAT_CHIEF_MODEL, ACPMUX_SOCKET / ACPMUX_HOME / ACPMUX_BIN,
-     CMUX_SOCKET_PATH, CMUX_MCP_COMMAND, OPTCHAT_ANTHROPIC_BASE_URL (compactor; the team subrouter)";
+     CMUX_SOCKET_PATH, OPTCHAT_ANTHROPIC_BASE_URL (compactor; the team subrouter)";
 
 fn main() -> std::process::ExitCode {
     let started_ms = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |d| d.as_millis() as u64);
     let mut args: Vec<String> = std::env::args().skip(1).collect();
+    // Agent memory parses its own arguments: note text keeps every word,
+    // including the Chief's own flags below.
+    if args.first().is_some_and(|a| a == "agent-memory") {
+        return match optchat_chief::agent_memory::run(&args[1..]) {
+            Ok(out) => {
+                if !out.is_empty() {
+                    println!("{out}");
+                }
+                std::process::ExitCode::SUCCESS
+            }
+            Err(e) => {
+                eprintln!("optchat-chief agent-memory: {e}");
+                std::process::ExitCode::from(1)
+            }
+        };
+    }
     // A boolean flag: taken out before parsing, which would read the next
     // argument as its value.
     let append_after_live = args.iter().any(|a| a == "--append-after-live");
     args.retain(|a| a != "--append-after-live");
-    let flags = Flags::parse(&args);
+    let mut flags = Flags::parse(&args);
+    // `memory search --json` (and only there: `trace` and `stats` read their
+    // own `--json` from the raw arguments). The verb may follow options.
+    let memory_json =
+        flags.words.first().is_some_and(|w| w == "memory") && args.iter().any(|a| a == "--json");
+    if memory_json {
+        args.retain(|a| a != "--json");
+        flags = Flags::parse(&args);
+    }
     let code = match flags.words.first().map(String::as_str) {
         Some("host") => optchat_chief::host::run(&flags, started_ms),
         Some("mcp") => {
@@ -60,7 +86,7 @@ fn main() -> std::process::ExitCode {
                 }
             }
         }
-        Some(tool @ ("zoom" | "date" | "spawn" | "tell")) => {
+        Some(tool @ ("zoom" | "date" | "spawn" | "tell" | "control" | "profile" | "chiefs")) => {
             let socket = flags
                 .value("socket")
                 .map(PathBuf::from)
@@ -78,6 +104,7 @@ fn main() -> std::process::ExitCode {
             // A subagent's tools (OPTCHAT_SUBAGENT=1) have no spawn or tell.
             let subagent =
                 optchat_chief::cli::env(optchat_chief::session_dir::SUBAGENT_ENV).is_some();
+            let call = call.map(optchat_chief::tools::with_turn_key);
             match call.and_then(|c| optchat_chief::tools::ask_as(&socket, c, subagent)) {
                 Ok(text) => {
                     println!("{text}");
@@ -99,6 +126,18 @@ fn main() -> std::process::ExitCode {
                 1
             }
         },
+        Some("workspace") => match optchat_chief::home_view::HomeView::from_env().read() {
+            Some(block) => {
+                println!("{block}");
+                0
+            }
+            None => {
+                eprintln!(
+                    "chief workspace: this cmux session has no Home workspace (the cmux app makes it)"
+                );
+                1
+            }
+        },
         Some("engine") => match optchat_chief::engine::run(&flags) {
             Ok(out) => {
                 print!("{out}");
@@ -109,6 +148,20 @@ fn main() -> std::process::ExitCode {
                 1
             }
         },
+        // The daemon's Chief brain supervisor, when it deletes a Chief on
+        // a shared acpmux: that Chief's sessions end, the daemon stays.
+        Some("end-sessions") => {
+            match optchat_chief::agents::end_own_sessions(&optchat_chief::paths::mux_home()) {
+                Ok(names) => {
+                    println!("ended {} session(s)", names.len());
+                    0
+                }
+                Err(e) => {
+                    eprintln!("optchat-chief end-sessions: {e}");
+                    1
+                }
+            }
+        }
         Some("agents") if optchat_chief::agents::retired(&flags.words).is_some() => {
             eprintln!(
                 "{}",
@@ -226,16 +279,18 @@ fn main() -> std::process::ExitCode {
                 1
             }
         },
-        Some("memory") => match optchat_chief::memory_cli::run(&flags, &home(&flags)) {
-            Ok(out) => {
-                println!("{out}");
-                0
+        Some("memory") => {
+            match optchat_chief::memory_cli::run(&flags, &home(&flags), memory_json) {
+                Ok(out) => {
+                    println!("{out}");
+                    0
+                }
+                Err(e) => {
+                    eprintln!("optchat-chief memory: {e}");
+                    1
+                }
             }
-            Err(e) => {
-                eprintln!("optchat-chief memory: {e}");
-                1
-            }
-        },
+        }
         Some("import-claude-code") => {
             let paths = Paths::new(&home(&flags));
             let projects = flags

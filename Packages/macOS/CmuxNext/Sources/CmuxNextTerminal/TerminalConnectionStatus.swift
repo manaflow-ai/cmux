@@ -12,10 +12,13 @@ public nonisolated enum TerminalDisconnectCause: Sendable, Equatable {
 }
 
 /// A terminal view's link to its terminal. A disconnected view keeps its
-/// last screen and re-attaches on the next event (shown again, a key press,
-/// a click or focus); an exited one never does.
+/// last screen and re-attaches, by itself for a while, then on the next event
+/// (shown again, a key press, a click, focus or Retry); an exited one never does.
 public nonisolated enum TerminalConnectionStatus: Sendable, Equatable {
     case connected
+    /// A restored view has not shown its terminal yet (first attach or a
+    /// retry after it failed).
+    case restoring
     case disconnected(TerminalDisconnectCause, reconnecting: Bool)
     case exited
 }

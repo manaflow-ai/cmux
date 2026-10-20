@@ -703,7 +703,7 @@ def named(step_list, name):
     return matches[0], step_list[matches[0]]
 
 
-TOKEN = re.compile(r"\s*(\|\||&&|==|!=|>=|<=|>|<|!|\(|\)|\[|\]|,|'(?:[^']|'')*'|[0-9]+(?:\.[0-9]+)?|[A-Za-z_][A-Za-z0-9_.-]*)")
+TOKEN = re.compile(r"\s*(\|\||&&|==|!=|>=|<=|>|<|!|\(|\)|\[|\]|,|'(?:[^']|'')*'|[0-9]+(?:\.[0-9]+)?|[A-Za-z_][A-Za-z0-9_.*-]*)")
 
 
 def evaluate(expression, context):
@@ -717,6 +717,8 @@ def evaluate(expression, context):
     `&&` and `||` short-circuit, as in Actions, so `x && fromJSON(x)` never
     parses an empty x; fromJSON() and `[index]` read JSON arrays and objects.
     contains() on an array compares whole elements, as in Actions.
+    A `.*` path segment is an object filter: it maps the rest of the path over
+    an array's elements (or an object's values), as in `labels.*.name`.
     """
     text = expression.strip()
     if text.startswith("${{") and text.endswith("}}"):
@@ -803,10 +805,18 @@ def evaluate(expression, context):
             if token == "startsWith":
                 return haystack.startswith(needle)
             return haystack.endswith(needle) if token == "endsWith" else needle in haystack
-        value = context
+        values, filtered = [context], False
         for part in token.split("."):
-            value = value.get(part) if isinstance(value, dict) else None
-        return value
+            if part == "*":
+                filtered = True
+                values = [item for value in values
+                          for item in (value if isinstance(value, list) else
+                                       list(value.values()) if isinstance(value, dict) else [])]
+            else:
+                values = [value.get(part) if isinstance(value, dict) else None for value in values]
+        if filtered:
+            return [value for value in values if value is not None]
+        return values[0]
 
     def number(value):
         if value is None or value == "":
@@ -1432,6 +1442,8 @@ class Wiring(unittest.TestCase):
         # attempt 3 of the bot's re-runs (the rescue's move of a stuck attempt
         # 2) never does, so the rescue cannot loop. A person's re-run may
         # (test_a_retry_goes_to_blacksmith_after_a_host_fault_...).
+        # The cmux-next workflows use the same bot attempt-3 Blacksmith fallback
+        # as the other native workflows, so no retry attempt takes an owned label.
         mini, root, gui, side = ("glaeda-std-xcode-26.6", "glaeda-root-std-xcode-26.6",
                                  "glaeda-gui-std-xcode-26.6", "glaeda-side-std-xcode-26.6")
         owned_jobs = (" admission shard-1 lag cli-product swift-package remote-daemon ")
@@ -1445,7 +1457,8 @@ class Wiring(unittest.TestCase):
                     continue
                 runs_on = (runs_on.replace("format(' shard-{0} ', matrix.shard)", "' shard-1 '")
                            .replace("format('shard-{0}', matrix.shard)", "'shard-1'"))
-                for attempt in ("1", "2", "3"):
+                last = "3"
+                for attempt in ("1", "2", "3", "4")[:int(last)]:
                     context = github_context("pull_request", ref="refs/pull/1/merge",
                                              CI_PR_POOL_OWNED="1", CI_SIDE_LANE_RUNNER=side,
                                              CI_LIGHT_LANE_RUNNER="glaeda-side-light-xcode-26.6")
@@ -1461,12 +1474,12 @@ class Wiring(unittest.TestCase):
                     context["needs"] = {"changes": {"outputs": outputs},
                                         # late-placement skips the bot's attempt 3 (asserted below).
                                         "late-placement": {"outputs": {"runners": late, "attempt": attempt}
-                                                           if attempt != "3" else {}},
+                                                           if attempt not in ("3", "4") else {}},
                                         "macos-compile-admission": {"outputs": {"runner": root}}}
                     label = evaluate(runs_on, context)
                     labels = label if isinstance(label, list) else [label]
                     with self.subTest(workflow=path.name, job=name, attempt=attempt):
-                        if attempt != "3":
+                        if attempt != last:
                             checked.add((path.name, name, any(str(item).startswith("glaeda-") for item in labels)))
                         else:
                             self.assertFalse(any(str(item).startswith("glaeda-") for item in labels), labels)
@@ -1475,7 +1488,8 @@ class Wiring(unittest.TestCase):
         for path in sorted((ROOT / ".github/workflows").glob("*.yml")):
             text = path.read_text(encoding="utf-8")
             with self.subTest(workflow=path.name):
-                self.assertIsNone(re.search(r"run_attempt (?:<= ?[3-9]|== ?[2-9])", text))
+                pattern = r"run_attempt (?:<= ?[3-9]|== ?[2-9])"
+                self.assertIsNone(re.search(pattern, text))
         self.assertIn("(github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]')",
                       load("ci-macos.yml")["jobs"]["late-placement"]["if"])
         # The guard reaches owned jobs at all: attempts 1 and 2 of the main lanes take the fleet.

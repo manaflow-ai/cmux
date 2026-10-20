@@ -62,6 +62,7 @@ pub fn message(seq: u64, author: &str, text: &str) -> Message {
         answers: Vec::new(),
         answers_pending: Vec::new(),
         thread_root: None,
+        thread: None,
         created_at: String::new(),
         edited_at: None,
         retracted_at: None,
@@ -510,6 +511,8 @@ pub struct Agents {
     pub slow_session: Option<(String, Duration)>,
     /// `new_session` on this harness profile fails with the text.
     pub session_errors: BTreeMap<String, String>,
+    /// The next `new_session` calls fail with these texts, one each, in order.
+    pub session_errors_once: std::collections::VecDeque<String>,
     /// Each session's turn signals, for `push_events`.
     pub signals: BTreeMap<String, Sender<TurnSignal>>,
     /// The `_acpmux/harnesses` answer; None: `catalog()` (claude-sr and
@@ -678,6 +681,9 @@ impl AgentPort for FakeAgents {
         if let Some(e) = self.inner.lock().unwrap().session_errors.get(&spec.harness) {
             return Err(e.clone());
         }
+        if let Some(e) = self.inner.lock().unwrap().session_errors_once.pop_front() {
+            return Err(e);
+        }
         let slow = self.inner.lock().unwrap().slow_session.clone();
         if let Some((part, delay)) = slow
             && spec.name.contains(&part)
@@ -685,9 +691,13 @@ impl AgentPort for FakeAgents {
             std::thread::sleep(delay);
         }
         // acpmux refuses any other session env key (acpmux session_env.rs ALLOWED_KEYS).
-        if let Some(key) = spec.env.keys().find(|k| k.as_str() != "CMUX_WORKSPACE_ID") {
+        if let Some(key) = spec
+            .env
+            .keys()
+            .find(|k| !matches!(k.as_str(), "CMUX_WORKSPACE_ID" | "OPTCHAT_TURN_SEAL"))
+        {
             return Err(format!(
-                "session/new: env key {key} is not one a session may set (allowed: CMUX_WORKSPACE_ID)"
+                "session/new: env key {key} is not one a session may set (allowed: CMUX_WORKSPACE_ID, OPTCHAT_TURN_SEAL)"
             ));
         }
         let mut inner = self.inner.lock().unwrap();
@@ -961,6 +971,8 @@ pub fn settings(dir: &Path) -> Settings {
         trace_dir: Some(dir.join("traces")),
         cache_ttl: None,
         shared_ttl: Default::default(),
+        home_view: None,
+        membership: Default::default(),
     }
 }
 

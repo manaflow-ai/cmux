@@ -182,6 +182,7 @@ public final class BrowserToolbarButtonsView: NSStackView {
             guard states[button] != state else { continue }
             states[button] = state
             guard let view = buttons[button] else { continue }
+            view.showsToolTip = state.showsToolTip
             view.setIcon(state.icon, label: state.label)
             view.isEnabled = state.isEnabled
             view.isOn = state.isActive

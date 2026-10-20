@@ -188,7 +188,7 @@ section rust-cmux-cloud "Rust crates: Cloud app server (bin/cmux-cloud)" \
 section rust-cmux-diff-sidecar "Rust crates: diff viewer sidecar (bin/cmux-diff-sidecar)" \
   --lock "$ROOT/Native/DiffSidecar/Cargo.lock" --lock-label "Native/DiffSidecar/Cargo.lock" \
   --root cmux-diff-sidecar --workspace "$ROOT/Native/DiffSidecar" --repo-root "$ROOT" \
-  --first-party 'Native/DiffSidecar'
+  --first-party 'Native/DiffSidecar' --first-party 'cmux-tui/crates/*' --first-party 'cmux-tui/bindings/*'
 section rust-optchat-chief "Rust crates: Home Chief brain host (bin/optchat-chief, cmux-next nightly)" \
   --lock "$ROOT/Native/OptChat/optchat-chief/Cargo.lock" --lock-label "Native/OptChat/optchat-chief/Cargo.lock" \
   --root optchat-chief --workspace "$ROOT/Native/OptChat/optchat-chief" --workspace "$ROOT/Native/OptChat/optchat-core" --workspace "$ROOT/Native/OptChat/optchat-host" --workspace "$ROOT/cmux-tui" --repo-root "$ROOT" \

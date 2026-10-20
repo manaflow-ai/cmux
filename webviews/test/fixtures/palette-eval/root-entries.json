@@ -16148,7 +16148,7 @@
     },
     {
       "entry": {
-        "accessory": "On",
+        "accessory": "Off",
         "demoted": true,
         "entersScope": false,
         "frecencyKey": "setting:status.inferCommandBusy",
@@ -16156,7 +16156,7 @@
         "hidesWhenTyping": false,
         "isEnabled": true,
         "isVisibleWhenQueryEmpty": false,
-        "keywords": ["status.inferCommandBusy", "Appearance", "Loading Indicator", "setting", "toggle", "disable"],
+        "keywords": ["status.inferCommandBusy", "Appearance", "Loading Indicator", "setting", "toggle", "enable"],
         "rankBias": 0,
         "sectionIndex": 15,
         "subtitle": "Loading Indicator",

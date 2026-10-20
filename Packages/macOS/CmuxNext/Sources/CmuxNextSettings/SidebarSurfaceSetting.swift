@@ -11,13 +11,16 @@ public nonisolated struct SidebarSurfaceSetting: Sendable {
 
     public init() {}
 
-    static func parse(_ root: JSONValue, diagnostics: inout [SettingsDiagnostic]) -> SidebarSurface {
-        guard let value = root.value(at: configPath) else { return fallback }
+    /// `unset` is the surface when the key is missing (the
+    /// `appearance.chromeStyle` default).
+    static func parse(_ root: JSONValue, unset: SidebarSurface = fallback,
+                      diagnostics: inout [SettingsDiagnostic]) -> SidebarSurface {
+        guard let value = root.value(at: configPath) else { return unset }
         guard let text = value.stringValue, let surface = SidebarSurface(rawValue: text) else {
             let choices = SidebarSurface.allCases.map { "\"\($0.rawValue)\"" }.joined(separator: ", ")
             diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: configPath.joined(separator: "."),
                                                   message: "expected one of \(choices)"))
-            return fallback
+            return unset
         }
         return surface
     }
@@ -42,7 +45,8 @@ extension SettingsApplier {
     /// Copies `appearance.sidebarSurface` into `design`, writing only a change.
     static func applySidebarSurface(_ snapshot: CmuxConfigSnapshot, to design: DesignSettings) {
         var ignored: [SettingsDiagnostic] = [] // the parse reported them (`ChromePlacementSetting.parse`)
-        let surface = SidebarSurfaceSetting.parse(snapshot.root, diagnostics: &ignored)
+        let unset = snapshot.chromeStyle.sidebarSurface ?? SidebarSurfaceSetting.fallback
+        let surface = SidebarSurfaceSetting.parse(snapshot.root, unset: unset, diagnostics: &ignored)
         if design.sidebarSurface != surface { design.sidebarSurface = surface }
     }
 }

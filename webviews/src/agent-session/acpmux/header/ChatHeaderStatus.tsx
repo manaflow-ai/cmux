@@ -5,7 +5,11 @@ export function ChatHeaderStatus({ status, detail }: { status: string; detail?: 
   return (
     <div className="acpmux-header-status-slot">
       {status && (
-        <output className="acpmux-status" title={detail} aria-label={detail}>
+        <output
+          className="acpmux-status"
+          /* tooltip-allow: the warning's detail, shown nowhere else */ title={detail}
+          aria-label={detail}
+        >
           <Icon name="status.warning" size={13} />
           <span>{status}</span>
         </output>

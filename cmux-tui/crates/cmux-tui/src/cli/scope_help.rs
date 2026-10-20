@@ -7,6 +7,12 @@ USAGE
   cmux browser open <url> [--workspace <selector>] [--screen <selector>]
     [--pane <selector>] [--name <value>] [--width-px <n> --height-px <n>]
   cmux browser list
+  cmux browser profile list
+  cmux browser profile create --name <name> [--color <value>] [--icon <value>]
+    [--index <n>]
+  cmux browser profile move --profile <id-or-name> --index <n>
+  cmux browser profile open <url> --profile <id-or-name> [--engine webkit|cef]
+    [--pane <selector>] [--title <value>] [--background true|false]
   cmux browser <selector> show|navigate|back|forward|reload|activate
   cmux browser <selector> key|text [OPTIONS]
   cmux browser <selector> mouse|wheel --pointer-frame-seq <decimal> [OPTIONS]
@@ -18,13 +24,18 @@ browser open adds a browser tab, like
 `cmux tab create browser --url <url> [--workspace <selector>]`: in the named
 workspace, screen or pane, else the current one. --url <url> is the same as
 the positional URL.
+
+browser profile list shows each profile's id, name, color, icon and index,
+never its cookies, history or site data. browser profile open opens a tab in
+the profile, in the named pane, else the focused one; the URL must be http or
+https. Without --engine the tab uses the browser.defaultEngine setting.
 ";
 
 pub(super) const NOTIFICATION_HELP: &str = "\
 USAGE
   cmux notification list [--limit <1..256>]
   cmux notification create --title <value> --body <value> [--subtitle <value>]
-    [--level info|success|warning|error] [--terminal <term_id>]
+    [--level info|warning|error] [--terminal <term_id>]
   cmux notification clear [--terminal <term_id>]
   cmux notification ack --client <id> <notification_id>...
 
@@ -55,6 +66,8 @@ USAGE
   cmux status clear [KEY] [--target <ws_…>|current] [--all]
   cmux status list [--target <ws_…>|current]
   cmux status run [--label <text>] [--target <ws_…>|current] [--badge-ttl 8s] -- CMD …
+  cmux status wait KEY [--target <ws_…>|current] [--until settled|cleared|state=<s>]
+    [--timeout <500ms|30s|5m>]
 
 Loading indicators for scripts and agents, shown on the workspace's sidebar
 row. A shorthand for `cmux workspace [<ws>] status …`: the target is the
@@ -70,6 +83,12 @@ run marks the entry busy and owned by this process (a killed CLI leaves no
 spinner), runs CMD with the terminal's input and output, then shows success or
 error with the exit code and duration for --badge-ttl, and exits with CMD's
 status (128 + signal when a signal ended it).
+
+wait blocks until the entry KEY holds --until, following the session's events
+(no polling), and prints it. settled, the default, returns when the entry is
+gone (cleared, its owner ended or its TTL passed) or shows success (exit 0),
+or shows error (exit 1); cleared waits for the entry to go; state=<s> for that
+state. A passed --timeout exits 124.
 ";
 
 pub(super) const ROOM_HELP: &str = "\

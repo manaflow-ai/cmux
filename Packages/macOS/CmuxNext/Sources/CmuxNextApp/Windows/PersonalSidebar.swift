@@ -14,6 +14,7 @@ enum PersonalSidebar {
     /// home session's section only, so each group appears once; an empty
     /// group being deleted (`PersonalStore.endingGroups`) does not show.
     static func sections(of daemon: DaemonService, room: ProfileID, machines: MachineRegistry) -> [SidebarSection] {
+        if let sections = SidebarDocWiring.sections(of: daemon, room: room, machines: machines) { return sections } // the sidebar document (sidebar-v2)
         let personal = machines.local.store.personal
         guard personal.isLoaded, let session = daemon.store.registryID else { return daemon.store.sidebarSections }
         let groups = personal.groups.filter { personal.groupRooms[$0.id] == room }.sorted { $0.index < $1.index }
@@ -40,6 +41,8 @@ enum PersonalSidebar {
     /// order), whatever its room; in the shown (mixed) order with
     /// `personal-mixed-order-v1`.
     static func orderedIDs(of daemon: DaemonService, machines: MachineRegistry) -> [String]? {
+        // The sidebar document orders the rows: never the personal (`workspace_placement`) order on its path.
+        if let ordered = SidebarDocWiring.orderedIDs(of: daemon, machines: machines) { return ordered }
         let personal = machines.local.store.personal
         guard personal.isLoaded, let session = daemon.store.registryID else { return nil }
         if machines.local.store.supportsPersonalMixedOrder {
@@ -64,10 +67,13 @@ enum PersonalSidebar {
         let ordered = order(workspaces, rows: rows)
         let known = Set(groups.map(\.id))
         let byKey = Dictionary(ordered.map { (rowKey($0), $0) }, uniquingKeysWith: { first, _ in first })
+        // One pass each (O(n + groups)), not a scan of every workspace per group or of every group per row.
+        let membersByGroup = Dictionary(grouping: ordered.filter { rows[rowKey($0)]?.group != nil }) { rows[rowKey($0)]?.group }
+        let groupsAt = Dictionary(grouping: groups.filter { $0.topIndex != nil }) { $0.topIndex }
         var sections: [SidebarSection] = []
         var loose: [WorkspaceModel] = []
         func emit(_ group: WorkspaceGroupModel) {
-            let members = ordered.filter { rows[rowKey($0)]?.group == group.id }
+            let members = membersByGroup[group.id] ?? []
             // A group being deleted for losing its last member stays hidden (PersonalGroupLife.commit).
             guard !members.isEmpty || keepsEmptyGroups && !personal.endingGroups.contains(group.id) else { return }
             if !loose.isEmpty { sections.append(SidebarSection(group: nil, workspaces: loose)) }
@@ -75,7 +81,7 @@ enum PersonalSidebar {
             sections.append(SidebarSection(group: group, workspaces: members))
         }
         for (index, row) in all.enumerated() {
-            for group in groups where group.topIndex == index { emit(group) }
+            for group in groupsAt[index] ?? [] { emit(group) }
             if row.sessionID == session, let workspace = byKey[row.workspaceKey.rawValue],
                rows[rowKey(workspace)]?.group.map({ !known.contains($0) }) ?? true {
                 loose.append(workspace)
@@ -102,17 +108,27 @@ enum PersonalSidebar {
                    uniquingKeysWith: { first, _ in first })
     }
 
+    /// `workspaces` of `daemon` in personal order; unchanged without personal state. On the sidebar
+    /// document the rows it does not place yet follow in this order (RapidWorkspaceCreateTests).
+    static func personalOrder(_ workspaces: [WorkspaceModel], of daemon: DaemonService, machines: MachineRegistry) -> [WorkspaceModel] {
+        let personal = machines.local.store.personal
+        guard personal.isLoaded, let session = daemon.store.registryID else { return workspaces }
+        return order(workspaces, rows: rows(of: session, personal))
+    }
+
     /// Rowed workspaces by personal position, then the rest in daemon order.
+    /// One rank lookup per workspace, then an integer sort: the comparator
+    /// read each model's tracked `key` twice per comparison (O(n log n)
+    /// tracked reads, 260-280 ms per reconcile at 1,000 workspaces).
     private static func order(_ workspaces: [WorkspaceModel], rows: [String: PersonalWorkspace]) -> [WorkspaceModel] {
-        workspaces.enumerated().sorted { lhs, rhs in
-            let l = rows[lhs.element.key?.rawValue ?? lhs.element.id]?.index
-            let r = rows[rhs.element.key?.rawValue ?? rhs.element.id]?.index
-            switch (l, r) {
+        let ranked = workspaces.enumerated().map { (rank: rows[rowKey($1)]?.index, offset: $0, workspace: $1) }
+        return ranked.sorted { lhs, rhs in
+            switch (lhs.rank, rhs.rank) {
             case let (l?, r?): return l == r ? lhs.offset < rhs.offset : l < r
             case (_?, nil): return true
             case (nil, _?): return false
             case (nil, nil): return lhs.offset < rhs.offset
             }
-        }.map(\.element)
+        }.map(\.workspace)
     }
 }

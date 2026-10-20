@@ -4,10 +4,15 @@
 //! counted and leave nothing behind, and they end with the daemon.
 #![cfg(unix)]
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+// This process runs stand-in agents (the fake agents under tests/).
+const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Stdio};
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
 
@@ -72,14 +77,17 @@ impl Daemon {
 
     fn start(&mut self) {
         assert!(self.child.is_none());
-        let mut child = Command::new(env!("CARGO_BIN_EXE_acpmux"))
+        let mut child = daemon_env::command(&self.home, daemon_env::Agents::StandIn, &[])
             .args(["daemon", "run", "--listen", "127.0.0.1:0", "--ready-fd", "1", "--log", "warn"])
             .env("ACPMUX_HOME", &self.home)
             .env("ACPMUX_SOCKET", &self.socket)
-            .env_remove("ACPMUX_AGENT_HOSTS")
-            .env_remove("ACPMUX_LOGIN_ENV")
-            .env_remove("XPC_SERVICE_NAME")
-            .env_remove("ACPMUX_IDLE_CHILD_SECS")
+            // No catalog fetch: a test never reaches the network, and the fetch's
+            // warning (a catalog server 404) came on stdout before the ready line.
+            .env("ACPMUX_CATALOG_FETCH", "0")
+            .env("ACPMUX_LOGIN_ENV", "0")
+            // Each marker file here stalls one agent host's hello (debug
+            // builds' seam): `stall_hellos`.
+            .env("ACPMUX_TEST_HOST_HELLO_STALL_DIR", self.stall_dir())
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
@@ -90,6 +98,23 @@ impl Daemon {
         assert!(ready.contains("\"ready\":true"), "daemon not ready: {ready}");
         self.ready = ready;
         self.child = Some(child);
+    }
+
+    fn stall_dir(&self) -> PathBuf {
+        self.home.join("stall")
+    }
+
+    /// The next `n` agent hosts never answer hello, as a wedged host.
+    fn stall_hellos(&self, n: usize) {
+        std::fs::create_dir_all(self.stall_dir()).unwrap();
+        for i in 0..n {
+            std::fs::write(self.stall_dir().join(format!("stall-{i}")), "").unwrap();
+        }
+    }
+
+    /// Stall markers no host took yet.
+    fn stalls_left(&self) -> usize {
+        std::fs::read_dir(self.stall_dir()).map(|d| d.count()).unwrap_or(0)
     }
 
     fn sigkill(&mut self) {
@@ -601,8 +626,8 @@ async fn the_shutdown_command_ends_every_agent_host_and_reports_the_counts() {
         .flatten()
         .collect();
 
-    let out = Command::new(env!("CARGO_BIN_EXE_acpmux"))
-        .args(["--json", "daemon", "shutdown"])
+    let out = daemon_env::acpmux(&home)
+        .args(["--json", "daemon", "shutdown", "--end-agents"])
         .env("ACPMUX_HOME", &home)
         .env("ACPMUX_SOCKET", &daemon.socket)
         .output()
@@ -627,4 +652,154 @@ async fn the_shutdown_command_ends_every_agent_host_and_reports_the_counts() {
     assert_eq!(report["endAgents"], true, "{report}");
     assert!(report["agentHosts"]["before"].as_u64().unwrap() >= 2, "{report}");
     assert_eq!(report["agentHosts"]["left"], json!([]), "{report}");
+}
+
+/// The pid of the setsid helper that harness `harness` started
+/// (`FAKE_SETSID_CHILD`).
+fn helper_of(file: &Path, harness: i64) -> i64 {
+    let path = format!("{}.{harness}", file.display());
+    let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{path}: {e}"));
+    text.trim().parse().unwrap()
+}
+
+fn kinds<'a>(events: &'a [Value], kind: &str) -> Vec<&'a Value> {
+    events.iter().filter(|e| e["dir"] == "mux" && e["kind"] == kind).collect()
+}
+
+/// End a harness group a test left behind (its host was killed, so nothing
+/// else ends it), only while that group still exists under its leader.
+fn end_group(pid: i64) {
+    // SAFETY: getpgid only reads; the group is the one this test's daemon
+    // started while its leader still leads it.
+    unsafe {
+        if libc::getpgid(pid as i32) == pid as i32 {
+            libc::killpg(pid as i32, libc::SIGKILL);
+        }
+    }
+}
+
+/// The Chief's subagent died on "agent host did not answer hello within 5s"
+/// (2026-10-14). A host that misses its hello is ended and one fresh host
+/// takes its place: the session/new succeeds and the session works.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_new_session_whose_host_misses_hello_starts_on_a_fresh_host() {
+    let daemon = Daemon::new("hello1", 0);
+    let mut rpc = daemon.rpc().await;
+    let home = daemon.home.clone();
+    daemon.stall_hellos(1);
+    let (id, took) = new_session(&mut rpc, &home, "fake").await;
+    eprintln!("session/new with one wedged host: {took:?}");
+    assert_eq!(daemon.stalls_left(), 0, "the first host took the stall");
+    let events = daemon.events(&id);
+    let started = kinds(&events, "host_started");
+    let unanswered = kinds(&events, "host_unanswered");
+    assert_eq!(started.len(), 2, "one fresh host after the wedged one: {events:#?}");
+    assert_eq!(unanswered.len(), 1, "{events:#?}");
+    let wedged = unanswered[0]["msg"]["hostPid"].as_i64().unwrap();
+    assert_eq!(started[0]["msg"]["hostPid"].as_i64(), Some(wedged));
+    assert_eq!(unanswered[0]["msg"]["ended"], true, "{events:#?}");
+    assert!(gone_within(wedged, Duration::from_secs(10)), "the wedged host still runs");
+    let fresh = started[1]["msg"]["hostPid"].as_i64().unwrap();
+    let records = daemon.host_records();
+    assert_eq!(records.len(), 1, "{records:#?}");
+    assert_eq!(records[0]["host_pid"].as_i64(), Some(fresh));
+    let reply = rpc
+        .call(
+            "session/prompt",
+            json!({"sessionId": id, "prompt": [{"type": "text", "text": "hi"}]}),
+        )
+        .await;
+    assert_eq!(reply["stopReason"], "end_turn", "{reply}");
+}
+
+/// No retry loop: when the fresh host also misses its hello, session/new
+/// fails with both causes, and both hosts are ended.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_new_session_fails_clearly_when_the_fresh_host_also_misses_hello() {
+    let daemon = Daemon::new("hello2", 0);
+    let mut rpc = daemon.rpc().await;
+    let home = daemon.home.clone();
+    daemon.stall_hellos(3);
+    let err = rpc
+        .call_err(
+            "session/new",
+            json!({"cwd": home, "mcpServers": [], "_meta": {"acpmux": {"harness": "fake"}}}),
+        )
+        .await;
+    assert!(err.contains("did not answer hello"), "{err}");
+    assert!(err.contains("a fresh agent host also failed"), "{err}");
+    assert_eq!(daemon.stalls_left(), 1, "exactly two hosts started");
+    assert!(daemon.host_records().is_empty(), "both hosts were ended");
+    let status = rpc.call("_acpmux/status", json!({})).await;
+    assert_eq!(status["liveAgents"], 0, "{status}");
+    assert_eq!(status["sessions"], 0, "the failed session is not left behind: {status}");
+}
+
+/// A pooled host that stopped answering (wedged: its link stays open) is
+/// not served: it is ended and the session starts on a fresh host.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_wedged_pooled_host_is_ended_and_the_session_starts_on_a_fresh_host() {
+    let daemon = Daemon::new("wedge", 0);
+    let mut rpc = daemon.rpc().await;
+    let home = daemon.home.clone();
+    // The pooled harness starts a helper that leaves its process group, as
+    // a harness's background shell does.
+    let helper_file = home.join("helper.pid");
+    let mut with_helper = profile("b");
+    with_helper["env"]["FAKE_SETSID_CHILD"] = json!(helper_file);
+    daemon.write_config(&with_helper);
+    rpc.call("_acpmux/reload_config", json!({})).await;
+    rpc.call("_acpmux/prewarm", json!({"harness": "fakeb", "cwd": home, "wait": true})).await;
+    wait_pool_ready(&mut rpc, "fakeb").await;
+    let r = daemon.pool_records().pop().expect("a pooled host");
+    let (host, harness) = (r["host_pid"].as_i64().unwrap(), r["harness_pid"].as_i64().unwrap());
+    // The helper of this host's harness: the model probe's harness starts
+    // one too, in its own file.
+    let helper = helper_of(&helper_file, harness);
+    // SAFETY: the exact pooled host this test's daemon started (its record).
+    unsafe { libc::kill(host as i32, libc::SIGSTOP) };
+    let (id, took) = new_session(&mut rpc, &home, "fakeb").await;
+    eprintln!("session/new past a wedged pooled host: {took:?}");
+    assert!(!taken(&daemon, &id), "the wedged entry was served");
+    let reply = rpc
+        .call(
+            "session/prompt",
+            json!({"sessionId": id, "prompt": [{"type": "text", "text": "hi"}]}),
+        )
+        .await;
+    assert_eq!(reply["stopReason"], "end_turn", "{reply}");
+    assert!(gone_within(host, Duration::from_secs(15)), "the wedged pooled host still runs");
+    // It could not end what runs under it: the daemon ended that with it.
+    let ended = gone_within(helper, Duration::from_secs(10));
+    end_group(harness);
+    if !ended {
+        // SAFETY: the exact helper pid the fake harness reported.
+        unsafe { libc::kill(helper as i32, libc::SIGKILL) };
+    }
+    assert!(ended, "a process under the wedged host runs on without an owner");
+}
+
+/// A pooled host that died is not served either.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_dead_pooled_host_is_not_served_and_the_session_starts_on_a_fresh_host() {
+    let daemon = Daemon::new("deadp", 0);
+    let mut rpc = daemon.rpc().await;
+    let home = daemon.home.clone();
+    rpc.call("_acpmux/prewarm", json!({"harness": "fakeb", "cwd": home, "wait": true})).await;
+    wait_pool_ready(&mut rpc, "fakeb").await;
+    let r = daemon.pool_records().pop().expect("a pooled host");
+    let (host, harness) = (r["host_pid"].as_i64().unwrap(), r["harness_pid"].as_i64().unwrap());
+    // SAFETY: the exact pooled host this test's daemon started (its record).
+    unsafe { libc::kill(host as i32, libc::SIGKILL) };
+    assert!(gone_within(host, Duration::from_secs(10)));
+    let (id, _) = new_session(&mut rpc, &home, "fakeb").await;
+    assert!(!taken(&daemon, &id), "the dead entry was served");
+    let reply = rpc
+        .call(
+            "session/prompt",
+            json!({"sessionId": id, "prompt": [{"type": "text", "text": "hi"}]}),
+        )
+        .await;
+    assert_eq!(reply["stopReason"], "end_turn", "{reply}");
+    end_group(harness);
 }

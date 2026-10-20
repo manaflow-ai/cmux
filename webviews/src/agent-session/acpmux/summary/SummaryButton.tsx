@@ -1,164 +1,29 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect } from "react";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
-import type { AcpmuxRow } from "../model";
-import { GalleryDialog } from "./GalleryDialog";
-import { chatGallery } from "./chatGallery";
-import { sessionSummary } from "./sessionSummary";
-import { SummaryPopover, type SummaryChanges } from "./SummaryPopover";
-import { Popover } from "../../../ui/Popover";
 import { registerPicker } from "../pickerOpeners";
-import { Lineage } from "../subagents/Lineage";
-import { subagentsIn } from "../subagents/subagentRows";
+import type { SummaryCardControl } from "./cardState";
 
-/// The header's summary button and its popover: what this chat has produced so far. The
-/// summary is read from the transcript only while the popover is open, so a live turn pays
-/// nothing for it while it is closed. Its Outputs section opens the chat's gallery; an image
-/// there opens the image viewer (`onOpenImage`) in the gallery's place. With `lineage`, its
-/// Lineage section opens a subagent's view, or the chat's, and closes the popover.
-export function SummaryButton({
-  rows,
-  onOpenOutput,
-  onOpenImage,
-  changes,
-  onOpenChanges,
-  lineage,
-}: {
-  rows: readonly AcpmuxRow[];
-  onOpenOutput?: (path: string) => void;
-  onOpenImage?: (src: string, alt: string) => void;
-  /// The last turn that edited files, with its counts and files; the popover's Changes rows open
-  /// its diff, or a file's.
-  changes?: SummaryChanges;
-  onOpenChanges?: (path?: string) => void;
-  lineage?: {
-    /// The subagents' own views (the snapshot's `subagentViews`), for their nested subagents.
-    views: Record<string, AcpmuxRow[]> | undefined;
-    current: string | undefined;
-    chat: string;
-    onOpen: (id: string | undefined) => void;
-  };
-}) {
+/// The header's summary button: shows or hides the chat's summary card (SummaryCard.tsx), which
+/// stays at the pane's top right until it is hidden here or by its own close button.
+export function SummaryButton({ card }: { card: SummaryCardControl }) {
   const t = useT();
-  const [open, setOpen] = useState(false);
-  const [gallery, setGallery] = useState(false);
-  const button = useRef<HTMLButtonElement>(null);
-  // The gallery opens from the popover, which is gone when it closes: focus returns to the button.
-  // Not when it closes for the image viewer, which takes focus itself.
-  const refocus = useRef(false);
-  useEffect(() => {
-    if (gallery || !refocus.current) return;
-    refocus.current = false;
-    button.current?.focus();
-  }, [gallery]);
-  const closeGallery = () => {
-    refocus.current = true;
-    setGallery(false);
-  };
-  const summary = useMemo(() => (open ? sessionSummary(rows) : undefined), [open, rows]);
-  const hasLineage = lineage !== undefined;
-  const lineageViews = lineage?.views;
-  const lineageAgents = useMemo(
-    () => (open && hasLineage ? [...subagentsIn(rows, lineageViews).values()] : []),
-    [open, rows, hasLineage, lineageViews],
-  );
-  const galleryCount = useMemo(() => (open ? chatGallery(rows).length : 0), [open, rows]);
-  useEffect(() => {
-    if (!open) return;
-    const dismissOutside = (event: PointerEvent) => {
-      const target = event.target;
-      if (!(target instanceof Node)) return;
-      if (button.current?.contains(target) || (target as Element).closest?.(".acpmux-summary-popover")) return;
-      setOpen(false);
-    };
-    document.addEventListener("pointerdown", dismissOutside, true);
-    return () => document.removeEventListener("pointerdown", dismissOutside, true);
-  }, [open]);
-  // Automation and captures open it by its label, as a click does (see pickerOpeners.ts).
   const label = t("summary.open");
-  useEffect(() => registerPicker(label, () => setOpen(true)), [label, setOpen]);
+  // Automation and captures show it by its label, as a click does (see pickerOpeners.ts).
+  const show = card.show;
+  useEffect(() => registerPicker(label, show), [label, show]);
   return (
     <span className="acpmux-summary">
       <button
-        ref={button}
         type="button"
         className="acpmux-summary-button"
         aria-label={label}
         title={label}
-        aria-haspopup="dialog"
-        aria-expanded={open}
-        onClick={() => setOpen((current) => !current)}
+        aria-pressed={card.shown}
+        onClick={card.toggle}
       >
         <Icon name="view.list" size={15} />
       </button>
-      {summary ? (
-        <Popover
-          open={open}
-          // This popover has no Base UI trigger. Opening is owned by the button and
-          // automation; Base UI only reports dismissals (Escape and outside press).
-          onOpenChange={(next) => {
-            if (!next) setOpen(false);
-          }}
-          anchor={button.current}
-          label={label}
-          className="acpmux-summary-popover"
-          finalFocus={button}
-        >
-          <SummaryPopover
-            summary={summary}
-            galleryCount={galleryCount}
-            onOpenGallery={() => {
-              setOpen(false);
-              setGallery(true);
-            }}
-            changes={changes}
-            onOpenChanges={(path) => {
-              // Diff review restores focus to its opener after closing. Keep the
-              // persistent Sources button as that opener before unmounting this
-              // popover, rather than handing it a detached Changes row.
-              button.current?.focus();
-              setOpen(false);
-              onOpenChanges?.(path);
-            }}
-            onFollow={() => setOpen(false)}
-            lineage={
-              lineage &&
-              lineageAgents.length > 0 && (
-                <Lineage
-                  agents={lineageAgents}
-                  current={lineage.current}
-                  chat={lineage.chat}
-                  onOpen={(id) => {
-                    button.current?.focus();
-                    setOpen(false);
-                    lineage.onOpen(id);
-                  }}
-                />
-              )
-            }
-            onOpenOutput={
-              onOpenOutput &&
-              ((path) => {
-                setOpen(false);
-                onOpenOutput(path);
-              })
-            }
-          />
-        </Popover>
-      ) : null}
-      {gallery && (
-        <GalleryDialog
-          rows={rows}
-          onClose={closeGallery}
-          onOpenImage={
-            onOpenImage &&
-            ((src, alt) => {
-              setGallery(false);
-              onOpenImage(src, alt);
-            })
-          }
-        />
-      )}
     </span>
   );
 }

@@ -38,6 +38,7 @@ public final class TitleFade {
     /// a transaction with actions disabled. `animated` fades the mask stops
     /// (Motion `hover`), for a tab's x appearing over the title's end.
     public func apply(_ geometry: TitleFadeGeometry, frame: CGRect, animated: Bool) {
+        stopFollowing()
         let previous = self.geometry
         self.geometry = geometry
         var rest = frame
@@ -45,7 +46,19 @@ public final class TitleFade {
         textLayer.frame = rest
         guard geometry.isTruncated else {
             if isMarqueeActive { stopMarquee(animated: false) }
-            textLayer.mask = nil
+            guard animated, textLayer.mask === mask else {
+                textLayer.mask = nil
+                return
+            }
+            // The end comes back as the buttons over it fade out: the stops
+            // ease open, then the mask goes.
+            let (x, width) = geometry.maskFrame
+            mask.frame = CGRect(x: x, y: 0, width: width, height: frame.height)
+            let open = [0, geometry.leadingPadding / max(1, width), 1, 1, 1].map { NSNumber(value: Double($0)) }
+            CATransaction.begin()
+            CATransaction.setCompletionBlock { [weak self] in MainActor.assumeIsolated { self?.dropOpenMask() } } // main-proof: CATransaction.h: the completion block is called on the main thread
+            Motion.set(mask, "locations", to: open, fade: .hover)
+            CATransaction.commit()
             return
         }
         let (x, width) = geometry.maskFrame
@@ -65,6 +78,71 @@ public final class TitleFade {
             // The clip changed under a running pass: start over from rest.
             stopMarquee(animated: false)
             startMarquee()
+        }
+    }
+
+    /// The title's rest geometry and frame at one width of a moving row (`follow`).
+    public struct Sample: Equatable {
+        public var geometry: TitleFadeGeometry
+        public var frame: CGRect
+
+        public init(geometry: TitleFadeGeometry, frame: CGRect) {
+            self.geometry = geometry
+            self.frame = frame
+        }
+    }
+
+    static let followKey = "follow."
+
+    /// Shows the title at `samples` (one per media time in `times`, nil where it hides; the last is the
+    /// target) as the row's width moves, the render server going from one to the next each frame, as
+    /// a relayout per frame would. The text keeps one width the whole way (its glyphs never stretch or
+    /// redraw); the mask carries the clip and the fade. Call inside a transaction with actions
+    /// disabled, with no marquee running; `apply` ends it (the row at rest).
+    /// `steps`: the samples after which the row changes form (`MotionPath.keyframes`).
+    public func follow(_ samples: [Sample?], times: [CFTimeInterval], steps: Set<Int> = []) {
+        stopFollowing()
+        guard let target = samples.last(where: { $0 != nil }) ?? nil else { return }
+        let shown = samples.compactMap(\.self)
+        let width = shown.reduce(ceil(target.geometry.textWidth)) { max($0, $1.geometry.span) }
+        // Where it hides, a sample holds the nearest shown one (the row hides the title then).
+        var last = shown.first ?? target
+        let filled = samples.map { sample -> Sample in
+            if let sample { last = sample }
+            return last
+        }
+        let height = target.frame.height
+        func maskFrame(_ geometry: TitleFadeGeometry) -> CGRect {
+            let (x, maskWidth) = geometry.maskFrame
+            return CGRect(x: x, y: 0, width: maskWidth, height: height)
+        }
+        func locations(_ geometry: TitleFadeGeometry) -> [NSNumber] {
+            let stops = geometry.isTruncated ? geometry.maskLocations : [0, geometry.leadingPadding / max(1, geometry.leadingPadding + geometry.span), 1, 1, 1]
+            return stops.map { NSNumber(value: Double($0)) }
+        }
+        geometry = target.geometry
+        textLayer.frame = CGRect(x: target.frame.minX, y: target.frame.minY, width: width, height: height)
+        mask.frame = maskFrame(target.geometry)
+        mask.removeAnimation(forKey: "locations")
+        mask.locations = locations(target.geometry)
+        textLayer.mask = mask
+        let positions = filled.map { CGPoint(x: $0.frame.minX + width / 2, y: $0.frame.midY) }
+        let masks = filled.map { maskFrame($0.geometry) }
+        let stops = filled.map { locations($0.geometry) }
+        func add(_ keyPath: String, _ values: [Any], to layer: CALayer, changes: Bool) {
+            guard changes, let animation = MotionPath.keyframes(keyPath, values: values, times: times, on: layer, steps: steps) else { return }
+            layer.add(animation, forKey: Self.followKey + keyPath)
+        }
+        add("position", positions.map { NSValue(point: $0) }, to: textLayer, changes: Set(positions.map(\.x)).count > 1 || Set(positions.map(\.y)).count > 1)
+        add("position", masks.map { NSValue(point: CGPoint(x: $0.midX, y: $0.midY)) }, to: mask, changes: Set(masks.map(\.midX)).count > 1)
+        add("bounds.size", masks.map { NSValue(size: $0.size) }, to: mask, changes: Set(masks.map(\.width)).count > 1)
+        add("locations", stops, to: mask, changes: Set(stops).count > 1)
+    }
+
+    /// Ends a `follow` path (its keyframes come off; the model is the target already).
+    public func stopFollowing() {
+        for layer in [textLayer, mask] as [CALayer] {
+            for key in layer.animationKeys() ?? [] where key.hasPrefix(Self.followKey) { layer.removeAnimation(forKey: key) }
         }
     }
 
@@ -110,6 +188,12 @@ public final class TitleFade {
         Motion.set(textLayer, Self.keyPath, to: CGFloat(0), spring: .disappear, from: shown)
         Motion.set(mask, Self.keyPath, to: CGFloat(0), spring: .disappear, from: -shown)
         CATransaction.commit()
+    }
+
+    /// Drops the mask an unclipped title eased open, unless it clips again.
+    private func dropOpenMask() {
+        guard geometry?.isTruncated == false, textLayer.mask === mask else { return }
+        textLayer.mask = nil
     }
 
     private func restoreWidth() {

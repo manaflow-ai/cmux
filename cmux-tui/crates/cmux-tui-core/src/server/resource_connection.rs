@@ -141,6 +141,12 @@ pub(super) fn handle_resource_connection_message(
         operation if chief_control::handles(operation) => {
             chief_control::handle(mux, client, request, writer)
         }
+        operation if super::chief_registry_resource::handles(operation) => {
+            super::chief_registry_resource::handle(mux, client, request, writer)
+        }
+        operation if super::participant_avatars::handles(operation) => {
+            super::participant_avatars::handle(mux, client, request, writer)
+        }
         ResourceOperation::SessionShutdown => {
             handle_resource_session_shutdown(mux, client, request, id, writer)
         }
@@ -291,7 +297,9 @@ pub(super) fn handle_resource_connection_message(
                 "connection-owned operation fell through to the transport-independent router"
             );
             let operation = request.envelope.operation;
-            match crate::resource_router::handle_parsed_resource_request(mux, request) {
+            let handled = crate::resource_router::handle_parsed_resource_request(mux, request);
+            crate::debug_spans::mark("router.answered");
+            match handled {
                 Ok(response) => {
                     activity::note_resource_input(mux, client, operation, &response);
                     writer.send_control(&response).is_ok()

@@ -55,12 +55,33 @@ final class TerminalStatusBanner: NSView {
     func show(_ status: TerminalConnectionStatus, hostLoss: TerminalHostLoss? = nil,
               cause: TerminalHostLossCause? = nil, stall: TerminalShellStall? = nil) {
         guard let text = Self.text(for: status, hostLoss: hostLoss, cause: cause, stall: stall) else {
+            endReveal()
             isHidden = true
             return
         }
         label.stringValue = text
         setAccessibilityLabel(text)
+        let restoring = status == .restoring && stall == nil
+        if restoring, isHidden { beginReveal() } else if !restoring { endReveal() }
         isHidden = false
+    }
+
+    /// "Restoring…" fades in only after `restoringRevealDelay`, so an attach
+    /// that answers at once (the usual case) never flashes the label.
+    static let restoringRevealDelay: CFTimeInterval = 0.5
+    private static let revealHoldKey = "terminalStatus.restoringHold"
+    private static let revealFadeKey = "terminalStatus.restoringReveal"
+
+    private func beginReveal() {
+        guard let layer else { return }
+        layer.add(Motion.hold("opacity", at: 0), forKey: Self.revealHoldKey)
+        layer.add(Motion.scheduledFade(.fadeIn, "opacity", from: 0, to: 1, after: Self.restoringRevealDelay, on: layer),
+                  forKey: Self.revealFadeKey)
+    }
+
+    private func endReveal() {
+        layer?.removeAnimation(forKey: Self.revealHoldKey)
+        layer?.removeAnimation(forKey: Self.revealFadeKey)
     }
 
     /// The banner text, or nil while connected. An exited terminal whose
@@ -88,6 +109,8 @@ final class TerminalStatusBanner: NSView {
         switch status {
         case .connected:
             return nil
+        case .restoring:
+            return strings.text("terminal.link.restoring", defaultValue: "Restoring…")
         case .exited:
             switch hostLoss {
             case .hostEnded:

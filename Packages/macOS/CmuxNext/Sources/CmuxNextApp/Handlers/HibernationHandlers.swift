@@ -17,6 +17,7 @@ enum HibernationHandlers {
             switch hibernation.hibernateNow(id.rawValue) {
             case nil: break
             case .unsupported?: context.refuse(RefusalStrings.hibernateUnsupported)
+            case .formSubmission?: context.refuse(RefusalStrings.hibernateFormSubmission)
             case _?: context.refuse(RefusalStrings.hibernateVisibleTab)
             }
         })

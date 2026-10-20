@@ -15,6 +15,14 @@ nonisolated extension OmnibarStep {
             guard textChanged, kind != nil else { return }
             beginFocus(.programmatic)
         }
+        // A selection report (no edit kind, nothing marked) never changes the
+        // text: when its text differs, AppKit reloaded the field editor from
+        // the field's resting text (a responder change, `selectText:`). That
+        // is no edit; the step's presentation writes the state's text back
+        // (cx-d0d.87: after a focus round trip the reloaded elided address
+        // became typed text, so the second click edited and Escape reverted
+        // instead of blurring).
+        if textChanged, kind == nil, field.marked == nil, !state.isComposing { return }
         if field.text != state.fieldText || kind != nil || field.marked != state.edit.marked && field.marked != nil {
             edit(field, kind ?? .insert)
         } else {

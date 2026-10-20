@@ -11,9 +11,11 @@ from __future__ import annotations
 import datetime as dt
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 from argparse import Namespace
 from pathlib import Path
@@ -24,6 +26,12 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts/ci"))
 import next_batch as nb  # noqa: E402
+
+# The suite also runs on Actions. Start every test from a host environment, so the
+# "never land from Actions" refusal (landing_refusal) applies only where a test sets
+# GITHUB_ACTIONS itself, and a runner's own batch settings never leak into a case.
+for _name in [n for n in os.environ if n == "GITHUB_ACTIONS" or n.startswith("CMUX_NEXT_BATCH_")]:
+    del os.environ[_name]
 
 WORKFLOW = ROOT / ".github/workflows/cmux-next-batch.yml"
 NOW = dt.datetime(2026, 10, 6, 5, 0, tzinfo=dt.timezone.utc)
@@ -104,28 +112,152 @@ class Eligibility(unittest.TestCase):
         self.assertEqual(skipped, {5: "label hold", 40: "batch is full (3); next batch"})
 
 
+class ConflictingWithBase(unittest.TestCase):
+    def test_a_pr_conflicting_with_the_base_keeps_out_and_unknown_does_not(self):
+        with mock.patch.dict(os.environ, {"CMUX_NEXT_BATCH_AUTHORS": ""}):
+            self.assertEqual(nb.ineligible_reason(pr(1, mergeable="CONFLICTING"), NOW),
+                             "conflicts with feat-cmux-next (merge it, push)")
+            self.assertIsNone(nb.ineligible_reason(pr(2, mergeable="UNKNOWN"), NOW))
+            self.assertIsNone(nb.ineligible_reason(pr(3, mergeable="MERGEABLE"), NOW))
+
+
 class OpenPrsQuery(unittest.TestCase):
-    """One 100-PR query with files and checks times out (HTTP 504): page it."""
+    """The PR list is light and paged; files and checks (30 PRs with both in one
+    page timed out, HTTP 504) come only for PRs the cheap filters keep."""
 
-    def node(self, number: int) -> dict:
-        return {"number": number, "title": "t", "url": "u", "isDraft": False, "headRefName": f"b{number}",
-                "headRefOid": "a" * 40, "authorAssociation": "MEMBER", "author": {"login": "teamleaderleo"},
-                "files": {"nodes": []}, "isCrossRepository": False, "labels": {"nodes": []},
-                "commits": {"nodes": []}}
+    def setUp(self):
+        nb.DETAILS.clear()
 
-    def test_pages_through_every_open_pr(self):
-        gh = nb.GitHub("o/r")
+    def node(self, number: int, draft: bool = False, state: str = "SUCCESS") -> dict:
+        return {"id": f"PR_{number}", "number": number, "title": "t", "url": "u", "isDraft": draft,
+                "headRefName": f"b{number}", "headRefOid": f"{number:040x}", "authorAssociation": "MEMBER",
+                "author": {"login": "teamleaderleo"}, "isCrossRepository": False, "labels": {"nodes": []},
+                "commits": {"nodes": [{"commit": {"committedDate": dt.datetime.now(dt.timezone.utc).isoformat(),
+                                                  "statusCheckRollup": {"state": state, "contexts": {}}}}]}}
+
+    def fake(self, pages: list[dict], details: dict) -> tuple[nb.GitHub, list]:
+        """GraphQL stub: list pages in order; a detail query answers each alias
+        from details[(node id, cursor)] = (paths, contexts, next cursor)."""
+        gh, seen = nb.GitHub("o/r"), []
+
+        def graphql(query, **variables):
+            if "pullRequests(" in query:
+                after = variables.get("after")
+                seen.append(("list", after))
+                cursors = [None] + [page["repository"]["pullRequests"]["pageInfo"]["endCursor"] for page in pages]
+                return pages[cursors.index(after)]
+            reply = {}
+            for alias, node_id, rest in re.findall(r'^(p\d+): node\(id: "([^"]+)"\)(.*?)(?=^p\d+: |\Z)', query, re.S | re.M):
+                cursor = None
+                if "contexts(" in rest:
+                    found = re.search(r'after: "([^"]+)"', rest)
+                    cursor = found.group(1) if found else ""
+                seen.append(("detail", node_id, "files(" in rest, cursor))
+                paths, contexts, following = details[(node_id, cursor or "")]
+                node = {}
+                if "files(" in rest:
+                    node["files"] = {"nodes": [{"path": path} for path in paths]}
+                if cursor is not None:
+                    node["commits"] = {"nodes": [{"commit": {"statusCheckRollup": {"contexts": {
+                        "nodes": contexts, "pageInfo": {"hasNextPage": bool(following), "endCursor": following}}}}}]}
+                reply[alias] = node
+            return reply
+
+        gh.graphql = graphql
+        return gh, seen
+
+    @staticmethod
+    def run_context(name: str, conclusion: str) -> dict:
+        return {"__typename": "CheckRun", "name": name, "status": "COMPLETED", "conclusion": conclusion}
+
+    def test_lists_every_page_and_fetches_details_only_for_candidates(self):
         pages = [
-            {"repository": {"pullRequests": {"nodes": [self.node(1), self.node(2)],
+            {"repository": {"pullRequests": {"nodes": [self.node(1), self.node(2, draft=True)],
                                               "pageInfo": {"hasNextPage": True, "endCursor": "c1"}}}},
             {"repository": {"pullRequests": {"nodes": [self.node(3)],
                                               "pageInfo": {"hasNextPage": False, "endCursor": None}}}},
         ]
-        seen = []
-        gh.graphql = lambda query, **variables: seen.append(variables.get("after")) or pages[len(seen) - 1]
-        self.assertEqual([item.number for item in nb.open_prs(gh)], [1, 2, 3])
-        self.assertEqual(seen, [None, "c1"])
-        self.assertLessEqual(nb.PRS_PAGE, 40)
+        gh, seen = self.fake(pages, {("PR_1", ""): (["a.swift"], [], None), ("PR_3", ""): ([".github/workflows/x.yml"], [], None)})
+        with mock.patch.dict(os.environ, {"CMUX_NEXT_BATCH_AUTHORS": ""}):
+            prs = nb.open_prs(gh)
+        self.assertEqual([item.number for item in prs], [1, 2, 3])
+        self.assertEqual(seen[:2], [("list", None), ("list", "c1")])
+        # The draft gets no detail query; a green rollup gets files but no contexts.
+        self.assertEqual(sorted(seen[2:]), [("detail", "PR_1", True, None), ("detail", "PR_3", True, None)])
+        self.assertEqual(prs[2].files, [".github/workflows/x.yml"])
+        self.assertEqual(prs[1].files, [])
+
+    def test_override_label_actors_come_from_the_list_query_after_the_head_commit(self):
+        """#21925 on top of #21891's two-query list: who applied a label still arrives
+        with the light list, and only an application after the head's commit counts."""
+        node = self.node(1)
+        committed = node["commits"]["nodes"][0]["commit"]["committedDate"]
+        before = (dt.datetime.fromisoformat(committed) - dt.timedelta(hours=1)).isoformat()
+        after = (dt.datetime.fromisoformat(committed) + dt.timedelta(minutes=5)).isoformat()
+        node["labels"] = {"nodes": [{"name": nb.OVERRIDE_ALONE}, {"name": "stale"}]}
+        node["timelineItems"] = {"nodes": [
+            {"createdAt": after, "label": {"name": nb.OVERRIDE_ALONE}, "actor": {"login": "lawrencecchen"}},
+            {"createdAt": before, "label": {"name": "stale"}, "actor": {"login": "lawrencecchen"}},
+            {},
+        ]}
+        pages = [{"repository": {"pullRequests": {"nodes": [node],
+                                                  "pageInfo": {"hasNextPage": False, "endCursor": None}}}}]
+        gh, _ = self.fake(pages, {("PR_1", ""): (["a.swift"], [], None)})
+        with mock.patch.dict(os.environ, {"CMUX_NEXT_BATCH_AUTHORS": ""}):
+            [item] = nb.open_prs(gh)
+        self.assertEqual(item.label_actors, {nb.OVERRIDE_ALONE: "lawrencecchen"})
+        self.assertIn("LABELED_EVENT", nb.LIST_QUERY)
+
+    def test_pages_contexts_past_the_first_hundred_and_caches_by_head_and_counts(self):
+        pages = [{"repository": {"pullRequests": {"nodes": [self.node(1, state="FAILURE")],
+                                                   "pageInfo": {"hasNextPage": False, "endCursor": None}}}}]
+        details = {
+            ("PR_1", ""): (["a.swift"], [self.run_context("ok", "SUCCESS")] * 100, "k1"),
+            ("PR_1", "k1"): ([], [self.run_context("cmux-next fast tier", "FAILURE")], None),
+        }
+        gh, seen = self.fake(pages, details)
+        with mock.patch.dict(os.environ, {"CMUX_NEXT_BATCH_AUTHORS": ""}):
+            first = nb.open_prs(gh)
+            self.assertEqual(nb.red_fast_checks(first[0]), ["cmux-next fast tier"])
+            self.assertEqual([item[1:] for item in seen if item[0] == "detail"],
+                             [("PR_1", True, ""), ("PR_1", False, "k1")])
+            seen.clear()
+            again = nb.open_prs(gh)
+        self.assertEqual([item for item in seen if item[0] == "detail"], [])
+        self.assertEqual(nb.red_fast_checks(again[0]), ["cmux-next fast tier"])
+
+    def test_a_red_count_fetches_checks_whatever_the_rollup_state(self):
+        rollup = {"state": "PENDING", "contexts": {"checkRunCountsByState": [{"state": "CANCELLED", "count": 1}]}}
+        self.assertTrue(nb.rollup_failing(rollup))
+        self.assertFalse(nb.rollup_failing({"state": "PENDING", "contexts": {
+            "checkRunCountsByState": [{"state": "FAILURE", "count": 0}, {"state": "IN_PROGRESS", "count": 3}]}}))
+
+    def test_a_full_cache_never_drops_a_hit_of_this_poll(self):
+        pages = [{"repository": {"pullRequests": {"nodes": [self.node(1), self.node(2)],
+                                                   "pageInfo": {"hasNextPage": False, "endCursor": None}}}}]
+        gh, _ = self.fake(pages, {("PR_1", ""): (["a"], [], None), ("PR_2", ""): (["b"], [], None)})
+        with mock.patch.dict(os.environ, {"CMUX_NEXT_BATCH_AUTHORS": ""}):
+            nb.open_prs(gh)
+            nb.DETAILS.update({(str(n), "x"): ([], []) for n in range(5001)})
+            moved = self.node(2)
+            moved["headRefOid"] = "f" * 40
+            pages[0]["repository"]["pullRequests"]["nodes"][1] = moved
+            prs = nb.open_prs(gh)
+        self.assertEqual([item.files for item in prs], [["a"], ["b"]])
+
+    def test_landing_rechecks_without_the_cache(self):
+        pages = [{"repository": {"pullRequests": {"nodes": [self.node(1)],
+                                                   "pageInfo": {"hasNextPage": False, "endCursor": None}}}}]
+        gh, seen = self.fake(pages, {("PR_1", ""): (["a"], [], None)})
+        with mock.patch.dict(os.environ, {"CMUX_NEXT_BATCH_AUTHORS": ""}):
+            nb.open_prs(gh)
+            seen.clear()
+            nb.open_prs(gh, fresh=True)
+        self.assertEqual([item[0] for item in seen], ["list", "detail"])
+
+    def test_the_detail_query_refuses_an_unexpected_id(self):
+        with self.assertRaises(ValueError):
+            nb.detail_query([('x") { a } b: node(id: "y', True, None)])
 
     def test_a_gateway_timeout_is_retried_once(self):
         gh = nb.GitHub("o/r")
@@ -156,6 +288,44 @@ class Debounce(unittest.TestCase):
                 run("pull_request", 9), run("workflow_dispatch", 3, "build x")]
         self.assertEqual(nb.first_trigger_since_dispatch(runs, NOW), NOW - dt.timedelta(minutes=6))
         self.assertEqual(nb.first_trigger_since_dispatch([], NOW), NOW)
+
+    def debounce(self, runs: list[dict], run_id: int) -> mock.MagicMock:
+        """cmd_debounce as run `run_id`, with GitHub faked; returns the fake."""
+        gh = mock.MagicMock()
+        gh.runs.return_value = runs
+        with mock.patch.object(nb, "GitHub", return_value=gh), mock.patch.object(nb, "now", return_value=NOW), \
+                mock.patch.object(nb.time, "sleep"), mock.patch.dict(os.environ, {"GITHUB_RUN_ID": str(run_id)}):
+            self.assertEqual(nb.cmd_debounce(Namespace(repo="o/r", reason="r")), 0)
+        return gh
+
+    def test_a_superseded_wait_ends_green_without_dispatching(self):
+        """A newer event's run takes over the wait: the older one exits 0, never CANCELLED,
+        so the debounce check on a pull request does not read red."""
+        def run(run_id: int, event: str, minutes: int) -> dict:
+            return {"id": run_id, "event": event, "display_title": "debounce 1",
+                    "created_at": (NOW - dt.timedelta(minutes=minutes)).isoformat()}
+        runs = [run(12, "pull_request", 0), run(11, "push", 1), run(10, "workflow_dispatch", 2)]
+        self.assertTrue(nb.superseded(runs, 11))
+        self.assertFalse(nb.superseded(runs, 12))
+        self.assertFalse(nb.superseded(runs, 99))  # not listed yet: wait, then look again
+        # only a run whose debounce job runs takes over: not a fork's or a next-batch/ head's (skipped there)
+        fork = {**run(13, "pull_request", 0), "head_repository": {"full_name": "fork/r"}, "head_branch": "x"}
+        stack = {**run(14, "pull_request", 0), "head_repository": {"full_name": "o/r"}, "head_branch": "next-batch/7"}
+        self.assertFalse(nb.superseded(runs + [fork, stack], 12, "o/r"))
+        self.assertTrue(nb.superseded(runs + [{**fork, "head_repository": {"full_name": "o/r"}}], 12, "o/r"))
+        # a run the full listing no longer reaches has 60 newer runs: it is superseded
+        page = [run(100 + i, "pull_request", 0) for i in range(60)]
+        self.assertTrue(nb.superseded(page, 11))
+        self.assertFalse(nb.superseded(page[:59], 11))
+        self.debounce(runs, 11).dispatch.assert_not_called()
+        self.debounce(runs, 12).dispatch.assert_called_once()
+        # a newer event that arrives during the wait also supersedes it
+        gh = mock.MagicMock()
+        gh.runs.side_effect = [runs[1:], runs]
+        with mock.patch.object(nb, "GitHub", return_value=gh), mock.patch.object(nb, "now", return_value=NOW), \
+                mock.patch.object(nb.time, "sleep"), mock.patch.dict(os.environ, {"GITHUB_RUN_ID": "11"}):
+            self.assertEqual(nb.cmd_debounce(Namespace(repo="o/r", reason="r")), 0)
+        gh.dispatch.assert_not_called()
 
 
 class ServeDebounce(unittest.TestCase):
@@ -405,6 +575,220 @@ class Bisect(unittest.TestCase):
                 self.assertLessEqual(len(controller.probes), 3)  # log2(8)
 
 
+CHECKS_LOG = """\
+2026-10-19T03:02:59.3742502Z \x1b[36;1m  echo "### ${#failed[@]} cmux-next check(s) failed"\x1b[0m
+2026-10-19T03:02:59.3742784Z \x1b[36;1m  printf -- '- %s\\n' "${failed[@]}"\x1b[0m
+2026-10-19T03:02:59.3791306Z ### 2 cmux-next check(s) failed
+2026-10-19T03:02:59.3791407Z 
+2026-10-19T03:02:59.3791459Z - Type scale (failure)
+2026-10-19T03:02:59.3791577Z - Tier routing (failure)
+2026-10-19T03:02:59.3791651Z 
+2026-10-19T03:02:59.3791707Z Each check's own step log has the details.
+2026-10-19T03:02:59.3792894Z ##[error]Process completed with exit code 1.
+"""
+
+
+class BaseReds(unittest.TestCase):
+    """Base pushes and dispatches skip the checks job, so the batch validates the
+    base itself and compares single checks, not the whole job."""
+
+    def controller(self) -> nb.Controller:
+        controller = nb.Controller.__new__(nb.Controller)
+        controller.args = Namespace(repo="o/r", dry_run=False, keep_branches=False)
+        controller.gh = mock.Mock()
+        controller.base_failures = None
+        controller.base_probe = None
+        controller.base_probe_result = {}
+        controller.base_probe_stop = threading.Event()
+        controller.base_tree_waited = False
+        controller.base_sha = "b" * 40
+        controller.batch_id = "local-1"
+        return controller
+
+    def test_reads_the_red_checks_from_the_jobs_last_step(self):
+        self.assertEqual(nb.red_subchecks(CHECKS_LOG), ["Type scale", "Tier routing"])
+        self.assertEqual(nb.red_subchecks("no listing here\n"), [])
+
+    def test_a_red_checks_job_counts_each_red_check(self):
+        controller = self.controller()
+        controller.gh.api.return_value = {"jobs": [
+            {"id": 7, "name": nb.CHECKS_JOB, "conclusion": "failure"},
+            {"id": 8, "name": "cmux-next swift test", "conclusion": "failure"},
+            {"id": 9, "name": "cmux-next daemon tests", "conclusion": "success"},
+        ]}
+        controller.gh.gh.return_value = subprocess.CompletedProcess([], 0, CHECKS_LOG, "")
+        self.assertEqual(controller.failed_jobs(1), [
+            f"{nb.CHECKS_JOB}: Tier routing", f"{nb.CHECKS_JOB}: Type scale", "cmux-next swift test"])
+        self.assertIn("actions/jobs/7/logs", " ".join(controller.gh.gh.call_args.args))
+
+    def test_an_unreadable_log_keeps_the_job(self):
+        controller = self.controller()
+        controller.gh.gh.return_value = subprocess.CompletedProcess([], 1, "", "not found")
+        self.assertEqual(controller.expand_job(nb.CHECKS_JOB, 7), {nb.CHECKS_JOB})
+
+    def test_the_probes_reds_are_the_inherited_ones(self):
+        controller = self.controller()
+        controller.base_probe_result = {"failed": {f"{nb.CHECKS_JOB}: Type scale"}}
+        self.assertEqual(controller.failing_on_base("b" * 40), {f"{nb.CHECKS_JOB}: Type scale"})
+        controller.gh.runs.assert_not_called()
+
+    def test_without_a_probe_only_outright_failures_in_the_push_run_count(self):
+        controller = self.controller()
+        controller.gh.runs.return_value = [{"id": 1, "status": "completed", "head_branch": nb.BASE}]
+        controller.gh.api.return_value = {"jobs": [
+            {"id": 7, "name": "cmux-next generated files", "conclusion": "cancelled"},
+            {"id": 8, "name": "cmux app scheme compile (Debug)", "conclusion": "failure"},
+        ]}
+        self.assertEqual(controller.failing_on_base("b" * 40), {"cmux app scheme compile (Debug)"})
+        self.assertIn("event=push", controller.gh.runs.call_args.args[1])
+
+    def test_a_stack_waits_once_for_the_bases_own_tree_run(self):
+        controller = self.controller()
+        controller.gh.runs.return_value = [
+            {"id": 3, "status": "in_progress", "head_branch": nb.BASE, "html_url": "u"},
+            {"id": 4, "status": "in_progress", "head_branch": "next-batch/x-1", "html_url": "u"},
+            {"id": 5, "status": "completed", "head_branch": nb.BASE, "html_url": "u"},
+        ]
+        waited = []
+        controller.wait_run = lambda run_id, timeout: waited.append(run_id) or {"status": "completed"}
+        controller.wait_base_tree()
+        controller.wait_base_tree()
+        self.assertEqual(waited, [3])
+        self.assertEqual(controller.gh.runs.call_args.args[0], nb.TUI_WORKFLOW)
+
+    def test_a_cancelled_probe_is_never_rerun(self):
+        controller = self.controller()
+        controller.push = lambda sha, ref: None
+        controller.find_run = lambda workflow, branch, match, since: {"id": 5, "html_url": "https://probe"}
+        controller.wait_run = lambda run_id, timeout: {"status": "completed", "conclusion": "cancelled"}
+        controller.failed_jobs = lambda run_id, detail=False: ["cmux-next swift test"]
+        controller.probe_base()
+        self.assertNotIn("rerun", [call.args[0] for call in controller.gh.gh.call_args_list])
+        self.assertNotIn("failed", controller.base_probe_result)
+
+    def test_a_batch_that_ends_first_cancels_the_probes_run(self):
+        controller = self.controller()
+        controller.base_probe = mock.Mock(is_alive=lambda: True)
+        controller.base_probe_result = {"run": 42}
+        controller.stop_base_probe()
+        self.assertEqual(controller.gh.gh.call_args.args[:3], ("run", "cancel", "42"))
+
+    def test_the_probe_validates_the_base_on_its_own_branch(self):
+        controller = self.controller()
+        pushed = []
+        controller.push = lambda sha, ref: pushed.append((sha, ref))
+        controller.find_run = lambda workflow, branch, match, since: {"id": 5, "html_url": "https://probe"}
+        controller.wait_run = lambda run_id, timeout: {"status": "completed"}
+        controller.failed_jobs = lambda run_id, detail=False: [f"{nb.CHECKS_JOB}: Type scale"]
+        with mock.patch.object(nb.time, "sleep"):
+            controller.probe_base()
+        self.assertEqual(pushed, [("b" * 40, "next-batch/local-1-base")])
+        controller.gh.dispatch.assert_called_once_with(nb.HEAVY_WORKFLOW, "next-batch/local-1-base")
+        self.assertEqual(controller.base_probe_result["failed"], {f"{nb.CHECKS_JOB}: Type scale"})
+        self.assertEqual(controller.base_probe_result["url"], "https://probe")
+
+
+    def test_a_base_red_job_excuses_only_the_tests_that_fail_on_the_base(self):
+        """A red swift test on the base must not excuse a stack that breaks another test."""
+        controller = self.controller()
+        steps = [{"name": "Set up job", "conclusion": "success"}, {"name": "Run tests", "conclusion": "failure"}]
+        job = {"id": 8, "name": "cmux-next swift test", "conclusion": "failure", "steps": steps}
+        controller.gh.api.return_value = {"jobs": [job]}
+
+        def failing(*tests):
+            text = "".join(f"2026-10-19T03:02:59.1Z \u2718 Test {name} recorded an issue at A.swift:1:2: x\n" for name in tests)
+            return subprocess.CompletedProcess([], 0, text, "")
+
+        controller.gh.gh.return_value = failing("alpha()")
+        base = set(controller.failed_jobs(1, detail=True))
+        controller.gh.gh.return_value = failing("alpha()", "beta()")
+        stack = set(controller.failed_jobs(2, detail=True))
+        self.assertIn("cmux-next swift test: test beta()", stack - base)
+        controller.gh.gh.return_value = failing("alpha()")
+        self.assertEqual(set(controller.failed_jobs(3, detail=True)) - base, set())
+        # Job-level names stay for the base-red comparison's lanes.
+        self.assertEqual(controller.failed_jobs(1), ["cmux-next swift test"])
+
+    def test_a_job_with_nothing_to_compare_is_never_excused_by_its_steps(self):
+        """A timeout or a crash leaves only the failed step; the base failing that step for another reason excuses nothing."""
+        controller = self.controller()
+        steps = [{"name": "Run tests", "conclusion": "failure"}]
+        controller.gh.api.return_value = {"jobs": [
+            {"id": 8, "name": "cmux-next swift test", "conclusion": "failure", "steps": steps}]}
+        controller.gh.gh.return_value = subprocess.CompletedProcess(
+            [], 0, "2026-10-19T03:02:59.1Z \u2718 Test alpha() recorded an issue at A.swift:1:2: x\n", "")
+        base = set(controller.failed_jobs(1, detail=True))
+        controller.gh.gh.return_value = subprocess.CompletedProcess([], 0, "2026-10-19T03:02:59.1Z still running\n", "")
+        self.assertEqual(set(controller.failed_jobs(2, detail=True)) - base, {"cmux-next swift test"})
+        crash = "2026-10-19T03:02:59.1Z error: Exited with unexpected signal code 5\n".replace("Exited", "exited")
+        controller.gh.gh.return_value = subprocess.CompletedProcess([], 0, crash, "")
+        self.assertIn("cmux-next swift test: crash signal 5", set(controller.failed_jobs(3, detail=True)) - base)
+
+    def test_a_probe_stopped_before_its_run_is_found_cancels_it(self):
+        controller = self.controller()
+        controller.push = lambda sha, ref: None
+        deleted = []
+        controller.delete_branch = deleted.append
+
+        def find_run(workflow, branch, match, since):
+            controller.base_probe_stop.set()  # the batch ended while the probe looked for its run
+            return {"id": 5, "html_url": "https://probe"}
+
+        controller.find_run = find_run
+        controller.wait_run = mock.Mock()
+        controller.probe_base()
+        controller.wait_run.assert_not_called()
+        self.assertIn(("run", "cancel", "5"), [call.args[:3] for call in controller.gh.gh.call_args_list])
+        self.assertEqual(deleted, ["next-batch/local-1-base"])
+        self.assertNotIn("failed", controller.base_probe_result)
+
+    def test_a_probe_whose_rerun_does_not_finish_records_nothing(self):
+        controller = self.controller()
+        controller.push = lambda sha, ref: None
+        controller.find_run = lambda workflow, branch, match, since: {"id": 5, "html_url": "https://probe"}
+        states = iter([{"status": "completed", "conclusion": "failure"}, {"status": "in_progress"}])
+        controller.wait_run = lambda run_id, timeout: next(states)
+        controller.failed_jobs = lambda run_id, detail=False: ["cmux-next swift test: test flaky()"]
+        with mock.patch.object(nb.time, "sleep"):
+            controller.probe_base()
+        self.assertNotIn("failed", controller.base_probe_result)
+
+    def test_a_batch_that_raises_still_cleans_up(self):
+        controller = self.controller()
+        controller.args = Namespace(repo="o/r", dry_run=False, no_land=False, keep_branches=False, prs="7")
+        controller.reported = lambda pr, kinds: ""
+        controller.validations = []
+        controller.base_probe_result = {"branch": "next-batch/local-1-base", "run": 9}
+        controller.base_probe = mock.Mock(is_alive=lambda: True)
+        deleted = []
+        controller.delete_branch = deleted.append
+
+        def validate(prs, name):
+            controller.validations.append(nb.Validation(name=name, stack=nb.Stack(base="b", head="c"),
+                                                        branch="next-batch/local-1-1"))
+            raise RuntimeError("HTTP 502")
+
+        controller.validate = validate
+        with mock.patch.object(nb, "open_prs", return_value=[]), \
+                mock.patch.object(nb, "select", return_value=([pr(7)], {})), \
+                mock.patch.object(nb, "admit_reviewed", return_value=([pr(7)], {})), \
+                mock.patch.object(nb, "freeze_check", return_value=(0, "")):
+            with self.assertRaises(RuntimeError):
+                controller.run()
+        self.assertEqual(deleted, ["next-batch/local-1-1", "next-batch/local-1-base"])
+        self.assertIn(("run", "cancel", "9"), [call.args[:3] for call in controller.gh.gh.call_args_list])
+
+class TreeInputs(unittest.TestCase):
+    def test_a_tree_input_outside_cmux_tui_counts_and_other_files_do_not(self):
+        root = Path(tempfile.mkdtemp())
+        (root / "scripts/cmux-next").mkdir(parents=True)
+        (root / nb.TREE_INPUTS).write_text("# inputs\ntree first-party-apps/cloud/server\nfile schemas/x/vectors.json\n")
+        self.assertTrue(nb.touches_tree(["schemas/x/vectors.json"], root))
+        self.assertTrue(nb.touches_tree(["first-party-apps/cloud/server/main.rs"], root))
+        self.assertTrue(nb.touches_tree(["cmux-tui/crates/a.rs"], root))
+        self.assertFalse(nb.touches_tree(["webviews/src/a.tsx", "schemas/x/other.json"], root))
+
+
 class RemoteRegeneration(unittest.TestCase):
     """Generators run the stack's code, so they run in a dispatched job and
     send back a patch; the controller never runs them on its own host."""
@@ -524,6 +908,11 @@ class FormatBeforeLanding(unittest.TestCase):
     the PR's head on a runner and pushes the fix to the PR's branch."""
 
     def setUp(self):
+        # Landing rechecks eligibility at nb.now(); pin it to the fixtures'
+        # clock so their head commits never age past the 5-day limit.
+        patcher = mock.patch.object(nb, "now", return_value=NOW)
+        patcher.start()
+        self.addCleanup(patcher.stop)
         self.tmp = tempfile.TemporaryDirectory()
         root = Path(self.tmp.name)
         self.env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t",
@@ -603,7 +992,6 @@ class FormatBeforeLanding(unittest.TestCase):
         controller.args = Namespace(repo="o/r", dry_run=False, no_land=False, land=False)
         controller.run_url = "u"
         controller.gh = mock.Mock()
-        controller.merge_green = lambda: Path("/bin/true")
         controller.comment_once = lambda *args: None
         formatted = []
         controller.format_pr = lambda item, branch: formatted.append(item.number) or "f" * 40
@@ -622,33 +1010,44 @@ class FormatBeforeLanding(unittest.TestCase):
         red = pr(1, files=["webviews/a.ts"], checks=[("web / react-apps-check", "completed", "failure")])
         clean = pr(2, files=["webviews/b.ts"])
         controller.gh = mock.Mock()
-        controller.merge_green = lambda: Path("/bin/true")
         controller.comment_once = lambda *args: None
         formatted, merged = [], []
         controller.format_pr = lambda item, branch: formatted.append(item.number) or "f" * 40
-        controller.merge_one = lambda helper, item, validation: merged.append(item.number) or "landed"
+        controller.merge_one = lambda item, validation: merged.append(item.number) or "landed"
         validation = nb.Validation(name="batch", stack=nb.Stack(base="b", head="h", included=[red, clean]),
                                    branch="next-batch/x-1")
-        with mock.patch.object(nb, "open_prs", return_value=[red, clean]):
+        reviewed = Path(tempfile.mkdtemp()) / "reviewed"
+        reviewed.write_text(f"1 {red.sha}\n2 {clean.sha}\n")
+        with mock.patch.object(nb, "open_prs", return_value=[red, clean]), \
+                mock.patch.dict(os.environ, {"CMUX_NEXT_BATCH_REVIEWED": str(reviewed)}):
             landed = controller.land(validation)
         self.assertEqual(formatted, [1])
-        self.assertEqual(merged, [1, 2])
-        self.assertEqual([text for _, text in landed], ["landed", "landed"])
+        # The pushed formatting is a new head nobody validated or reviewed, and the
+        # PR stacked on top of it was validated with it, so neither lands now.
+        self.assertEqual(merged, [])
+        self.assertIn("formatted", landed[0][1])
+        self.assertIn("earlier PR in this stack", landed[1][1])
 
 
 class NotifyOwners(unittest.TestCase):
     """Until landing is allowed, serve posts a receipt and the owner lands."""
+
+    def setUp(self):
+        # Landing rechecks eligibility at nb.now(); pin it to the fixtures'
+        # clock so their head commits never age past the 5-day limit.
+        patcher = mock.patch.object(nb, "now", return_value=NOW)
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def controller(self, notify: bool) -> nb.Controller:
         controller = nb.Controller.__new__(nb.Controller)
         controller.args = Namespace(repo="o/r", dry_run=False, no_land=False, land=not notify)
         controller.run_url = "u"
         controller.gh = mock.Mock()
-        controller.merge_green = lambda: Path("/bin/true")
         controller.comments = []
         controller.comment_once = lambda item, kind, body: controller.comments.append((item.number, kind, body))
         controller.merged = []
-        controller.merge_one = lambda helper, item, validation: controller.merged.append(item.number) or "landed"
+        controller.merge_one = lambda item, validation: controller.merged.append(item.number) or "landed"
         return controller
 
     def validation(self, prs, passed=("cmux-next swift test",)) -> nb.Validation:
@@ -685,12 +1084,156 @@ class NotifyOwners(unittest.TestCase):
             controller.land(self.validation(prs, passed=()))
         self.assertIn("heavy tier did not run", controller.comments[0][2])
 
-    def test_land_flag_merges(self):
+    def test_land_flag_merges_a_head_reviewed_at_its_exact_sha(self):
         controller = self.controller(notify=False)
         prs = [pr(1)]
-        with mock.patch.object(nb, "open_prs", return_value=prs):
+        reviewed = Path(tempfile.mkdtemp()) / "reviewed"
+        reviewed.write_text(f"# coord-2's reviewed heads\n1 {pr(1).sha}\n")
+        with mock.patch.object(nb, "open_prs", return_value=prs), \
+                mock.patch.dict(os.environ, {"CMUX_NEXT_BATCH_REVIEWED": str(reviewed)}):
             controller.land(self.validation(prs))
         self.assertEqual(controller.merged, [1])
+
+
+class ReviewGate(NotifyOwners):
+    """The queue lands only heads an independent review approved at that exact SHA."""
+
+    def land(self, prs, env=None, statuses=None):
+        controller = self.controller(notify=False)
+        controller.gh.api = mock.Mock(return_value=statuses or [])
+        with mock.patch.object(nb, "open_prs", return_value=prs), mock.patch.dict(os.environ, env or {}, clear=False):
+            for key in ("CMUX_NEXT_BATCH_REVIEWED", "CMUX_NEXT_BATCH_REVIEWERS"):
+                if key not in (env or {}):
+                    os.environ.pop(key, None)
+            landed = controller.land(self.validation(prs))
+        return controller, dict((item.number, text) for item, text in landed)
+
+    def test_an_unreviewed_head_gets_a_receipt_and_is_not_merged(self):
+        controller, landed = self.land([pr(1)])
+        self.assertEqual(controller.merged, [])
+        self.assertIn("not reviewed at this head", landed[1])
+        # A note, not a receipt: a receipt would keep it out of the batch after its review.
+        self.assertEqual([kind for _, kind, _ in controller.comments], ["validated"])
+
+    def test_a_review_of_an_older_head_does_not_count(self):
+        reviewed = Path(tempfile.mkdtemp()) / "reviewed"
+        reviewed.write_text(f"1 {'f' * 40}\n")
+        controller, landed = self.land([pr(1)], {"CMUX_NEXT_BATCH_REVIEWED": str(reviewed)})
+        self.assertEqual(controller.merged, [])
+
+    def test_a_status_counts_only_from_a_named_reviewer(self):
+        status = lambda login: [{"context": "review/independent", "state": "success", "creator": {"login": login}}]
+        env = {"CMUX_NEXT_BATCH_REVIEWERS": "cmux-review-bot"}
+        controller, _ = self.land([pr(1)], env, status("teamleaderleo"))
+        self.assertEqual(controller.merged, [])  # every lane runs gh as teamleaderleo
+        controller, _ = self.land([pr(1)], env, status("cmux-review-bot"))
+        self.assertEqual(controller.merged, [1])
+
+
+class ReviewGateHoles(NotifyOwners):
+    """Review findings on #21925: every way an unreviewed head could still land."""
+
+    def reviewed_file(self, *items):
+        path = Path(tempfile.mkdtemp()) / "reviewed"
+        path.write_text("".join(f"{item.number} {item.sha}\n" for item in items))
+        path.chmod(0o600)
+        return str(path)
+
+    def test_only_reviewed_prs_are_stacked_when_landing(self):
+        gh = mock.Mock()
+        with mock.patch.dict(os.environ, {"CMUX_NEXT_BATCH_REVIEWED": self.reviewed_file(pr(2))}):
+            admitted, waiting = nb.admit_reviewed([pr(1), pr(2)], gh, landing=True)
+            self.assertEqual([item.number for item in admitted], [2])
+            self.assertIn("review", waiting[1])
+            # Receipt mode lands nothing, so everything is validated.
+            admitted, waiting = nb.admit_reviewed([pr(1), pr(2)], gh, landing=False)
+            self.assertEqual([item.number for item in admitted], [1, 2])
+
+    def test_a_statuses_error_counts_as_not_reviewed(self):
+        gh = mock.Mock(repo="o/r")
+        gh.api.side_effect = RuntimeError("HTTP 502")
+        with mock.patch.dict(os.environ, {"CMUX_NEXT_BATCH_REVIEWERS": "cmux-review-bot"}):
+            os.environ.pop("CMUX_NEXT_BATCH_REVIEWED", None)
+            self.assertFalse(nb.reviewed(pr(1), gh))
+
+    def test_a_reviewed_file_others_can_write_is_ignored(self):
+        path = self.reviewed_file(pr(1))
+        Path(path).chmod(0o666)
+        with mock.patch.dict(os.environ, {"CMUX_NEXT_BATCH_REVIEWED": path}):
+            self.assertFalse(nb.reviewed(pr(1)))
+
+    def test_actions_never_lands_without_coord2_s_list(self):
+        with mock.patch.dict(os.environ, {"GITHUB_ACTIONS": "true"}):
+            os.environ.pop("CMUX_NEXT_BATCH_EXCLUDE", None)
+            self.assertIn("CMUX_NEXT_BATCH_EXCLUDE", nb.landing_refusal())
+        with mock.patch.dict(os.environ, {"GITHUB_ACTIONS": "", "CMUX_NEXT_BATCH_EXCLUDE": ""}):
+            self.assertIsNone(nb.landing_refusal())
+
+
+class LandOnlyTheValidatedTree(NotifyOwners):
+    """Second review of #21925: what lands must be a prefix of the validated stack."""
+
+    def test_nothing_after_a_pr_that_did_not_land(self):
+        controller = self.controller(notify=False)
+        a, b, c = pr(1), pr(2), pr(3)
+        reviewed = Path(tempfile.mkdtemp()) / "reviewed"
+        reviewed.write_text(f"1 {a.sha}\n3 {c.sha}\n")  # b is not reviewed
+        with mock.patch.object(nb, "open_prs", return_value=[a, b, c]), \
+                mock.patch.dict(os.environ, {"CMUX_NEXT_BATCH_REVIEWED": str(reviewed)}):
+            landed = dict((item.number, text) for item, text in controller.land(self.validation([a, b, c])))
+        self.assertEqual(controller.merged, [1])
+        self.assertIn("earlier PR in this stack", landed[3])
+
+    def test_a_run_that_may_not_land_leaves_no_marker_that_holds_a_pr_out(self):
+        controller = self.controller(notify=False)
+        reviewed = Path(tempfile.mkdtemp()) / "reviewed"
+        reviewed.write_text(f"1 {pr(1).sha}\n")
+        with mock.patch.object(nb, "open_prs", return_value=[pr(1)]), \
+                mock.patch.dict(os.environ, {"GITHUB_ACTIONS": "true", "CMUX_NEXT_BATCH_REVIEWED": str(reviewed)}):
+            os.environ.pop("CMUX_NEXT_BATCH_EXCLUDE", None)
+            controller.land(self.validation([pr(1)]))
+        self.assertEqual(controller.merged, [])
+        self.assertNotIn("receipt", [kind for _, kind, _ in controller.comments])
+
+    def test_the_lanes_configured_login_never_counts(self):
+        with mock.patch.dict(os.environ, {"CMUX_NEXT_BATCH_AUTHORS": "leo-bot", "CMUX_NEXT_BATCH_OVERRIDERS": "leo-bot lawrencecchen"}):
+            self.assertEqual(nb.overriders(), frozenset({"lawrencecchen"}))
+
+
+class CoordinatorAndOverrides(unittest.TestCase):
+    def test_prs_coord2_lands_itself_stay_out(self):
+        listed = Path(tempfile.mkdtemp()) / "merge-ready.sh"
+        listed.write_text('READY=(\n  "manaflow-ai/cmux|21686|98f2d9818d5|build"\n  "manaflow-ai/cmux|21697|3b544e65d8d|"\n)\n'
+                          "sleep 1800  # 21700 is not listed\n")
+        with mock.patch.dict(os.environ, {"CMUX_NEXT_BATCH_EXCLUDE": str(listed)}):
+            self.assertIn("coord-2 lands it", nb.ineligible_reason(pr(21686), NOW))
+            self.assertIsNone(nb.ineligible_reason(pr(21700), NOW))
+            self.assertIsNone(nb.ineligible_reason(pr(1800), NOW))
+
+    def test_known_base_red_counts_only_when_an_allowed_login_applied_it(self):
+        red = [("lint", "completed", "failure")]
+        label = nb.OVERRIDE_BASE_RED
+        trusted = pr(1, checks=red, labels=[label], label_actors={label: "lawrencecchen"})
+        by_lane = pr(1, checks=red, labels=[label], label_actors={label: "teamleaderleo"})
+        self.assertIsNone(nb.ineligible_reason(trusted, NOW))
+        self.assertEqual(nb.ineligible_reason(by_lane, NOW), "red check lint")
+
+    def test_known_base_red_never_waives_risk_evidence_or_a_freeze(self):
+        label = nb.OVERRIDE_BASE_RED
+        for check in ("risk evidence", "merge freeze"):
+            with self.subTest(check=check):
+                item = pr(1, checks=[(check, "completed", "failure")], labels=[label],
+                          label_actors={label: "lawrencecchen"})
+                self.assertIn(check, nb.ineligible_reason(item, NOW) or "")
+
+    def test_land_alone_takes_a_batch_of_its_own(self):
+        label = nb.OVERRIDE_ALONE
+        prs = [pr(1), pr(2, labels=[label], label_actors={label: "lawrencecchen"}), pr(3)]
+        self.assertEqual([item.number for item in nb.land_alone_first(prs)], [2])
+        # One try per head: a land-alone that didn't land doesn't hold the queue every batch.
+        self.assertEqual([item.number for item in nb.land_alone_first(prs, tried={2})], [1, 2, 3])
+        untrusted = [pr(1), pr(2, labels=[label], label_actors={label: "teamleaderleo"})]
+        self.assertEqual([item.number for item in nb.land_alone_first(untrusted)], [1, 2])
 
 
 class LocalController(unittest.TestCase):
@@ -760,48 +1303,161 @@ class StickyBody(unittest.TestCase):
         self.assertNotIn("batch 7", body)
 
 
-class LandingRetry(unittest.TestCase):
-    def test_red_heavy_check_lands_with_an_override_naming_the_batch(self):
-        controller = nb.Controller.__new__(nb.Controller)
-        controller.args = Namespace(repo="o/r")
-        controller.run_url = "https://example.test/run/1"
-        controller.writer = nb.GitHub("o/r")
-        validation = nb.Validation(name="batch", stack=nb.Stack(base="b", head="c" * 40))
-        calls = []
+class Landing(unittest.TestCase):
+    """The batch lands through GitHub's merge API pinned to the head it validated; no gh-merge-green."""
 
-        def fake_run(command, **_):
-            calls.append(command)
-            if "--override" not in command:
-                return subprocess.CompletedProcess(command, 1, "", "not green: 'cmux-next swift test' is not successful on abc\n")
-            return subprocess.CompletedProcess(command, 0, "", "")
-
-        with mock.patch.object(nb.subprocess, "run", fake_run):
-            outcome = controller.merge_one(Path("/bin/true"), pr(7), validation)
-        self.assertTrue(outcome.startswith("landed"))
-        self.assertIn("https://example.test/run/1", calls[-1][calls[-1].index("--override") + 1])
-
-    def test_github_refusal_is_reported_not_retried(self):
+    def controller(self, api):
         controller = nb.Controller.__new__(nb.Controller)
         controller.args = Namespace(repo="o/r")
         controller.run_url = "u"
-        controller.writer = nb.GitHub("o/r")
-        validation = nb.Validation(name="batch", stack=nb.Stack(base="b", head="c" * 40))
-        refusal = subprocess.CompletedProcess([], 1, "", "not green: GitHub refused to merge o/r#7\n")
-        with mock.patch.object(nb.subprocess, "run", return_value=refusal):
-            self.assertEqual(controller.merge_one(Path("/bin/true"), pr(7), validation),
-                             "not landed: not green: GitHub refused to merge o/r#7")
+        controller.writer = mock.Mock()
+        controller.gh = mock.Mock(env={})
 
+        def routed(path, method="GET", **kw):
+            if "check-runs" in path and not getattr(api, "reads_checks", False):
+                return {"check_runs": []}
+            return api(path, method=method, **kw) if "method" in api.__code__.co_varnames else api(path, **{"method": method, **kw})
+        controller.writer.api = routed
+        controller.gh.api = routed
+        return controller
+
+    def validation(self):
+        return nb.Validation(name="batch", stack=nb.Stack(base="b", head="c" * 40))
+
+    def test_merges_the_validated_head_with_a_squash(self):
+        calls = []
+        controller = self.controller(lambda path, **kw: calls.append((path, kw)) or {"sha": "m" * 40, "merged": True})
+        with self.freeze(0):
+            self.assertEqual(controller.merge_one(pr(7), self.validation()), "landed")
+        path, kw = calls[0]
+        self.assertEqual(path, "repos/o/r/pulls/7/merge")
+        self.assertEqual(kw["method"], "PUT")
+        self.assertEqual(kw["body"]["sha"], pr(7).sha)
+        self.assertEqual(kw["body"]["merge_method"], "squash")
+
+    def test_a_refusal_is_reported_not_retried(self):
+        calls = []
+
+        def refuse(path, **kw):
+            calls.append(path)
+            raise RuntimeError("gh api -X PUT failed: Head branch was modified. Review and try the merge again. (HTTP 409)")
+        with self.freeze(0):
+            outcome = self.controller(refuse).merge_one(pr(7), self.validation())
+        self.assertTrue(outcome.startswith("not landed: GitHub refused to merge"), outcome)
+        self.assertEqual(len(calls), 1)
+
+    def freeze(self, code):
+        return mock.patch.object(nb, "freeze_check", lambda repo, number, env: (code, "frozen: CmuxNext/Foo/ (#9)"))
+
+    def test_keeps_githubs_default_squash_body_with_its_trailers(self):
+        calls = []
+        controller = self.controller(lambda path, **kw: calls.append(kw) or {"merged": True})
+        with self.freeze(0):
+            controller.merge_one(pr(7), self.validation())
+        self.assertNotIn("commit_message", calls[0]["body"])
+
+    def test_a_freeze_opened_since_the_last_push_stops_the_merge(self):
+        calls = []
+        controller = self.controller(lambda path, **kw: calls.append(path) or {})
+        with self.freeze(1):
+            outcome = controller.merge_one(pr(7), self.validation())
+        self.assertTrue(outcome.startswith("not landed: frozen"), outcome)
+        self.assertEqual(calls, [])
+        with self.freeze(2):
+            self.assertIn("unreadable", controller.merge_one(pr(7), self.validation()))
+        self.assertEqual(calls, [])
+
+    def test_a_transient_error_is_retried_and_never_marks_the_pr_refused(self):
+        puts = iter([RuntimeError("gh api -X PUT failed: Base branch was modified. Review and try the merge again. (HTTP 405)"),
+                     {"merged": True}])
+
+        def api(path, method="GET", **kw):
+            if method == "PUT":
+                reply = next(puts)
+                if isinstance(reply, Exception):
+                    raise reply
+                return reply
+            return {"merged": False, "head": {"sha": pr(7).sha}}
+        with self.freeze(0), mock.patch.object(nb.time, "sleep"):
+            self.assertEqual(self.controller(api).merge_one(pr(7), self.validation()), "landed")
+
+        def always_502(path, method="GET", **kw):
+            if method == "PUT":
+                raise RuntimeError("gh api -X PUT failed: gh: HTTP 502")
+            return {"merged": False}
+        with self.freeze(0), mock.patch.object(nb.time, "sleep"):
+            outcome = self.controller(always_502).merge_one(pr(7), self.validation())
+        self.assertTrue(outcome.startswith("not landed"))
+        self.assertNotIn("GitHub refused to merge", outcome)
+    def test_a_5xx_after_github_merged_counts_as_landed(self):
+        def api(path, method="GET", **kw):
+            if method == "PUT":
+                raise RuntimeError("gh api -X PUT failed: gh: HTTP 504")
+            return {"merged": True, "head": {"sha": pr(7).sha}}
+        with self.freeze(0), mock.patch.object(nb.time, "sleep"):
+            self.assertEqual(self.controller(api).merge_one(pr(7), self.validation()), "landed")
+
+    def test_a_network_error_is_transient_not_a_refusal(self):
+        def api(path, method="GET", **kw):
+            if method == "PUT":
+                raise RuntimeError("gh api -X PUT failed: Post https://api.github.com: read: connection reset by peer")
+            return {"merged": False, "head": {"sha": pr(7).sha}}
+        with self.freeze(0), mock.patch.object(nb.time, "sleep"):
+            outcome = self.controller(api).merge_one(pr(7), self.validation())
+        self.assertNotIn("GitHub refused to merge", outcome)
+
+    def test_pending_risk_evidence_holds_the_merge(self):
+        calls = []
+
+        def api(path, method="GET", **kw):
+            calls.append((method, path))
+            if "check-runs" in path:
+                return {"check_runs": [{"name": "risk evidence", "status": "in_progress", "conclusion": None}]}
+            return {"merged": True}
+        api.reads_checks = True
+        with self.freeze(0):
+            outcome = self.controller(api).merge_one(pr(7), self.validation())
+        self.assertIn("risk evidence", outcome)
+        self.assertNotIn("GitHub refused to merge", outcome)
+        self.assertFalse(any(method == "PUT" for method, _ in calls))
+
+    def test_freeze_check_maps_the_checkers_exit_and_uses_the_given_token(self):
+        root = Path(tempfile.mkdtemp())
+        (root / "scripts/ci").mkdir(parents=True)
+        script = root / "scripts/ci/merge_freeze.py"
+        for code, expected in ((0, 0), (1, 1), (3, 2)):
+            script.write_text(f"import os, sys\nprint(os.environ.get('GH_TOKEN'))\nsys.exit({code})\n")
+            with mock.patch.object(nb, "TOOLS_ROOT", root):
+                got, detail = nb.freeze_check("o/r", 7, {**os.environ, "GH_TOKEN": "job-token"})
+            self.assertEqual(got, expected)
+            self.assertIn("job-token", detail)
+
+    def test_frozen_prs_never_enter_a_stack(self):
+        verdicts = {1: (0, ""), 2: (1, "frozen: x/"), 3: (2, "HTTP 502")}
+        kept, skipped = nb.drop_frozen([pr(1), pr(2), pr(3)], lambda number: verdicts[number])
+        self.assertEqual([item.number for item in kept], [1])
+        self.assertIn("frozen", skipped[2])
+        self.assertIn("unreadable", skipped[3])
+
+    def test_gh_merge_green_is_gone_from_the_queue(self):
+        source = (ROOT / "scripts/ci/next_batch.py").read_text()
+        self.assertNotIn("gh-merge-green", source)
 
 class WorkflowShape(unittest.TestCase):
     def setUp(self):
         self.workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
         self.jobs = self.workflow["jobs"]
 
-    def test_debounce_cancels_but_a_running_batch_is_never_cancelled(self):
-        self.assertEqual(self.jobs["debounce"]["concurrency"],
-                         {"group": "cmux-next-batch-debounce", "cancel-in-progress": True})
+    def test_nothing_on_a_pull_request_is_cancelled(self):
+        """A cancelled debounce read red on every feat-cmux-next PR: a newer run supersedes an
+        older wait inside the script instead, and a running batch is never cancelled."""
+        self.assertNotIn("concurrency", self.jobs["debounce"])
+        self.assertNotIn("concurrency", self.workflow)
         self.assertEqual(self.jobs["batch"]["concurrency"],
                          {"group": "cmux-next-batch", "cancel-in-progress": False})
+
+    def test_debounce_is_skipped_while_the_queue_is_off(self):
+        self.assertIn("vars.CMUX_NEXT_BATCH_ENABLED == '1'", self.jobs["debounce"]["if"])
 
     def test_debounce_runs_the_trusted_controller(self):
         checkout = self.jobs["debounce"]["steps"][0]
@@ -853,6 +1509,34 @@ class WorkflowShape(unittest.TestCase):
                 self.assertNotIn("git -c", script.replace("git -c user.", ""))
                 self.assertIn("format-patch", script)
                 self.assertFalse(any("secrets." in json.dumps(step) for step in spec["steps"]))
+
+    def run_format(self, bun: str) -> dict:
+        """Run regen-linux's real step script for `kinds: format` with a stub bun."""
+        step = next(s for s in self.jobs["regen-linux"]["steps"] if "check:fix" in s.get("run", ""))
+        with tempfile.TemporaryDirectory() as tmp:
+            work, bin_dir, temp = Path(tmp, "work"), Path(tmp, "bin"), Path(tmp, "temp")
+            for path in (work / "webviews", bin_dir, temp):
+                path.mkdir(parents=True)
+            (bin_dir / "bun").write_text(f"#!/bin/sh\n{bun}\n")
+            (bin_dir / "bun").chmod(0o755)
+            subprocess.run(["git", "init", "-q"], cwd=work, check=True)
+            env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "KINDS": "format",
+                   "RUNNER_TEMP": str(temp), "SERVER_URL": "https://github.com",
+                   "REPOSITORY": "manaflow-ai/cmux", "GITHUB_RUN_ID": "1"}
+            subprocess.run(["bash", "-c", step["run"]], cwd=work, env=env, check=True,
+                           capture_output=True)
+            return json.loads((temp / "result/result.json").read_text())
+
+    def test_a_failed_install_is_not_a_clean_format(self):
+        # Codex CI audit (#20763): `bun install && bun run check:fix || echo`
+        # turned a failed install into {"ok": true} with no patch, which the
+        # controller reads as "nothing to fix".
+        result = self.run_format('[ "$1" = install ] && exit 1; exit 0')
+        self.assertFalse(result["ok"], result)
+        self.assertIn("bun install", result["error"])
+
+    def test_check_fix_leftovers_still_keep_what_it_fixed(self):
+        self.assertTrue(self.run_format('[ "$1" = install ] && exit 0; exit 1')["ok"])
 
 
 if __name__ == "__main__":

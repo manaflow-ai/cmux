@@ -27,6 +27,13 @@ pub(super) type WebModeKey =
     (std::collections::BTreeMap<String, Vec<String>>, std::collections::BTreeSet<String>);
 
 impl Hub {
+    /// `web_modes::any_mode_for_web` for a session, against the profile its
+    /// harness name runs now. A config being written counts as no.
+    pub(crate) fn any_mode_for_web(&self, m: &crate::store::SessionMeta) -> bool {
+        let Ok(cfg) = self.config.try_read() else { return false };
+        crate::web_modes::any_mode_for_web(m, cfg.harnesses.get(&m.harness))
+    }
+
     /// The merged asking-mode table the remote guard and Web control use.
     /// config.json stays the source: a config changed without a reload (as
     /// in-process tests do) rebuilds the table quietly, still minus the

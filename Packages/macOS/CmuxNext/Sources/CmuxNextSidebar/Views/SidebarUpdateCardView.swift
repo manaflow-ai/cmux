@@ -1,35 +1,52 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextWakeups
 import QuartzCore
 
 /// The staged update card above the sidebar footer (UPDATE-CARD, Arc-style
-/// in cmux's colors): the theme's surface with a hairline border, "cmux
-/// <version> is ready", up to three changelog lines, the Automatic Updates
-/// checkbox, one full-width Restart to Update button (one click installs and
-/// relaunches; disabled, Installing…, once taken) and a full-width quiet "See
-/// all changes" under it (the What's New page; stacked, so neither label
-/// truncates in a narrow sidebar, cx-7rone). Hovering the card or its button shows the
-/// update's highlights popover (the React surface, cx-urd.61.2). Hidden without a
-/// staged update.
+/// in cmux's colors): the composer's surface (`CardSurfaceView`, shared by
+/// every sidebar card), "Update
+/// Ready", the short version and date ("nightly 3845050 · Oct 13", whole at the
+/// sidebar's default width), the Automatic Updates checkbox and one full-width
+/// Restart to Update button (one click installs and relaunches; disabled,
+/// Installing…, once taken). Hovering the card shows what it leaves out (Leo
+/// 2026-10-13): the full build, the highlights and "See all changes", in the
+/// themed popup beside it (the React surface, cx-urd.61.2). A small "Hide"
+/// button in the top right corner hides this version's card at once until a
+/// newer one (UPDATE-CARD-CLOSE, Lawrence 2026-10-14); the right-click menu
+/// adds Remind Me in 1 Day / 3 Days / 1 Week. Hidden without a staged update.
 final class SidebarUpdateCardView: NSView {
     var onInstall: (() -> Void)?
     var onAutomaticUpdates: ((Bool) -> Void)?
-    /// "See all changes": the What's New page for the staged update.
+    /// "See all changes" (the button's accessibility action): the What's New page.
     var onOpenChanges: (() -> Void)?
+    /// The Hide button or a menu item: the card's id and the action's id.
+    var onCloseAction: ((String, String) -> Void)?
     private(set) var card: SidebarUpdateCard?
-    private let titleLabel = NSTextField(labelWithString: "")
+    /// The composer's surface, under everything else.
+    let surface = CardSurfaceView()
+    private let titleLabel = ChromeLabel(labelWithString: "")
     /// The short version and build date.
-    private let detailLabel = NSTextField(labelWithString: "")
-    /// The first changelog lines, one label each.
-    private var lineLabels: [NSTextField] = []
-    /// "See all changes": the full list (cx-lntk, in the app since cx-7rone).
-    let seeAllButton = SidebarUpdateButton()
+    let detailLabel = ChromeLabel(labelWithString: "")
     let checkbox = SidebarUpdateCheckbox()
     let button = SidebarUpdateButton()
+    /// "Hide": one click hides this version's card (``SidebarUpdateCard/closeAction``).
+    let closeButton = SidebarCardTextButton()
     /// The staged update's highlights (the React ready surface; set by the sidebar).
     var highlights: (any SidebarSurfaceIsland)? {
         didSet {
-            popover = nil
+            // A new page gets a new popup (the old one held the old page).
+            if let notesPanel {
+                // Its close must not park the new page or close the new popup.
+                notesPanel.onClosed = nil
+                notesPanel.onDismiss = nil
+                notesPanel.host.onPointerExit = nil
+                notesPanel.host.onPointerEnter = nil
+                cancelNotesClose()
+                notesPanel.parent?.removeChildWindow(notesPanel)
+                notesPanel.orderOut(nil)
+            }
+            notesPanel = nil
             oldValue?.view.removeFromSuperview()
             highlights?.onAction = { [weak self] in self?.hideNotes() }
             parkHighlights()
@@ -59,29 +76,49 @@ final class SidebarUpdateCardView: NSView {
         highlights.view.autoresizingMask = [.width, .height]
         parking.addSubview(highlights.view)
     }
-    var popover: NSPopover?
+    /// The themed popup the highlights show in (no arrow: the popup style every cmux popup has).
+    var notesPanel: SidebarUpdateNotesPanel?
     /// The highlights page's place while the popover is closed.
     let parking = SidebarIslandParking()
     /// Set by the hover owner (`PointerHover`, cx-3wu5).
     private(set) var isHovered = false
     private var pointerHover: PointerHover?
+    /// The card's own move tracking: every move over the card asks the hover owner again, so the
+    /// whole card opens the popup even when no enter reached it (a still pointer the card
+    /// appeared under, an enter that a child window covering the card at that moment took).
+    private var moveTracking: NSTrackingArea?
+    /// The popup's delayed close after the pointer left the card or the popup
+    /// (``scheduleNotesClose()``): one-shot, re-armed while the pointer is on its way.
+    /// Tests swap in one on a manual clock.
+    var notesCloseTimer = DemandTimer(owner: "sidebar.update-card.notes-close")
+    /// How long the pending close has already waited (capped at ``notesCorridorLimit``).
+    var notesCloseWaited: Duration = .zero
+    /// How many close checks ran (tests wait on it instead of a fixed number of yields).
+    var notesCloseChecks = 0
+    /// The popup closed while the pointer was still on the card (Hide, an
+    /// action, the app resigning active): moves over the card do not reopen it
+    /// until the pointer leaves and comes back.
+    var notesDismissedWhileHovered = false
+    /// The pointer on screen, read by every popup check (tests place it).
+    var screenPointer: () -> CGPoint = { NSEvent.mouseLocation }
+    /// Shows and hides the card with its entrance and exit (``SidebarCardTransition``).
+    private(set) lazy var presence = SidebarCardPresence(self, policy: motionPolicy)
+    /// The motion settings the card's transitions follow (`Motion.policy`; tests set their own before the first card).
+    var motionPolicy: @MainActor () -> MotionPolicy = { Motion.policy }
+    /// The card plays its exit: the slot keeps it in place until it has gone.
+    var isLeaving: Bool { presence.isLeaving }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
-        layer?.cornerCurve = .continuous
-        layer?.borderWidth = 1
+        addSubview(surface)
         titleLabel.lineBreakMode = .byTruncatingTail
         titleLabel.maximumNumberOfLines = 1
         detailLabel.lineBreakMode = .byTruncatingTail
         detailLabel.maximumNumberOfLines = 1
-        seeAllButton.isQuiet = true
-        seeAllButton.onPress = { [weak self] in
-            self?.hideNotes()
-            self?.onOpenChanges?()
-        }
-        [titleLabel, detailLabel, checkbox, button, seeAllButton].forEach(addSubview)
+        [titleLabel, detailLabel, checkbox, button, closeButton].forEach(addSubview)
         button.onPress = { [weak self] in self?.onInstall?() }
+        closeButton.onPress = { [weak self] in self?.closePressed() }
         checkbox.onToggle = { [weak self] on in self?.onAutomaticUpdates?(on) }
         setAccessibilityElement(false)
         isHidden = true
@@ -91,8 +128,8 @@ final class SidebarUpdateCardView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
-    override var isFlipped: Bool { true }
-    override var wantsUpdateLayer: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
+    nonisolated override var wantsUpdateLayer: Bool { true }
     override var mouseDownCanMoveWindow: Bool { false }
 
     /// Shows `card`, or hides the view (and its popover) for nil. The
@@ -100,8 +137,9 @@ final class SidebarUpdateCardView: NSView {
     /// and measured before the first hover, and closed when the card goes.
     func configure(_ card: SidebarUpdateCard?) {
         guard card != self.card else { return }
+        let previous = self.card, wasShowing = !isHidden && !isLeaving
         self.card = card
-        isHidden = card == nil
+        presence.setShown(card != nil)
         guard let card else {
             // The card went away: its page goes too (a web page per window
             // kept loaded with no staged update, cx-asynu).
@@ -111,82 +149,77 @@ final class SidebarUpdateCardView: NSView {
             return
         }
         if highlights == nil { highlights = surfaces?.island(.ready) }
+        // Restart to Update becoming Installing… crossfades instead of popping.
+        if let previous, wasShowing, previous.title != card.title || previous.detail != card.detail
+            || previous.buttonTitle != card.buttonTitle || previous.isEnabled != card.isEnabled {
+            presence.transition.crossfade(layer)
+        }
         titleLabel.stringValue = card.title
         detailLabel.stringValue = card.detail ?? ""
         detailLabel.isHidden = card.detail == nil
-        lineLabels.forEach { $0.removeFromSuperview() }
-        lineLabels = card.lines.prefix(Self.maxLines).map { line in
-            let label = NSTextField(labelWithString: "• " + line)
-            label.lineBreakMode = .byTruncatingTail
-            label.maximumNumberOfLines = 1
-            label.themedToolTip = line
-            addSubview(label)
-            return label
-        }
-        seeAllButton.isHidden = card.seeAllTitle == nil
-        seeAllButton.configure(title: card.seeAllTitle ?? "", enabled: true, help: nil)
+        closeButton.isHidden = card.closeTitle == nil || card.closeAction == nil
+        closeButton.configure(title: card.closeTitle ?? "", help: card.closeLabel)
         checkbox.configure(title: card.automaticUpdatesTitle, isOn: card.automaticUpdates)
         button.configure(title: card.buttonTitle, enabled: card.isEnabled,
                          help: [card.notes.headline, card.notes.keepsRunning].joined(separator: " "))
+        // The popup with "See all changes" opens on hover only: VoiceOver reaches it here.
+        button.setAccessibilityCustomActions(card.seeAllTitle.map { title in
+            [NSAccessibilityCustomAction(name: title) { [weak self] in
+                self?.onOpenChanges?()
+                return true
+            }]
+        } ?? [])
         needsLayout = true
         needsDisplay = true
     }
 
     // MARK: Geometry
 
-    private static var padding: CGFloat { Metrics.space3 }
+    /// Compact (Leo 2026-10-19): a 10 pt inset, the detail right under the
+    /// title, and 8 pt between the rows.
+    private static var padding: CGFloat { Metrics.space2 + Metrics.space1 / 2 }
     private static var titleFont: NSFont { Typography.bodyEmphasized }
 
-    /// Changelog lines the card shows (the popover's three highlights).
-    static let maxLines = 3
     private static var captionHeight: CGFloat { ceil(Typography.caption.boundingRectForFont.height) }
 
-    /// The card's height for `card`: padding, title, the detail and changelog
-    /// lines when present, the checkbox row, the button, "See all changes"
-    /// when present, padding.
+    /// The card's height for `card`: padding, title, the detail line when
+    /// present, the checkbox row, the button, padding.
     static func height(for card: SidebarUpdateCard) -> CGFloat {
         let title = ceil(titleFont.boundingRectForFont.height)
-        let lines = CGFloat((card.detail == nil ? 0 : 1) + min(card.lines.count, maxLines))
-        let seeAll = card.seeAllTitle == nil ? 0 : Metrics.space1 + SidebarUpdateButton.height
-        return ceil(padding + title + (lines > 0 ? Metrics.space1 + lines * captionHeight : 0) + Metrics.space2
-            + SidebarUpdateCheckbox.height + Metrics.space3 + SidebarUpdateButton.height + seeAll + padding)
+        let detail = card.detail == nil ? 0 : Metrics.space1 / 2 + captionHeight
+        return ceil(padding + title + detail + Metrics.space2
+            + SidebarUpdateCheckbox.height + Metrics.space2 + SidebarUpdateButton.height + padding)
     }
 
     override func layout() {
         super.layout()
         let b = bounds, pad = Self.padding
-        layer?.cornerRadius = Metrics.space3
+        surface.frame = b
+        surface.cornerRadius = Metrics.space3
         titleLabel.font = Self.titleFont
         let width = max(0, b.width - 2 * pad)
         let th = ceil(Self.titleFont.boundingRectForFont.height)
-        titleLabel.frame = NSRect(x: pad, y: pad, width: width, height: th)
+        let closeWidth = closeButton.fittingWidth, closeHeight = SidebarCardTextButton.height
+        let closeRoom = closeButton.isHidden ? 0 : closeWidth + Metrics.space1
+        closeButton.frame = NSRect(x: b.width - pad / 2 - closeWidth, y: pad + (th - closeHeight) / 2, width: closeWidth, height: closeHeight)
+        titleLabel.frame = NSRect(x: pad, y: pad, width: max(0, width - closeRoom), height: th)
         var y = titleLabel.frame.maxY
         let caption = Self.captionHeight
-        if !detailLabel.isHidden || !lineLabels.isEmpty { y += Metrics.space1 }
         if !detailLabel.isHidden {
+            y += Metrics.space1 / 2
             detailLabel.font = Typography.caption
             detailLabel.frame = NSRect(x: pad, y: y, width: width, height: caption)
             y += caption
         }
-        for label in lineLabels {
-            label.font = Typography.caption
-            label.frame = NSRect(x: pad, y: y, width: width, height: caption)
-            y += caption
-        }
         checkbox.frame = NSRect(x: pad, y: y + Metrics.space2, width: width, height: SidebarUpdateCheckbox.height)
-        // Restart to Update and See all changes stack, each full width: side
-        // by side both truncated below a 260 pt sidebar (nxdog93, cx-7rone).
-        button.frame = NSRect(x: pad, y: checkbox.frame.maxY + Metrics.space3, width: width, height: SidebarUpdateButton.height)
-        seeAllButton.frame = NSRect(x: pad, y: button.frame.maxY + Metrics.space1, width: width, height: SidebarUpdateButton.height)
+        button.frame = NSRect(x: pad, y: checkbox.frame.maxY + Metrics.space2, width: width, height: SidebarUpdateButton.height)
+        presence.didLayout()
     }
 
     override func updateLayer() {
         performWithTheme {
-            layer?.backgroundColor = Palette.elevatedBackground.cgColor
-            layer?.borderColor = Palette.separator.cgColor
             titleLabel.textColor = Palette.textPrimary
             detailLabel.textColor = Palette.textSecondary
-            for label in lineLabels { label.textColor = Palette.textSecondary }
         }
     }
 
@@ -200,6 +233,31 @@ final class SidebarUpdateCardView: NSView {
         if newWindow == nil { hideNotes() }
     }
 
+    // MARK: Close
+
+    /// The card's right-click menu (hide, remind me later); nil while installing.
+    var closeMenu: NSMenu? {
+        guard let card, card.closeTitle != nil, !card.closeMenu.isEmpty else { return nil }
+        let menu = NSMenu()
+        for action in card.closeMenu {
+            let item = menu.addItem(withTitle: action.title, action: #selector(closeItem(_:)), keyEquivalent: "")
+            (item.target, item.representedObject) = (self, action.id)
+        }
+        return menu
+    }
+
+    override func menu(for event: NSEvent) -> NSMenu? { closeMenu }
+
+    /// Hide: one click hides this version's card at once (no menu).
+    private func closePressed() {
+        hideNotes()
+        if let id = card?.id, let action = card?.closeAction { onCloseAction?(id, action) }
+    }
+
+    @objc private func closeItem(_ item: NSMenuItem) {
+        if let id = card?.id, let action = item.representedObject as? String { onCloseAction?(id, action) }
+    }
+
     // MARK: Hover
 
     /// The pointer came onto the card: the notes show. It left (or the card
@@ -208,12 +266,30 @@ final class SidebarUpdateCardView: NSView {
     private func setHovered(_ hovering: Bool) {
         isHovered = hovering
         if hovering { return showNotes() }
+        notesDismissedWhileHovered = false
         guard !pointerIsOverNotes() else { return }
-        hideNotes()
+        // Not at once: the pointer may be on its way to the popup (``scheduleNotesClose()``).
+        scheduleNotesClose()
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let moveTracking { removeTrackingArea(moveTracking) }
+        let area = NSTrackingArea(rect: .zero, options: [.mouseMoved, .activeAlways, .inVisibleRect], owner: self)
+        addTrackingArea(area)
+        moveTracking = area
+    }
+
+    /// Not passed up the responder chain: the sidebar has nothing to do with it.
+    override func mouseMoved(with event: NSEvent) {
+        guard !isHovered || !notesAreShown else { return }
+        pointerHover?.refresh()
+        if isHovered, !notesAreShown, !notesDismissedWhileHovered { showNotes() }
     }
 
     override func viewDidHide() {
         super.viewDidHide()
+        hideNotes()
         pointerHover?.refresh()
     }
 }

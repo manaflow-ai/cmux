@@ -17,8 +17,6 @@
 //!
 //! Each mutation appends one `state` journal record with `advisory` replay.
 //! The materialized table is authoritative for restoration, so a restore
-//! preview never counts these records as unsupported required state.
-
 mod snapshot;
 use crate::state::conversation_tabs_store::{ConversationTabRecord, read_conversation_tabs};
 use crate::state::remote_terminal_tabs_store::{RemoteTerminalRecord, read_remote_terminals};
@@ -29,6 +27,7 @@ use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
+use super::personal_browser_profiles::resolve_browser_profile_id_in;
 use super::session_journal::{JournalAppend, append_journal_record};
 use super::{
     JournalClass, JournalProducer, JournalReplayPolicy, JournalSensitivity, JournalSubject,
@@ -40,6 +39,8 @@ pub(crate) use saved_tab_groups::{
 };
 
 mod frontend_browser_history;
+mod frontend_browser_profiles;
+pub(crate) use frontend_browser_profiles::clear_frontend_browser_profile;
 mod icon;
 pub use icon::{
     IconAssetKind, is_sha256_hex, parse_icon_asset, validate_icon_value,
@@ -884,7 +885,12 @@ pub(crate) fn write_workspace_presentation(
             "pinned": record.pinned,
             "marked_unread": record.marked_unread,
         }),
-    )
+    )?;
+    if update.pinned.is_some() {
+        // sidebar-doc-v1: the old pin flag pins or unpins in the document.
+        crate::state::sidebar_doc_sync::sync_from_legacy(transaction)?;
+    }
+    Ok(())
 }
 
 impl WorkspaceRegistry {
@@ -1140,15 +1146,17 @@ impl WorkspaceRegistry {
         Ok(())
     }
 
-    /// Update a frontend browser's location and presentation. `None` leaves
-    /// a field unchanged; `favicon_url: Some(None)` clears the favicon. The
-    /// owner changes only on the state commit path (`Mux::commit_browser_owner`).
+    /// Update a frontend browser's location, presentation, or browser
+    /// profile. `None` leaves a field unchanged; `Some(None)` clears a
+    /// nullable field. The owner changes only on the state commit path
+    /// (`Mux::commit_browser_owner`).
     pub fn update_frontend_browser(
         &mut self,
         browser_id: &str,
         url: Option<&str>,
         title: Option<&str>,
         favicon_url: Option<Option<&str>>,
+        profile_id: Option<Option<&str>>,
     ) -> anyhow::Result<(FrontendBrowserRecord, bool)> {
         validate_browser_public_id(browser_id)?;
         let db = self.connection.get();
@@ -1165,15 +1173,20 @@ impl WorkspaceRegistry {
         if let Some(favicon_url) = favicon_url {
             record.favicon_url = favicon_url.map(str::to_string);
         }
+        if let Some(profile_id) = profile_id {
+            record.profile_id = profile_id
+                .map(|profile_id| resolve_browser_profile_id_in(&tx, profile_id))
+                .transpose()?;
+        }
         record.validate()?;
         if record == before {
             tx.commit()?;
             return Ok((record, false));
         }
         tx.execute(
-            "UPDATE frontend_browser_tabs SET url = ?2, title = ?3, favicon_url = ?4
+            "UPDATE frontend_browser_tabs SET url = ?2, title = ?3, favicon_url = ?4, profile_id = ?5
              WHERE browser_id = ?1",
-            params![browser_id, record.url, record.title, record.favicon_url],
+            params![browser_id, record.url, record.title, record.favicon_url, record.profile_id],
         )?;
         append_presentation_record(
             &tx,

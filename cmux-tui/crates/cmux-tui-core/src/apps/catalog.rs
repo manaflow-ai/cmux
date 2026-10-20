@@ -189,7 +189,7 @@ impl Package {
 
     /// A file of the package, refused when it (or a symlink on the way)
     /// leaves the package directory.
-    fn read(&self, relative: &str) -> Option<Vec<u8>> {
+    pub(super) fn read(&self, relative: &str) -> Option<Vec<u8>> {
         let root = self.dir.canonicalize().ok()?;
         let path = self.dir.join(relative).canonicalize().ok()?;
         if !path.starts_with(&root) {
@@ -255,6 +255,12 @@ pub struct Sources {
     pub extra: Vec<PathBuf>,
     /// The local development directory (`<state>/apps/local`).
     pub local: Option<PathBuf>,
+    /// The user's own customization app (cx-swovq.1): one package folder,
+    /// `$CMUX_CUSTOMIZE_DIR`, else `$XDG_CONFIG_HOME/cmux/customize`, else
+    /// `~/.config/cmux/customize`. Its id is `local/customize`; it installs
+    /// by itself with its required scopes (the user wrote it) and reloads
+    /// when its files change (`local_reload.rs`).
+    pub customize: Option<PathBuf>,
     /// `CMUX_APPS_DEFAULT` (comma separated): replaces the first-party
     /// directory as the default set when present.
     pub defaults: Option<Vec<String>>,
@@ -282,10 +288,26 @@ impl Sources {
             bundled,
             extra,
             local: state_dir.map(|d| d.join("apps").join("local")),
+            customize: customize_dir(),
             defaults,
         }
     }
 }
+
+/// The customization folder (`Sources::customize`).
+pub fn customize_dir() -> Option<PathBuf> {
+    let non_empty =
+        |name: &str| std::env::var_os(name).filter(|v| !v.is_empty()).map(PathBuf::from);
+    if let Some(dir) = non_empty("CMUX_CUSTOMIZE_DIR") {
+        return Some(dir);
+    }
+    let config =
+        non_empty("XDG_CONFIG_HOME").or_else(|| non_empty("HOME").map(|h| h.join(".config")))?;
+    Some(config.join("cmux").join("customize"))
+}
+
+/// The customization app's id: its manifest must use it.
+pub const CUSTOMIZE_APP: &str = "local/customize";
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum DirKind {
@@ -323,6 +345,24 @@ pub fn load(sources: &Sources) -> Catalog {
                 Ok(_) => {}
                 Err(issue) => catalog.rejected.push((dir, issue)),
             }
+        }
+    }
+    if let Some(dir) = sources
+        .customize
+        .as_ref()
+        .filter(|dir| dir.join("cmux-app.json").is_file() || dir.join(V2_MANIFEST).is_file())
+    {
+        match package(dir, DirKind::Local) {
+            Ok(package)
+                if package.id == CUSTOMIZE_APP && !catalog.packages.contains_key(CUSTOMIZE_APP) =>
+            {
+                catalog.packages.insert(package.id.clone(), package);
+            }
+            Ok(package) => catalog.rejected.push((
+                dir.clone(),
+                format!("{}: the customize folder holds {CUSTOMIZE_APP} only", package.id),
+            )),
+            Err(issue) => catalog.rejected.push((dir.clone(), issue)),
         }
     }
     catalog.defaults = sources.defaults.clone().unwrap_or(shipped_first_party);

@@ -1,5 +1,5 @@
 import type { Domain } from "@cmux/ownership"
-import { HostEnroll, HostRemove, type Host, type TeamMember } from "@cmux/protocol"
+import { HostEnroll, HostRemove, HostReplicaPurge, type Host, type TeamMember } from "@cmux/protocol"
 import { admit, decodeParams, reject } from "./common.ts"
 import { personalTeamIdFor } from "./user.ts"
 import { hostByInstall, hostDelete, hostOf, hostUpsert, memberLeftItems, memberOf, memberUpsert, roleOf, TABLE_HOST, TABLE_MEMBER, teamIndexItem, type LegacyTeamMaps } from "./team-members.ts"
@@ -229,6 +229,17 @@ export const teamDomain: Domain<TeamState> = withAuditRows<TeamState>({
           value: { host: host.id },
           outbox: [{ kind: "host.delete", entity: host.id, payload: { id: host.id, team: state.team?.id } }]
         }
+      }
+      case "host.replica.purge": {
+        // The owner's delete of the cloud copy (object-sync DESIGN.md section 13); TeamDO.afterOp drops it in HostDO.
+        const d = decodeParams<typeof HostReplicaPurge.params.Type>(HostReplicaPurge, params)
+        if (!d.ok) return d
+        if (p.kind === "agent" || p.agent) return reject("auth.forbidden", "agents cannot purge a host replica")
+        const host = hostOf(state, ctx.rows, d.value.host)
+        if (!host) return reject("selector.not_found", "host not found")
+        if (host.owner_user !== p.user || host.orphaned) return reject("auth.forbidden", "only the host owner may purge its replica")
+        const a = appendAudit(state, state.team?.id ?? "", ctx, "host.replica.purge", `replica of host ${host.name} purged`, { host: host.id })
+        return { ok: true, state: a.state, value: { host: host.id }, outbox: [a.outbox] }
       }
       case "server.enrolled": {
         if (p.kind !== "system" || !state.team) return reject("auth.forbidden", "internal op")

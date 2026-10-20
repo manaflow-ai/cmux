@@ -38,11 +38,7 @@ function ListRows({ rows, empty, marks = false }: { rows: HostListRow[]; empty: 
         )}
         <div className="row-label">
           <div className="row-title">{row.title}</div>
-          {row.subtitle && (
-            <div className="row-help" title={row.subtitle}>
-              {row.subtitle}
-            </div>
-          )}
+          {row.subtitle && <div className="row-help">{row.subtitle}</div>}
         </div>
         {row.active && <span className="host-active" aria-hidden="true" />}
       </div>
@@ -83,7 +79,7 @@ export function MachinesSection({ title }: { title: string }) {
     <section className="group" data-card="machines">
       <h3 className="group-title">{title}</h3>
       <div className="rows">
-        <ListRows rows={host.machines} empty={t("settingsWindow.machinesEmpty")} />
+        <ListRows rows={host.machines} empty={t("settingsWindow.machinesEmpty")} marks />
       </div>
     </section>
   );

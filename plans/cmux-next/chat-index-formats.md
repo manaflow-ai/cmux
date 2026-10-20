@@ -52,6 +52,7 @@ Windows). Windows `%APPDATA%` and `%LOCALAPPDATA%` fall back to
 | Auggie (`auggie`) | none | `~/.augment/sessions` | same | `home\.augment\sessions` |
 | Continue (`continue`) | `CONTINUE_GLOBAL_DIR`/sessions | `~/.continue/sessions` | same | `home\.continue\sessions` |
 | OpenHands (`openhands`) | `OPENHANDS_CONVERSATIONS_DIR`, `OPENHANDS_PERSISTENCE_DIR`/conversations | `~/.openhands/conversations` | same | `home\.openhands\conversations` |
+| Muse Code (`muse`) | `XDG_DATA_HOME`/muse | `~/.local/share/muse` | same | `home\.local\share\muse` (unverified) |
 
 VS Code globalStorage is `<user data>/User/globalStorage/<extension id>` for
 the editors Code, Code - Insiders, Cursor, Windsurf, VSCodium and Code - OSS.
@@ -188,6 +189,17 @@ JSONL `<id>.jsonl` (to v1.9.x; metadata line from v1.0.11, 9ae90455) and
 `sessions.db` from v1.10.0 (dc292883, schema v1-v16). The import keeps the
 JSONL files; the DB row wins. Tests: `goose.rs`.
 
+### Muse Code (Meta; closed binary 1.4.x, docs dev.meta.ai/docs/muse-code)
+
+SQLite index `session-index.db`, table `sessions`: `session_id`,
+`session_name` (`/name`), `title`, `first_user_prompt`, `workspace_root`
+(canonical path), `updated_at_us`, `prompt_count`, `msp_parent_session_id`,
+`msp_kind`. Rows with a parent or a kind other than `root` (subagents,
+background observers) and rows with no prompt are left out. Logs are
+`sessions/YYYY/MM/DD/<id>/session.jsonl` (event envelopes); no transcript
+reader yet. Columns are read by name, so a missing one reads as NULL.
+Tests: acpmux `tests/chats_open.rs`.
+
 ### Factory Droid (closed; binary 0.237.0)
 
 `<enc cwd>/<uuid>.jsonl` (+ `.settings.json`) and legacy flat `<id>.jsonl`;
@@ -233,7 +245,9 @@ Auggie `sessions/<id>.json` (backups skipped). Continue `sessions.json` index
 
 Verified: Claude and Codex (acpmux adopt), `opencode -s`, `pi --session`,
 `gemini --resume`, `cursor-agent --resume`, `amp threads continue`,
-`goose session --resume --session-id` (goose-cli `cli.rs` at 241061468a8d).
+`goose session --resume --session-id` (goose-cli `cli.rs` at 241061468a8d),
+`muse resume <id>` (Muse Code docs, interactive.md; scoped to the session's
+workspace, so it runs in the recorded folder).
 Unverified, kept because a wrong command only fails in its own tab:
 `kilo -s`, `qwen --resume`, `copilot --resume`, `droid --resume`. Everything
 else opens read-only.

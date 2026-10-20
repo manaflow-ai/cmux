@@ -11,6 +11,7 @@ enum Strings {
             String(localized: "sidebar.tabDrop.pinnedArea", defaultValue: "The pinned area holds no new workspace.", bundle: .module)
         }
     }
+    static var closeRefused: String { String(localized: "sidebar.close.refused", defaultValue: "The workspace could not be closed.", bundle: .module) }
     static var dismissCard: String { String(localized: "sidebar.card.dismiss", defaultValue: "Dismiss", bundle: .module) }
     static var newWorkspace: String { String(localized: "sidebar.newWorkspace", defaultValue: "New Workspace", bundle: .module) }
     static var rename: String { String(localized: "sidebar.rename", defaultValue: "Rename", bundle: .module) }
@@ -53,10 +54,16 @@ enum Strings {
     static func statusMore(_ value: Int) -> String { String(localized: "sidebar.status.more", defaultValue: "\(value) more", bundle: .module) }
     static var unreadDot: String { String(localized: "sidebar.a11y.unreadDot", defaultValue: "Unread", bundle: .module) }
     static var muted: String { String(localized: "sidebar.a11y.muted", defaultValue: "Muted", bundle: .module) }
+    static var muteTabs: String { String(localized: "sidebar.audio.muteTabs", defaultValue: "Mute Tabs in Workspace", bundle: .module) }
+    static var unmuteTabs: String { String(localized: "sidebar.audio.unmuteTabs", defaultValue: "Unmute Tabs in Workspace", bundle: .module) }
     static var activityRunning: String { String(localized: "sidebar.a11y.running", defaultValue: "Agent running", bundle: .module) }
     static var activityNeedsInput: String { String(localized: "sidebar.a11y.needsInput", defaultValue: "Needs input", bundle: .module) }
     static var activityError: String { String(localized: "sidebar.a11y.error", defaultValue: "Error", bundle: .module) }
     static var activityDone: String { String(localized: "sidebar.a11y.done", defaultValue: "Done", bundle: .module) }
+    /// The line under the built-in hover card when the user's card failed to render.
+    static func customCardError(_ message: String) -> String {
+        String(format: String(localized: "sidebar.hoverCard.customError", defaultValue: "Custom card error: %@", bundle: .module), message)
+    }
     static var activityPaused: String { String(localized: "sidebar.a11y.paused", defaultValue: "Paused", bundle: .module) }
     static func activityProgress(_ percent: Int) -> String {
         String(format: String(localized: "sidebar.a11y.progress", defaultValue: "%d%% done", bundle: .module), percent)

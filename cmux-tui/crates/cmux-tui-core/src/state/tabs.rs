@@ -109,6 +109,10 @@ impl Mux {
                     browser || (update.back.is_none() && update.forward.is_none()),
                     "bad request: back and forward apply only to browser tabs"
                 );
+                anyhow::ensure!(
+                    browser || update.emulation.is_none(),
+                    "bad request: device emulation applies only to browser tabs"
+                );
                 if update.back.is_some() || update.forward.is_some() {
                     let runtime = state.surfaces.get(&surface).context("tab has no surface")?;
                     mux.refuse_conversation_tab(runtime)?;

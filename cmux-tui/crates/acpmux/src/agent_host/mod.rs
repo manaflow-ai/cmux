@@ -27,6 +27,8 @@ pub mod host {
     }
 }
 pub mod link;
+#[cfg(unix)]
+mod record_watch;
 pub mod sweep;
 #[cfg(unix)]
 pub(crate) mod tree;
@@ -170,6 +172,11 @@ pub struct SpawnSpec {
     pub cwd: PathBuf,
     /// Present when the harness speaks Claude stream-json.
     pub translator: Option<TranslatorSpec>,
+    /// The harness is `codex app-server`, bridged in the host
+    /// (`codex_app_server.rs`). Decided from the profile's command line
+    /// before its CODEX_PATH picks the binary, whatever that binary is named.
+    #[serde(default)]
+    pub codex_bridge: bool,
     /// Directory for the record, socket fallback aside.
     pub hosts_dir: PathBuf,
     pub socket: PathBuf,
@@ -272,22 +279,12 @@ pub fn socket_path(dir: &Path, session_id: &str) -> PathBuf {
 /// Create `dir` mode 0700 and check that only this user can enter it.
 #[cfg(unix)]
 pub fn ensure_private_dir(dir: &Path) -> Result<()> {
-    use std::os::unix::fs::{DirBuilderExt, MetadataExt};
-    std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir)?;
-    let meta = std::fs::symlink_metadata(dir)?;
-    // SAFETY: getuid has no preconditions.
-    let uid = unsafe { libc::getuid() };
-    if !meta.is_dir() || meta.uid() != uid || meta.mode() & 0o077 != 0 {
-        bail!("{} is not a private directory", dir.display());
-    }
-    Ok(())
+    crate::config::private_state_dir(dir)
 }
-/// Windows port: an owner-only ACL there (`cmux::local_socket::private_directory`,
-/// a later landing). Until then no private directory is made, so nothing
-/// that needs one is written.
-#[cfg(not(unix))]
-pub fn ensure_private_dir(_dir: &Path) -> Result<()> {
-    Err(crate::platform::unsupported("private directories"))
+/// Windows: an owner-only access list, made or checked (`owner_only.rs`).
+#[cfg(windows)]
+pub fn ensure_private_dir(dir: &Path) -> Result<()> {
+    Ok(crate::owner_only::private_dir(dir)?)
 }
 
 /// Random lowercase hex.
@@ -301,19 +298,45 @@ pub fn random_hex(bytes: usize) -> String {
 pub fn load_records(dir: &Path) -> Result<(Vec<(PathBuf, HostRecord)>, Vec<UnreadableRecord>)> {
     let mut good = Vec::new();
     let mut bad = Vec::new();
+    match std::fs::symlink_metadata(dir) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok((good, bad)),
+        Err(e) => return Err(e.into()),
+        Ok(_) => crate::config::private_state_dir(dir)?,
+    }
     let entries = match std::fs::read_dir(dir) {
         Ok(e) => e,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok((good, bad)),
         Err(e) => return Err(e.into()),
     };
     for entry in entries {
-        let path = entry?.path();
+        let entry = entry?;
+        let path = entry.path();
         if path.extension().and_then(|e| e.to_str()) != Some("json") {
             continue;
         }
         let Some(session_id) = path.file_stem().and_then(|s| s.to_str()).map(str::to_owned) else {
             continue;
         };
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            let kind = entry.file_type()?;
+            let metadata = entry.metadata()?;
+            // SAFETY: getuid has no preconditions.
+            let uid = unsafe { libc::getuid() };
+            if !kind.is_file() || metadata.uid() != uid || metadata.mode() & 0o077 != 0 {
+                bad.push(UnreadableRecord {
+                    session_id,
+                    path,
+                    record_version: None,
+                    host_pid: None,
+                    harness_pid: None,
+                    start_nonce: None,
+                    reason: "record is not an owner-only regular file".into(),
+                });
+                continue;
+            }
+        }
         let bytes = match std::fs::read(&path) {
             Ok(b) => b,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
@@ -332,30 +355,61 @@ pub fn load_records(dir: &Path) -> Result<(Vec<(PathBuf, HostRecord)>, Vec<Unrea
         };
         let loose = serde_json::from_slice::<Value>(&bytes).ok();
         let field = |name: &str| loose.as_ref().and_then(|v| v.get(name)?.as_u64());
+        let mut expected_sockets = vec![socket_path(dir, &session_id)];
+        // Taking a pooled host moves its record and liveness lock into the
+        // main hosts directory, but its already-bound socket stays in pool/.
+        if dir.file_name().and_then(|name| name.to_str()) != Some(POOL_DIR_NAME) {
+            expected_sockets.push(socket_path(&pool_dir(dir), &session_id));
+        }
+        let expected_socket =
+            |path: &Path| expected_sockets.iter().any(|expected| expected == path);
+        let identity_ok = loose.as_ref().is_some_and(|value| {
+            value.get("session_id").and_then(Value::as_str) == Some(session_id.as_str())
+                && value
+                    .get("socket")
+                    .and_then(Value::as_str)
+                    .map(Path::new)
+                    .is_some_and(&expected_socket)
+        });
         let reason = match serde_json::from_slice::<HostRecord>(&bytes) {
-            Ok(r) if r.record_version == RECORD_VERSION && r.session_id == session_id => {
+            Ok(r)
+                if r.record_version == RECORD_VERSION
+                    && r.session_id == session_id
+                    && expected_socket(&r.socket) =>
+            {
                 good.push((path, r));
                 continue;
             }
             Ok(r) if r.session_id != session_id => "record names another session".to_owned(),
+            Ok(r) if !expected_socket(&r.socket) => "record names another socket".to_owned(),
             Ok(r) => format!("record version {}", r.record_version),
             Err(e) => format!("undecodable: {e}"),
         };
-        let start_nonce = loose
-            .as_ref()
-            .and_then(|v| v.get("start_nonce")?.as_str())
-            .filter(|n| {
-                !n.is_empty()
-                    && n.len() <= 128
-                    && n.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
-            })
-            .map(str::to_owned);
+        let start_nonce = if identity_ok {
+            loose
+                .as_ref()
+                .and_then(|v| v.get("start_nonce")?.as_str())
+                .filter(|n| {
+                    !n.is_empty()
+                        && n.len() <= 128
+                        && n.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+                })
+                .map(str::to_owned)
+        } else {
+            None
+        };
         bad.push(UnreadableRecord {
             session_id,
             path,
             record_version: field("record_version"),
-            host_pid: field("host_pid").and_then(|p| u32::try_from(p).ok()),
-            harness_pid: field("harness_pid").and_then(|p| u32::try_from(p).ok()),
+            host_pid: identity_ok
+                .then(|| field("host_pid"))
+                .flatten()
+                .and_then(|p| u32::try_from(p).ok()),
+            harness_pid: identity_ok
+                .then(|| field("harness_pid"))
+                .flatten()
+                .and_then(|p| u32::try_from(p).ok()),
             start_nonce,
             reason,
         });
@@ -407,14 +461,16 @@ pub fn liveness(_dir: &Path, _session_id: &str, _start_nonce: &str) -> Liveness 
 }
 
 /// End a host without speaking its protocol: the path for a host this build
-/// cannot adopt, frozen across versions. Signals only the host, and only with
-/// proof that the recorded PID is this session's live host: the exact lock
-/// its record names (`<session>.<start nonce>.live`) is held. A host ends its
+/// cannot adopt, frozen across versions. Signals the host only with proof
+/// that the recorded PID is this session's live host: the exact lock its
+/// record names (`<session>.<start nonce>.live`) is held. A host ends its
 /// harness group on SIGTERM while that group is still its own (it alone knows
 /// whether the leader was reaped), then exits. If it does not exit within
-/// `TERM_GRACE` it is killed; the dropped lock is the death proof.
-/// `Ok(true)` when no such host runs any more. Blocks up to about twice
-/// `TERM_GRACE`: call it off the async runtime.
+/// `TERM_GRACE` it is killed, and the processes that ran under it (taken by
+/// pid and start time before the kill) are killed too; the dropped lock is
+/// the death proof. `Ok(true)` when no such host runs any more. Blocks up to
+/// about twice `TERM_GRACE` plus two process-table reads: call it off the
+/// async runtime.
 #[cfg(unix)]
 pub fn terminate_unadoptable(
     dir: &Path,
@@ -442,8 +498,16 @@ pub fn terminate_unadoptable(
         return Ok(true);
     }
     if liveness(dir, session_id, nonce) == Liveness::Live {
+        // A host that does not end on SIGTERM (wedged or stopped) cannot end
+        // its harness: take the processes under it (by pid and start time)
+        // while the lock still proves `pid` is the host, and end them after
+        // it, so no harness runs on without an owner.
+        let under = tree::descendants(&[pid as u32]);
         // SAFETY: as above, re-proven just now.
         unsafe { libc::kill(pid, libc::SIGKILL) };
+        let dead = dead_within(TERM_GRACE);
+        tree::kill_still_running(&under);
+        return Ok(dead);
     }
     Ok(dead_within(TERM_GRACE))
 }
@@ -477,15 +541,18 @@ pub fn names_this_host(path: &Path, nonce: &str) -> bool {
     }
 }
 
-/// A host's own exit: its lock, and its record and socket only while the
-/// record still names it (a newer host of the same session owns them then).
+/// A host's own exit: its record and socket only while the record still
+/// names it (a newer host of the same session owns them then), and its lock
+/// last. A daemon takes the missing lock file as the death proof
+/// (`terminate_unadoptable`) and may then start a fresh host under the same
+/// session id at once: by then this host touches none of its files.
 pub fn remove_own_artifacts(dir: &Path, record: &HostRecord) {
-    let _ = std::fs::remove_file(live_path(dir, &record.session_id, &record.start_nonce));
     let path = record_path(dir, &record.session_id);
     if names_this_host(&path, &record.start_nonce) && path.exists() {
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_file(&record.socket);
     }
+    let _ = std::fs::remove_file(live_path(dir, &record.session_id, &record.start_nonce));
 }
 
 /// Hosts of pooled sessions (hidden sessions nobody took yet,
@@ -517,13 +584,13 @@ pub fn promote(from: &Path, to: &Path, record: &HostRecord) -> Result<()> {
 }
 
 /// A host started in the pool directory `dir` may have been promoted: end
-/// the promoted lock, and the promoted record when it is still this host's.
+/// the promoted record when it is still this host's, then the promoted lock
+/// (last, as in [`remove_own_artifacts`]: its absence is the death proof).
 pub fn remove_promoted(dir: &Path, record: &HostRecord) {
     if dir.file_name().and_then(|n| n.to_str()) != Some(POOL_DIR_NAME) {
         return;
     }
     let Some(hosts) = dir.parent() else { return };
-    let _ = std::fs::remove_file(live_path(hosts, &record.session_id, &record.start_nonce));
     let path = record_path(hosts, &record.session_id);
     let ours = std::fs::read(&path)
         .ok()
@@ -532,6 +599,7 @@ pub fn remove_promoted(dir: &Path, record: &HostRecord) {
     if ours {
         let _ = std::fs::remove_file(&path);
     }
+    let _ = std::fs::remove_file(live_path(hosts, &record.session_id, &record.start_nonce));
 }
 
 /// Write `value` to `path` through a temporary file and a rename.

@@ -206,7 +206,6 @@ async fn wait_status(c: &mut TestClient, id: &str, status: &str) {
 #[tokio::test]
 async fn a_move_whose_client_goes_away_before_the_bundle_is_read_gives_the_chat_back_on_its_own() {
     let (a, mut src) = setup(PermissionPolicy::ApproveAll).await;
-    a.set_transfer_lease(Duration::from_secs(2));
     let id = busy_chat(&mut src, &[("p-a", "a")]).await;
     let begin = src
         .request("_acpmux/transfer_begin", json!({"sessionId": id, "interrupt": true}))
@@ -216,6 +215,11 @@ async fn a_move_whose_client_goes_away_before_the_bundle_is_read_gives_the_chat_
     let path = begin["files"][0]["path"].clone();
     let read = json!({"transferId": begin["transferId"], "path": path, "offset": 0, "limit": 1});
     src.request("_acpmux/transfer_read", read).await.unwrap();
+    // The client is gone from here on: a short lease ends the move soon. Set
+    // only now, so a slow request of the client before this point (2 s and
+    // more while this binary runs its tests at once, cx-nx5mb) is not taken
+    // for a client that went away.
+    a.set_transfer_lease(Duration::from_secs(2));
 
     // No target can have the chat: it comes back here, runs its queue and takes prompts.
     src.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "echo: a").await;
@@ -228,7 +232,6 @@ async fn a_move_whose_client_goes_away_before_the_bundle_is_read_gives_the_chat_
 #[tokio::test]
 async fn a_move_whose_client_goes_away_after_the_target_took_the_chat_commits_on_its_own() {
     let (a, mut src) = setup(PermissionPolicy::ApproveAll).await;
-    a.set_transfer_lease(Duration::from_secs(2));
     let (b, mut dst) = setup(PermissionPolicy::ApproveAll).await;
     let socket = listen(&b).await;
     let id = busy_chat(&mut src, &[("p-a", "a")]).await;
@@ -245,6 +248,8 @@ async fn a_move_whose_client_goes_away_after_the_target_took_the_chat_commits_on
     copy_bundle(&mut src, &mut dst, &begin, &receive_id).await;
     dst.request("_acpmux/transfer_finish", json!({"receiveId": receive_id})).await.unwrap();
     // The client is gone before its commit: the source asks the target, which has the chat.
+    // The short lease only from here on, as in the test above (cx-nx5mb).
+    a.set_transfer_lease(Duration::from_secs(2));
 
     wait_status(&mut src, &id, "closed").await;
     let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
@@ -261,7 +266,6 @@ async fn a_move_whose_client_goes_away_after_the_target_took_the_chat_commits_on
 async fn a_move_whose_client_goes_away_before_the_target_finished_is_dropped_there_and_given_back()
 {
     let (a, mut src) = setup(PermissionPolicy::ApproveAll).await;
-    a.set_transfer_lease(Duration::from_secs(2));
     let (b, mut dst) = setup(PermissionPolicy::ApproveAll).await;
     let socket = listen(&b).await;
     let id = busy_chat(&mut src, &[("p-a", "a")]).await;
@@ -277,6 +281,8 @@ async fn a_move_whose_client_goes_away_before_the_target_finished_is_dropped_the
     let receive_id = received["receiveId"].as_str().unwrap().to_owned();
     // Every page is copied, but the client is gone before its finish.
     copy_bundle(&mut src, &mut dst, &begin, &receive_id).await;
+    // The short lease only from here on, as in the test above (cx-nx5mb).
+    a.set_transfer_lease(Duration::from_secs(2));
 
     // The target drops the receive and the chat comes back here, its queue running.
     src.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "echo: a").await;

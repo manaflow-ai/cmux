@@ -9,6 +9,7 @@
 # Sources, in order:
 #   ghostty-next/zig-out/share/{ghostty,terminfo}  (a local zig build), else
 #   Resources/ghostty/{themes,terminfo}             (checked in),
+#   Resources/cmux-themes (cmux's own themes, added to ghostty/themes),
 #   Resources/terminfo-overlay, ghostty-next/src/shell-integration,
 #   Resources/shell-integration.
 set -euo pipefail
@@ -34,6 +35,12 @@ elif [[ -d "$SRCROOT/Resources/ghostty" ]]; then
   sync_dir "$SRCROOT/Resources/ghostty" "$dest/ghostty"
 else
   echo "warning: no Ghostty resources found; themes will not resolve"
+fi
+# cmux's own themes sit next to Ghostty's, so `theme = <name>` and every
+# picker find them. They never replace a Ghostty theme of the same name.
+if [[ -d "$SRCROOT/Resources/cmux-themes" ]]; then
+  mkdir -p "$dest/ghostty/themes"
+  rsync -a --ignore-existing "$SRCROOT/Resources/cmux-themes/" "$dest/ghostty/themes/"
 fi
 
 if [[ -d "$SRCROOT/ghostty-next/src/shell-integration" ]]; then

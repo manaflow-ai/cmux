@@ -1,9 +1,9 @@
+import CmuxNextCompat
 import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextLayout
 import Foundation
-import Observation
 import CmuxNextWakeups
 
 /// beside_caller in the app (hq-6d right-column design). The control router
@@ -51,7 +51,7 @@ enum AgentBesidePlacement {
             let listed = Task { @MainActor () -> SurfaceID? in
                 var opened = surfaces.makeAsyncIterator()
                 guard let surface = await opened.next() else { return nil }
-                for await found in Observations({ services.locateTab(surface: surface) != nil }) where found {
+                for await found in ObservationStream({ services.locateTab(surface: surface) != nil }) where found {
                     return surface
                 }
                 return nil
@@ -80,7 +80,7 @@ enum AgentBesidePlacement {
                     let listed = Task { @MainActor () -> Bool in
                         // The store lists the chat in its new dock pane (the window's controller may come later;
                         // focus goes by the pane's id, which the window applies when it shows the pane).
-                        for await moved in Observations({ services.locateTab(chatID).map { $0.1 !== anchor } ?? false }) where moved {
+                        for await moved in ObservationStream({ services.locateTab(chatID).map { $0.1 !== anchor } ?? false }) where moved {
                             return true
                         }
                         return false
@@ -139,9 +139,7 @@ extension AgentBesidePlacement {
     @MainActor static func revealMoved(_ id: String, from anchor: PaneModel, services: AppServices) async {
         guard let content = services.paneController(for: anchor)?.workspace else { return }
         let listed = Task { @MainActor () -> Bool in
-            for await moved in Observations({ services.locateTab(id).map { $0.1 !== anchor } ?? false }) where moved {
-                return true
-            }
+            for await moved in ObservationStream({ services.locateTab(id).map { $0.1 !== anchor } ?? false }) where moved { return true }
             return false
         }
         let bound = DemandTimer(owner: "AgentBesidePlacement.reveal")

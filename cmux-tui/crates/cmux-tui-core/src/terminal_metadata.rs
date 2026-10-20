@@ -493,7 +493,7 @@ pub(crate) struct TerminalMetadata {
     /// replaced mirror terminal (resize, reconnect) keeps feeding them.
     program_status: crate::program_status::SharedProgramStatus,
     /// The running shell command (`terminal-activity-v1`).
-    activity: crate::terminal_activity::ShellActivity,
+    pub(crate) activity: crate::terminal_activity::ShellActivity,
 }
 
 impl TerminalMetadata {
@@ -646,12 +646,26 @@ impl TerminalMetadata {
         })
     }
 
-    /// When the running shell command started, if one runs.
-    pub(crate) fn busy_since_ms(&self) -> Option<u64> {
-        self.activity.busy_since_ms()
+    /// The running shell command's state and start time, if one runs.
+    pub(crate) fn command_activity(
+        &self,
+    ) -> Option<(crate::terminal_activity::CommandActivity, u64)> {
+        self.activity.command()
     }
 
-    /// Whether the busy fact changed since the last call (marks it taken).
+    /// Applies the terminal modes after an output chunk (`modes` reads
+    /// them) to the running command; reads them only while the command
+    /// still counts as non-interactive.
+    pub(crate) fn observe_modes(
+        &mut self,
+        modes: impl FnOnce() -> crate::terminal_activity::TerminalModes,
+    ) {
+        if self.activity.wants_interactive_check() {
+            self.activity.note_modes(modes());
+        }
+    }
+
+    /// Whether the command fact changed since the last call (marks it taken).
     pub(crate) fn take_busy_change(&mut self) -> bool {
         self.activity.take_change()
     }

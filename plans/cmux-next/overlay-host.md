@@ -16,7 +16,7 @@ host panel, a page window or a presenter still listed for migration.
 
 | Presenter | Where | Today | Target |
 | --- | --- | --- | --- |
-| Which-key | CmuxNextApp/Focus/WhichKey/WhichKeyOverlay.swift | on the host (`.window`, toast at the bottom center) | done |
+| Which-key | CmuxNextFocusUI/WhichKey/WhichKeyOverlay.swift | on the host (`.window`, toast at the bottom center) | done |
 | Focus ring, inactive dim, drop zones | CmuxNextApp/Windows/WindowOverlayLayer.swift | planes on the host panel | done |
 | Sidebar | CmuxNextApp/WindowRootView.swift | occluder of the host (`setOccluder`) | done |
 | Hover cards (tabs, workspaces) | CmuxNextDesign/HoverCards/HoverCardPanel.swift | own child panel, reordered above pages by the host | `.window` presentation |
@@ -28,7 +28,7 @@ host panel, a page window or a presenter still listed for migration.
 | Feed panel | CmuxNextApp/Feed/FeedPanelController.swift | own child panel | `.window` popover |
 | Notifications panel | CmuxNextApp/Notifications/Panel/NotificationsPanelController.swift | own child panel | `.window` popover |
 | Restart notice | CmuxNextApp/Crash/RestartNoticePanel.swift (plain NSPanel) | own child panel | `.window` toast |
-| Browser popup panels | CmuxNextApp/Popups/BrowserPopupPanels.swift | own child panel holding a page | stays a child window (it is a page) |
+| Browser popup windows | CmuxNextPopups/BrowserPopupWindows.swift | own top-level popup window holding a page (Chrome TYPE_POPUP) | stays its own window (it is a page) |
 | Divider catchers | CmuxNextApp/Windows/DividerMouseCatchers.swift | click-catching child panels | stay (they forward the mouse, inactive under a blocking overlay) |
 | Alerts, sheets, dialogs | Quit, destructive confirmation, rename, CLI install, updater | NSAlert sheets and windows | R96 dialogs lead: CmuxDialog on the host |
 | Tooltips | AppKit `toolTip` (47 sites), SwiftUI `.help` (36 sites) | system tooltip windows | a host tooltip where a tooltip can overlap a page, after a live check shows the system tooltip below a page |

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextAgentLanes
 import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextCompat
@@ -40,6 +41,12 @@ final class AgentPageHibernation {
     private let deadline = DemandTimer(owner: "AgentPageHibernation")
     /// The acpmux turn state of the tab's chat; injected by the App.
     var turnState: (String) -> AgentTurnState? = { _ in nil }
+    /// The acpmux turn watch is up. While it is down no chat's turn is known, so every chat counts as busy.
+    var turnsWatched: () -> Bool = { true }
+    /// What the page holds that acpmux does not (attachments, shell text, scroll), kept with its
+    /// tab when it lets go; nil when a connected page does not answer (tests set it: their page
+    /// never loads).
+    var wakeState: @MainActor (AgentPaneView) async -> AgentPaneWakeState? = { await $0.wakeState(limit: .seconds(3)) }
     var isPinned: (String) -> Bool = { _ in false }
     /// The pane still hosting tab `key`'s page lets it go (it shows the tab again on demand).
     var displace: (String) -> Void = { _ in }
@@ -65,20 +72,23 @@ final class AgentPageHibernation {
             record.session = tabs.existingView(key)?.model.sessionId ?? tabs.session(of: key)
             return AgentTurnStateStore.shared.state(for: record)
         }
+        // A run without the watch (showcase, the mock pane) has no turns to wait for.
+        turnsWatched = { AgentTurnStateFeed.shared == nil || AgentTurnStateStore.shared.watching }
         displace = { [weak services] key in services?.cache.presenter(of: key)?.surfaceWasDisplaced(key) }
         let cache = services.cache
         cache.presentationChanges.subscribe("agent-page-hibernation") { [weak self, weak cache] in
             guard let cache else { return }
-            self?.sync { cache.isRendering($0) }
+            self?.sync(cache.presentationChanges.changedKeys) { cache.isRendering($0) }
         }
         followTurns(AgentTurnStateStore.shared)
     }
 
-    /// A turn that ends makes its hidden page due again (a busy page has no deadline).
+    /// A turn that ends, or the watch coming back, makes its hidden page due again (a busy page
+    /// has no deadline).
     func followTurns(_ turns: AgentTurnStateStore) {
         turnObservation?.cancel()
         turnObservation = Task { [weak self] in
-            for await _ in ObservationStream({ turns.states }) {
+            for await _ in ObservationStream({ (turns.stateRevision, turns.watching) }) {
                 self?.replan()
             }
         }
@@ -94,9 +104,10 @@ final class AgentPageHibernation {
     /// Whether the tab draws, not whether its view is still in a window: presentation changes
     /// come before the pane swaps its content, so the outgoing page is still on screen then.
     /// (A release checks the window again.)
-    func sync(_ isRendering: (String) -> Bool) {
+    /// `changed`: the tabs this change is about (nil: every page), so a switch is O(changed tabs).
+    func sync(_ changed: Set<String>? = nil, _ isRendering: (String) -> Bool) {
         guard let tabs = store() else { return }
-        for key in tabs.views.keys {
+        for key in changed ?? Set(tabs.views.keys) where tabs.existingView(key) != nil {
             let visible = isRendering(key)
             if visible != shown.contains(key) { pageVisibility(key, visible: visible) }
         }
@@ -160,6 +171,8 @@ final class AgentPageHibernation {
         if !setting.isEnabled { return .disabled }
         guard let tabs = store(), Self.canRelease(key, in: tabs, onScreen: onScreen) else { return .unsupported }
         if isPinned(key), !setting.includesPinnedTabs { return .pinned }
+        // No watch, no known turn: a chat that looks idle may be working.
+        if !turnsWatched() { return .agentTurnsUnknown }
         if let turn = turnState(key), turn == .working || turn == .needsInput { return .agentBusy }
         return nil
     }
@@ -180,13 +193,22 @@ final class AgentPageHibernation {
         view.window != nil && !view.isHiddenOrHasHiddenAncestor
     }
 
-    /// Keeps the page's frame, then lets the page go if it is still the same hidden page.
+    /// Keeps the page's frame and what it holds that acpmux does not, then lets the page go if it
+    /// is still the same hidden page.
     private func release(_ key: String) {
         guard let tabs = store(), let view = tabs.existingView(key), releasing.insert(key).inserted else { return }
+        let readWake = wakeState
         Task { @MainActor [weak self] in
+            let wake = await readWake(view)
             let frame = await Self.frame(view)
             guard let self else { return }
             releasing.remove(key)
+            // A connected page that did not say what it holds (a large attachment still encoding)
+            // stays: letting it go would drop its chips. The next plan asks again.
+            if wake == nil, view.model.hasHandshake {
+                logger.info("agent page \(key, privacy: .public) kept: no wake state in time")
+                return
+            }
             // The page may have shown, changed or got busy (a turn started) while it was asked
             // for its frame or the frame was encoded: then it stays, and the next plan decides.
             guard isDue(key, view, in: tabs) else { return replan() }
@@ -199,6 +221,7 @@ final class AgentPageHibernation {
             // The tab keeps its session and every other state: the next show builds the page again.
             let stored = tabs.resolve(key)
             if let session = view.model.sessionId { tabs.sessions[stored] = session }
+            tabs.wakeStates[stored] = wake.flatMap { $0.isEmpty ? nil : $0 }
             tabs.views[stored] = nil
             tabs.retirer.retire(view)
             tabs.stopCustomizationWhenUnused()

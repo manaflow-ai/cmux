@@ -50,8 +50,9 @@ export function PricingView({
 }
 
 function planPrice(plan: PricingPlan, interval: BillingInterval) {
-  // Pro is the only plan with a yearly Price.
-  if (plan === "pro") return PRO_PRICING_USD[interval];
+  if (plan === "pro" || plan === "max") {
+    return { pro: PRO_PRICING_USD, max: MAX_PRICING_USD }[plan][interval];
+  }
   return { go: GO_PRICING_USD, max: MAX_PRICING_USD, team: TEAM_PRICING_USD }[plan].month;
 }
 
@@ -102,7 +103,7 @@ export function PricingCheckoutButton({
           posthog.capture("cmuxterm_pricing_sign_in_required", {
             plan,
             location,
-            interval: plan === "pro" ? interval : "month",
+            interval: plan === "pro" || plan === "max" ? interval : "month",
             currency: "usd",
             billed_amount_usd: pricing.billedAmount,
           });
@@ -115,7 +116,7 @@ export function PricingCheckoutButton({
           plan,
           checkout: !requiresSignIn,
           auth_required: requiresSignIn,
-          interval: plan === "pro" ? interval : "month",
+          interval: plan === "pro" || plan === "max" ? interval : "month",
           currency: "usd",
           billed_amount_usd: pricing.billedAmount,
           monthly_equivalent_usd: pricing.monthlyEquivalent,

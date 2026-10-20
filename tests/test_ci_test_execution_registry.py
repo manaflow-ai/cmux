@@ -288,6 +288,20 @@ class RegistryBlastRadiusTests(unittest.TestCase):
         errors, _, _ = validator.validate(root, added=set())
         self.assertEqual(errors, [])
 
+    def test_write_only_registers_the_named_tests(self) -> None:
+        """The pre-commit hook passes only the commit's own tests (#21946): registering every
+        unregistered test the base carries wrote the same entries into every pull request."""
+        root = self.make_root(tests=["test_kept.py", "test_base.py", "test_mine.py"], registry=self.kept_registry())
+        workflow = root / ".github" / "workflows" / "ci-guards.yml"
+        workflow.write_text(
+            GUARD_WORKFLOW + "      - run: python3 tests/test_base.py\n      - run: python3 tests/test_mine.py\n",
+            encoding="utf-8",
+        )
+
+        self.assertEqual(validator.register_derivable(root, only={"tests/test_mine.py"}), ["tests/test_mine.py"])
+        self.assertEqual(validator.register_derivable(root, only=set()), [])
+        self.assertEqual(validator.register_derivable(root), ["tests/test_base.py"])  # unrestricted, as before
+
     def test_write_leaves_a_test_no_workflow_runs_for_a_person_to_place(self) -> None:
         root = self.make_root(tests=["test_kept.py", "test_orphan.py"], registry=self.kept_registry())
         before = (root / "tests" / "test-execution.toml").read_text(encoding="utf-8")
@@ -538,6 +552,18 @@ sys.exit(3 if name.endswith("fail") else 0)
 
 
 class LaneRunnerTests(unittest.TestCase):
+    def test_invalid_timeouts_are_rejected_before_listing_tests(self) -> None:
+        for timeout in ("0", "-1", "nan", "inf", "-inf"):
+            with self.subTest(timeout=timeout):
+                result = subprocess.run(
+                    [sys.executable, str(RUNNER), "--lane", "linux-guard",
+                     "--list", f"--timeout={timeout}"],
+                    cwd=ROOT, capture_output=True, text=True,
+                )
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("--timeout must be a positive finite number", result.stderr)
+                self.assertEqual(result.stdout, "")
+
     def run_lane(self, registry: str, names: list[str], *args: str, peers: int) -> tuple[int, list[str], str]:
         root = Path(tempfile.mkdtemp(prefix="cmux-lane-runner-"))
         self.addCleanup(shutil.rmtree, root, ignore_errors=True)
@@ -643,6 +669,12 @@ class LaneRunnerTests(unittest.TestCase):
     def test_workflow_discovery_reads_every_lane_of_one_invocation(self) -> None:
         workflow = "run: python3 scripts/ci/run_python_test_lane.py --jobs 8 --lane one --lane=two --lane three\n"
         self.assertEqual(validator.runner_lanes_from_workflow_text(workflow), {"one", "two", "three"})
+
+    def test_verify_local_jobs_option_keeps_recipe_tests_live(self) -> None:
+        workflow = ["run: python3 scripts/verify-local.py --jobs 4\n"]
+        discovered = validator.recipe_tests(workflow)
+        self.assertIn("tests/test_normalize_pbxproj.py", discovered)
+        self.assertIn("tests/test_ui_fuzzer_engine.py", discovered)
 
 
 if __name__ == "__main__":

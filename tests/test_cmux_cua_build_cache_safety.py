@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
 import platform
 import re
@@ -16,6 +17,7 @@ import git_fixture_env  # noqa: F401  (disables git auto maintenance)
 
 ROOT = Path(__file__).resolve().parents[1]
 BUILD_SCRIPT = ROOT / "scripts" / "build-cmux-cua.sh"
+PATCH_FILE = ROOT / "scripts" / "cmux-cua-codex-delivery-mode.patch"
 
 
 def pinned_sha() -> str:
@@ -26,6 +28,10 @@ def pinned_sha() -> str:
     )
     assert match is not None
     return match.group(1)
+
+
+def patch_digest() -> str:
+    return hashlib.sha256(PATCH_FILE.read_bytes()).hexdigest()
 
 
 def write_executable(path: Path, contents: str) -> None:
@@ -50,7 +56,7 @@ fi
 if [[ "${{1:-}}" == "-C" ]]; then
   shift 2
   case "${{1:-}}" in
-    cat-file|checkout|clean|fetch) exit 0 ;;
+    cat-file|checkout|clean|fetch|apply) exit 0 ;;
     remote)
       echo "fake://cmux-cua"
       exit 0
@@ -210,6 +216,16 @@ def test_unmanaged_helper_bundle_is_preserved(sha: str) -> None:
 
         assert result.returncode != 0, result.stdout
         assert sentinel.read_text() == "keep me", result.stderr
+        snapshot = cache_dir / f"build-src-{sha}-{patch_digest()}"
+        assert (
+            snapshot / ".cmux-cua-managed-build-source"
+        ).read_text() == f"cmux-cua-build-source-v1 {sha} {patch_digest()}\n"
+        assert (
+            next((snapshot / ".cmux-cargo-target").glob("xcode-*"))
+            / ("aarch64-apple-darwin" if arch == "arm64" else "x86_64-apple-darwin")
+            / "release"
+            / "cmux-cua"
+        ).is_file()
 
 
 def fake_xcode(root: Path, name: str) -> tuple[Path, Path]:

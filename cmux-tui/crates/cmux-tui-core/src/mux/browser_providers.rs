@@ -49,7 +49,7 @@ impl Mux {
         }
         Some(ResourceError::operation_failed(
             operation,
-            "no browser engine: no cmux-browser provider is attached, so a browser tab cannot start",
+            "no browser engine: neither the cmux app nor a cmux-browser provider is attached to this session, so a browser tab cannot start; open the cmux app (it renders browser tabs for every session it shows), or launch cmux-browser",
             serde_json::json!({"code":"engine_unavailable"}),
         ))
     }
@@ -64,6 +64,7 @@ impl Mux {
                 provider_id: "test-provider".to_string(),
                 endpoint: "ws://127.0.0.1:9/devtools/browser/test".to_string(),
                 authentication: crate::browser_provider::BrowserProviderAuthentication::None,
+                hosting: Default::default(),
                 targets: Default::default(),
             },
         )
@@ -99,11 +100,15 @@ impl Mux {
         let mut runtime = self.browser_runtime.lock().unwrap();
         if let Some(existing) = runtime.as_ref().filter(|existing| {
             !existing.is_closed()
-                && existing.matches_provider(&lease.endpoint, &lease.authentication)
+                && existing.matches_provider(&lease.endpoint, &lease.authentication, lease.hosting)
         }) {
             return Ok(existing.clone());
         }
-        let created = BrowserRuntime::connect_provider(&lease.endpoint, &lease.authentication)?;
+        let created = BrowserRuntime::connect_provider(
+            &lease.endpoint,
+            &lease.authentication,
+            lease.hosting,
+        )?;
         *runtime = Some(created.clone());
         Ok(created)
     }
@@ -116,8 +121,9 @@ impl Mux {
     ) {
         let provider_bootstrap = matches!(&bootstrap, BrowserBootstrap::Provider { .. });
         // The frontend renders this page itself; the daemon never waits for
-        // or attaches a CDP target for it.
+        // or attaches a CDP target for it, so it is live now.
         if provider_bootstrap && self.is_frontend_browser_surface(&surface) {
+            surface.mark_browser_frontend_rendered();
             return;
         }
         let weak_mux = Arc::downgrade(self);

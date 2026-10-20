@@ -175,15 +175,14 @@ export const read = createServerFn({ method: "POST" })
  * The credential subprotocol for the live WebSocket panel. Browsers cannot attach cookies or
  * headers to a cross-origin WebSocket handshake, and Workers invocation logs record every
  * header but Authorization (cx-dgsp). So this server function mints a single-use ticket
- * (POST /v1/wire/ticket, 30 s) with the cookie's access token, and page script sees only the
- * ticket, never the token. A Worker from before cx-dgsp answers 404: then, and only then, the
- * panel gets the legacy `bearer.<access token>` subprotocol, as before.
+ * (POST /v1/wire/ticket, 30 s, user socket only) with the cookie's access token, and page script sees only the
+ * ticket, never the token. Without a ticket the panel gets no credential: the legacy
+ * `bearer.<access token>` subprotocol is retired.
  */
 export const wireCredential = createServerFn({ method: "POST" }).handler(async (): Promise<{ protocol: string | null; apiUrl: string }> => {
   requireSameOrigin()
-  const minted = await postImpl<{ ticket?: string }>("/v1/wire/ticket", {})
+  // The panel opens /v1/wire/user (hooks.ts useWire); the ticket opens no other socket.
+  const minted = await postImpl<{ ticket?: string }>("/v1/wire/ticket", { scope: "user" })
   if (minted.status === 200 && typeof minted.body.ticket === "string") return { protocol: `ticket.${minted.body.ticket}`, apiUrl: apiUrl() }
-  if (minted.status !== 404) return { protocol: null, apiUrl: apiUrl() }
-  const legacy = getCookie(ACCESS) ?? (await refreshAccess())
-  return { protocol: legacy ? `bearer.${legacy}` : null, apiUrl: apiUrl() }
+  return { protocol: null, apiUrl: apiUrl() }
 })

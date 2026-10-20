@@ -1,6 +1,6 @@
 import AppKit
 
-/// Watches only the host window's intentional Command/Control holds. It never consumes input.
+/// Watches only the host window's intentional Command/Control/Option holds; a key or a click (Option-click) hides and suppresses. It never consumes input.
 @MainActor
 final class WindowScopedShortcutHintModifierMonitor {
     private weak var window: NSWindow?
@@ -37,7 +37,7 @@ final class WindowScopedShortcutHintModifierMonitor {
             self?.receive(event)
             return event
         }
-        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
             guard let self, eligible else { return event }
             keyDown()
             return event
@@ -55,10 +55,9 @@ final class WindowScopedShortcutHintModifierMonitor {
         let flags = event.modifierFlags
         currentFlags = flags
         hide()
-        // Reset suppression when the modifier is released; only bare Cmd/Ctrl arms the delay.
+        // Reset suppression when the modifier is released; a Cmd, Ctrl or Option set arms the delay.
         _ = policy.update(flags: flags, eligible: eligible, elapsed: .zero)
-        let modifiers = flags.intersection([.command, .control, .shift, .option])
-        guard eligible, modifiers == .command || modifiers == .control else { return }
+        guard eligible, ShortcutHintModifierPolicy.armed(flags) != nil else { return }
         pending = Task { [weak self, clock] in
             // wakeup-allow: one cancellable, injected-clock 0.30s intentional hold deadline; never polling.
             do { try await clock.sleep(for: ShortcutHintModifierPolicy.intentionalHoldDelay) } catch { return }
@@ -66,7 +65,7 @@ final class WindowScopedShortcutHintModifierMonitor {
             pending = nil
             let current = currentFlags
             if policy.update(flags: current, eligible: eligible, elapsed: ShortcutHintModifierPolicy.intentionalHoldDelay) {
-                changed(current.intersection([.command, .control]))
+                changed(ShortcutHintModifierPolicy.armed(current))
                 #if DEBUG
                 capture.finish(true)
                 #endif

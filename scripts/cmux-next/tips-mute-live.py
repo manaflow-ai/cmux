@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Live check: the "Did you know" card's x menu (Hide This Tip, Mute Tips for 1 Day or 1 Week, Never Show Tips).
+"""Live check: the tips card ("Did you know?"): its x menu (Hide This Tip, Mute Tips for 1 Day or 1 Week,
+Never Show Tips) and each tip shown once, ever.
 
   scripts/cmux-next/tips-mute-live.py --tag <tag> [--out DIR] [--app PATH]
 
@@ -16,7 +17,11 @@ tip would show):
      settings.set sidebar.cards.tips true shows tips again;
   6. the x opens its menu (hint mode presses the x as a person does; debug.hints reads the open
      menu's items); window snapshots of the card, and with the agent capture helper (if its daemon
-     runs) the card with the menu open, light and dark.
+     runs) the card with the menu open, light and dark;
+  7. each hint once: a hint the card showed is recorded as seen; after a restart it does not come
+     back; day after day every hint shows once, all different; with every hint seen no card shows.
+
+`press: "reset"` forgets what the hints remember (a fresh install) before the steps that pick.
 
 GUI host only. Quits the app by its own PID and stops the tag's daemons at the end.
 """
@@ -46,6 +51,7 @@ BASE_ENV = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMP
             "PATH": "/usr/bin:/bin:/usr/sbin:/sbin"}
 CAPTURE_SOCKET = os.path.expanduser("~/Library/Application Support/cmux/agent-capture/run/cua.sock")
 MENU = ["Hide This Tip", "Mute Tips for 1 Day", "Mute Tips for 1 Week", "Never Show Tips"]
+X_LABEL = "Hide or Mute Tips"
 HOUR, DAY = 3600, 86400
 failures = []
 transcript = []
@@ -187,8 +193,8 @@ def menu_pass(app, mode):
     rpc("settings.set", {"path": "labs.previewFeatures", "value": True})
     rpc("action.run", {"action": "hints.show", "origin": "script"})
     shown = wait_for(lambda: (rpc("debug.hints") or {}).get("hints"), "hint labels", 10) or []
-    xs = [h for h in shown if h.get("title") == "Hide or Mute Tips"]
-    check(len(xs) == 1, f"{mode}: hint mode labels the card's x 'Hide or Mute Tips': {[h.get('title') for h in shown][:40]}")
+    xs = [h for h in shown if h.get("title") == X_LABEL]
+    check(len(xs) == 1, f"{mode}: hint mode labels the card's x '{X_LABEL}': {[h.get('title') for h in shown][:40]}")
     if not xs:
         rpc("debug.key", {"key": "Escape", "modifiers": []})
         return
@@ -214,9 +220,8 @@ try:
     app = launch()
     state = loaded_tips(time.time())
     check(state.get("enabled") == "true", f"tips on at launch: {state}")
-    if not state.get("tip"):
-        # A tag that ran this script before may have dismissed or tried every tip today; the next day picks again.
-        state = tips(at=time.time() + DAY)
+    tips(press="reset")  # a tag that ran this script before has seen hints
+    state = tips(at=time.time())
     check(bool(state.get("tip")), f"a tip shows: {state}")
 
     # 1. one day (the mute's end comes from the app clock: measure from the press)
@@ -245,6 +250,8 @@ try:
     check(bool(state.get("tip")) and state.get("tip") != hidden, f"the next day another tip shows, never {hidden}: {state}")
 
     # 4. a timed mute ends when Settings > Show Tips turns on again (all reads inside the week)
+    tips(press="reset")
+    tips(at=time.time())
     real = time.time()
     state = tips(press="tip-mute-week")
     check(bool(state.get("mutedUntil")), f"muted for a week again: {state}")
@@ -271,6 +278,7 @@ try:
     app = launch()
     state = loaded_tips(real + 4 * DAY)
     check(state.get("tip") is None and state.get("enabled") == "false", f"after a restart: tips stay off, no tip: {state}")
+    tips(press="reset")
     rpc("settings.set", {"path": "sidebar.cards.tips", "value": True})
     state = wait_for(lambda: (lambda s: s if s.get("tip") else None)(tips(at=real + 4 * DAY)), "a tip after Show Tips on") or {}
     check(state.get("enabled") == "true" and bool(state.get("tip")), f"settings.set sidebar.cards.tips true: tips again: {state}")
@@ -278,6 +286,37 @@ try:
     # 6. the x's menu, light and dark
     for mode in ["light", "dark"]:
         menu_pass(app, mode)
+    # 7. each hint once, ever
+    rpc("debug.updater", {"action": "untip"})
+    tips(press="reset")
+    start = time.time()
+    state = tips(at=start)
+    first = state.get("tip")
+    check(bool(first), f"fresh state: a hint shows: {state}")
+    state = wait_for(lambda: (lambda s: s if first in (s.get("seen") or "").split(",") else None)(tips(at=start)),
+                     "the card on screen records the hint as seen") or {}
+    check(first in (state.get("seen") or "").split(","), f"seen after the card showed it: {state}")
+    quit_app(app)
+    app = launch()
+    state = loaded_tips(start)
+    check(state.get("tip") is None and first in (state.get("seen") or "").split(","), f"after a restart the same hint does not come back: {state}")
+    shown = [first]
+    for day in range(1, 16):
+        state = tips(at=start + day * DAY)
+        if not state.get("tip"):
+            break
+        hint = state["tip"]
+        wait_for(lambda: hint in (tips(at=start + day * DAY).get("seen") or "").split(","), f"hint {hint} recorded seen")
+        shown.append(hint)
+    check(len(shown) == len(set(shown)) and len(shown) >= 5, f"day after day each hint shows once, all different: {shown}")
+    check(sorted(shown) == sorted((tips(at=start + 20 * DAY).get("seen") or "").split(",")), f"every hint shown is recorded seen: {shown}")
+    state = tips(at=start + 30 * DAY)
+    check(state.get("tip") is None, f"every hint seen: none picked a month later: {state}")
+    rpc("action.run", {"action": "hints.show", "origin": "script"})
+    labels = [h.get("title") for h in (wait_for(lambda: (rpc("debug.hints") or {}).get("hints"), "hint labels", 10) or [])]
+    rpc("debug.key", {"key": "Escape", "modifiers": []})
+    check(bool(labels) and X_LABEL not in labels, f"every hint seen: no hints card on screen (no '{X_LABEL}' control): {labels[:30]}")
+
     focus = rpc("debug.focus")
     check(not focus.get("app_active"), f"no activation: {focus}")
 finally:

@@ -1,3 +1,4 @@
+public import CmuxNextCompat
 public import Foundation
 import os
 
@@ -8,7 +9,7 @@ import os
 /// sees the new link at once, and stops it at sign-out (`link stop`, which
 /// signals only the registered pid). Nothing else starts or stops the link.
 ///
-/// Isolation: a tagged DEV build gives the link its tag's state directory
+/// Isolation: a tagged DEV build (any build with its own names) gives the link its daemon's state directory
 /// (`CMUX_TUI_STATE_DIR`, as ``DaemonLauncher`` does for the daemon), so its
 /// registration, socket and key never meet another build's link; it binds
 /// any free UDP port (`--port 0`) and reads no `~/.config/cmux/server.json`
@@ -50,19 +51,24 @@ public nonisolated struct CloudLinkLauncher: Sendable {
     }
 
     /// This app's launcher: only the app bundle's own `bin/cmux-tui` (never
-    /// a `CMUX_NEXT_TUI_BIN` override) and the launch tag's state. A DEBUG
-    /// build without a tag gets no link: it would share the release app's
-    /// state directory.
-    public static func forApp(bundle: Bundle = .main, tag: String?) -> CloudLinkLauncher? {
+    /// a `CMUX_NEXT_TUI_BIN` override) and its build's state: a kept tag's
+    /// (`tags/<tag>/tui`), names of the build key (`builds/<key>/tui`, as the
+    /// daemon's, per-build isolation S3), else cmux-tui's default root
+    /// (release, the untagged channels). A DEBUG build without its own state
+    /// gets no link: it would share the release app's state directory.
+    public static func forApp(bundle: Bundle = .main, build: BuildIdentity) -> CloudLinkLauncher? {
         guard let resources = bundle.resourceURL else { return nil }
         let binary = resources.appendingPathComponent("bin/cmux-tui")
         guard FileManager.default.isExecutableFile(atPath: binary.path) else { return nil }
+        let own = build.keepsAppNames
+            ? build.tag.map { DaemonLauncher.tagStateDirectory(tag: $0) }
+            : DaemonLauncher.appNames(build: build).stateDirectory
         #if DEBUG
-        guard tag != nil else { return nil }
+        guard own != nil else { return nil }
         #endif
-        let stateRoot = tag.map { DaemonLauncher.tagStateDirectory(tag: $0) } ?? defaultStateRoot()
+        let stateRoot = own ?? defaultStateRoot()
         guard let stateRoot else { return nil }
-        return CloudLinkLauncher(binary: binary, stateRoot: stateRoot, tagged: tag != nil)
+        return CloudLinkLauncher(binary: binary, stateRoot: stateRoot, tagged: own != nil)
     }
 
     /// cmux-tui's default daemon state root on macOS

@@ -84,7 +84,7 @@ public nonisolated enum HomeCoreMapping {
     }
 
     static func message(_ message: ConversationMessage) -> Message {
-        Message(id: MessageID(message.id), conversation: ConversationID(message.conversation), seq: message.seq,
+        var mapped = Message(id: MessageID(message.id), conversation: ConversationID(message.conversation), seq: message.seq,
                 clientMessageID: IdempotencyKey(message.clientMsgID), author: ParticipantID(message.author),
                 parts: message.parts.enumerated().map { part($1, messageID: message.id, index: $0) }, createdAt: date(message.createdAt) ?? .distantPast,
                 editedAt: date(message.editedAt), retractedAt: date(message.retractedAt),
@@ -92,6 +92,15 @@ public nonisolated enum HomeCoreMapping {
                 replyTo: message.replyTo.map { PartRef(message: MessageID($0.messageID), partIndex: $0.partIndex) },
                 // A message from before threads marked its thread as a reply to the root.
                 threadRoot: (message.threadRoot ?? message.replyTo?.messageID).map { MessageID($0) })
+        mapped.thread = thread(message.thread)
+        return mapped
+    }
+
+    /// A root's thread object (conversation-thread-objects-v1).
+    static func thread(_ wire: ConversationThreadObject?) -> ThreadInfo? {
+        guard let wire else { return nil }
+        return ThreadInfo(title: wire.title, owner: wire.owner.map { ParticipantID($0) }, resolvedAtSeq: wire.resolved?.seq,
+                          resolvedBy: wire.resolved.map { ParticipantID($0.by) })
     }
 
     static func summary(_ summary: CmuxNextDaemon.ConversationSummary) -> CmuxHomeCore.ConversationSummary {
@@ -138,11 +147,12 @@ public nonisolated enum HomeCoreMapping {
     /// The owner op of a Home intent, or nil when the local owner has no such op.
     static func op(_ op: HomeOp, key: IdempotencyKey) -> (conversation: String, op: ConversationOp)? {
         switch op {
-        case .sendMessage(let conversation, let parts, let threadRoot):
-            // `thread_root` is the thread. The reply to the root's first part
-            // keeps the thread on a daemon from before threads, which drops the field.
+        case .sendMessage(let conversation, let parts, let threadRoot, let parent):
+            // `thread_root` is the thread; `reply_to` the message answered (conversation-tree-v1:
+            // any depth), the root's first part without a parent, which also keeps the thread on a
+            // daemon from before threads (it drops `thread_root`).
             return (conversation.rawValue, .send(clientMsgID: key.rawValue, parts: Self.parts(parts),
-                                                 replyTo: threadRoot.map { ConversationPartRef(messageID: $0.rawValue, partIndex: 0) },
+                                                 replyTo: threadRoot.map { ConversationPartRef(messageID: (parent ?? $0).rawValue, partIndex: 0) },
                                                  threadRoot: threadRoot?.rawValue))
         case .editMessage(let message, let conversation, let parts):
             return (conversation.rawValue, .edit(messageID: message.rawValue, parts: Self.parts(parts)))
@@ -158,7 +168,14 @@ public nonisolated enum HomeCoreMapping {
             guard let data = try? answer.conversationAnswer.data(),
                   let value = try? JSONDecoder().decode(JSONValue.self, from: data) else { return nil }
             return (conversation.rawValue, .answerQuestion(messageID: message.rawValue, partIndex: partIndex, answer: value))
-        case .createGroup, .createChief, .startConversation, .invite, .openDirect, .setPinned, .setMuted, .setTyping:
+        case .updateThread(let conversation, let root, let title, let status, let owner):
+            return (conversation.rawValue, .updateThread(root: root.rawValue, title: title, status: status?.rawValue, owner: owner))
+        case .renameConversation(let conversation, let title):
+            return (conversation.rawValue, .setTitle(title.trimmingCharacters(in: .whitespacesAndNewlines)))
+        case .createGroup, .createChief, .startConversation, .invite, .openDirect, .setPinned, .setMuted, .setTyping,
+             .addParticipants, .removeParticipant:
+            // The local owner has no participants.remove, and its participants.add needs the
+            // person's record (names), which only the cloud's directory holds.
             return nil
         }
     }

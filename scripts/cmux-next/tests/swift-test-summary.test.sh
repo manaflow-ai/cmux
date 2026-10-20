@@ -3,7 +3,8 @@
 # Testing test in one ::error line and in the step summary, so a red stays
 # visible when a log viewer truncates the step's output. If the run ends
 # without the "Test run with" summary line, it fails and names the tests that
-# started and never finished (a crashed or killed test process).
+# started and never finished (a crashed or killed test process). A test still
+# running after CMUX_NEXT_TEST_STUCK_SECONDS is named while the run is going.
 # No Swift: a stub `swift` prints canned Swift Testing output.
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
@@ -14,6 +15,8 @@ mkdir -p "$TMP/bin"
 cat > "$TMP/bin/swift" <<'EOF'
 #!/usr/bin/env bash
 cat "$STUB_OUTPUT"
+# A test that never returns: the wrapper has to end it.
+[[ -z "${STUB_SLEEP:-}" ]] || sleep "$STUB_SLEEP"
 exit "${STUB_STATUS:-0}"
 EOF
 chmod +x "$TMP/bin/swift"
@@ -69,6 +72,7 @@ grep -q 'aTimesOut()' <<<"$summary" || fail "the step summary does not name aTim
 # No summary line although swift exited 0: the run fails and names the tests
 # that started and never finished, and not the finished ones.
 cat > "$TMP/cut.out" <<'EOF'
+◇ Test run started.
 ◇ Test aPasses() started.
 ✔ Test aPasses() passed after 0.001 seconds.
 ◇ Test hangsForever() started.
@@ -81,6 +85,8 @@ grep '^::error' <<<"$out" | grep -q 'no "Test run with" summary' || fail "the er
 grep '^::error' <<<"$out" | grep -q 'hangsForever()' || fail "the error does not name hangsForever()" "$out"
 grep '^::error' <<<"$out" | grep -q 'crashesHere()' || fail "the error does not name crashesHere()" "$out"
 if grep '^::error' <<<"$out" | grep -q 'aPasses'; then fail "the error names a finished test" "$out"; fi
+# "Test run started." is the run, not a test.
+grep '^::error' <<<"$out" | grep -q ' 2 tests started and never finished: hangsForever()' || fail "the error counts the run itself as an unfinished test" "$out"
 grep -q 'hangsForever()' <<<"$summary" || fail "the step summary does not name hangsForever()" "$summary"
 
 # A crash exit without a summary keeps its status and names the unfinished test.
@@ -127,5 +133,34 @@ printf 'Test Suite %s passed\n\t Executed 2 tests, with 0 failures\n' "'All test
 run xctest 0
 [[ "$status" == 0 ]] || fail "an XCTest-only run exited $status" "$out"
 [[ "$out" != *"::error"* ]] || fail "an XCTest-only run printed an error" "$out"
+
+# A run whose helper ends without a summary and without a signal line: SwiftPM
+# prints nothing for SIGINT, SIGTERM or SIGKILL, so the error gives the status
+# swift test exited with and says that.
+run cut 1
+grep '^::error' <<<"$out" | grep -q 'swift test exited 1' || fail "the error does not give the exit status" "$out"
+grep '^::error' <<<"$out" | grep -q 'SIGKILL' || fail "the error does not say a silent signal is possible" "$out"
+
+# One test hangs while the others finish: past CMUX_NEXT_TEST_STUCK_SECONDS the
+# run fails within seconds, not at the whole-run limit, and one ::error names
+# the stuck test and how long it ran; finished tests are not named, nor a
+# parameterized test that failed (its line says "with N test cases").
+cat > "$TMP/stuck.out" <<'EOF2'
+◇ Test aPasses() started.
+✔ Test aPasses() passed after 0.001 seconds.
+◇ Test eachFails(n:) started.
+✘ Test eachFails(n:) with 2 test cases failed after 0.002 seconds with 2 issues.
+◇ Test stuckHere() started.
+EOF2
+started=$SECONDS
+STUB_SLEEP=60 CMUX_NEXT_TEST_STUCK_SECONDS=2 CMUX_NEXT_TEST_STUCK_POLL_SECONDS=1 run stuck 0
+(( SECONDS - started < 30 )) || fail "a stuck test was ended only after $((SECONDS - started)) s" "$out"
+[[ "$status" != 0 ]] || fail "a run with a stuck test exited 0" "$out"
+stuck=$(grep '^::error title=cmux-next swift test stuck' <<<"$out" || true)
+[[ -n "$stuck" ]] || fail "no stuck-test ::error line" "$out"
+grep -q 'stuckHere()' <<<"$stuck" || fail "the stuck error does not name stuckHere()" "$stuck"
+if grep -q 'aPasses\|eachFails' <<<"$stuck"; then fail "the stuck error names a finished test" "$stuck"; fi
+grep -q '::1 test still running' <<<"$stuck" || fail "the stuck error miscounts" "$stuck"
+grep -q 'stuckHere()' <<<"$summary" || fail "the step summary does not name the stuck test" "$summary"
 
 echo "ok swift-test-summary"

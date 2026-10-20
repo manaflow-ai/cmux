@@ -199,6 +199,15 @@ pub fn requests(trace: &Trace, scope: &Value, requests: &[crate::fold::Request])
         f.insert("usage".into(), usage(&r.usage));
         f.insert("headers_ms".into(), json!(r.headers_ms));
         f.insert("ttft_ms".into(), json!(r.ttft_ms));
+        // Which account served it (cache misses on a turn's first request,
+        // Chief review cause 7): the subrouter does not say, so the ids it
+        // keys and logs requests by. Recorded only; nothing routes on them.
+        if !r.id.is_empty() {
+            f.insert("message_id".into(), json!(r.id));
+        }
+        if let Some(session) = &r.session {
+            f.insert("harness_session".into(), json!(session));
+        }
         trace.emit("request", Value::Object(f));
     }
 }

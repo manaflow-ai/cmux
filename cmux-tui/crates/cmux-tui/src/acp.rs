@@ -47,18 +47,13 @@ pub(crate) fn run_as(args: Vec<OsString>, display_name: &str) -> i32 {
         return harness_tab(&words);
     }
     let home = std::env::var("HOME").ok().map(PathBuf::from);
-    let identity = crate::app_identity::AppIdentity::detect(
-        |name| std::env::var(name).ok(),
-        std::env::current_exe().ok().as_deref(),
-    );
-    let tag = acpmux_tag(std::env::var("CMUX_TAG").ok(), identity);
     finish(
         entry::main(
             args,
             Invocation {
                 display_name: display_name.into(),
                 daemon_prefix: vec!["acp".into()],
-                home: home.and_then(|home| tagged_home(tag.as_deref(), &home)),
+                home: home.and_then(|home| build_home(&home)),
             },
         ),
         display_name,
@@ -105,12 +100,7 @@ fn open_command(args: &[String], exe: &str) -> Result<Vec<String>, String> {
 /// to the acpmux daemon without going through `cmux acp` (agent messages).
 pub(crate) fn configure_home() {
     let home = std::env::var("HOME").ok().map(PathBuf::from);
-    let identity = crate::app_identity::AppIdentity::detect(
-        |name| std::env::var(name).ok(),
-        std::env::current_exe().ok().as_deref(),
-    );
-    let tag = acpmux_tag(std::env::var("CMUX_TAG").ok(), identity);
-    if let Some(home) = home.and_then(|home| tagged_home(tag.as_deref(), &home)) {
+    if let Some(home) = home.and_then(|home| build_home(&home)) {
         acpmux::config::set_home_override(home);
     }
 }
@@ -118,7 +108,7 @@ pub(crate) fn configure_home() {
 /// The acpmux unix socket the session daemon attaches agent tabs through
 /// (`agent-session-attach-v1`): the one `cmux acp` in this daemon's terminals
 /// reaches. `ACPMUX_SOCKET`, else the socket of the home `cmux acp` uses
-/// (`ACPMUX_HOME`, else the tag's own home, else `~/.acpmux`). Read once at
+/// (`ACPMUX_HOME`, else its build's home, else `~/.acpmux`). Read once at
 /// daemon start, without touching acpmux's process-wide config.
 #[cfg(unix)]
 pub(crate) fn daemon_socket_path() -> Option<PathBuf> {
@@ -137,40 +127,94 @@ fn daemon_socket(configured: Option<&str>, home: &Path, uid: u32) -> PathBuf {
     PathBuf::from(cmux_agent_pane_policy::environment::socket_path(configured, home, uid))
 }
 
+/// Gives the session daemon its acpmux [`daemon_acpmux_starter`] and
+/// [`daemon_acpmux_handoff`], both naming the daemon's `socket`.
+#[cfg(unix)]
+pub(crate) fn install_daemon_acpmux(mux: &cmux_tui_core::Mux, socket: &Path) {
+    mux.set_acpmux_starter(daemon_acpmux_starter(socket));
+    mux.set_acpmux_handoff(daemon_acpmux_handoff(socket));
+}
+
 /// How the session daemon starts the acpmux that [`daemon_socket_path`]
 /// names when an `agent-session-start` finds nothing there: this binary's
 /// `acp daemon start` with that home, as `cmux acp` starts it (acpmux bounds
-/// the wait for its socket), without the daemon's terminal identity. None
-/// with `ACPMUX_SOCKET`: a fixed socket belongs to an acpmux this daemon does
-/// not own.
+/// the wait for its socket), without the daemon's terminal identity, and with
+/// `CMUX_TUI_SOCKET` naming this daemon's `socket`, which mints each agent's
+/// launch credential (acpmux `launch_credential.rs`). None with
+/// `ACPMUX_SOCKET`: a fixed socket belongs to an acpmux this daemon does not
+/// own.
 #[cfg(unix)]
-pub(crate) fn daemon_acpmux_starter() -> Option<cmux_tui_core::server::AcpmuxStarter> {
+pub(crate) fn daemon_acpmux_starter(socket: &Path) -> Option<cmux_tui_core::server::AcpmuxStarter> {
     if env_value("ACPMUX_SOCKET").is_some() {
         return None;
     }
     let home = daemon_acpmux_home()?;
     let exe = std::env::current_exe().ok()?;
+    let socket = socket.to_path_buf();
+    Some(std::sync::Arc::new(move || run_acp_daemon(&exe, &home, &socket, &["start"])))
+}
+
+/// How the session daemon hands the machine's acpmux off before an
+/// `agent-update-apply` (`agent-update-v1`) when it does not know the update
+/// method: the installed binary's `acp daemon shutdown --keep-agents` (agents
+/// keep running) and then its `acp daemon start` with the home
+/// [`daemon_acpmux_starter`] uses, whose acpmux adopts them. The installed
+/// binary, not this process's image: after an in-place upgrade that is the
+/// newer build (on Linux the running image reads `<path> (deleted)`). None
+/// with `ACPMUX_SOCKET`, as the starter.
+#[cfg(unix)]
+pub(crate) fn daemon_acpmux_handoff(
+    socket: &Path,
+) -> Option<cmux_tui_core::server::agent_transfer::agent_update::AcpmuxHandoff> {
+    if env_value("ACPMUX_SOCKET").is_some() {
+        return None;
+    }
+    let home = daemon_acpmux_home()?;
+    let exe = std::env::current_exe().ok()?;
+    let socket = socket.to_path_buf();
     Some(std::sync::Arc::new(move || {
-        let mut command = std::process::Command::new(&exe);
-        // acpmux and every agent it starts outlive this call: none of them
-        // may claim the terminal this daemon was started from.
-        for name in TERMINAL_IDENTITY_ENV {
-            command.env_remove(name);
-        }
-        let status = command
-            .env("ACPMUX_HOME", &home)
-            .args(["acp", "daemon", "start"])
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status()
-            .map_err(|error| format!("acpmux daemon start: {error}"))?;
-        if status.success() {
-            Ok(())
-        } else {
-            Err(format!("acpmux daemon start exited with {status}"))
-        }
+        let installed = installed_exe(&exe)?;
+        run_acp_daemon(&installed, &home, &socket, &["shutdown", "--keep-agents"])?;
+        run_acp_daemon(&installed, &home, &socket, &["start"])
     }))
+}
+
+/// The binary installed at the path this process started from: the path
+/// without Linux's ` (deleted)` mark of a replaced image; an error when no
+/// file is there.
+#[cfg(unix)]
+fn installed_exe(exe: &Path) -> Result<PathBuf, String> {
+    let text = exe.to_string_lossy();
+    let path = text.strip_suffix(" (deleted)").map_or_else(|| exe.to_path_buf(), PathBuf::from);
+    if path.is_file() {
+        Ok(path)
+    } else {
+        Err(format!("no cmux binary is installed at {}", path.display()))
+    }
+}
+
+/// This binary's `acp daemon <args>` with `home` and the session `socket`,
+/// blocking.
+#[cfg(unix)]
+fn run_acp_daemon(exe: &Path, home: &Path, socket: &Path, args: &[&str]) -> Result<(), String> {
+    let mut command = std::process::Command::new(exe);
+    // acpmux and every agent it starts outlive this call: none of them
+    // may claim the terminal this daemon was started from.
+    for name in TERMINAL_IDENTITY_ENV {
+        command.env_remove(name);
+    }
+    let what = format!("acpmux daemon {}", args.join(" "));
+    let status = command
+        .env("ACPMUX_HOME", home)
+        .env(acpmux::launch_credential::SESSION_SOCKET_ENV, socket)
+        .args(["acp", "daemon"])
+        .args(args)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map_err(|error| format!("{what}: {error}"))?;
+    if status.success() { Ok(()) } else { Err(format!("{what} exited with {status}")) }
 }
 
 /// The cmux terminal a process runs in; a detached acpmux has none (the
@@ -180,20 +224,18 @@ pub(crate) fn daemon_acpmux_starter() -> Option<cmux_tui_core::server::AcpmuxSta
 const TERMINAL_IDENTITY_ENV: [&str; 5] =
     ["CMUX_SURFACE_ID", "CMUX_WORKSPACE_ID", "CMUX_TAB_ID", "CMUX_PANEL_ID", "CMUX_PANE_ID"];
 
-/// The acpmux home `cmux acp` uses: `ACPMUX_HOME`, else the tag's own home,
-/// else `~/.acpmux`.
+/// The acpmux home `cmux acp` uses: `ACPMUX_HOME`, else its build's home
+/// ([`build_home`]), else `~/.acpmux`.
 #[cfg(unix)]
 fn daemon_acpmux_home() -> Option<PathBuf> {
-    if let Some(home) = env_value("ACPMUX_HOME") {
+    // Another app's terminal names that app's acpmux (per-build isolation S4).
+    if let Some(home) = env_value("ACPMUX_HOME")
+        && !crate::app_identity::this_process_in_other_apps_terminal()
+    {
         return Some(PathBuf::from(home));
     }
     let home = PathBuf::from(env_value("HOME")?);
-    let identity = crate::app_identity::AppIdentity::detect(
-        |name| std::env::var(name).ok(),
-        std::env::current_exe().ok().as_deref(),
-    );
-    let tag = acpmux_tag(env_value("CMUX_TAG"), identity);
-    Some(tagged_home(tag.as_deref(), &home).unwrap_or_else(|| home.join(".acpmux")))
+    Some(build_home(&home).unwrap_or_else(|| home.join(".acpmux")))
 }
 
 #[cfg(unix)]
@@ -253,12 +295,7 @@ fn chats_open(args: &[String]) -> i32 {
         }
     };
     let home = std::env::var("HOME").ok().map(PathBuf::from);
-    let identity = crate::app_identity::AppIdentity::detect(
-        |name| std::env::var(name).ok(),
-        std::env::current_exe().ok().as_deref(),
-    );
-    let tag = acpmux_tag(std::env::var("CMUX_TAG").ok(), identity);
-    let acpmux_home = home.and_then(|home| tagged_home(tag.as_deref(), &home));
+    let acpmux_home = home.and_then(|home| build_home(&home));
     match acpmux::cli::chats::resolve_blocking(key, cwd.as_deref(), acpmux_home) {
         Ok(outcome) => crate::cli::run(&chat_tab_command(&outcome, &exe), ""),
         Err(error) => {
@@ -323,38 +360,23 @@ fn finish(result: anyhow::Result<()>, display_name: &str) -> i32 {
     }
 }
 
-/// The tag whose acpmux home `cmux acp` uses: `CMUX_TAG` (set in the
-/// app's terminals), else the tag of the app bundle around this executable,
-/// so a tagged build started from Finder or a script keeps its acpmux apart
-/// from the user's, as its daemon session does (`AppIdentity`).
-pub(crate) fn acpmux_tag(
-    env_tag: Option<String>,
-    identity: Option<crate::app_identity::AppIdentity>,
-) -> Option<String> {
-    env_tag.filter(|tag| !tag.trim().is_empty()).or_else(|| identity?.tag)
-}
-
-/// A tagged dev build keeps its own acpmux daemon and sessions, so it never
-/// shares state with the user's cmux or with another tag. Untagged builds use
-/// the acpmux default (`~/.acpmux`), shared with a standalone `acpmux`.
-pub(crate) fn tagged_home(tag: Option<&str>, home: &Path) -> Option<PathBuf> {
-    let slug = sanitize_tag(tag?)?;
-    Some(home.join(".acpmux").join("tags").join(slug))
-}
-
-/// Same rule as the app's `ControlSocketPath.sanitize`: lowercase, runs of
-/// anything outside `[a-z0-9]` become `-`, no leading or trailing `-`.
-fn sanitize_tag(raw: &str) -> Option<String> {
-    let mut slug = String::with_capacity(raw.len());
-    for character in raw.chars().flat_map(char::to_lowercase) {
-        if character.is_ascii_lowercase() || character.is_ascii_digit() {
-            slug.push(character);
-        } else if !slug.ends_with('-') {
-            slug.push('-');
-        }
-    }
-    let slug = slug.trim_matches('-');
-    (!slug.is_empty()).then(|| slug.to_owned())
+/// The acpmux home of the cmux build this process belongs to (per-build
+/// isolation, cx-is1kf; `BuildIdentity::acpmux_home`, the app's
+/// `AcpmuxEnvironment`): the environment an app terminal sets
+/// (`CMUX_BUNDLE_ID`, `CMUX_TAG`), else the app bundle around this
+/// executable. NIGHTLY keeps `~/.acpmux`; every other build has
+/// `~/.acpmux/builds/<key>`, so no build reaches another build's daemon. None
+/// outside any cmux app: acpmux's own default (`~/.acpmux`).
+pub(crate) fn build_home(home: &Path) -> Option<PathBuf> {
+    let identity = crate::app_identity::AppIdentity::detect(
+        |name| std::env::var(name).ok(),
+        std::env::current_exe().ok().as_deref(),
+    )?;
+    let build = identity.build();
+    let acpmux_home = build.acpmux_home(home);
+    // cmux NEXT adopts its pre-isolation home once (build_adopt.rs).
+    crate::build_adopt::acpmux_for_cli(&build, &acpmux_home);
+    Some(acpmux_home)
 }
 
 #[cfg(test)]
@@ -474,36 +496,5 @@ mod tests {
             words(&["pane", "pane_01", "run", "--", "/b/cmux", "acp", "attach", "review"])
         );
         assert!(open_command(&words(&[]), "/b/cmux").is_err());
-    }
-
-    #[test]
-    fn a_tagged_bundle_without_cmux_tag_uses_its_own_acpmux_home() {
-        let bundle = crate::app_identity::AppIdentity {
-            bundle_id: Some("com.cmuxterm.app.debug.acpx-v2".into()),
-            tag: Some("acpx-v2".into()),
-            socket_override: None,
-        };
-        assert_eq!(acpmux_tag(None, Some(bundle.clone())).as_deref(), Some("acpx-v2"));
-        assert_eq!(acpmux_tag(Some(" ".into()), Some(bundle.clone())).as_deref(), Some("acpx-v2"));
-        assert_eq!(acpmux_tag(Some("own".into()), Some(bundle)).as_deref(), Some("own"));
-        let untagged = crate::app_identity::AppIdentity {
-            bundle_id: Some("com.cmuxterm.app".into()),
-            tag: None,
-            socket_override: None,
-        };
-        assert_eq!(acpmux_tag(None, Some(untagged)), None);
-        assert_eq!(acpmux_tag(None, None), None);
-    }
-
-    #[test]
-    fn tagged_builds_get_their_own_acpmux_home() {
-        let home = Path::new("/Users/a");
-        assert_eq!(
-            tagged_home(Some("Feat_ACP.2"), home),
-            Some(PathBuf::from("/Users/a/.acpmux/tags/feat-acp-2"))
-        );
-        assert_eq!(tagged_home(Some("--"), home), None);
-        assert_eq!(tagged_home(Some(""), home), None);
-        assert_eq!(tagged_home(None, home), None);
     }
 }

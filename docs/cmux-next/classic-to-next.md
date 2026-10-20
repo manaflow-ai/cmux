@@ -46,8 +46,8 @@ cmux-next must be running. The script finds its control socket on its own
 
 | Build | Socket |
 | --- | --- |
-| Tagged dev build | `/tmp/cmux-debug-<tag>.sock` |
-| Nightly, RC, staging | `/tmp/cmux-<channel>[-<tag>].sock` |
+| Tagged dev build | `~/.local/state/cmux/cmux-debug-<tag>.sock` (symlink at `/tmp/cmux-debug-<tag>.sock`) |
+| Nightly, RC, staging | `~/.local/state/cmux/cmux-<channel>[-<tag>].sock` (symlink at `/tmp/cmux-<channel>[-<tag>].sock`) |
 | Release | `~/.local/state/cmux/cmux.sock` |
 
 ## 2. List what classic has

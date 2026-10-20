@@ -1,3 +1,4 @@
+import AppKit
 import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextDaemon
@@ -31,17 +32,28 @@ enum WorkspaceGroupClose {
         let services = context.services
         // The closed items carry the workspace's name, not its id: match on
         // the members' names among the items this close adds (never older ones).
-        let names = members(of: group, context).map { $0.0.name }
+        let closing = members(of: group, context)
+        let names = closing.map { $0.0.name }
         let seen = Set(DaemonClosedHistory.entries([.workspace], in: services).map(\.item.id))
         sidebar.handle(.closeGroup(CmuxNextSidebar.GroupID(group.id.rawValue)))
-        guard invocation.origin == .user, !names.isEmpty, let window = context.activeWindow?.window else { return }
-        let name = group.name.isEmpty ? ConfirmationStrings.unnamedGroup : group.name
-        let handle = CmuxToastCenter.shared.show(CmuxToast(id: toastID, message: closedToast(name), action: .undo()), in: window)
-        let groupID = group.id.rawValue
+        guard invocation.origin == .user, !names.isEmpty,
+              let window = WorkspaceBulkClose.survivor(closing: closing.map(\.0.id), context) else { return }
+        offerUndo(toastID, closedToast(group.name.isEmpty ? ConfirmationStrings.unnamedGroup : group.name), groups: [(group.id.rawValue, names)],
+                  after: seen, in: window, services)
+    }
+
+    /// The close toast in `window`; its Undo reopens what this close recorded
+    /// (`reopen`). Also the bulk closes' toast (`WorkspaceBulkClose`, no group).
+    static func offerUndo(_ id: String, _ message: String, groups: [(String?, [String])], after seen: Set<String>,
+                          in window: NSWindow, _ services: AppServices) {
+        // Too soon after the last one: Reopen Closed and History still bring the workspaces back.
+        if let undoToasts = services.closedTabs?.undoToasts, !CmuxToastCenter.shared.toasts(in: window).contains(where: { $0.id == id }),
+           !undoToasts.allowsNewToast(id) { return }
+        let handle = CmuxToastCenter.shared.show(CmuxToast(id: id, message: message, action: .undo()), in: window)
         handle.onAction = { [weak services] in
             guard let services else { return }
             // task-owner: one undo, bounded by `arrivalLimit`
-            Task { @MainActor in await reopen(group: groupID, names: names, after: seen, services) }
+            Task { @MainActor in for (group, names) in groups { await reopen(group: group, names: names, after: seen, services) } }
         }
     }
 
@@ -51,7 +63,7 @@ enum WorkspaceGroupClose {
 
     /// The closed items of this close: for each member name one new workspace
     /// item of that name (newest first), and the group's own record.
-    private static func matches(names: [String], group id: String, after seen: Set<String>,
+    private static func matches(names: [String], group id: String?, after seen: Set<String>,
                                 _ services: AppServices) -> (workspaces: [String], group: String?) {
         let fresh = DaemonClosedHistory.entries([.workspace], in: services).filter { !seen.contains($0.item.id) }
         var wanted = names
@@ -61,23 +73,23 @@ enum WorkspaceGroupClose {
             wanted.remove(at: index)
             workspaces.append(entry.item.id)
         }
-        return (workspaces, fresh.first { $0.item.group?.id == id }?.item.id)
+        return (workspaces, id.flatMap { id in fresh.first { $0.item.group?.id == id }?.item.id })
     }
 
     /// Reopens what this close recorded once every member's item is in the
     /// store (or `arrivalLimit` passed): the workspaces oldest first, so each
-    /// returns to its place, then the group's own record.
-    private static func reopen(group id: String, names: [String], after seen: Set<String>, _ services: AppServices) async {
+    /// returns to its place, then the group's own record (none for a bulk close, `WorkspaceBulkClose`).
+    private static func reopen(group id: String?, names: [String], after seen: Set<String>, _ services: AppServices) async {
         let arrived: @MainActor @Sendable () -> Bool = { [weak services] in
             guard let services else { return true }
             return matches(names: names, group: id, after: seen, services).workspaces.count == names.count
         }
-        if !arrived() { await ArrivalWait().until(arrived, limit: arrivalLimit) }
+        if !arrived() { await ObservationDeadline(owner: "workspace-group-close-undo").until(arrived, limit: arrivalLimit) }
         let found = matches(names: names, group: id, after: seen, services)
         for itemID in found.workspaces.reversed() {
             if let entry = DaemonClosedHistory.entry(itemID, in: services) { DaemonClosedHistory.reopen(entry, services: services) }
         }
-        if let groupItem = found.group, let entry = DaemonClosedHistory.groupEntry(id, in: services), entry.item.id == groupItem {
+        if let id, let groupItem = found.group, let entry = DaemonClosedHistory.groupEntry(id, in: services), entry.item.id == groupItem {
             DaemonClosedHistory.reopen(entry, services: services)
         }
     }
@@ -85,33 +97,5 @@ enum WorkspaceGroupClose {
     static func closedToast(_ name: String) -> String {
         String(format: String(localized: "workspaceGroup.closedToast", defaultValue: "Closed the workspaces in “%@”",
                               table: "Handlers", bundle: .module), name)
-    }
-}
-
-/// Waits until `condition` holds (an observation of the store) or `limit`
-/// passes on a `DemandTimer`, whichever comes first; resumes once.
-@MainActor
-private final class ArrivalWait {
-    private var continuation: CheckedContinuation<Void, Never>?
-    private var watch: Task<Void, Never>?
-    private let timer = DemandTimer(owner: "workspace-group-close-undo")
-
-    func until(_ condition: @escaping @MainActor @Sendable () -> Bool, limit: Duration) async {
-        await withCheckedContinuation { continuation in
-            self.continuation = continuation
-            // task-owner: this wait (cancelled in finish); event-driven (Observation)
-            watch = Task { @MainActor [weak self] in
-                for await done in ObservationStream(condition) where done { break }
-                self?.finish()
-            }
-            timer.schedule(after: limit) { @MainActor [weak self] in self?.finish() }
-        }
-    }
-
-    private func finish() {
-        watch?.cancel()
-        timer.cancel()
-        continuation?.resume()
-        continuation = nil
     }
 }

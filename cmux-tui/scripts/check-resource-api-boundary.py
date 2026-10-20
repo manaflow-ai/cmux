@@ -233,6 +233,7 @@ EXTERNALLY_EFFECTFUL_MUTATIONS = frozenset(
         "workspace.close",
         "workspace.create",
         "workspace.layout.apply",
+        "workspace.open_url",
         "workspace.run",
     }
 )
@@ -1074,6 +1075,14 @@ def _validate_catalog_type(
                 "operations.settings.snapshot.result",
                 "errors.settings.invalid.details.fields.accepted",
                 "errors.settings.invalid.details.fields.value",
+                # Browser devices are Chrome DevTools' JSONV1 device objects,
+                # verbatim, so a Chrome custom-device export reads unchanged
+                # and Chrome's new keys survive (browser-devices-v1, cx-ocbf3).
+                "operations.browser.devices.add_custom.params.fields.device",
+                "operations.browser.tab.emulate.params.fields.custom",
+                "types.BrowserDeviceAddResult.fields.device",
+                "types.BrowserDeviceList.fields.chrome",
+                "types.BrowserDeviceList.fields.devices.items",
                 # A keybinding's args are the command's own object, passed
                 # through unchanged (keybindings.json, cx-9ce.17).
                 "types.KeybindingEntry.fields.args.value.values",
@@ -1085,6 +1094,26 @@ def _validate_catalog_type(
                 "types.SidebarLayoutSnapshot.fields.sections.items",
                 "types.SidebarLayoutOpSectionAdd.fields.section",
                 "types.SidebarLayoutOpItemAdd.fields.item",
+                # The sidebar document (sidebar-doc-v1): sections, items,
+                # targets, patches and ops are the reducer's own objects
+                # (cmux-layout-reducer sidebar_doc), validated there, and a
+                # newer app's keys must survive a round trip.
+                "types.SidebarSectionSnapshot.fields.kind",
+                "types.SidebarItemSnapshot.fields.body",
+                "types.SidebarDocMutation.fields.inverse.items",
+                "operations.sidebar.adopt.params.fields.refs.items",
+                "operations.sidebar.adopt.params.fields.to",
+                "operations.sidebar.apply.params.fields.ops.items",
+                "operations.sidebar.group.create.params.fields.to",
+                "operations.sidebar.group.update.params.fields.patch",
+                "operations.sidebar.item.add.params.fields.item",
+                "operations.sidebar.item.add.params.fields.to",
+                "operations.sidebar.item.update.params.fields.patch",
+                "operations.sidebar.move.params.fields.to",
+                "operations.sidebar.section.add.params.fields.place",
+                "operations.sidebar.section.add.params.fields.section",
+                "operations.sidebar.section.move.params.fields.place",
+                "operations.sidebar.section.update.params.fields.patch",
                 # Conversation message parts and reactions: the conversation
                 # reducer (cmux-conversation) validates them, and a newer
                 # app's part kinds (questions, attachments, work cards) must
@@ -2090,19 +2119,26 @@ def _operation_catalog(
     for operation in ("workspace.rename",):
         if operation not in operations:
             continue
-        name_field = (
-            operations.get(operation, {}).get("params", {}).get("fields", {}).get("name")
+        params = operations.get(operation, {}).get("params", {})
+        fields = params.get("fields", {})
+        name_field = fields.get("name")
+        # A release (hq#1957) keeps the current name, so only it may omit one.
+        release = fields.get("release")
+        name_optional_for_release = (
+            isinstance(release, dict)
+            and release.get("type") == {"kind": "primitive", "name": "boolean"}
+            and "name is required unless release is true." in params.get("constraints", [])
         )
         if (
             not isinstance(name_field, dict)
-            or name_field.get("required") is not True
+            or name_field.get("required") is not (not name_optional_for_release)
             or name_field.get("type") != {"kind": "primitive", "name": "string"}
         ):
             _catalog_diagnostic(
                 diagnostics,
                 path,
                 text,
-                f"{operation} name must be a required unrestricted string",
+                f"{operation} name must be an unrestricted string, required unless a release",
                 operation,
             )
     nullable_name = {
@@ -2472,12 +2508,20 @@ def _operation_catalog(
             "deleted",
             "recoverable",
             "extra",
+            "platform",
+            "capabilities",
         }
         if (
             set(machine_fields) != expected_machine_fields
             or machine_fields.get("name", {}).get("required") is not True
             or machine_fields.get("origin", {}).get("type", {}).get("values")
-            != ["local"]
+            != ["local", "cloud", "ssh", "server"]
+            or machine_fields.get("platform") != {"required": False, "type": {"kind": "nullable", "value": {"kind": "ref", "name": "MachinePlatform"}}}
+            or machine_fields.get("capabilities") != {"required": False, "type": {"kind": "array", "items": {"kind": "primitive", "name": "string"}}}
+            or types.get("MachinePlatform") != {
+                "kind": "object", "extra": False,
+                "fields": {key: {"required": False, "type": {"kind": "nullable", "value": {"kind": "primitive", "name": "string"}}} for key in ("os", "arch")},
+            }
             or machine_fields.get("status", {}).get("type", {}).get("values")
             != ["running", "connecting", "sleeping", "stopped", "unavailable"]
         ):
@@ -2485,7 +2529,7 @@ def _operation_catalog(
                 diagnostics,
                 path,
                 text,
-                "MachineSnapshot must describe only the endpoint's local machine",
+                "MachineSnapshot must keep the native owner and bounded remote catalog metadata contract",
                 "MachineSnapshot",
             )
 

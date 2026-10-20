@@ -26,13 +26,27 @@ impl Surface {
         self.as_pty()?.terminal_metadata.lock().unwrap().progress()
     }
 
-    /// When the terminal's running shell command started (`terminal-activity-v1`).
-    pub(crate) fn terminal_busy_since_ms(&self) -> Option<u64> {
+    /// The terminal's running shell command: how it uses the terminal and
+    /// when it started (`terminal-activity-v1`).
+    pub(crate) fn terminal_command_activity(
+        &self,
+    ) -> Option<(crate::terminal_activity::CommandActivity, u64)> {
         self.as_pty()?
             .terminal_metadata
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .busy_since_ms()
+            .command_activity()
+    }
+
+    /// When the terminal's shell drew the prompt it sits at (OSC 133 A, until
+    /// the next command starts): `extra.prompt` (`terminal-activity-v1`).
+    pub(crate) fn terminal_prompt_since(&self) -> Option<u64> {
+        self.as_pty()?
+            .terminal_metadata
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .activity
+            .prompt_since()
     }
 
     /// The terminal's OSC 7501 program status records as the public value

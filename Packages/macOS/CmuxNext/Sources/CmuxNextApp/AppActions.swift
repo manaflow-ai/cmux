@@ -16,6 +16,7 @@ enum AppActions {
         let registry = services.registry
         let context = AppActionContext(services: services)
         WindowHandlers.bind(into: registry, context: context)
+        FilesPaneHandlers.bind(into: registry, context: context)
         HistoryHandlers.bind(into: registry, context: context)
         TabSearchHandlers.bind(into: registry, context: context)
         PaletteScopeHandlers.bind(into: registry, context: context)
@@ -27,6 +28,7 @@ enum AppActions {
         PageCommandHandlers.bind(into: registry, context: context)
         ListHandlers.bind(into: registry, context: context)
         PasswordHandlers.bind(into: registry, context: context)
+        CloudPageHandlers.bind(into: registry, context: context)
         ServerHandlers.bind(into: registry, context: context)
         WorkspaceHandlers.bind(into: registry, context: context)
         WorkspaceVerbHandlers.bind(into: registry, context: context)
@@ -36,6 +38,7 @@ enum AppActions {
         RoomHandlers.bind(into: registry, context: context)
         RoomMenuHandlers.bind(into: registry, context: context)
         ThemeHandlers.bind(into: registry, context: context)
+        RemoteLocalhostHandlers.bind(into: registry, context: context)
         WindowMembershipHandlers.bind(into: registry, context: context)
         SidebarHandlers.bind(into: registry, context: context)
         SidebarSectionHandlers.bind(into: registry, context: context)
@@ -52,6 +55,7 @@ enum AppActions {
         TabIconHandlers.bind(into: registry, context: context)
         TabGroupHandlers.bind(into: registry, context: context)
         GroupIconHandlers.bind(into: registry, context: context)
+        MachineIconHandlers.bind(into: registry, context: context)
         PaneHandlers.bind(into: registry, context: context)
         ColumnHandlers.bind(into: registry, context: context)
         ColumnDocking.bind(into: registry, context: context)
@@ -62,6 +66,11 @@ enum AppActions {
         GlobalSearchHandlers.bind(into: registry, context: context)
         BrowserHandlers.bind(into: registry, context: context)
         HintHandlers.bind(into: registry, context: context)
+        MusicHandlers.bind(into: registry, context: context)
+        NowPlayingCardHandlers.bind(into: registry, context: context)
+        StatsPageTab.bind(into: registry, context: context)
+        PhoneHandlers.bind(into: registry, context: context)
+        MobilePairingPageService.bind(into: registry, context: context)
         BrowserHitHandlers.bind(into: registry, context: context)
         DiffHandlers.bind(into: registry, context: context)
         FilePageHandlers.bind(into: registry, context: context)
@@ -129,7 +138,7 @@ enum AppActions {
         registry.bind("quitKeepSessions") { services.quit.requestQuit(.explicit(.keep)) }
         registry.bind("quitEndSessions") { services.quit.requestQuit(.explicit(.endKeepLayout)) }
         registry.bind("quitEndEverything") { services.quit.requestQuit(.explicit(.endEverything)) }
-        registry.bind("newWindow") { services.windows.newWindow() }
+        registry.bind("newWindow") { services.windows.newWindow(holdingKeysFrom: services.windows.active?.window) }
         registry.bind("newIncognitoWindow") { services.windows.newIncognitoWindow() }
         registry.bind("closeWindow", isEnabled: { services.windows.active != nil }) {
             services.windows.active?.window?.performClose(nil)

@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextDesign
 
 /// Fonts and metrics of the question card at one text scale. Colors come
 /// from the theme at draw time (`AgentQuestionCardView.applyColors`); these
@@ -30,13 +31,13 @@ public struct AgentQuestionCardStyle: Equatable, Sendable {
     var previewMinHeight: CGFloat { size(96) }
     var previewInset: CGFloat { size(10) }
 
-    var chipFont: NSFont { .systemFont(ofSize: size(11), weight: .semibold) }
-    var metaFont: NSFont { .systemFont(ofSize: size(11), weight: .regular) }
-    var promptFont: NSFont { .systemFont(ofSize: size(14), weight: .semibold) }
-    var labelFont: NSFont { .systemFont(ofSize: size(13), weight: .medium) }
-    var detailFont: NSFont { .systemFont(ofSize: size(12), weight: .regular) }
-    var keycapFont: NSFont { .monospacedSystemFont(ofSize: size(11), weight: .medium) }
-    var previewFont: NSFont { .monospacedSystemFont(ofSize: size(11), weight: .regular) }
-    var buttonFont: NSFont { .systemFont(ofSize: size(12), weight: .semibold) }
-    var summaryFont: NSFont { .systemFont(ofSize: size(13), weight: .regular) }
+    var chipFont: NSFont { Typography.system(size: size(11), weight: .semibold) }
+    var metaFont: NSFont { Typography.system(size: size(11), weight: .regular) }
+    var promptFont: NSFont { Typography.system(size: size(14), weight: .semibold) }
+    var labelFont: NSFont { Typography.system(size: size(13), weight: .medium) }
+    var detailFont: NSFont { Typography.system(size: size(12), weight: .regular) }
+    var keycapFont: NSFont { Typography.system(.monospaced, size: size(11), weight: .medium) }
+    var previewFont: NSFont { Typography.system(.monospaced, size: size(11), weight: .regular) }
+    var buttonFont: NSFont { Typography.system(size: size(12), weight: .semibold) }
+    var summaryFont: NSFont { Typography.system(size: size(13), weight: .regular) }
 }

@@ -33,14 +33,17 @@ struct AgentPageHibernationTests {
         let start = ContinuousClock.now
 
         init() {
-            tabs = AgentTabStore(tag: nil, registry: ActionRegistry(),
+            tabs = AgentTabStore(build: nil, registry: ActionRegistry(),
                                  environment: [AgentPaneSource.devURLVariable: "http://127.0.0.1:9/"], showcase: true)
             tabs.localHost = AgentPageHibernationTests.thisMac
             turns.localHost = AgentPageHibernationTests.thisMac
+            turns.watching = true
             let tree = DaemonStore()
             hibernation = AgentPageHibernation(tabs: { [tabs] in tabs })
             tabs.lookup = { [unowned self] key in self.records[key].map { ($0, tree) } }
             hibernation.turnState = { [unowned self] key in self.records[key].flatMap(self.turns.state(for:)) }
+            hibernation.turnsWatched = { [unowned self] in self.turns.watching }
+            hibernation.followTurns(turns)
             hibernation.displace = { [unowned self] key in self.displaced.append(key) }
             hibernation.now = { [unowned self] in self.start + self.elapsed }
         }
@@ -72,12 +75,14 @@ struct AgentPageHibernationTests {
         }
     }
 
+    @MainActor final class Asked { var count = 0 }
+
     @Test func aChatHiddenPastTheThresholdLetsItsPageGoAndShowsTheSameChatAgain() async throws {
         let rig = Rig()
         rig.hibernation.update(setting: BrowserHibernationSetting(mode: .moderate), pressure: .normal)
         let page = try rig.hiddenChat("tab_quiet", session: "s-quiet")
         let busy = try rig.hiddenChat("tab_busy", session: "s-busy")
-        _ = rig.turns.states.set("s-busy", .working)
+        rig.turns.setState(.working, session: "s-busy")
 
         // Moderate: an hour hidden. At half an hour both pages stay.
         rig.advance(minutes: 30)
@@ -130,5 +135,62 @@ struct AgentPageHibernationTests {
             try await Task.sleep(for: .milliseconds(50))
         }
         #expect(rig.tabs.existingView("tab_alone") == nil, "a lone hidden chat kept its page")
+    }
+
+    /// A woken chat comes back as it was left: what its page held that acpmux does not (the
+    /// composer's attachments, shell mode's unrun command, where the transcript rested) reaches
+    /// the page built when it shows again, once.
+    @Test func aWokenChatComesBackAsItWasLeft() async throws {
+        let rig = Rig()
+        let left = AgentPaneWakeState(
+            attachments: [AgentPaneWakeState.Attachment(id: "a1", kind: "image", name: "shot.png", mimeType: "image/png", size: 4, data: "iVBO")],
+            shell: true, shellText: "git status", scrollAnchor: AgentPaneScrollAnchor(rowId: "row-12", offset: 40))
+        let asked = Asked()
+        rig.hibernation.wakeState = { _ in
+            asked.count += 1
+            return left
+        }
+        rig.hibernation.update(setting: BrowserHibernationSetting(mode: .moderate), pressure: .normal)
+        let page = try rig.hiddenChat("tab_left", session: "s-left")
+        rig.advance(minutes: 61)
+        await rig.settle { rig.tabs.existingView("tab_left") == nil }
+        #expect(rig.tabs.existingView("tab_left") == nil, "the hidden chat kept its page")
+        #expect(asked.count == 1, "the page was not asked what it held before it let go")
+
+        let rebuilt = try #require(rig.tabs.view(for: "tab_left"))
+        #expect(rebuilt !== page)
+        let reply = await rebuilt.model.respond(to: AgentPaneRequest(body: ["method": "ready"]))
+        let handshake = try #require(reply["value"] as? [String: Any], "\(reply)")
+        let wake = try #require(handshake["wake"] as? [String: Any], "the woken page's handshake lost what it held: \(handshake)")
+        let attachments = try #require(wake["attachments"] as? [[String: Any]])
+        #expect(attachments.map { $0["name"] as? String } == ["shot.png"])
+        #expect(attachments.first?["data"] as? String == "iVBO")
+        #expect(wake["shell"] as? Bool == true)
+        #expect(wake["shellText"] as? String == "git status")
+        let anchor = try #require(wake["scrollAnchor"] as? [String: Any])
+        #expect(anchor["rowId"] as? String == "row-12")
+        #expect(anchor["offset"] as? Double == 40)
+
+        // Handed out once: a reload of the woken page starts from acpmux alone.
+        let again = await rebuilt.model.respond(to: AgentPaneRequest(body: ["method": "ready"]))
+        #expect((again["value"] as? [String: Any])?["wake"] == nil)
+    }
+
+    /// With the acpmux turn watch down no chat's turn is known: every chat counts as busy and
+    /// keeps its page until the watch is back.
+    @Test func withTheTurnWatchDownEveryChatKeepsItsPage() async throws {
+        let rig = Rig()
+        rig.turns.watching = false
+        rig.hibernation.update(setting: BrowserHibernationSetting(mode: .moderate), pressure: .normal)
+        let page = try rig.hiddenChat("tab_unknown", session: "s-unknown")
+        rig.advance(minutes: 61)
+        await rig.settle { false }
+        #expect(rig.tabs.existingView("tab_unknown") === page, "a chat whose turn nobody knows let its page go")
+        #expect(rig.hibernation.keepsPage("tab_unknown") == .agentTurnsUnknown)
+
+        // The watch is back and the chat idle: its overdue page goes without another hide.
+        rig.turns.watching = true
+        await rig.settle { rig.tabs.existingView("tab_unknown") == nil }
+        #expect(rig.tabs.existingView("tab_unknown") == nil, "the watch came back and the idle chat kept its page")
     }
 }

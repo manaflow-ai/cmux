@@ -1,7 +1,6 @@
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { AcpmuxRow } from "../model";
-import { MoveRow } from "./MoveRow";
 import { ShellRow } from "./ShellRow";
 import type { ShellRun } from "./shellRuns";
 
@@ -56,11 +55,4 @@ test.each([
   const html = markup(shell);
   expect(html).toContain(status);
   expect(html).toContain("Open in terminal");
-});
-
-test("MoveRow keeps the quiet transcript line style and destination", () => {
-  const row: AcpmuxRow = { id: "move", kind: "move", at: 1, version: 1, text: "Build workspace" };
-  const html = renderToStaticMarkup(<MoveRow row={row} />);
-  expect(html).toContain('class="cv-date-line acpmux-move-line"');
-  expect(html).toContain("Moved to Build workspace");
 });

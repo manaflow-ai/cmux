@@ -4193,137 +4193,6 @@
         }
       }
     },
-    "whatsNew.page.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "What's New"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ما الجديد"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Šta je novo"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nyheder"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Neuigkeiten"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Novedades"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nouveautés"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Novità"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "新機能"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "អ្វីដែលថ្មី"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "새로운 기능"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nyheter"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Co nowego"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Novidades"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Что нового"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "มีอะไรใหม่"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Yenilikler"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Що нового"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Có gì mới"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "新功能"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "新功能"
-          }
-        }
-      }
-    },
     "workspaceGroup.ungroupedToast": {
       "extractionState": "manual",
       "localizations": {
@@ -7075,6 +6944,270 @@
         }
       }
     },
+    "homeChannels.daemon.restarting": {
+      "comment": "Channels page note while cmux hands an old daemon off to its bundled build.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "جارٍ إعادة تشغيل خادم cmux…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ponovno pokretanje cmux daemona…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Genstarter cmux-dæmonen…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der cmux-Daemon wird neu gestartet …"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restarting the cmux daemon…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Reiniciando el daemon de cmux…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Redémarrage du daemon cmux…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Riavvio del daemon di cmux…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux デーモンを再起動しています…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កំពុងចាប់ផ្ដើម daemon របស់ cmux ឡើងវិញ…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 데몬을 다시 시작하는 중…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Starter cmux-demonen på nytt …"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ponowne uruchamianie demona cmux…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Reiniciando o daemon do cmux…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Перезапуск демона cmux…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "กำลังเริ่ม daemon ของ cmux ใหม่…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux arka plan hizmeti yeniden başlatılıyor…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Перезапуск демона cmux…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đang khởi động lại daemon cmux…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在重新启动 cmux 守护进程…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在重新啟動 cmux 常駐程式…"
+          }
+        }
+      }
+    },
+    "homeChannels.daemon.tooOld": {
+      "comment": "Channels page error: an external cmux-tui daemon has no page listener and cmux cannot restart it.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "خادم cmux هذا قديم جدًا لعرض هذه الصفحة، ولا يستطيع cmux إعادة تشغيله. حدّث ملف cmux-tui الذي يستخدمه cmux، ثم افتح علامة التبويب هذه مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ovaj cmux daemon je prestar za ovu stranicu, a cmux ga ne može ponovo pokrenuti. Ažurirajte cmux-tui program koji cmux koristi, pa ponovo otvorite ovu karticu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne cmux-dæmon er for gammel til at vise denne side, og cmux kan ikke genstarte den. Opdater det cmux-tui-program, som cmux bruger, og åbn derefter fanen igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dieser cmux-Daemon ist zu alt für diese Seite, und cmux kann ihn nicht neu starten. Aktualisiere das cmux-tui-Programm, das cmux verwendet, und öffne diesen Tab dann erneut."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This cmux daemon is too old to serve this page, and cmux cannot restart it. Update the cmux-tui binary that cmux uses, then open this tab again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este daemon de cmux es demasiado antiguo para mostrar esta página y cmux no puede reiniciarlo. Actualiza el binario cmux-tui que usa cmux y vuelve a abrir esta pestaña."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ce daemon cmux est trop ancien pour afficher cette page, et cmux ne peut pas le redémarrer. Mettez à jour le binaire cmux-tui utilisé par cmux, puis rouvrez cet onglet."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questo daemon di cmux è troppo vecchio per mostrare questa pagina e cmux non può riavviarlo. Aggiorna il binario cmux-tui usato da cmux, poi riapri questa scheda."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "この cmux デーモンは古すぎるためこのページを表示できず、cmux は再起動できません。cmux が使う cmux-tui バイナリを更新してから、このタブを開き直してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "daemon របស់ cmux នេះចាស់ពេកសម្រាប់ទំព័រនេះ ហើយ cmux មិនអាចចាប់ផ្ដើមវាឡើងវិញបានទេ។ សូមធ្វើបច្ចុប្បន្នភាព cmux-tui ដែល cmux ប្រើ រួចបើកផ្ទាំងនេះម្ដងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 cmux 데몬은 너무 오래되어 이 페이지를 제공할 수 없고, cmux가 다시 시작할 수 없습니다. cmux가 사용하는 cmux-tui 바이너리를 업데이트한 다음 이 탭을 다시 여세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne cmux-demonen er for gammel til å vise denne siden, og cmux kan ikke starte den på nytt. Oppdater cmux-tui-programmet som cmux bruker, og åpne fanen på nytt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ten demon cmux jest zbyt stary, aby obsłużyć tę stronę, a cmux nie może go ponownie uruchomić. Zaktualizuj plik cmux-tui używany przez cmux, a potem otwórz tę kartę ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este daemon do cmux é antigo demais para esta página, e o cmux não consegue reiniciá-lo. Atualize o binário cmux-tui que o cmux usa e abra esta aba novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Этот демон cmux слишком старый для этой страницы, и cmux не может его перезапустить. Обновите программу cmux-tui, которую использует cmux, и снова откройте эту вкладку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "daemon ของ cmux นี้เก่าเกินไปสำหรับหน้านี้ และ cmux เริ่มใหม่ไม่ได้ อัปเดตไฟล์ cmux-tui ที่ cmux ใช้ แล้วเปิดแท็บนี้อีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu cmux arka plan hizmeti bu sayfa için çok eski ve cmux onu yeniden başlatamıyor. cmux'un kullandığı cmux-tui programını güncelleyin, sonra bu sekmeyi yeniden açın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Цей демон cmux занадто старий для цієї сторінки, і cmux не може його перезапустити. Оновіть програму cmux-tui, яку використовує cmux, і знову відкрийте цю вкладку."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Daemon cmux này quá cũ để phục vụ trang này và cmux không thể khởi động lại nó. Hãy cập nhật tệp cmux-tui mà cmux dùng, rồi mở lại thẻ này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此 cmux 守护进程版本过旧，无法提供此页面，且 cmux 无法重新启动它。请更新 cmux 使用的 cmux-tui 程序，然后重新打开此标签页。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此 cmux 常駐程式版本過舊，無法提供此頁面，且 cmux 無法重新啟動它。請更新 cmux 使用的 cmux-tui 程式，然後重新開啟此分頁。"
+          }
+        }
+      }
+    },
     "homeChannels.page.title": {
       "comment": "Tab title of the channels Home page.",
       "extractionState": "manual",
@@ -8382,6 +8515,1186 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Không thể thay đổi thông báo của cuộc trò chuyện."
+          }
+        }
+      }
+    },
+    "confirm.remoteLocalhost.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Change this workspace's localhost?"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "هل تريد تغيير localhost لمساحة العمل هذه؟"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Promijeniti localhost ovog radnog prostora?"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vil du ændre dette arbejdsområdes localhost?"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Localhost dieses Arbeitsbereichs ändern?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Cambiar el localhost de este espacio de trabajo?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modifier le localhost de cet espace de travail ?"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cambiare il localhost di quest’area di lavoro?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このワークスペースの localhost を変更しますか？"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ប្តូរ localhost របស់កន្លែងធ្វើការនេះ?"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 작업 공간의 localhost를 변경할까요?"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vil du endre localhost for dette arbeidsområdet?"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zmienić localhost tego obszaru roboczego?"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alterar o localhost deste espaço de trabalho?"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Изменить localhost этого рабочего пространства?"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เปลี่ยน localhost ของพื้นที่ทำงานนี้ใช่ไหม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu çalışma alanının localhost’u değiştirilsin mi?"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Змінити localhost цього робочого простору?"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thay đổi localhost của không gian làm việc này?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要更改此工作区的 localhost 吗？"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要變更此工作區的 localhost 嗎？"
+          }
+        }
+      }
+    },
+    "confirm.remoteLocalhost.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A command asks to set localhost for %1$@ to %2$@. Only you can change this, so cmux asks you first."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يطلب أمر تعيين localhost لـ %1$@ إلى %2$@. أنت وحدك من يمكنه تغيير ذلك، لذا يسألك cmux أولًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Naredba traži da se localhost za %1$@ postavi na %2$@. Samo vi ovo možete promijeniti, pa vas cmux prvo pita."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En kommando beder om at sætte localhost for %1$@ til %2$@. Kun du kan ændre dette, så cmux spørger dig først."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Befehl möchte Localhost für %1$@ auf %2$@ setzen. Nur du kannst das ändern, daher fragt cmux zuerst nach."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un comando pide definir el localhost de %1$@ como %2$@. Solo tú puedes cambiarlo, así que cmux te lo pregunta primero."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Une commande demande de définir le localhost de %1$@ sur %2$@. Vous seul pouvez le modifier, donc cmux vous le demande d’abord."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un comando chiede di impostare il localhost di %1$@ su %2$@. Solo tu puoi cambiarlo, quindi cmux te lo chiede prima."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コマンドが %1$@ の localhost を %2$@ に設定しようとしています。これを変更できるのはあなただけなので、cmux が先に確認します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពាក្យបញ្ជាមួយស្នើកំណត់ localhost សម្រាប់ %1$@ ទៅ %2$@។ មានតែអ្នកទេដែលអាចប្តូរវាបាន ដូច្នេះ cmux សួរអ្នកជាមុន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "명령이 %1$@의 localhost를 %2$@(으)로 설정하려고 합니다. 이 항목은 사용자만 변경할 수 있으므로 cmux가 먼저 확인합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En kommando ber om å sette localhost for %1$@ til %2$@. Bare du kan endre dette, så cmux spør deg først."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Polecenie chce ustawić localhost dla %1$@ na %2$@. Tylko Ty możesz to zmienić, więc cmux najpierw pyta."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um comando pede para definir o localhost de %1$@ como %2$@. Só você pode alterar isso, então o cmux pergunta primeiro."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Команда хочет задать localhost для %1$@: %2$@. Изменить это можете только вы, поэтому cmux сначала спрашивает."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คำสั่งหนึ่งขอตั้งค่า localhost ของ %1$@ เป็น %2$@ มีเพียงคุณที่เปลี่ยนค่านี้ได้ cmux จึงถามคุณก่อน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir komut %1$@ için localhost’u %2$@ olarak ayarlamak istiyor. Bunu yalnızca siz değiştirebilirsiniz, bu yüzden cmux önce size soruyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Команда хоче задати localhost для %1$@: %2$@. Змінити це можете лише ви, тому cmux спершу питає."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Một lệnh yêu cầu đặt localhost cho %1$@ thành %2$@. Chỉ bạn mới có thể thay đổi điều này nên cmux hỏi bạn trước."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有命令请求将 %1$@ 的 localhost 设为 %2$@。只有你可以更改此项，因此 cmux 会先询问你。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有指令要求將 %1$@ 的 localhost 設為 %2$@。只有你可以變更此項，因此 cmux 會先詢問你。"
+          }
+        }
+      }
+    },
+    "workspaces.closedToast": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Closed %lld workspaces"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 個のワークスペースを閉じました"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تم إغلاق %lld من مساحات العمل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zatvoreno radnih prostora: %lld"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%lld arbejdsområder er lukket"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%lld Arbeitsbereiche geschlossen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%lld espacios de trabajo cerrados"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%lld espaces de travail fermés"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%lld aree di lavoro chiuse"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បានបិទកន្លែងធ្វើការ %lld"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "작업 공간 %lld개를 닫음"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%lld arbeidsområder er lukket"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zamknięto przestrzenie robocze: %lld"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%lld áreas de trabalho fechadas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Закрыто рабочих пространств: %lld"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ปิดเวิร์กสเปซ %lld รายการแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%lld çalışma alanı kapatıldı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Закрито робочих областей: %lld"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đã đóng %lld không gian làm việc"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已关闭 %lld 个工作区"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已關閉 %lld 個工作區"
+          }
+        }
+      }
+    },
+    "confirm.closeWorkspaces.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close %lld workspaces?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 個のワークスペースを閉じますか？"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "هل تريد إغلاق %lld من مساحات العمل؟"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zatvoriti radne prostore (%lld)?"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Luk %lld arbejdsområder?"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%lld Arbeitsbereiche schließen?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "¿Cerrar %lld espacios de trabajo?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fermer %lld espaces de travail ?"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chiudere %lld aree di lavoro?"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បិទកន្លែងធ្វើការ %lld?"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "작업 공간 %lld개를 닫으시겠습니까?"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lukke %lld arbeidsområder?"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zamknąć przestrzenie robocze (%lld)?"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fechar %lld áreas de trabalho?"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Закрыть рабочие пространства (%lld)?"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ปิดเวิร์กสเปซ %lld รายการไหม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%lld çalışma alanı kapatılsın mı?"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Закрити робочі області (%lld)?"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đóng %lld không gian làm việc?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "要关闭 %lld 个工作区吗？"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "要關閉 %lld 個工作區嗎？"
+          }
+        }
+      }
+    },
+    "confirm.closeWorkspaces.noUndo": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No window stays open to undo this. Reopen Closed Workspace and History bring them back."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "元に戻すためのウィンドウは残りません。「閉じたワークスペースを再度開く」と履歴から戻せます。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لن تبقى أي نافذة مفتوحة للتراجع عن ذلك. يمكنك استعادتها من «إعادة فتح مساحة العمل المغلقة» ومن السجل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nijedan prozor neće ostati otvoren za poništavanje. Vratite ih pomoću Ponovo otvori zatvoreni radni prostor i Historije."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Intet vindue forbliver åbent til at fortryde dette. Genåbn lukket arbejdsområde og Historik bringer dem tilbage."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kein Fenster bleibt offen, um dies rückgängig zu machen. „Geschlossenen Arbeitsbereich wieder öffnen“ und der Verlauf holen sie zurück."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No queda ninguna ventana abierta para deshacerlo. Reabrir espacio de trabajo cerrado y el Historial los recuperan."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aucune fenêtre ne reste ouverte pour annuler. Rouvrir l’espace de travail fermé et l’historique les restaurent."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nessuna finestra resta aperta per annullare. Riapri area di lavoro chiusa e la Cronologia le riportano indietro."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "គ្មានបង្អួចណានៅបើកដើម្បីមិនធ្វើវិញទេ។ បើកកន្លែងធ្វើការដែលបានបិទឡើងវិញ និងប្រវត្តិ នាំវាត្រឡប់មកវិញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 작업을 실행 취소할 윈도우가 남지 않습니다. 닫은 작업 공간 다시 열기와 기록에서 되돌릴 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingen vinduer forblir åpne for å angre dette. Åpne lukket arbeidsområde på nytt og Historikk henter dem tilbake."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Żadne okno nie zostanie otwarte, aby to cofnąć. Przywrócisz je przez Otwórz ponownie zamkniętą przestrzeń roboczą i Historię."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nenhuma janela fica aberta para desfazer isso. Reabrir Área de Trabalho Fechada e o Histórico as trazem de volta."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не останется окна, чтобы отменить это. Их вернут «Открыть закрытое рабочее пространство» и История."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "จะไม่มีหน้าต่างเปิดค้างไว้ให้เลิกทำ เปิดเวิร์กสเปซที่ปิดอีกครั้งและประวัติจะนำกลับมาได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bunu geri almak için açık pencere kalmaz. Kapatılan Çalışma Alanını Yeniden Aç ve Geçmiş onları geri getirir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не залишиться вікна, щоб скасувати це. Їх повернуть «Знову відкрити закриту робочу область» та Історія."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không còn cửa sổ nào mở để hoàn tác. Mở lại không gian làm việc đã đóng và Lịch sử sẽ đưa chúng trở lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "不会留下可撤销此操作的窗口。“重新打开已关闭的工作区”和历史记录可以恢复它们。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "不會留下可復原此操作的視窗。「重新開啟已關閉的工作區」和歷史記錄可以恢復它們。"
+          }
+        }
+      }
+    },
+    "agentChat.copyIdentifier.notAChat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Only a started agent chat has an identifier to copy."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nur ein gestarteter Agent-Chat hat eine Kennung zum Kopieren."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seule une discussion d’agent démarrée a un identifiant à copier."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يوجد معرّف للنسخ إلا لدردشة وكيل بدأت بالفعل."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solo un chat de agente iniciado tiene un identificador para copiar."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "只有已開始的代理聊天才有可拷貝的識別碼。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "只有已开始的智能体聊天才有可复制的标识符。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시작된 에이전트 채팅에만 복사할 식별자가 있습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コピーできる識別子があるのは開始済みのエージェントチャットだけです。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Samo započeti chat s agentom ima identifikator za kopiranje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kun en startet agentchat har et id, der kan kopieres."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solo una chat con un agente già avviata ha un identificatore da copiare."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មានតែការជជែកភ្នាក់ងារដែលបានចាប់ផ្ដើមប៉ុណ្ណោះ ដែលមានលេខសម្គាល់សម្រាប់ចម្លង។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bare en startet agentchat har en ID som kan kopieres."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tylko rozpoczęty czat z agentem ma identyfikator do skopiowania."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Só um chat de agente iniciado tem um identificador para copiar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Идентификатор для копирования есть только у начатого чата с агентом."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "มีเพียงแชทเอเจนต์ที่เริ่มแล้วเท่านั้นที่มีตัวระบุให้คัดลอก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yalnızca başlatılmış bir ajan sohbetinin kopyalanacak tanımlayıcısı vardır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ідентифікатор для копіювання є лише в розпочатого чату з агентом."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chỉ cuộc trò chuyện với tác tử đã bắt đầu mới có mã định danh để sao chép."
+          }
+        }
+      }
+    },
+    "confirm.closeWorkspaces.noUndoIncognito": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No window stays open to undo this. Incognito workspaces cannot be reopened."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "元に戻すためのウィンドウは残りません。シークレットのワークスペースは再度開けません。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لن تبقى أي نافذة مفتوحة للتراجع عن ذلك. لا يمكن إعادة فتح مساحات العمل المتخفية."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nijedan prozor neće ostati otvoren za poništavanje. Anonimni radni prostori ne mogu se ponovo otvoriti."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Intet vindue forbliver åbent til at fortryde dette. Inkognito-arbejdsområder kan ikke genåbnes."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kein Fenster bleibt offen, um dies rückgängig zu machen. Inkognito-Arbeitsbereiche lassen sich nicht wieder öffnen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No queda ninguna ventana abierta para deshacerlo. Los espacios de trabajo de incógnito no se pueden reabrir."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aucune fenêtre ne reste ouverte pour annuler. Les espaces de travail de navigation privée ne peuvent pas être rouverts."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nessuna finestra resta aperta per annullare. Le aree di lavoro in incognito non si possono riaprire."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "គ្មានបង្អួចណានៅបើកដើម្បីមិនធ្វើវិញទេ។ កន្លែងធ្វើការអនាមិកមិនអាចបើកឡើងវិញបានទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 작업을 실행 취소할 윈도우가 남지 않습니다. 시크릿 작업 공간은 다시 열 수 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingen vinduer forblir åpne for å angre dette. Inkognito-arbeidsområder kan ikke åpnes på nytt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Żadne okno nie zostanie otwarte, aby to cofnąć. Przestrzeni roboczych incognito nie można ponownie otworzyć."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nenhuma janela fica aberta para desfazer isso. Áreas de trabalho anônimas não podem ser reabertas."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не останется окна, чтобы отменить это. Рабочие пространства в режиме инкогнито нельзя открыть снова."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "จะไม่มีหน้าต่างเปิดค้างไว้ให้เลิกทำ เวิร์กสเปซแบบไม่ระบุตัวตนเปิดใหม่ไม่ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bunu geri almak için açık pencere kalmaz. Gizli çalışma alanları yeniden açılamaz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не залишиться вікна, щоб скасувати це. Робочі області інкогніто не можна відкрити знову."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không còn cửa sổ nào mở để hoàn tác. Không thể mở lại không gian làm việc ẩn danh."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "不会留下可撤销此操作的窗口。无痕工作区无法重新打开。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "不會留下可復原此操作的視窗。無痕工作區無法重新開啟。"
+          }
+        }
+      }
+    },
+    "homeChannels.chief.starting": {
+      "comment": "Channels page note while this build's Chief conversation owner is starting or reconnecting.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "جارٍ تشغيل Chief لهذا الإصدار…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokretanje Chiefa ovog builda…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Starter denne builds Chief…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der Chief dieses Builds wird gestartet …"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Starting this build's Chief…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Iniciando el Chief de esta compilación…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Démarrage du Chief de ce build…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Avvio del Chief di questa build…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "このビルドの Chief を起動しています…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កំពុងចាប់ផ្ដើម Chief របស់ build នេះ…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 빌드의 Chief를 시작하는 중…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Starter Chief for denne builden …"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uruchamianie Chiefa tej kompilacji…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Iniciando o Chief desta build…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Запуск Chief этой сборки…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "กำลังเริ่ม Chief ของบิลด์นี้…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu derlemenin Chief'i başlatılıyor…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Запуск Chief цієї збірки…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đang khởi động Chief của bản dựng này…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在启动此版本的 Chief…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在啟動此版本的 Chief…"
+          }
+        }
+      }
+    },
+    "paneTabBar.hide": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide Tab Bar"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブバーを非表示"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إخفاء شريط علامات التبويب"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sakrij traku kartica"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skjul fanelinje"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tableiste ausblenden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ocultar barra de pestañas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Masquer la barre d’onglets"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nascondi barra delle schede"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "លាក់របារផ្ទាំង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "탭 막대 숨기기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skjul fanelinje"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ukryj pasek kart"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ocultar barra de abas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скрыть панель вкладок"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ซ่อนแถบแท็บ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sekme çubuğunu gizle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сховати панель вкладок"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ẩn thanh tab"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隐藏标签栏"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隱藏分頁列"
           }
         }
       }

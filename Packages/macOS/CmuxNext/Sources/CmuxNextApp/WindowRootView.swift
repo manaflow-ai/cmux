@@ -129,7 +129,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         sidebar.side = sidebarSide
         sidebar.sidebarView.spacesPosition = DesignSettings.shared.spacesPosition
         sidebar.sidebarView.spacesVisibility = DesignSettings.shared.spacesVisibility
-        sidePins = Self.sidePins(sidebar: sidebar, content: contentHost, title: titlebar, in: self)
+        sidePins = SidebarSide.pins(sidebar: sidebar, content: contentHost, title: titlebar, in: self)
         NSLayoutConstraint.activate(sidePins[sidebarSide] ?? [])
         self.titleHeight = titleHeight
         applyTokens()
@@ -226,6 +226,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         // windows (overlay panel, pages) or this view's subviews.
         if (window as? ShellWindow)?.isInLayoutPass != true { windowDidLayout() }
         TitlebarDragPolicy.layoutBandBlocker(titlebarBandBlocker, in: self)
+        updateMainPaneTopInset()
         // Every frame is final here: the shade follows the card even when the
         // shade's own autoresizing landed after the card's frame change.
         updateMainPaneShade()
@@ -269,9 +270,11 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     /// Keeps the outgoing content until an unpainted top page paints.
     let paintHold = PanePaintHold(owner: "window.paint-hold")
 
-    /// Replaces the workspace layout view. A top page that has not painted
-    /// (a transparent web view) shows once it paints; the outgoing content
-    /// stays until then, as in a pane (no-flicker audit).
+    /// Replaces the shown content. A workspace's view stays in the window, hidden (its controller
+    /// keeps it mounted and removes it at teardown), so a switch moves no view out of the window or
+    /// back: no window re-entry, no observer churn (I6). Other content leaves. A top page that has not
+    /// painted (a transparent web view) shows once it paints; the outgoing content stays until
+    /// then, as in a pane (no-flicker audit).
     func show(_ view: NSView) {
         guard content !== view else { return }
         let previous = content
@@ -281,29 +284,48 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         content = view
         if holds, paintHold.kept != nil {
             // The page that never showed leaves; the kept view stays for this hold.
-            paintHold.handOff { $0.removeFromSuperview() }
+            paintHold.handOff(remove: withdraw)
         } else {
             // The earlier swap ends now; a view it kept that is shown again
             // stays (no detach of its panes).
             paintHold.end()
             if !holds {
-                for old in [previous, outgoing] where old !== view { old?.removeFromSuperview() }
+                for case let old? in [previous, outgoing] where old !== view { withdraw(old) }
             }
         }
-        if view.superview !== contentHost || view.frame != contentHost.bounds {
+        if view.superview !== contentHost {
             view.frame = contentHost.bounds
-            view.autoresizingMask = [.width, .height]
             contentHost.addSubview(view)
+        } else if view.frame != contentHost.bounds {
+            view.frame = contentHost.bounds
         }
+        view.autoresizingMask = [.width, .height]
+        view.isHidden = false
         if holds, let outgoing {
             paintHold.begin(outgoing: outgoing, incoming: view, in: contentHost) { [weak self] outgoing in
                 guard let self, outgoing.superview === contentHost, outgoing !== content else { return }
-                outgoing.removeFromSuperview()
+                withdraw(outgoing)
             }
         }
         // A workspace's theme scope inherits this window's room theme.
         view.reparentRootedThemeScope()
+        mainPaneShade.paneCards = (view as? WorkspaceContentView)?.layoutView as? any PaneCardSource
         onContentChange?()
+    }
+
+    /// Takes `view` off screen: a workspace hides in place, sized only when shown again (no layout
+    /// while hidden); the keyboard leaves it (the focus model re-applies its target, as when a view
+    /// leaves the window). Other content leaves the window.
+    private func withdraw(_ view: NSView) {
+        guard view is WorkspaceContentView, view.superview === contentHost else { return view.removeFromSuperview() }
+        if let window, let responder = window.firstResponder as? NSView, responder.isDescendant(of: view),
+           !window.makeFirstResponder(nil) {
+            // A field editor that refuses to resign while it validates: end the edit, then resign.
+            window.endEditing(for: nil)
+            window.makeFirstResponder(nil)
+        }
+        view.isHidden = true
+        view.autoresizingMask = []
     }
 
     /// Paints only this view. The window's opacity and background are set by

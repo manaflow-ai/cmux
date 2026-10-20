@@ -30,7 +30,16 @@ public final class StatusIndicatorView: NSView, StatusIndicatorConfigClient {
         didSet { if ignoresScaleSetting != oldValue { refresh() } }
     }
 
-    private var occlusionObserver: (any NSObjectProtocol)?
+    /// Where it hears of its window's occlusion (tests post to their own).
+    public var notificationCenter: NotificationCenter = .default {
+        didSet {
+            guard notificationCenter !== oldValue else { return }
+            stopObservingOcclusion()
+            observeOcclusion()
+        }
+    }
+
+    private var occlusionObserver: (token: any NSObjectProtocol, center: NotificationCenter)?
     private weak var observedWindow: NSWindow?
 
     public override init(frame: NSRect) {
@@ -51,11 +60,11 @@ public final class StatusIndicatorView: NSView, StatusIndicatorConfigClient {
     nonisolated deinit {
         guard Thread.isMainThread else { return } // main-proof: returns off the main thread
         MainActor.assumeIsolated { // main-proof: the guard above returns off the main thread
-            if let occlusionObserver { NotificationCenter.default.removeObserver(occlusionObserver) }
+            if let occlusionObserver { occlusionObserver.center.removeObserver(occlusionObserver.token) }
         }
     }
 
-    public override var wantsUpdateLayer: Bool { true }
+    nonisolated public override var wantsUpdateLayer: Bool { true }
 
     /// Show `state`, drawn in `style` (nil: the configured style).
     public func configure(_ state: StatusIndicatorState, style: StatusIndicatorStyle? = nil) {
@@ -72,14 +81,18 @@ public final class StatusIndicatorView: NSView, StatusIndicatorConfigClient {
     public func statusIndicatorConfigDidChange(_ config: StatusIndicatorConfig) {
         refresh()
         needsDisplay = true
+        // The static look can show or hide the mark; the host lays out again.
+        superview?.needsLayout = true
     }
 
     private func refresh() {
         var config = StatusIndicatorAppearance.shared.config
         if ignoresScaleSetting { config.settings.scale = 1 }
         let animates = window != nil && isWindowVisible && config.animatesLoops
-        let plan = StatusIndicatorPlan.make(state, style: config.style(hint: styleHint), animates: animates, set: config.iconSet)
+        let plan = StatusIndicatorPlan.make(state, style: config.style(hint: styleHint), animates: animates, set: config.iconSet,
+                                            isStatic: config.isStatic, staticShapes: config.staticShapes)
         let showed = showsGlyph
+        nameState()
         indicator.apply(plan, config: config)
         isHidden = plan.glyph == .none
         // The host reserves trailing space only for a visible glyph.
@@ -117,11 +130,10 @@ public final class StatusIndicatorView: NSView, StatusIndicatorConfigClient {
     private func observeOcclusion() {
         let target = tracksWindowOcclusion ? window : nil
         guard observedWindow !== target || (target != nil) != (occlusionObserver != nil) else { return }
-        if let occlusionObserver { NotificationCenter.default.removeObserver(occlusionObserver) }
-        occlusionObserver = nil
+        stopObservingOcclusion()
         observedWindow = target
         guard let target else { return }
-        occlusionObserver = NotificationCenter.default.addObserver(
+        let token = notificationCenter.addObserver(
             forName: NSWindow.didChangeOcclusionStateNotification, object: target, queue: .main
         ) { [weak self] _ in
             // main-proof: the observer runs on the main queue (queue: .main)
@@ -130,5 +142,11 @@ public final class StatusIndicatorView: NSView, StatusIndicatorConfigClient {
                 self.isWindowVisible = window.occlusionState.contains(.visible)
             }
         }
+        occlusionObserver = (token, notificationCenter)
+    }
+
+    private func stopObservingOcclusion() {
+        if let occlusionObserver { occlusionObserver.center.removeObserver(occlusionObserver.token) }
+        occlusionObserver = nil
     }
 }

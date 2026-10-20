@@ -1,0 +1,191 @@
+public import CmuxNextAgentActivity
+public import CmuxNextBridge
+import CmuxNextWakeups
+import Foundation
+import os
+
+/// Every local acpmux session's turn state for the working and needs-input
+/// indicators (`AgentTurnStateStore`): one long-lived `_acpmux/watch`
+/// connection whose `_acpmux/session_changed` pushes keep it current, so
+/// nothing polls. It starts with the app's Chats feed (`ChatsFeed.started`).
+/// When the socket is absent it waits for a directory change on the socket's
+/// path; a lost connection clears the states and reconnects with `Backoff`.
+@MainActor
+public final class AgentTurnStateFeed {
+    /// The app's one feed (nil until `ChatsFeed.started` makes it).
+    public static var shared: AgentTurnStateFeed?
+    /// Each drain's line count and main-actor time (the App's `debug.timings`, cx-9c8m.6).
+    public static var drained: ((Int, Duration) -> Void)?
+
+    private let socket: String
+    private let turns: AgentTurnStateStore
+    private let lanes: AgentLaneStore
+    private var subscription: AgentActivityLineConnection?
+    private var directoryWatch: (any DispatchSourceFileSystemObject)?
+    private var watchedDirectory: String?
+    private var reconnect: Task<Void, Never>?
+    private var backoff = Backoff(initial: .milliseconds(250), maximum: .seconds(30))
+    private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-turn-states")
+
+    public init(socketPath: String, turns: AgentTurnStateStore = .shared, lanes: AgentLaneStore = .shared) {
+        socket = socketPath
+        self.turns = turns
+        self.lanes = lanes
+    }
+
+    /// Starts the watch (idempotent). `localHost` is this Mac's
+    /// `install:<id>`: only its chat tabs read these states.
+    public func start(localHost: @autoclosure () -> String?) {
+        if turns.localHost == nil { turns.localHost = localHost() }
+        if subscription == nil, directoryWatch == nil, reconnect == nil { connect() }
+    }
+
+    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    nonisolated deinit {
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated {
+            reconnect?.cancel()
+            subscription?.cancel()
+            directoryWatch?.cancel()
+        }
+    }
+
+    // MARK: Watch
+
+    private func connect() {
+        reconnect = nil
+        guard FileManager.default.fileExists(atPath: socket) else { return watchForSocket() }
+        directoryWatch?.cancel()
+        directoryWatch = nil
+        watchedDirectory = nil
+        logger.info("agent turn states: watching \(self.socket, privacy: .public)")
+        let connection = AgentActivityLineConnection(path: socket)
+        subscription = connection
+        // Lines decode on the socket queue; one main-actor batch at a time, never a Task per
+        // line (MainActorLineBatch). The main actor only sets the states that changed.
+        connection.start(send: Self.watchRequest, decode: Message.init(line:)) { [weak self, weak connection] drain in
+            guard let self, let connection, subscription === connection else { return }
+            let started = ContinuousClock.now
+            defer { Self.drained?(drain.values.count, ContinuousClock.now - started) }
+            for message in drain.values { handle(message) }
+            // Dropped lines leave the states incomplete: reconnect for a fresh page.
+            if drain.overflowed, !drain.closed { connection.cancel() }
+            if drain.overflowed || drain.closed { lost(connection) }
+        }
+    }
+
+    /// `initialize`, then `_acpmux/watch` (id 2), one JSON object per line.
+    static let watchRequest: Data = {
+        let initialize: [String: Any] = [
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": ["protocolVersion": 1, "clientInfo": ["name": "cmux-next-turn-states", "version": "1"], "clientCapabilities": [:]],
+        ]
+        let watch: [String: Any] = ["jsonrpc": "2.0", "id": 2, "method": "_acpmux/watch", "params": ["enabled": true]]
+        var payload = Data()
+        for request in [initialize, watch] {
+            payload += (try? JSONSerialization.data(withJSONObject: request)) ?? Data()
+            payload.append(0x0A)
+        }
+        return payload
+    }()
+
+    /// One decoded line of the watch (decoded off the main actor).
+    nonisolated enum Message: Sendable {
+        /// The watch result: every session's state, last message and the muted sessions.
+        case page(AgentTurnStates, lastMessages: [String: String], muted: Set<String>, titles: [String: String],
+                  generatedTitles: [String: String], details: [String: AgentChatDetail], lanes: [String: AgentActivityLane])
+        /// One `_acpmux/session_changed`: the session's new state (nil: none, or purged), last
+        /// message and mute.
+        case change(session: String, state: AgentTurnState?, lastMessage: String?, muted: Bool, title: String?,
+                    generatedTitle: String?, detail: AgentChatDetail?, lane: AgentActivityLane?)
+
+        init?(line: Data) {
+            guard let message = try? JSONSerialization.jsonObject(with: line) as? [String: Any] else { return nil }
+            if (message["id"] as? NSNumber)?.intValue == 2, let result = message["result"] as? [String: Any] {
+                var states = AgentTurnStates()
+                states.reset(result)
+                self = .page(states, lastMessages: AgentTurnStates.lastMessages(result), muted: AgentTurnStates.muted(result: result),
+                             titles: AgentTurnStates.titles(result), generatedTitles: AgentTurnStates.titles(result, includingPrompt: false),
+                             details: AgentChatDetail.details(result), lanes: Self.lanes(result))
+            } else if message["method"] as? String == "_acpmux/session_changed", let params = message["params"] as? [String: Any],
+                      let change = AgentTurnStates.change(params) {
+                let summary = params["kind"] as? String == "purged" ? nil : params["session"] as? [String: Any]
+                self = .change(session: change.session, state: change.state, lastMessage: change.lastMessage, muted: change.muted,
+                               title: change.title, generatedTitle: change.generatedTitle,
+                               detail: (params["session"] as? [String: Any]).flatMap(AgentChatDetail.of(summary:)),
+                               lane: summary.flatMap { AgentActivityLane.of(summary: $0, id: change.session) })
+            } else {
+                return nil
+            }
+        }
+
+        /// The lane of every session of a watch result (this Mac's and its acpmux peers').
+        static func lanes(_ result: [String: Any]) -> [String: AgentActivityLane] {
+            var lanes: [String: AgentActivityLane] = [:]
+            for summary in (result["sessions"] as? [Any] ?? []).compactMap({ $0 as? [String: Any] }) {
+                if let lane = AgentActivityLane.of(summary: summary) { lanes[lane.id] = lane }
+            }
+            return lanes
+        }
+    }
+
+    private func handle(_ message: Message) {
+        switch message {
+        case .page(let states, let lastMessages, let muted, let titles, let generatedTitles, let details, let lanes):
+            backoff.reset()
+            if !turns.watching { turns.watching = true }
+            turns.replace(states: states, lastMessages: lastMessages, muted: muted, titles: titles,
+                          generatedTitles: generatedTitles, details: details)
+            if self.lanes.lanes != lanes { self.lanes.lanes = lanes }
+        case .change(let session, let state, let lastMessage, let muted, let title, let generatedTitle, let detail, let lane):
+            // Most session records leave the indicator as it was: the store writes (and so
+            // redraws the tabs and rows that read this session) only what differs.
+            turns.apply(session: session, state: state, lastMessage: lastMessage, muted: muted, title: title,
+                        generatedTitle: generatedTitle, detail: detail)
+            if lanes.lanes[session] != lane { lanes.lanes[session] = lane }
+        }
+    }
+
+    private func lost(_ connection: AgentActivityLineConnection) {
+        guard subscription === connection else { return }
+        subscription = nil
+        // A closed watch knows nothing: no stale working dots until it reconnects.
+        turns.watching = false
+        // Titles stay: a tab keeps reading as its chat while the watch reconnects.
+        turns.clearLive()
+        lanes.lanes = [:]
+        logger.info("agent turn states: watch closed")
+        reconnect?.cancel()
+        reconnect = Task { [weak self] in
+            guard var backoff = self?.backoff else { return }
+            // concurrency-allow: Backoff.wait is an async sleep after a failure, not a blocking wait.
+            do { try await backoff.wait(owner: "agent-turn-states.reconnect") } catch { return }
+            self?.backoff = backoff
+            self?.connect()
+        }
+    }
+
+    /// Waits for the socket to appear: watches the nearest directory on its
+    /// path that exists (the daemon's home, else the folder it will be made
+    /// in) and connects on each change there. An event, not a poll.
+    private func watchForSocket() {
+        var directory = (socket as NSString).deletingLastPathComponent
+        while !FileManager.default.fileExists(atPath: directory), directory != "/" {
+            directory = (directory as NSString).deletingLastPathComponent
+        }
+        guard directory != watchedDirectory else { return }
+        logger.info("agent turn states: waiting for the socket in \(directory, privacy: .public)")
+        directoryWatch?.cancel()
+        directoryWatch = nil
+        let fd = open(directory, O_EVTONLY)
+        guard fd >= 0 else { return }
+        let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fd, eventMask: [.write, .rename, .delete], queue: .main)
+        source.setEventHandler { [weak self] in
+            Task { @MainActor in self?.connect() }
+        }
+        source.setCancelHandler { close(fd) }
+        directoryWatch = source
+        watchedDirectory = directory
+        source.resume()
+    }
+}

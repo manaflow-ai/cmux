@@ -1,14 +1,41 @@
-//! Entries the history module reads from other owners: closed items from
-//! the session's closed-history store and locations from the app's
-//! `history.trail` projection (the app owns the trail; this only reads it).
-//! Both are pure mappings from the owners' JSON, ported from the Swift
-//! `HistoryService.daemonClosedEntries` and `locationEntries`.
+//! Entry mappings: closed items from the session's closed-history store and
+//! the location trail's entries (trail.rs). Pure mappings, ported from the
+//! Swift `HistoryService.daemonClosedEntries` and `locationEntries`.
 
 use cmux_history::{ClosedKind, HistoryEntry, HistoryKind};
 use serde_json::Value;
 
-/// Seconds between the Unix epoch and the Swift reference date 2001-01-01.
-const SWIFT_REFERENCE_UNIX_S: f64 = 978_307_200.0;
+use super::trail::TrailEntry;
+use crate::state::closed_history_query::{closed_page, closed_tabs};
+
+/// The closed items worth reopening as entries, newest first, a page closed again once, at
+/// its newest close (Leo 2026-10-14: Recently Closed is high signal; `closed_page`).
+pub(super) fn closed_entries(items: &[Value]) -> Vec<HistoryEntry> {
+    let mut entries = items
+        .iter()
+        .filter_map(|item| Some((closed_entry(item)?, closed_page(item))))
+        .collect::<Vec<_>>();
+    entries.sort_by_key(|(entry, _)| std::cmp::Reverse(entry.at_ms));
+    let mut seen = std::collections::HashSet::new();
+    entries.retain(|(_, page)| page.is_none_or(|page| seen.insert(page)));
+    entries.into_iter().map(|(entry, _)| entry).collect()
+}
+
+/// The closed groups the row `id` (`closed:daemon:<closed id>`) stands for: its own, and for a
+/// page every other close of it, so removing the row leaves no older close to take its place.
+pub(super) fn closed_ids_of(items: &[Value], id: &str) -> Vec<String> {
+    let row = |item: &Value| {
+        let closed = item.get("id").and_then(Value::as_str)?;
+        Some(format!("{}{closed}", super::closed::PREFIX))
+    };
+    let page = items.iter().find(|item| row(item).as_deref() == Some(id)).and_then(closed_page);
+    match page {
+        Some(page) => {
+            items.iter().filter(|item| closed_page(item) == Some(page)).filter_map(row).collect()
+        }
+        None => vec![id.to_owned()],
+    }
+}
 
 /// One closed-history item (`closed.list` shape) as an entry
 /// `closed:daemon:<closed id>`. An item that reopens as nothing (only tabs
@@ -16,7 +43,7 @@ const SWIFT_REFERENCE_UNIX_S: f64 = 978_307_200.0;
 /// left out, and a row is named by its first other tab, never by the
 /// `about:blank` placeholder a chat or New Tab page is kept on (Leo
 /// 2026-10-11).
-pub(super) fn closed_entry(item: &Value) -> Option<HistoryEntry> {
+fn closed_entry(item: &Value) -> Option<HistoryEntry> {
     let id = item.get("id")?.as_str()?;
     let at_ms = decimal(item.get("closed_at_ms")?)?;
     let tabs = closed_tabs(item);
@@ -61,65 +88,26 @@ pub(super) fn closed_entry(item: &Value) -> Option<HistoryEntry> {
     Some(entry)
 }
 
-/// Every tab the item would recreate: every member's, else the top level's
-/// (a v1 item), as the Swift `ClosedItem.tabs`.
-fn closed_tabs(item: &Value) -> Vec<&Value> {
-    fn tabs_of(screens: Option<&Value>) -> Vec<&Value> {
-        screens
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-            .filter_map(|screen| screen.get("tabs").and_then(Value::as_array))
-            .flatten()
-            .collect()
-    }
-    match item.get("members").and_then(Value::as_array).filter(|members| !members.is_empty()) {
-        Some(members) => members.iter().flat_map(|member| tabs_of(member.get("screens"))).collect(),
-        None => tabs_of(item.get("screens")),
-    }
-}
-
-/// The trail document's entries as `location:<machine>:<tab>:<index>`. The
-/// daemon cannot know whether the app reaches another machine, so every
-/// location reads available; the app greys offline ones itself.
-pub(super) fn location_entries(trail: &Value) -> Vec<HistoryEntry> {
-    let cursor = trail.get("cursor").and_then(Value::as_i64);
-    let Some(entries) = trail.get("entries").and_then(Value::as_array) else {
-        return Vec::new();
-    };
-    entries
-        .iter()
-        .enumerate()
-        .filter_map(|(index, entry)| location_entry(entry, index, cursor))
-        .collect()
-}
-
-fn location_entry(entry: &Value, index: usize, cursor: Option<i64>) -> Option<HistoryEntry> {
-    let location = entry.get("location")?;
-    if location.get("isIncognito").and_then(Value::as_bool) == Some(true) {
-        return None;
-    }
-    let key = location.get("key")?;
-    let machine = key.get("machine")?.as_str()?;
-    let tab = key.get("tab")?.as_str()?;
-    let text = |key: &str| location.get(key).and_then(Value::as_str).map(str::to_owned);
-    let entered = entry.get("enteredAt")?.as_f64()?;
-    let at_ms = ((entered + SWIFT_REFERENCE_UNIX_S) * 1000.0).round() as i64;
-    let title = text("title").unwrap_or_default();
+/// One trail entry as a location row (`location:<entry id>`). The daemon
+/// cannot know whether the app reaches another machine, so every location
+/// reads available; the app greys offline ones itself. `current`: the newest
+/// entry (an app's Back/Forward cursor is its own view state).
+pub(super) fn location_entry(id: &str, entry: &TrailEntry, current: bool) -> HistoryEntry {
+    let text = |key: &str| entry.location.get(key).and_then(Value::as_str).map(str::to_owned);
     let mut history = HistoryEntry::new(
-        format!("location:{machine}:{tab}:{index}"),
+        id,
         HistoryKind::Location,
-        at_ms,
-        title,
+        entry.at_ms,
+        text("title").unwrap_or_default(),
     );
-    let workspace_title = text("workspaceTitle");
+    let workspace_title = text("workspace_title");
     history.detail.clone_from(&workspace_title);
     history.workspace = workspace_title.or_else(|| text("workspace"));
-    history.machine = text("machineName");
-    history.current = Some(i64::try_from(index).ok() == cursor);
+    history.machine = text("machine_name");
+    history.current = Some(current);
     history.url = text("url");
     history.cwd = text("cwd");
-    Some(history)
+    history
 }
 
 /// A decimal string or a JSON integer.

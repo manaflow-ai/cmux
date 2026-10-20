@@ -10,6 +10,9 @@
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
+# Waits run on a virtual clock: `took` is the time the script would have waited, exactly.
+source "$ROOT/scripts/cmux-next/tests/lib/fake-clock.sh"
+fake_clock_install "$TMP/clock"
 git_q() { git -c user.name=t -c user.email=t@example.com -c init.defaultBranch=main "$@" >/dev/null 2>&1; }
 
 git_q init "$TMP/src"
@@ -211,9 +214,8 @@ unset REFUSE_REF_SHA CMUX_TUI_TREE_HEAD_SHA CMUX_TUI_TREE_DISPATCH
 : > "$TMP/posts.log"
 set_runs "$none"
 export CMUX_TUI_TREE_DISPATCH=1 REFUSE_WRITES=1 CMUX_TUI_TREE_PUBLISHER_WAIT_SECONDS=8 CMUX_TUI_TREE_PUBLISHER_POLL_SECONDS=1
-( sleep 2; set_runs "$active" ) &
+fake_clock_at 2 "printf '%s\\n' '$active' > '$runs_dir/runs'"
 probe pull_request
-wait
 [[ "$status" == 0 && "$state" == deferred ]] || fail "(d) a publish started from main must be waited for"
 grep -qF "active cmux-tui artifacts run" <<<"$reason" || fail "(d) reason: $reason"
 # No publish appears: the bounded wait ends and the check fails as before.
@@ -257,6 +259,8 @@ grep -qxF "tree_fetch_key=$published_key" "$TMP/gh-output" || fail "(d) the tree
 fetched=$(cd "$TMP/src" && CMUX_TUI_TREE_KEY="$published_key" bash scripts/cmux-next/pin-cmux-tui.sh path)
 [[ "$fetched" == *"/$published_key/"*cmux-tui ]] || fail "(d) CMUX_TUI_TREE_KEY must select the fetched tree: $fetched"
 mv "$TMP/cdn/cmux-tui/tree/$published_key" "$TMP/unpublished"
+# This probe searches the recent history for a published tree, keying each commit's tree:
+# compute, which the virtual clock does not count, so the usual bound holds.
 expect "pull request, no cmux-tui change, nothing published" pull_request skipped "changes no cmux-tui"
 mv "$TMP/unpublished" "$TMP/cdn/cmux-tui/tree/$published_key"
 unset CMUX_TUI_TREE_BASE_FALLBACK

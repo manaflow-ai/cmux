@@ -1,3 +1,4 @@
+public import CmuxNextCompat
 public import CmuxNextProcessEnvironment
 public import Foundation
 
@@ -9,7 +10,8 @@ public import Foundation
 /// made cmux-next try to bind the user's release socket. So:
 ///
 /// - the socket path comes from the bundle id (and a tag written into the
-///   bundle's own `LSEnvironment` by `scripts/reload.sh`), or from the
+///   bundle's own `LSEnvironment` by `scripts/reload.sh`), through the
+///   build's ``BuildIdentity/controlSocket(userHome:)``, or from the
 ///   explicit ``socketOverrideKey``;
 /// - ``stripInheritedEnvironment()`` removes inherited cmux variables from
 ///   this process at launch, before anything reads them;
@@ -22,11 +24,23 @@ public struct LaunchIdentity: Sendable, Equatable {
     /// Sanitized tag (`[a-z0-9-]`), nil for untagged builds.
     public var tag: String?
     public var socketPath: String
+    /// The socket's old `/tmp` name, kept as a symlink to ``socketPath`` for
+    /// tools that still use it (``ControlSocketPath``); nil with an explicit path.
+    public var compatibilityLink: String?
+    /// The app's own build (bundle id and the tag its bundle ships; never a
+    /// DEBUG test override): its daemon session, state and control socket
+    /// (``BuildIdentity/appSession``). The `cmux` CLI in this app's terminals
+    /// gets the same pair through `CMUX_BUNDLE_ID` and `CMUX_TAG`
+    /// (``terminalEnvironment``), so both resolve one build.
+    public var build: BuildIdentity
 
-    public init(bundleID: String?, tag: String?, socketPath: String) {
+    public init(bundleID: String?, tag: String?, socketPath: String, compatibilityLink: String? = nil,
+                build: BuildIdentity? = nil) {
         self.bundleID = bundleID
         self.tag = tag
         self.socketPath = socketPath
+        self.compatibilityLink = compatibilityLink
+        self.build = build ?? BuildIdentity(bundleID: bundleID, bundledTag: tag)
     }
 
     /// Variables every terminal of this app gets, so the `cmux` CLI inside
@@ -34,7 +48,9 @@ public struct LaunchIdentity: Sendable, Equatable {
     public var terminalEnvironment: [String: String] {
         var environment = ["CMUX_SOCKET_PATH": socketPath]
         if let bundleID { environment["CMUX_BUNDLE_ID"] = bundleID }
-        if let tag { environment["CMUX_TAG"] = tag }
+        // The build's tag (the shipped one first), so the CLI's build key is
+        // this app's even for a copy that ships another tag than its id.
+        if let tag = build.tag ?? tag { environment["CMUX_TAG"] = tag }
         return environment
     }
 
@@ -50,14 +66,24 @@ public struct LaunchIdentity: Sendable, Equatable {
         home: URL = FileManager.default.homeDirectoryForCurrentUser
     ) -> LaunchIdentity {
         let bundle = bundleID.flatMap { $0.isEmpty ? nil : $0 }
-        let tag = ControlSocketPath.shared.bundleTag(bundle)
-            ?? bundledEnvironment["CMUX_TAG"].flatMap(ControlSocketPath.shared.sanitize)
-            ?? taggedAppName(bundleName)
-        var path = ControlSocketPath.shared.resolve(bundleID: bundle, tag: tag, isDebugBuild: isDebugBuild, home: home)
+        // The tag the bundle ships; a copy named `cmux DEV <tag>.app` that
+        // lost `LSEnvironment` ships its name's tag (the `cmux` CLI reads the
+        // bundle the same way: cmux-tui app_identity.rs).
+        let shipped = bundledEnvironment["CMUX_TAG"].flatMap(ControlSocketPath.shared.sanitize) ?? taggedAppName(bundleName)
+        let tag = ControlSocketPath.shared.bundleTag(bundle) ?? shipped
+        let build = BuildIdentity(bundleID: bundle, bundledTag: shipped)
         if let explicit = processEnvironment[socketOverrideKey]?.trimmingCharacters(in: .whitespaces), !explicit.isEmpty {
-            path = explicit
+            return LaunchIdentity(bundleID: bundle, tag: tag, socketPath: explicit, build: build)
         }
-        return LaunchIdentity(bundleID: bundle, tag: tag, socketPath: path)
+        let paths = ControlSocketPath.shared
+        // The build's own socket name (per-build isolation S3), in the state
+        // folder with its old /tmp name as a link. A DEBUG compile under
+        // release's bundle id never takes release's socket.
+        let named = isDebugBuild && build.kind == .release ? nil : build.controlSocket(userHome: home)
+        let socket = named.map { paths.moved($0, home: home) }
+            ?? (path: paths.resolve(bundleID: nil, tag: nil, isDebugBuild: isDebugBuild, home: home),
+                link: paths.compatibilityLink(bundleID: nil, tag: nil, isDebugBuild: isDebugBuild, home: home))
+        return LaunchIdentity(bundleID: bundle, tag: tag, socketPath: socket.path, compatibilityLink: socket.link, build: build)
     }
 
     /// A fleet artifact is sometimes launched directly from its staged
@@ -68,12 +94,32 @@ public struct LaunchIdentity: Sendable, Equatable {
         return ControlSocketPath.shared.sanitize(String(name.dropFirst("cmux DEV ".count)))
     }
 
+    /// Variables only another cmux sets in its terminals and agents: when one
+    /// of them is inherited (not from this bundle's `LSEnvironment`), another
+    /// cmux started this process.
+    public static let otherCmuxMarkers = ["CMUX_SOCKET_PATH", "CMUX_BUNDLE_ID", "CMUX_TAG", "MUX_AGENT_TOKEN_FILE"]
+
+    /// The `CMUX_NEXT_*` knobs that name a state root (Chief home, acpmux
+    /// home, control socket, settings file). A test harness or a person sets
+    /// them on purpose; inherited from another cmux they are that build's
+    /// roots (per-build isolation S4, cx-is1kf.5).
+    public static let stateRootKnobs = ["CHIEF_HOME", "CHIEF_ROOT", "CHIEF_BUILD_ID", "CHIEF_ACCOUNT",
+                                        "MUX_HOME", "ACPMUX_ROOT", "SOCKET_PATH", "CONFIG_FILE"].map { "CMUX_NEXT_" + $0 }
+
     /// Keys of cmux variables this process inherited rather than received
-    /// from its own bundle. `CMUX_NEXT_*` launch knobs stay.
+    /// from its own bundle: every `CMUX*` but the `CMUX_NEXT_*` launch knobs.
+    /// When another cmux started this process (``otherCmuxMarkers``), also
+    /// the ``stateRootKnobs``, every `MUX_*` but `MUX_HARNESS`, and every
+    /// `OPTCHAT_*`: that build's Chief, brain and acpmux roots.
     public static func inheritedKeys(processEnvironment: [String: String], bundledEnvironment: [String: String]) -> [String] {
-        processEnvironment.compactMap { key, value in
-            guard key.hasPrefix("CMUX"), !key.hasPrefix("CMUX_NEXT_") else { return nil }
-            return bundledEnvironment[key] == value ? nil : key
+        let inherited = { (key: String) in processEnvironment[key].map { bundledEnvironment[key] != $0 } ?? false }
+        let fromOtherCmux = otherCmuxMarkers.contains(where: inherited)
+        return processEnvironment.keys.filter { key in
+            guard inherited(key) else { return false }
+            if key.hasPrefix("CMUX_NEXT_") { return fromOtherCmux && stateRootKnobs.contains(key) }
+            if key.hasPrefix("CMUX") { return true }
+            guard fromOtherCmux else { return false }
+            return (key.hasPrefix("MUX_") && key != "MUX_HARNESS") || key.hasPrefix("OPTCHAT_")
         }
     }
 

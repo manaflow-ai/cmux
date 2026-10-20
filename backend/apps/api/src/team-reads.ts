@@ -11,6 +11,7 @@ import { auditPage } from "./domains/team-audit-rows.ts"
 import { aiLimitViewOf } from "./domains/team-ai-limit.ts"
 import type { Env } from "./env.ts"
 import { nextMonthStart } from "./usage-user.ts"
+import { teamUsageLine } from "./team-ai-usage.ts"
 
 const DIRECTORY_PAGE = 200
 
@@ -148,13 +149,16 @@ export const teamVmAccountsFence = async (current: () => Promise<string | null>,
 /**
  * team.ai_limit.get, the Worker-side half (TeamDO.readOp): this month's spend from the team's
  * UsageMeterDO for exactly the users the view lists (the caller, and members for billing.manage),
- * and the UTC month's reset time. A meter failure leaves the limits and reports spend as unknown (-1).
+ * and the UTC month's reset time; for billing.manage readers also the team line (team-ai-usage.ts) from
+ * the stored plan copy `plan`. A meter failure leaves the limits and reports spend as unknown (-1).
  */
-export const withAiSpend = async (env: Env, team: string, r: ReadResult): Promise<ReadResult> => {
+export const withAiSpend = async (env: Env, team: string, r: ReadResult, plan: string | null = null): Promise<ReadResult> => {
   if (!r.ok) return r
   const v = r.value as { me: { user: string }; members?: Array<{ user: string }> }
   const users = [v.me.user, ...(v.members ?? []).map((m) => m.user)]
   const spends = await env.USAGE_METER_DO.get(env.USAGE_METER_DO.idFromName(team)).userSpends(team, users).catch(() => ({}) as Record<string, number>)
   const spent = (u: string) => spends[u] ?? -1
-  return { ...r, value: { ...v, resets_at: nextMonthStart(Date.now()), me: { ...v.me, spent_usd: spent(v.me.user) }, ...(v.members ? { members: v.members.map((m) => ({ ...m, spent_usd: spent(m.user) })) } : {}) } }
+  // The team line (included amount, the stop) only beside the members list, i.e. for billing.manage readers.
+  const line = v.members ? { team_usage: await teamUsageLine(env, team, plan) } : {}
+  return { ...r, value: { ...v, ...line, resets_at: nextMonthStart(Date.now()), me: { ...v.me, spent_usd: spent(v.me.user) }, ...(v.members ? { members: v.members.map((m) => ({ ...m, spent_usd: spent(m.user) })) } : {}) } }
 }

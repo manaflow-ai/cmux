@@ -65,7 +65,7 @@ impl App {
                 Ok(self.apply_machine_controller_completion(*completion))
             }
             AppEvent::Mux(MuxEvent::Empty) => self.on_mux_empty(),
-            AppEvent::Mux(MuxEvent::SurfaceExited(id)) => self.on_surface_exited(id),
+            AppEvent::Mux(MuxEvent::SurfaceExited(id, _)) => self.on_surface_exited(id),
             AppEvent::Mux(MuxEvent::SurfaceResized { surface, cols, rows, reservation_id }) => {
                 self.session.confirm_surface_resize(surface, (cols, rows), reservation_id);
                 // This acknowledges geometry already computed by the host-resize draw.

@@ -74,6 +74,23 @@ pub(crate) fn add_tab_icon_column(transaction: &Transaction<'_>) -> anyhow::Resu
     Ok(())
 }
 
+/// Additive: the manual tab unread mark (`tab-mark-unread-v1`). Older
+/// builds name their columns, so they keep reading and writing the table;
+/// an older build that empties a row of every field it knows drops the mark
+/// with it (a rollback can lose manual unread marks, as for workspaces).
+pub(crate) fn add_tab_marked_unread_column(transaction: &Transaction<'_>) -> anyhow::Result<()> {
+    let has_column = transaction
+        .prepare("PRAGMA table_info(tab_state)")?
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<Result<Vec<_>, _>>()?
+        .iter()
+        .any(|column| column == "marked_unread");
+    if !has_column {
+        transaction.execute_batch("ALTER TABLE tab_state ADD COLUMN marked_unread INTEGER;")?;
+    }
+    Ok(())
+}
+
 /// A partial tab state update: `None` keeps a field, `Some(None)` clears
 /// the zoom or the icon.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -88,6 +105,13 @@ pub(crate) struct TabStateUpdate {
     /// an SF Symbol name, ICON-PICKER-ALL-EMOJI-AND-SF-SYMBOLS, or a stored
     /// `image:`/`svg:` asset, `icon-assets-v1`, checked by `state_update_tab`).
     pub(crate) icon: Option<Option<String>>,
+    /// The device a browser tab emulates (`browser.tab.emulate`,
+    /// `browser.tab.emulate.clear`), resolved in the writing transaction.
+    pub(crate) emulation: Option<crate::state::browser_devices::EmulationChange>,
+    /// The person marked the tab unread by hand (`tab-mark-unread-v1`),
+    /// apart from notification markers: `Some(true)` sets the mark,
+    /// `Some(false)` clears it. Clients clear it when the tab is viewed.
+    pub(crate) marked_unread: Option<bool>,
 }
 
 impl TabStateUpdate {
@@ -138,6 +162,21 @@ pub(crate) fn update_tab_state(
         transaction
             .execute("UPDATE tab_state SET icon = ?2 WHERE tab_id = ?1", params![tab_id, icon])?;
     }
+    if let Some(change) = &update.emulation {
+        let stored = crate::state::browser_devices::stored_emulation(transaction, tab_id, change)?;
+        transaction.execute(
+            "UPDATE tab_state SET emulation_json = ?2 WHERE tab_id = ?1",
+            params![tab_id, stored],
+        )?;
+    }
+    if let Some(marked) = update.marked_unread {
+        // NULL, not 0, when clear: an unmarked row stays empty and is deleted below.
+        let stored = marked.then_some(1_i64);
+        transaction.execute(
+            "UPDATE tab_state SET marked_unread = ?2 WHERE tab_id = ?1",
+            params![tab_id, stored],
+        )?;
+    }
     for (column, list) in [("back_json", &update.back), ("forward_json", &update.forward)] {
         if let Some(list) = list {
             let stored = (!list.is_empty()).then(|| serde_json::to_string(list)).transpose()?;
@@ -150,7 +189,7 @@ pub(crate) fn update_tab_state(
     transaction.execute(
         "DELETE FROM tab_state
          WHERE tab_id = ?1 AND zoom IS NULL AND back_json IS NULL AND forward_json IS NULL
-           AND icon IS NULL",
+           AND icon IS NULL AND emulation_json IS NULL AND marked_unread IS NULL",
         [tab_id],
     )?;
     if let Some(owner) = &update.owner {
@@ -336,35 +375,43 @@ pub(crate) fn delete_saved_tab_group(
 }
 
 #[cfg(test)]
-mod tests {
+mod marked_unread_tests {
     use super::*;
 
-    /// A tab_state table an older build created gains the icon column; its
-    /// rows stay, and the icon then saves and reads back.
+    /// A tab_state table without the marked_unread column gains it; a mark
+    /// alone keeps the row, and clearing it deletes the emptied row.
     #[test]
-    fn tab_icon_column_is_added_to_an_older_table() {
+    fn tab_marked_unread_column_is_added_and_an_empty_row_is_dropped() {
         let mut connection = Connection::open_in_memory().unwrap();
         connection
             .execute_batch(
                 "CREATE TABLE tab_state (tab_id TEXT PRIMARY KEY NOT NULL, zoom REAL,
-                   back_json TEXT, forward_json TEXT);
-                 INSERT INTO tab_state(tab_id, zoom) VALUES('tab_old', 1.5);",
+                   back_json TEXT, forward_json TEXT, icon TEXT, emulation_json TEXT);",
             )
             .unwrap();
         for _ in 0..2 {
             let transaction = connection.transaction().unwrap();
-            add_tab_icon_column(&transaction).unwrap();
+            add_tab_marked_unread_column(&transaction).unwrap();
             transaction.commit().unwrap();
         }
+        let count = |connection: &Connection| -> i64 {
+            connection
+                .query_row("SELECT COUNT(*) FROM tab_state WHERE marked_unread = 1", [], |row| {
+                    row.get(0)
+                })
+                .unwrap()
+        };
         let transaction = connection.transaction().unwrap();
-        let update = TabStateUpdate { icon: Some(Some("🚀".into())), ..Default::default() };
-        update_tab_state(&transaction, "tab_old", &update).unwrap();
+        let mark = TabStateUpdate { marked_unread: Some(true), ..Default::default() };
+        update_tab_state(&transaction, "tab_a", &mark).unwrap();
         transaction.commit().unwrap();
-        let row = connection
-            .query_row("SELECT zoom, icon FROM tab_state WHERE tab_id = 'tab_old'", [], |row| {
-                Ok((row.get::<_, Option<f64>>(0)?, row.get::<_, Option<String>>(1)?))
-            })
-            .unwrap();
-        assert_eq!(row, (Some(1.5), Some("🚀".into())));
+        assert_eq!(count(&connection), 1);
+        let transaction = connection.transaction().unwrap();
+        let clear = TabStateUpdate { marked_unread: Some(false), ..Default::default() };
+        update_tab_state(&transaction, "tab_a", &clear).unwrap();
+        transaction.commit().unwrap();
+        let rows: i64 =
+            connection.query_row("SELECT COUNT(*) FROM tab_state", [], |row| row.get(0)).unwrap();
+        assert_eq!(rows, 0);
     }
 }

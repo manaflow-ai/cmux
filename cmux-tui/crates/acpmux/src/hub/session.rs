@@ -32,6 +32,15 @@ pub struct Session {
     /// permissions are cancelled; a request that started before the bump
     /// is answered `cancelled` instead of being registered.
     pub(super) permission_epoch: AtomicU64,
+    /// When the session last began waiting on the person (`Waiting`), in ms;
+    /// 0 while it is not. The lane's `input` since (cx-v9k2f): later records,
+    /// a draft save or a second ask do not move it.
+    pub(super) input_since: AtomicU64,
+    /// Agent permission requests read but not yet past their group
+    /// (`permission_groups::AskInFlight`); `asks_landed` fires when the
+    /// last one lands. A group is not shown while one is on its way.
+    pub(super) asks_in_flight: std::sync::atomic::AtomicUsize,
+    pub(super) asks_landed: Notify,
     pub(super) rehydrate: AtomicBool,
     /// The chat's route changed during a turn: restart the harness on it when
     /// the turn ends (`route_switch.rs`).
@@ -45,6 +54,10 @@ pub struct Session {
     /// Set on a freshly forked Claude session: the parent's agent session id
     /// to pass as `--resume <id> --fork-session` on first spawn.
     pub(super) fork_from: StdMutex<Option<String>>,
+    /// The model and the effort acpmux last set on this session (its own
+    /// start values or a client's set), so a repeated set is no new pick
+    /// (`start_defaults.rs`).
+    pub(super) applied: StdMutex<Applied>,
     /// Set once the session is purged, so late events do not recreate its
     /// files while the directory is being removed.
     pub(super) purged: AtomicBool,
@@ -72,9 +85,17 @@ pub struct Session {
     pub(super) floor: remote_floor::FloorState,
     /// The subagents the agent reported, for attributing their updates.
     pub(super) subagents: StdMutex<crate::subagents::SubagentTree>,
+    /// The commands its harness runs in the background (`processes.rs`).
+    pub(super) processes: StdMutex<processes::ProcessTable>,
 }
 
 impl Session {
+    /// Notes whether the session now waits on the person: `input_since` is when it began
+    /// (the lane's `input` since, cx-v9k2f), 0 while it does not.
+    pub(super) fn mark_waiting(&self, waiting: bool) {
+        self.input_since.store(if waiting { now_ms() } else { 0 }, Ordering::SeqCst);
+    }
+
     pub fn meta(&self) -> SessionMeta {
         self.meta.lock().unwrap().clone()
     }
@@ -130,10 +151,25 @@ pub(crate) fn short_text(s: &str, max: usize) -> String {
     }
 }
 
+/// The person's text of a prompt: its text blocks, without the hidden context acpmux added
+/// (`prompt_context.rs`).
 pub(crate) fn prompt_text(blocks: &[Value]) -> String {
     blocks
         .iter()
+        .filter(|b| !crate::prompt_context::is_context(b))
         .filter_map(|b| b.get("text").and_then(Value::as_str))
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+/// What acpmux last set on a session (`Session::applied`).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(super) struct Applied {
+    pub model: Option<String>,
+    pub effort: Option<String>,
+    /// The approval digest of the preset contents `session/new` resolved
+    /// with, and the one its harness last spawned with
+    /// (`start_gate/preset_bind.rs`).
+    pub preset_resolved: Option<String>,
+    pub preset_spawned: Option<String>,
 }
