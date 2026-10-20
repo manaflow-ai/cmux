@@ -54,6 +54,20 @@ mod api_compat {
         assert_eq!(tr(&c, 3, 1, r#"{"opts":{"zoom":2}}"#), r#"{"opts":{},"legacy":"x"}"#);
     }
 
+    /// Fleet proptest find (5f9ba6b): a rename onto a key the input already
+    /// has emitted that key twice. A rename replaces its target.
+    #[test]
+    fn api_compat_rename_onto_an_existing_key_replaces_it() {
+        let c = compat(vec![
+            vec![Change::Remove { path: "/a".into(), default: json!(0) }],
+            vec![Change::Move { from: "/a".into(), path: "/r1".into() }],
+        ]);
+        assert_eq!(tr(&c, 3, 1, r#"{"a":null}"#), r#"{"a":0}"#);
+        let c = compat(vec![vec![rename("/a", "b")]]);
+        assert_eq!(tr(&c, 1, 2, r#"{"b":1,"a":2}"#), r#"{"b":2}"#);
+        assert_eq!(tr(&c, 1, 2, r#"{"b":1}"#), r#"{}"#);
+    }
+
     #[test]
     fn api_compat_move_across_parents_round_trips() {
         let c =
@@ -352,6 +366,64 @@ mod api_compat {
         }
     }
 
+    mod fixtures {
+        use cmux_api_compat::fixtures::{Case, Fixtures, check_fixtures};
+        use cmux_api_compat::{Change, MessageChange, Schema};
+        use serde_json::json;
+
+        fn schema() -> Schema {
+            let mut schema = Schema::new("cmux-mux", 12);
+            schema.push(
+                "tab is surface",
+                vec![MessageChange {
+                    message: "event:tab".into(),
+                    change: Change::Rename { path: "/tab".into(), to: "surface".into() },
+                }],
+            );
+            schema
+        }
+
+        fn case(from: u32, to: u32, input: serde_json::Value, output: serde_json::Value) -> Case {
+            Case { message: "event:tab".into(), from, to, input, output }
+        }
+
+        #[test]
+        fn api_compat_fixtures_every_rule_needs_both_directions() {
+            let up = case(12, 13, json!({"tab": 1}), json!({"surface": 1}));
+            let down = case(13, 12, json!({"surface": 1}), json!({"tab": 1}));
+            let only_up = Fixtures { cases: vec![up.clone()] };
+            let problems = check_fixtures(&schema(), &only_up);
+            assert_eq!(problems.len(), 1, "{problems:?}");
+            assert!(problems[0].contains("downgrade"), "{problems:?}");
+            assert!(check_fixtures(&schema(), &Fixtures { cases: vec![up, down] }).is_empty());
+        }
+
+        #[test]
+        fn api_compat_fixtures_wrong_output_is_reported() {
+            let wrong = Fixtures {
+                cases: vec![
+                    case(12, 13, json!({"tab": 1}), json!({"tab": 1})),
+                    case(13, 12, json!({"surface": 1}), json!({"tab": 1})),
+                ],
+            };
+            let problems = check_fixtures(&schema(), &wrong);
+            assert_eq!(problems.len(), 1, "{problems:?}");
+            assert!(problems[0].starts_with("case 0"), "{problems:?}");
+        }
+
+        #[test]
+        fn api_compat_fixtures_real_spec_files_agree() {
+            let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../spec");
+            let schema =
+                Schema::from_json(&std::fs::read(root.join("api-compat.json")).unwrap()).unwrap();
+            let fixtures: Fixtures = serde_json::from_slice(
+                &std::fs::read(root.join("api-compat-fixtures.json")).unwrap(),
+            )
+            .unwrap();
+            assert_eq!(check_fixtures(&schema, &fixtures), Vec::<String>::new());
+        }
+    }
+
     mod properties {
         use cmux_api_compat::{Change, Compat, Conversion, Direction, MessageChange, Schema};
         use proptest::prelude::*;
@@ -463,7 +535,8 @@ mod api_compat {
                     // Wildcards must sit in the shared prefix; fall back to a rename otherwise.
                     let shared = tokens.len();
                     let from_tokens: Vec<&str> = from.split('/').skip(1).collect();
-                    if from_tokens[shared..].contains(&"*") {
+                    let nested = to.starts_with(&format!("{from}/"));
+                    if nested || from_tokens[shared..].contains(&"*") {
                         Change::Rename { path: from, to: format!("r{n}") }
                     } else {
                         Change::Move { from, path: to }

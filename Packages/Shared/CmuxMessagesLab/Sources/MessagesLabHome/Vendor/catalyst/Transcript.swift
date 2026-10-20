@@ -736,6 +736,7 @@ final class RowCell: UICollectionViewCell {
             case let .receipt(b, r): return b + " " + r
             case let .label(text, _, _): return text
             case let .notice(text): return text
+            case let .senderName(name): return name // cmux: a group chat's sender name
             default: return nil
             }
         }
@@ -1398,7 +1399,7 @@ final class RowCell: UICollectionViewCell {
         case let .label(_, outgoing, _), let .replies(_, _, outgoing): return outgoing
         case .receipt: return true
         case let .threadPreview(pv): return pv.outgoing
-        case .separator, .unsent, .typing, .notice: return false
+        case .separator, .unsent, .typing, .notice, .senderName: return false // cmux: senderName
         }
     }
     /// The x (view pt) of the row's anchored side for a cell at `frame` (snapRow, the send morph's landing place): the
@@ -1493,10 +1494,12 @@ final class RowCell: UICollectionViewCell {
     /// down to this bubble: an arc that hangs from the root and a vertical
     /// stroke whose bottom stays 8.5 pt above this bubble. When the two rows
     /// move apart, the arc and the stroke's height animate (no path animation).
-    private var connectorState: (CGFloat?, CGFloat, Bool, CGFloat)?
+    private var connectorState: (CGFloat?, CGFloat, Bool, CGFloat, CGFloat)?
     func setConnector(top: CGFloat?, bottom: CGFloat, mirrored: Bool) {
-        let state = (top, bottom, mirrored, spec?.width ?? 0)
-        if let c = connectorState, c.0 == state.0, c.1 == state.1, c.2 == state.2, c.3 == state.3 { return }
+        // cmux: a group chat's incoming reply sits right of the avatar column; its connector moves with it.
+        let indent: CGFloat = { if !mirrored, case let .part(p)? = spec?.kind { return p.cmuxIndent }; return 0 }()
+        let state = (top, bottom, mirrored, spec?.width ?? 0, indent)
+        if let c = connectorState, c.0 == state.0, c.1 == state.1, c.2 == state.2, c.3 == state.3, c.4 == state.4 { return }
         connectorState = state
         CATransaction.begin(); CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
@@ -1509,7 +1512,7 @@ final class RowCell: UICollectionViewCell {
             contentView.layer.insertSublayer(connector, at: 0)
             contentView.layer.insertSublayer(connectorLine, at: 1)
         }
-        let r: CGFloat = 19, x: CGFloat = 34.25, endX: CGFloat = 63
+        let r: CGFloat = 19, x: CGFloat = 34.25 + indent, endX: CGFloat = 63 + indent // cmux: + indent
         let cx = x + r, cy = top + r
         let w = spec?.width ?? 628
         let p = UIBezierPath()
