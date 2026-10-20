@@ -16,7 +16,6 @@ import { rowIconSize } from "../icons/iconSize";
 import type { AcpmuxSnapshot } from "../model";
 import { homePath, projectLabel } from "../sessionList";
 import { sessionSummary } from "./sessionSummary";
-import { sessionMachine } from "./sessionMachine";
 
 type Summary = NonNullable<AcpmuxSnapshot["summary"]>;
 type CardId = "environment" | "context" | "outputs";
@@ -220,7 +219,13 @@ function splitFolder(path: string): { name: string; parent?: string } {
 /// a peer or a Cloud host is another machine, else it is this Mac, by its name when known.
 function Environment({ summary, machineName }: { summary?: Summary; machineName?: string }) {
   const t = useT();
-  const place = sessionMachine(summary, machineName, t("composer.thisMac"));
+  const remote = summary?.peer || (summary?.hostKind === "cloud" ? summary.host : undefined);
+  const place = remote
+    ? { icon: summary?.hostKind === "cloud" ? "cloud" : "machine.remote", name: summary?.host ?? remote }
+    : {
+        icon: "machine.local",
+        name: machineName || (summary?.hostKind === "local" && summary.host ? summary.host : t("composer.thisMac")),
+      };
   const cwd = summary?.cwd;
   const worktree = summary?.worktree && summary.worktree !== cwd ? summary.worktree : undefined;
   const folderRow = (path: string, icon: string) => {

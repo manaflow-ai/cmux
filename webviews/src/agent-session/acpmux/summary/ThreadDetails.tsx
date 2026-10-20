@@ -1,5 +1,5 @@
 // The top of Thread details (Lucas 2026-10-17, after T3 Code's thread menu): plain rows on the menu's
-// rhythm. The machine the chat runs on (shared with the Environment rail); then Open in <app>: the
+// rhythm. The machine the chat runs on (this Mac by name, a computer glyph); then Open in <app>: the
 // folder in the app last picked (else the first editor installed), with that app's own icon, and a
 // chevron for the others (`folder.openIn`). The project is the header's (header/ThreadTitle.tsx).
 import { useEffect, useState } from "react";
@@ -7,7 +7,7 @@ import { Menu, MenuButton, MenuItem, MenuPopup } from "../../../ui/Menu";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { ChevronDown } from "../conversation/icons";
-import { sessionMachine, type MachineSummary } from "./sessionMachine";
+import { ComputerIcon } from "../ComposerContext";
 
 export type OpenInApp = { id: string; name: string; icon?: string };
 
@@ -42,18 +42,15 @@ function AppIcon({ app }: { app?: OpenInApp }) {
 export function ThreadDetails({
   folder,
   machine,
-  summary,
   openIn,
 }: {
   folder?: string;
   /// This Mac's name.
   machine?: string;
-  summary?: MachineSummary;
   /// The host's Open in (`folder.openIn`): no app lists the apps; an app opens the folder there.
   openIn?: (app?: string) => Promise<OpenInApp[]>;
 }) {
   const t = useT();
-  const place = sessionMachine(summary, machine, t("composer.thisMac"));
   const [apps, setApps] = useState<OpenInApp[]>();
   const [preferred, setPreferred] = useState(readPreferred);
   // The apps once, for the Open in row's own icon and name.
@@ -78,12 +75,14 @@ export function ThreadDetails({
   };
   return (
     <section className="acpmux-thread-details" aria-label={t("summary.threadDetails")}>
-      <div className="acpmux-thread-details__row">
-        <span className="acpmux-thread-details__icons" aria-hidden="true">
-          <Icon name={place.icon} size={14} row className="ui-ghost-icon" />
-        </span>
-        <span className="acpmux-thread-details__text">{place.name}</span>
-      </div>
+      {machine && (
+        <div className="acpmux-thread-details__row">
+          <span className="acpmux-thread-details__icons" aria-hidden="true">
+            <ComputerIcon />
+          </span>
+          <span className="acpmux-thread-details__text">{machine}</span>
+        </div>
+      )}
       {openIn && primary && (
         <div className="acpmux-thread-details__row acpmux-thread-details__split">
           <button type="button" className="acpmux-thread-details__main" onClick={() => open(primary)}>

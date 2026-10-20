@@ -23,8 +23,6 @@ export default componentEntry<ComponentProps<typeof ThreadDetails>>({
   load: () => import("./ThreadDetails").then((module) => module.ThreadDetails),
   variants: {
     local: { props },
-    cloud: { props: { ...props, summary: { hostKind: "cloud", host: "build-runner-2" } } },
-    peer: { props: { ...props, summary: { peer: "peer-01", host: "Remote Mac" } } },
     "machine-only": { props: { folder: props.folder, machine: props.machine } },
     "single-app": { props: { ...props, openIn: async () => [{ id: "editor", name: "Editor" }] } },
     "no-apps": { props: { ...props, openIn: async () => [] } },
