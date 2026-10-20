@@ -2699,6 +2699,45 @@ describe("VM Effect workflows", () => {
     expect(error).toBeInstanceOf(VmNotFoundError);
   });
 
+  test("creator-only shared access keeps a teammate out of guest exec", async () => {
+    const vm = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000130",
+      userId: "user-workflow-machine-owner",
+      billingTeamId: "team-workflow-owner-only",
+      providerVmId: "provider-vm-owner-only",
+      status: "running",
+    });
+    let execCalls = 0;
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      exec: () => Effect.sync(() => {
+        execCalls += 1;
+        return { exitCode: 0, stdout: "", stderr: "" };
+      }),
+    };
+    const repo: VmRepositoryShape = {
+      ...testWorkflowRepo({ vm }),
+      findUserVm: ({ billingTeamId, providerVmId }) => Effect.succeed(
+        billingTeamId === vm.billingTeamId && providerVmId === vm.providerVmId ? vm : null,
+      ),
+    };
+
+    const error = await Effect.runPromise(
+      execVm({
+        userId: "user-workflow-teammate",
+        billingTeamId: "team-workflow-owner-only",
+        teamIds: ["team-workflow-owner-only"],
+        sharedAccessMode: "creator",
+        providerVmId: "provider-vm-owner-only",
+        command: "cat ~/.claude/.credentials.json",
+        timeoutMs: 1000,
+      }).pipe(Effect.flip, Effect.provide(workflowLayer(repo, provider))),
+    );
+
+    expect(error).toBeInstanceOf(VmNotFoundError);
+    expect(execCalls).toBe(0);
+  });
+
   test("exec failure without gateway getStatus propagates the original error", async () => {
     const vm = testCloudVmRow({
       id: "00000000-0000-4000-8000-000000000104",
