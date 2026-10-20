@@ -1,4 +1,4 @@
-import AppKit
+public import AppKit
 import CmuxNextActions
 import CmuxNextDesign
 import Foundation
@@ -22,7 +22,7 @@ extension HomeChiefSettingsView {
         nameField.target = self
         nameField.action = #selector(renamed)
         // Leaving the field (a click elsewhere, the popover closing) keeps the name, as Return does.
-        nameField.sendsActionOnEndEditing = true
+        nameField.cell?.sendsActionOnEndEditing = true
         nameField.setAccessibilityLabel(HomeEngineStrings.name)
         nameField.placeholderString = HomeEngineStrings.name
         nameField.font = Typography.body
