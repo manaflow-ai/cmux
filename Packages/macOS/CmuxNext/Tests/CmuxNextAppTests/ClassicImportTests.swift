@@ -207,6 +207,15 @@ struct ClassicImportTests {
         #expect(shapes.contains { $0.hasPrefix("right(down(app|claude)|") }, "\(shapes)")
     }
 
+    /// The import's preview is a real gate: before the answer no saved
+    /// workspace opens, and Cancel leaves every active restore path untouched.
+    @Test func classicImportPreviewCancelRestoresNothing() async throws {
+        let imported = try await importClassic(Self.everything, confirm: false)
+        #expect(imported.shapes["full"] == nil, "\(imported.shapes)")
+        #expect(imported.shapes["ssh box"] == nil, "\(imported.shapes)")
+        #expect(imported.sshDestinations.isEmpty, "\(imported.sshDestinations)")
+    }
+
     /// acpmux's answer for a session it can adopt.
     private nonisolated static func adoptPlan(_ adopt: AgentPaneAdopt, _ cwd: String?) -> [String: Any] {
         ["kind": "adopt", "adopt": ["harness": adopt.harness, "agentSessionId": adopt.agentSessionId],
@@ -216,7 +225,8 @@ struct ClassicImportTests {
     /// Runs the action on `fixture` (after `edit`), with SSH workspaces
     /// reaching this test's daemon and acpmux answering `plan`, and returns
     /// what it opened.
-    private func importClassic(_ fixture: URL, probe: Bool = false, _ edit: (String) -> String = { $0 },
+    private func importClassic(_ fixture: URL, probe: Bool = false, confirm: Bool = true,
+                               _ edit: (String) -> String = { $0 },
                                plan: @escaping (AgentPaneAdopt, String?) -> [String: Any] = ClassicImportTests.adoptPlan) async throws -> Imported {
         let binary = try #require(SameTreeDaemonBinary.url)
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("cn-classic-\(UUID().uuidString.prefix(8))")
@@ -261,7 +271,7 @@ struct ClassicImportTests {
         }
         // The daemon ends with its terminals on every path, a failed expectation included.
         let result: Result<Imported, any Error>
-        do { result = .success(try await Self.importAndRead(services, probe: probe)) } catch { result = .failure(error) }
+        do { result = .success(try await Self.importAndRead(services, probe: probe, confirm: confirm)) } catch { result = .failure(error) }
         // Stop the app's connection first: on the daemon's EOF it would start a
         // fresh daemon that outlives the test. The shutdown uses its own socket.
         if let connection = services.daemon.connection {
@@ -277,7 +287,7 @@ struct ClassicImportTests {
     /// Waits for the launch, runs the action and reads every workspace's
     /// pane trees and the toast; with `probe`, each terminal prints its
     /// replay file.
-    private static func importAndRead(_ services: AppServices, probe: Bool) async throws -> Imported {
+    private static func importAndRead(_ services: AppServices, probe: Bool, confirm: Bool) async throws -> Imported {
         let deadline = ContinuousClock.now + .seconds(90)
         // The launch is ready once restore has made its first terminal.
         func ready() -> Bool { services.daemon.store.workspaces.contains { $0.screens.contains { !$0.panes.isEmpty } } }
@@ -286,10 +296,31 @@ struct ClassicImportTests {
         }
         try #require(ready(), "the launch made no terminal")
         let connection = try #require(services.daemon.connection)
+        let before = try await connection.listWorkspaces().workspaces.count
+        defer { CmuxDialogCenter.shared.dismissAll() }
 
         var ran = false
         let work = services.registry.capturingWork { ran = services.registry.perform("workspace.importClassic") }
         #expect(ran, "workspace.importClassic is not an action")
+        let previewDeadline = ContinuousClock.now + .seconds(5)
+        while !CmuxDialogCenter.shared.records.contains(where: { $0.spec.identifier == "cmux.dialog.classicImport" }),
+              ContinuousClock.now < previewDeadline {
+            try? await Task.sleep(for: .milliseconds(25))
+        }
+        let preview = try #require(CmuxDialogCenter.shared.records.last {
+            $0.spec.identifier == "cmux.dialog.classicImport"
+        }, "classic import showed no preview")
+        #expect(preview.spec.lines.contains { $0.contains("Workspaces") }, "\(preview.spec.lines)")
+        #expect(preview.spec.lines.contains { $0.contains("Browser tabs") }, "\(preview.spec.lines)")
+        #expect(preview.spec.lines.contains { $0.contains("SSH") }, "\(preview.spec.lines)")
+        #expect(preview.spec.lines.contains { $0.contains("Agent chats") }, "\(preview.spec.lines)")
+        #expect(try await connection.listWorkspaces().workspaces.count == before,
+                "classic workspaces opened before confirmation")
+        if confirm {
+            #expect(CmuxDialogCenter.shared.press(preview.id, button: "import"))
+        } else {
+            #expect(CmuxDialogCenter.shared.key(.escape, in: preview.id))
+        }
         for task in work { #expect(await task.value == nil) }
 
         var imported = Imported(notice: services.onboarding.classicImportNotice)
