@@ -100,9 +100,10 @@ extension SidebarListView {
         // Rows still held after the hold ended (its card went without a landing): they apply with these.
         if !rowHold.isEmpty { return releaseRowHold(adding: patched) }
         SidebarPerfCounters.add(.rowPatches, patched.count)
-        // A height change lays the list out again (outside the timed patch: `reload` times itself);
+        // A height change lays the list out again (outside the timed patch: `reload` times itself), with no
+        // motion unless the user asked for it, and not under the pointer (`showModelChange`, calm-sidebar-movement);
         // provisional rows swap in place, as on any reload (`SidebarView.animatesReload`).
-        if SidebarPerfCounters.timed({ patchRowsNow(patched) }) { reload(animated: !model.sections.contains(where: \.hasProvisionalRows)) }
+        if SidebarPerfCounters.timed({ patchRowsNow(patched) }) { showModelChange(animates: !model.sections.contains(where: \.hasProvisionalRows)) }
     }
 
     /// Patches each row in place; true when one row's height changed.
