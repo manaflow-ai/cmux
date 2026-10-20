@@ -1034,6 +1034,18 @@ mod tests {
         assert_eq!(tmux_route::select("$1\t\t@1", "garbage\n1\t0\t$1\t\t@1\n", cmux_environ), None);
     }
 
+    /// claude `SessionStart` carries cmux's startup line as `systemMessage`
+    /// (shown to the person, never added to the model's context); with no
+    /// line it is the empty object the installed command expects.
+    #[test]
+    fn claude_session_start_writes_the_startup_line_as_a_system_message() {
+        let delivery = inbox::Delivery::for_event("claude", "SessionStart")
+            .expect("claude SessionStart writes cmux's startup line");
+        assert_eq!(delivery.output(None), json!({}));
+        assert_eq!(delivery.output(Some("line")), json!({"systemMessage": "line"}));
+        assert_eq!(inbox::Delivery::for_event("codex", "SessionStart"), None);
+    }
+
     #[test]
     fn codex_session_end_handoff_stays_below_the_codex_hook_cap() {
         assert!(handoff_wait("codex", "SessionEnd") < Duration::from_secs(3));
