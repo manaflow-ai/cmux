@@ -300,6 +300,9 @@ public final class AgentCursorLayer {
         }
     }
 
+    /// Reduce Transparency is on: the tag and caption draw opaque.
+    public var reducesTransparency = false
+
     /// The pointer is on the tag (it is a link to the agent's workspace): a
     /// little more tint and a brighter rim.
     public var isTagHighlighted = false {

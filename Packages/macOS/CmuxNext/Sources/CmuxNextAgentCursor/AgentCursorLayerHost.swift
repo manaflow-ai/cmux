@@ -1,5 +1,5 @@
 public import CmuxAgentCursor
-import CmuxNextDesign
+public import CmuxNextDesign
 public import QuartzCore
 
 /// Draws agent cursors as CALayers inside one host layer: the window's
@@ -25,14 +25,18 @@ public final class AgentCursorLayerHost: AgentCursorLayerHosting {
     private let glassLayer: CALayer?
     private let color: Coloring
     private let label: Labeling
+    /// Reduce Transparency: the tags draw opaque while it is on.
+    private let reduceTransparency: ReduceTransparency
     private var cursors: [String: AgentCursorLayer] = [:]
     /// A cursor came, went, showed or hid: the window's tag links may have
     /// changed (`WindowOverlayHost.agentCursorTagsDidChange`).
     public var onTagsChange: (() -> Void)?
 
     public init(hostLayer: CALayer, glassLayer: CALayer? = nil, color: @escaping Coloring,
-                label: @escaping Labeling = { AgentCursorSessionLabel(sessionID: $0).text }) {
+                label: @escaping Labeling = { AgentCursorSessionLabel(sessionID: $0).text },
+                reduceTransparency: ReduceTransparency = .shared) {
         self.hostLayer = hostLayer
+        self.reduceTransparency = reduceTransparency
         self.glassLayer = glassLayer
         self.color = color
         self.label = label
