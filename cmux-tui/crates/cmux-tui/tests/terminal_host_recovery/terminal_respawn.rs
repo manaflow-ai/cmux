@@ -594,3 +594,6 @@ fn a_close_after_a_host_loss_is_never_respawned() {
 
 #[path = "tab_restart.rs"]
 mod tab_restart;
+
+#[path = "resume_command.rs"]
+mod resume_command;
