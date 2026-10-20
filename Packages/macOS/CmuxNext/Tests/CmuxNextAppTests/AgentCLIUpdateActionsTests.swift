@@ -26,6 +26,9 @@ import Testing
         var epoch = 0
         /// The owner answers with a receipt for another machine.
         var mismatch = false
+        /// The start of this family waits in `held` until the test resumes it.
+        var hold: AgentCLIFamily?
+        var held: CheckedContinuation<Void, Never>?
         let machine: ResourceID = "machine_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         var session: ResourceID = "session_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 
@@ -37,6 +40,10 @@ import Testing
                 return try JSONDecoder().decode(AcpmuxHarnessInventory.self, from: Data(#"{"view":"inventory","cached":true,"harnesses":[{"id":"work-profile","family":"codex","channel":"npm","version":"1","latest":"2","outdated":true,"auth":"unknown","checkedAt":1},{"id":"another-profile","family":"codex","channel":"npm","version":"1","latest":"2","outdated":true,"auth":"unknown","checkedAt":1},{"id":"claude","family":"claude","channel":"\#(self.claudeChannel)","version":"1","latest":"2","outdated":true,"auth":"unknown","checkedAt":1},{"id":"codex","channel":"npm","version":"1","latest":"2","outdated":true,"auth":"unknown","checkedAt":1}]}"#.utf8))
             }, start: { cli, key in
                 self.starts.append((cli, key))
+                if self.hold == cli {
+                    self.hold = nil
+                    await withCheckedContinuation { self.held = $0 }
+                }
                 if self.refuse.contains(cli) {
                     throw DaemonError.command(cmd: "agent-cli-update-job", message: "The owner could not start the update job",
                                               code: "agent_cli_job.refused")
@@ -262,5 +269,56 @@ import Testing
         #expect(owner.starts.count == 2)
         let refusal = try #require(notices.shown.first)
         #expect(refusal.0.contains("claude") && refusal.0.contains("codex") && !refusal.1)
+    }
+
+    @Test func aReconnectDuringABatchStartsNoOtherFamilyAndLeavesItUnblocked() async throws {
+        let (owner, updates, registry) = make()
+        owner.hold = .claude
+        let batch = Task { try await updates.runSettings(id: nil, context: page("reconnect-mid-batch"), registry: registry) }
+        for _ in 0..<200 where owner.held == nil { await Task.yield() }
+        let held = try #require(owner.held)
+        // The connection drops while claude starts, so its reply is lost, and the app
+        // reconnects to the same machine and session; showing the jobs re-captures the owner.
+        owner.epoch += 1
+        owner.loseReply = true
+        _ = updates.state
+        held.resume()
+        _ = try? await batch.value
+        #expect(owner.starts.map { $0.0 } == [.claude])
+        #expect(updates.state.arrayValue?.contains { $0["cli"] == "codex" } == false)
+        owner.loseReply = false
+        _ = try await updates.runSettings(id: "work-profile", context: page("after-reconnect-mid-batch"), registry: registry)
+        #expect(owner.starts.last?.0 == .codex && owner.starts.last?.1 == "after-reconnect-mid-batch")
+    }
+
+    @Test func refreshReplaysALostStartReplyByItsKeyAfterAReconnect() async throws {
+        let (owner, updates, registry) = make()
+        owner.loseReply = true
+        do { _ = try await updates.runSettings(id: "work-profile", context: page("lost-reply"), registry: registry) } catch {}
+        #expect(updates.state.arrayValue?.first?["state"] == "unknown")
+        owner.loseReply = false
+        owner.epoch += 1
+        await updates.refresh()
+        #expect(owner.starts.map { $0.1 } == ["lost-reply", "lost-reply"])
+        let job = try #require(updates.state.arrayValue?.first)
+        #expect(job["terminal"] == "term_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" && job["state"] == "pending")
+        owner.outcome = "exited"
+        await updates.refresh()
+        #expect(owner.starts.count == 2)
+        _ = try await updates.runSettings(id: "work-profile", context: page("after-replay"), registry: registry)
+        #expect(owner.starts.count == 3 && owner.starts.last?.1 == "after-replay")
+    }
+
+    @Test func aReplayedStartTheOwnerRefusesClearsTheLostJob() async throws {
+        let (owner, updates, registry) = make()
+        owner.loseReply = true
+        do { _ = try await updates.runSettings(id: "work-profile", context: page("lost-then-refused"), registry: registry) } catch {}
+        owner.loseReply = false
+        owner.refuse = [.codex]
+        await updates.refresh()
+        #expect(updates.state.arrayValue?.isEmpty == true)
+        owner.refuse = []
+        _ = try await updates.runSettings(id: "work-profile", context: page("after-refused-replay"), registry: registry)
+        #expect(owner.starts.last?.1 == "after-refused-replay")
     }
 }
