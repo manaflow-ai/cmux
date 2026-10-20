@@ -390,6 +390,7 @@ fn a_stopped_report_says_where_it_stopped() {
     let t0 = now_ms();
     let mut s = setup(vec![
         prompt("optchat-sub:a1", t0),
+        started(t0),
         bash("p", "git push origin HEAD:feat-cmux-next", t0 + 1000),
         result(
             "p",
