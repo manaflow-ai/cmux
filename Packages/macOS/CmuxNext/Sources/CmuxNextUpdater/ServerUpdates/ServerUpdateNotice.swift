@@ -17,6 +17,23 @@ public nonisolated struct ServerUpdateNotice: Sendable, Equatable, Identifiable 
     /// What a restart keeps and loses.
     public var impact: ServerRestartImpact
 
+    /// - Parameters:
+    ///   - kind: Which server.
+    ///   - host: Where it runs.
+    ///   - serverBuild: The running server's build, if known.
+    ///   - missingCapabilities: The capabilities a restart adds (empty for a plain restart).
+    ///   - gainedFeatures: The named features among them.
+    ///   - impact: What a restart keeps and loses.
+    public init(kind: ServerKind, host: ServerHost, serverBuild: String?, missingCapabilities: [String],
+                gainedFeatures: [ServerFeature], impact: ServerRestartImpact) {
+        self.kind = kind
+        self.host = host
+        self.serverBuild = serverBuild
+        self.missingCapabilities = missingCapabilities
+        self.gainedFeatures = gainedFeatures
+        self.impact = impact
+    }
+
     /// One notice per server, host and server build: a snooze covers that build only.
     public var id: String { "\(kind.rawValue)|\(host.key)|\(serverBuild ?? "unknown")" }
 

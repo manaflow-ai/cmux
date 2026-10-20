@@ -416,7 +416,7 @@ final class AppServices {
         _ = configActions  // built here, as before
         let updateSheet = self.updateSheet  // built here, as before
         updater.attach(sheet: updateSheet, services: self)
-        serverUpdates.start()
+        serverUpdates.start(registry: registry)
         cache.onBrowserReady = { [weak self] key in
             for controller in self?.windows.controllers ?? [] {
                 for pane in controller.content?.panes.values.map({ $0 }) ?? [] where pane.currentTabKey == key { pane.showSelected() }

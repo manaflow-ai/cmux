@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDaemonService
@@ -25,9 +26,11 @@ final class ServerUpdatePresenter {
                                           snoozes: ServerUpdateSnoozeStore(defaults: defaults))
     }
 
-    /// Follows the daemon's handshakes and the notices until the app quits.
-    func start() {
+    /// Follows the daemon's handshakes and the notices until the app quits, and binds
+    /// Restart cmux-tui… (palette, `cmux settings restart-server`, MCP) to the same confirm.
+    func start(registry: ActionRegistry) {
         guard observers.isEmpty else { return }
+        registry.bind("palette.restartServer", run: { [weak self] _ in self?.confirmRestart() })
         let daemon = daemon
         let servers = servers
         observers.append(Task { [weak self] in
@@ -55,6 +58,19 @@ final class ServerUpdatePresenter {
         for notice in notices where shown[notice.id] == nil && !busy.contains(notice.id) {
             show(notice, in: window)
         }
+    }
+
+    /// Restart cmux-tui… from the palette, CLI or MCP: the same confirm as the toast's button,
+    /// for the current notice or, with none, a plain restart.
+    func confirmRestart() {
+        guard let window = activeWindow() else { return }
+        let notice = servers.notices.first { $0.kind == .cmuxTUI && $0.host == .local }
+            ?? ServerUpdateNotice(kind: .cmuxTUI, host: .local,
+                                  serverBuild: servers.handshake(.cmuxTUI, host: .local)?.build,
+                                  missingCapabilities: [], gainedFeatures: [],
+                                  impact: ServerRestartImpact(kind: .cmuxTUI, keepsWork: true))
+        shown[notice.id]?.dismiss()
+        confirm(notice, in: window)
     }
 
     private func show(_ notice: ServerUpdateNotice, in window: NSWindow) {

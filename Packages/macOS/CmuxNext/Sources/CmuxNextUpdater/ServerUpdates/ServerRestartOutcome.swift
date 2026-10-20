@@ -14,6 +14,8 @@ extension ServerRestartOutcome {
     /// The toast after the restart, naming the server as `serverLabel`.
     public func message(serverLabel: String) -> String {
         switch self {
+        case .restarted(let gained) where gained.isEmpty:
+            UpdaterStrings.format("server.result.restartedPlain", "%@ restarted.", serverLabel)
         case .restarted:
             UpdaterStrings.format("server.result.restarted", "%@ restarted. The new features are on.", serverLabel)
         case .stillMissing:

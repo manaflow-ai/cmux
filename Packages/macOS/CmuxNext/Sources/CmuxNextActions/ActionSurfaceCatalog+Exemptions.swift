@@ -107,7 +107,7 @@ nonisolated extension ActionSurfaceCatalog {
         "accounts.reauthenticate", "accounts.connect", "accounts.remove", "remote.connect", "remote.newWorkspace",
         "remote.openTerminalHere", "remote.reconnect", "remote.disconnect", "remote.install", "remote.forget",
         "reloadConfiguration", "palette.makeDefaultBrowser", "palette.makeDefaultTerminal", "palette.toggleSetting",
-        "palette.shortcutKeymap", "palette.installCLI", "palette.uninstallCLI", "palette.restartSocketListener",
+        "palette.shortcutKeymap", "palette.installCLI", "palette.uninstallCLI", "palette.restartSocketListener", "palette.restartServer",
         "palette.checkForUpdates", "updates.whatsNew", "announcements.show", "announcements.hide", "palette.applyUpdateIfAvailable", "palette.switchAppChannel",
         "appearance.density.compact", "appearance.density.comfortable", "appearance.animationSpeed.fast",
         "appearance.animationSpeed.normal", "appearance.animationSpeed.off", "appearance.animations.newTab.toggle", "appearance.animations.newWorkspace.toggle", "appearance.animations.bounce.subtle", "appearance.animations.bounce.none",
