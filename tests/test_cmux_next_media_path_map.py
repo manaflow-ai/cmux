@@ -36,6 +36,8 @@ class TourFilePathTests(unittest.TestCase):
         self.assertEqual(
             path_map.tours_for_path("agent-chat/src/agent-pane/harnesses.css"), ["agent-pane"])
         self.assertEqual(
+            path_map.tours_for_path("Packages/macOS/CmuxNext/Sources/CmuxNextTabs/TabStripModel+PinnedClose.swift"), ["pinned-tabs"])
+        self.assertEqual(
             path_map.tours_for_path("Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/WorkspaceHoverCard.swift"),
             ["hover-card"])
 
