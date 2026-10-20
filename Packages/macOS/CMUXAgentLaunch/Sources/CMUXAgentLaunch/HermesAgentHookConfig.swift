@@ -158,7 +158,6 @@ public enum HermesAgentHookConfig {
                 lines.append("\(itemIndent)  matcher: \(yamlDoubleQuoted(matcher))")
             }
             lines.append("\(itemIndent)  timeout: \(event.timeout)")
-            lines.append("\(itemIndent)  requires_env: [\"CMUX_SURFACE_ID\"]")
         }
         return lines
     }
@@ -294,8 +293,8 @@ public enum HermesAgentHookConfig {
     /// Whether a hook entry inside the markers is cmux's.
     ///
     /// Every command cmux has written here runs its CLI, so inspect the command
-    /// value itself. Other entry fields, such as `requires_env`, may mention
-    /// cmux while belonging to a user-owned command.
+    /// value itself. Other entry fields may mention cmux while belonging to a
+    /// user-owned command.
     private static func isCmuxHookEntry(_ item: ArraySlice<String>) -> Bool {
         guard let commandLine = item.first(where: {
             $0.trimmingCharacters(in: .whitespaces).hasPrefix("- command:")
