@@ -7,18 +7,18 @@ import Testing
 /// shows the key that presses it, and that key really presses it.
 @MainActor @Suite struct DialogKeyHintTests {
     /// The approval sheet's spec (`DestructiveConfirmation.spec`): Cancel, then the default.
-    static let approval = CmuxDialogSpec(title: "Change browser.searchEngine?", lines: ["Set it to duckduckgo."],
+    nonisolated static let approval = CmuxDialogSpec(title: "Change browser.searchEngine?", lines: ["Set it to duckduckgo."],
                                          buttons: [.cancel(), CmuxDialogButton(id: "confirm", title: "Change", role: .default)])
     /// The quit sheet's shape: Don't Save with Command-D, Cancel, Save.
-    static let unsaved = CmuxDialogSpec(title: "Save changes?", buttons: [
+    nonisolated static let unsaved = CmuxDialogSpec(title: "Save changes?", buttons: [
         CmuxDialogButton(id: "discard", title: "Don't Save", role: .destructive, key: "d"),
         .cancel(),
         CmuxDialogButton(id: "save", title: "Save", role: .default),
     ])
     /// One plain button: Escape presses it (the spec's cancel button).
-    static let notice = CmuxDialogSpec(title: "Done", buttons: [CmuxDialogButton(id: "close", title: "Close")])
+    nonisolated static let notice = CmuxDialogSpec(title: "Done", buttons: [CmuxDialogButton(id: "close", title: "Close")])
     /// One default button: Return and Escape both press it; Return is the one shown.
-    static let ok = CmuxDialogSpec(title: "Saved", buttons: [.ok()])
+    nonisolated static let ok = CmuxDialogSpec(title: "Saved", buttons: [.ok()])
 
     @Test func theApprovalSheetShowsEscapeOnCancelAndReturnOnChange() {
         let spec = Self.approval
