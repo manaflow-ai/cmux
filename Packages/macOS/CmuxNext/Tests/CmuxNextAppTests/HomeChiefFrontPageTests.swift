@@ -50,17 +50,17 @@ import Testing
     }
 
     @Test func theDefaultFaceIsThePetCharacterNotTheCat() {
-        let saved = DesignSettings.shared.homeChiefPetMascot
-        defer { DesignSettings.shared.homeChiefPetMascot = saved }
-        DesignSettings.shared.homeChiefPetMascot = "orb"
-        #expect(HomeChiefFace.picture != nil)
-        guard case .picture(let url)? = HomeChiefFace.tile else {
+        let settings = DesignSettings()
+        let face = HomeChiefFace(settings: settings)
+        settings.homeChiefPetMascot = "orb"
+        #expect(face.picture != nil)
+        guard case .picture(let url)? = face.tile else {
             Issue.record("the tile's default is a picture")
             return
         }
         #expect(url.lastPathComponent == "ChiefMascotOrb.png")
-        DesignSettings.shared.homeChiefPetMascot = "fox"
-        guard case .picture(let fox)? = HomeChiefFace.tile else {
+        settings.homeChiefPetMascot = "fox"
+        guard case .picture(let fox)? = face.tile else {
             Issue.record("the tile's default is a picture")
             return
         }

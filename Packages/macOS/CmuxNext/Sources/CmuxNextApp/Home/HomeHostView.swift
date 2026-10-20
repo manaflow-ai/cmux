@@ -299,8 +299,8 @@ final class HomeHostView: NSView {
             // A read for the Chief shown before (the conversation's Chief came in since) is dropped.
             guard let self, control.brainHome == home else { return }
             // No picture and no text: the Chief pet's character (HomeChiefFace), live.
+            transcript.onChiefAvatar = { [weak settingsView] in settingsView?.setAvatar(picture: $0, text: $1) }
             transcript.setChiefAvatar(picture: avatar.picture.flatMap(NSImage.init(data:)), text: avatar.text)
-            settingsView.setAvatar(picture: transcript.avatarPicture, text: avatar.text)
         }
     }
 
