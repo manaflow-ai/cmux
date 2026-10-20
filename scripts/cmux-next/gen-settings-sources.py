@@ -130,6 +130,13 @@ SECTIONS = [
         "enums": {"tasks.layout": "TasksLayoutPreference"},
     },
     {
+        "source": "schemas/settings/source/screenshots.json",
+        "swift": SCHEMA_DIR + "/SettingsSchema+Screenshots.generated.swift",
+        "type": "ScreenshotsSettingsSchema",
+        "lists": {"screenshots": ("descriptors", "ScreenshotsSettings")},
+        "enums": {},
+    },
+    {
         "source": "schemas/settings/source/hover-cards.json",
         "swift": SCHEMA_DIR + "/SettingsSchema+HoverCards.generated.swift",
         "type": "HoverCardSettingsSchema",

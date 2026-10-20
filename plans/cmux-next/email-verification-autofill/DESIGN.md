@@ -8,8 +8,8 @@ Status: slices 1 and 2 shipped behind `browser.verificationAutofill.enabled`
 (off). Slice 2 wires Mail.app (the first source), the page detector, and
 Fill Code / Open Link in WebKit and Chromium tabs. Decisions (2026-10-19):
 Mail.app first; brands that mail from another domain fail closed; the bar
-shows the code. The Settings row stays hidden until the feature is
-dogfooded in the app.
+shows the code. The Settings row (Browser > Passwords) is shown; the
+switch stays off by default.
 
 ## What Apple and Chrome do
 

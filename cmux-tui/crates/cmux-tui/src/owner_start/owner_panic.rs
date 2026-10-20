@@ -94,7 +94,12 @@ fn append(path: &std::path::Path, session: &str, info: &std::panic::PanicHookInf
         "location": location,
         "thread": thread,
         "owner_pid": std::process::id(),
-        "version": env!("CARGO_PKG_VERSION"),
+        // The release and build a tester runs, so crash reports group by
+        // release and platform (plans/cmux-next/tui-tester-rollout.md).
+        "version": crate::version_report::DISTRIBUTION_VERSION,
+        "build_identity": build_identity(),
+        "os": std::env::consts::OS,
+        "arch": std::env::consts::ARCH,
         "at_ms": at_ms,
         "test": test,
         "backtrace": backtrace,
@@ -126,4 +131,14 @@ fn panic_for_test() {
         .name(TEST_PANIC_THREAD.into())
         // crash-allow: debug-only test trigger for the owner panic log
         .spawn(|| panic!("cmux-tui test owner panic"));
+}
+
+#[cfg(unix)]
+fn build_identity() -> Option<&'static str> {
+    Some(cmux_build_identity::BUILD_IDENTITY)
+}
+
+#[cfg(not(unix))]
+fn build_identity() -> Option<&'static str> {
+    None
 }

@@ -15,6 +15,7 @@ import CmuxNextPalette
 import CmuxNextPages
 import CmuxNextPopups
 import CmuxNextBrowserImport
+import CmuxNextPhone
 import CmuxNextPhoneAccess
 import CmuxNextSettings
 import CmuxNextSidebar
@@ -99,6 +100,8 @@ final class AppServices {
     private(set) lazy var agentCursorVisibility = AgentCursorWiring.makeVisibility(services: self)
     /// `cmux://agent-activity`: the computer use sessions page.
     private(set) lazy var agentActivityPage = AgentActivityPageService(services: self)
+    /// `cmux://screenshots`: the Screenshots pane (its detection, thumbnail cache and pages).
+    private(set) lazy var screenshotsPage = ScreenshotsPageService(services: self)
     private(set) lazy var remoteViewPages = RemoteViewPageService()
     /// Bookmarks of every browser profile (plans/cmux-next/bookmarks.md).
     private(set) lazy var bookmarks = BookmarkService(services: self)
@@ -109,6 +112,13 @@ final class AppServices {
     private(set) lazy var sidebarCustomization = SidebarCustomizationService(client: apps.client) { [weak self] in self?.apps.presence.isPresented($0) == true }
     /// The Tasks page and its mirror of the local Tasks owner (plans/cmux-next/tasks.md).
     private(set) lazy var tasks = TasksPageService(services: self)
+    /// Phone tabs: simulators and real iPhones, recordings, feedback to Chief (plans/cmux-next/phone.md).
+    private(set) lazy var phones: PhoneService = {
+        let folder = SidebarSnapshotFile.buildDirectory(launch: environment.launch).appending(path: "phone", directoryHint: .isDirectory)
+        return PhoneService(backend: XcodePhoneBackend(), recordings: folder.appending(path: "recordings", directoryHint: .isDirectory),
+                            scratch: FileManager.default.temporaryDirectory.appending(path: "cmux-phone", directoryHint: .isDirectory))
+    }()
+    private(set) lazy var phoneFeedback = PhoneChiefFeedback(home: home)
     /// The viewers' recents, the cmux picker, the diff, markdown and editor tabs (R89, S4, S6, S7).
     private(set) lazy var viewers = ViewerService(services: self)
     /// The cmux server menu bar item (DEV and NIGHTLY prototype; plans/cmux-next/server.md 14).
