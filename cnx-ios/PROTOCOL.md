@@ -117,11 +117,16 @@ What the team still scopes (a view, not a trust boundary):
   Teammates never can, whatever team they share.
 
 Migration from team hubs (0.10.0): the URL and frames are unchanged, so old
-phone and Mac builds need no update. A deploy disconnects every socket;
-clients reconnect as they do after any drop and land in their user's hub.
-A new hub is seeded once from the database with the user's Macs (offline
-until they connect), so `hello` lists a registered Mac that has not
-reconnected yet. The old team hubs are no longer reached.
+phone and Mac builds need no update. Hibernated sockets survive a deploy
+(seen live: a Mac stayed connected to its team hub across it), so the
+Worker retires a team's old hub the first time an isolate serves that team
+after a membership check (`GET /v1/teams/:teamId/macs`, the signal socket,
+and each team of `GET /v1/me/macs`): the old hub closes its sockets with
+1012 `moved to the user hub` and deletes its rows. Clients reconnect as
+after any drop (hostd in under a second) and land in their user's hub.
+A user hub is never retired. A new hub is seeded once from the database
+with the user's Macs (offline until they connect), so `hello` lists a
+registered Mac that has not reconnected yet.
 
 A hub stays where it is first created. Since 0.6.0 the Worker creates it
 with a `locationHint` from the caller's own location (Cloudflare's
