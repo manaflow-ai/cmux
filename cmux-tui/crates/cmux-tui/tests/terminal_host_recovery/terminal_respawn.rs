@@ -398,6 +398,20 @@ fn a_respawned_terminal_does_not_resume_a_non_interactive_agent_run() {
         assert!(Instant::now() < deadline, "the run never started: {}", screen(&harness, surface));
         std::thread::sleep(Duration::from_millis(50));
     }
+    // Both hooks reached the terminal before its host dies.
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
+    loop {
+        let agents = request(&harness.socket, serde_json::json!({"cmd":"list-agents"}));
+        let claimed =
+            agents["agents"].as_array().into_iter().flatten().any(|agent| {
+                agent["surface"].as_u64() == Some(surface) && agent["agent"] == "claude"
+            });
+        if claimed {
+            break;
+        }
+        assert!(Instant::now() < deadline, "the hooks never reached the terminal: {agents}");
+        std::thread::sleep(Duration::from_millis(50));
+    }
 
     kill_current_shell_and_host(&harness, &terminal_id);
     wait_for_respawn(&harness, &terminal_id, &incarnation);
