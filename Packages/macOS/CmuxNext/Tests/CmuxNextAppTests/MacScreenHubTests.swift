@@ -125,6 +125,8 @@ struct MacScreenHubCardTests {
         #expect(MacScreenEndReason("peer_offline") == .peerOffline)
         #expect(MacScreenEndReason("failed") == .failed)
         #expect(MacScreenEndReason("expired") == .expired)
+        #expect(MacScreenEndReason("approve_failed") == .approveFailed)
+        #expect(MacScreenEndReason.approveFailed.text(host: "Mac mini 2").contains("Mac mini 2"))
         #expect(MacScreenEndReason("bye") == .other)
         #expect(MacScreenEndReason(nil) == .other)
         #expect(MacScreenHubReason.hostStopped.rawValue == "host_stopped")
@@ -585,6 +587,13 @@ struct MacScreenDevicesSettingsTests {
         let disconnected = AuditEntry(id: "e5", event: "ended", viewerId: "v1", hostId: hostID, detail: "viewer_disconnected")
         #expect(MacScreenDevicesSettings.historyRow(disconnected, names: names, me: hostID).detail.contains("Laptop"))
         // Devices joining and leaving (the backend's per-device audit): the detail names the device.
+        // The backend names the device in deviceId.
+        let joined = AuditEntry(id: "e9", event: "device_added", deviceId: "v1")
+        let joinedRow = MacScreenDevicesSettings.historyRow(joined, names: names, me: hostID)
+        #expect(joinedRow.detail.contains("Laptop") && joinedRow.device == "Laptop")
+        // A socket close is no longer an end reason: History shows the raw word only for an unknown one.
+        let bye = AuditEntry(id: "e10", event: "ended", viewerId: "v1", hostId: hostID, detail: "bye")
+        #expect(!MacScreenDevicesSettings.historyRow(bye, names: names, me: hostID).detail.isEmpty)
         let added = AuditEntry(id: "e7", event: "device_added", viewerId: nil, hostId: "v1")
         let addedRow = MacScreenDevicesSettings.historyRow(added, names: names, me: hostID)
         #expect(addedRow.detail.contains("Laptop") && !addedRow.eventText.isEmpty && addedRow.tone == "success")

@@ -177,6 +177,19 @@ struct TicketSignalingTests {
         #expect(socket.closed)
     }
 
+    /// The session's network path, once known, goes to the hub (`sessions.path`).
+    @Test(.timeLimit(.minutes(1))) func thePathIsReported() async throws {
+        let socket = FakeSignalSocket()
+        let signaling = try TicketSignaling(ticket: Self.jws(role: "viewer", peerKey: SoftwareTicketSigner().publicKey),
+                                            signalURL: URL(string: "wss://hub.example/v1/sessions/s1/ws")!,
+                                            signer: SoftwareTicketSigner(), iceServers: []) { _ in socket }
+        var messages = signaling.messages().makeAsyncIterator()
+        _ = try await messages.next()
+        try await signaling.send(.path(relay: true))
+        try await signaling.send(.path(relay: false))
+        #expect(socket.sent == [#"{"type":"path","path":"relay"}"#, #"{"type":"path","path":"direct"}"#])
+    }
+
     @Test(.timeLimit(.minutes(1))) func anOfferWithoutFpSigAborts() async throws {
         let socket = FakeSignalSocket()
         let signaling = try TicketSignaling(ticket: Self.jws(role: "host", peerKey: SoftwareTicketSigner().publicKey),

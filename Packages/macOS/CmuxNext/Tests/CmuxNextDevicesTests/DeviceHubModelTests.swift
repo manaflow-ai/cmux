@@ -56,6 +56,13 @@ import Testing
         #expect(seen.last == .sessionRevoked(sessionID: "s1", reason: "permission_changed"))
     }
 
+    /// Audit entries carry `deviceId` for device_added and device_removed.
+    @Test func auditEntriesReadTheirDevice() throws {
+        let data = Data(#"{"id":"a","ts":1800000000000,"event":"device_added","deviceId":"d1"}"#.utf8)
+        let entry = try JSONDecoder().decode(AuditEntry.self, from: data)
+        #expect(entry.deviceId == "d1" && entry.event == "device_added")
+    }
+
     /// Settings > Devices reads the audit log again after every push but `pong`.
     @Test func pushesAreCountedButPongs() async {
         let hub = makeHub(StubHub.routes([:]))
