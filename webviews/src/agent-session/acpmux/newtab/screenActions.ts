@@ -76,6 +76,7 @@ export function newTabScreenActions(deps: {
     // Tab page instead of turning into an empty chat.
     onOpenChat: (key) => ignore(callNative("chats.open", { key })),
     onOpenChatInTerminal: (key) => ignore(callNative("chats.openInTerminal", { key })),
+    onViewChat: (key) => ignore(callNative("chats.watch", { key })),
     loadChatsPage: (params) => callNative("chats.page", params) as Promise<AllChatsPage | undefined>,
     onShowAll: deps.showAllChats,
     onTouched: () => ignore(callNative("newTab.touched")),

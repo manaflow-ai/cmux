@@ -1,926 +1,794 @@
 {
   "sourceLanguage": "en",
   "strings": {
-    "newTab.nowPlaying.label": {
-      "comment": "Agent pane: accessible name of the New Tab page's Now Playing player (the music playing on this Mac)",
+    "watch.continue": {
+      "comment": "Agent pane: the View Only banner button that forks a viewed Claude Code session into a new chat, leaving the original untouched",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "قيد التشغيل الآن"
+            "state": "needs_review",
+            "value": "المتابعة في محادثة جديدة"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Sada se reproducira"
+            "state": "needs_review",
+            "value": "Nastavi u novom chatu"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Afspilles nu"
+            "state": "needs_review",
+            "value": "Fortsæt i ny chat"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Aktuelle Wiedergabe"
+            "state": "needs_review",
+            "value": "In neuem Chat fortsetzen"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Now Playing"
+            "value": "Continue in New Chat"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Reproduciendo ahora"
+            "state": "needs_review",
+            "value": "Continuar en un chat nuevo"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "À l’écoute"
+            "state": "needs_review",
+            "value": "Continuer dans une nouvelle conversation"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "In riproduzione"
+            "state": "needs_review",
+            "value": "Continua in una nuova chat"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "再生中"
+            "state": "needs_review",
+            "value": "新しいチャットで続ける"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "កំពុង​ចាក់"
+            "state": "needs_review",
+            "value": "បន្តក្នុងការជជែកថ្មី"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "지금 재생 중"
+            "state": "needs_review",
+            "value": "새 채팅에서 계속"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Spilles nå"
+            "state": "needs_review",
+            "value": "Fortsett i ny chat"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Teraz odtwarzane"
+            "state": "needs_review",
+            "value": "Kontynuuj w nowym czacie"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Tocando Agora"
+            "state": "needs_review",
+            "value": "Continuar em um novo chat"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Сейчас играет"
+            "state": "needs_review",
+            "value": "Продолжить в новом чате"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "กำลังเล่น"
+            "state": "needs_review",
+            "value": "ดำเนินการต่อในแชทใหม่"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Şimdi Çalıyor"
+            "state": "needs_review",
+            "value": "Yeni sohbette devam et"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Зараз грає"
+            "state": "needs_review",
+            "value": "Продовжити в новому чаті"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Đang phát"
+            "state": "needs_review",
+            "value": "Tiếp tục trong cuộc trò chuyện mới"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "正在播放"
+            "state": "needs_review",
+            "value": "在新聊天中继续"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "正在播放"
+            "state": "needs_review",
+            "value": "在新聊天中繼續"
           }
         }
       }
     },
-    "picker.accountSwitchFailed": {
-      "comment": "Agent pane: the Account menu's note when acpmux refused to move the chat to the picked account",
+    "watch.newChat": {
+      "comment": "Agent pane: the View Only banner button that starts a new Codex chat in the viewed session's folder",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "تعذّر تبديل الحساب"
+            "state": "needs_review",
+            "value": "محادثة جديدة هنا"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Promjena računa nije uspjela"
+            "state": "needs_review",
+            "value": "Novi chat ovdje"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Kontoen kunne ikke skiftes"
+            "state": "needs_review",
+            "value": "Ny chat her"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Konto konnte nicht gewechselt werden"
+            "state": "needs_review",
+            "value": "Neuer Chat hier"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Couldn’t switch account"
+            "value": "New Chat Here"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "No se pudo cambiar de cuenta"
+            "state": "needs_review",
+            "value": "Nuevo chat aquí"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Impossible de changer de compte"
+            "state": "needs_review",
+            "value": "Nouvelle conversation ici"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Impossibile cambiare account"
+            "state": "needs_review",
+            "value": "Nuova chat qui"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "アカウントを切り替えられませんでした"
+            "state": "needs_review",
+            "value": "ここで新しいチャット"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "មិនអាចប្ដូរគណនីបានទេ"
+            "state": "needs_review",
+            "value": "ការជជែកថ្មីនៅទីនេះ"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "계정을 전환할 수 없습니다"
+            "state": "needs_review",
+            "value": "여기서 새 채팅"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Kunne ikke bytte konto"
+            "state": "needs_review",
+            "value": "Ny chat her"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Nie udało się przełączyć konta"
+            "state": "needs_review",
+            "value": "Nowy czat tutaj"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Não foi possível trocar de conta"
+            "state": "needs_review",
+            "value": "Novo chat aqui"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Не удалось сменить аккаунт"
+            "state": "needs_review",
+            "value": "Новый чат здесь"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "สลับบัญชีไม่ได้"
+            "state": "needs_review",
+            "value": "แชทใหม่ที่นี่"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Hesap değiştirilemedi"
+            "state": "needs_review",
+            "value": "Burada yeni sohbet"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Не вдалося змінити обліковий запис"
+            "state": "needs_review",
+            "value": "Новий чат тут"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Không thể chuyển tài khoản"
+            "state": "needs_review",
+            "value": "Cuộc trò chuyện mới tại đây"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "无法切换账户"
+            "state": "needs_review",
+            "value": "在此新建聊天"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "無法切換帳號"
+            "state": "needs_review",
+            "value": "在此新增聊天"
           }
         }
       }
     },
-    "picker.modelThisSession": {
-      "comment": "Agent pane: the heading of the compact model menu; the models listed apply to this chat only",
+    "watch.banner": {
+      "comment": "Agent pane: the line over a chat that shows a Claude Code or Codex session another app runs, without running it; {app} is Claude Code or Codex",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "النموذج · هذه الجلسة"
+            "state": "needs_review",
+            "value": "عرض جلسة {app}"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Model · ova sesija"
+            "state": "needs_review",
+            "value": "Pregled sesije {app}"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Model · denne session"
+            "state": "needs_review",
+            "value": "Viser {app}-session"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Modell · diese Sitzung"
+            "state": "needs_review",
+            "value": "{app}-Sitzung wird angezeigt"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Model · this session"
+            "value": "Viewing {app} session"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Modelo · esta sesión"
+            "state": "needs_review",
+            "value": "Viendo la sesión de {app}"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Modèle · cette session"
+            "state": "needs_review",
+            "value": "Affichage de la session {app}"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Modello · questa sessione"
+            "state": "needs_review",
+            "value": "Visualizzazione della sessione {app}"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "モデル · このセッション"
+            "state": "needs_review",
+            "value": "{app} のセッションを表示中"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "ម៉ូដែល · វគ្គនេះ"
+            "state": "needs_review",
+            "value": "កំពុងមើលវគ្គ {app}"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "모델 · 이 세션"
+            "state": "needs_review",
+            "value": "{app} 세션 보는 중"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Modell · denne økten"
+            "state": "needs_review",
+            "value": "Viser {app}-økt"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Model · ta sesja"
+            "state": "needs_review",
+            "value": "Podgląd sesji {app}"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Modelo · esta sessão"
+            "state": "needs_review",
+            "value": "Visualizando a sessão do {app}"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Модель · этот сеанс"
+            "state": "needs_review",
+            "value": "Просмотр сеанса {app}"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "โมเดล · เซสชันนี้"
+            "state": "needs_review",
+            "value": "กำลังดูเซสชัน {app}"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Model · bu oturum"
+            "state": "needs_review",
+            "value": "{app} oturumu görüntüleniyor"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Модель · цей сеанс"
+            "state": "needs_review",
+            "value": "Перегляд сеансу {app}"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Mô hình · phiên này"
+            "state": "needs_review",
+            "value": "Đang xem phiên {app}"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "模型 · 本会话"
+            "state": "needs_review",
+            "value": "正在查看 {app} 会话"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "模型 · 本工作階段"
+            "state": "needs_review",
+            "value": "正在檢視 {app} 工作階段"
           }
         }
       }
     },
-    "picker.account": {
-      "comment": "Agent pane: the compact model menu's row that opens the chat's accounts and subscriptions",
+    "watch.takeOver": {
+      "comment": "Agent pane: the button that makes a viewed Claude Code or Codex session run in this chat",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "الحساب"
+            "state": "needs_review",
+            "value": "تولَّ الجلسة"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Račun"
+            "state": "needs_review",
+            "value": "Preuzmi"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Konto"
+            "state": "needs_review",
+            "value": "Overtag"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Konto"
+            "state": "needs_review",
+            "value": "Übernehmen"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Account"
+            "value": "Take Over"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Cuenta"
+            "state": "needs_review",
+            "value": "Tomar el control"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Compte"
+            "state": "needs_review",
+            "value": "Reprendre"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Account"
+            "state": "needs_review",
+            "value": "Prendi il controllo"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "アカウント"
+            "state": "needs_review",
+            "value": "引き継ぐ"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "គណនី"
+            "state": "needs_review",
+            "value": "យកមកគ្រប់គ្រង"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "계정"
+            "state": "needs_review",
+            "value": "인계받기"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Konto"
+            "state": "needs_review",
+            "value": "Overta"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Konto"
+            "state": "needs_review",
+            "value": "Przejmij"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Conta"
+            "state": "needs_review",
+            "value": "Assumir"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Аккаунт"
+            "state": "needs_review",
+            "value": "Взять на себя"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "บัญชี"
+            "state": "needs_review",
+            "value": "รับช่วง"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Hesap"
+            "state": "needs_review",
+            "value": "Devral"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Обліковий запис"
+            "state": "needs_review",
+            "value": "Перейняти"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Tài khoản"
+            "state": "needs_review",
+            "value": "Tiếp quản"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "账户"
+            "state": "needs_review",
+            "value": "接管"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "帳號"
+            "state": "needs_review",
+            "value": "接手"
           }
         }
       }
     },
-    "picker.harnessLogin": {
-      "comment": "Agent pane: the Account menu's row for the agent CLI's own sign-in, used when the chat has no route of its own",
+    "watch.composer": {
+      "comment": "Agent pane: the View Only banner hint that sending a message takes over the Claude Code or Codex session another app runs",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "تسجيل الدخول في CLI"
+            "state": "needs_review",
+            "value": "ردّ لتتولّى هذه الجلسة"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Prijava u CLI"
+            "state": "needs_review",
+            "value": "Odgovorite da preuzmete ovu sesiju"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "CLI-login"
+            "state": "needs_review",
+            "value": "Svar for at overtage denne session"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "CLI-Anmeldung"
+            "state": "needs_review",
+            "value": "Antworte, um diese Sitzung zu übernehmen"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "CLI login"
+            "value": "Reply to take over this session"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Inicio de sesión de la CLI"
+            "state": "needs_review",
+            "value": "Responde para tomar el control de esta sesión"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Connexion de la CLI"
+            "state": "needs_review",
+            "value": "Répondez pour reprendre cette session"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Accesso della CLI"
+            "state": "needs_review",
+            "value": "Rispondi per prendere il controllo di questa sessione"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "CLI のログイン"
+            "state": "needs_review",
+            "value": "返信するとこのセッションを引き継ぎます"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "ការចូលរបស់ CLI"
+            "state": "needs_review",
+            "value": "ឆ្លើយតប ដើម្បីយកវគ្គនេះមកគ្រប់គ្រង"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "CLI 로그인"
+            "state": "needs_review",
+            "value": "답장하면 이 세션을 인계받습니다"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "CLI-pålogging"
+            "state": "needs_review",
+            "value": "Svar for å overta denne økten"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Logowanie w CLI"
+            "state": "needs_review",
+            "value": "Odpowiedz, aby przejąć tę sesję"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Login da CLI"
+            "state": "needs_review",
+            "value": "Responda para assumir esta sessão"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Вход в CLI"
+            "state": "needs_review",
+            "value": "Ответьте, чтобы взять этот сеанс на себя"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "การเข้าสู่ระบบของ CLI"
+            "state": "needs_review",
+            "value": "ตอบกลับเพื่อรับช่วงเซสชันนี้"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "CLI oturumu"
+            "state": "needs_review",
+            "value": "Bu oturumu devralmak için yanıtlayın"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Вхід у CLI"
+            "state": "needs_review",
+            "value": "Відповідайте, щоб перейняти цей сеанс"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Đăng nhập CLI"
+            "state": "needs_review",
+            "value": "Trả lời để tiếp quản phiên này"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "CLI 登录"
+            "state": "needs_review",
+            "value": "回复即可接管此会话"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "CLI 登入"
+            "state": "needs_review",
+            "value": "回覆即可接手此工作階段"
           }
         }
       }
     },
-    "picker.accountHint": {
-      "comment": "Agent pane: the Account menu's note when no other account is set up; `cmux route add` is a command and stays as is",
+    "newTab.viewOnly": {
+      "comment": "Agent pane: All chats menu item that opens a Claude Code or Codex chat to view it without taking it over from the app that runs it",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "أضف حسابات باستخدام cmux route add"
+            "state": "needs_review",
+            "value": "عرض فقط"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Dodajte račune pomoću cmux route add"
+            "state": "needs_review",
+            "value": "Samo pregled"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Tilføj konti med cmux route add"
+            "state": "needs_review",
+            "value": "Kun visning"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Konten mit cmux route add hinzufügen"
+            "state": "needs_review",
+            "value": "Nur ansehen"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Add accounts with cmux route add"
+            "value": "View Only"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Añade cuentas con cmux route add"
+            "state": "needs_review",
+            "value": "Solo ver"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Ajoutez des comptes avec cmux route add"
+            "state": "needs_review",
+            "value": "Afficher seulement"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Aggiungi account con cmux route add"
+            "state": "needs_review",
+            "value": "Solo visualizzazione"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux route add でアカウントを追加"
+            "state": "needs_review",
+            "value": "表示のみ"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "បន្ថែមគណនីដោយប្រើ cmux route add"
+            "state": "needs_review",
+            "value": "មើលតែប៉ុណ្ណោះ"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux route add로 계정 추가"
+            "state": "needs_review",
+            "value": "보기만"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Legg til kontoer med cmux route add"
+            "state": "needs_review",
+            "value": "Bare vis"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Dodaj konta poleceniem cmux route add"
+            "state": "needs_review",
+            "value": "Tylko podgląd"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Adicione contas com cmux route add"
+            "state": "needs_review",
+            "value": "Somente visualizar"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Добавьте аккаунты командой cmux route add"
+            "state": "needs_review",
+            "value": "Только просмотр"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "เพิ่มบัญชีด้วย cmux route add"
+            "state": "needs_review",
+            "value": "ดูอย่างเดียว"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux route add ile hesap ekleyin"
+            "state": "needs_review",
+            "value": "Yalnızca görüntüle"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Додайте облікові записи командою cmux route add"
+            "state": "needs_review",
+            "value": "Лише перегляд"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Thêm tài khoản bằng cmux route add"
+            "state": "needs_review",
+            "value": "Chỉ xem"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "使用 cmux route add 添加账户"
+            "state": "needs_review",
+            "value": "仅查看"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "使用 cmux route add 新增帳號"
-          }
-        }
-      }
-    },
-    "picker.accountFailed": {
-      "comment": "Agent pane: the Account menu's note when acpmux did not answer with the chat's accounts",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تعذّر تحميل الحسابات"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Učitavanje računa nije uspjelo"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kontiene kunne ikke indlæses"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Konten konnten nicht geladen werden"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Couldn’t load accounts"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No se pudieron cargar las cuentas"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Impossible de charger les comptes"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Impossibile caricare gli account"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "アカウントを読み込めませんでした"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "មិនអាចផ្ទុកគណនីបានទេ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "계정을 불러올 수 없습니다"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kunne ikke laste inn kontoer"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nie udało się wczytać kont"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Não foi possível carregar as contas"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Не удалось загрузить аккаунты"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "โหลดบัญชีไม่ได้"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hesaplar yüklenemedi"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Не вдалося завантажити облікові записи"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Không thể tải tài khoản"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "无法载入账户"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "無法載入帳號"
+            "state": "needs_review",
+            "value": "僅檢視"
           }
         }
       }
@@ -25899,666 +25767,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "在網路上搜尋"
-          }
-        }
-      }
-    },
-    "newTab.mode.search": {
-      "comment": "Agent pane: New Tab Search | Ask switch, the web search side",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "بحث"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Pretraga"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Søg"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Suchen"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Search"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Buscar"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Rechercher"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Cerca"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "検索"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ស្វែងរក"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "검색"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Søk"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Szukaj"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Pesquisar"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Поиск"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ค้นหา"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ara"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Пошук"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tìm kiếm"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "搜索"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "搜尋"
-          }
-        }
-      }
-    },
-    "newTab.mode.ask": {
-      "comment": "Agent pane: New Tab Search | Ask switch, the agent side",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "اسأل"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Pitaj"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Spørg"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Fragen"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ask"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Preguntar"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Demander"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chiedi"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "質問"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "សួរ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "질문"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Spør"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Zapytaj"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Perguntar"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Спросить"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ถาม"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Sor"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Запитати"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Hỏi"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "提问"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "提問"
-          }
-        }
-      }
-    },
-    "newTab.mode.label": {
-      "comment": "Agent pane: accessibility label of the New Tab Search | Ask switch",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ابحث أو اسأل"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Pretraži ili pitaj"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Søg eller spørg"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Suchen oder fragen"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Search or ask"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Buscar o preguntar"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Rechercher ou demander"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Cerca o chiedi"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "検索または質問"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ស្វែងរក ឬសួរ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "검색 또는 질문"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Søk eller spør"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Szukaj lub zapytaj"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Pesquisar ou perguntar"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Поиск или вопрос"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ค้นหาหรือถาม"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ara veya sor"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Пошук або запитання"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tìm kiếm hoặc hỏi"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "搜索或提问"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "搜尋或提問"
-          }
-        }
-      }
-    },
-    "newTab.mode.hint": {
-      "comment": "Agent pane: hint beside the New Tab Search | Ask switch; Tab is the key name",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tab للتبديل"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tab za prebacivanje"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tab for at skifte"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tab zum Wechseln"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tab to switch"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tab para cambiar"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tab pour basculer"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tab per cambiare"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tabで切り替え"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tab ដើម្បីប្ដូរ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tab으로 전환"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tab for å bytte"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tab, aby przełączyć"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tab para alternar"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tab — переключить"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tab เพื่อสลับ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Değiştirmek için Tab"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tab — перемкнути"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tab để chuyển"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "按 Tab 切换"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "按 Tab 切換"
-          }
-        }
-      }
-    },
-    "newTab.searchPlaceholder": {
-      "comment": "Agent pane: New Tab field placeholder in Search mode",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ابحث في الويب أو اكتب URL"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Pretraži web ili upiši URL"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Søg på nettet, eller skriv en URL"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Im Web suchen oder URL eingeben"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Search the web or type a URL"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Busca en la web o escribe una URL"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Recherchez sur le Web ou saisissez une URL"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Cerca sul web o digita un URL"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ウェブを検索するか、URLを入力"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ស្វែងរកលើបណ្តាញ ឬវាយ URL"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "웹 검색 또는 URL 입력"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Søk på nettet, eller skriv en URL"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Szukaj w internecie lub wpisz URL"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Pesquise na web ou digite uma URL"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Поиск в интернете или введите URL"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ค้นหาบนเว็บหรือพิมพ์ URL"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Web'de ara veya URL yaz"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Шукайте в інтернеті або введіть URL"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tìm kiếm trên web hoặc nhập URL"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "在网上搜索或输入 URL"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "在網路上搜尋或輸入 URL"
           }
         }
       }
@@ -103017,798 +102225,6 @@
         }
       }
     },
-    "composer.environmentNone": {
-      "comment": "Agent pane",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "لا توجد بيئات مطابقة"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nema odgovarajućih okruženja"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ingen matchende miljøer"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Keine passenden Umgebungen"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No matching environments"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "No hay entornos coincidentes"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Aucun environnement correspondant"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nessun ambiente corrispondente"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "一致する環境はありません"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "គ្មានបរិស្ថានដែលត្រូវគ្នា"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "일치하는 환경 없음"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ingen samsvarende miljøer"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Brak pasujących środowisk"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nenhum ambiente correspondente"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Нет подходящих сред"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ไม่มีสภาพแวดล้อมที่ตรงกัน"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Eşleşen ortam yok"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Немає відповідних середовищ"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Không có môi trường phù hợp"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "没有匹配的环境"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "沒有符合的環境"
-          }
-        }
-      }
-    },
-    "composer.environment": {
-      "comment": "Agent pane",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "البيئة"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Okruženje"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Miljø"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Umgebung"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Environment"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Entorno"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Environnement"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ambiente"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "環境"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "បរិស្ថាន"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "환경"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Miljø"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Środowisko"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ambiente"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Среда"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "สภาพแวดล้อม"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ortam"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Середовище"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Môi trường"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "环境"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "環境"
-          }
-        }
-      }
-    },
-    "composer.environmentSearch": {
-      "comment": "Agent pane",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "البحث في البيئات"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Pretraži okruženja"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Søg i miljøer"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Umgebungen durchsuchen"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Search environments"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Buscar entornos"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Rechercher des environnements"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Cerca ambienti"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "環境を検索"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ស្វែងរកបរិស្ថាន"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "환경 검색"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Søk i miljøer"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Szukaj środowisk"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Buscar ambientes"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Поиск сред"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ค้นหาสภาพแวดล้อม"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ortamlarda ara"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Пошук середовищ"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tìm môi trường"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "搜索环境"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "搜尋環境"
-          }
-        }
-      }
-    },
-    "composer.envLocal": {
-      "comment": "Agent pane",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "محلي"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Lokalno"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Lokalt"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Lokal"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Local"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Local"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Local"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Locale"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ローカル"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "មូលដ្ឋាន"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "로컬"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Lokalt"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Lokalne"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Local"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Локально"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ภายในเครื่อง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Yerel"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Локально"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Cục bộ"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "本地"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "本機"
-          }
-        }
-      }
-    },
-    "composer.envSSH": {
-      "comment": "Agent pane",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "SSH"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "SSH"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "SSH"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "SSH"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "SSH"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "SSH"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "SSH"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "SSH"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "SSH"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "SSH"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "SSH"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "SSH"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "SSH"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "SSH"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "SSH"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "SSH"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "SSH"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "SSH"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "SSH"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "SSH"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "SSH"
-          }
-        }
-      }
-    },
-    "composer.newEnvironment": {
-      "comment": "Agent pane",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "بيئة جديدة"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Novo okruženje"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nyt miljø"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Neue Umgebung"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "New environment"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nuevo entorno"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nouvel environnement"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nuovo ambiente"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "新しい環境"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "បរិស្ថានថ្មី"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "새 환경"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nytt miljø"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nowe środowisko"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Novo ambiente"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Новая среда"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "สภาพแวดล้อมใหม่"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Yeni ortam"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Нове середовище"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Môi trường mới"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "新建环境"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "新增環境"
-          }
-        }
-      }
-    },
     "image.close" : {
       "comment" : "Agent pane",
       "extractionState" : "manual",
@@ -167071,6 +165487,1590 @@
         }
       }
     },
+    "newTab.nowPlaying.label": {
+      "comment": "Agent pane: accessible name of the New Tab page's Now Playing player (the music playing on this Mac)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "قيد التشغيل الآن"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sada se reproducira"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afspilles nu"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktuelle Wiedergabe"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Now Playing"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reproduciendo ahora"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "À l’écoute"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In riproduzione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再生中"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កំពុង​ចាក់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "지금 재생 중"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spilles nå"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Teraz odtwarzane"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tocando Agora"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сейчас играет"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "กำลังเล่น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Şimdi Çalıyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Зараз грає"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đang phát"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在播放"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在播放"
+          }
+        }
+      }
+    },
+    "picker.accountSwitchFailed": {
+      "comment": "Agent pane: the Account menu's note when acpmux refused to move the chat to the picked account",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر تبديل الحساب"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Promjena računa nije uspjela"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kontoen kunne ikke skiftes"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Konto konnte nicht gewechselt werden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn’t switch account"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo cambiar de cuenta"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de changer de compte"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile cambiare account"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アカウントを切り替えられませんでした"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនអាចប្ដូរគណនីបានទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "계정을 전환할 수 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kunne ikke bytte konto"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie udało się przełączyć konta"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível trocar de conta"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось сменить аккаунт"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สลับบัญชีไม่ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hesap değiştirilemedi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдалося змінити обліковий запис"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không thể chuyển tài khoản"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法切换账户"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法切換帳號"
+          }
+        }
+      }
+    },
+    "picker.modelThisSession": {
+      "comment": "Agent pane: the heading of the compact model menu; the models listed apply to this chat only",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "النموذج · هذه الجلسة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Model · ova sesija"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Model · denne session"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modell · diese Sitzung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Model · this session"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modelo · esta sesión"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modèle · cette session"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modello · questa sessione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "モデル · このセッション"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ម៉ូដែល · វគ្គនេះ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모델 · 이 세션"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modell · denne økten"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Model · ta sesja"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modelo · esta sessão"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Модель · этот сеанс"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "โมเดล · เซสชันนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Model · bu oturum"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Модель · цей сеанс"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mô hình · phiên này"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "模型 · 本会话"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "模型 · 本工作階段"
+          }
+        }
+      }
+    },
+    "picker.account": {
+      "comment": "Agent pane: the compact model menu's row that opens the chat's accounts and subscriptions",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الحساب"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Račun"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Konto"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Konto"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Account"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuenta"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compte"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Account"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アカウント"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "គណនី"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "계정"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Konto"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Konto"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conta"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Аккаунт"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บัญชี"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hesap"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Обліковий запис"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tài khoản"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "账户"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "帳號"
+          }
+        }
+      }
+    },
+    "picker.harnessLogin": {
+      "comment": "Agent pane: the Account menu's row for the agent CLI's own sign-in, used when the chat has no route of its own",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تسجيل الدخول في CLI"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prijava u CLI"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI-login"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI-Anmeldung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI login"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inicio de sesión de la CLI"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connexion de la CLI"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accesso della CLI"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI のログイン"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការចូលរបស់ CLI"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI 로그인"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI-pålogging"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Logowanie w CLI"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Login da CLI"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вход в CLI"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การเข้าสู่ระบบของ CLI"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI oturumu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вхід у CLI"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đăng nhập CLI"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI 登录"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI 登入"
+          }
+        }
+      }
+    },
+    "picker.accountHint": {
+      "comment": "Agent pane: the Account menu's note when no other account is set up; `cmux route add` is a command and stays as is",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أضف حسابات باستخدام cmux route add"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dodajte račune pomoću cmux route add"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tilføj konti med cmux route add"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Konten mit cmux route add hinzufügen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add accounts with cmux route add"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Añade cuentas con cmux route add"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajoutez des comptes avec cmux route add"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aggiungi account con cmux route add"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux route add でアカウントを追加"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បន្ថែមគណនីដោយប្រើ cmux route add"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux route add로 계정 추가"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Legg til kontoer med cmux route add"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dodaj konta poleceniem cmux route add"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adicione contas com cmux route add"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Добавьте аккаунты командой cmux route add"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เพิ่มบัญชีด้วย cmux route add"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux route add ile hesap ekleyin"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Додайте облікові записи командою cmux route add"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thêm tài khoản bằng cmux route add"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用 cmux route add 添加账户"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用 cmux route add 新增帳號"
+          }
+        }
+      }
+    },
+    "picker.accountFailed": {
+      "comment": "Agent pane: the Account menu's note when acpmux did not answer with the chat's accounts",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر تحميل الحسابات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Učitavanje računa nije uspjelo"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kontiene kunne ikke indlæses"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Konten konnten nicht geladen werden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn’t load accounts"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudieron cargar las cuentas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de charger les comptes"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile caricare gli account"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アカウントを読み込めませんでした"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនអាចផ្ទុកគណនីបានទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "계정을 불러올 수 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kunne ikke laste inn kontoer"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie udało się wczytać kont"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível carregar as contas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось загрузить аккаунты"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "โหลดบัญชีไม่ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hesaplar yüklenemedi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдалося завантажити облікові записи"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không thể tải tài khoản"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法载入账户"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法載入帳號"
+          }
+        }
+      }
+    },
+    "newTab.mode.search": {
+      "comment": "Agent pane: New Tab Search | Ask switch, the web search side",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "بحث"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pretraga"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Søg"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Suchen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Buscar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rechercher"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cerca"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "検索"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ស្វែងរក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "검색"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Søk"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Szukaj"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pesquisar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Поиск"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ค้นหา"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ara"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Пошук"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tìm kiếm"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "搜索"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "搜尋"
+          }
+        }
+      }
+    },
+    "newTab.mode.ask": {
+      "comment": "Agent pane: New Tab Search | Ask switch, the agent side",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "اسأل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pitaj"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Spørg"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fragen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ask"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Preguntar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Demander"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chiedi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "質問"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "សួរ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "질문"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Spør"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zapytaj"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Perguntar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Спросить"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ถาม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Запитати"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hỏi"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "提问"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "提問"
+          }
+        }
+      }
+    },
+    "newTab.mode.label": {
+      "comment": "Agent pane: accessibility label of the New Tab Search | Ask switch",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ابحث أو اسأل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pretraži ili pitaj"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Søg eller spørg"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Suchen oder fragen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search or ask"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Buscar o preguntar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rechercher ou demander"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cerca o chiedi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "検索または質問"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ស្វែងរក ឬសួរ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "검색 또는 질문"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Søk eller spør"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Szukaj lub zapytaj"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pesquisar ou perguntar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Поиск или вопрос"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ค้นหาหรือถาม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ara veya sor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Пошук або запитання"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tìm kiếm hoặc hỏi"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "搜索或提问"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "搜尋或提問"
+          }
+        }
+      }
+    },
+    "newTab.mode.hint": {
+      "comment": "Agent pane: hint beside the New Tab Search | Ask switch; Tab is the key name",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab للتبديل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab za prebacivanje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab for at skifte"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab zum Wechseln"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tab to switch"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab para cambiar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab pour basculer"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab per cambiare"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tabで切り替え"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab ដើម្បីប្ដូរ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab으로 전환"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab for å bytte"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab, aby przełączyć"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab para alternar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab — переключить"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab เพื่อสลับ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Değiştirmek için Tab"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab — перемкнути"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab để chuyển"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "按 Tab 切换"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "按 Tab 切換"
+          }
+        }
+      }
+    },
+    "newTab.searchPlaceholder": {
+      "comment": "Agent pane: New Tab field placeholder in Search mode",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ابحث في الويب أو اكتب URL"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pretraži web ili upiši URL"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Søg på nettet, eller skriv en URL"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Im Web suchen oder URL eingeben"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search the web or type a URL"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Busca en la web o escribe una URL"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Recherchez sur le Web ou saisissez une URL"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cerca sul web o digita un URL"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ウェブを検索するか、URLを入力"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ស្វែងរកលើបណ្តាញ ឬវាយ URL"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "웹 검색 또는 URL 입력"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Søk på nettet, eller skriv en URL"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Szukaj w internecie lub wpisz URL"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pesquise na web ou digite uma URL"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Поиск в интернете или введите URL"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ค้นหาบนเว็บหรือพิมพ์ URL"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Web'de ara veya URL yaz"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Шукайте в інтернеті або введіть URL"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tìm kiếm trên web hoặc nhập URL"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在网上搜索或输入 URL"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在網路上搜尋或輸入 URL"
+          }
+        }
+      }
+    },
     "composer.menu.undo": {
       "comment": "Composer context menu: undo the last edit in the prompt.",
       "extractionState": "manual",
@@ -171327,6 +171327,798 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "此 Mac 不允許：代理或你所屬組織的設定拒絕了此模式"
+          }
+        }
+      }
+    },
+    "composer.environmentNone": {
+      "comment": "Agent pane",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا توجد بيئات مطابقة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nema odgovarajućih okruženja"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingen matchende miljøer"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Keine passenden Umgebungen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No matching environments"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No hay entornos coincidentes"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aucun environnement correspondant"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nessun ambiente corrispondente"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "一致する環境はありません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "គ្មានបរិស្ថានដែលត្រូវគ្នា"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "일치하는 환경 없음"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingen samsvarende miljøer"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Brak pasujących środowisk"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nenhum ambiente correspondente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Нет подходящих сред"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่มีสภาพแวดล้อมที่ตรงกัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eşleşen ortam yok"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Немає відповідних середовищ"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không có môi trường phù hợp"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "没有匹配的环境"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "沒有符合的環境"
+          }
+        }
+      }
+    },
+    "composer.environment": {
+      "comment": "Agent pane",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "البيئة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Okruženje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Miljø"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Umgebung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Environment"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Entorno"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Environnement"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ambiente"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "環境"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បរិស្ថាន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "환경"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Miljø"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Środowisko"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ambiente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Среда"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "สภาพแวดล้อม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ortam"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Середовище"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Môi trường"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "环境"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "環境"
+          }
+        }
+      }
+    },
+    "composer.environmentSearch": {
+      "comment": "Agent pane",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "البحث في البيئات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pretraži okruženja"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Søg i miljøer"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Umgebungen durchsuchen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search environments"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Buscar entornos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rechercher des environnements"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cerca ambienti"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "環境を検索"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ស្វែងរកបរិស្ថាន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "환경 검색"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Søk i miljøer"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Szukaj środowisk"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Buscar ambientes"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Поиск сред"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ค้นหาสภาพแวดล้อม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ortamlarda ara"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Пошук середовищ"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tìm môi trường"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "搜索环境"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "搜尋環境"
+          }
+        }
+      }
+    },
+    "composer.envLocal": {
+      "comment": "Agent pane",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "محلي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lokalno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lokalt"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lokal"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Local"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Local"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Local"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Locale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ローカル"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មូលដ្ឋាន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "로컬"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lokalt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lokalne"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Local"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Локально"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ภายในเครื่อง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yerel"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Локально"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cục bộ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "本地"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "本機"
+          }
+        }
+      }
+    },
+    "composer.envSSH": {
+      "comment": "Agent pane",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "SSH"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "SSH"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "SSH"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "SSH"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "SSH"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "SSH"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "SSH"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "SSH"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "SSH"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "SSH"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "SSH"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "SSH"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "SSH"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "SSH"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "SSH"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "SSH"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "SSH"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "SSH"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "SSH"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "SSH"
+          }
+        }
+      }
+    },
+    "composer.newEnvironment": {
+      "comment": "Agent pane",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "بيئة جديدة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Novo okruženje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nyt miljø"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Neue Umgebung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New environment"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nuevo entorno"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nouvel environnement"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nuovo ambiente"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新しい環境"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បរិស្ថានថ្មី"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "새 환경"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nytt miljø"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nowe środowisko"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Novo ambiente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Новая среда"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "สภาพแวดล้อมใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yeni ortam"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Нове середовище"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Môi trường mới"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新建环境"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新增環境"
           }
         }
       }

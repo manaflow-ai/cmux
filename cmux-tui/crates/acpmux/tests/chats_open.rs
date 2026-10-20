@@ -139,6 +139,8 @@ async fn chat_open_then_session_new_adopts_from_the_profile_store() {
     let plan = &plan["result"];
     assert_eq!(plan["kind"], "adopt", "{plan}");
     assert_eq!(plan["adopt"]["harness"], "fakecodex");
+    // The profile is named freely; the family says what kind of chat it is (View Only needs it).
+    assert_eq!(plan["family"], "codex", "{plan}");
     let created = call(&tx, &mut rx, 3, method::SESSION_NEW, plan["sessionNew"].clone()).await;
     assert!(created.get("error").is_none(), "{created}");
     let session = hub.resolve(created["result"]["sessionId"].as_str().unwrap()).unwrap();

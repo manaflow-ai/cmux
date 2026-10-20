@@ -291,6 +291,8 @@ impl Hub {
             queue_paused: session.queue_paused(),
             // Being moved to another daemon (`transfer_out.rs`): it takes no prompt meanwhile.
             moving: session.moving().is_some(),
+            // Shows a conversation another app runs (`watch.rs`): it takes no prompt until taken over.
+            watching: m.watching.as_ref().map(|w| w.family.clone()),
             // The agent takes a prompt mid-turn (`_meta.acpmux.steer`); else a steer waits, or
             // with `interrupt` stops the turn and runs next.
             steering: session.steering.load(Ordering::SeqCst),
