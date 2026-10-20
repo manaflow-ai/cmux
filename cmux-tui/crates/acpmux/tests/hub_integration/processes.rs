@@ -83,6 +83,22 @@ fn connection(hub: &Arc<Hub>, origin: Origin) -> TestClient {
     TestClient { tx: in_tx, rx: out_rx, next: 0 }
 }
 
+/// A unix-socket connection made by the agent running `session`: its first initialize carries
+/// the caller token acpmux put in that harness's environment (`hub/person.rs` (a)).
+async fn session_connection(hub: &Arc<Hub>, session: &str) -> TestClient {
+    let mut client = connection(hub, Origin::Local);
+    let token = acpmux::hub::person::caller_token(session);
+    client
+        .request(
+            method::INITIALIZE,
+            json!({"protocolVersion": 1, "clientInfo": {"name": "agent"},
+                   "_meta": {"acpmux": {"callerSession": {"sessionId": session, "token": token}}}}),
+        )
+        .await
+        .unwrap();
+    client
+}
+
 #[tokio::test]
 async fn initialize_advertises_the_process_methods() {
     let (hub, mut c, root) = claude_hub(&[]).await;
@@ -341,6 +357,67 @@ async fn a_web_or_peer_connection_cannot_list_or_kill_processes() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+/// A harness gets this daemon's socket and a caller token for its own session. That identity must
+/// narrow process reads and stops to its own chat; otherwise one prompt-injected agent can read a
+/// different chat's background output or stop its work.
+#[tokio::test]
+async fn an_agent_cannot_read_or_stop_another_sessions_process() {
+    let (hub, mut app, root) = claude_hub(&[]).await;
+    let (victim, victim_process, _file) = output_chat(&mut app, &root).await;
+    let attacker = chat(&mut app, "bg-running").await;
+    let attacker_process = format!("{attacker}/r1");
+    let mut agent = session_connection(&hub, &attacker).await;
+
+    let targeted = agent.request(LIST, json!({"sessionId": victim})).await;
+    let all = agent.request(LIST, json!({})).await;
+    let read = agent.request(TAIL, json!({"processId": victim_process})).await;
+    let stopped = agent.request(KILL, json!({"processId": victim_process})).await;
+
+    assert!(targeted.is_err(), "another session's list was exposed: {targeted:?}");
+    let all = all.unwrap();
+    let ids: Vec<_> = all["processes"]
+        .as_array()
+        .unwrap_or_else(|| panic!("no process list: {all}"))
+        .iter()
+        .filter_map(|process| process["id"].as_str())
+        .collect();
+    assert_eq!(ids, vec![attacker_process.as_str()], "another session appeared in {all}");
+    assert!(read.is_err(), "another session's output was exposed: {read:?}");
+    assert!(stopped.is_err(), "another session's process was stopped: {stopped:?}");
+    assert!(stop_tasks(&hub, &victim).is_empty(), "the victim received stop_task");
+
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// Same-uid is not the person boundary: an agent can omit its caller token and open the unix
+/// socket directly. A connection with neither a person proof nor a scoped viewer grant must not
+/// recover ambient process authority.
+#[tokio::test]
+async fn an_unbound_local_connection_cannot_read_or_stop_processes() {
+    let (hub, mut app, root) = claude_hub(&[]).await;
+    let (victim, process, _file) = output_chat(&mut app, &root).await;
+    let mut unbound = connection(&hub, Origin::Local);
+    unbound
+        .request(
+            method::INITIALIZE,
+            json!({"protocolVersion": 1, "clientInfo": {"name": "unbound"}}),
+        )
+        .await
+        .unwrap();
+
+    let listed = unbound.request(LIST, json!({"sessionId": victim})).await;
+    let read = unbound.request(TAIL, json!({"processId": process})).await;
+    let stopped = unbound.request(KILL, json!({"processId": process})).await;
+    assert!(listed.is_err(), "an unbound client listed processes: {listed:?}");
+    assert!(read.is_err(), "an unbound client read process output: {read:?}");
+    assert!(stopped.is_err(), "an unbound client stopped a process: {stopped:?}");
+    assert!(stop_tasks(&hub, &victim).is_empty(), "the victim received stop_task");
+
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 /// Only Claude Code's processes are in the registry: a kill for a chat of
 /// another harness is refused, and its list is empty.
 #[tokio::test]
@@ -424,6 +501,38 @@ async fn tail_reads_the_shells_output_file_in_pages() {
         let text = e.msg.to_string();
         assert!(!text.contains("outputFile") && !text.contains("o1.output"), "{text}");
     }
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// The output pathname comes from the harness, but the daemon has more filesystem authority than
+/// a sandboxed agent. It must not follow a final symlink or a symlinked ancestor on the agent's
+/// behalf. Every file here is a disposable fixture under this test's private root.
+#[cfg(unix)]
+#[tokio::test]
+async fn tail_refuses_symlinks_in_a_background_output_path() {
+    use std::os::unix::fs::symlink;
+
+    let (hub, mut app, root) = claude_hub(&[]).await;
+    let (_id, process, output) = output_chat(&mut app, &root).await;
+    let outside = root.join("outside-secret");
+    std::fs::write(&outside, b"not task output").unwrap();
+
+    std::fs::remove_file(&output).unwrap();
+    symlink(&outside, &output).unwrap();
+    let final_link = app.request(TAIL, json!({"processId": process, "fromByte": 0})).await;
+    assert!(final_link.is_err(), "tail followed its final symlink: {final_link:?}");
+
+    std::fs::remove_file(&output).unwrap();
+    let tasks = output.parent().unwrap();
+    std::fs::remove_dir(tasks).unwrap();
+    let redirected = root.join("redirected");
+    std::fs::create_dir(&redirected).unwrap();
+    std::fs::write(redirected.join("o1.output"), b"not task output").unwrap();
+    symlink(&redirected, tasks).unwrap();
+    let ancestor_link = app.request(TAIL, json!({"processId": process, "fromByte": 0})).await;
+    assert!(ancestor_link.is_err(), "tail followed a symlinked ancestor: {ancestor_link:?}");
+
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&root);
 }
