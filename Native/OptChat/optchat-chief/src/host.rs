@@ -1925,10 +1925,12 @@ pub fn probe_notice(route: CompactRoute, error: &str) -> Option<String> {
     ))
 }
 
-/// The read-only memory inspector (inspect/http.rs) on 127.0.0.1, its
-/// address and token in `optchat/inspector.json` for the app. Off with
-/// `OPTCHAT_INSPECTOR=0`; a failure only logs (the Chief runs without it).
-/// Returns the inspector for the tools socket's `inspect` tool too.
+/// The memory inspector for the tools socket's `inspect` tool (the app's
+/// native Memory Inspector asks through its daemon), with the owner's
+/// change book (`inspect/edit.rs`). Off with `OPTCHAT_INSPECTOR=0`. The old
+/// web page on 127.0.0.1 (inspect/http.rs, its address and token in
+/// `optchat/inspector.json`) starts only with `OPTCHAT_INSPECTOR_WEB=1`, the
+/// fallback; a failure only logs (the Chief runs without it).
 fn start_inspector(
     paths: &Paths,
     chat: &Arc<OptChat>,
@@ -1938,12 +1940,20 @@ fn start_inspector(
     if env("OPTCHAT_INSPECTOR").as_deref() == Some("0") {
         return None;
     }
-    let inspector = Arc::new(crate::inspect::Inspector::new(
-        chat.clone(),
-        paths.traces.clone(),
-        paths.settle_status.clone(),
-        system_text.to_owned(),
-    ));
+    let editor = crate::inspect::edit::Editor::open(chat.clone(), &paths.root);
+    let inspector = Arc::new(
+        crate::inspect::Inspector::new(
+            chat.clone(),
+            paths.traces.clone(),
+            paths.settle_status.clone(),
+            system_text.to_owned(),
+        )
+        .with_editor(editor),
+    );
+    if env("OPTCHAT_INSPECTOR_WEB").as_deref() != Some("1") {
+        log("memory inspector: native (through the daemon); web page off");
+        return Some(inspector);
+    }
     let started = crate::inspect::http::new_secret().and_then(|token| {
         let bind = std::net::SocketAddr::from(([127, 0, 0, 1], 0));
         crate::inspect::http::start(inspector.clone(), bind, token)

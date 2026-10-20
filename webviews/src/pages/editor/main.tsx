@@ -144,6 +144,7 @@ export function mountEditorPage(root: HTMLElement, client: PageClient | null = c
           else if (command === "findNext") find.next();
           else if (command === "findPrevious") find.previous();
           else if (command === "useSelectionForFind") find.useSelection();
+          else if (command === "replace") find.showReplace(text);
           else find.hide();
           return true;
         },

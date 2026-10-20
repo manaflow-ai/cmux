@@ -47,6 +47,10 @@ protocol ChatIntents: AnyObject {
     func retrySend(_ message: ID)
     /// Delete: the failed send goes (`HomeStore.discardFailed`).
     func deleteFailedSend(_ message: ID)
+    /// Forward… is offered (the host routes a bubble's text to another chat).
+    var canForward: Bool { get }
+    /// Forward…: the bubble's text goes to another chat or agent the host asks for.
+    func forward(_ text: String)
     /// Open an attachment's bytes: in the host (``HomeFileHost``, cmux shows it on the right of
     /// the chat), else in the app the system picks.
     func openAttachment(_ message: ID, _ attachment: ID)
@@ -63,6 +67,12 @@ protocol ChatIntents: AnyObject {
     /// resized) and may have moved their content onto other device pixels (RowCell.snapRow, MessagesLab
     /// c1457e5): what the host draws over a row follows it.
     func rowsPlaced()
+}
+
+extension ChatIntents {
+    /// No Forward… unless the host routes it (test hosts, the New Message composer).
+    var canForward: Bool { false }
+    func forward(_ text: String) {}
 }
 
 /// One-shot wake-ups for the controller's engine clock (scheduled actions,
