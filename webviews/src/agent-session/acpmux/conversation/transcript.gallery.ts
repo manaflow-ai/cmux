@@ -391,6 +391,7 @@ export default agentPaneEntry({
     "agent-session/acpmux/conversation/ChatFindScope.tsx#ChatFindScope",
     "agent-session/acpmux/conversation/MessageCard.tsx",
     "agent-session/acpmux/conversation/ThoughtRow.tsx#ThoughtRow",
+    "agent-session/acpmux/conversation/WorkingMark.tsx#WorkingMark",
     "agent-session/acpmux/conversation/Markdown.tsx",
     "agent-session/acpmux/conversation/RevealedMarkdown.tsx",
     "agent-session/acpmux/conversation/CodeBlock.tsx",
@@ -696,7 +697,7 @@ export default agentPaneEntry({
           cmuxAcpmuxBridge?: { command?(name: string): void };
         };
         page.cmuxAcpmuxBridge?.command?.("find");
-        await ctx.waitFor(() => ctx.document.activeElement?.classList.contains("acpmux-find__field") ?? false);
+        await ctx.waitFor(() => ctx.document.activeElement?.classList.contains("find-pill__field") ?? false);
         // A key at a time, as a person types: the play's type inserts its whole text in one task,
         // which ran seven query updates and the fold opening in one frame (cx-ncc.76).
         for (const key of "thought") await ctx.type(key);
@@ -712,7 +713,7 @@ export default agentPaneEntry({
       },
     },
     "working-tools": {
-      note: "Tool calls running in a live turn.",
+      note: "Tool calls running in a live turn; the status line names the call in flight.",
       snapshot: chat(
         [
           user(prompt, 2),

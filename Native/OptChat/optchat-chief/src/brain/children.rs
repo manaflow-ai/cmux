@@ -40,7 +40,7 @@ impl Brain {
                         let _ = self.agents.end_session(&id);
                     }
                 }
-                self.adopt_orphans();
+                self.adopt_orphans(false);
                 self.reconcile_children();
                 self.maybe_start_turn();
                 self.prewarm_next_turn();
@@ -110,6 +110,22 @@ impl Brain {
     }
 
     fn on_session(&mut self, session: SessionSummary) {
+        // An adopted turn the Chief waits for has ended: fold it, then the
+        // turns that waited start (the resume first).
+        if self.orphan_wait.is_some()
+            && !busy(session.status)
+            && self
+                .state
+                .orphans
+                .iter()
+                .any(|o| o.session == session.session_id)
+        {
+            self.adopt_orphans(false);
+            if self.orphan_wait.is_none() {
+                self.maybe_start_turn();
+            }
+            return;
+        }
         if self.sub_changed(&session) {
             return;
         }
@@ -161,13 +177,36 @@ impl Brain {
     /// the log, then remove them. One that cannot be read stays for the next
     /// connect, unless acpmux no longer knows it (a daemon restart purged it):
     /// then nothing more can be read and it is dropped.
-    fn adopt_orphans(&mut self) {
+    ///
+    /// One that still runs (its harness lives in an agent host the next
+    /// daemon adopted after an update; user 2026-10-20 "updates must never
+    /// cut Chief") is left running: ending it would lose its work and the
+    /// resume turn would do it again. No turn starts until it ends
+    /// (`on_session`) or `ORPHAN_WAIT` passes; `force` (that deadline) folds
+    /// and ends it anyway.
+    pub(super) fn adopt_orphans(&mut self, force: bool) {
         if self.state.orphans.is_empty() {
+            self.orphan_wait = None;
             return;
         }
         let orphans = std::mem::take(&mut self.state.orphans);
         let mut gone = Vec::new();
+        let mut running = false;
         for orphan in orphans {
+            let still_runs = !force
+                && matches!(
+                    self.agents.session(&orphan.session),
+                    Ok(Some(s)) if busy(s.status)
+                );
+            if still_runs {
+                (self.log)(&format!(
+                    "orphan turn session {} still runs (the next acpmux adopted it); no turn starts until it ends",
+                    orphan.session
+                ));
+                running = true;
+                self.state.orphans.push(orphan);
+                continue;
+            }
             match crate::turn::adopt_orphan(&*self.agents, &self.chat, &orphan, &*self.log) {
                 Ok(()) => (self.log)(&format!("folded orphan turn session {}", orphan.session)),
                 Err(e) if e.contains("no session matches") => {
@@ -183,6 +222,11 @@ impl Brain {
                 }
             }
         }
+        self.orphan_wait = match (running, self.orphan_wait) {
+            (false, _) => None,
+            (true, Some(at)) => Some(at),
+            (true, None) => Some(std::time::Instant::now() + super::ORPHAN_WAIT),
+        };
         self.save_with(gone);
     }
 

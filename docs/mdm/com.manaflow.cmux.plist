@@ -193,15 +193,16 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<string>end</string>
+			<string>afterCurrent</string>
 			<key>pfm_description</key>
 			<string>Where Cmd-T and the + button put the new tab. New Tab to the Right in a tab's menu always puts it after that tab.</string>
 			<key>pfm_name</key>
 			<string>tabs.newTabPosition</string>
 			<key>pfm_range_list</key>
 			<array>
-				<string>end</string>
 				<string>afterCurrent</string>
+				<string>end</string>
+				<string>start</string>
 			</array>
 			<key>pfm_title</key>
 			<string>New Tab Position</string>
@@ -914,13 +915,13 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<true/>
+			<false/>
 			<key>pfm_description</key>
-			<string>Scrolling over a pane focuses it. Momentum and scrolling within a second of typing leave focus where it is.</string>
+			<string>Moving the pointer onto a pane or scrolling over it focuses that pane. Off keeps focus where you type until you click. Momentum and the first second after typing never move focus.</string>
 			<key>pfm_name</key>
-			<string>layout.focusPaneOnScroll</string>
+			<string>layout.focusFollowsMouse</string>
 			<key>pfm_title</key>
-			<string>Focus Pane on Scroll</string>
+			<string>Focus Follows Mouse</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>
@@ -1803,6 +1804,23 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<string>shared</string>
+			<key>pfm_description</key>
+			<string>One background behind the whole window, or a copy in each pane. A pane's own background (right-click a pane) shows either way.</string>
+			<key>pfm_name</key>
+			<string>appearance.paneBackgrounds</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>shared</string>
+				<string>perPane</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Pane Backgrounds</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<false/>
 			<key>pfm_description</key>
 			<string>Show the wallpaper grid and live appearance tuner while they are being integrated.</string>
@@ -1895,15 +1913,38 @@
 		<dict>
 			<key>pfm_default</key>
 			<string>compact</string>
+			<key>pfm_description</key>
+			<string>Row height, padding, corners, icons and text size together. Compact is the default.</string>
 			<key>pfm_name</key>
 			<string>appearance.density</string>
 			<key>pfm_range_list</key>
 			<array>
+				<string>ultraCompact</string>
 				<string>compact</string>
+				<string>cozy</string>
 				<string>comfortable</string>
+				<string>spacious</string>
 			</array>
 			<key>pfm_title</key>
 			<string>Density</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>appearance.customDensity</string>
+			<key>pfm_title</key>
+			<string>Custom Density</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<array/>
+			<key>pfm_name</key>
+			<string>appearance.customDensities</string>
+			<key>pfm_title</key>
+			<string>Custom Densities</string>
 			<key>pfm_type</key>
 			<string>string</string>
 		</dict>
@@ -2279,6 +2320,138 @@
 			<string>focusRing.showWhenSinglePane</string>
 			<key>pfm_title</key>
 			<string>Show With One Pane</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>Off turns every animation in cmux off: rows, tabs, panes, menus, cards, the agent cursor, spinners and cmux web pages change at once. On, the switches below choose area by area.</string>
+			<key>pfm_name</key>
+			<string>ui.animations.enabled</string>
+			<key>pfm_title</key>
+			<string>Play Animations</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>Rows and groups slide when they reorder, open, close, pin or move to the top, and the sidebar slides when it shows or hides. Off: they change at once.</string>
+			<key>pfm_name</key>
+			<string>ui.animations.sidebar</string>
+			<key>pfm_title</key>
+			<string>Animate the Sidebar</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>Tabs grow, shrink and slide when they open, close, reorder or collapse into a group. Off: the tab bar changes at once.</string>
+			<key>pfm_name</key>
+			<string>ui.animations.tabs</string>
+			<key>pfm_title</key>
+			<string>Animate Tabs</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>Splits, closes, zooms, dividers, focus rings, drop zones and windows open, close and move with motion. Off: they change at once.</string>
+			<key>pfm_name</key>
+			<string>ui.animations.panes</string>
+			<key>pfm_title</key>
+			<string>Animate Panes and Windows</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>Menus, popovers, the command palette, sheets, toasts, notices, find bars and cards fade and slide in and out. Off: they show and hide at once.</string>
+			<key>pfm_name</key>
+			<string>ui.animations.overlays</string>
+			<key>pfm_title</key>
+			<string>Animate Menus and Cards</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>Hover cards and tooltips fade and slide in. Off: they show and hide at once.</string>
+			<key>pfm_name</key>
+			<string>ui.animations.hoverCards</string>
+			<key>pfm_title</key>
+			<string>Animate Hover Cards</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>The Chief chat, its bubbles, the composer and the Home list move and fade. Off: they change at once.</string>
+			<key>pfm_name</key>
+			<string>ui.animations.home</string>
+			<key>pfm_title</key>
+			<string>Animate Home and Chats</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>The agent cursor glides between points and shows click ripples. Off: it jumps and shows no ripple.</string>
+			<key>pfm_name</key>
+			<string>ui.animations.cursor</string>
+			<key>pfm_title</key>
+			<string>Animate the Agent Cursor</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>Spinners turn, status dots pulse and attention flashes blink. Off: they show a still glyph.</string>
+			<key>pfm_name</key>
+			<string>ui.animations.indicators</string>
+			<key>pfm_title</key>
+			<string>Animate Spinners and Progress</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>Hover and press highlights, focus fades and theme color changes ease in. Off: they change at once.</string>
+			<key>pfm_name</key>
+			<string>ui.animations.feedback</string>
+			<key>pfm_title</key>
+			<string>Animate Highlights and Colors</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>Transitions and animations in cmux's own pages, such as agent chats, New Tab and Markdown. Off: they end at once. Websites are not changed.</string>
+			<key>pfm_name</key>
+			<string>ui.animations.web</string>
+			<key>pfm_title</key>
+			<string>Animate cmux Web Pages</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>
@@ -3863,6 +4036,18 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>A magnifying glass after the profile button searches workspaces, tabs, history, agent chats, settings and commands. Off, Search stays in the command palette.</string>
+			<key>pfm_name</key>
+			<string>sidebar.showSearchButton</string>
+			<key>pfm_title</key>
+			<string>Show Search Button</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<false/>
 			<key>pfm_description</key>
 			<string>Workspace rows show only their icon, name and unread mark, and section titles become thin lines.</string>
@@ -3912,6 +4097,30 @@
 			<string>sidebar.showTimestamps</string>
 			<key>pfm_title</key>
 			<string>Show Timestamps</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>A collapsed group shows how many workspaces it holds after its name. Off, it shows only its loading spinner.</string>
+			<key>pfm_name</key>
+			<string>sidebar.groupHeader.memberCount</string>
+			<key>pfm_title</key>
+			<string>Show Group Member Count</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>A collapsed group shows how many unread notifications its workspaces have. Off, it shows only its loading spinner.</string>
+			<key>pfm_name</key>
+			<string>sidebar.groupHeader.unreadCount</string>
+			<key>pfm_title</key>
+			<string>Show Group Unread Count</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>
@@ -4183,6 +4392,140 @@
 			<string>Workspace Card History Lines</string>
 			<key>pfm_type</key>
 			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>A summary card opens when the pointer rests on a workspace group's header.</string>
+			<key>pfm_name</key>
+			<string>sidebar.hoverCards.groups.workspaceGroups</string>
+			<key>pfm_title</key>
+			<string>Cards on Workspace Groups</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>A summary card opens when the pointer rests on a tab group's chip.</string>
+			<key>pfm_name</key>
+			<string>sidebar.hoverCards.groups.tabGroups</string>
+			<key>pfm_title</key>
+			<string>Cards on Tab Groups</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<integer>600</integer>
+			<key>pfm_description</key>
+			<string>How long the pointer rests on a group before its summary card opens.</string>
+			<key>pfm_name</key>
+			<string>sidebar.hoverCards.groups.delay</string>
+			<key>pfm_range_max</key>
+			<real>5000</real>
+			<key>pfm_range_min</key>
+			<real>0.0</real>
+			<key>pfm_title</key>
+			<string>Group Card Delay</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>status</string>
+			<key>pfm_description</key>
+			<string>Which part of a group's card comes first.</string>
+			<key>pfm_name</key>
+			<string>sidebar.hoverCards.groups.order</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>status</string>
+				<string>members</string>
+				<string>activity</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Group Card Leads With</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<integer>8</integer>
+			<key>pfm_description</key>
+			<string>The most members a group's card lists by name.</string>
+			<key>pfm_name</key>
+			<string>sidebar.hoverCards.groups.maxMembers</string>
+			<key>pfm_range_max</key>
+			<real>50</real>
+			<key>pfm_range_min</key>
+			<real>1</real>
+			<key>pfm_title</key>
+			<string>Group Card Members</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>Show how many members work, wait, failed or have unread items.</string>
+			<key>pfm_name</key>
+			<string>sidebar.hoverCards.groups.sections.status</string>
+			<key>pfm_title</key>
+			<string>Group Card: Status</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>Show the member count and the members' names.</string>
+			<key>pfm_name</key>
+			<string>sidebar.hoverCards.groups.sections.members</string>
+			<key>pfm_title</key>
+			<string>Group Card: Members</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>Show the member that changed last, and when.</string>
+			<key>pfm_name</key>
+			<string>sidebar.hoverCards.groups.sections.activity</string>
+			<key>pfm_title</key>
+			<string>Group Card: Latest Activity</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>Show the members' git branches.</string>
+			<key>pfm_name</key>
+			<string>sidebar.hoverCards.groups.sections.git</string>
+			<key>pfm_title</key>
+			<string>Group Card: Branches</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>Show the members' listening ports.</string>
+			<key>pfm_name</key>
+			<string>sidebar.hoverCards.groups.sections.ports</string>
+			<key>pfm_title</key>
+			<string>Group Card: Ports</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>
@@ -5138,7 +5481,7 @@
 			<key>pfm_default</key>
 			<string>chromium</string>
 			<key>pfm_description</key>
-			<string>New browser tabs open in this engine.</string>
+			<string>Browser tabs and cmux pages, such as History and Apps, open in this engine.</string>
 			<key>pfm_name</key>
 			<string>browser.defaultEngine</string>
 			<key>pfm_range_list</key>
@@ -5147,9 +5490,40 @@
 				<string>webkit</string>
 			</array>
 			<key>pfm_title</key>
-			<string>Default Engine</string>
+			<string>Browser Engine</string>
 			<key>pfm_type</key>
 			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<dict>
+				<key>amazon.com/gp/video</key>
+				<string>webkit</string>
+				<key>disneyplus.com</key>
+				<string>webkit</string>
+				<key>hulu.com</key>
+				<string>webkit</string>
+				<key>max.com</key>
+				<string>webkit</string>
+				<key>music.apple.com</key>
+				<string>webkit</string>
+				<key>netflix.com</key>
+				<string>webkit</string>
+				<key>primevideo.com</key>
+				<string>webkit</string>
+				<key>spotify.com</key>
+				<string>webkit</string>
+				<key>tv.apple.com</key>
+				<string>webkit</string>
+			</dict>
+			<key>pfm_description</key>
+			<string>Sites that always open in one engine: a site, such as spotify.com, and chromium or webkit. Spotify, Netflix and other protected media sites open in WebKit, because their media does not play in Chromium.</string>
+			<key>pfm_name</key>
+			<string>browser.siteEngines</string>
+			<key>pfm_title</key>
+			<string>Site Engines</string>
+			<key>pfm_type</key>
+			<string>dictionary</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>
@@ -5186,6 +5560,39 @@
 			<string>Show Agent Cursor</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>human</string>
+			<key>pfm_description</key>
+			<string>How an agent moves the pointer in browser tabs. Human moves along a curved path and rests before each click, as a person does, so pages see hover and timing like a person's. Instant jumps to the target and clicks at once.</string>
+			<key>pfm_name</key>
+			<string>browser.agentMouse.motion</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>human</string>
+				<string>instant</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Agent Pointer Motion</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<integer>350</integer>
+			<key>pfm_description</key>
+			<string>The longest time one agent pointer move takes with human motion. Short moves take less.</string>
+			<key>pfm_name</key>
+			<string>browser.agentMouse.maxMoveMs</string>
+			<key>pfm_range_max</key>
+			<real>1000</real>
+			<key>pfm_range_min</key>
+			<real>60</real>
+			<key>pfm_title</key>
+			<string>Longest Agent Pointer Move</string>
+			<key>pfm_type</key>
+			<string>real</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>
@@ -5263,6 +5670,22 @@
 			<string>Freeze Hidden Tabs</string>
 			<key>pfm_type</key>
 			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<integer>1</integer>
+			<key>pfm_description</key>
+			<string>Tabs on each side of the shown tab stay loaded and running, so switching to them is instant. 0 turns it off. Memory pressure and Low Power Mode turn it off.</string>
+			<key>pfm_name</key>
+			<string>browser.keepNeighborTabsAwake</string>
+			<key>pfm_range_max</key>
+			<real>3</real>
+			<key>pfm_range_min</key>
+			<real>0.0</real>
+			<key>pfm_title</key>
+			<string>Keep Neighbor Tabs Awake</string>
+			<key>pfm_type</key>
+			<string>real</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>
@@ -5479,13 +5902,14 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<string>backgroundTab</string>
+			<string>linkPlacement</string>
 			<key>pfm_description</key>
 			<string>In Chromium tabs, Download keeps Chrome's default.</string>
 			<key>pfm_name</key>
 			<string>browser.links.cmdClick</string>
 			<key>pfm_range_list</key>
 			<array>
+				<string>linkPlacement</string>
 				<string>backgroundTab</string>
 				<string>foregroundTab</string>
 				<string>newWindow</string>
@@ -5506,6 +5930,7 @@
 			<string>browser.links.cmdShiftClick</string>
 			<key>pfm_range_list</key>
 			<array>
+				<string>linkPlacement</string>
 				<string>backgroundTab</string>
 				<string>foregroundTab</string>
 				<string>newWindow</string>
@@ -5526,6 +5951,7 @@
 			<string>browser.links.shiftClick</string>
 			<key>pfm_range_list</key>
 			<array>
+				<string>linkPlacement</string>
 				<string>backgroundTab</string>
 				<string>foregroundTab</string>
 				<string>newWindow</string>
@@ -5546,6 +5972,7 @@
 			<string>browser.links.optionClick</string>
 			<key>pfm_range_list</key>
 			<array>
+				<string>linkPlacement</string>
 				<string>backgroundTab</string>
 				<string>foregroundTab</string>
 				<string>newWindow</string>
@@ -5566,6 +5993,7 @@
 			<string>browser.links.middleClick</string>
 			<key>pfm_range_list</key>
 			<array>
+				<string>linkPlacement</string>
 				<string>backgroundTab</string>
 				<string>foregroundTab</string>
 				<string>newWindow</string>

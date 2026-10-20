@@ -42,6 +42,38 @@ struct LinkOpenPlacementTests {
     @Test func aSourceThatTakesNoTabsAlwaysOpensOnItsRight() {
         let rule = Rule(setting: .samePane)
         #expect(rule.target(source: "home", takesTabs: false, right: "strip") == .pane("strip"))
-        #expect(rule.target(source: "home", takesTabs: false, right: nil) == .splitRight(of: "home"))
+        #expect(rule.target(source: "home", takesTabs: false, right: nil) == .besideDock("home"))
+    }
+
+    /// Lawrence 2026-10-20: "I just clicked a link that you sent me here and it opened in a browser
+    /// inside of the current thing ... it needs to not open tabs in here but rather should open it to
+    /// the right." A split or column open first makes the tab in the source and then moves it; from
+    /// Home's pinned dock the move is refused, so the tab stayed (selected) inside Home. A source that
+    /// takes no tabs never gets the tab, whatever the setting: the pane on its right, else the daemon's
+    /// column beside the dock.
+    @Test(arguments: LinkPlacement.allCases)
+    func aSourceThatTakesNoTabsNeverHoldsTheOpenedTab(_ setting: LinkPlacement) {
+        let rule = Rule(setting: setting)
+        #expect(rule.target(source: "home", takesTabs: false, right: nil) == .besideDock("home"))
+        #expect(rule.target(source: "home", takesTabs: false, right: "strip") == .pane("strip"))
+    }
+
+    /// Home's dock finds the pane on its right by layout order, so a strip column that is scrolled
+    /// or not yet drawn still gets the link: the most recent pane of the first column that takes tabs.
+    @Test func thePaneRightOfHomesDockComesFromTheLayout() {
+        let columns = [["home"], ["a1", "a2"], ["b"]]
+        let takes: (String) -> Bool = { $0 != "home" }
+        #expect(Rule.paneRight(of: "home", columns: columns, takesTabs: takes, recency: ["b", "a2", "home"]) == "a2")
+        #expect(Rule.paneRight(of: "home", columns: columns, takesTabs: takes, recency: []) == "a1")
+    }
+
+    @Test func columnsThatTakeNoTabsAreSkipped() {
+        let columns = [["home"], ["other-dock"], ["strip"]]
+        #expect(Rule.paneRight(of: "home", columns: columns, takesTabs: { $0 == "strip" }, recency: []) == "strip")
+    }
+
+    @Test func aLoneDockHasNoPaneOnItsRight() {
+        #expect(Rule.paneRight(of: "home", columns: [["home"]], takesTabs: { $0 != "home" }, recency: []) == nil)
+        #expect(Rule.paneRight(of: "home", columns: [["left"], ["home"]], takesTabs: { $0 != "home" }, recency: []) == nil)
     }
 }

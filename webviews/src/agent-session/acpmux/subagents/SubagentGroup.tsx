@@ -53,8 +53,14 @@ export function groupElapsed(agents: readonly Subagent[], now: number): number {
   return Math.max(0, end - start);
 }
 
-/// The current time, ticking each second only while `live`.
+/// The session's clock against this computer's (the snapshot's `clockOffsetMs`: this computer's
+/// clock minus the session's; a peer runs on its own). A subagent's times are the session's.
+export const SubagentClockContext = createContext(0);
+
+/// The current time on the session's clock (SubagentClockContext), ticking each second only
+/// while `live`, so it counts against the subagents' own start and end times.
 export function useNow(live: boolean): number {
+  const offset = useContext(SubagentClockContext);
   const [now, setNow] = useState(Date.now);
   useEffect(() => {
     if (!live) return;
@@ -62,7 +68,7 @@ export function useNow(live: boolean): number {
     const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
   }, [live]);
-  return now;
+  return now - offset;
 }
 
 function Avatar({ agent, dot = false }: { agent: Subagent; dot?: boolean }) {
