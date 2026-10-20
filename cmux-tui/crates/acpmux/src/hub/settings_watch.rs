@@ -5,8 +5,9 @@
 //! acpmux again only then, never each time its pane is shown again.
 //!
 //! One non-recursive watcher over the folder of each settings file
-//! `user_settings::read` looks at (and that folder's parent, so a folder
-//! created later is picked up), as `harness_watch.rs` does for profiles: no
+//! `user_settings::read` looks at, and its symlink target's folder (or the
+//! nearest existing ancestor of one not created yet, so it is picked up
+//! when it is), as `harness_watch.rs` does for profiles: no
 //! timers and no polling. The event thread gathers a burst and only signals;
 //! one task on the runtime reads the setting and tells the watchers when it
 //! differs from the last value it saw. A write that leaves the setting as it
@@ -104,13 +105,19 @@ impl Hub {
 }
 
 impl SettingsWatcher {
-    /// Watches each settings file's folder that exists now, and its parent,
-    /// each once.
+    /// Watches each settings file's folder, as named and through symlinks
+    /// (a dotfiles link's target folder), each once; for a folder that does
+    /// not exist yet, its nearest existing ancestor, so its creation is seen
+    /// and the next refresh watches it.
     fn refresh(&self, files: &[PathBuf]) {
         let mut wanted: Vec<PathBuf> = Vec::new();
-        for folder in files.iter().filter_map(|f| f.parent()) {
-            wanted.push(folder.to_path_buf());
-            wanted.extend(folder.parent().map(Path::to_path_buf));
+        let folders = files.iter().flat_map(|f| {
+            [f.parent().map(Path::to_path_buf), real(f).parent().map(Path::to_path_buf)]
+        });
+        for folder in folders.flatten() {
+            if let Some(existing) = folder.ancestors().find(|a| a.is_dir()) {
+                wanted.push(existing.to_path_buf());
+            }
         }
         let mut watched = self.watched.lock().unwrap_or_else(|p| p.into_inner());
         let mut watcher = self.watcher.lock().unwrap_or_else(|p| p.into_inner());

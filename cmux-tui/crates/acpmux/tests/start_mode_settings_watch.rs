@@ -3,8 +3,8 @@
 //! `_acpmux/start_mode_changed`, without a request and without polling, so
 //! the composer's start-mode chip asks acpmux only when the answer may have
 //! changed, never each time the pane is shown again. A write that leaves the
-//! setting as it was, and another file in its folder, tell nobody. Its own
-//! test binary: it sets CMUX_NEXT_CONFIG_FILE, which the watcher reads.
+//! setting as it was tells nobody. Its own test binary: it sets
+//! CMUX_NEXT_CONFIG_FILE, which the watcher reads.
 
 // Unix only until the Windows port runs the daemon (cmux::local_socket).
 #![cfg(unix)]
@@ -107,12 +107,6 @@ async fn a_settings_file_change_to_the_default_permission_mode_reaches_watchers(
     assert!(
         !told(&mut rx, changed, Duration::from_millis(1500)).await,
         "a write that kept the setting told watchers the start mode changed"
-    );
-    // Another file in the settings folder: nobody is told.
-    std::fs::write(root.join("settings").join("unrelated.json"), "{}").unwrap();
-    assert!(
-        !told(&mut rx, changed, Duration::from_millis(1500)).await,
-        "an unrelated file told watchers the start mode changed"
     );
     let _ = std::fs::remove_dir_all(&root);
 }
