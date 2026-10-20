@@ -6,7 +6,7 @@ it("joins an inbound Native device to its current backend host, owner, install a
   const f = await policyWorld()
   f.policies.get(f.server.device)!.peers = [f.nativePeer(f.client, [{ protocol: "tcp", port: 22 }], [])]
   const read = await f.read()
-  expect(read.json.ok).toBe(true)
+  expect(read.status).toBe(200)
   expect(read.json.value).toMatchObject({ host: f.server.host, team: f.team.team,
     peers: [{ host: f.client.host, user: f.client.user, install: f.client.install, device: f.client.device,
       wg_public_key: f.client.wg, install_public_key: f.client.point, inbound: [{ protocol: "tcp", port: 22 }], outbound: [] }] })
@@ -17,12 +17,12 @@ it("preserves the client's directed outgoing policy without inferring reverse ac
   const f = await policyWorld()
   f.policies.get(f.client.device)!.peers = [f.nativePeer(f.server, [], [{ protocol: "tcp", port: 22 }])]
   const read = await f.read(f.client)
-  expect(read.json).toMatchObject({ ok: true, value: { host: f.client.host, peers: [{ host: f.server.host, install: f.server.install, inbound: [], outbound: [{ protocol: "tcp", port: 22 }] }] } })
+  expect(read.json).toMatchObject({ op: "host.network.policy", value: { host: f.client.host, peers: [{ host: f.server.host, install: f.server.install, inbound: [], outbound: [{ protocol: "tcp", port: 22 }] }] } })
 })
 
 it("returns an empty current projection when Native grants no peer access", async () => {
   const f = await policyWorld(), read = await f.read()
-  expect(read.json).toMatchObject({ ok: true, value: { host: f.server.host, peers: [] } })
+  expect(read.json).toMatchObject({ op: "host.network.policy", value: { host: f.server.host, peers: [] } })
 })
 
 it("keeps identity confirmation separate from the peer-policy read", async () => {
