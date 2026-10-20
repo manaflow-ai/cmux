@@ -206,6 +206,8 @@ import Testing
         "cmux tree 2>&3",
         "cat < /etc/passwd",
         "cat <<EOF",
+        "cat -n ~/.ssh/id_rsa",
+        "head -n 5 ~/.ssh/id_rsa",
         "cmux tree &",
         "cmux tree |& head",
         // substitution and expansion

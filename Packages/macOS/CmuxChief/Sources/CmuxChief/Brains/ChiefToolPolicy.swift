@@ -217,6 +217,9 @@ enum ChiefToolPolicy {
         let paths = ChiefSensitivePaths(home: home)
         var pathArguments: [String] = []
         var expectsValue = false
+        let valueFlags: Set<String> = ["head", "tail"].contains(program)
+            ? ["-n", "--lines", "-c", "--bytes"]
+            : []
         for (index, arg) in args.enumerated() {
             if expectsValue {
                 expectsValue = false
@@ -226,7 +229,7 @@ enum ChiefToolPolicy {
                 pathArguments.append(contentsOf: args.dropFirst(index + 1))
                 break
             }
-            if ["-n", "--lines", "-c", "--bytes"].contains(arg) {
+            if valueFlags.contains(arg) {
                 expectsValue = true
                 continue
             }
