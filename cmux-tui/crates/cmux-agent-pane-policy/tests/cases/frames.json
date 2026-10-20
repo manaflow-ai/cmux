@@ -1403,5 +1403,14 @@
    "method": "_acpmux/harnesses",
    "id": "30"
   }
+ },
+ {
+  "name": "request _acpmux/btw passes",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"_acpmux/btw\",\"params\":{}}",
+  "first": false,
+  "token": "abc",
+  "expect": {
+   "send": "unchanged"
+  }
  }
 ]

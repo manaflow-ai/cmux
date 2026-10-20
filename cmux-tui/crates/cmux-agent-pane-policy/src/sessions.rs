@@ -10,8 +10,10 @@ use serde_json::{Map, Value};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Mutex;
 
-/// The requests whose reply names a session the pane started.
-pub const STARTING: [&str; 3] = ["session/new", "acp.session.fork", "_acpmux/handoff_start"];
+/// The requests whose reply names a session the pane started (`/btw`'s side
+/// session included).
+pub const STARTING: [&str; 4] =
+    ["session/new", "acp.session.fork", "_acpmux/handoff_start", "_acpmux/btw"];
 /// The requests whose reply is a handoff record (`handoffId`, `source.sessionId`).
 pub const HANDOFF_RECORDS: [&str; 4] = [
     "_acpmux/handoff_prepare",
