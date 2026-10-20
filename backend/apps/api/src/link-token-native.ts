@@ -28,7 +28,7 @@ export const matchesNativeLink = (claims: Record<string, unknown>, expected: Nat
     && claims.iss === expected.issuer && claims.team === expected.team && claims.sub === expected.install
     && Schema.is(InstallId)(claims.sub) && ["daemon", "ssh"].includes(expected.service)
     && Array.isArray(claims.svc) && claims.svc.length > 0 && claims.svc.length <= 2
-    && claims.svc.every((s: unknown) => s === "daemon" || s === "ssh") && new Set(claims.svc).size === claims.svc.length && claims.svc.includes(expected.service)
+    && claims.svc.every((s: unknown) => s === "daemon" || s === "ssh") && new Set(claims.svc).size === claims.svc.length && claims.svc.some((s: unknown) => s === expected.service)
     && typeof claims.jti === "string" && /^[A-Za-z0-9_-]{21}[AQgw]$/.test(claims.jti)
     && Number.isSafeInteger(claims.iat) && Number(claims.iat) > 0 && Number(claims.iat) <= now
     && Number.isSafeInteger(claims.exp) && Number(claims.exp) > Number(claims.iat)
