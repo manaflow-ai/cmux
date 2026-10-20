@@ -12,7 +12,7 @@ import Testing
     /// Bright and dark works, your own image and a macOS wallpaper.
     static var pictures: [BackdropSelection] {
         BackdropArt.allCases.map(BackdropSelection.art)
-            + [.file("/Users/Shared/Harbor.png"), .system("/System/Library/Desktop Pictures/Solid Colors/Blue.heic")]
+            + [.file(path: "/Users/Shared/Harbor.png"), .system(path: "/System/Library/Desktop Pictures/Solid Colors/Blue.heic")]
     }
 
     static func tokens(blur: Int) -> ThemeTokens {
