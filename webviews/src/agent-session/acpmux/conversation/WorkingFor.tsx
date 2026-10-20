@@ -52,8 +52,10 @@ export function WorkingFor({ row, now = Date.now }: { row: AcpmuxRow; now?: () =
         },
       ].filter((part) => part !== false)
     : [];
+  // Find counts and visits transcript rows only (chatFind.ts findMatches skips this row), so the
+  // line is not painted either: the call it names is matched on its own tool row.
   return (
-    <div className="cv-worked has-divider">
+    <div className="cv-worked has-divider" data-find-skip>
       <WorkingMark />
       {row.doing ? (
         <>

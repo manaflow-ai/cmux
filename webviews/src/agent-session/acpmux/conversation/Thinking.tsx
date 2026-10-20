@@ -9,7 +9,7 @@ import { WorkingMark } from "./WorkingMark";
 export function Thinking({ status, onCancel }: { status?: string; onCancel?: () => void } = {}) {
   const t = useT();
   return (
-    <div className="cv-worked">
+    <div className="cv-worked" data-find-skip>
       <WorkingMark />
       <output className="cv-thinking">{status ?? t("thinking")}</output>
       {status && onCancel && (
