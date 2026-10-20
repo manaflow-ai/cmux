@@ -237,7 +237,7 @@ pub(super) fn parse_page(target: &str, args: &[String]) -> Result<AppCommand, Us
 
 /// The page methods an agent's input goes through: they take `agent`, the
 /// name its cursor shows.
-pub(super) const AGENT_METHODS: &[&str] = &[
+const AGENT_METHODS: &[&str] = &[
     "browser.page.passkey",
     "browser.page.click",
     "browser.page.focus",
@@ -252,6 +252,13 @@ pub(super) const AGENT_METHODS: &[&str] = &[
     "browser.page.drag",
     "browser.page.upload",
 ];
+
+/// The methods the CLI names its caller on: [`super::CALLER_METHODS`], and
+/// every page input verb, so the agent cursor's tag says who drives and where
+/// and a click on it goes there (user, 2026-10-20).
+pub(super) fn takes_caller(method: &str) -> bool {
+    super::CALLER_METHODS.contains(&method) || AGENT_METHODS.contains(&method)
+}
 
 /// `--agent NAME` (or `--agent=NAME`) anywhere in `args`, taken out; None
 /// when the flag has no name.

@@ -25,7 +25,7 @@ use events::stream_events;
 use open::{OpenRequest, parse_open};
 #[cfg(test)]
 use open::{is_web_url, parse_open_with};
-use page::{SCREENSHOT_TIMEOUT, parse_page, save_screenshot};
+use page::{SCREENSHOT_TIMEOUT, parse_page, save_screenshot, takes_caller};
 pub(super) use run::{action_run_params, insert_run_key, request_with_retry};
 
 mod agent_open;
@@ -927,13 +927,6 @@ fn with_read_barrier(method: &str, mut params: Value) -> Value {
 /// `system.identify`.
 const CALLER_METHODS: [&str; 4] =
     ["action.run", "browser.open_split", "snapshot.get", "system.identify"];
-
-/// The methods the CLI names its caller on: [`CALLER_METHODS`], and every page
-/// input verb, so the agent cursor's tag says who drives and where and a click
-/// on it goes there (user, 2026-10-20).
-fn takes_caller(method: &str) -> bool {
-    CALLER_METHODS.contains(&method) || page::AGENT_METHODS.contains(&method)
-}
 
 /// Who calls, from the environment: the acpmux agent session
 /// (`CMUX_AGENT_SESSION`, set by acpmux for the agent and its cmux MCP
