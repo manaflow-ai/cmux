@@ -464,7 +464,9 @@ class Wiring(unittest.TestCase):
             runs_on = self.jobs[name]["runs-on"]
             with self.subTest(job=name):
                 self.assertEqual(evaluate(runs_on, self.context("3", BOT, retry=SMALL)), SMALL)
-                self.assertEqual(evaluate(runs_on, self.context("3", BOT, retry=LARGE, small=f" {name} ")), LARGE)
+                # A placement from an older base script may still name 12 vCPU; runs-on never reads it.
+                self.assertNotIn("outputs.retry_runner", runs_on)
+                self.assertEqual(evaluate(runs_on, self.context("3", BOT, retry=LARGE, small=f" {name} ")), SMALL)
                 # No placement output: 6 vCPU, not vars.MACOS_RUNNER_26 (12 vCPU today).
                 self.assertNotIn("MACOS_RUNNER_26", runs_on)
                 self.assertEqual(evaluate(runs_on, self.context("3", BOT)), SMALL)
