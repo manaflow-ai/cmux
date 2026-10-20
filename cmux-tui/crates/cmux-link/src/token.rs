@@ -45,6 +45,10 @@ pub enum TokenRefused {
     ServiceNotAllowed,
     /// No token format is configured on this host.
     NoVerifier,
+    /// The keyset owner may request its bounded unknown-kid refresh.
+    UnknownKey,
+    /// Replay storage is full of unexpired tokens; never evict a live id.
+    ReplayCapacity,
 }
 
 /// Checks one token for one stream. A verifier must refuse a token used
