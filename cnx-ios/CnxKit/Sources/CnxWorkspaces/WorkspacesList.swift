@@ -384,6 +384,17 @@ public struct WorkspacesList: View {
                     }
                 }
             }
+            // Loading with Mac lines shown: the placeholder rows go below them, never over
+            // them (full verify D7, D11: an overlay drew over the lines and took their
+            // Connect taps).
+            if inbox.isLoading, !inbox.folds.isEmpty {
+                SkeletonList(rows: 4, leadingSquare: nil)
+                    .allowsHitTesting(false)
+                    .listRowInsets(EdgeInsets())
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color.clear)
+                    .accessibilityIdentifier("workspaces.loading")
+            }
         }
         .listStyle(.plain)
         .onScrollGeometryChange(for: CGFloat.self) { $0.containerSize.height - $0.contentInsets.bottom } action: { _, height in
@@ -395,7 +406,7 @@ public struct WorkspacesList: View {
         .overlay(alignment: .topLeading) { closeAnchor }
         .overlay {
             if inbox.isLoading {
-                skeleton
+                if inbox.folds.isEmpty { skeleton }
             } else if inbox.isEmpty {
                 emptyState
             }

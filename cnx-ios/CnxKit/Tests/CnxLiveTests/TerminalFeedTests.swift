@@ -90,7 +90,7 @@ import Testing
         #expect(finished?.workspaceID == "ws-a")
         #expect(finished?.workspaceTitle == "cmux")
         #expect(finished?.tabID == "s1")
-        #expect(finished?.markdown == "Finished.")
+        #expect(finished?.markdown == "Finished its turn in the terminal. Open it to see the result.")
         #expect(finished?.opensTerminal == true)
         #expect(finished?.createdAt == Date(timeIntervalSince1970: 1000))
 

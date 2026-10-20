@@ -343,7 +343,9 @@ public final class TerminalFeed {
             .filter { !$0.isEmpty && $0 != headline }
             .joined(separator: "\n\n")
         switch (headline.isEmpty, detail.isEmpty) {
-        case (true, true): return kind == .needsInput ? "Needs your input." : kind == .failed ? "Reported an error." : "Finished."
+        case (true, true): return kind == .needsInput ? "Needs your input." : kind == .failed ? "Reported an error."
+            // The hook said nothing more (Codex's finished event has no body): say where (D12).
+            : "Finished its turn in the terminal. Open it to see the result."
         case (false, true): return headline.hasSuffix(".") || headline.hasSuffix("?") || headline.hasSuffix("!") ? headline : headline + "."
         case (true, false): return detail
         case (false, false): return "**\(headline):** \(detail)"

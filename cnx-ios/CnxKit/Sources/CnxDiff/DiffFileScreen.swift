@@ -541,11 +541,14 @@ extension DiffLine {
         }
     }
 
+    /// VoiceOver's reading of the row. A snippet edit has no line numbers (where it sits in
+    /// the file is unknown): it reads without one, never "line 0" (full verify D6).
     var accessibilityText: String {
-        switch kind {
-        case .added: "added line \(newNumber ?? 0): \(text)"
-        case .removed: "removed line \(oldNumber ?? 0): \(text)"
-        case .context: "line \(newNumber ?? 0): \(text)"
+        func at(_ number: Int?) -> String { number.map { " \($0)" } ?? "" }
+        return switch kind {
+        case .added: "added line\(at(newNumber)): \(text)"
+        case .removed: "removed line\(at(oldNumber)): \(text)"
+        case .context: "line\(at(newNumber)): \(text)"
         }
     }
 }
