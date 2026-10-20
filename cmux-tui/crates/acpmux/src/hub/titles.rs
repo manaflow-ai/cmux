@@ -51,8 +51,56 @@ struct PromptGist<'a> {
 /// view) is titled by what follows them; a label line ("Your task:") and a
 /// `Group:` header are skipped; a `Title:` header names the chat.
 fn prompt_gist(text: &str) -> PromptGist<'_> {
-    let line = text.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("");
-    PromptGist { line, body: text }
+    let body = strip_leading_blocks(text);
+    let mut line = "";
+    for l in body.lines().map(str::trim) {
+        if l.is_empty() || is_label(l) || header_value(l, "group").is_some() {
+            continue;
+        }
+        line = header_value(l, "title").unwrap_or(l);
+        break;
+    }
+    PromptGist { line, body }
+}
+
+/// `text` without the `<tag>…</tag>` blocks it opens with. A block that never
+/// closes leaves nothing: its first line is no title.
+fn strip_leading_blocks(text: &str) -> &str {
+    let mut rest = text.trim_start();
+    while let Some(tag) = opening_tag(rest) {
+        let close = format!("</{tag}>");
+        match rest.find(&close) {
+            Some(at) => rest = rest[at + close.len()..].trim_start(),
+            None => return "",
+        }
+    }
+    rest
+}
+
+/// The name of the tag `text` opens with (`<chat>`, `<context kind="x">`), if
+/// it opens with one.
+fn opening_tag(text: &str) -> Option<&str> {
+    let inner = text.strip_prefix('<')?;
+    let end = inner.find(|c: char| !(c.is_ascii_alphanumeric() || c == '-' || c == '_'))?;
+    let name = &inner[..end];
+    let first = name.chars().next()?;
+    let after = &inner[end..];
+    (first.is_ascii_alphabetic()
+        && (after.starts_with('>') || after.starts_with(' '))
+        && after.contains('>'))
+    .then_some(name)
+}
+
+/// A short line that only introduces what follows ("Your task:").
+fn is_label(line: &str) -> bool {
+    line.ends_with(':') && line.split_whitespace().count() <= 3
+}
+
+/// The value of a `Key: value` header line, if `line` is one.
+fn header_value<'a>(line: &'a str, key: &str) -> Option<&'a str> {
+    let (k, v) = line.split_once(':')?;
+    let v = v.trim();
+    (k.trim().eq_ignore_ascii_case(key) && !v.is_empty()).then_some(v)
 }
 
 /// An adopted chat keeps the title it came with: a prompt sent here is not

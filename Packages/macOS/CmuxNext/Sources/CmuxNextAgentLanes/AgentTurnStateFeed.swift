@@ -19,6 +19,9 @@ public final class AgentTurnStateFeed {
 
     private let socket: String
     private let turns: AgentTurnStateStore
+    /// The store's source of this watch (``AgentTurnStateStore/localSource`` for the app's
+    /// own acpmux, else the mirrored host).
+    private let source: String
     private let lanes: AgentLaneStore
     private var subscription: AgentActivityLineConnection?
     private var directoryWatch: (any DispatchSourceFileSystemObject)?
@@ -27,17 +30,29 @@ public final class AgentTurnStateFeed {
     private var backoff = Backoff(initial: .milliseconds(250), maximum: .seconds(30))
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-turn-states")
 
+    /// - Parameters:
+    ///   - socketPath: The acpmux socket to watch.
+    ///   - turns: The store the watch writes.
+    ///   - lanes: The activity lanes the watch writes; a mirrored acpmux's watch passes its own
+    ///     store, since a page replaces every lane.
+    ///   - mirroring: Nil for this Mac's own acpmux; else the host (`chief:<id>`) of another
+    ///     acpmux on this Mac whose chats the store also mirrors.
     public init(socketPath: String, turns: AgentTurnStateStore = .shared, lanes: AgentLaneStore = .shared,
                 mirroring host: String? = nil) {
         socket = socketPath
         self.turns = turns
         self.lanes = lanes
+        source = host ?? AgentTurnStateStore.localSource
+        if let host { turns.mirroredHosts.insert(host) }
     }
+
+    /// Whether this watch mirrors another acpmux than the app's own (it leaves `watching` alone).
+    private var isMirror: Bool { source != AgentTurnStateStore.localSource }
 
     /// Starts the watch (idempotent). `localHost` is this Mac's
     /// `install:<id>`: only its chat tabs read these states.
     public func start(localHost: @autoclosure () -> String?) {
-        if turns.localHost == nil { turns.localHost = localHost() }
+        if !isMirror, turns.localHost == nil { turns.localHost = localHost() }
         if subscription == nil, directoryWatch == nil, reconnect == nil { connect() }
     }
 
@@ -134,15 +149,15 @@ public final class AgentTurnStateFeed {
         switch message {
         case .page(let states, let lastMessages, let muted, let titles, let generatedTitles, let details, let lanes):
             backoff.reset()
-            if !turns.watching { turns.watching = true }
+            if !isMirror, !turns.watching { turns.watching = true }
             turns.replace(states: states, lastMessages: lastMessages, muted: muted, titles: titles,
-                          generatedTitles: generatedTitles, details: details)
+                          generatedTitles: generatedTitles, details: details, source: source)
             if self.lanes.lanes != lanes { self.lanes.lanes = lanes }
         case .change(let session, let state, let lastMessage, let muted, let title, let generatedTitle, let detail, let lane):
             // Most session records leave the indicator as it was: the store writes (and so
             // redraws the tabs and rows that read this session) only what differs.
             turns.apply(session: session, state: state, lastMessage: lastMessage, muted: muted, title: title,
-                        generatedTitle: generatedTitle, detail: detail)
+                        generatedTitle: generatedTitle, detail: detail, source: source)
             if lanes.lanes[session] != lane { lanes.lanes[session] = lane }
         }
     }
@@ -151,9 +166,9 @@ public final class AgentTurnStateFeed {
         guard subscription === connection else { return }
         subscription = nil
         // A closed watch knows nothing: no stale working dots until it reconnects.
-        turns.watching = false
+        if !isMirror { turns.watching = false }
         // Titles stay: a tab keeps reading as its chat while the watch reconnects.
-        turns.clearLive()
+        turns.clearLive(source: source)
         lanes.lanes = [:]
         logger.info("agent turn states: watch closed")
         reconnect?.cancel()

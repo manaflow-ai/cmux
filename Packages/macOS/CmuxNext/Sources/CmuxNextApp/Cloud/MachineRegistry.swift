@@ -1,6 +1,7 @@
 import CmuxNextActions
 import CmuxNextCloud
 import CmuxNextDaemon
+import CmuxNextRemote
 import CmuxNextWorkspaceRepair
 import Foundation
 import Observation
@@ -80,8 +81,13 @@ final class MachineRegistry {
         session(machineID)?.machine.title ?? sshSession(machineID)?.host.destination.displayName ?? server(machineID)?.name
     }
 
-    /// The machine name on the tabs of `machineID`'s tree (red: the machine badge).
-    func tabBadge(_ machineID: String) -> String? { machineBadge(machineID) }
+    /// The machine name on the tabs of `machineID`'s tree: nil for a tree that runs on this
+    /// Mac (2026-10-20: every Chief subagent tab wore "Chief"). The Chief owner daemon and a
+    /// server that is this Mac are reached at a Unix socket here; their tabs run on this Mac.
+    func tabBadge(_ machineID: String) -> String? {
+        if let server = server(machineID), case .unix = server.reach.route { return nil }
+        return machineBadge(machineID)
+    }
 
     /// The sidebar name of a remote machine, nil for local.
     func machineName(_ machineID: String) -> String? {
