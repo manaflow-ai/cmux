@@ -41,6 +41,7 @@ enum RemoteStrings {
     static var noPinnedBuild: String { String(localized: "remote.failed.noPinnedBuild", defaultValue: "This build does not know which cmux-tui to install.", table: "Remote", bundle: .module) }
     static func unsupportedPlatform(_ name: String) -> String { String(format: String(localized: "remote.failed.unsupportedPlatform", defaultValue: "cmux-tui has no build for %@. It runs on macOS and Linux (x86_64 and arm64).", table: "Remote", bundle: .module), name) }
     static var connectTitle: String { String(localized: "remote.connect.title", defaultValue: "Connect to Machine", table: "Remote", bundle: .module) }
+    static var newGroupTitle: String { String(localized: "remote.newGroup.title", defaultValue: "New Remote Group", table: "Remote", bundle: .module) }
     static var connect: String { String(localized: "remote.button.connect", defaultValue: "Connect", table: "Remote", bundle: .module) }
     static func connectFailedTitle(_ name: String) -> String { String(format: String(localized: "remote.connect.failedTitle", defaultValue: "Cannot Connect to %@", table: "Remote", bundle: .module), name) }
 

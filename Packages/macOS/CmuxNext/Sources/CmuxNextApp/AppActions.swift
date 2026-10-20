@@ -102,6 +102,8 @@ enum AppActions {
         RemoteHandlers.bind(into: registry, context: context)
         SSHTargetHandlers.bind(into: registry, context: context)
         ResumeCommandHandlers.bind(into: registry, context: context)
+        RemoteGroupHandlers.bind(into: registry, context: context)
+        ChiefMoveHandlers.bind(into: registry, context: context)
         RemoteBrowserPages.bind(into: registry, context: context)
         ResourceHandlers.bind(into: registry, context: context)
         LinkHandlers.bind(into: registry, context: context)

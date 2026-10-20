@@ -64,7 +64,7 @@ struct AgentCursorGlassDartTests {
         Motion.reduceMotionOverride = false
         defer { Motion.reduceMotionOverride = nil }
         let natural = 1.1
-        let snappy = try #require(Motion.agentCursorGlideDuration(natural), "movement animates")
+        let snappy = try #require(Motion.cursor.agentCursorGlideDuration(natural), "movement animates")
         #expect(snappy < natural / 1.5, "much quicker than the cmux-cua glide")
         #expect(snappy <= MotionTunables.agentCursorGlideMax.value * max(Motion.speed.timeScale, 1) + 1e-9)
         let (stack, cursor) = try placed()
@@ -78,7 +78,7 @@ struct AgentCursorGlassDartTests {
     @Test func reduceMotionMovesTheCursorAtOnce() throws {
         Motion.reduceMotionOverride = true
         defer { Motion.reduceMotionOverride = nil }
-        #expect(Motion.agentCursorGlideDuration(1.1) == nil)
+        #expect(Motion.cursor.agentCursorGlideDuration(1.1) == nil)
         let (stack, cursor) = try placed()
         let plan = GlideMotion().plan(fromX: 100, fromY: 100, toX: 700, toY: 500, endHeading: 2.5)
         stack.host.apply(.glide(session: "s", plan: plan))
