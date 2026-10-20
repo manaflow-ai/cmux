@@ -130,10 +130,12 @@ public final class HomeChiefSettingsView: NSView {
                 harnessHint.ink = .secondary
                 harnessHint.isHidden = true
                 harnessHint.setAccessibilityIdentifier("cmux.home.chief.harnessHint")
+                harnessHint.preferredMaxLayoutWidth = Self.width - 2 * Self.inset
                 addFullWidth(harnessHint)
             }
         }
         let note = Self.footnote(HomeEngineStrings.nextTurn)
+        note.preferredMaxLayoutWidth = Self.width - 2 * Self.inset
         addFullWidth(note)
         stack.setCustomSpacing(Metrics.space4, after: note)
         // Appearance: rows other features add; the section shows once it has one.
