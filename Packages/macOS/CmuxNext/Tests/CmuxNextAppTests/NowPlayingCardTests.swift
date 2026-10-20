@@ -88,6 +88,20 @@ import Testing
         return harness
     }
 
+    /// With no cmux.json, a page playing sound puts no media card in the sidebar's footer
+    /// (Lawrence 2026-10-19: the card at the bottom left was unwanted; the tab's speaker is enough).
+    @Test func theSidebarFooterHasNoMediaCardByDefault() async {
+        let defaults = CmuxConfigSnapshot.parse(.object([:]), validDensities: [], validMetrics: [])
+        let h = await make(enabled: defaults.nowPlaying.enabled)
+        defer { h.close() }
+        #expect(h.source.nowPlaying?.isPlaying == true, "the fake source must be playing for this check")
+        // Give the feed the same window a shown card gets to appear, then check it never did.
+        await h.cardShows(true, within: .milliseconds(500))
+        #expect(h.model.nowPlaying == nil, "the feed passed the track to the sidebar by default")
+        #expect(h.card.isHidden || h.card.frame.isEmpty, "a media card \(h.card.frame) shows in the sidebar footer by default")
+        #expect(h.sidebar.subviews.contains { $0 is SidebarNowPlayingCardView && !$0.isHidden && !$0.frame.isEmpty } == false)
+    }
+
     @Test func theCardShowsWhatPlaysWithItsArtworkAndControls() async throws {
         let h = await make()
         defer { h.close() }
@@ -246,7 +260,7 @@ import Testing
         h.sidebar.layoutSubtreeIfNeeded()
         #expect(h.model.nowPlaying == nil, "the feed passed the track on with Now Playing off")
         #expect(h.card.isHidden || h.card.frame.isEmpty, "the card shows with Now Playing off")
-        #expect(NowPlayingSettings.enabledDefault, "Now Playing is hidden by default")
+        #expect(NowPlayingSettings.enabledDefault == false, "Now Playing is shown by default")
         h.flag.on = true
         await h.cardShows()
         #expect(!h.card.isHidden && !h.card.frame.isEmpty, "turning Now Playing on shows no card")

@@ -89,8 +89,8 @@ public struct ConversationSummary: Hashable, Sendable, Codable, Identifiable {
     /// The title a list row shows: the explicit title, else the other
     /// participants' names.
     public func displayTitle(me: ParticipantID) -> String {
-        if !title.isEmpty { return title }
-        let names = participants.filter { $0.id != me }.map(\.displayName)
+        if !title.isEmpty, !title.isHomeInternalID { return title }
+        let names = participants.filter { $0.id != me }.map(\.visibleName).filter { !$0.isEmpty }
         return names.isEmpty ? "" : ListFormatter.localizedString(byJoining: names)
     }
 

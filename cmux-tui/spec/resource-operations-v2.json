@@ -2506,7 +2506,7 @@
               "name": "JsonValue"
             }
           },
-          "description": "Explicit forward-compatible data. Optional title, color, and icon carry the shared workspace identity; ephemeral is true for a workspace the daemon closes at its next start; agent_folder is the folder new agent chats start in (workspace.agent_folder.set). name_source (user or auto) and name_revision (decimal) carry the name provenance (workspace-name-source-v1). Unknown sibling fields remain forbidden."
+          "description": "Explicit forward-compatible data. Optional title, color, and icon carry the shared workspace identity; ephemeral is true for a workspace the daemon closes at its next start; agent_folder is the folder new agent chats start in (workspace.agent_folder.set); key is the workspace key its terminals and agent chats carry as CMUX_WORKSPACE_ID. name_source (user or auto) and name_revision (decimal) carry the name provenance (workspace-name-source-v1). Unknown sibling fields remain forbidden."
         }
       },
       "extra": false
@@ -28162,6 +28162,7 @@
         "extra": false,
         "constraints": [
           "Restored members leave the stash in the commit that stores the result; the stash is removed with its last member. A retry with the same key replays.",
+          "All or nothing: when a member cannot reopen, or the commit fails, the pages this call opened close again (unrecorded), every member stays in the stash, and the error is returned; a retry opens each page once.",
           "A page reopens with its back/forward history, its browser profile and its engine."
         ]
       },

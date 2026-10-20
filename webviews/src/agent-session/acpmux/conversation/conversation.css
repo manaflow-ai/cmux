@@ -1614,6 +1614,28 @@ pre.cv-math-source {
   }
 }
 
+/* cx-2lv1k: a row from a page of older history fades in once, the first time the reader scrolls it
+ * into view at the top edge (OlderRowFade in App.tsx). It waits at a soft 0.35 until then, out of
+ * view, so the fade starts from ink already there and never from a blank band. Opacity only: no
+ * row moves or changes height, so the anchoring that holds the reader's place is untouched. Reduce
+ * Motion draws it in full ink at once; ui.animationSpeed off makes the fade instant (the token is 0). */
+@keyframes acpmux-older-in {
+  from {
+    opacity: 0.35;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .acpmux-row--older:not([data-older-shown]) {
+    opacity: 0.35;
+  }
+  .acpmux-row--older[data-older-shown] {
+    animation: acpmux-older-in var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) both;
+  }
+}
+
 /* R104: an open fence draws plain lines in Pierre's metrics (12px on 20px lines, no wrap), so its
  * height is final as it grows; Pierre highlights it once when it closes (StreamingCode.tsx). */
 .cv-code-plain {
@@ -2469,6 +2491,39 @@ pre.cv-math-source {
 /* ---------- A background shell's end (BackgroundTaskNote.tsx, cx-ncc.84) ---------- */
 .cv-bgtask[data-state="failed"] .cv-tool__icon {
   color: var(--agent-danger);
+}
+
+/* ---------- Where a Claude Code session started (SessionStartNote.tsx) ---------- */
+/* The compaction note under the facts line: wraps (it is a sentence or three), indented to the
+   facts' text, quiet until dismissed. */
+.cv-session-start__compaction {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding-left: 22.5px;
+  line-height: 18px;
+  font-size: var(--text-detail);
+  color: var(--cv-text-dim);
+}
+.cv-session-start__compaction-text {
+  min-width: 0;
+  flex: 1;
+}
+.cv-session-start__dismiss {
+  all: unset;
+  flex: none;
+  display: flex;
+  padding: 3px;
+  border-radius: 4px;
+  cursor: pointer;
+  color: var(--cv-text-dim);
+}
+.cv-session-start__dismiss:hover {
+  color: var(--agent-text);
+}
+.cv-session-start__dismiss:focus-visible {
+  outline: 2px solid var(--agent-accent, currentColor);
+  outline-offset: 1px;
 }
 
 /* ---------- A compaction (CompactionNote.tsx) ---------- */
