@@ -76,6 +76,7 @@ final class AppControl {
         #if DEBUG
         let probe = frameProbe
         service.router.register(DebugWindowsControl.methods(services))
+        service.router.register(DebugDaemonControl.methods(services))
         service.router.register([
             .mainActor("debug.frames") { call in .value(probe.handle(call.params)) },
             // Measured animation spans (plans/cmux-next/motion.md).
