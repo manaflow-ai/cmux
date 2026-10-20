@@ -67,6 +67,12 @@ enum WorkspaceGroupHandlers {
         registry.bind("workspaceGroup.newWorkspace", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in
             try newPersonalWorkspace(in: context.group(invocation).id, newTabPage: invocation.origin == .user, context)
         })
+        registry.bind("workspaceGroup.newSubgroup", run: { invocation in
+            // A document group (a nested one too) may have no personal-store row: the target's id is enough.
+            let explicit = [invocation.target, invocation["group"]?.targetValue].compactMap { $0 }.first { $0.kind == .workspaceGroup }
+            let parent = try explicit.map { CmuxNextSidebar.GroupID($0.id) } ?? sidebarID(context.group(invocation))
+            try newSubgroup(in: parent, byUser: invocation.origin == .user, context)
+        })
         registry.bind("workspaceGroup.markRead", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in try acknowledge(invocation, context) })
         registry.bind("workspaceGroup.clearNotifications", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in try acknowledge(invocation, context) })
     }
@@ -189,6 +195,27 @@ enum WorkspaceGroupHandlers {
                 try await $0.state.placePersonalWorkspace(session: session, key: workspace, resource: resource, group: .set(id))
             }
         }
+    }
+
+    /// A new group inside `parent` on the sidebar document (remote-groups-DESIGN.md slice 3), with the
+    /// next palette color; a person's new subgroup opens its name editor, as New Group does.
+    private static func newSubgroup(in parent: CmuxNextSidebar.GroupID, byUser: Bool, _ context: AppActionContext) throws {
+        guard let store = SidebarDocStore.current, SidebarDocWiring.isActive else {
+            throw ActionFailure.invalidTarget(WorkspaceVerbStrings.subgroupNeedsDocument)
+        }
+        let id = CmuxNextSidebar.GroupID.make()
+        let used = Set(context.services.machines.local.store.personal.groups.compactMap(\.color))
+        let plan = SidebarDocSubgroupPlan(parent: parent, id: id, name: "", color: GroupColor.automatic(used: used) ?? .grey,
+                                          records: store.records)
+        guard let ops = plan.ops else {
+            throw ActionFailure.invalidTarget(plan.refusal == .tooDeep ? WorkspaceVerbStrings.subgroupTooDeep : RefusalStrings.groupRequired)
+        }
+        do {
+            try store.sendChecked(ops: ops, title: SidebarDocStore.moveTitle)
+        } catch {
+            throw ActionFailure.invalidTarget(error.message)
+        }
+        if byUser { try context.sidebar().groupFlow.editGroup(WorkspaceGroupID(rawValue: id.rawValue)) }
     }
 
     private static func sidebarID(_ group: WorkspaceGroupModel) -> CmuxNextSidebar.GroupID {

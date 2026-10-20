@@ -20,8 +20,9 @@ runs the tiers its changed files reach (docs/ci/cmux-next-tiers.md):
   daemon      the daemon, Rust core, FFI or control paths: the same-tree
               cmux-tui fetch and the live-daemon suites
 
-Pushes, dispatches and pull requests labeled `full-ci` (a batch integration
-PR) run every tier. A changed file this script cannot place selects every
+Pushes, dispatches and pull requests labeled `full-ci` run every tier. The
+workflow runs the tiers picked here on every same-repository pull request; a
+fork pull request runs the heavier Mac tiers only with `full-ci`. A changed file this script cannot place selects every
 tier, so an unknown input never skips a check.
 
 Usage: cmux_next_route.py --event NAME [--changed-files FILE] [--labels a,b]
@@ -84,6 +85,9 @@ DAEMON_PATHS = (
     # The classic import and migration suites start the live daemon too.
     PACKAGE + "Tests/CmuxNextAppTests/ClassicImportTests.swift",
     PACKAGE + "Tests/CmuxNextAppTests/ClassicMigrationTests.swift",
+    PACKAGE + "Tests/CmuxNextAppTests/ClassicUpgradeSimulationTests.swift",
+    PACKAGE + "Tests/CmuxNextAppTests/ClassicUpgradeHugeSimulationTests.swift",
+    PACKAGE + "Tests/CmuxNextAppTests/ClassicUpgradeSimulator.swift",
     PACKAGE + "Sources/CmuxNextApp/Onboarding/AppOnboardingServices+ClassicSessions.swift",
     PACKAGE + "Sources/CmuxNextApp/Onboarding/AppOnboardingServices+ClassicMigration.swift",
 )

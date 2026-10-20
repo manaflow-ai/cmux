@@ -79,6 +79,7 @@ extension SettingsSchema {
         "layout.frameOrientation",
         "layout.rows",
         "layout.focusFollowsMouse",
+        "layout.scrollAreas",
         "layout.minimumPaneWidth",
         "layout.minimumPaneHeight",
         "appearance.theme",
@@ -164,7 +165,11 @@ extension SettingsSchema {
         "sidebar.pinnedBandsScroll", "sidebar.showWorkspaceTabs", "sidebar.showChats",
         "sidebar.cards.tips", "sidebar.hoverCards.enabled", "sidebar.hoverCards.delay", "sidebar.hoverCards.layout", "sidebar.hoverCards.maxRows",
         "sidebar.hoverCards.sections.timings", "sidebar.hoverCards.sections.prompts", "sidebar.hoverCards.sections.waiting",
-        "sidebar.hoverCards.sections.git", "sidebar.hoverCards.sections.ports", "sidebar.nowPlaying.enabled", "tabs.newTabNowPlaying", "sidebar.showProjects", "sidebar.showSpaces", "sidebar.showProfileControl", "sidebar.showSearchButton", "sidebar.groupBy",
+        "sidebar.hoverCards.sections.git", "sidebar.hoverCards.sections.ports", "sidebar.hoverCards.groups.workspaceGroups", "sidebar.hoverCards.groups.tabGroups",
+        "sidebar.hoverCards.groups.delay", "sidebar.hoverCards.groups.order", "sidebar.hoverCards.groups.maxMembers",
+        "sidebar.hoverCards.groups.sections.status", "sidebar.hoverCards.groups.sections.members",
+        "sidebar.hoverCards.groups.sections.activity", "sidebar.hoverCards.groups.sections.git",
+        "sidebar.hoverCards.groups.sections.ports", "sidebar.nowPlaying.enabled", "tabs.newTabNowPlaying", "sidebar.showProjects", "sidebar.showSpaces", "sidebar.showProfileControl", "sidebar.showSearchButton", "sidebar.groupBy",
         "browser.defaultEngine",
         "browser.siteEngines",
         "browser.newTabPage",
@@ -202,7 +207,9 @@ extension SettingsSchema {
         "labs.classicHome",
         // Which Home entries the sidebar shows (looks only; `cmux home enable-channels` runs as an agent writer).
         "home.channelsEnabled",
-        // The floating Chief pet's character (looks only); turning the pet on is the person's.
+        // The floating Chief pet and its character: a display the person can hide again; its reply
+        // box types only what the person writes.
+        "home.chiefPetEnabled",
         "home.chiefPetMascot",
         "updates.notify",
         "updates.showWhatsNew",
@@ -281,8 +288,6 @@ extension SettingsSchema {
         // What a new chat may do without asking: an agent must not widen its own approvals.
         "agents.defaultPermissionMode": .userOnly,
         "computerUse.enabled": .userOnly,
-        // The Chief pet puts agent output over every app and a reply box that types into terminals.
-        "home.chiefPetEnabled": .userOnly,
         "computerUse.driver": .userOnly,
         // How hard cmux pulls the person back from another app: theirs to pick, not an agent's.
         "notifications.dockBounce": .userOnly,

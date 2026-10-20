@@ -6,8 +6,11 @@ public enum HoverCardPlacement: Sendable {
     case below
     /// Over the target, left-aligned (a tab strip at the bottom, R109).
     case above
-    /// Right of the target, top-aligned (sidebar rows).
+    /// Right of the target, top-aligned (the update card).
     case beside
+    /// Beside a sidebar row with an empty escape slot next to it: the card's near edge on the
+    /// row's middle, so the pointer leaves it in a few points (`HoverCardEscapeGeometry`).
+    case besideRow
 }
 
 /// The one hover card window of the app: a borderless, non-activating,
@@ -73,6 +76,8 @@ final class HoverCardPanel: NSPanel {
     /// The side the card rests on now: `placement`, or the other side when the screen has no room.
     private(set) var restingPlacement: HoverCardPlacement = .below
     private var applyTheme: (() -> Void)?
+    /// A `.besideRow` card's geometry at rest: its row, its frame and its escape slot.
+    private(set) var escapeGeometry: HoverCardEscapeGeometry?
     /// The scope the card draws in; a retarget within it adopts nothing again.
     private weak var adoptedScope: ThemeScope?
 
@@ -270,6 +275,12 @@ final class HoverCardPanel: NSPanel {
         let origin = rest.origin
         isLeading = rest.isLeading
         restingPlacement = rest.placement
+        // A row card keeps its escape slot (`HoverCardEscapeGeometry`); `rest` placed it the same way.
+        escapeGeometry = placement == .besideRow
+            ? HoverCardEscapeGeometry(anchor: anchor, cardSize: size,
+                                      visible: screen.map { $0.visibleFrame.insetBy(dx: Metrics.space2, dy: Metrics.space2) },
+                                      scale: scale)
+            : nil
         // R131: the window moves in the same frame (a window-frame slide restarted on every tab
         // trailed the pointer); a retarget's slide runs inside it (`slide(from:)`).
         let margin = Self.windowMargin
@@ -363,6 +374,13 @@ extension HoverCardPanel {
             }
             origin.x = clampX(origin.x)
             origin.y = clampY(origin.y)
+        case .besideRow:
+            // Beside a sidebar row, its escape slot kept: it flips above the row's middle or to
+            // the row's left rather than clamping over the slot. The visible frame only, as before.
+            let room = (visible ?? screen ?? area).insetBy(dx: margin, dy: margin)
+            let geometry = HoverCardEscapeGeometry(anchor: anchor, cardSize: size, visible: room, scale: scale)
+            origin = geometry.card.origin
+            isLeading = geometry.isLeading
         }
         return HoverCardRest(origin: origin, placement: side, isLeading: isLeading)
     }
@@ -386,6 +404,8 @@ extension HoverCardPanel {
         case .above: CGPoint(x: anchor.minX, y: down(anchor.maxY + targetGap))
         // The card's leading edge on the row's trailing edge, top-aligned.
         case .beside: CGPoint(x: down(anchor.maxX + targetGap), y: anchor.maxY - size.height)
+        // Right of the row, below its escape slot (before any flip the screen needs).
+        case .besideRow: HoverCardEscapeGeometry(anchor: anchor, cardSize: size, scale: scale).card.origin
         }
     }
 }

@@ -66,6 +66,8 @@ public final class SettingsApplier {
         if design.hoverCardDelay != hoverCardDelay { design.hoverCardDelay = hoverCardDelay }
         let workspaceHoverCard = snapshot.hoverCards.workspaceCardOptions
         if design.workspaceHoverCard != workspaceHoverCard { design.workspaceHoverCard = workspaceHoverCard }
+        let groupHoverCard = snapshot.hoverCards.groupCardOptions
+        if design.groupHoverCard != groupHoverCard { design.groupHoverCard = groupHoverCard }
         if design.splitSizing != snapshot.splitSizing { design.splitSizing = snapshot.splitSizing }
         if design.newColumnWidth != snapshot.newColumnWidth { design.newColumnWidth = snapshot.newColumnWidth }
         if design.dockColumnEdge != snapshot.dockColumnEdge { design.dockColumnEdge = snapshot.dockColumnEdge }
@@ -73,6 +75,7 @@ public final class SettingsApplier {
         if design.frameOrientation != snapshot.frameOrientation { design.frameOrientation = snapshot.frameOrientation }
         if design.layoutRows != snapshot.layoutRows { design.layoutRows = snapshot.layoutRows }
         if design.focusFollowsMouse != snapshot.focusFollowsMouse { design.focusFollowsMouse = snapshot.focusFollowsMouse }
+        if design.layoutScrollAreas != snapshot.layoutScrollAreas { design.layoutScrollAreas = snapshot.layoutScrollAreas }
         if design.minimumPaneContentSize != snapshot.minimumPaneContentSize { design.minimumPaneContentSize = snapshot.minimumPaneContentSize }
         if design.closeFocus != snapshot.closeFocus { design.closeFocus = snapshot.closeFocus }
         if design.defaultColumnWidth != snapshot.defaultColumnWidth { design.defaultColumnWidth = snapshot.defaultColumnWidth }

@@ -20,6 +20,9 @@ use crate::fold::TurnFold;
 use crate::state::{SpawnRecord, SpawnRef, SubRecord, SubStatus};
 use crate::subagents::{PROMPT_PREFIX, SpawnPlan};
 
+/// Characters of a task kept for `control status`.
+const TASK_KEPT: usize = 600;
+
 fn busy(status: SessionStatus) -> bool {
     matches!(status, SessionStatus::Running | SessionStatus::Waiting)
 }
@@ -177,6 +180,7 @@ impl Brain {
                     SubRecord {
                         id: id.clone(),
                         title: crate::workspaces::name(id, task),
+                        task: task.chars().take(TASK_KEPT).collect(),
                         run_ms: now_ms(),
                         status,
                         peer: peer.clone(),
@@ -328,6 +332,8 @@ impl Brain {
                     sub.status = SubStatus::Running;
                     sub.run_ms = now_ms();
                     sub.stuck_noted = false;
+                    sub.auto_continues = 0;
+                    sub.continued_ms = 0;
                 }
                 self.save();
                 self.mark_workspace(&id, false);
@@ -364,14 +370,15 @@ impl Brain {
             }
         };
         let (replies, last_end, cancelled) = ended_replies(&events);
-        // Idle before its prompt started (a new session is ready first).
+        // Idle before its prompt started (a new session is ready first); the
+        // tick settles one that stays idle with no turn end (#7).
         let Some(last_end) = last_end else { return };
         self.trace_sub_events(id, &events, floor);
         let report = report_of(&replies, cancelled);
         self.sub_done(id, report, cancelled, Some(last_end), Some(&events));
     }
 
-    fn sub_done(
+    pub(super) fn sub_done(
         &mut self,
         id: &str,
         report: String,
@@ -402,7 +409,11 @@ impl Brain {
                     self.trace.emit("subagent.after_stop", json!({"id": id}));
                     return;
                 }
-                Err(e) => (self.log)(&format!("subagent {id}: its follow-up failed: {e}")),
+                Err(e) => {
+                    (self.log)(&format!("subagent {id}: its follow-up failed: {e}"));
+                    // Kept: the inbox flush below sends it again.
+                    self.keep_tell(id, message, &e);
+                }
             }
         }
         // A run that stopped on an error: its report becomes "stopped: ..."
@@ -413,13 +424,32 @@ impl Brain {
         } else {
             self.plan_auto_resume(id, &report, stopped)
         };
-        let (report, stopped) = match planned {
+        let resuming = planned.is_some();
+        let (mut report, mut stopped) = match planned {
             Some((note, quiet)) => (note, quiet),
             None => (report, stopped),
         };
+        if let Some(events) = events {
+            let mut watch = crate::sub_watch::Watch::after(0);
+            for e in events {
+                watch.apply(e);
+            }
+            // #13: a stopped run says where it stopped.
+            if report.starts_with("(stopped by the user)") {
+                let state = watch.summary(self.now()).join("\n");
+                report = format!("{report}\n{state}");
+            }
+            // #20: a short acknowledgement of a Chief message starts no turn.
+            if !resuming && !stopped && watch.told_by_chief() && crate::sub_watch::is_ack(&report) {
+                stopped = true;
+                self.trace.emit("subagent.ack_quiet", json!({"id": id}));
+            }
+        }
         let run_ms = if let Some(sub) = self.state.sub_mut(id) {
             sub.status = SubStatus::Done;
             sub.awaiting_task = false;
+            sub.auto_continues = 0;
+            sub.continued_ms = 0;
             sub.report = Some(report.clone());
             sub.stopped = stopped;
             if let Some(floor) = floor {
@@ -452,7 +482,43 @@ impl Brain {
         (self.log)(&format!("subagent {id} finished"));
         self.mark_workspace(id, true);
         self.deliver(&spawn);
+        // A tell that could not reach its run goes as its next prompt.
+        self.flush_inbox(id);
         self.start_queued();
+    }
+
+    /// A tell that neither steered nor prompted (``Input::TellUndelivered``):
+    /// back into the inbox, before what came after it. A subagent whose run
+    /// already ended gets it now; else with its next prompt (its run end
+    /// flushes the inbox). The Chief gets a quiet note.
+    pub(super) fn tell_undelivered(&mut self, id: &str, message: String, error: &str) {
+        if self.keep_tell(id, message, error) {
+            self.flush_inbox(id);
+        }
+    }
+
+    /// `message` back first into subagent `id`'s inbox, with a quiet note to
+    /// the Chief; true when the subagent's run has already ended.
+    fn keep_tell(&mut self, id: &str, message: String, error: &str) -> bool {
+        let Some(sub) = self.state.sub_mut(id) else {
+            return false;
+        };
+        sub.inbox.insert(
+            0,
+            crate::state::InboxMessage {
+                text: message,
+                at_ms: now_ms(),
+            },
+        );
+        let ended = matches!(sub.status, SubStatus::Done | SubStatus::Reported);
+        self.save();
+        self.trace
+            .emit("tell.undelivered", json!({"id": id, "error": error}));
+        self.queue(
+            format!("[{id}] did not get your last message yet ({error}); it is kept and goes with its next prompt."),
+            Source::Note,
+        );
+        ended
     }
 
     /// Auto-resume (auto_resume.rs) of subagent `id`, whose run just ended
@@ -486,7 +552,8 @@ impl Brain {
             "subagent.auto_resume",
             json!({"id": id, "kind": format!("{kind:?}"), "attempts": attempts, "decision": format!("{decision:?}")}),
         );
-        (self.log)(&format!("subagent {id}: {note}"));
+        // WARN: the error journal (`cmux errors`) harvests host.log lines by level word.
+        (self.log)(&format!("WARN subagent {id}: {note}"));
         match decision {
             Decision::Report { .. } => {
                 if let Some(sub) = self.state.sub_mut(id) {
@@ -840,6 +907,75 @@ impl Brain {
             .map(|answer| format!("outcome: done. {answer}"))
     }
 
+    /// `peers` for subagent `caller`: the subagents at work (starting,
+    /// queued, running, or with a report not read yet), one line each, the
+    /// caller marked; then how many finished.
+    pub(super) fn agents_list(&self, caller: &str) -> String {
+        let mut lines = Vec::new();
+        let mut finished = 0usize;
+        for sub in self.state.spawns.values().flat_map(|r| r.subs.iter()) {
+            if sub.cancelled || sub.status == SubStatus::Reported {
+                finished += 1;
+                continue;
+            }
+            let state = match sub.status {
+                SubStatus::Starting => "starting",
+                SubStatus::Queued => "queued",
+                SubStatus::Running if sub.paused => "paused",
+                SubStatus::Running => "at work",
+                SubStatus::Done => "finished, report not read yet",
+                SubStatus::Reported => "finished",
+            };
+            let title = sub
+                .title
+                .split_once(" · ")
+                .map_or(sub.title.as_str(), |(_, t)| t);
+            let you = if sub.id == caller { " (you)" } else { "" };
+            let workspace = sub
+                .workspace
+                .as_deref()
+                .map(|w| format!(", workspace {w}"))
+                .unwrap_or_default();
+            lines.push(format!("- {}{you}: {title} ({state}{workspace})", sub.id));
+        }
+        if lines.is_empty() {
+            lines.push("No other subagent is at work.".to_owned());
+        }
+        lines.push(format!(
+            "{finished} more finished. tell(id, message) sends one a message from you; zoom(\"aN\") reads its chat."
+        ));
+        lines.join("\n")
+    }
+
+    /// `tell` from subagent `from` to subagent `id` (acp-chief-issues.md
+    /// #11): `tell_keyed` with a first line that names the sender, so the
+    /// receiver knows who asks and how to answer. Never to itself.
+    pub(super) fn peer_tell(
+        &mut self,
+        from: &str,
+        id: &str,
+        message: &str,
+        key: Option<&str>,
+    ) -> Result<String, String> {
+        if from == id {
+            return Err(format!("tell: {id} is you; write to Chief in your report"));
+        }
+        if self.state.sub(from).is_none() {
+            return Err(format!("tell: no subagent {from} sends it"));
+        }
+        let text = format!(
+            "Message from {from} (another subagent of Chief; answer it with tell(\"{from}\", ...) when it asks something):\n\n{message}"
+        );
+        // A peer never cuts another subagent's turn: it waits when the
+        // agent cannot take it mid-turn (a `queue` tell).
+        let answer = self.tell_with(id, &text, key, true)?;
+        self.trace.emit(
+            "tell.peer",
+            json!({"from": from, "id": id, "message": self.trace.text(message)}),
+        );
+        Ok(answer)
+    }
+
     /// Delivers subagent `id`'s inbox now that it can take it (its session
     /// exists, it is not paused), in order, as one message; a quiet note
     /// tells the Chief.
@@ -916,6 +1052,7 @@ impl Brain {
             .sub(id)
             .is_some_and(|(_, s)| matches!(s.status, SubStatus::Running | SubStatus::Starting));
         let (agents, forward, sub_id) = (self.agents.clone(), self.tx.clone(), id.to_owned());
+        let text = message.to_owned();
         let steered = if running {
             // Reference parity S4: into the running session, read between
             // its tool calls. One that cannot steer now is interrupted, and
@@ -939,6 +1076,7 @@ impl Brain {
                     log(&format!(
                         "subagent {sub_id}: the tell could not be steered ({e}); it goes after the current turn"
                     ));
+                    let back = forward.clone();
                     if let Err(e) = tell_prompt(
                         &*agents,
                         &session,
@@ -948,8 +1086,13 @@ impl Brain {
                         sub_id.clone(),
                     ) {
                         log(&format!(
-                            "subagent {sub_id}: the tell did not reach it: {e}"
+                            "subagent {sub_id}: the tell did not reach it: {e}; it is kept for its next prompt"
                         ));
+                        let _ = back.send(super::Input::TellUndelivered {
+                            id: sub_id,
+                            message: text,
+                            error: e,
+                        });
                     }
                 }
             });
@@ -1009,6 +1152,7 @@ impl Brain {
                 && let Err(e) = self.tell(id, message)
             {
                 (self.log)(&format!("subagent {id}: the tell did not reach it: {e}"));
+                self.tell_undelivered(id, message.to_owned(), &e);
             }
             return;
         }
@@ -1040,7 +1184,7 @@ impl Brain {
                     .unwrap_or_else(|| message.to_owned());
                 self.save();
                 let prompt_id = format!("{PROMPT_PREFIX}tell:{id}:{}", now_ms());
-                let blocks = vec![json!({"type": "text", "text": text})];
+                let blocks = vec![json!({"type": "text", "text": text.clone()})];
                 if let Err(e) = tell_prompt(
                     &*self.agents,
                     session,
@@ -1050,6 +1194,7 @@ impl Brain {
                     id.to_owned(),
                 ) {
                     (self.log)(&format!("subagent {id}: the tell did not reach it: {e}"));
+                    self.tell_undelivered(id, text, &e);
                 }
             }
         }

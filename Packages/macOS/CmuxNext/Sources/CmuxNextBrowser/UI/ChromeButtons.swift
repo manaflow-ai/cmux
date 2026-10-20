@@ -283,11 +283,6 @@ class ChromeTextButton: NSButton {
 /// Plain single-line field with no bezel, no focus ring, and a gray
 /// selection instead of the accent-colored one.
 class ChromeTextField: NSTextField {
-    override class var cellClass: AnyClass? {
-        get { ChromeTextFieldCell.self }
-        set {}
-    }
-
     private let density = DensityBinding()
     private var placeholderText = ""
     override init(frame: NSRect) {
@@ -345,13 +340,6 @@ class ChromeTextField: NSTextField {
 
     private func applyEditorColors() {
         guard let editor = currentEditor() as? NSTextView else { return }
-        applyEditorColors(to: editor)
-    }
-
-    /// The caret and the gray selection on `editor`. AppKit resets the field
-    /// editor's selection to the system blue whenever it sets the editor up
-    /// for this field (`ChromeTextFieldCell`), so the cell calls this too.
-    func applyEditorColors(to editor: NSTextView) {
         performWithTheme {
             editor.insertionPointColor = Palette.caret
             editor.selectedTextAttributes = [.backgroundColor: Palette.textSelection]

@@ -75,6 +75,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `layout.frameOrientation` | string | `"columnMajor"` | `columnMajor`, `rowMajor` | Dock Corners |
 | `layout.rows` | boolean | `true` |  | Rows. Off hides New Row and fits a column's existing rows into it without scrolling. |
 | `layout.focusFollowsMouse` | boolean | `false` |  | Focus Follows Mouse. Moving the pointer onto a pane or scrolling over it focuses that pane. Off keeps focus where you type until you click. Momentum and the first second after typing never move focus. |
+| `layout.scrollAreas` | boolean | `false` |  | Scroll Areas. Side-by-side panes that do not fit scroll sideways instead of shrinking, also in docked columns. |
 | `layout.minimumPaneWidth` | real | `200` | 80 to 800 | Minimum Pane Width |
 | `layout.minimumPaneHeight` | real | `64` | 32 to 600 | Minimum Pane Height |
 | `layout.newPanePlacement` | string | `"tab"` | `tab`, `split` | New Terminals and Browsers. Open a Tab adds a tab to the focused pane. Split Automatically splits the largest pane, like New Pane (Auto Layout). |
@@ -301,6 +302,16 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `sidebar.hoverCards.sections.git` | boolean | `true` |  | Show Branch in Workspace Cards. The workspace's branch and pull request. |
 | `sidebar.hoverCards.sections.ports` | boolean | `true` |  | Show Ports in Workspace Cards. The ports the workspace listens on. |
 | `sidebar.hoverCards.maxRows` | real | `20` | 1 to 100 | Workspace Card History Lines. The most prompts, waits and finished turns a workspace's card lists. The list scrolls. |
+| `sidebar.hoverCards.groups.workspaceGroups` | boolean | `true` |  | Cards on Workspace Groups. A summary card opens when the pointer rests on a workspace group's header. |
+| `sidebar.hoverCards.groups.tabGroups` | boolean | `true` |  | Cards on Tab Groups. A summary card opens when the pointer rests on a tab group's chip. |
+| `sidebar.hoverCards.groups.delay` | real | `600` | 0 to 5000 | Group Card Delay. How long the pointer rests on a group before its summary card opens. |
+| `sidebar.hoverCards.groups.order` | string | `"status"` | `status`, `members`, `activity` | Group Card Leads With. Which part of a group's card comes first. |
+| `sidebar.hoverCards.groups.maxMembers` | real | `8` | 1 to 50 | Group Card Members. The most members a group's card lists by name. |
+| `sidebar.hoverCards.groups.sections.status` | boolean | `true` |  | Group Card: Status. Show how many members work, wait, failed or have unread items. |
+| `sidebar.hoverCards.groups.sections.members` | boolean | `true` |  | Group Card: Members. Show the member count and the members' names. |
+| `sidebar.hoverCards.groups.sections.activity` | boolean | `true` |  | Group Card: Latest Activity. Show the member that changed last, and when. |
+| `sidebar.hoverCards.groups.sections.git` | boolean | `true` |  | Group Card: Branches. Show the members' git branches. |
+| `sidebar.hoverCards.groups.sections.ports` | boolean | `true` |  | Group Card: Ports. Show the members' listening ports. |
 | `sidebar.nowPlaying.enabled` | boolean | `false` |  | Show Now Playing. A player for what is playing, at the bottom of the sidebar. |
 | `tabs.newTabNowPlaying` | boolean | `true` |  | Show Now Playing on New Tab. A player for what is playing, on the New Tab page. |
 | `appearance.colorTransition.enabled` | boolean | `true` |  | Animate Color Changes. Workspace, theme and color changes blend from the old colors to the new ones. Off: they change at once. |

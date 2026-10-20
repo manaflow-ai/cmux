@@ -232,6 +232,27 @@ pub enum Input {
         request: crate::tools::AuthEscalation,
         reply: Sender<Result<String, String>>,
     },
+    /// `peers` from subagent `caller` (acp-chief-issues.md #11).
+    PeerList {
+        caller: String,
+        reply: Sender<Result<String, String>>,
+    },
+    /// `tell` from subagent `from` to subagent `id`.
+    PeerTell {
+        from: String,
+        id: String,
+        message: String,
+        key: Option<String>,
+        reply: Sender<Result<String, String>>,
+    },
+    /// A tell to a running subagent that neither its steer nor the prompt
+    /// after it delivered (acp-chief-issues.md #10): it goes back into the
+    /// subagent's inbox, first, for its next prompt.
+    TellUndelivered {
+        id: String,
+        message: String,
+        error: String,
+    },
     /// `control(action, ...)` (control.rs).
     Control {
         request: crate::tools::ControlCall,
@@ -604,6 +625,12 @@ pub struct Brain {
     cloud_idle_since: std::collections::BTreeMap<String, u64>,
     /// Most subagents at work at once (`subagents::live_limit`); None: no cap.
     max_live: Option<usize>,
+    /// The wall clock (ms since the epoch) the subagent watch reads; tests
+    /// set their own (`set_clock`).
+    clock: Arc<dyn Fn() -> u64 + Send + Sync>,
+    /// Each running subagent's folded events (sub_watch.rs), by id: kept
+    /// between ticks so each tick reads only the new events.
+    watches: HashMap<String, crate::sub_watch::Watch>,
     /// A finished subagent's workspace closes instead of taking the done
     /// mark (`OPTCHAT_SUBAGENT_ON_FINISH=close`).
     sub_close_on_finish: bool,
@@ -767,6 +794,8 @@ impl Brain {
             cloud_paused: Default::default(),
             cloud_idle_since: Default::default(),
             max_live: None,
+            clock: Arc::new(now_ms),
+            watches: HashMap::new(),
             sub_close_on_finish: false,
             resume_policy: Some(crate::auto_resume::ResumePolicy::default()),
             reach: Arc::new(crate::auto_resume::TcpProbe::from_env(
@@ -894,6 +923,11 @@ impl Brain {
     ) {
         self.cloud_vms = vms;
         self.cloud_idle = idle;
+    }
+
+    /// The clock the subagent watch reads (ms since the epoch).
+    pub fn set_clock(&mut self, clock: Arc<dyn Fn() -> u64 + Send + Sync>) {
+        self.clock = clock;
     }
 
     /// Caps the subagents at work at once (None: no cap, the default).
@@ -1084,6 +1118,21 @@ impl Brain {
                 reply,
             } => {
                 let _ = reply.send(self.escalate_auth(&agent, &request));
+            }
+            Input::PeerList { caller, reply } => {
+                let _ = reply.send(Ok(self.agents_list(&caller)));
+            }
+            Input::PeerTell {
+                from,
+                id,
+                message,
+                key,
+                reply,
+            } => {
+                let _ = reply.send(self.peer_tell(&from, &id, &message, key.as_deref()));
+            }
+            Input::TellUndelivered { id, message, error } => {
+                self.tell_undelivered(&id, message, &error);
             }
             Input::Control { request, reply } => {
                 let answer = self.control(&request);
