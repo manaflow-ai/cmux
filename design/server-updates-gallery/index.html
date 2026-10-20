@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Server updates and shared glass: gallery</title>
+<style>
+  :root { --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 13px/1.4 var(--font); background: #1b1b1d; color: #eee; }
+  header { padding: 20px 28px 8px; }
+  header h1 { font-size: 18px; margin: 0 0 4px; }
+  header p { margin: 0; color: #aaa; max-width: 900px; }
+  section.variant { margin: 18px 28px 30px; }
+  section.variant h2 { font-size: 15px; margin: 0 0 4px; display: flex; gap: 8px; align-items: center; }
+  section.variant > p { margin: 0 0 10px; color: #aaa; max-width: 900px; }
+  .badge { font-size: 11px; padding: 2px 8px; border-radius: 99px; background: #2f6f3f; color: #dff5e3; font-weight: 600; }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .stage { position: relative; height: 330px; border-radius: 12px; overflow: hidden; }
+  .stage.dark { background: radial-gradient(circle at 20% 30%, #3a5ba8 0, transparent 40%), radial-gradient(circle at 80% 70%, #a8473a 0, transparent 45%), linear-gradient(135deg, #121417, #23262c); }
+  .stage.light { background: radial-gradient(circle at 20% 30%, #9cc0ff 0, transparent 40%), radial-gradient(circle at 80% 70%, #ffb59c 0, transparent 45%), linear-gradient(135deg, #f3f4f7, #e3e6ec); color: #1c1c1e; }
+  .stage .term { position: absolute; inset: 14px 14px 14px 196px; font: 11px/1.5 ui-monospace, Menlo, monospace; opacity: .55; white-space: pre; overflow: hidden; }
+  .stage .sidebar { position: absolute; left: 0; top: 0; bottom: 0; width: 182px; padding: 12px 10px; }
+  .stage.dark .sidebar { background: rgba(30,30,32,.35); backdrop-filter: blur(24px); }
+  .stage.light .sidebar { background: rgba(255,255,255,.35); backdrop-filter: blur(24px); }
+  .stage .ws { height: 22px; border-radius: 6px; margin-bottom: 6px; opacity: .5; }
+  .stage.dark .ws { background: rgba(255,255,255,.08); } .stage.light .ws { background: rgba(0,0,0,.06); }
+  .label { position: absolute; top: 8px; right: 12px; font-size: 11px; opacity: .6; }
+
+  /* Surfaces */
+  .toast { position: absolute; left: calc(50% + 91px); transform: translateX(-50%); bottom: 18px; display: flex; align-items: center; gap: 12px; padding: 8px 8px 8px 14px; max-width: 440px; }
+  .toast .msg { flex: 1; }
+  .toast .act { font-weight: 600; padding: 3px 7px; border-radius: 6px; white-space: nowrap; }
+  .toast .x { width: 20px; height: 20px; display: grid; place-items: center; opacity: .6; font-size: 11px; }
+  .dialog { position: absolute; left: calc(50% + 91px); top: 34px; transform: translateX(-50%); width: 330px; padding: 16px 16px 12px; }
+  .dialog h3 { margin: 0 0 8px; font-size: 13px; }
+  .dialog p { margin: 0 0 6px; font-size: 12px; opacity: .85; }
+  .dialog .buttons { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+  .dialog .btn { padding: 4px 12px; border-radius: 7px; font-size: 12px; }
+  .tip { position: absolute; left: 10px; bottom: 14px; width: 162px; padding: 9px 10px; font-size: 11.5px; }
+  .tip b { display: block; margin-bottom: 2px; }
+
+  /* Today (before) */
+  .v0 .toast, .v0 .dialog { border-radius: 8px; box-shadow: 0 6px 18px rgba(0,0,0,.25); }
+  .v0 .dark .toast { background: #2b2d31; border: .5px solid rgba(255,255,255,.12); }
+  .v0 .light .toast { background: #fff; border: .5px solid rgba(0,0,0,.12); }
+  .v0 .dark .dialog { background: rgba(58,74,120,.55); backdrop-filter: blur(30px) saturate(1.6); border-radius: 12px; }
+  .v0 .light .dialog { background: rgba(190,205,240,.55); backdrop-filter: blur(30px) saturate(1.6); border-radius: 12px; }
+  .v0 .tip { border-radius: 10px; }
+  .v0 .dark .tip { background: rgba(255,255,255,.13); border: .5px solid rgba(255,255,255,.18); }
+  .v0 .light .tip { background: rgba(0,0,0,.13); border: .5px solid rgba(0,0,0,.18); }
+
+  /* Shared glass: --veil, --rim-top, --rim-bottom per variant and appearance */
+  .glass { position: absolute; backdrop-filter: blur(28px) saturate(1.5); -webkit-backdrop-filter: blur(28px) saturate(1.5); background: var(--veil); }
+  .glass::after { content: ""; position: absolute; inset: 0; border-radius: inherit; padding: 1px; pointer-events: none;
+    background: linear-gradient(to bottom, var(--rim-top), var(--rim-bottom));
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask-composite: exclude; }
+  .glass.toast { border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,.22); }
+  .glass.dialog { border-radius: 14px; box-shadow: 0 12px 34px rgba(0,0,0,.28); }
+  .glass.tip { border-radius: 10px; }
+
+  /* A: Rex neutral (Recommended): matches FloatingGlassStyle */
+  .vA .dark .toast { --veil: rgba(28,28,28,.42); --rim-top: rgba(255,255,255,.30); --rim-bottom: rgba(255,255,255,.06); }
+  .vA .dark .dialog { --veil: rgba(28,28,28,.48); --rim-top: rgba(255,255,255,.28); --rim-bottom: rgba(255,255,255,.05); }
+  .vA .dark .tip { --veil: rgba(28,28,28,.22); --rim-top: rgba(255,255,255,.22); --rim-bottom: rgba(255,255,255,.04); }
+  .vA .light .toast { --veil: rgba(252,252,252,.55); --rim-top: rgba(255,255,255,.85); --rim-bottom: rgba(0,0,0,.10); }
+  .vA .light .dialog { --veil: rgba(252,252,252,.62); --rim-top: rgba(255,255,255,.85); --rim-bottom: rgba(0,0,0,.10); }
+  .vA .light .tip { --veil: rgba(252,252,252,.45); --rim-top: rgba(255,255,255,.80); --rim-bottom: rgba(0,0,0,.08); }
+  /* B: clearer glass, stronger rim */
+  .vB .dark .glass { --veil: rgba(40,40,40,.22); --rim-top: rgba(255,255,255,.55); --rim-bottom: rgba(255,255,255,.12); }
+  .vB .light .glass { --veil: rgba(255,255,255,.30); --rim-top: rgba(255,255,255,1); --rim-bottom: rgba(0,0,0,.16); }
+  /* C: theme tint + rim */
+  .vC .dark .glass { --veil: rgba(52,70,120,.45); --rim-top: rgba(255,255,255,.28); --rim-bottom: rgba(255,255,255,.05); }
+  .vC .light .glass { --veil: rgba(200,214,245,.55); --rim-top: rgba(255,255,255,.85); --rim-bottom: rgba(0,0,0,.10); }
+
+  .dark .act:hover, .dark .btn.cancel { background: rgba(255,255,255,.10); }
+  .light .act:hover, .light .btn.cancel { background: rgba(0,0,0,.06); }
+  .btn.primary { background: #0a84ff; color: #fff; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Server updates and the shared glass</h1>
+  <p>"Restart cmux-tui to use new features", its confirm, and the bottom-left tip, in light and dark over a busy wallpaper. Variant A is the shipped <code>FloatingGlassStyle</code> (neutral gray glass, top-lit rim, continuous corners). The CSS blur only approximates native Liquid Glass. The real app uses <code>NSGlassEffectView</code> on macOS 26, vibrancy before that, and an opaque surface under Reduce Transparency.</p>
+</header>
+<div id="variants"></div>
+<script>
+const term = `$ cmux server status\ncmux-tui 0.1.0 (old1234) protocol 12\nmissing: tab-groups-v1 workspace-checklist-v1 browser-profiles-v1 +2\n$ git log --oneline -3\nfac0b43 test(cmux-next): server update notices (red)\nebbf516 test(cmux-tui): Home screen close guard\n...\n$ ▍`;
+const variants = [
+  { cls: "v0", title: "Today (before)", note: "Opaque toast with an 8 pt radius, theme-tinted dialog glass without a rim, flat 13% text fill on the tip." },
+  { cls: "vA", title: "A · Rex neutral", rec: true, note: "Neutral gray glass, soft top-lit rim, 12/14/10 pt continuous corners. Text keeps the theme's color. Shipped." },
+  { cls: "vB", title: "B · Clear glass, strong rim", note: "More see-through and a brighter rim. It looks great on calm wallpapers, but text gets harder to read over busy ones." },
+  { cls: "vC", title: "C · Theme tint + rim", note: "Today's theme-tinted glass plus the rim. The toast picks up the theme hue, so it reads less like a system prompt." },
+];
+const surfaces = (glass) => `
+  <div class="${glass} toast"><span class="msg">Restart cmux-tui to use new features: Tab groups, Workspace checklists, Browser profiles and 2 more</span><span class="act">Restart cmux-tui…</span><span class="x">✕</span></div>
+  <div class="${glass} dialog"><h3>Restart cmux-tui?</h3><p>Kept: every terminal, its shell, running programs and scrollback.</p><p>Lost: a short reconnect. A CLI command running at that moment fails and can be run again.</p><div class="buttons"><span class="btn cancel">Cancel</span><span class="btn primary">Restart</span></div></div>
+  <div class="${glass} tip"><b>Tip</b>Cmd+Shift+P › "Restart cmux-tui…" runs the same restart.</div>`;
+document.getElementById("variants").innerHTML = variants.map(v => {
+  const glass = v.cls === "v0" ? "" : "glass";
+  const stage = (mode) => `<div class="stage ${mode}"><div class="sidebar">${'<div class="ws"></div>'.repeat(7)}</div><div class="term">${term}</div><span class="label">${mode}</span>${surfaces(glass)}</div>`;
+  return `<section class="variant ${v.cls}"><h2>${v.title}${v.rec ? ' <span class="badge">Recommended · shipped</span>' : ""}</h2><p>${v.note}</p><div class="row">${stage("dark")}${stage("light")}</div></section>`;
+}).join("");
+</script>
+</body>
+</html>
