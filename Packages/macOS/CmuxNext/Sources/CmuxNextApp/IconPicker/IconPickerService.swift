@@ -163,7 +163,7 @@ final class IconPickerService {
     /// the middle of the active window's content.
     func anchor(group id: String) -> Anchor? {
         guard let controller = services?.windows.active, let content = controller.window?.contentView else { return nil }
-        if let screen = controller.sidebar.container.sidebarView.groupRowFrameOnScreen(for: CmuxNextSidebar.GroupID(id)),
+        if let screen = controller.sidebar.container.sidebarView.groupRowFrameOnScreen(for: controller.sidebar.model.groupID(personal: id)),
            let window = content.window {
             return Anchor(view: content, rect: content.convert(window.convertFromScreen(screen), from: nil))
         }
