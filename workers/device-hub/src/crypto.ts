@@ -75,6 +75,26 @@ export async function verifyDeviceSignature(keyB64: string, sigB64: string, mess
   }
 }
 
+const P256_N = 0xffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551n;
+
+/**
+ * The low-S form of a base64 raw r||s P-256 signature, as hex. ECDSA is
+ * malleable: (r, s) and (r, n - s) both verify, so replay checks key on this.
+ * Returns null for anything that is not 64 bytes.
+ */
+export function lowSHex(sigB64: string): string | null {
+  let sig: Uint8Array;
+  try {
+    sig = base64Decode(sigB64);
+  } catch {
+    return null;
+  }
+  if (sig.length !== 64) return null;
+  const s = BigInt("0x" + hex(sig.slice(32)));
+  const low = s > P256_N / 2n ? P256_N - s : s;
+  return hex(sig.slice(0, 32)) + low.toString(16).padStart(64, "0");
+}
+
 /** Lowercase hex SHA-256 of the 65-byte signing key. */
 export async function keyFingerprint(keyB64: string): Promise<string> {
   return sha256Hex(decodeDeviceKey(keyB64) ?? new Uint8Array());

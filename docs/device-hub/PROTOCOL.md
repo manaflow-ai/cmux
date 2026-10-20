@@ -45,7 +45,9 @@ host-signed allow lists are later work.
     empty string when there is no body (GET, WebSocket upgrades). `path+query`
     is the request target as sent, e.g. `/v1/sessions/<sid>/ws?ticket=<jws>`.
   The server verifies with the device's registered signing key and rejects a
-  repeated `(device, ts, sig)` for 120 s. Registration itself is signed with the
+  repeated `(device, ts, sig)` for 120 s, where `sig` is compared in its low-S
+  form (`s` and `n - s` count as the same signature, so a flipped copy of a
+  captured request is a replay). Devices may send high-S signatures. Registration itself is signed with the
   key being registered. A registered id keeps its signing key: registering it
   with another key is 409 `device_key_mismatch`, and a removed id cannot be
   registered again (403 `device_removed`; the app makes a new id). Calls from an
@@ -58,28 +60,36 @@ host-signed allow lists are later work.
 
 ```
 devices(id TEXT PK, name, platform 'macos'|'ios', signing_key, agreement_key,
-        created_at, last_seen_at, removed_at NULL, mac_screen_shared INT 0/1)
+        created_at, last_seen_at, removed_at NULL, mac_screen_shared INT 0/1,
+        name_pinned INT 0/1, owner_kind, owner_id)
 permissions(host_id, viewer_id, scope 'none'|'ask'|'view'|'full', updated_at,
+        owner_kind, owner_id,
         PRIMARY KEY(host_id, viewer_id))         -- default when absent: 'ask'
 relays(id TEXT PK, owner_kind 'user'|'team', owner_id, name, urls JSON,
         auth_mode 'shared_secret'|'static', sealed JSON {deviceId: base64},
         enabled INT, priority INT, updated_at)   -- v1 writes owner_kind 'user'
 sessions(id TEXT PK, viewer_id, host_id, scope 'view'|'full',
         state 'pending'|'approved'|'live'|'ended', created_at, started_at,
-        ended_at, end_reason, path 'direct'|'relay'|NULL)
-audit(id TEXT PK, ts, event, viewer_id, host_id, scope, session_id, detail,
-        duration_s)
+        ended_at, end_reason, path 'direct'|'relay'|NULL, owner_kind, owner_id)
+audit(id TEXT PK, ts, event, viewer_id, host_id, device_id, scope,
+        session_id, detail, duration_s, owner_kind, owner_id)
 ```
+Every table carries `owner_kind 'user'|'team'` and `owner_id`; v1 writes
+`'user'` and the hub user id. Columns added after the first deploy are added
+in place when an existing User DO starts, and its rows are backfilled with the
+user id. `audit.device_id` is the device a `device_added`/`device_removed`
+entry is about.
 Audit events: `shared`, `unshared`, `requested`, `approved`, `denied`,
 `started`, `ended`, `permission_changed`, `device_added`, `device_removed`.
 Audit holds metadata only: never screen content, keystrokes or clipboard.
-Relay changes are not audited. The User DO also keeps a `replay(device_id, ts,
-sig, expires_at)` table for the 120 s signature replay cache.
+Relay changes are not audited. The User DO also keeps a `replay_msg(device_id,
+digest, expires_at)` table (digest = ts and low-S signature) for the 120 s
+replay cache.
 
 JSON shapes: a device is `{id, name, platform, signingKey, agreementKey,
 createdAt, lastSeenAt, macScreenShared, online}`; an ICE server is
 `{urls:[…], username?, credential?}`; an audit entry is `{id, ts, event,
-viewerId, hostId, scope, sessionId, detail, durationS}` (`detail` carries the
+viewerId, hostId, deviceId, scope, sessionId, detail, durationS}` (`detail` carries the
 end reason, the decision, or `old->new` for a permission change).
 
 ## HTTP API (all JSON)
@@ -98,13 +108,13 @@ end reason, the decision, or `old->new` for a permission change).
 | `GET /v1/permissions?host=:id` | | `{permissions:[{viewerId, scope}]}` | One entry per other device; absent rows read `ask`. |
 | `PUT /v1/permissions/:hostId/:viewerId` | `{scope}` | `{permission:{hostId, viewerId, scope, previous, updatedAt}}` | Only device `:hostId` itself (403 `not_host` otherwise). A viewer raises its access only by requesting a session; the host's `always` decision stores the permission. Lowering a scope revokes sessions that exceed it: `none` ends every open session of the pair, `view` ends `full` ones; `ask` and `full` end none. |
 | `POST /v1/sessions` | `{hostId, scope}` | `{session:{id, state, scope}}` | From the viewer. See flow. |
-| `POST /v1/sessions/:id/decision` | `{decision:'deny'\|'once'\|'always', scope}` | `{session}` | From the host device only. `scope` defaults to the requested one and may lower `full` to `view`, never raise it (400). `always` stores the permission. Requests expire after 5 min. |
+| `POST /v1/sessions/:id/decision` | `{decision:'deny'\|'once'\|'always', scope}` | `{session}` | From the host device only. `scope` defaults to the requested one and may lower `full` to `view`, never raise it (400). `always` stores the permission. Requests expire after 5 min: the server ends them (`session.revoked`, reason `expired`) without waiting for a decision. If setting up the approved session fails, it ends with `approve_failed` and the call returns 500. |
 | `POST /v1/sessions/:id/end` | `{reason}` | `{}` | Either side; idempotent. Pushes `session.revoked`. Without `reason`: `host_stopped` from the host, `viewer_disconnected` from the viewer. |
 | `POST /v1/sessions/:id/ice` | | `{ice:[…]}` | Fresh cmux relay credentials while `approved`/`live` (paid only; else `[]`); otherwise 409 `session_not_active`. |
 | `GET /v1/relays` | | `{relays:[…]}` | Each relay carries `sealed: {<this device id>: blob}` or `{}`. |
 | `PUT /v1/relays/:id` | `{name, urls, authMode, sealed, enabled, priority}` | `{relay}` | `sealed`: `{deviceId: base64}` for every device. |
 | `DELETE /v1/relays/:id` | | `{}` | |
-| `GET /v1/audit?limit=&before=&device=` | | `{entries:[…]}` | The whole account's log, newest first. `limit` 1-200 (default 50); `before` = `ts` (ms), exclusive; `device` keeps entries whose `viewerId` or `hostId` is that device (sessions, permissions, sharing; not `device_added`/`device_removed`, which name no viewer or host). |
+| `GET /v1/audit?limit=&before=&device=` | | `{entries:[…]}` | The whole account's log, newest first. `limit` 1-200 (default 50); `before` = `ts` (ms), exclusive; `device` keeps entries whose `viewerId`, `hostId` or `deviceId` is that device (sessions, permissions, sharing, and its own `device_added`/`device_removed`). |
 
 Errors: `{error:{code, message}}` with HTTP 400/401/403/404/409/429.
 Codes: `bad_request`, `unauthorized` (missing/expired hub session),
@@ -171,7 +181,10 @@ device refetches state after it reconnects.
 5. Signaling messages are relayed verbatim between the two roles:
    `{type:'offer'|'answer', sdp, fpSig}`, `{type:'candidate', …}`, `{type:'bye'}`.
    Text frames up to 64 KiB; other types are dropped. Frames sent before the
-   peer connects are queued (up to 256) and delivered when it does.
+   peer connects are queued (up to 256) and delivered when it does. Either
+   device may send `{type:'path', path:'direct'|'relay'}` once the media path
+   is known; it is not relayed and is stored as `sessions.path` (NULL until
+   reported).
    `fpSig` = base64 raw ECDSA over `"<sid>|<role>|<fingerprint>"`, where
    `fingerprint` is the value of the SDP's `a=fingerprint:` line (all of them,
    joined with `,`, in order) and `role` is the sender's. The receiver
@@ -179,11 +192,14 @@ device refetches state after it reconnects.
    aborts on mismatch. Candidates are `{type:'candidate', candidate, sdpMid,
    sdpMLineIndex}`.
 6. When both are connected the Session DO marks the session `live` (audit
-   `started`). When either sends `bye`, closes, or the server revokes, it
-   closes both sockets and deletes its storage. A `bye` or socket close is a
-   provisional end: if no authoritative end (below) arrives within 3 s, the
-   session ends with reason `bye`/`closed` (audit `ended` with duration, push
-   `session.ended` to both).
+   `started`). A signaling socket that closes or fails ends signaling for that
+   side only, never the session: the peer connection may still be up, and the
+   other side's socket stays open. A session ends on `bye`, `/end`,
+   revocation (7) or the offline grace (8); then the Session DO closes both
+   sockets and deletes its storage. A `bye` is provisional for 3 s: if an
+   authoritative end follows (a client often sends `bye` and then `/end`), its
+   reason wins; otherwise the session ends with reason `bye` (audit `ended`
+   with duration, push `session.ended` to both).
 7. Revocation: removing a device, lowering a permission, turning sharing off,
    signing out, or ending from either side pushes `session.revoked` to both
    devices, closes the signaling sockets with code 4002 and audits `ended`
@@ -197,9 +213,9 @@ device refetches state after it reconnects.
    devices, and the Session DO closes its sockets. A socket replaced by a new
    one from the same device does not count as offline.
 
-**End reasons.** The first authoritative reason wins; a socket close that
-arrives before it (a client often closes its sockets right after acting) does
-not replace it. The same string is pushed in `session.revoked` /
+**End reasons.** The first authoritative reason wins. A signaling socket
+close never ends a session, and a `bye` that arrives just before an
+authoritative end does not replace its reason. The same string is pushed in `session.revoked` /
 `session.ended` and stored as the audit `ended` entry's `detail`:
 
 | Reason | Cause | Push |
@@ -212,9 +228,10 @@ not replace it. The same string is pushed in `session.revoked` /
 | `host_stopped` | the host called `/end` without a reason | `session.revoked` |
 | `viewer_disconnected` | the viewer called `/end` without a reason | `session.revoked` |
 | any other string | the `reason` given to `/end` (≤100 chars) | `session.revoked` |
-| `expired` | a pending request was decided after 5 min | `session.revoked` |
+| `expired` | a pending request was not decided within 5 min | `session.revoked` |
 | `peer_offline` | a device stayed disconnected for 30 s | `session.ended` |
-| `bye` / `closed` / `error` | the signaling socket sent `bye`, closed or failed, and no authoritative reason followed within 3 s | `session.ended` |
+| `bye` | a device sent `bye` and no authoritative reason followed within 3 s | `session.ended` |
+| `approve_failed` | the server could not set up the approved session | `session.revoked` |
 
 A denied request ends with `session.denied`, not a reason.
 

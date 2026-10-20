@@ -25,7 +25,7 @@ describe("replay cache", () => {
     await d.register();
     // WebCrypto accepts the flipped form of an unused request...
     const fresh = await d.headers("GET", "/v1/devices", "");
-    const flippedFresh = await d.call("GET", "/v1/devices", undefined, { headers: { ...fresh, "x-device-sig": flipS(fresh["x-device-sig"]) } });
+    const flippedFresh = await d.call("GET", "/v1/devices", undefined, { headers: { ...fresh, "x-device-sig": flipS(fresh["x-device-sig"]!) } });
     expect(flippedFresh.status).toBe(200);
     // ...so the original of that request is a replay,
     const original = await d.call("GET", "/v1/devices", undefined, { headers: { ...fresh } });
@@ -33,7 +33,7 @@ describe("replay cache", () => {
     // and so is the flipped form of a used one.
     const used = await d.call("GET", "/v1/me");
     expect(used.status).toBe(200);
-    const flipped = await d.call("GET", "/v1/me", undefined, { headers: { ...used.headers, "x-device-sig": flipS(used.headers["x-device-sig"]) } });
+    const flipped = await d.call("GET", "/v1/me", undefined, { headers: { ...used.headers, "x-device-sig": flipS(used.headers["x-device-sig"]!) } });
     expect([flipped.status, flipped.json.error.code]).toEqual([401, "replay"]);
   });
 });

@@ -1,5 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
-import { base64Decode, isValidDeviceKey, keyFingerprint } from "./crypto";
+import { base64Decode, isValidDeviceKey, keyFingerprint, lowSHex } from "./crypto";
 import { DEVICE_ID, REPLAY_WINDOW_MS, checkDeviceSignature, readDeviceHeaders } from "./deviceAuth";
 import { ORIGIN_HEADER, USER_HEADER, planFor, type Env } from "./env";
 import { ApiError, badRequest, errorResponse, json, notFound } from "./errors";
@@ -67,10 +67,14 @@ CREATE TABLE IF NOT EXISTS devices(
   id TEXT PRIMARY KEY, name TEXT NOT NULL, platform TEXT NOT NULL,
   signing_key TEXT NOT NULL, agreement_key TEXT NOT NULL,
   created_at INTEGER NOT NULL, last_seen_at INTEGER NOT NULL,
-  removed_at INTEGER, mac_screen_shared INTEGER NOT NULL DEFAULT 0);
+  removed_at INTEGER, mac_screen_shared INTEGER NOT NULL DEFAULT 0,
+  name_pinned INTEGER NOT NULL DEFAULT 0,
+  owner_kind TEXT NOT NULL DEFAULT 'user', owner_id TEXT NOT NULL DEFAULT '');
 CREATE TABLE IF NOT EXISTS permissions(
   host_id TEXT NOT NULL, viewer_id TEXT NOT NULL, scope TEXT NOT NULL,
-  updated_at INTEGER NOT NULL, PRIMARY KEY(host_id, viewer_id));
+  updated_at INTEGER NOT NULL,
+  owner_kind TEXT NOT NULL DEFAULT 'user', owner_id TEXT NOT NULL DEFAULT '',
+  PRIMARY KEY(host_id, viewer_id));
 CREATE TABLE IF NOT EXISTS relays(
   id TEXT PRIMARY KEY, owner_kind TEXT NOT NULL, owner_id TEXT NOT NULL,
   name TEXT NOT NULL, urls TEXT NOT NULL, auth_mode TEXT NOT NULL,
@@ -79,18 +83,37 @@ CREATE TABLE IF NOT EXISTS relays(
 CREATE TABLE IF NOT EXISTS sessions(
   id TEXT PRIMARY KEY, viewer_id TEXT NOT NULL, host_id TEXT NOT NULL,
   scope TEXT NOT NULL, state TEXT NOT NULL, created_at INTEGER NOT NULL,
-  started_at INTEGER, ended_at INTEGER, end_reason TEXT, path TEXT);
+  started_at INTEGER, ended_at INTEGER, end_reason TEXT, path TEXT,
+  owner_kind TEXT NOT NULL DEFAULT 'user', owner_id TEXT NOT NULL DEFAULT '');
 CREATE TABLE IF NOT EXISTS audit(
   id TEXT PRIMARY KEY, ts INTEGER NOT NULL, event TEXT NOT NULL,
   viewer_id TEXT, host_id TEXT, scope TEXT, session_id TEXT, detail TEXT,
-  duration_s INTEGER);
+  duration_s INTEGER, device_id TEXT,
+  owner_kind TEXT NOT NULL DEFAULT 'user', owner_id TEXT NOT NULL DEFAULT '');
 CREATE INDEX IF NOT EXISTS audit_ts ON audit(ts);
 CREATE TABLE IF NOT EXISTS offline(device_id TEXT PRIMARY KEY, since INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS closing(session_id TEXT PRIMARY KEY, reason TEXT NOT NULL, at INTEGER NOT NULL);
-CREATE TABLE IF NOT EXISTS replay(
-  device_id TEXT NOT NULL, ts TEXT NOT NULL, sig TEXT NOT NULL,
-  expires_at INTEGER NOT NULL, PRIMARY KEY(device_id, ts, sig));
+CREATE TABLE IF NOT EXISTS replay_msg(
+  device_id TEXT NOT NULL, digest TEXT NOT NULL,
+  expires_at INTEGER NOT NULL, PRIMARY KEY(device_id, digest));
+CREATE TABLE IF NOT EXISTS meta(k TEXT PRIMARY KEY, v TEXT NOT NULL);
+DROP TABLE IF EXISTS replay;
 `;
+
+/** Columns added after v1 shipped: added in place to existing User DOs. */
+const ADDED_COLUMNS: [string, string, string][] = [
+  ["devices", "name_pinned", "INTEGER NOT NULL DEFAULT 0"],
+  ["devices", "owner_kind", "TEXT NOT NULL DEFAULT 'user'"],
+  ["devices", "owner_id", "TEXT NOT NULL DEFAULT ''"],
+  ["permissions", "owner_kind", "TEXT NOT NULL DEFAULT 'user'"],
+  ["permissions", "owner_id", "TEXT NOT NULL DEFAULT ''"],
+  ["sessions", "owner_kind", "TEXT NOT NULL DEFAULT 'user'"],
+  ["sessions", "owner_id", "TEXT NOT NULL DEFAULT ''"],
+  ["audit", "device_id", "TEXT"],
+  ["audit", "owner_kind", "TEXT NOT NULL DEFAULT 'user'"],
+  ["audit", "owner_id", "TEXT NOT NULL DEFAULT ''"],
+];
+const OWNED_TABLES = ["devices", "permissions", "sessions", "audit"];
 
 function rank(scope: string): number {
   return scope === "full" ? 2 : scope === "view" ? 1 : 0;
@@ -131,10 +154,25 @@ export class UserDO extends DurableObject<Env> {
     super(ctx, env);
     this.sql = ctx.storage.sql;
     this.sql.exec(SCHEMA);
-    // v1.1: a rename through PATCH pins the name against re-registration.
-    const cols = this.sql.exec("PRAGMA table_info(devices)").toArray().map((c) => c.name);
-    if (!cols.includes("name_pinned")) this.sql.exec("ALTER TABLE devices ADD COLUMN name_pinned INTEGER NOT NULL DEFAULT 0");
+    for (const [table, col, def] of ADDED_COLUMNS) {
+      const cols = this.sql.exec(`PRAGMA table_info(${table})`).toArray().map((c) => c.name);
+      if (!cols.includes(col)) this.sql.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${def}`);
+    }
+    const owner = this.sql.exec("SELECT v FROM meta WHERE k = 'user_id'").toArray()[0];
+    if (owner) this.setOwner(owner.v as string);
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair(PING, PONG));
+  }
+
+  // ---- owner (v1: always the user; team sharing later adds 'team' rows) ----
+
+  private ownerId = "";
+
+  /** Records the user this DO belongs to and backfills rows written before owner columns existed. */
+  private setOwner(userId: string) {
+    if (this.ownerId === userId) return;
+    this.ownerId = userId;
+    this.sql.exec("INSERT INTO meta(k, v) VALUES ('user_id', ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v", userId);
+    for (const t of OWNED_TABLES) this.sql.exec(`UPDATE ${t} SET owner_kind = 'user', owner_id = ? WHERE owner_id = ''`, userId);
   }
 
   // ---- storage helpers ----
@@ -162,9 +200,12 @@ export class UserDO extends DurableObject<Env> {
     return this.ctx.getWebSockets(deviceId).length > 0;
   }
 
-  private audit(event: string, f: { viewerId?: string | null; hostId?: string | null; scope?: string | null; sessionId?: string | null; detail?: string | null; durationS?: number | null }) {
+  private audit(
+    event: string,
+    f: { viewerId?: string | null; hostId?: string | null; deviceId?: string | null; scope?: string | null; sessionId?: string | null; detail?: string | null; durationS?: number | null },
+  ) {
     this.sql.exec(
-      "INSERT INTO audit(id, ts, event, viewer_id, host_id, scope, session_id, detail, duration_s) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      "INSERT INTO audit(id, ts, event, viewer_id, host_id, scope, session_id, detail, duration_s, device_id, owner_kind, owner_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'user', ?)",
       crypto.randomUUID(),
       Date.now(),
       event,
@@ -174,6 +215,8 @@ export class UserDO extends DurableObject<Env> {
       f.sessionId ?? null,
       f.detail ?? null,
       f.durationS ?? null,
+      f.deviceId ?? null,
+      this.ownerId,
     );
   }
 
@@ -208,6 +251,7 @@ export class UserDO extends DurableObject<Env> {
       if (url.pathname.startsWith("/internal/")) return await this.internal(url.pathname, request);
       const userId = request.headers.get(USER_HEADER);
       if (!userId) throw new ApiError(401, "unauthorized", "missing user");
+      this.setOwner(userId);
       const origin = request.headers.get(ORIGIN_HEADER) ?? url.origin;
       const body = new Uint8Array(await request.arrayBuffer());
       const now = Date.now();
@@ -228,11 +272,13 @@ export class UserDO extends DurableObject<Env> {
     }
   }
 
+  /** Burns (timestamp, low-S signature) for the replay window. */
   private burnSignature(deviceId: string, ts: string, sig: string, now: number) {
-    this.sql.exec("DELETE FROM replay WHERE expires_at <= ?", now);
-    const seen = this.sql.exec("SELECT 1 FROM replay WHERE device_id = ? AND ts = ? AND sig = ?", deviceId, ts, sig).toArray();
+    const digest = `${ts}:${lowSHex(sig)}`;
+    this.sql.exec("DELETE FROM replay_msg WHERE expires_at <= ?", now);
+    const seen = this.sql.exec("SELECT 1 FROM replay_msg WHERE device_id = ? AND digest = ?", deviceId, digest).toArray();
     if (seen.length > 0) throw new ApiError(401, "replay", "request was already used");
-    this.sql.exec("INSERT INTO replay(device_id, ts, sig, expires_at) VALUES (?, ?, ?, ?)", deviceId, ts, sig, now + REPLAY_WINDOW_MS);
+    this.sql.exec("INSERT INTO replay_msg(device_id, digest, expires_at) VALUES (?, ?, ?)", deviceId, digest, now + REPLAY_WINDOW_MS);
   }
 
   private parse(body: Uint8Array): Record<string, unknown> {
@@ -270,7 +316,7 @@ export class UserDO extends DurableObject<Env> {
       );
     } else {
       this.sql.exec(
-        "INSERT INTO devices(id, name, platform, signing_key, agreement_key, created_at, last_seen_at, removed_at, mac_screen_shared) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, 0)",
+        "INSERT INTO devices(id, name, platform, signing_key, agreement_key, created_at, last_seen_at, removed_at, mac_screen_shared, owner_kind, owner_id) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, 0, 'user', ?)",
         h.id,
         name,
         body.platform,
@@ -278,8 +324,9 @@ export class UserDO extends DurableObject<Env> {
         agreementKey,
         now,
         now,
+        this.ownerId,
       );
-      this.audit("device_added", { detail: `${h.id} ${name}` });
+      this.audit("device_added", { deviceId: h.id, detail: `${h.id} ${name}` });
     }
     this.broadcast({ type: "devices.changed" });
     return json({ device: publicDevice(this.device(h.id)!, this.online(h.id)) });
@@ -387,7 +434,12 @@ export class UserDO extends DurableObject<Env> {
   private async scheduleAlarm() {
     const off = this.sql.exec("SELECT MIN(since) AS t FROM offline").one().t as number | null;
     const close = this.sql.exec("SELECT MIN(at) AS t FROM closing").one().t as number | null;
-    const times = [off === null ? null : off + OFFLINE_GRACE_MS, close === null ? null : close + this.closeGraceMs()].filter((t): t is number => t !== null);
+    const pending = this.sql.exec("SELECT MIN(created_at) AS t FROM sessions WHERE state = 'pending'").one().t as number | null;
+    const times = [
+      off === null ? null : off + OFFLINE_GRACE_MS,
+      close === null ? null : close + this.closeGraceMs(),
+      pending === null ? null : pending + PENDING_TTL_MS,
+    ].filter((t): t is number => t !== null);
     if (times.length === 0) return;
     const at = Math.min(...times);
     const current = await this.ctx.storage.getAlarm();
@@ -403,6 +455,10 @@ export class UserDO extends DurableObject<Env> {
       this.sql.exec("DELETE FROM closing WHERE session_id = ?", c.session_id);
       if (s) await this.endSession(s, c.reason as string, "ended", false);
     }
+    const expired = this.sql
+      .exec("SELECT * FROM sessions WHERE state = 'pending' AND created_at + ? <= ?", PENDING_TTL_MS, now)
+      .toArray() as unknown as SessionRow[];
+    for (const s of expired) await this.endSession(s, "expired", "revoked", false);
     const due = this.sql.exec("SELECT device_id FROM offline WHERE since + ? <= ?", OFFLINE_GRACE_MS, now).toArray();
     for (const r of due) {
       const deviceId = r.device_id as string;
@@ -429,7 +485,7 @@ export class UserDO extends DurableObject<Env> {
     this.sql.exec("UPDATE devices SET removed_at = ?, mac_screen_shared = 0 WHERE id = ?", Date.now(), id);
     const open = this.sql.exec("SELECT * FROM sessions WHERE state != 'ended' AND (viewer_id = ? OR host_id = ?)", id, id).toArray() as unknown as SessionRow[];
     for (const s of open) await this.endSession(s, `device_removed:${s.viewer_id === id ? "viewer" : "host"}`, "revoked", true);
-    this.audit("device_removed", { detail: `${id} ${target.name}` });
+    this.audit("device_removed", { deviceId: id, detail: `${id} ${target.name}` });
     this.broadcast({ type: "devices.changed" });
     for (const ws of this.ctx.getWebSockets(id)) {
       try {
@@ -505,11 +561,12 @@ export class UserDO extends DurableObject<Env> {
   private async storePermission(hostId: string, viewerId: string, scope: PermissionScope, now: number): Promise<PermissionScope> {
     const before = this.permission(hostId, viewerId);
     this.sql.exec(
-      "INSERT INTO permissions(host_id, viewer_id, scope, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(host_id, viewer_id) DO UPDATE SET scope = excluded.scope, updated_at = excluded.updated_at",
+      "INSERT INTO permissions(host_id, viewer_id, scope, updated_at, owner_kind, owner_id) VALUES (?, ?, ?, ?, 'user', ?) ON CONFLICT(host_id, viewer_id) DO UPDATE SET scope = excluded.scope, updated_at = excluded.updated_at",
       hostId,
       viewerId,
       scope,
       now,
+      this.ownerId,
     );
     if (before !== scope) {
       this.audit("permission_changed", { hostId, viewerId, scope, detail: `${before}->${scope}` });
@@ -543,18 +600,20 @@ export class UserDO extends DurableObject<Env> {
     const now = Date.now();
     const id = crypto.randomUUID();
     this.sql.exec(
-      "INSERT INTO sessions(id, viewer_id, host_id, scope, state, created_at) VALUES (?, ?, ?, ?, 'pending', ?)",
+      "INSERT INTO sessions(id, viewer_id, host_id, scope, state, created_at, owner_kind, owner_id) VALUES (?, ?, ?, ?, 'pending', ?, 'user', ?)",
       id,
       me.id,
       hostId,
       scope,
       now,
+      this.ownerId,
     );
     this.audit("requested", { viewerId: me.id, hostId, scope, sessionId: id });
     if (rank(perm) >= rank(scope)) {
       this.audit("approved", { viewerId: me.id, hostId, scope, sessionId: id, detail: "permission" });
-      await this.approve(this.session(id)!, c);
+      await this.approveOrEnd(this.session(id)!, c);
     } else {
+      await this.scheduleAlarm();
       this.send(hostId, {
         type: "session.request",
         session: { id, viewerId: me.id, viewerName: me.name, viewerKeyFingerprint: await keyFingerprint(me.signing_key), scope },
@@ -562,6 +621,18 @@ export class UserDO extends DurableObject<Env> {
     }
     const s = this.session(id)!;
     return json({ session: { id: s.id, state: s.state, scope: s.scope } });
+  }
+
+  /** Approves, or ends the session (approve_failed) when the Session DO or tickets cannot be set up. */
+  private async approveOrEnd(s: SessionRow, c: { userId: string; origin: string }) {
+    try {
+      await this.approve(s, c);
+    } catch (err) {
+      console.error("session approve failed", err instanceof Error ? err.message : String(err));
+      const current = this.session(s.id);
+      if (current) await this.endSession(current, "approve_failed", "revoked", true);
+      throw new ApiError(500, "internal", "could not start the session");
+    }
   }
 
   /** Creates the Session DO and pushes a ticket to each device. */
@@ -625,7 +696,7 @@ export class UserDO extends DurableObject<Env> {
     this.sql.exec("UPDATE sessions SET state = 'approved', scope = ? WHERE id = ?", scope, id);
     if (decision === "always") await this.storePermission(s.host_id, s.viewer_id, scope, Date.now());
     this.audit("approved", { viewerId: s.viewer_id, hostId: s.host_id, scope, sessionId: id, detail: decision });
-    await this.approve({ ...s, scope }, c);
+    await this.approveOrEnd({ ...s, scope }, c);
     return json({ session: publicSession(this.session(id)!) });
   }
 
@@ -755,8 +826,8 @@ export class UserDO extends DurableObject<Env> {
       binds.push(Number(before));
     }
     if (device) {
-      where.push("(viewer_id = ? OR host_id = ?)");
-      binds.push(device, device);
+      where.push("(viewer_id = ? OR host_id = ? OR device_id = ?)");
+      binds.push(device, device, device);
     }
     const rows = this.sql
       .exec(`SELECT * FROM audit ${where.length ? `WHERE ${where.join(" AND ")}` : ""} ORDER BY ts DESC, rowid DESC LIMIT ?`, ...binds, limit)
@@ -772,6 +843,7 @@ export class UserDO extends DurableObject<Env> {
         sessionId: r.session_id,
         detail: r.detail,
         durationS: r.duration_s,
+        deviceId: r.device_id,
       })),
     });
   }
@@ -787,6 +859,12 @@ export class UserDO extends DurableObject<Env> {
         const p = body.path === "direct" || body.path === "relay" ? body.path : null;
         this.sql.exec("UPDATE sessions SET state = 'live', started_at = ?, path = ? WHERE id = ?", Date.now(), p, s.id);
         this.audit("started", { viewerId: s.viewer_id, hostId: s.host_id, scope: s.scope, sessionId: s.id });
+      }
+      return json({ ok: true });
+    }
+    if (path === "/internal/session-path") {
+      if (s.state !== "ended" && (body.path === "direct" || body.path === "relay")) {
+        this.sql.exec("UPDATE sessions SET path = ? WHERE id = ?", body.path, s.id);
       }
       return json({ ok: true });
     }

@@ -25,10 +25,17 @@ export function readDeviceHeaders(headers: Headers, nowMs: number): DeviceHeader
   return { id, ts, sig };
 }
 
-/** Verifies the device signature over the canonical request string. */
-export async function checkDeviceSignature(signingKey: string, method: string, url: URL, body: Uint8Array, h: DeviceHeaders): Promise<void> {
+/**
+ * Verifies the device signature over the canonical request string and returns
+ * that string. Callers key replay checks on the low-S form of the signature
+ * (`lowSHex`): (r, s) and (r, n - s) both verify, and Secure Enclave keys do
+ * not produce low-S signatures, so rejecting high-S is not an option. Keying on
+ * the message alone would refuse two identical requests in the same second.
+ */
+export async function checkDeviceSignature(signingKey: string, method: string, url: URL, body: Uint8Array, h: DeviceHeaders): Promise<string> {
   const message = await canonicalRequest(method, url.pathname + url.search, h.ts, body);
   if (!(await verifyDeviceSignature(signingKey, h.sig, message))) {
     throw new ApiError(401, "bad_signature", "device signature does not verify");
   }
+  return message;
 }
