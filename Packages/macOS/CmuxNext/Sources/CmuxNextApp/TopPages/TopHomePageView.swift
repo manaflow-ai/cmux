@@ -99,14 +99,36 @@ final class TopHomePageView: NSView {
             Task { _ = try? await store.perform(.setReadCursor(conversation: id, seq: row.summary.lastSeq)) }
         }
         list.onMarkUnread = { id in if id != HomeSidebarView.draftRowID { sidebar.setMarkedUnread(true, id) } }
-        // Archive Chief on a Chief's row (the same action as the palette and the CLI).
+        // Archive Chief on a Chief's row; Hide or Show Alerts on a DM or group's row, and for a group
+        // Group Info, Rename, Add People and Leave (the same actions as the palette and the CLI).
         list.menuItems = { id in
-            guard let row = home.homeStore.rows.first(where: { $0.id == id }), row.kind == .chief,
-                  let chief = row.summary.participants.lazy.compactMap({ home.directory.chief(for: $0.id) }).first,
-                  let title = registry.title(for: "home.archiveChief") else { return [] }
-            return [HomeSidebarView.menuItem(title) {
-                _ = registry.perform("home.archiveChief", invocation: ActionInvocation(arguments: ["chief": .string(chief.id)], origin: .user))
-            }]
+            guard let row = home.homeStore.rows.first(where: { $0.id == id }) else { return [] }
+            func item(_ action: ActionID, _ title: String? = nil, _ arguments: [String: ActionValue] = [:]) -> [NSMenuItem] {
+                guard let title = title ?? registry.title(for: action) else { return [] }
+                return [HomeSidebarView.menuItem(title) {
+                    _ = registry.perform(action, invocation: ActionInvocation(arguments: arguments, origin: .user))
+                }]
+            }
+            if row.kind == .chief {
+                guard let chief = row.summary.participants.lazy.compactMap({ home.directory.chief(for: $0.id) }).first else { return [] }
+                return item("home.archiveChief", nil, ["chief": .string(chief.id)])
+            }
+            let conversation: [String: ActionValue] = ["conversation": .string(id.rawValue)]
+            let actions = home.groupActions
+            var items: [NSMenuItem] = []
+            if row.kind == .group {
+                items += item("home.conversationInfo", HomeGroupInfo.groupInfoMenuTitle, conversation)
+            }
+            if actions.info(id)?.canMute == true {
+                let muted = actions.info(id)?.muted == true
+                items += item(muted ? "home.unmuteConversation" : "home.muteConversation", nil, conversation)
+            }
+            if row.kind == .group {
+                items += item("home.renameConversation", nil, conversation)
+                items += item("home.addMembers", nil, conversation)
+                items += item("home.leaveConversation", nil, conversation)
+            }
+            return items
         }
         // Search: teammates with no DM yet, under the conversations; choosing one starts the DM.
         list.teammates = { [weak sidebar] query in
@@ -359,6 +381,46 @@ final class TopHomePageView: NSView {
         let sheet = HomeNewChiefSheet()
         sheet.onCreate = { name, backend in await home.createChief(named: name, backend: backend) }
         present(sheet)
+    }
+
+    /// The group info sheet for `id` (a DM or group): name, members, Add People, Hide Alerts and
+    /// Leave, each through `HomeService.groupActions` (Leave through its action, which asks first).
+    /// It follows the conversation while it shows.
+    func presentGroupInfo(_ id: ConversationID) {
+        guard let services, let window else { return }
+        let actions = services.home.groupActions
+        guard let info = actions.info(id) else { return services.registry.refuse(HomeGroupOutcome.unknownConversation.message ?? "") }
+        let registry = services.registry
+        let model = HomeGroupInfoModel(info: info, addable: actions.addable(to: id), actions: HomeGroupInfoActions(
+            rename: { await actions.rename(id, to: $0) },
+            add: { await actions.add($0, to: id, naming: $1) },
+            remove: { await actions.remove($0, from: id) },
+            setMuted: { actions.setMuted($0, id) },
+            leave: {
+                _ = registry.perform("home.leaveConversation",
+                                     invocation: ActionInvocation(arguments: ["conversation": .string(id.rawValue)], origin: .user))
+            },
+            inviteByEmail: { [weak self] in self?.presentInvite(prefill: "") }))
+        let sheet = HomeGroupInfoSheet(model: model, colors: performWithTheme { HomeGroupInfoColors.resolve() })
+        // task-owner: lives while the sheet shows; event-driven (Observation): members, name and mute as the owner says
+        let watch = Task { [weak sheet] in
+            for await info in ObservationStream({ actions.info(id) }) {
+                guard let info else { sheet?.close(); return }
+                model.update(info: info, addable: actions.addable(to: id))
+            }
+        }
+        sheet.onClose = { watch.cancel() }
+        let panel = NSWindow(contentViewController: sheet)
+        panel.adoptThemeScope(of: self)
+        window.beginSheet(panel)
+    }
+
+    /// I left `id` while it showed: its neighbor in the list shows (else the default conversation).
+    func conversationLeft(_ id: ConversationID, next: ConversationID?) {
+        guard shown == id, let services else { return }
+        let fallback = next.flatMap { $0 == id ? nil : $0 } ?? defaultConversation(rows: rows.filter { $0.id != id }, home: services.home)
+        guard let fallback, fallback != id else { return }
+        show(fallback)
     }
 
     private func present(_ sheet: HomeSheetController) {
