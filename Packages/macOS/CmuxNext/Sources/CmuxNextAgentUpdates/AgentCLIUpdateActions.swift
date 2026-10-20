@@ -169,10 +169,11 @@ public final class AgentCLIUpdateActions {
                         intent.jobs[index] = .object(job)
                     }
                 case .failure(let error):
-                    // The owner's refusal says the key created nothing; anything else may follow a creation.
                     // Busy is answered before the key is looked up, so on a replay it can mean the key's
                     // original request is still running: keep the job and replay again next refresh.
-                    guard Self.refusedBeforeCreation(error), !Self.busy(error) else { continue }
+                    // Any other owner answer is the key's settled outcome (see `settled`); a lost
+                    // reply keeps the job and is replayed again.
+                    guard Self.settled(error), !Self.busy(error) else { continue }
                     intent.unsent[family] = nil
                     intent.jobs.remove(at: index)
                 }
@@ -235,16 +236,16 @@ public final class AgentCLIUpdateActions {
         guard !families.isEmpty, intent.profile == nil || families.count == 1 else {
             throw ActionFailure(message: families.isEmpty ? nothingToUpdate() : unsupported())
         }
+        // An earlier job blocks its CLI only until it ends. Nothing else polls (Settings > Agents
+        // refreshes only while open), so learn whether a blocking job has ended before refusing.
+        if families.contains(where: { blocked($0, on: route.machine, besides: intent) }) {
+            await refresh()
+        }
         // One family's refusal never stops the others; the batch reports every failure.
         var failures: [String] = []
         for family in families {
             guard route.isCurrent(), let cli = AgentCLIFamily(rawValue: family) else { throw DaemonError.notConnected }
-            guard !intents.values.contains(where: { other in
-                other !== intent && other.jobs.contains { job in
-                    job["machine"]?.stringValue == route.machine.rawValue && job["cli"]?.stringValue == family
-                        && ["unknown", "created", "pending"].contains(job["state"]?.stringValue ?? "")
-                } && owner(of: other) != nil
-            }) else {
+            guard !blocked(family, on: route.machine, besides: intent) else {
                 failures.append(stillUpdating(family))
                 continue
             }
@@ -259,10 +260,11 @@ public final class AgentCLIUpdateActions {
             do {
                 receipt = try await route.start(cli, childKey)
             } catch {
-                // A refusal created nothing, so it leaves no job to block this CLI.
-                // A lost reply may have created the terminal: it stays unknown, and
+                // An owner answer settles the key: a refusal created nothing, and a failed
+                // creation is replayed as the same failure, so neither leaves a job to block
+                // this CLI. A lost reply may have created the terminal: it stays unknown, and
                 // refresh sends the same key again to learn which.
-                if Self.refusedBeforeCreation(error) {
+                if Self.settled(error) {
                     if let index = Self.job(of: family, in: intent) { intent.jobs.remove(at: index) }
                 } else {
                     intent.unsent[family] = childKey
@@ -287,6 +289,16 @@ public final class AgentCLIUpdateActions {
         return .array(intent.jobs)
     }
 
+    /// Whether another intent's job for this CLI on this machine has not ended while its owner is still routed.
+    private func blocked(_ family: String, on machine: ResourceID, besides intent: Intent) -> Bool {
+        intents.values.contains { other in
+            other !== intent && other.jobs.contains { job in
+                job["machine"]?.stringValue == machine.rawValue && job["cli"]?.stringValue == family
+                    && ["unknown", "created", "pending"].contains(job["state"]?.stringValue ?? "")
+            } && owner(of: other) != nil
+        }
+    }
+
     /// The intent's job for one family that has no terminal yet; an intent runs each family once.
     private static func job(of family: String, in intent: Intent) -> Int? {
         intent.jobs.lastIndex { $0["cli"]?.stringValue == family && $0["terminal"] == nil }
@@ -309,11 +321,15 @@ public final class AgentCLIUpdateActions {
         return !members.isEmpty && members.allSatisfy { $0.outdated && ($0.channel == .npm || $0.channel == .native) }
     }
 
-    /// The owner answers `agent_cli_job.*` before it journals a creation, so no
-    /// terminal exists for the key. Any other failure may follow a creation.
-    static func refusedBeforeCreation(_ error: any Error) -> Bool {
+    /// Whether the owner answered the start with a coded failure, which settles the key:
+    /// `agent_cli_job.*` comes before any creation is journaled, so no terminal exists;
+    /// any other code is the key's journaled outcome (a failed creation, or an
+    /// interrupted one, `mutation.indeterminate`), and the owner answers every replay
+    /// of the key the same way, so replaying it can never learn more. Only a failure
+    /// without an owner answer (a lost reply) leaves the key worth replaying.
+    static func settled(_ error: any Error) -> Bool {
         guard case DaemonError.command(_, _, let code?, _, _) = error else { return false }
-        return code.hasPrefix("agent_cli_job.")
+        return !code.isEmpty
     }
 
     /// The owner's execution lock or inventory reservation is held.
