@@ -70,14 +70,22 @@ public nonisolated struct ScreenGeometry: Hashable, Sendable {
     /// column's vertical offset moves.
     public var rowColumnOfPane: [PaneID: ColumnID] = [:]
     public var rowColumnOfSplit: [SplitID: ColumnID] = [:]
+    /// Horizontal scroll areas (plans/cmux-next/scroll-areas-DESIGN.md G5), keyed by their
+    /// root split, and the area holding each pane and split divider. Empty while
+    /// `LayoutStyle.scrollAreasEnabled` is off.
+    public var scrollAreas: [SplitID: ScrollAreaGeometry] = [:]
+    public var scrollAreaOfPane: [PaneID: SplitID] = [:]
+    public var scrollAreaOfSplit: [SplitID: SplitID] = [:]
 
     public static func compute(_ layout: ScreenLayout, viewport: CGSize, style: LayoutStyle, scale: CGFloat = 2) -> ScreenGeometry {
         switch layout {
         case let .splits(root):
-            let result = SplitGeometry.layout(root, in: CGRect(origin: .zero, size: viewport), style: style, scale: scale)
-            return ScreenGeometry(viewport: viewport, panes: result.panes, dividers: result.dividers, contentWidth: viewport.width, isColumns: false,
-                                  stripWidth: viewport.width, stripHeight: viewport.height, uncoveredMaxX: viewport.width,
-                                  uncoveredMaxY: viewport.height, clipMaxX: viewport.width, clipMaxY: viewport.height)
+            var geometry = ScreenGeometry(viewport: viewport, contentWidth: viewport.width, isColumns: false,
+                                          stripWidth: viewport.width, stripHeight: viewport.height, uncoveredMaxX: viewport.width,
+                                          uncoveredMaxY: viewport.height, clipMaxX: viewport.width, clipMaxY: viewport.height)
+            let result = geometry.layoutTree(root, in: CGRect(origin: .zero, size: viewport), style: style, scale: scale)
+            (geometry.panes, geometry.dividers) = (result.panes, result.dividers)
+            return geometry
         case let .columns(all):
             if style.prototype.model != .off,
                let prototype = LayoutModelPrototype.geometry(all, viewport: viewport, style: style, scale: scale) {
@@ -179,7 +187,7 @@ public nonisolated struct ScreenGeometry: Hashable, Sendable {
     /// Rows turned off (`style.rowsEnabled`) fit the column and never
     /// scroll (O3).
     mutating func layoutContent(of column: LayoutColumn, in frame: CGRect, style: LayoutStyle, scale: CGFloat) -> SplitLayoutResult {
-        guard column.hasRows else { return SplitGeometry.layout(column.root, in: frame, style: style, scale: scale) }
+        guard column.hasRows else { return layoutTree(column.root, in: frame, style: style, scale: scale) }
         let stack = RowStackGeometry.compute(column: column.id, rows: column.rows,
                                              minimumHeights: column.rows.map { SplitGeometry.minimumSize(of: $0.root, style: style).height },
                                              in: frame, gap: style.stripGap, fits: !style.rowsEnabled, scale: scale)
@@ -187,7 +195,7 @@ public nonisolated struct ScreenGeometry: Hashable, Sendable {
         rowEdges.append(contentsOf: stack.edges(lineThickness: style.dividerThickness, hitThickness: style.columnEdgeHitThickness, scale: scale))
         var result = SplitLayoutResult()
         for (row, placed) in zip(column.rows, stack.rows) {
-            let inner = SplitGeometry.layout(row.root, in: placed.frame, style: style, scale: scale)
+            let inner = layoutTree(row.root, in: placed.frame, style: style, scale: scale)
             result.panes.merge(inner.panes) { _, new in new }
             result.dividers.append(contentsOf: inner.dividers)
         }
@@ -232,7 +240,8 @@ public nonisolated struct ScreenGeometry: Hashable, Sendable {
 
     /// The docked column holding `pane`, if any.
     public func dockFrame(containing pane: PaneID) -> DockColumnFrame? {
-        guard fixedPanes.contains(pane), let rect = panes[pane] else { return nil }
+        // A pane in a scroll area may sit past the dock's edge: its area's window does not.
+        guard fixedPanes.contains(pane), let rect = scrollAreaWindow(of: pane) ?? panes[pane] else { return nil }
         return dock.first { $0.frame.contains(CGPoint(x: rect.midX, y: rect.midY)) }
     }
 

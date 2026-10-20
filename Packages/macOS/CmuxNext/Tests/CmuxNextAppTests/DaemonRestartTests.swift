@@ -1,8 +1,11 @@
 import AppKit
 @testable import CmuxNextApp
+import CmuxNextControl
 import CmuxNextDaemon
 @testable import CmuxNextDaemonRecovery
+import CmuxNextDaemonService
 import CmuxNextDesign
+import CmuxNextSettings
 import Foundation
 import Testing
 
@@ -212,4 +215,52 @@ struct DaemonRestartTests {
         #expect(retry != nil)
         #expect(retry?.isEnabled == true)
     }
+
+    #if DEBUG
+    /// The restore journey's daemon variants (scripts/cmux-next/restore-journey.py) read the
+    /// recovery state through `debug.daemon` and press Restart through it, on the same path the
+    /// button takes after its confirm: the stuck owner's launch window, then a replace.
+    @Test func debugDaemonReportsTheRecoveryStateAndRestartsThroughIt() async throws {
+        let launched = try Self.launch(stuck: true)
+        defer { launched.stop() }
+        let view = try await Self.unavailableView(launched)
+        await Self.wait(within: .seconds(10)) { Self.shown("daemon.restart", in: view) != nil }
+        let router = ControlRouter(identity: ControlIdentity(version: "1.0", build: "1", bundleID: "com.cmuxterm.app.debug.test", tag: "test",
+                                                             processID: getpid()),
+                                   executor: RegistryControlBridge(registry: launched.services.registry), settings: nil)
+        // AppControl's wiring of `debug.daemon`.
+        router.register([launched.services.daemon.debugControlMethod { [services = launched.services] in
+            services.windows.controllers.map { (id: $0.state.id, shows: $0.recoveryShows) }
+        }])
+        func call(_ params: [String: CmuxNextSettings.JSONValue] = [:]) async throws -> [String: CmuxNextSettings.JSONValue] {
+            try #require(try await router.handle(ControlRequest(id: "1", method: "debug.daemon", params: params)).get().objectValue)
+        }
+
+        let report = try await call()
+        #expect(report["machine"] == .string("local"))
+        #expect(report["startup"] == .string("unavailable"))
+        #expect(report["startup_error"]?.stringValue?.isEmpty == false)
+        let recovery = try #require(report["recovery"]?.objectValue)
+        #expect(recovery["offers_restart"] == .bool(true))
+        #expect(recovery["is_restarting"] == .bool(false))
+        #expect(recovery["can_retry"] == .bool(true))
+        let windowObjects = report["windows"]?.arrayValue?.compactMap { $0.objectValue }
+        let windows = try #require(windowObjects)
+        #expect(!windows.isEmpty)
+        #expect(windows.allSatisfy { $0["shows"] == .string("connecting") }, "\(windows)")
+
+        // Restart, as the button does after its confirm: the stand-in sees the replace.
+        let started = try await call(["action": .string("restart")])
+        #expect(started["action"] == .string("restart"))
+        await Self.wait(within: .seconds(10)) { launched.standIn.ensures().contains { $0.contains("--replace-unresponsive") } }
+        #expect(launched.standIn.ensures().contains { $0.contains("--replace-unresponsive") })
+
+        // Retry Now: one more plain ensure.
+        let before = launched.standIn.ensures().count
+        _ = try await call(["action": .string("retry")])
+        await Self.wait(within: .seconds(10)) { launched.standIn.ensures().count > before }
+        #expect(launched.standIn.ensures().count > before)
+        await #expect(throws: (any Error).self) { _ = try await call(["action": .string("explode")]) }
+    }
+    #endif
 }

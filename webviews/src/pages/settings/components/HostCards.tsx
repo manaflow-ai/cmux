@@ -2,7 +2,7 @@
 // (Appearance, where Change Background… lands), the terminal facts (Terminal) and the settings
 // file with its problems (Advanced). Data comes from the host lists; writes run host ops or
 // catalog actions, the palette's paths.
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useSettingsState, useStore } from "../context";
 import { settingsFileName } from "../format";
 import { rowsByKey, type SchemaRow } from "../schema";
@@ -24,8 +24,8 @@ const YOURS = "yours";
 /** `appearance.backgroundBlur`: the window's Material, drawn in the card beside Opacity. */
 export const MATERIAL_KEY = "appearance.backgroundBlur";
 export const BACKDROP_ROWS: ReadonlySet<string> = new Set([BACKGROUND_KEY, BACKGROUND_OPACITY_KEY, MATERIAL_KEY]);
-/** How long the pointer rests on a tile before the window shows it: sweeping across the grid
- * previews nothing, so it fetches no full-size art. */
+/** How long the pointer or keyboard focus rests on a tile before the window shows it: sweeping
+ * or tabbing across the grid previews nothing, so it fetches no full-size art. */
 const PREVIEW_DWELL_MS = 150;
 
 /** Over a picture the window at 100% shows the work's own tint instead (the theme's opacity is
@@ -72,8 +72,8 @@ function BackdropThumb({ src }: { src: string }) {
   return <img className="backdrop-thumb" alt="" src={src} onError={() => setFailed(src)} />;
 }
 
-/** Change Background… (`?focus=appearance.background`) lands on the saved tile. Focusing it previews
- * the saved background, so nothing changes. */
+/** Change Background… (`?focus=appearance.background`) lands on the saved tile. Focus resting on it
+ * previews the saved background after the dwell, so nothing changes. */
 function revealTile(tile: HTMLElement | null): void {
   tile?.scrollIntoView?.({ block: "center" });
   tile?.focus();
@@ -85,7 +85,7 @@ export function useBackdropsShown(): boolean {
 }
 
 /**
- * Change Background… (cx-t2x.4): the art picker. Resting on a tile, or focusing it, shows that
+ * Change Background… (cx-t2x.4): the art picker. Resting on a tile with the pointer or focus shows that
  * background in every window without writing it; a click keeps it; leaving restores the saved one.
  * Below the art, the Opacity slider previews the glass over it the same way. Plain glass ("None")
  * stays the default. Opened for a workspace, This Workspace makes the tiles choose that
@@ -93,6 +93,10 @@ export function useBackdropsShown(): boolean {
  */
 export function Backdrops({ focus = null, workspace = null }: { focus?: string | null; workspace?: string | null }) {
   const store = useStore();
+  // What a tile's badges say to VoiceOver (the ▶ of a video, the cloud of a pending download).
+  // It stands in for the credit tooltip as VoiceOver's description; the credit stays the pointer's
+  // tooltip, and a video's title already names the wallpaper.
+  const describe = useId();
   const state = useSettingsState();
   const { host, rows } = state;
   const [browsing, setBrowsing] = useState(false);
@@ -147,9 +151,12 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
   }, [store, ownCount]);
   if (backdrops.length === 0) return null;
   const background = rows.get(BACKGROUND_KEY);
-  const current = own
-    ? (own.value ?? FOLLOW_ID)
-    : (((background?.value ?? background?.default) as string | undefined) ?? "none");
+  const appCurrent = ((background?.value ?? background?.default) as string | undefined) ?? "none";
+  const current = own ? (own.value ?? FOLLOW_ID) : appCurrent;
+  // A workspace's tint is over its picture: with its own No wallpaper there is nothing for Opacity
+  // over Art to change. A workspace that follows may still show a picture the page does not see
+  // (a window's own, `appearance.set scope=window`), so it keeps the slider.
+  const ownPicture = own !== null && own.value !== "none";
   const opacity = rowsByKey.get(BACKGROUND_OPACITY_KEY);
   const material = rowsByKey.get(MATERIAL_KEY);
   const choose = async (id: string) => {
@@ -191,6 +198,10 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
         className={pending ? "backdrop-tile backdrop-pending" : "backdrop-tile"}
         aria-pressed={current === id}
         aria-label={title}
+        aria-describedby={
+          [choice?.video ? `${describe}-video` : null, pending ? `${describe}-pending` : null].filter(Boolean).join(" ") ||
+          undefined
+        }
         /* tooltip-allow: what a click on a cloud tile does, or the credit the one-line tile drops */ title={
           pending ? t("settingsWindow.backdropPicker.downloadInSystemSettings") : credit
         }
@@ -198,7 +209,7 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
         onClick={() => void (pending ? store.openWallpaperSettings() : choose(id))}
         onPointerEnter={pending ? undefined : () => preview(id, PREVIEW_DWELL_MS)}
         onPointerLeave={pending ? undefined : endPreview}
-        onFocus={(event) => !pending && event.currentTarget.matches(":focus-visible") && preview(id, 0)}
+        onFocus={(event) => !pending && event.currentTarget.matches(":focus-visible") && preview(id, PREVIEW_DWELL_MS)}
         onBlur={pending ? undefined : endPreview}
       >
         {id === "none" || id === FOLLOW_ID ? (
@@ -237,6 +248,13 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
   return (
     <section className="group" data-card="backdrop">
       <h3 className="group-title">{t("settingsWindow.backdropPicker.title")}</h3>
+      {/* Hidden: read only as a tile's description, never as text of their own in the card. */}
+      <span id={`${describe}-video`} hidden>
+        {t("settingsWindow.backdropPicker.video")}
+      </span>
+      <span id={`${describe}-pending`} hidden>
+        {t("settingsWindow.backdropPicker.downloadInSystemSettings")}
+      </span>
       {workspaceBackground && (
         <BackdropScopePicker
           title={workspaceBackground.title}
@@ -247,7 +265,7 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
           }}
         />
       )}
-      {own && (
+      {own && ownPicture && (
         <WorkspaceOpacity background={own} onSaved={(saved) => setWorkspaceBackground({ ...own, opacity: saved })} />
       )}
       <div className="rows">
