@@ -61,7 +61,10 @@ fn status_is_remote(args: &[String]) -> bool {
 pub(crate) fn run(rest: &[String]) -> i32 {
     let verb = rest.first().map(String::as_str).unwrap_or_default();
     let args = &rest[1.min(rest.len())..];
-    let result = match verb {
+    if verb == "dial" {
+        return dial(args);
+    }
+    let result = require_safe_host_user(verb).and_then(|()| match verb {
         "enable" => enable(args),
         "disable" => disable(args),
         "status" => status(args),
@@ -73,9 +76,8 @@ pub(crate) fn run(rest: &[String]) -> i32 {
         "allow" => edit_allow(args, true),
         "deny" => edit_allow(args, false),
         "list" => list(args),
-        "dial" => return dial(args),
         _ => Err(anyhow!("unknown verb")),
-    };
+    });
     match result {
         Ok(()) => 0,
         Err(e) if e.downcast_ref::<Usage>().is_some() => {
@@ -87,6 +89,26 @@ pub(crate) fn run(rest: &[String]) -> i32 {
             1
         }
     }
+}
+
+#[cfg(unix)]
+fn require_safe_host_user(verb: &str) -> anyhow::Result<()> {
+    require_safe_host_user_for(verb, cmux_tui_core::platform::effective_uid())
+}
+
+#[cfg(not(unix))]
+fn require_safe_host_user(_verb: &str) -> anyhow::Result<()> {
+    Ok(())
+}
+
+#[cfg(unix)]
+fn require_safe_host_user_for(verb: &str, uid: u32) -> anyhow::Result<()> {
+    if uid == 0 && verb == "enable" {
+        bail!(
+            "remote hosting runs as a user, not root: run `cmux host enable` as the user whose sessions to serve"
+        );
+    }
+    Ok(())
 }
 
 #[derive(Debug)]
@@ -223,14 +245,6 @@ fn enable(args: &[String]) -> anyhow::Result<()> {
         Flags::parse(args, &["owner", "session", "port"], &["no-service", "no-spawn", "json"])?;
     if !flags.positional.is_empty() {
         return Err(usage("takes no positional arguments"));
-    }
-    // Hosting serves this user's sessions; as root it would hand root's
-    // terminals to the owner (for example after `curl … | sudo sh`).
-    #[cfg(unix)]
-    if cmux_tui_core::platform::effective_uid() == 0 {
-        bail!(
-            "remote hosting runs as a user, not root: run `cmux host enable` as the user whose sessions to serve"
-        );
     }
     let tailnet = tailnet::Tailnet::locate()?;
     let status = tailnet.status()?;
@@ -447,4 +461,16 @@ fn dial(args: &[String]) -> i32 {
         return 2;
     };
     client::dial(host, port.unwrap_or(config::DEFAULT_PORT))
+}
+
+#[cfg(all(test, unix))]
+mod privilege_tests {
+    #[test]
+    fn root_never_runs_remote_host_listener() {
+        assert!(super::require_safe_host_user_for("enable", 0).is_err());
+        assert!(super::require_safe_host_user_for("serve", 0).is_err());
+        assert!(super::require_safe_host_user_for("serve-detached", 0).is_err());
+        assert!(super::require_safe_host_user_for("status", 0).is_ok());
+        assert!(super::require_safe_host_user_for("serve", 501).is_ok());
+    }
 }
