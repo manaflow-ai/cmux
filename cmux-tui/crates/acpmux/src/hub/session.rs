@@ -14,6 +14,9 @@ pub struct Session {
     /// so the log and fan-out always see sequences in order.
     pub(super) append_lock: StdMutex<()>,
     pub(super) loading: AtomicBool,
+    /// The log's records past the saved `lastSeq` are counted (`Hub::catch_up`).
+    /// False from a deferred daemon start until the first append or the log load.
+    pub(super) caught_up: AtomicBool,
     pub(super) turn_lock: Mutex<()>,
     pub(super) turn: StdMutex<Option<TurnInfo>>,
     pub(super) queued: AtomicU64,

@@ -10,11 +10,21 @@ import { createPageClient, type PageClient } from "../shared/pageClient";
 import { createStrings, type Strings } from "../shared/i18n";
 import { subscribePageStreams } from "../shared/pageStreams";
 import { DiagramLibraries, renderDiagram } from "./diagrams";
-import { MarkdownEditor, type EditorLabel, type MarkdownEditorHost } from "./editor";
+import { parseComments } from "./comments";
+import { MarkdownEditor, markdownRemoteImagePlaceholder, type EditorLabel, type MarkdownEditorHost } from "./editor";
 import table from "./generated/strings.json";
 import type { ThemeRegistrationAny } from "shiki/core";
 import { CodeHighlighter, codeThemes, preloadHighlighter } from "./highlight";
-import { MARKDOWN_FLUSH_OP, MARKDOWN_LIST_FILES_OP, MARKDOWN_RESOLVE_LINKS_OP, resolveImageURL } from "./host";
+import {
+  MARKDOWN_CONTEXT_TABLE_OP,
+  MARKDOWN_DELETE_COMMENT_OP,
+  MARKDOWN_FLUSH_OP,
+  MARKDOWN_LIST_FILES_OP,
+  MARKDOWN_RESOLVE_LINKS_OP,
+  MARKDOWN_SELECTION_OP,
+  MARKDOWN_SET_TABLE_WIDTHS_OP,
+  resolveImageURL,
+} from "./host";
 import type { LinkLabel } from "./linkEditing";
 import { LinkRouter } from "./linkRouter";
 import { LinkResolver, type ResolvedLink } from "./links";
@@ -26,6 +36,7 @@ import type { ReadingSettingsActions } from "./ReadingSettings";
 import { MARKDOWN_READING, bindMarkdownLook, markdownCodeTheme } from "./settings";
 import { MarkdownFontZoom, isMarkdownZoomCommand } from "./fontZoom";
 import { L } from "./strings";
+import { hostTableWidths, storedTableWidths } from "./tables";
 import { UiProvider, languageDirection } from "../../ui/UiProvider";
 import "../shared/pageBase.css";
 import "../../ui/ui.css";
@@ -40,6 +51,10 @@ const LABELS: Record<EditorLabel, string> = {
   source: L.rawSource,
   plainText: L.plainText,
   document: L.title,
+  remoteImageBlocked: L.remoteImageBlocked,
+  remoteImageLoad: L.remoteImageLoad,
+  comment: L.comment,
+  deleteComment: L.deleteComment,
 };
 
 /** The editor's host: links, images, code colors and diagrams, from the page config. */
@@ -84,7 +99,18 @@ function editorHost(
     return base ? `${base}${name}.js` : null;
   });
   const imageURL = (src: string) => resolveImageURL(src, config()?.assetBase, config()?.remoteImageBase);
-  return {
+  const imageListeners = new Set<() => void>();
+  let remoteImageBase = config()?.remoteImageBase;
+  store.subscribe(() => {
+    const next = config()?.remoteImageBase;
+    if (next === remoteImageBase) return;
+    remoteImageBase = next;
+    for (const listener of imageListeners) listener();
+  });
+  let blockedImage = (_src: string, _alt: string): HTMLElement => document.createElement("span");
+  const host: MarkdownEditorHost & {
+    setCodeThemes(themes: Promise<ThemeRegistrationAny[]>): Promise<void> | undefined;
+  } = {
     openLink: follow,
     get githubRepository() {
       return config()?.githubRepository;
@@ -103,6 +129,24 @@ function editorHost(
       linkLabel: (key) => strings.t(LINK_LABELS[key]),
     },
     imageURL,
+    loadRemoteImages: () => store.loadRemoteImages(),
+    observeRemoteImages(refresh) {
+      imageListeners.add(refresh);
+      return () => imageListeners.delete(refresh);
+    },
+    // Kept with the file by the host: the page's own storage dies with the tab (its WebKit data
+    // store is not persistent). One call per finished resize.
+    // Delete on a comment card: the host forgets it and sends the list back (the `comments` command).
+    deleteComment: (id) => {
+      if (client) void client.call(MARKDOWN_DELETE_COMMENT_OP, { path: config()?.path, id }).catch(() => {});
+    },
+    tableWidths: client
+      ? hostTableWidths(
+          () => config()?.path,
+          (path) => (config()?.path === path ? config()?.tableWidths : undefined),
+          (path, value) => void client.call(MARKDOWN_SET_TABLE_WIDTHS_OP, { path, value }).catch(() => {}),
+        )
+      : storedTableWidths(() => config()?.path),
     highlight(code, language, refresh) {
       const look = store.getState().look;
       highlighter ??= new CodeHighlighter(codeThemes(markdownCodeTheme(look.settings), look.appearance));
@@ -112,11 +156,13 @@ function editorHost(
       renderDiagram(libraries, language, source, target, strings.t(L.diagramFailed));
     },
     label: (key) => strings.t(LABELS[key]),
-    htmlPreview: (html) => htmlPreview(html, imageURL),
+    htmlPreview: (html) => htmlPreview(html, imageURL, blockedImage),
     setCodeThemes(themes) {
       return highlighter?.setThemes(themes);
     },
   };
+  blockedImage = (src, alt) => markdownRemoteImagePlaceholder(host, src, alt);
+  return host;
 }
 
 /** The code block size in pixels the Reading Settings wrote before code became a share of the text. */
@@ -168,6 +214,9 @@ export function mountMarkdownPage(root: HTMLElement, client: PageClient | null =
   document.documentElement.lang = strings.language;
   document.title = strings.t(L.title);
   let editor: MarkdownEditor | null = null;
+  /** What the last right-click hit, and the table it was on (what the host was told). */
+  let contextTarget: Element | null = null;
+  let contextTable: number | null = null;
   const overlays = new LinkOverlays();
   // Relative link targets: checked through the host in batches, cached per file.
   const resolver = new LinkResolver(
@@ -200,6 +249,14 @@ export function mountMarkdownPage(root: HTMLElement, client: PageClient | null =
   });
   const host = editorHost(store, client, strings, resolver, (href) => void router.follow(href));
   // A callback ref: React calls it with the element on mount and null on unmount.
+  // Another document (a link, back, a reload from disk) brings its own comments in its config.
+  let shownConfig = store.getState().config;
+  store.subscribe(() => {
+    const next = store.getState().config;
+    if (next === shownConfig) return;
+    shownConfig = next;
+    editor?.setComments(parseComments(next?.comments));
+  });
   const editorRef = (element: HTMLDivElement | null) => {
     if (!element) {
       store.attachEditor(null);
@@ -217,7 +274,9 @@ export function mountMarkdownPage(root: HTMLElement, client: PageClient | null =
     });
     editor = next;
     void next.create().then(() => {
-      if (editor === next) store.attachEditor(next);
+      if (editor !== next) return;
+      store.attachEditor(next);
+      next.setComments(parseComments(store.getState().config?.comments));
     });
   };
   if (client) {
@@ -225,16 +284,34 @@ export function mountMarkdownPage(root: HTMLElement, client: PageClient | null =
     void subscribePageStreams(client, {
       // Cmd-[ and Cmd-] are `back` and `forward` (the page's link history), Cmd-K is `link`,
       // Cmd-= / Cmd-- / Cmd-0 the text size.
-      onCommand: ({ command }) => {
+      onCommand: ({ command, text }) => {
         if (isMarkdownZoomCommand(command)) zoom.run(command);
         else if (command === "save") void store.save();
         else if (command === "back") void router.go(-1);
         else if (command === "forward") void router.go(1);
         else if (command === "link") editor?.openLinkPopover();
+        else if (command === "resetTableWidths") editor?.resetTableWidths();
+        else if (command === "resetContextTableWidths") editor?.resetTableWidthsAt(contextTarget);
+        else if (command === "comments") editor?.setComments(parseComments(parseJSON(text)));
       },
     });
+    // A right-click tells the host whether it was on a table (its menu then offers Reset Column
+    // Widths); WebKit dispatches the event before it asks the app for the menu.
+    root.addEventListener(
+      "contextmenu",
+      (event) => {
+        contextTarget = event.target instanceof Element ? event.target : null;
+        const table = editor?.tableIndexAt(contextTarget) ?? null;
+        if (table !== null || contextTable !== null)
+          void client.call(MARKDOWN_CONTEXT_TABLE_OP, { table }).catch(() => {});
+        contextTable = table;
+      },
+      true,
+    );
     // The host asks before it closes the tab or quits: pending edits are written first.
     client.handle(MARKDOWN_FLUSH_OP, () => store.flush());
+    // Comment… and Quote in Chat on selected text: the host asks for the selection and its lines.
+    client.handle(MARKDOWN_SELECTION_OP, () => editor?.selectionQuote() ?? null);
   }
   // Leaving the page (tab closed, app quit) writes pending edits.
   addEventListener("pagehide", () => {
@@ -280,3 +357,12 @@ export function mountMarkdownPage(root: HTMLElement, client: PageClient | null =
 
 const root = document.getElementById("root");
 if (root && document.documentElement.dataset.cmuxPage === "markdown") mountMarkdownPage(root);
+
+/** `text` as JSON, null when it is not. */
+function parseJSON(text: string | undefined): unknown {
+  try {
+    return text ? JSON.parse(text) : null;
+  } catch {
+    return null;
+  }
+}

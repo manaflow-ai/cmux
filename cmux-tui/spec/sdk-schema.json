@@ -586,6 +586,13 @@
     "browser"
    ]
   },
+  "ColumnMoveDirection": {
+   "kind": "enum",
+   "values": [
+    "left",
+    "right"
+   ]
+  },
   "PaneDirection": {
    "kind": "enum",
    "values": [
@@ -1917,6 +1924,17 @@
      "presence": "required",
      "nullable": false
     },
+    "crate_version": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "constraints": [
+      "The cmux-tui crate version; `version` is the npm/PyPI release (equal in app and local builds). Only with identify {revisions: true}."
+     ]
+    },
     "build_commit": {
      "type": {
       "kind": "scalar",
@@ -1940,6 +1958,50 @@
      },
      "presence": "required",
      "nullable": false
+    },
+    "api_revision": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint32"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "constraints": [
+      "The API revision this daemon reads and writes natively (cmux-tui/spec/api-compat.json). Absent on daemons from before revisions. Only with identify {revisions: true}."
+     ]
+    },
+    "min_api_revision": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint32"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "constraints": [
+      "The oldest API revision this daemon translates to and from for a client that declares it with set-client-info. Only with identify {revisions: true}."
+     ]
+    },
+    "install": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "constraints": [
+      "How this daemon's binary was installed: npm, pypi, app or other. Only with identify {revisions: true}."
+     ]
+    },
+    "update_command": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "constraints": [
+      "The command that updates this daemon's install (npm and PyPI only), for a client's version-skew refusal. Only with identify {revisions: true}."
+     ]
     },
     "capabilities": {
      "type": {
@@ -4519,6 +4581,28 @@
      "default": null,
      "since": 12,
      "capability": "remote-terminal-tabs-v1"
+    }
+   },
+   "additional_properties": false
+  },
+  "TerminalResumeCommandResult": {
+   "kind": "object",
+   "fields": {
+    "terminal_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "command": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": true
     }
    },
    "additional_properties": false
@@ -9157,6 +9241,18 @@
       "nullable": false,
       "since": 12,
       "capability": "machine-identity-v1"
+     },
+     "revisions": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "constraints": [
+       "Adds api_revision, min_api_revision, crate_version, install and update_command to the reply. Off by default so strict older SDK decoders keep reading the reply."
+      ]
      }
     },
     "additional_properties": false
@@ -9298,6 +9394,45 @@
       "capability": "shared-sizing-v1",
       "constraints": [
        "Stable per-install device id; tells two devices of one user apart."
+      ]
+     },
+     "api_revision": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint32"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "constraints": [
+       "The API revision the client reads and writes. An older revision within the daemon's range is translated both ways by the daemon; a newer client translates for itself; an older one than min_api_revision is refused. Absent: revision 12."
+      ]
+     },
+     "version": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "constraints": [
+       "The client's release (`cmux --version`), named in refusals and logs."
+      ]
+     },
+     "install": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "constraints": [
+       "How the client was installed (npm, pypi, app, other), so a refusal names its exact update command."
       ]
      }
     },
@@ -9883,12 +10018,23 @@
       "nullable": false,
       "default": false,
       "since": 7
+     },
+     "expect_foreground": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "capability": "send-expect-foreground-v1"
      }
     },
     "additional_properties": false,
     "constraints": [
      "When both are present, UTF-8 text bytes precede decoded bytes.",
-     "Exactly one of surface and terminal_id; terminal_id (terminal-input-while-creating-v1) is the host terminal id, also of a terminal still being created, and has the semantics of terminal.input.write."
+     "Exactly one of surface and terminal_id; terminal_id (terminal-input-while-creating-v1) is the host terminal id, also of a terminal still being created, and has the semantics of terminal.input.write.",
+     "expect_foreground (send-expect-foreground-v1) needs surface: the write happens only while the surface's foreground executable equals it, else the request fails with nothing written."
     ]
    },
    "result": {
@@ -10862,6 +11008,67 @@
    "constraints": [
     "The keep flag is stored durably with the terminal and survives owner restarts.",
     "A terminal that is not kept is ended, as close-terminal does, once it has had no tab placement for the owner's reap grace period (default 30 seconds); a placement restored within the period cancels it."
+   ]
+  },
+  "terminal-resume-command": {
+   "authority": "control",
+   "since": 12,
+   "capability": "resume-command",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "surface": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "terminal_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "constraints": [
+       {
+        "pattern": "^(term_)?[0-9a-f]{32}$",
+        "format": "terminal host id (UUIDv4 hex without dashes) or public term_ resource id"
+       }
+      ]
+     },
+     "command": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "constraints": [
+       {
+        "format": "one line of 1-4096 bytes without control characters, trimmed; absent reads, null clears"
+       }
+      ]
+     }
+    },
+    "additional_properties": false,
+    "constraints": [
+     "Exactly one of surface or terminal_id is present."
+    ]
+   },
+   "result": {
+    "kind": "ref",
+    "name": "TerminalResumeCommandResult"
+   },
+   "stream": null,
+   "constraints": [
+    "The resume command is stored durably with the terminal and survives owner restarts.",
+    "When the owner respawns the terminal it types the command on the new prompt without a newline; it never runs on its own."
    ]
   },
   "new-tab": {
@@ -17134,6 +17341,39 @@
     "See spec/commands.md for the result object."
    ]
   },
+  "park-tabs": {
+   "authority": "control",
+   "since": 12,
+   "capability": "tab-park-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "surfaces": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "ref",
+        "name": "TabRef"
+       }
+      },
+      "presence": "required",
+      "nullable": false,
+      "aliases": [
+       "tabs"
+      ]
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "See spec/commands.md for the result object."
+   ]
+  },
   "set-frontend-browser-history": {
    "authority": "control",
    "since": 12,
@@ -21753,7 +21993,7 @@
    },
    "stream": null,
    "constraints": [
-    "The owner's trusted connection only: a registered Unix client with no link peer record acting as the local user (a local client, or the link's owner_session splice). Link-stamped, relayed, WebSocket, unregistered and agent-bound connections are refused with origin.forbidden before anything is forwarded; the remote relay never admits it. Read-only: one of seven /api paths, GET, forwarded as one line to the brain host's tools socket (CMUX_TUI_CHIEF_TOOLS_SOCKET); answers above 5 MiB are refused. Every daemon advertises chief-inspect-v1; one without that socket answers the owner chief.not_configured. See spec/commands.md."
+    "The owner's trusted connection only: a registered Unix client with no link peer record acting as the local user (a local client, or the link's owner_session splice). Link-stamped, relayed, WebSocket, unregistered and agent-bound connections are refused with origin.forbidden before anything is forwarded; the remote relay never admits it. Reads: one of nine /api read paths, GET; the owner's memory changes (/api/memory/edit, /api/memory/delete, /api/memory/undo): POST, which the brain refuses to the Chief's own sessions; the reserved query key chief names a non-default Chief's brain. Forwarded as one line to the brain host's tools socket (CMUX_TUI_CHIEF_TOOLS_SOCKET); answers above 5 MiB are refused. Every daemon advertises chief-inspect-v1; one without that socket answers the owner chief.not_configured. See spec/commands.md."
    ]
   },
   "snapshot-request": {
@@ -22125,6 +22365,42 @@
    "since": 12,
    "stream": null
   },
+  "move-column": {
+   "authority": "control",
+   "capability": "column-move-v1",
+   "constraints": [
+    "pane names any pane of the column that moves; the whole column (every pane, split and row) trades places with its neighbor in direction.",
+    "A docked column never moves and is never crossed. See spec/commands.md for the result object and error codes."
+   ],
+   "request": {
+    "additional_properties": false,
+    "fields": {
+     "direction": {
+      "nullable": false,
+      "presence": "required",
+      "type": {
+       "kind": "ref",
+       "name": "ColumnMoveDirection"
+      }
+     },
+     "pane": {
+      "nullable": false,
+      "presence": "required",
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      }
+     }
+    },
+    "kind": "object"
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "since": 12,
+   "stream": null
+  },
   "cloud-session-set": {
    "authority": "local-admin",
    "since": 12,
@@ -22425,6 +22701,24 @@
    "stream": null,
    "constraints": [
     "Trusted local connections only. limit is 1-200. Calls the cloud; errors carry error_code, reason and retryable. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
+   ]
+  },
+  "cloud-requests-list": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "cloud-conversations-v1",
+   "request": {
+    "kind": "object",
+    "fields": {},
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "Trusted local connections only. Reads the lease person's open message requests (POST /v1/read home.requests.list); no fields are accepted. Returns {requests} with rows whose conversation is not a conversation id dropped. Calls the cloud; errors carry error_code, reason and retryable. See spec/commands.md."
    ]
   },
   "cloud-conversation-snapshot": {

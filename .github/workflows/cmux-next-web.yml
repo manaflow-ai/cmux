@@ -34,3 +34,55 @@ jobs:
       macos: ${{ 'false' }}
       agent_session_web: ${{ 'true' }}
       push_base: ${{ github.event_name == 'push' && github.event.before || '' }}
+
+  # The pre-push hook's check (scripts/web_lint_prepush.py) as a fast job of its
+  # own: a skipped hook (--no-verify, CMUX_WEB_LINT_SKIP_REASON, a clone without
+  # scripts/install-git-hooks.sh, or a push that changed the check's own code)
+  # shows a red here within minutes, not after the long web build and test jobs.
+  # Same script as the hook, so the two cannot drift.
+  web-lint:
+    name: web lint (fast)
+    # GitHub-hosted (free for this public repo), not Blacksmith: the job is small.
+    runs-on: ubuntu-24.04 # github-hosted-required: small advisory lint on the free hosted runner
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.2"
+
+      - name: Cache Bun package cache
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.bun/install/cache
+          key: bun-web-lint-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock', 'web/bun.lock', 'cmux-tui/frontends/web/bun.lock') }}
+
+      # `vp check` runs on Node and needs ^22.18 or ^24.11; bun still installs.
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24.11.1"
+
+      - name: Hook tests
+        run: python3 tests/test_web_lint_prepush.py
+
+      # Lints what the push brought (event.before..sha). An unknown or unfetchable
+      # base (a new branch, a force push, a dispatch) lints every package.
+      - name: Web lint on the pushed range
+        env:
+          PUSH_BASE: ${{ github.event_name == 'push' && github.event.before || '' }}
+        run: |
+          set -euo pipefail
+          if [ -n "$PUSH_BASE" ] && [ "$PUSH_BASE" != "0000000000000000000000000000000000000000" ] \
+              && git fetch --no-tags --depth=1 origin "$PUSH_BASE"; then
+            python3 scripts/web_lint_prepush.py --base "$PUSH_BASE" --head "$GITHUB_SHA" --timings
+          else
+            echo "::notice title=web lint::push base unknown; linting every package"
+            python3 scripts/web_lint_prepush.py --all --base "$GITHUB_SHA" --head "$GITHUB_SHA" --timings
+          fi

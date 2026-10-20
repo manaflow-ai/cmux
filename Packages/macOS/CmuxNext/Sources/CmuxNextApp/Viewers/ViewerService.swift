@@ -30,6 +30,8 @@ final class ViewerService {
     private(set) lazy var editorPages = FilePageService(services: owner, kind: .editor)
     /// Files tree tabs beside a chat (cx-p4rt).
     private(set) lazy var fileTrees = FileTreePageService(services: owner)
+    /// Native Files pane tabs (u2360, plans/finder-parity/PARITY.md).
+    private(set) lazy var filesPanes = FilesPaneService(services: owner)
 
     init(services: AppServices, recents: ViewerRecents = ViewerRecents()) {
         self.services = services
@@ -109,10 +111,18 @@ final class ViewerService {
 
     /// Opens `file` through ``fileOpener`` (a tab of `pane`: the markdown
     /// page, the code editor page or the browser tab's preview). False when
-    /// it did not open (the refusal shows).
+    /// it did not open (the refusal shows). `placed`: a new tab opens unselected and reports its
+    /// surface there (``LinkOpener`` moves it right of `pane`); a tab that already shows the file
+    /// is selected where it is.
     @discardableResult
-    func openFile(_ file: URL, in pane: PaneController?, markdown: Bool) -> Bool {
-        if let reason = fileOpener.open(file, in: pane) {
+    func openFile(_ file: URL, in pane: PaneController?, markdown: Bool,
+                  placed: (@MainActor (SurfaceID) -> Void)? = nil) -> Bool {
+        let refusal = if let placed, let opener = fileOpener as? FilePageOpener {
+            opener.open(file, in: pane, userChose: true, placed: placed)
+        } else {
+            fileOpener.open(file, in: pane)
+        }
+        if let reason = refusal {
             showRefusal(reason)
             return false
         }

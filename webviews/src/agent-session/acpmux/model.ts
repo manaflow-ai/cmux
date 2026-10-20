@@ -1,6 +1,7 @@
 import { editedPaths } from "./toolPaths";
 import type { PermissionClientState } from "./permissions/protocol";
 import type { AgentQuestion } from "./question/model";
+import type { PermissionDecision } from "./permissions/record";
 import type { HandoffClientState } from "./handoff/client";
 import type { Enforcement } from "./handoff/protocol";
 import type { SlashCommand } from "./slashCommands";
@@ -36,6 +37,17 @@ export type AcpmuxCompaction = {
 /// acpmux moved the chat onto its fallback harness after a usage limit (a `failover` record).
 export type AcpmuxFailover = { from: string; to: string };
 
+/// What the chat's agent runs on, from its own start line (Claude Code's system/init, acpmux's
+/// `session_info_update._meta.claude`): drawn once, where the session started
+/// (conversation/SessionStartNote.tsx). `harness` and `cwd` are the chat's when the line came.
+export type AcpmuxSessionStart = {
+  agent: "claude";
+  version: string;
+  model?: string;
+  harness?: string;
+  cwd?: string;
+};
+
 export type QueuedPrompt = { id: string; prompt: string; next?: boolean };
 /// An image a prompt sent: `_acpmux/attachment {sessionId, id}` reads its bytes back.
 export type PromptImage = { id: string; mimeType: string; name?: string };
@@ -60,6 +72,8 @@ export type AcpmuxRow = {
   compaction?: AcpmuxCompaction;
   /// A failover row's harnesses.
   failover?: AcpmuxFailover;
+  /// A session start row's agent, version, model, route and folder.
+  sessionStart?: AcpmuxSessionStart;
   /// A suggested tasks card's offers (offer/SuggestedTasks.tsx): the offers of one group, in the
   /// order the agent made them, or one offer made without a group.
   offers?: AcpmuxSessionOffer[];
@@ -71,12 +85,19 @@ export type AcpmuxRow = {
   checkpoint?: SummaryCheckpoint;
   /// A sent prompt's images, as acpmux names them in its user_message (hub/prompt_images.rs).
   images?: PromptImage[];
+  /// Who sent a prompt that the reader did not type here: `chief` for the Chief's task, tell,
+  /// steer or restart message to a subagent (its `user_message` promptId `optchat-<kind>:…`).
+  from?: "chief";
   /// The originating prompt row, so Retry can restore image/PDF attachments.
   retryRowId?: string;
   retryAttachments?: ComposerAttachment[];
   status?: string;
   error?: string;
   permission?: AcpmuxPermission;
+  /// A `questionRecord` row's question, answered or cancelled (question/record.ts).
+  question?: AgentQuestion;
+  /// A `permissionRecord` row's answer, its ask in `permission` (permissions/record.ts).
+  decision?: PermissionDecision;
   /// A turn summary whose turn draws a "Worked for" line (conversation/turns.ts), so its
   /// footer need not repeat the time and count.
   folded?: boolean;
@@ -88,6 +109,8 @@ export type AcpmuxRow = {
   inFlight?: boolean;
   /// The live turn's latest row, whose last thought may still stream (conversation/turns.ts).
   live?: boolean;
+  /// A running turn's status line: the title of the call in flight, which it names (WorkingFor.tsx).
+  doing?: string;
   /// A "Worked for" disclosure of a turn without timing reads "N previous messages" (conversation/turns.ts).
   previous?: number;
   /// A prompt queued behind a harness switch (its id there), which offers Cancel (harnessSwitch.ts).
@@ -232,6 +255,8 @@ export type AcpmuxSnapshot = {
   sessions: AcpmuxSessionEntry[];
   /** Connected peer names advertised by the acpmux daemon, including peers without chats yet. */
   peers?: string[];
+  /// Each peer's transport by name: `ssh` for an `ssh://` peer, `cloud` for any other (environments.ts).
+  peerKinds?: Record<string, "ssh" | "cloud">;
   /// The open chat is a fork: the seq of its `forked` event, where the copied history ends (cx-ncc.61).
   forkedAtSeq?: number;
   summary?: {
@@ -305,6 +330,8 @@ export type AcpmuxSnapshot = {
   /// prompt (acpmux `queue_order` with `next`).
   queue: QueuedPrompt[];
   permission?: AcpmuxPermission;
+  /// How many more asks wait behind `permission`, answered one at a time; absent when none do.
+  permissionsWaiting?: number;
   secret?: AcpmuxSecretAsk;
   /** `unavailable`: why acpmux will not run that model (its backend refused it), or that harness
    * (its launcher check or its model probe failed). */
@@ -370,9 +397,10 @@ export type ConversationLayout = {
   totalHeight: number;
 };
 
-/// Metrics of conversation/conversation.css (`--cv-font-size`, `--cv-line-height`, `.cv-*`).
-const MEASURE_FONT = "14px system-ui";
-const MESSAGE_LINE_HEIGHT = 22.75;
+/// Metrics of conversation/conversation.css (`--cv-font-size`, `--cv-line-height`, `.cv-*`): the
+/// text font, its line and the code sizes follow the user's chat look (chatDisplay.ts), 14px
+/// system-ui on 22.75px lines and 12px code on 20px lines by default.
+const metrics = () => currentChatMetrics();
 /// Vertical padding of a user bubble (`.cv-user__bubble`).
 const USER_BUBBLE_PADDING = 16;
 /// The status line under a queued prompt (`.cv-user__status`: 4px above a 16px line).
@@ -387,12 +415,10 @@ const BLOCK_GAP = 14;
 const LIST_INDENT = 28;
 const QUOTE_INDENT = 21;
 /// Code cards: a 45.5px header over 12px monospace on 20px lines that never wraps, 13px inset.
-const CODE_LINE_HEIGHT = 20;
 const CODE_CHROME = 58.5;
 const CODE_PADDING = 13;
 /// Table rows: 23px lines with 17px of padding.
 const TABLE_ROW_HEIGHT = 40;
-const CODE_CHAR_WIDTH = 7.3;
 const SCROLLBAR_HEIGHT = 15;
 /// Where text can't be measured (no canvas), a generous character width.
 const FALLBACK_CHAR_WIDTH = 8;
@@ -497,6 +523,8 @@ function fallbackRowHeight(row: AcpmuxRow, width: number): number {
     const started = row.offers.filter((offer) => offer.outcome === "accepted").length;
     return 8 + 8 + 28 + open * 84 + started * 30;
   }
+  // A session start: its facts line, and the compaction note under it until it is dismissed.
+  if (row.kind === "sessionStart") return 37 + 44;
   // The plan's 20px progress line over its 22px items, inside 8px margins (conversation/PlanList.tsx).
   if (row.kind === "plan" && row.plan) return 24 + 20 + row.plan.length * 22;
   if (
@@ -509,7 +537,7 @@ function fallbackRowHeight(row: AcpmuxRow, width: number): number {
     row.kind === "typing"
   )
     return 37;
-  return 24 + chromeHeight(row) + textLines * MESSAGE_LINE_HEIGHT;
+  return 24 + chromeHeight(row) + textLines * metrics().lineHeight;
 }
 
 /// A link target the page opens: absolute http and https only (replyHref.ts).
@@ -532,20 +560,22 @@ export function measuredText(tokens: Token[] | undefined, fallback: string): str
 }
 
 function textHeight(text: string, width: number, prepared: Map<string, PreparedText | null>): number {
-  let measured = prepared.get(text);
+  const { measureFont, lineHeight } = metrics();
+  // Keyed by font too: a new chat font measures the text again.
+  const key = `${measureFont}\n${text}`;
+  let measured = prepared.get(key);
   if (measured === undefined) {
     try {
-      measured = prepare(text, MEASURE_FONT, { whiteSpace: "pre-wrap" });
+      measured = prepare(text, measureFont, { whiteSpace: "pre-wrap" });
     } catch {
       measured = null;
     }
-    prepared.set(text, measured);
+    prepared.set(key, measured);
   }
-  if (measured) return layout(measured, width, MESSAGE_LINE_HEIGHT).height;
+  if (measured) return layout(measured, width, lineHeight).height;
   const perLine = Math.max(24, Math.floor(width / FALLBACK_CHAR_WIDTH));
   return (
-    text.split("\n").reduce((lines, line) => lines + Math.max(1, Math.ceil(line.length / perLine)), 0) *
-    MESSAGE_LINE_HEIGHT
+    text.split("\n").reduce((lines, line) => lines + Math.max(1, Math.ceil(line.length / perLine)), 0) * lineHeight
   );
 }
 
@@ -563,7 +593,7 @@ function listHeight(list: Tokens.List, width: number, prepared: Map<string, Prep
     return (
       sum +
       Math.max(
-        MESSAGE_LINE_HEIGHT,
+        metrics().lineHeight,
         own + nested.reduce((total, child) => total + listHeight(child, inner, prepared), 0),
       )
     );
@@ -585,8 +615,9 @@ function blockHeight(block: Token, width: number, prepared: Map<string, Prepared
       return 2;
     case "code": {
       const lines = (block as Tokens.Code).text.split("\n");
-      const scrolls = lines.some((line) => line.length * CODE_CHAR_WIDTH > width - CODE_PADDING);
-      return CODE_CHROME + lines.length * CODE_LINE_HEIGHT + (scrolls ? SCROLLBAR_HEIGHT : 0);
+      const { codeCharWidth, codeLineHeight } = metrics();
+      const scrolls = lines.some((line) => line.length * codeCharWidth > width - CODE_PADDING);
+      return CODE_CHROME + lines.length * codeLineHeight + (scrolls ? SCROLLBAR_HEIGHT : 0);
     }
     case "table":
       return (1 + (block as Tokens.Table).rows.length) * TABLE_ROW_HEIGHT;
@@ -786,6 +817,7 @@ import { agentName } from "./agents";
 import { type Translate, translate } from "./i18n";
 import { lastBlockBoundary } from "./conversation/incrementalMarkdown";
 import { chatColumn, type ChatColumn } from "./chatWidth";
+import { currentChatMetrics } from "./chatDisplay";
 
 /// The pane's fallback accessible name and problem-only header status.
 export function paneHeader(

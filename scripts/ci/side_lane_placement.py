@@ -39,10 +39,18 @@ contains(' <key> ') matches whole keys only:
   generated files) take it, so they run beside a console GUI job; until the
   fleet carries the label they keep the gui label;
 - `watch`: "false" when every job took its fallback, so the run uploads no
-  owned-pool-watch marker; "true" otherwise.
+  owned-pool-watch marker; "true" otherwise;
+- `blacksmith_12_jobs`, `blacksmith_6_jobs` and `retry_runner`: the jobs no idle
+  mini took that Blacksmith 12 vCPU, then 6 vCPU, has a free slot for now (and
+  whose queue is not stalled), and the Blacksmith label of the bot's overflow
+  attempt while one has a free slot, else empty (next_macos_cascade.py; the
+  workflow reads it as `free_retry_runner`);
+- `hosted_jobs` and `hosted_runner`: the overflow hosted macos-26 takes, and
+  that label when it takes any (next_macos_cascade.py).
 """
 from __future__ import annotations
 
+import datetime as dt
 import importlib.util
 import os
 import sys
@@ -60,6 +68,18 @@ def _picker():
 
 
 pool = _picker()
+
+
+def _cascade():
+    path = Path(__file__).with_name("next_macos_cascade.py")
+    spec = importlib.util.spec_from_file_location("next_macos_cascade", path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules.setdefault("next_macos_cascade", module)
+    spec.loader.exec_module(module)
+    return module
+
+
+cascade = _cascade()
 
 
 def route_label(label: str, runners: Sequence[Mapping[str, Any]] | None) -> str:
@@ -175,6 +195,12 @@ def main(env: Mapping[str, str] = os.environ) -> int:
     if summary:
         with open(summary, "a", encoding="utf-8") as handle:
             handle.write(f"### macOS placement\n\n{why}\n")
+    # The jobs no idle mini took: Blacksmith 12 vCPU, then 6 vCPU, while each has a free slot now and its
+    # queue moves, then hosted macos-26 for the jobs it can run.
+    live, waiting, seen = cascade.read(env, pool, now=dt.datetime.now(dt.timezone.utc))
+    placed = cascade.place(env, owned, live, waiting, seen)
+    print(f"macOS cascade: {placed.why}")
+    cascade.write(placed, env)
     return 0
 
 

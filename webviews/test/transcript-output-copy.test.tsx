@@ -7,7 +7,16 @@ import { act } from "react";
 import type { Root } from "react-dom/client";
 
 const scope = globalThis as Record<string, unknown>;
-const keys = ["window", "document", "navigator", "HTMLElement", "customElements", "IS_REACT_ACT_ENVIRONMENT"] as const;
+const keys = [
+  "window",
+  "document",
+  "navigator",
+  "HTMLElement",
+  "customElements",
+  "requestAnimationFrame",
+  "cancelAnimationFrame",
+  "IS_REACT_ACT_ENVIRONMENT",
+] as const;
 const saved = keys.map((key) => [key, key in scope, scope[key]] as const);
 let root: Root | undefined;
 let host: HTMLElement;
@@ -31,6 +40,8 @@ beforeAll(() => {
     navigator: window.navigator,
     HTMLElement: window.HTMLElement,
     customElements: window.customElements,
+    requestAnimationFrame: (callback: FrameRequestCallback) => setTimeout(() => callback(0), 0) as unknown as number,
+    cancelAnimationFrame: (handle: number) => clearTimeout(handle),
     IS_REACT_ACT_ENVIRONMENT: true,
   });
   host = window.document.querySelector<HTMLElement>("#root")!;
@@ -80,6 +91,19 @@ test("a copy the page was refused never says Copied", async () => {
   await click(button("Copy code"));
   expect(button("Copied")).toBeUndefined();
   expect(button("Copy code")).toBeDefined();
+});
+
+test("a code handoff completes immediately when pane animation is disabled", async () => {
+  const { CodeHandoff } = await import("../src/agent-session/acpmux/conversation/StreamingCode");
+  document.documentElement.dataset.agentMotion = "off";
+  try {
+    // Over the highlight budget keeps this focused test on the handoff state machine rather than
+    // loading Pierre's asynchronous highlighter chunk.
+    await render(<CodeHandoff code={"x".repeat(200_001)} lang="text" />);
+    expect(host.querySelector(".cv-code-handoff")?.className).toContain("is-done");
+  } finally {
+    delete document.documentElement.dataset.agentMotion;
+  }
 });
 
 const call = (kind: string, output: string, command?: string) =>

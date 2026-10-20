@@ -42,7 +42,8 @@ interface Person {
   readonly name: string
 }
 const signIn = async (sub: string, name: string): Promise<Person> => {
-  const token = await sessionToken(sub, `${sub}@example.com`, name)
+  // One domain per person: two people with one company domain reach each other directly (trust_same_domain).
+  const token = await sessionToken(sub, `${sub}@${sub}.test`, name)
   const ensured = await op(token, "user.ensure", {})
   expect(ensured.ok).toBe(true)
   return { token, user: userIdFor(testEnv.STACK_PROJECT_ID, sub), team: ensured.value.personal_team as string, name }
@@ -126,7 +127,7 @@ describe("Home human reach", { timeout: 60_000 }, () => {
     const carol = await signIn("reach-set-carol", "Carol")
     const dave = await signIn("reach-set-dave", "Dave")
     const set = await op(carol.token, "home.settings.set", { allow_requests_from: "teams" })
-    expect(set.value).toEqual({ discoverable_by_email: false, discoverable_by_phone: false, allow_requests_from: "teams", email_requests: true })
+    expect(set.value).toEqual({ discoverable_by_email: false, discoverable_by_phone: false, allow_requests_from: "teams", email_requests: true, trust_same_domain: true })
     // The pre-16.7 name and value are refused.
     expect((await op(carol.token, "home.settings.set", { allow_requests_from: "contacts" })).error).toBeDefined()
     const stranger = await op(dave.token, "dm.open", { peer: carol.user })
@@ -134,7 +135,7 @@ describe("Home human reach", { timeout: 60_000 }, () => {
     const unknown = await op(dave.token, "dm.open", { peer: "user_00000000000000000000" })
     expect(unknown.error).toEqual(stranger.error)
     // Dave and Carol get a DM through an email invite (a contact); they share no team.
-    await becomeContacts(dave, carol, "reach-set-carol@example.com")
+    await becomeContacts(dave, carol, "reach-set-carol@reach-set-carol.test")
     const group = await op(dave.token, "conversation.create", { title: "Plans", participants: [human(dave, "Dave")] })
     const conversation = group.value.conversation.id as string
     // nobody: the contact is refused like a stranger.
@@ -162,7 +163,7 @@ describe("Home human reach", { timeout: 60_000 }, () => {
     expect((await op(erin.token, "conversation.create", { title: "No", participants: [human(erin), human(hank)] })).error.code).toBe("not_reachable")
 
     // Gina becomes Erin's contact through an accepted email invite; dm.open by her user id then finds that DM.
-    const dm = await becomeContacts(erin, gina, "reach-group-gina@example.com")
+    const dm = await becomeContacts(erin, gina, "reach-group-gina@reach-group-gina.test")
     const reopened = await op(erin.token, "dm.open", { peer: gina.user }, "dm-gina-user")
     expect(reopened.value.conversation.id).toBe(dm)
 
@@ -341,7 +342,7 @@ describe("a chief adds humans under its owner's reach (CHIEF-DONE autonomy rule)
     const eli = await signIn("reach-chief-eli", "Eli")
     const fay = await signIn("reach-chief-fay", "Fay")
     // A connected pair with no shared team: an accepted email invite.
-    const dm = await becomeContacts(eli, fay, "reach-chief-fay@example.com")
+    const dm = await becomeContacts(eli, fay, "reach-chief-fay@reach-chief-fay.test")
     expect((await op(fay.token, "home.settings.set", { allow_requests_from: "nobody" })).value.allow_requests_from).toBe("nobody")
     // The existing DM is reused as is.
     expect((await op(eli.token, "dm.open", { peer: fay.user })).value.conversation.id).toBe(dm)

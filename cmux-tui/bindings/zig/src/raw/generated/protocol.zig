@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "2a92c275db7a027c723c340c0ce4726a1392c28e4ff8e8160548cc2669c5ad93";
+pub const ir_sha256 = "618580395ad650b750fb7be122cdc20524f93ba299cc62b7afebb68b22ff6b12";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -394,6 +394,24 @@ pub const CloseTerminalResult = struct {
 };
 
 pub const ColorHex = []const u8;
+
+pub const ColumnMoveDirection = enum {
+    left,
+    right,
+
+    pub fn fromWire(value: []const u8) !@This() {
+        if (std.mem.eql(u8, value, "left")) return .left;
+        if (std.mem.eql(u8, value, "right")) return .right;
+        return error.UnknownEnumValue;
+    }
+
+    pub fn toWire(self: @This()) []const u8 {
+        return switch (self) {
+            .left => "left",
+            .right => "right",
+        };
+    }
+};
 
 pub const ColumnPin = struct {
     edge: []const u8,
@@ -1044,26 +1062,31 @@ pub const IdMapping = struct {
 };
 
 pub const IdentifyResult = struct {
+    api_revision: wire.Field(u32) = .absent,
     app: []const u8,
     build_commit: wire.Field([]const u8) = .absent,
     build_id: wire.Field([]const u8) = .absent,
     capabilities: ?[]const []const u8 = null,
     cli_path: wire.Field([]const u8) = .absent,
+    crate_version: wire.Field([]const u8) = .absent,
     daemon_handoff: i64,
     generation: []const u8,
     ghostty_commit: wire.Field([]const u8) = .absent,
+    install: wire.Field([]const u8) = .absent,
     launch_snapshot_path: wire.Field([]const u8) = .absent,
     lifecycle_ready: ?bool = null,
     machine_capabilities: ?[]const []const u8 = null,
     machine_id: ?[]const u8 = null,
     machine_name: ?[]const u8 = null,
     machine_platform: ?MachinePlatform = null,
+    min_api_revision: wire.Field(u32) = .absent,
     pid: u32,
     protocol: u32,
     registry_id: []const u8,
     session: []const u8,
     session_id: ?[]const u8 = null,
     terminal_revision: u64,
+    update_command: wire.Field([]const u8) = .absent,
     version: []const u8,
     workspace_revision: u64,
 
@@ -2973,6 +2996,11 @@ pub const TerminalResourcesResult = struct {
     terminals: []const TerminalResources,
 };
 
+pub const TerminalResumeCommandResult = struct {
+    command: wire.Nullable([]const u8),
+    terminal_id: []const u8,
+};
+
 pub const Tree = struct {
     generation: ?[]const u8 = null,
     pane_revision: ?u64 = null,
@@ -4463,6 +4491,23 @@ pub fn cloudParticipantAvatarGet(client: anytype, request: CloudParticipantAvata
             .authority = "local-admin",
             .since = 12,
             .capability = "participant-avatars-v1",
+        },
+        request,
+    );
+}
+
+pub const CloudRequestsListRequest = struct {};
+
+pub const CloudRequestsListResult = JsonValue;
+
+pub fn cloudRequestsList(client: anytype, request: CloudRequestsListRequest) !wire.Decoded(CloudRequestsListResult) {
+    return client.callTyped(
+        CloudRequestsListResult,
+        .{
+            .name = "cloud-requests-list",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "cloud-conversations-v1",
         },
         request,
     );
@@ -5999,9 +6044,11 @@ pub fn homeInbox(client: anytype, request: HomeInboxRequest) !wire.Decoded(HomeI
 
 pub const IdentifyRequest = struct {
     machine_metadata: ?bool = null,
+    revisions: ?bool = null,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "machine_metadata",
+        "revisions",
     };
 };
 
@@ -6015,6 +6062,7 @@ pub fn identify(client: anytype, request: IdentifyRequest) !wire.Decoded(Identif
             .capability = null,
             .fields = &.{
                 .{ .name = "machine_metadata", .since = 12, .capability = "machine-identity-v1" },
+                .{ .name = "revisions", .since = 12, .capability = null },
             },
         },
         request,
@@ -6496,6 +6544,26 @@ pub fn moveBrowserProfile(client: anytype, request: MoveBrowserProfileRequest) !
             .authority = "control",
             .since = 12,
             .capability = "browser-profiles-v1",
+        },
+        request,
+    );
+}
+
+pub const MoveColumnRequest = struct {
+    direction: ColumnMoveDirection,
+    pane: Id,
+};
+
+pub const MoveColumnResult = JsonValue;
+
+pub fn moveColumn(client: anytype, request: MoveColumnRequest) !wire.Decoded(MoveColumnResult) {
+    return client.callTyped(
+        MoveColumnResult,
+        .{
+            .name = "move-column",
+            .authority = "control",
+            .since = 12,
+            .capability = "column-move-v1",
         },
         request,
     );
@@ -7371,6 +7439,25 @@ pub fn paneNeighbor(client: anytype, request: PaneNeighborRequest) !wire.Decoded
     );
 }
 
+pub const ParkTabsRequest = struct {
+    surfaces: []const TabRef,
+};
+
+pub const ParkTabsResult = JsonValue;
+
+pub fn parkTabs(client: anytype, request: ParkTabsRequest) !wire.Decoded(ParkTabsResult) {
+    return client.callTyped(
+        ParkTabsResult,
+        .{
+            .name = "park-tabs",
+            .authority = "control",
+            .since = 12,
+            .capability = "tab-park-v1",
+        },
+        request,
+    );
+}
+
 pub const PasteImageRequest = struct {
     data: wire.Field([]const u8) = .absent,
     lease: []const u8,
@@ -8181,6 +8268,7 @@ pub fn selectWorkspace(client: anytype, request: SelectWorkspaceRequest) !wire.D
 
 pub const SendRequest = struct {
     bytes: wire.Field(Base64) = .absent,
+    expect_foreground: wire.Field([]const u8) = .absent,
     paste: ?bool = null,
     surface: wire.Field(Id) = .absent,
     terminal_id: wire.Field([]const u8) = .absent,
@@ -8208,6 +8296,7 @@ pub fn send(client: anytype, request: SendRequest) !wire.Decoded(SendResult) {
             .since = 5,
             .capability = null,
             .fields = &.{
+                .{ .name = "expect_foreground", .since = null, .capability = "send-expect-foreground-v1" },
                 .{ .name = "paste", .since = 7, .capability = null },
                 .{ .name = "terminal_id", .since = null, .capability = "terminal-input-while-creating-v1" },
             },
@@ -8272,14 +8361,17 @@ pub fn setCellPixels(client: anytype, request: SetCellPixelsRequest) !wire.Decod
 }
 
 pub const SetClientInfoRequest = struct {
+    api_revision: wire.Field(u32) = .absent,
     capabilities: wire.Field([]const []const u8) = .absent,
     device_id: wire.Field([]const u8) = .absent,
     device_kind: wire.Field([]const u8) = .absent,
     device_name: wire.Field([]const u8) = .absent,
     display_name: wire.Field([]const u8) = .absent,
+    install: wire.Field([]const u8) = .absent,
     kind: wire.Field([]const u8) = .absent,
     name: wire.Field([]const u8) = .absent,
     user_id: wire.Field([]const u8) = .absent,
+    version: wire.Field([]const u8) = .absent,
 };
 
 pub const SetClientInfoResult = EmptyResult;
@@ -8293,11 +8385,14 @@ pub fn setClientInfo(client: anytype, request: SetClientInfoRequest) !wire.Decod
             .since = 6,
             .capability = null,
             .fields = &.{
+                .{ .name = "api_revision", .since = 12, .capability = null },
                 .{ .name = "device_id", .since = 12, .capability = "shared-sizing-v1" },
                 .{ .name = "device_kind", .since = 12, .capability = "shared-sizing-v1" },
                 .{ .name = "device_name", .since = 12, .capability = "shared-sizing-v1" },
                 .{ .name = "display_name", .since = 12, .capability = "shared-sizing-v1" },
+                .{ .name = "install", .since = 12, .capability = null },
                 .{ .name = "user_id", .since = 12, .capability = "shared-sizing-v1" },
+                .{ .name = "version", .since = 12, .capability = null },
             },
         },
         request,
@@ -9132,6 +9227,25 @@ pub fn terminalResources(client: anytype, request: TerminalResourcesRequest) !wi
             .authority = "control",
             .since = 12,
             .capability = "terminal-resources-v1",
+        },
+        request,
+    );
+}
+
+pub const TerminalResumeCommandRequest = struct {
+    command: wire.Field([]const u8) = .absent,
+    surface: wire.Field(Id) = .absent,
+    terminal_id: wire.Field([]const u8) = .absent,
+};
+
+pub fn terminalResumeCommand(client: anytype, request: TerminalResumeCommandRequest) !wire.Decoded(TerminalResumeCommandResult) {
+    return client.callTyped(
+        TerminalResumeCommandResult,
+        .{
+            .name = "terminal-resume-command",
+            .authority = "control",
+            .since = 12,
+            .capability = "resume-command",
         },
         request,
     );
@@ -11256,7 +11370,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 277;
+pub const command_count: usize = 281;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -11315,6 +11429,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "cloud-mux-subscribe", .authority = "local-admin", .since = 12, .capability = "cloud-conversations-v1", .stream = null },
     .{ .name = "cloud-mux-unsubscribe", .authority = "local-admin", .since = 12, .capability = "cloud-conversations-v1", .stream = null },
     .{ .name = "cloud-participant-avatar-get", .authority = "local-admin", .since = 12, .capability = "participant-avatars-v1", .stream = null },
+    .{ .name = "cloud-requests-list", .authority = "local-admin", .since = 12, .capability = "cloud-conversations-v1", .stream = null },
     .{ .name = "cloud-session-clear", .authority = "local-admin", .since = 12, .capability = "cloud-conversations-v1", .stream = null },
     .{ .name = "cloud-session-set", .authority = "local-admin", .since = 12, .capability = "cloud-conversations-v1", .stream = null },
     .{ .name = "cloud-session-status", .authority = "local-admin", .since = 12, .capability = "cloud-conversations-v1", .stream = null },
@@ -11402,6 +11517,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "mint-terminal-renderer-by-terminal", .authority = "frontend", .since = 11, .capability = null, .stream = null },
     .{ .name = "move-bookmark", .authority = "control", .since = 12, .capability = "bookmarks-v1", .stream = null },
     .{ .name = "move-browser-profile", .authority = "control", .since = 12, .capability = "browser-profiles-v1", .stream = null },
+    .{ .name = "move-column", .authority = "control", .since = 12, .capability = "column-move-v1", .stream = null },
     .{ .name = "move-personal-group", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },
     .{ .name = "move-profile", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },
     .{ .name = "move-screen", .authority = "control", .since = 12, .capability = "screen-metadata-v1", .stream = null },
@@ -11434,6 +11550,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "page-credential", .authority = "local-admin", .since = 12, .capability = "page-credential-v1", .stream = null },
     .{ .name = "pairing-response", .authority = "local-admin", .since = 7, .capability = null, .stream = null },
     .{ .name = "pane-neighbor", .authority = "control", .since = 6, .capability = null, .stream = null },
+    .{ .name = "park-tabs", .authority = "control", .since = 12, .capability = "tab-park-v1", .stream = null },
     .{ .name = "paste-image", .authority = "control", .since = 12, .capability = "terminal-image-paste-v1", .stream = null },
     .{ .name = "pin-workspace", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },
     .{ .name = "ping", .authority = "control", .since = 6, .capability = null, .stream = null },
@@ -11511,6 +11628,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "terminal-history", .authority = "control", .since = 12, .capability = "terminal-snapshot-v1", .stream = null },
     .{ .name = "terminal-read-range", .authority = "control", .since = 12, .capability = "terminal-snapshot-v1", .stream = null },
     .{ .name = "terminal-resources", .authority = "control", .since = 12, .capability = "terminal-resources-v1", .stream = null },
+    .{ .name = "terminal-resume-command", .authority = "control", .since = 12, .capability = "resume-command", .stream = null },
     .{ .name = "undo-layout", .authority = "control", .since = 9, .capability = "layout-undo-v1", .stream = null },
     .{ .name = "ungroup-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
     .{ .name = "ungroup-tab-group", .authority = "control", .since = 12, .capability = "tab-groups-v1", .stream = null },

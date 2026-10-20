@@ -53,16 +53,14 @@ extension SidebarListViewComponents {
         case let .group(group):
             // Arrow keys continue from this group; the ring is for keyboard focus only (cx-qno.17).
             SidebarGroupKeys(list: self).setFocus(group, ring: false)
-            // Every click toggles, also fast ones (cx-q5jw): the bar collapses or expands, and the
-            // chip opens its editor or, when this click's mouse-down closed it, leaves it closed.
+            // Every click toggles, also fast ones (cx-q5jw): the bar collapses or expands.
         case let .tab(workspace, tab):
             // Selected at once; the press stays so a drag can take the tab.
             model.send(.selectTab(workspace: workspace, tab: tab))
         case let .item(item):
             SidebarGroupKeys(list: self).setFocus(nil)
-            // An item that only changes the view (Home, the App Store, a pinned workspace, tab or space:
-            // `LayoutItemRef.activatesOnPress`) switches at once, as a workspace row does; the press can still drag
-            // the row. Any other item runs on mouse-up (as a band item), so a press meant as a move never runs it.
+            // An item opens at once, as a workspace row does (`LayoutItemRef.activatesOnPress`); the press can
+            // still drag the row. A new-tab launcher runs on mouse-up, so a press meant as a move makes no tab.
             let id = LayoutItemID(item)
             if model.listedItem(id)?.ref.activatesOnPress == true {
                 press.activatedOnPress = true
@@ -98,19 +96,28 @@ extension SidebarListViewComponents {
         guard displayed.row(at: point.y)?.key == press.key else { return }
         switch press.key {
         case .workspace:
-            if let id = press.deferredClick { model.click(id) }
+            // Mouse-down drew the click on the old and new rows (`patchSelection`) and moved no row: no layout here
+            // (u2455: every click laid the whole list out and configured every row). Only a deferred click (one row
+            // of a multi-selection, no drag) changes the selection now, the same way.
+            guard let id = press.deferredClick else { return }
+            let (oldItem, oldSelection) = (model.selectedItem, model.selection)
+            model.click(id)
+            if !patchSelection(from: oldItem, oldSelection: oldSelection) { reload(animated: true) }
+            return
         case .tab:
             break
         case let .group(group):
             // An empty saved group reopens; any other group toggles.
             if let g = model.group(group), g.isPinned, g.workspaces.isEmpty, g.items.isEmpty {
                 model.send(.openGroup(group))
-            } else if groupEditing.isOnChip(point, group: group) {
-                // The chip opens the group editor (cx-rcby); its chevron and
-                // the rest of the row toggle at once.
-                return groupEditing.open(group)
             } else {
+                // Lawrence 2026-10-20: a plain click anywhere on the header only collapses or
+                // expands it; the more button and a right-click open the editor and the menu.
+                // The fold draws itself (`foldGroup`, the group's rows only): no list reload after it. It is the
+                // user's own change, so it moves on the spring (calm-sidebar-movement).
+                model.noteUserIntent()
                 model.send(.toggleCollapse(.group(group)))
+                return
             }
         case let .section(section):
             model.send(.toggleCollapse(.section(section)))

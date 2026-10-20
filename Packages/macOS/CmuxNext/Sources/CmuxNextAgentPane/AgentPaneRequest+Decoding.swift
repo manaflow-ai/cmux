@@ -77,6 +77,19 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
+        case "pane.setDisplay":
+            // Only the chat's own look keys: the page can never write another setting.
+            if let key = params?["key"] as? String, let path = AgentPaneDisplaySetting.writablePath(key) {
+                let raw = params?["value"]
+                let value = raw == nil || raw is NSNull ? nil : raw.flatMap(JSONValue.init(foundation:))
+                if raw == nil || raw is NSNull || value != nil {
+                    self = .displaySetting(path: path, value: value)
+                } else {
+                    self = .unsupported(method)
+                }
+            } else {
+                self = .unsupported(method)
+            }
         case "pane.painted":
             self = .painted
         case "pane.renderRate":
@@ -144,6 +157,13 @@ extension AgentPaneRequest {
             self = .touched
         case "newTab.context":
             self = .newTabContext
+        case "newTab.warm":
+            if let warm = params?["warm"] as? [String: Any], let data = try? JSONSerialization.data(withJSONObject: warm),
+               data.count <= AgentPaneNewTab.maximumWarmBytes, let text = String(data: data, encoding: .utf8) {
+                self = .newTabWarm(text)
+            } else {
+                self = .unsupported(method)
+            }
         case "newTab.setTemplate":
             if let template = params?["template"] as? String, !template.isEmpty, template.count <= 32 {
                 self = .setNewTabTemplate(template)
@@ -225,6 +245,8 @@ extension AgentPaneRequest {
             if let id = params?["subagent"] as? String, !id.isEmpty, id.count <= 256 {
                 self = .subagentPane(id, focus: params?["focus"] as? Bool == true)
             } else { self = .unsupported(method) }
+        case "chat.processTerminal":
+            if let id = params?["toolCallId"] as? String, AgentPaneProcessViewer.isToken(id) { self = .processTerminal(toolCall: id) } else { self = .unsupported(method) }
         case "chat.newHere":
             if let cwd = (params?["cwd"] as? String).flatMap(Self.headerFolder) { self = .newChatHere(cwd) } else { self = .unsupported(method) }
         case "chat.openTab":

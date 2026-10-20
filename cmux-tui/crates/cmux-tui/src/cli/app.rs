@@ -25,8 +25,8 @@ use events::stream_events;
 use open::{OpenRequest, parse_open};
 #[cfg(test)]
 use open::{is_web_url, parse_open_with};
-use page::{SCREENSHOT_TIMEOUT, parse_page, save_screenshot};
-pub(super) use run::{action_run_params, insert_run_key, request_with_retry};
+use page::{SCREENSHOT_TIMEOUT, parse_page, save_screenshot, takes_caller};
+pub(super) use run::{action_run_params, insert_run_key, request_with_retry, safe_to_resend};
 
 mod agent_open;
 mod call;
@@ -35,9 +35,11 @@ mod events;
 mod keybinding;
 mod open;
 mod page;
+mod right;
 mod run;
 mod settings;
 mod skew;
+mod version;
 pub(super) mod wait;
 
 /// Scopes that belong to the app, whatever follows.
@@ -124,6 +126,15 @@ pub(super) enum AppCommand {
     },
     /// `settings list|schema|validate` (app/settings.rs).
     Settings(settings::Command),
+    /// `browser right <verb>` (app/right.rs): `browser.page.right` names the
+    /// tab right of the Home chat, then `then` runs on it.
+    Right {
+        params: Value,
+        then: Box<AppCommand>,
+    },
+    /// `cmux version`: the CLI, the app behind the socket, its updater and
+    /// bundled helpers in one report (app/version.rs).
+    Version,
 }
 
 /// Parses an app scope. `Ok(None)` when `args` does not start with one.
@@ -143,8 +154,18 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
     {
         return parse_page(target, &args[2..]).map(Some);
     }
+    if scope == "browser" && args.get(1).is_some_and(|target| target == "right") {
+        return right::parse(&args[2..]).map(Some);
+    }
     if let Some(command) = agent_open::parse(args)? {
         return Ok(Some(command));
+    }
+    if scope == "version" {
+        if let Some(extra) = args.get(1) {
+            let messages = &crate::localization::catalog().app_control;
+            return Err(UsageError::new(messages.unexpected_argument.replace("{value}", extra)));
+        }
+        return Ok(Some(AppCommand::Version));
     }
     if !APP_SCOPES.contains(&scope.as_str()) {
         return Ok(None);
@@ -311,13 +332,17 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
     Ok(Some(command))
 }
 
-/// An action's `path` argument as the app must read it: a relative path
-/// names a folder or file of the caller's working directory, and the app
+/// An action's `path` or `out` argument as the app must read it: a relative
+/// path names a folder or file of the caller's working directory, and the app
 /// runs elsewhere, so it is made absolute here (`.` parts dropped). An
-/// absolute path, `~/…`, or a non-string value is sent unchanged.
+/// absolute path, `~/…`, `-` (stdout: `cmux window screenshot --out -`), or a
+/// non-string value is sent unchanged.
 fn caller_path(value: Value) -> Value {
     let Some(text) = value.as_str() else { return value };
-    let path = std::path::Path::new(text);
+    if text == "-" {
+        return value;
+    }
+    let path = Path::new(text);
     if text.is_empty() || path.is_absolute() || text.starts_with('~') {
         return value;
     }
@@ -459,7 +484,7 @@ pub(super) fn run_action(
             }
             _ => {
                 let key = argument_name(&name);
-                let value = if key == "path" { caller_path(value) } else { value };
+                let value = if key == "path" || key == "out" { caller_path(value) } else { value };
                 arguments.insert(key, value);
             }
         }
@@ -497,6 +522,19 @@ pub(super) fn run(global: &GlobalArgs, command: AppCommand) -> i32 {
     }
 }
 
+/// `cmux <noun> move-to-window --new [flags]` is the spelling of
+/// `cmux <noun> move-to-new-window [flags]`: the action name and flags to run.
+/// `None` for every other command.
+pub(super) fn new_window_spelling(name: &str, args: &[String]) -> Option<(String, Vec<String>)> {
+    let noun = name.strip_suffix(" move-to-window")?;
+    let is_new = |arg: &String| matches!(arg.as_str(), "--new" | "--new=true");
+    if !args.iter().any(is_new) {
+        return None;
+    }
+    let rest = args.iter().filter(|arg| !is_new(arg)).cloned().collect();
+    Some((format!("{noun} move-to-new-window"), rest))
+}
+
 /// Runs `<noun> <verb…> [--flags]` as the app action with that CLI name.
 /// `None` when no app answers or the app has no CLI action by that name, so
 /// the caller reports its own usage error. One connection, one `action.run`.
@@ -530,6 +568,9 @@ fn run_command(global: &GlobalArgs, command: AppCommand) -> Ran {
     }
     if let AppCommand::Settings(command) = command {
         return Ran::Done(command.run(global));
+    }
+    if matches!(command, AppCommand::Version) {
+        return Ran::Done(version::run(global));
     }
     let mut stream = match connect_command(global) {
         Ok(stream) => stream,
@@ -621,6 +662,8 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
             return Ran::Done(call::run(global, stream, &method, params));
         }
         AppCommand::Settings(command) => return Ran::Done(command.run_on(global, stream)),
+        AppCommand::Right { params, then } => return right::run(global, stream, params, *then),
+        AppCommand::Version => return Ran::Done(version::run(global)),
         AppCommand::Open { requests, stop_on_failure } => {
             let mut status = 0;
             for request in requests {
@@ -824,12 +867,11 @@ fn explicit_daemon_route(global: &GlobalArgs) -> Option<&'static str> {
 /// Whether `daemon` is the own session socket of the app `identity` names
 /// (`DaemonLauncher`'s session, macOS only).
 #[cfg_attr(not(target_os = "macos"), allow(unused_variables))]
-pub(super) fn app_owns_daemon(identity: &AppIdentity, daemon: &std::path::Path) -> bool {
+pub(super) fn app_owns_daemon(identity: &AppIdentity, daemon: &Path) -> bool {
     #[cfg(target_os = "macos")]
     if let Some(own) = crate::app_identity::app_daemon_socket(identity) {
-        let canonical = |path: &std::path::Path| {
-            std::fs::canonicalize(path).unwrap_or_else(|_| path.to_owned())
-        };
+        let canonical =
+            |path: &Path| std::fs::canonicalize(path).unwrap_or_else(|_| path.to_owned());
         // Two spellings of one socket (`/var` is `/private/var` on macOS).
         return own == daemon || canonical(&own) == canonical(daemon);
     }
@@ -856,7 +898,7 @@ pub(super) fn connect(socket: &Path) -> Result<UnixStream, String> {
 /// Connects to one app socket. The peer-uid check is on this connection,
 /// before any request bytes are written, so a shared-directory socket cannot
 /// impersonate the user's app.
-fn connect_for_uid(socket: &std::path::Path, expected_uid: u32) -> std::io::Result<UnixStream> {
+fn connect_for_uid(socket: &Path, expected_uid: u32) -> std::io::Result<UnixStream> {
     let stream = UnixStream::connect(socket)?;
     cmux_tui_core::platform::require_unix_peer_uid(&stream, expected_uid)?;
     Ok(stream)
@@ -891,8 +933,19 @@ const CALLER_METHODS: [&str; 4] =
 /// server), else the caller's own terminal (`CMUX_TUI_TERMINAL_ID`).
 pub(super) fn caller_from(env: impl Fn(&str) -> Option<String>) -> Option<Value> {
     let set = |key: &str| env(key).filter(|value| !value.is_empty());
+    // A Chief turn (`CMUX_CALLER_HOME_CHAT=1`, set by the Chief host): the
+    // app does not know a turn's agent session, so it also names the Home
+    // chat, where the app places the turn's tabs when the session is unknown.
+    let home_chat = set("CMUX_CALLER_HOME_CHAT").as_deref() == Some("1");
     if let Some(session) = set("CMUX_AGENT_SESSION") {
-        return Some(json!({ "agent_session": session }));
+        return Some(if home_chat {
+            json!({ "agent_session": session, "home_chat": true })
+        } else {
+            json!({ "agent_session": session })
+        });
+    }
+    if home_chat {
+        return Some(json!({ "home_chat": true }));
     }
     set("CMUX_TUI_TERMINAL_ID").map(|terminal| json!({ "terminal_id": terminal }))
 }
@@ -909,7 +962,7 @@ fn with_caller(method: &str, mut params: Value) -> (Value, bool) {
         object.remove("caller");
         return (params, false);
     }
-    if !CALLER_METHODS.contains(&method) {
+    if !takes_caller(method) {
         return (params, false);
     }
     let Some(caller) = caller_from(|key| std::env::var(key).ok()) else { return (params, false) };

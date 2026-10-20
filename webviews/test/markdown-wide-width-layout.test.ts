@@ -92,9 +92,9 @@ await requireBrowserLane("markdown-wide-width-layout.test.ts", async () => {
       const doc = document.querySelector<HTMLElement>(".md-doc")!;
       const pane = document.querySelector<HTMLElement>(".md-scroll")!;
       const style = getComputedStyle(doc);
-      const probe = document.createElement("span");
-      probe.textContent = "0".repeat(100);
-      probe.style.cssText = "position:absolute;visibility:hidden;white-space:pre";
+      // The CSS `ch` unit itself (a run of "0" glyphs can kern differently on some fonts).
+      const probe = document.createElement("div");
+      probe.style.cssText = "position:absolute;visibility:hidden;width:100ch";
       doc.append(probe);
       const ch = probe.getBoundingClientRect().width / 100;
       probe.remove();
@@ -170,16 +170,17 @@ await requireBrowserLane("markdown-wide-width-layout.test.ts", async () => {
         await settings(page, "--cmux-md-content-width: none;");
         const full = await layout(page);
         expect(Math.abs(full.content - (full.paneWidth - 2 * full.padding))).toBeLessThan(2);
-        // 1000ch on 3000px fits the pane too, so the two match here; a 300ch column does not.
+        // 1000ch on 3000px fits the pane too, so the two match here; a 200ch column (about 1960px) does not.
         expect(Math.abs(wide.content - full.content)).toBeLessThan(2);
-        await settings(page, "--cmux-md-content-width: 300ch;");
+        await settings(page, "--cmux-md-content-width: 200ch;");
         const ultra = await layout(page);
         expect(ultra.content).toBeLessThan(full.content - 100);
         await page.close();
       });
 
       test("the Aa popover: a typed width and the preset menu change the column, and the popover stays open", async () => {
-        const page = await open(engine, 3000);
+        // 300ch is about 3,050px at 16px: the pane is wider, so the column is exactly 300ch.
+        const page = await open(engine, 4000);
         await page.click(".md-reading-button");
         const input = page.locator(".md-width-input");
         await input.waitFor();
@@ -200,6 +201,8 @@ await requireBrowserLane("markdown-wide-width-layout.test.ts", async () => {
         box = await layout(page);
         expect(Math.abs(box.content - (box.paneWidth - 2 * box.padding))).toBeLessThan(2);
         expect(await page.locator(".md-width-input").count()).toBe(1);
+        // A pick closes the preset menu (and only the menu: the popover stays).
+        expect(await page.locator("[role=menuitemradio]").count()).toBe(0);
         await page.click(".md-width-presets button");
         await page.getByRole("menuitemradio", { name: "Comfortable" }).click();
         await page.waitForTimeout(100);

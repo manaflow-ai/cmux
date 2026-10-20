@@ -56,3 +56,27 @@ struct AgentPaneModelMenuStyleTests {
         #expect(value?["showContextUsage"]?.boolValue == true)
     }
 }
+
+/// Debug Settings' "Allow switching harness in a started chat": off by default, so a started
+/// chat's model menu lists its own harness alone; it rides the `composer` event as `harnessSwitch`.
+struct AgentPaneHarnessSwitchTunableTests {
+    @Test func isOffByDefaultAndRidesTheComposerEvent() {
+        #expect(AgentPaneTunables.harnessSwitchInStartedChat.descriptor.key == "agent.harnessSwitchInStartedChat")
+        #expect(AgentPaneTunables.harnessSwitchInStartedChat.value == false)
+        #expect(AgentPaneTunables.all.contains { $0.key == "agent.harnessSwitchInStartedChat" })
+        let value = AgentPageEvent.composer(.fallback).value.objectValue
+        #expect(value?["harnessSwitch"]?.boolValue == AgentPaneTunables.harnessSwitchInStartedChat.value)
+    }
+}
+
+/// Debug Settings' "Esc stops a turn on a double press": on by default, so one Esc on an empty
+/// composer only arms the stop; it rides the `composer` event as `escapeDoublePress`.
+struct AgentPaneEscapeStopTunableTests {
+    @Test func isOnByDefaultAndRidesTheComposerEvent() {
+        #expect(AgentPaneTunables.escapeStopDoublePress.descriptor.key == "agent.escapeStopDoublePress")
+        #expect(AgentPaneTunables.escapeStopDoublePress.defaultValue == true)
+        #expect(AgentPaneTunables.all.contains { $0.key == "agent.escapeStopDoublePress" })
+        let value = AgentPageEvent.composer(.fallback).value.objectValue
+        #expect(value?["escapeDoublePress"]?.boolValue == AgentPaneTunables.escapeStopDoublePress.value)
+    }
+}

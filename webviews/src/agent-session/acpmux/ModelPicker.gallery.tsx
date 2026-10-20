@@ -5,6 +5,19 @@ import type { ModelPickerProps } from "./modelPickerLayout";
 import type { Play } from "../../gallery/play";
 import { BUNDLED_MODEL_CATALOG } from "./modelCatalogData";
 import { topModelsFor } from "./topModels";
+import { type UpdateOffer, UpdateOfferContext } from "./HarnessHealthNotice";
+
+/// The chat's agent CLI update on offer (hq#2569 #12), which the pane hands the chip by context.
+type GalleryProps = ModelPickerProps & { update?: UpdateOffer };
+
+const update: UpdateOffer = {
+  harness: "claude",
+  agent: "Claude Code",
+  version: "2.1.4",
+  latest: "2.2.0",
+  update: () => undefined,
+  skip: () => undefined,
+};
 
 const catalog: ModelPickerProps["catalog"] = [
   {
@@ -165,7 +178,7 @@ const openQuick: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-quick-menu") !== null);
 };
 
-export default componentEntry<ModelPickerProps>({
+export default componentEntry<GalleryProps>({
   id: "agent-pane.model-picker",
   title: "Model picker",
   area: "Agent pane",
@@ -176,9 +189,15 @@ export default componentEntry<ModelPickerProps>({
     "agent-session/acpmux/ModelPicker.tsx#ModelPicker",
     "agent-session/acpmux/QuickModelMenu.tsx#QuickModelMenu",
     "ui/ScrollArea.tsx#ScrollArea",
+    "agent-session/acpmux/HarnessHealthNotice.tsx#UpdateOfferContext",
   ],
   styles: () => Promise.all([import("./styles.css"), import("./modelPicker.css")]),
-  load: () => import("./ModelPicker").then((module) => module.ModelPicker),
+  load: () =>
+    import("./ModelPicker").then(({ ModelPicker }) => ({ update: offer, ...props }: GalleryProps) => (
+      <UpdateOfferContext.Provider value={offer}>
+        <ModelPicker {...props} />
+      </UpdateOfferContext.Provider>
+    )),
   variants: {
     idle: {
       props: { ...base, catalogRefresh: refresh("idle", "2026-10-07T10:00:00Z") },
@@ -209,6 +228,31 @@ export default componentEntry<ModelPickerProps>({
       },
     },
     curated: { props: curated, play: openModels },
+    // A Codex chat with a message (Leo 2026-10-19): its harness is fixed, so the menu is search,
+    // Codex's models and More models, with no harness rail and no Add harness….
+    "started-chat": {
+      props: {
+        ...curated,
+        harness: "codex",
+        model: "gpt-6.1-sol",
+        label: "GPT-6.1 Sol",
+        harnessFixed: true,
+        onAddAgent: () => undefined,
+      },
+      play: openModels,
+    },
+    // The same chat on the compact menu: Codex's numbered models with no rail.
+    "started-chat-quick-menu": {
+      props: {
+        ...quick,
+        harness: "codex",
+        model: "gpt-6.1-sol",
+        label: "GPT-6.1 Sol",
+        harnessFixed: true,
+        onAddAgent: () => undefined,
+      },
+      play: openQuick,
+    },
     "quick-menu": { props: quick, play: openQuick },
     // The rail's Codex tab: Codex's models in place; Effort and Account stay with the chat's harness.
     "quick-menu-rail": {
@@ -244,6 +288,15 @@ export default componentEntry<ModelPickerProps>({
       props: { ...base, catalog: manyHarnesses },
       height: 1000,
       play: cappedHeight,
+    },
+    // The agent CLI is outdated: a dot on the chip, and Update and Skip This Version in the
+    // picker, never a banner over the chat (hq#2569 #12).
+    "update-offer": {
+      props: { ...base, update },
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: "Model" });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-mp-update") !== null);
+      },
     },
     "numeric-search": {
       props: { ...base },

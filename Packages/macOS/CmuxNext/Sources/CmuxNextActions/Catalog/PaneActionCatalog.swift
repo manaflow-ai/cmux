@@ -10,6 +10,22 @@ nonisolated enum PaneActionCatalog: ActionCatalogGroup {
                 symbol: "rectangle.split.2x1", surfaces: [.palette, .keyboard, .menu, .contextMenu],
                 arguments: [CatalogArgument.cwdString.optional, CatalogArgument.keepBool.optional], targets: [.pane], cliName: "pane split-right", mainMenu: .view, startsTerminal: true
             ),
+            // A PNG of the pane as on screen, never changing focus or selection
+            // (ScreenshotHandlers): Copy menu and palette; automation is refused.
+            {
+                var screenshot = ActionDescriptor(
+                    id: "pane.screenshot",
+                    title: String(localized: "action.pane.screenshot", defaultValue: "Screenshot Pane", bundle: .module),
+                    keywords: ["screenshot", "capture", "image", "png", "picture"], category: .pane, symbol: "camera",
+                    surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.screenshotOut], targets: [.pane],
+                    cliName: "pane screenshot",
+                    surfacePlan: ActionSurfacePlan(cli: .offered, contextMenus: [ActionSurfaceCatalog.p(.pane, .inspect, 510, folder: .copy)])
+                )
+                // A pane can contain browser pixels. Automation must use the browser host's
+                // guarded capture, which masks cross-session secrets before it returns pixels.
+                screenshot.isPersonOnly = true
+                return screenshot
+            }(),
             ActionDescriptor(
                 id: "newColumn",
                 title: String(localized: "action.newColumn", defaultValue: "New Column", bundle: .module),
@@ -60,8 +76,9 @@ nonisolated enum PaneActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "equalizeSplits",
                 title: String(localized: "action.equalizeSplits", defaultValue: "Equalize Splits", bundle: .module),
+                // Ctrl-Cmd-= as Ghostty's `equalize_splits` (Lawrence 2026-10-19); the interface scale moved to Ctrl-Shift-Cmd.
                 keywords: ["balance", "resize"],
-                defaultShortcut: Shortcut("=", modifiers: [.control, .shift, .command]), category: .pane,
+                defaultShortcut: Shortcut("=", modifiers: [.control, .command]), category: .pane,
                 symbol: "equal.square", surfaces: [.palette, .keyboard, .menu], targets: [.pane],
                 cliName: "pane equalize-splits", mainMenu: .view
             ),
@@ -97,8 +114,8 @@ nonisolated enum PaneActionCatalog: ActionCatalogGroup {
                 id: "focusLeft",
                 title: String(localized: "action.focusLeft", defaultValue: "Focus Pane Left", bundle: .module),
                 keywords: ["navigate"],
-                // Ctrl-Cmd-H: Cmd-Opt-Left is a Chrome tab key (KeyBindingDefaults.tabSwitching).
-                defaultShortcut: Shortcut("h", modifiers: [.control, .command]), category: .pane,
+                // Ghostty's goto_split:left, reserved (schemas/keybindings/ghostty-reserved-keys.json).
+                defaultShortcut: Shortcut(Shortcut.leftArrowKey, modifiers: [.option, .command]), category: .pane,
                 symbol: "arrow.left.square", surfaces: [.palette, .keyboard], targets: [.pane],
                 cliName: "pane focus-left"
             ),
@@ -106,8 +123,8 @@ nonisolated enum PaneActionCatalog: ActionCatalogGroup {
                 id: "focusRight",
                 title: String(localized: "action.focusRight", defaultValue: "Focus Pane Right", bundle: .module),
                 keywords: ["navigate"],
-                // Ctrl-Cmd-L: Cmd-Opt-Right is a Chrome tab key (KeyBindingDefaults.tabSwitching).
-                defaultShortcut: Shortcut("l", modifiers: [.control, .command]), category: .pane,
+                // Ghostty's goto_split:right, reserved (schemas/keybindings/ghostty-reserved-keys.json).
+                defaultShortcut: Shortcut(Shortcut.rightArrowKey, modifiers: [.option, .command]), category: .pane,
                 symbol: "arrow.right.square", surfaces: [.palette, .keyboard], targets: [.pane],
                 cliName: "pane focus-right"
             ),
@@ -350,8 +367,9 @@ nonisolated enum PaneActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "palette.openCloudPane",
                 title: String(localized: "action.palette.openCloudPane", defaultValue: "Open Cloud as Pane", bundle: .module),
-                keywords: ["machines", "pane"], category: .pane, symbol: "cloud", surfaces: [.palette],
-                targets: [.pane], cliName: "pane open-cloud-as"
+                keywords: ["machines", "pane", "vm", "snapshots", "cloud"], category: .pane, symbol: "cloud",
+                surfaces: [.palette, .menu], targets: [.pane], cliName: "pane open-cloud-as", mainMenu: .window,
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
             ),
             // A file in a tab of the pane or in the text editor: the agent pane's changed
             // files (#16723), the palette and the File menu (no path: the cmux

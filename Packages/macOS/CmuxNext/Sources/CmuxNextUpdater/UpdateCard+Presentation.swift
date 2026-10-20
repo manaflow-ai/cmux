@@ -27,9 +27,24 @@ extension UpdateCard {
         case .checking:
             return UpdateCardPresentation(symbol: "arrow.triangle.2.circlepath", title: UpdaterStrings.checking,
                                           detail: UpdaterStrings.youHave(current), showsProgress: true, dismissible: false)
-        case .downloading(let progress):
-            return UpdateCardPresentation(symbol: "arrow.down.circle", title: UpdaterStrings.downloading,
-                                          detail: UpdaterStrings.keepsRunning, showsProgress: true, progress: progress, dismissible: false)
+        case .downloading(let transfer):
+            // One card through the whole download (Lawrence 2026-10-20): the stage, the bytes, the bar.
+            switch transfer.stage {
+            case .starting:
+                return UpdateCardPresentation(symbol: "arrow.down.circle", title: UpdaterStrings.startingDownload,
+                                              detail: UpdaterStrings.keepsRunning, showsProgress: true, dismissible: false)
+            case .downloading:
+                return UpdateCardPresentation(symbol: "arrow.down.circle", title: UpdaterStrings.downloading,
+                                              detail: transfer.bytesText ?? UpdaterStrings.keepsRunning, showsProgress: true,
+                                              progress: transfer.fraction, dismissible: false)
+            case .preparing:
+                return UpdateCardPresentation(symbol: "shippingbox", title: UpdaterStrings.preparing,
+                                              detail: UpdaterStrings.preparingDetail, showsProgress: true,
+                                              progress: transfer.fraction, dismissible: false)
+            }
+        case .installing:
+            return UpdateCardPresentation(symbol: "arrow.clockwise.circle", title: UpdaterStrings.installingUpdate,
+                                          detail: UpdaterStrings.relaunchingDetail, showsProgress: true, dismissible: false)
         case .available(let found):
             return UpdateCardPresentation(symbol: "arrow.down.circle", title: UpdaterStrings.noticeAvailable,
                                           detail: found.map(UpdaterStrings.foundVersion) ?? UpdaterStrings.youHave(current),
@@ -63,6 +78,7 @@ extension UpdateCard {
         switch self {
         case .checking: "checking"
         case .downloading: "downloading"
+        case .installing: "installing"
         case .available: "available"
         case .note(.upToDate): "up_to_date"
         case .note(.checkFailed): "check_failed"

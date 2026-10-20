@@ -24,8 +24,8 @@ public nonisolated struct PageDevServer: Sendable, Equatable {
     /// The pages the server serves: the React pages and the three viewers. The agent pane has its
     /// own override (`CMUX_NEXT_AGENT_PANE_DEV_URL`); an app page is never served from it.
     static let pageIDs: Set<String> = [
-        "cmux.apps", "cmux.changelog", "cmux.cloud", "cmux.coderouter", "cmux.debug-settings", "cmux.diff", "cmux.editor", "cmux.files", "cmux.history", "cmux.home-channels",
-        "cmux.icon-picker", "cmux.keybindings", "cmux.markdown", "cmux.passwords", "cmux.settings", "cmux.stats",
+        "cmux.apps", "cmux.changelog", "cmux.chief-usage", "cmux.cloud", "cmux.coderouter", "cmux.debug-settings", "cmux.diff", "cmux.editor", "cmux.files", "cmux.history", "cmux.home-channels",
+        "cmux.icon-picker", "cmux.keybindings", "cmux.markdown", "cmux.mobile-pairing", "cmux.passwords", "cmux.settings", "cmux.stats",
     ]
 
     /// The server's root URL (`http://127.0.0.1:4190/`).

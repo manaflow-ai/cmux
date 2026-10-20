@@ -41,6 +41,11 @@ fn hub() -> Arc<Hub> {
                 "env": {"ANTHROPIC_BASE_URL": "http://127.0.0.1:9/router"}},
             "fakecodex-router": {"argv": ["python3", FAKE], "family": "codex",
                 "env": {"OPENAI_BASE_URL": "http://127.0.0.1:9/v1"}},
+            // A profile that opts in to cmux's code mode (two tools, docs on demand).
+            "fakecodex-codemode": {"argv": ["python3", FAKE], "family": "codex",
+                "env": {"CMUX_MCP_CODE_MODE": "1"}},
+            "fakeclaude-codemode": {"argv": ["python3", FAKE_CLAUDE], "kind": "claude-stdio",
+                "env": {"CMUX_MCP_CODE_MODE": "1"}},
         },
         "defaultHarness": "fake",
         "permissionPolicy": "approve-all",
@@ -117,6 +122,8 @@ async fn local_sessions_get_the_browser_and_cua_tools_and_skills() {
     std::fs::create_dir_all(&bin).unwrap();
     let cua = fake_bin(&bin, "cmux-cua");
     let cmux = fake_bin(&bin, "cmux");
+    // Agent memory is off until cmux.json turns it on (asserted below).
+    let chief = fake_bin(&bin, "optchat-chief");
     // A settings file that does not mention MCP: every agent chat still gets
     // the cmux MCP server (cx-wx93i: on by default, `mcp.enabled: false` is off).
     let cmux_json = root.join("cmux-next.json");
@@ -183,6 +190,21 @@ async fn local_sessions_get_the_browser_and_cua_tools_and_skills() {
     let codex = local.new_session("fakecodex").await;
     let listed: Value = serde_json::from_str(&local.ask(&codex, "mcp").await).unwrap();
     assert_eq!(cmux_args(&listed), json!(["mcp", "serve", "--all-tools"]), "{listed}");
+    // CMUX_MCP_CODE_MODE=1 opts a profile in to code mode (tests/agent-evals RESULTS: every
+    // tool passed more Claude tasks for less, so it stays the default).
+    let coded = local.new_session("fakecodex-codemode").await;
+    let listed: Value = serde_json::from_str(&local.ask(&coded, "mcp").await).unwrap();
+    assert_eq!(cmux_args(&listed), json!(["mcp", "serve"]), "{listed}");
+    let coded = local.new_session("fakeclaude-codemode").await;
+    let coded_argv: Vec<String> = serde_json::from_str(&local.ask(&coded, "hi").await).unwrap();
+    let at = coded_argv.iter().position(|a| a == "--mcp-config").expect("--mcp-config");
+    let coded_config: Value =
+        serde_json::from_str(&std::fs::read_to_string(&coded_argv[at + 1]).unwrap()).unwrap();
+    assert_eq!(
+        coded_config["mcpServers"]["cmux"]["args"],
+        json!(["mcp", "serve"]),
+        "{coded_config}"
+    );
 
     // Claude Code: the same servers in --mcp-config, the skills as a plugin,
     // every cmux tool, and its tool search on (it turns it off behind a
@@ -233,11 +255,30 @@ async fn local_sessions_get_the_browser_and_cua_tools_and_skills() {
     assert!(plugin.join("skills/cmux-browser/references/repl-guide.md").is_file());
     let cua_skill = std::fs::read_to_string(plugin.join("skills/cmux-cua/SKILL.md")).unwrap();
     assert!(cua_skill.contains("disable-model-invocation: true"), "the consent rule stays");
+    // The acpmux CLI guide, pointing at the sub-session tools first.
+    let acpmux_skill = std::fs::read_to_string(plugin.join("skills/acpmux/SKILL.md")).unwrap();
+    assert!(acpmux_skill.contains("name: acpmux"), "{acpmux_skill}");
+    assert!(acpmux_skill.contains("cmux-subsessions") && acpmux_skill.contains("start_session"));
     let manifest: Value = serde_json::from_str(
         &std::fs::read_to_string(plugin.join(".claude-plugin/plugin.json")).unwrap(),
     )
     .unwrap();
     assert_eq!(manifest["name"], "cmux");
+
+    // `agents.memory.enabled` adds the memory server for the next session,
+    // with the session as its provenance.
+    std::fs::write(&cmux_json, r#"{"agents": {"memory": {"enabled": true}}}"#).unwrap();
+    let id = local.new_session("fake").await;
+    let servers: Value = serde_json::from_str(&local.ask(&id, "mcp").await).unwrap();
+    let memory = servers
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|s| s["name"] == "cmux-agent-memory")
+        .unwrap_or_else(|| panic!("{servers}"));
+    assert_eq!(memory["command"], json!(chief), "{servers}");
+    assert_eq!(memory["args"], json!(["agent-memory", "mcp"]), "{servers}");
+    assert!(memory["env"].to_string().contains(&id), "{servers}");
 
     // The switch turns it off for the next session.
     // SAFETY: as above; no session is starting concurrently.

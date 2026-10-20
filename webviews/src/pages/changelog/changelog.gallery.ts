@@ -57,14 +57,24 @@ export default changelogPageEntry({
       note: "Opened from the Help menu (no update span): one section per day.",
       notes: realNightlies,
     },
-    journal: {
-      note: "Design A (default): four nightlies stacked; the lead change with light/dark media, grouped rows, folded commits.",
+    ledger: {
+      note: "Ledger (default, u5099): conductor.build/changelog's layout. Each day's newest version as a small mono tag and its date sticky in the left margin; New / Improved / Fixed as headings over bullet lists.",
       notes: journalNotes,
+    },
+    "ledger-update-span": {
+      note: "Ledger opened by See What's New after an update from 1.0.0-nightly.410 to 413: Since your last update first, then the days with their margin tags.",
+      notes: journalNotes,
+      route: "#/?from=1.0.0-nightly.410&to=1.0.0-nightly.413",
+    },
+    journal: {
+      note: "Design A (Debug Settings whatsNew.design = journal): four nightlies stacked; the lead change with light/dark media, grouped rows, folded commits.",
+      notes: journalNotes,
+      route: "#/?design=journal",
     },
     "journal-update-span": {
       note: "Design A opened by See What's New after an update from 1.0.0-nightly.410 to 413: those releases come first under Since your last update.",
       notes: journalNotes,
-      route: "#/?from=1.0.0-nightly.410&to=1.0.0-nightly.413",
+      route: "#/?design=journal&from=1.0.0-nightly.410&to=1.0.0-nightly.413",
     },
     rail: {
       note: "Design B (Debug Settings whatsNew.design = rail) on the same update span.",

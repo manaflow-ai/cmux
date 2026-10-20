@@ -18,6 +18,11 @@ advertises steering; a prompt while a turn runs joins that turn, and when
 the turn ends only the last prompt gets an answer (the earlier ones never).
 Its "slow-stop" turn runs until session/cancel and takes 5 s more to stop.
 
+FAKE_CLAUDE_STEER=1: steering as Claude Code (claude-stdio) does it. The agent
+advertises steering; a prompt while a turn runs is read into that turn and
+answered at once with stopReason "steered"; the turn runs on and its own
+prompt is answered when it ends.
+
 FAKE_SESSION_PREFIX=<p>: session ids are <p><n> instead of fake-<n> (an id as
 long as a real agent's, for checks that refuse short ones).
 
@@ -49,6 +54,8 @@ cancelled = set()
 failed_once = set()
 # Sessions whose "net-down" prompt cut the connection for good (auto-resume tests).
 net_down = set()
+# Sessions whose "net-flaky" prompt left one more prompt to fail (auto-resume tests).
+net_flaky = set()
 next_id = 100
 pending = {}
 # Sessions this process created or finished loading.
@@ -193,6 +200,29 @@ def codex_prompt(rid, params):
     send({"jsonrpc": "2.0", "id": ids[-1], "result": {"stopReason": "end_turn"}})
 
 
+# FAKE_CLAUDE_STEER: sessions with a running turn.
+claude_turns = set()
+
+
+def claude_prompt(rid, params):
+    """Claude Code: a prompt during a turn is a steer, answered "steered" at once."""
+    sid = params["sessionId"]
+    text = "".join(b.get("text", "") for b in params.get("prompt", []))
+    with lock:
+        steer = sid in claude_turns
+        if not steer:
+            claude_turns.add(sid)
+    if steer:
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "steer: " + text}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "steered"}})
+        return
+    try:
+        handle_prompt(rid, params)
+    finally:
+        with lock:
+            claude_turns.discard(sid)
+
+
 def run_hostname(rid, sid):
     """FAKE_ASK_MODE: `hostname` as a tool call, run only after the person's allow."""
     call = {"toolCallId": "hostname-1", "title": "hostname", "kind": "execute", "status": "pending",
@@ -242,6 +272,19 @@ def handle_prompt(rid, params):
                 cancelled.discard(sid)
                 break
             time.sleep(0.05)
+        send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "stream disconnected before completion: error sending request for url (https://relay.invalid/responses)"}})
+        return
+    # "net-flaky: X" streams a moment, then fails with that transport error; the session's next
+    # prompt fails the same way, and later ones are answered as usual. The wait leaves a test
+    # time to queue a prompt behind it on a loaded machine.
+    if text.startswith("net-flaky:"):
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "flaky "}})
+        time.sleep(3.0)
+        net_flaky.add(sid)
+        send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "stream disconnected before completion: error sending request for url (https://relay.invalid/responses)"}})
+        return
+    if sid in net_flaky:
+        net_flaky.discard(sid)
         send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "stream disconnected before completion: error sending request for url (https://relay.invalid/responses)"}})
         return
     if text.startswith("net-down"):
@@ -653,6 +696,13 @@ def handle_prompt(rid, params):
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
     update(sid, {"sessionUpdate": "agent_thought_chunk", "content": {"type": "text", "text": "thinking"}})
+    # FAKE_TOOL_CALLS=N: N finished shell calls first, as a working agent's turn shows them.
+    for k in range(int(os.environ.get("FAKE_TOOL_CALLS", "0") or 0)):
+        update(sid, {"sessionUpdate": "tool_call", "toolCallId": f"run-{k}", "kind": "execute",
+                     "status": "completed", "title": f"echo probe {k}"})
+    # FAKE_SHORT_ECHO=1: echo only the prompt's last line (a Chief envelope is 100+ KB).
+    if os.environ.get("FAKE_SHORT_ECHO") == "1" and text.strip():
+        text = text.strip().splitlines()[-1]
     update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "echo: " + text}})
     send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
 
@@ -792,7 +842,7 @@ def main():
                 pause.sleep(int(os.environ["FAKE_INIT_DELAY_MS"]) / 1000)
             send({"jsonrpc": "2.0", "id": rid, "result": {
                 "protocolVersion": 1,
-                "_meta": {"steering": {"supported": os.environ.get("FAKE_CODEX_STEER") == "1"}},
+                "_meta": {"steering": {"supported": "1" in (os.environ.get("FAKE_CODEX_STEER"), os.environ.get("FAKE_CLAUDE_STEER"))}},
                 "agentInfo": {"name": "fake", "version": "0"},
                 "agentCapabilities": {"loadSession": os.environ.get("FAKE_NO_LOAD") != "1", "sessionCapabilities": {"fork": {}}},
                 "authMethods": [] if not os.environ.get("FAKE_AUTH_FILE") else [
@@ -876,6 +926,8 @@ def main():
                 send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32002, "message": "Session not found"}})
                 continue
             target = codex_prompt if os.environ.get("FAKE_CODEX_STEER") == "1" else handle_prompt
+            if os.environ.get("FAKE_CLAUDE_STEER") == "1":
+                target = claude_prompt
             if CODEX_STORE:
                 target = codex_store_prompt
             threading.Thread(target=target, args=(rid, params), daemon=True).start()
