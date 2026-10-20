@@ -69,10 +69,22 @@ extension WindowRootView {
     // Helium, the sidebar's side too.
     func applyMainPane() {
         let gutter = Metrics.mainPaneGutter, top = WindowTitlebar.cardTopInset(of: self, minimal: titlebarStyle == .minimal, gutter: gutter)
-        for constraint in mainPaneInsetConstraints {
+        // The right sidebar sits on the edge opposite the sidebar: on the left
+        // side's pins it insets the trailing edge, on the right side's the leading one.
+        let panel = rightPanelWidth
+        for (side, constraints) in sidePins {
+            for constraint in constraints where constraint.firstItem === contentHost {
+                switch constraint.firstAttribute {
+                case .leading: constraint.constant = gutter + (side == .right && constraint.secondItem === self ? panel : 0)
+                case .trailing: constraint.constant = -gutter - (side == .left && constraint.secondItem === self ? panel : 0)
+                default: break
+                }
+            }
+        }
+        for constraint in mainPaneEdges where constraint.firstItem === contentHost {
             switch constraint.firstAttribute { // the top as `updateMainPaneTopInset` sets it, so no pass shows the bare gutter
-            case .leading, .top: constraint.constant = constraint.firstAttribute == .top ? top : gutter
-            case .trailing, .bottom: constraint.constant = -gutter
+            case .top: constraint.constant = top
+            case .bottom: constraint.constant = -gutter
             default: break
             }
         }
