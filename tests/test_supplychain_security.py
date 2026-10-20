@@ -176,6 +176,16 @@ def test_environment_secret_rollout_keeps_untrusted_jobs_secretless() -> None:
     namespace = workflow("namespace-autofix.yml")["jobs"]["autofix"]
     assert namespace.get("environment") == "ci-routing-agent"
 
+    trusted_automation = (
+        ("ci-failure-attribution.yml", "attribute", "ci-attribution-agent"),
+        ("ci-guard-attribution.yml", "analyze", "ci-attribution-agent"),
+        ("ci-guard-attribution.yml", "report", "ci-attribution-agent"),
+        ("ci-hosted-queue-rescue.yml", "rescue", "ci-bot"),
+        ("dogfood-artifact-publish.yml", "capture", "ci-bot"),
+    )
+    for name, job_name, environment in trusted_automation:
+        assert workflow(name)["jobs"][job_name].get("environment") == environment
+
 
 def test_ci_and_deployment_container_images_are_digest_pinned() -> None:
     workflow_images = (
