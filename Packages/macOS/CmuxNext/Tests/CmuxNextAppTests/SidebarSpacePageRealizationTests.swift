@@ -90,17 +90,21 @@ struct SidebarSpacePageRealizationTests {
 
     /// A slide whose sidebar goes away before its animation ends (a window closed mid-switch)
     /// finishes without touching the sidebar: the completion read it through an unowned
-    /// reference and crashed the process.
+    /// reference and crashed the process (fleet step 2f4e9864569bd12ab870b44d).
     @Test func aSlideOutlivingItsSidebarFinishesSafely() {
         var paging: SidebarSpacePaging?
-        do {
+        weak var gone: SidebarView?
+        autoreleasepool {
             let (model, sidebar) = Self.sidebar()
+            gone = sidebar
             paging = sidebar.spacePaging
             sidebar.spacePaging.prepareSlide(oldSections: model.sections)
             sidebar.spacePaging.slide(direction: 1)
+            sidebar.removeFromSuperview()
         }
+        #expect(gone == nil, "the sidebar outlived the test's scope, so the slide never ran without it")
         CATransaction.flush()
         for _ in 0..<4 { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.3)) }
-        #expect(paging?.snapshotView == nil)
+        #expect(paging != nil) // the process is still alive: the completion did not trap
     }
 }
