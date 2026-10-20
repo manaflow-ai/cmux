@@ -61,7 +61,8 @@ export type NewTabScreenActions = {
   /// `noProject`: Do not work in a project was picked, so the chat starts in no project.
   /// `attachments`: what was pasted or dropped on the page (composer/attachmentIntake.tsx), sent
   /// with the chat's first prompt.
-  /// `peer`: a saved SSH environment's machine; `cwd` is then a folder there.
+  /// `saved`: a saved environment picked the place. `cwd` is its folder, used even when it is the
+  /// tab's own; with `peer` (an SSH environment's machine) a folder there.
   onAsk(
     harness: string,
     text: string,
@@ -69,7 +70,7 @@ export type NewTabScreenActions = {
     model?: string,
     noProject?: boolean,
     attachments?: ComposerAttachment[],
-    peer?: string,
+    saved?: { peer?: string },
   ): void;
   onOpen(url: string): void;
   onSearch(text: string): void;
@@ -708,6 +709,8 @@ export function NewTabScreen(props: Props) {
   const projectChoice = useRef(0);
   const pickProject = (cwd?: string) => {
     projectChoice.current += 1;
+    // A folder picked anywhere on the page (a widget card's project) replaces a saved environment.
+    saved.pick(undefined);
     touch();
     setPicked(true);
     setNone(cwd === undefined);
@@ -728,19 +731,26 @@ export function NewTabScreen(props: Props) {
   const worktreePending = useRef(false);
   function askInEnvironment(picked: SavedEnvironment, agent: string, prompt: string, model?: string) {
     const extra = attachments.length > 0 ? attachments : undefined;
-    if (picked.kind === "ssh") return props.onAsk(agent, prompt, picked.folder, model, undefined, extra, picked.host);
+    if (picked.kind === "ssh")
+      return props.onAsk(agent, prompt, picked.folder, model, undefined, extra, { peer: picked.host });
     if (!picked.worktree || !picked.folder || !props.onNewWorktree)
-      return props.onAsk(agent, prompt, picked.folder, model, undefined, extra);
+      return props.onAsk(agent, prompt, picked.folder, model, undefined, extra, {});
     if (worktreePending.current) return;
     worktreePending.current = true;
     setWorktreeError(undefined);
+    // No chat started: the page's create buttons work again (startChat set `created`).
+    const unstarted = () => {
+      worktreePending.current = false;
+      created.current = false;
+    };
     void props.onNewWorktree(picked.folder).then(
       (folder) => {
+        if (!folder) return unstarted();
         worktreePending.current = false;
-        if (folder) props.onAsk(agent, prompt, folder, model, undefined, extra);
+        props.onAsk(agent, prompt, folder, model, undefined, extra, {});
       },
       (error: unknown) => {
-        worktreePending.current = false;
+        unstarted();
         setWorktreeError((error instanceof Error && error.message) || String(error));
       },
     );

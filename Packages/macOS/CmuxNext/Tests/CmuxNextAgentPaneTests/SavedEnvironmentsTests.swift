@@ -139,6 +139,22 @@ struct SavedEnvironmentsTests {
         #expect(await store.list().map(\.name) == ["Kept"])
     }
 
+    @Test func anEntryThisBuildCannotReadIsKeptThroughASave() async throws {
+        let directory = try Self.directory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appending(path: "environments.json")
+        // A newer build's kind beside one this build reads.
+        let newer: [String: Any] = ["id": UUID().uuidString, "name": "Sandbox", "kind": "cloud", "updatedAt": 5]
+        let known: [String: Any] = ["id": UUID().uuidString, "name": "Laptop", "kind": "local", "updatedAt": 4]
+        try JSONSerialization.data(withJSONObject: ["environments": [newer, known]]).write(to: url)
+        let store = SavedEnvironments(url: url)
+        #expect(await store.list().map(\.name) == ["Laptop"])
+        _ = try await store.save(AgentPaneEnvironment(name: "Box", kind: .ssh, host: "devbox"))
+        let written = try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any]
+        let names = (written?["environments"] as? [[String: Any]])?.compactMap { $0["name"] as? String }
+        #expect(Set(names ?? []) == ["Laptop", "Box", "Sandbox"])
+    }
+
     @Test func theFileIsTheOwnersAlone() async throws {
         let directory = try Self.directory()
         defer { try? FileManager.default.removeItem(at: directory) }

@@ -23,7 +23,12 @@ export function useSavedEnvironments(host: SavedEnvironmentHost | undefined) {
     let live = true;
     void latest.current?.list().then(
       (environments) => {
-        if (live) setList(environments);
+        // A save that landed first stays: the host's list may predate it.
+        if (live)
+          setList((current) => [
+            ...current.filter((kept) => !environments.some((environment) => environment.id === kept.id)),
+            ...environments,
+          ]);
       },
       () => undefined,
     );

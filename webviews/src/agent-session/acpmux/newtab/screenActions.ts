@@ -28,7 +28,8 @@ export function newTabScreenActions(deps: {
   const ignore = (result: Promise<unknown>) => void result.catch(() => undefined);
   const remember = (agent: string) => ignore(callNative("newTab.remember", { agent }));
   return {
-    onAsk(harness, text, picked, model, noProject, attachments, peer) {
+    onAsk(harness, text, picked, model, noProject, attachments, saved) {
+      const peer = saved?.peer;
       remember(harness);
       deps.leave();
       // The prompt goes in the same turn as the switch: the switch queues it, and a folder trust
@@ -36,11 +37,20 @@ export function newTabScreenActions(deps: {
       // after `chat.new` settled lost it: the switch had stopped on the refusal with nothing
       // queued ("Not sent").
       const start = (folder?: string) => {
+        // On another machine the prompt waits for its chat: a start that fails there must not
+        // send it to a new chat on this Mac.
+        if (peer) {
+          const send = () =>
+            text || attachments?.length
+              ? callNative("chat.send", { text, ...(attachments?.length ? { attachments } : {}) })
+              : undefined;
+          ignore(callNative("chat.new", { harness, ...(folder ? { cwd: folder } : {}), peer }).then(send));
+          return;
+        }
         ignore(
           callNative("chat.new", {
             harness,
             ...(folder ? { cwd: folder } : noProject ? { noProject: true } : {}),
-            ...(peer ? { peer } : {}),
             ...(model ? { model } : {}),
           }),
         );
@@ -53,9 +63,10 @@ export function newTabScreenActions(deps: {
       // the host first (cx-nn3e).
       // Do not work in a project: no folder at all, so the host starts it in its private folder.
       // A saved SSH environment's folder is the machine's own: this Mac's folder checks don't apply.
+      // A saved local one's folder is checked even when it is the tab's own.
       if (noProject) start();
       else if (peer) start(picked);
-      else if (picked && picked !== cwd) {
+      else if (picked && (picked !== cwd || saved)) {
         if (deps.requestFolder) deps.requestFolder(picked, start);
         else start(picked);
       } else start(deps.chatCwd);

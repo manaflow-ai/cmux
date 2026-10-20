@@ -69,6 +69,7 @@ public nonisolated protocol AgentPaneEnvironmentStoring: Sendable {
 extension AgentPaneEnvironmentRequest {
     /// The page's reply: refused unless `newTabPage` (a New Tab page with no chat yet) and the
     /// App keeps environments.
+    @MainActor
     func reply(store: (any AgentPaneEnvironmentStoring)?, newTabPage: Bool) async -> [String: Any] {
         guard newTabPage, let store else { return AgentPaneModel.unsupported(method) }
         do {

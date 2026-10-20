@@ -112,6 +112,9 @@ extension AgentTabStore {
                                  linkScheme: services.linkScheme, settings: services.settings)
         tabs.launchImages = AgentPaneLaunchImages(beside: services.environment.sidebarSnapshotFile)
         tabs.unsentDrafts = AgentUnsentDrafts(beside: services.environment.sidebarSnapshotFile)
+        tabs.pageChats.environments = services.environment.sidebarSnapshotFile.map {
+            SavedEnvironments(url: $0.url.deletingLastPathComponent().appending(path: "environments.json"))
+        }
         // The Chief home's acpmux: the Chief host's subagent tabs attach there.
         let chief = ChiefHomeAcpmux(home: ChiefHome.resolve(tag: services.environment.tag))
         (tabs.chiefHost, tabs.chiefPaneHost) = (chief.host, chief.paneHost)

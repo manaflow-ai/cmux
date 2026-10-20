@@ -1,10 +1,9 @@
 import Foundation
 
 /// The New Tab page's saved environments (``AgentPaneEnvironment``), kept on this Mac in
-/// `<Application Support>/<bundle id>/environments.json`: read once, written whole (atomically,
-/// owner-only, as the folders and machines a user works on are their own). An actor, so the file
-/// IO never runs on the main actor. A file that does not parse is read as empty and replaced by
-/// the next save.
+/// `environments.json` beside the app's sidebar snapshot (the tag's state): read once, written
+/// whole (atomically, owner-only, as the folders and machines a user works on are their own). An
+/// actor, so the file IO never runs on the main actor.
 public actor SavedEnvironments: AgentPaneEnvironmentStoring {
     /// Most environments kept; a save past it is refused.
     static let maximumCount = 200
@@ -14,22 +13,14 @@ public actor SavedEnvironments: AgentPaneEnvironmentStoring {
     private let url: URL
     private let now: @Sendable () -> Date
     private var loaded: [AgentPaneEnvironment]?
+    /// Entries this build cannot read (a newer build's kind, a hand edit): kept as they were and
+    /// written back with every save, so an older build never drops them.
+    private var foreign: [Any] = []
 
-    init(url: URL, now: @escaping @Sendable () -> Date = { Date() }) {
+    /// The store kept in `url` (`environments.json` beside the app's sidebar snapshot).
+    public init(url: URL, now: @escaping @Sendable () -> Date = { Date() }) {
         self.url = url
         self.now = now
-    }
-
-    /// `<Application Support>/<bundle id>/environments.json`.
-    public static func forApplication(bundleIdentifier: String?) -> SavedEnvironments {
-        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-            ?? URL(filePath: NSTemporaryDirectory())
-        let bundle = bundleIdentifier.flatMap { $0.isEmpty ? nil : $0 } ?? "com.cmuxterm.app.next"
-        return SavedEnvironments(url: support.appending(path: bundle).appending(path: "environments.json"))
-    }
-
-    private struct Document: Codable {
-        var environments: [AgentPaneEnvironment]
     }
 
     public func list() -> [AgentPaneEnvironment] {
@@ -46,7 +37,7 @@ public actor SavedEnvironments: AgentPaneEnvironmentStoring {
         if let index = all.firstIndex(where: { $0.id == kept.id }) {
             all[index] = kept
         } else {
-            guard all.count < Self.maximumCount else { throw Failure.full }
+            guard all.count + foreign.count < Self.maximumCount else { throw Failure.full }
             all.append(kept)
         }
         try write(all)
@@ -60,20 +51,26 @@ public actor SavedEnvironments: AgentPaneEnvironmentStoring {
         try write(all)
     }
 
-    /// The kept list, read from the file the first time. An entry that no longer validates
-    /// (edited by hand) is left out.
+    /// The kept list, read from the file the first time, entry by entry: one this build cannot
+    /// read (or that no longer validates) is left out of the list but kept in the file. A file
+    /// that is not a list of environments at all reads as empty and is replaced by the next save.
     private func environments() -> [AgentPaneEnvironment] {
         if let loaded { return loaded }
-        let read = (try? Data(contentsOf: url)).flatMap { try? JSONDecoder().decode(Document.self, from: $0) }?.environments ?? []
-        let valid = read.compactMap { environment in environment.validated().flatMap { $0.id == nil ? nil : $0 } }
+        let document = (try? Data(contentsOf: url)).flatMap { try? JSONSerialization.jsonObject(with: $0) } as? [String: Any]
+        var valid: [AgentPaneEnvironment] = []
+        for entry in document?["environments"] as? [Any] ?? [] {
+            let decoded = (try? JSONSerialization.data(withJSONObject: entry))
+                .flatMap { try? JSONDecoder().decode(AgentPaneEnvironment.self, from: $0) }?
+                .validated()
+            if let decoded, decoded.id != nil { valid.append(decoded) } else { foreign.append(entry) }
+        }
         loaded = valid
         return valid
     }
 
     private func write(_ all: [AgentPaneEnvironment]) throws {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        let data = try encoder.encode(Document(environments: all))
+        let entries = try all.map { try JSONSerialization.jsonObject(with: JSONEncoder().encode($0)) } + foreign
+        let data = try JSONSerialization.data(withJSONObject: ["environments": entries], options: [.prettyPrinted, .sortedKeys])
         let directory = url.deletingLastPathComponent()
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         // Owner-only before any byte lands: the temporary file is made 0600, then renamed over.

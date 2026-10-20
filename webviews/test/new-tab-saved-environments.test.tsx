@@ -100,7 +100,17 @@ type Call = { method: string; params?: Record<string, unknown> };
 /// The New Tab page over a mock host: the actions App builds (screenActions, New Worktree, the
 /// folder check) on a `callNative` that answers the environment, worktree and folder methods and
 /// records every call.
-async function mount({ previews = true, worktree = "ok" }: { previews?: boolean; worktree?: "ok" | "refused" } = {}) {
+async function mount({
+  previews = true,
+  worktree = "ok",
+  tabCwd = "/Users/you",
+  peerStart = "ok",
+}: {
+  previews?: boolean;
+  worktree?: "ok" | "refused";
+  tabCwd?: string;
+  peerStart?: "ok" | "refused";
+} = {}) {
   const { createRoot } = await import("react-dom/client");
   const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
   const { newTabScreenActions } = await import("../src/agent-session/acpmux/newtab/screenActions");
@@ -109,6 +119,9 @@ async function mount({ previews = true, worktree = "ok" }: { previews?: boolean;
   const callNative = async (method: string, params?: Record<string, unknown>) => {
     calls.push({ method, ...(params ? { params } : {}) });
     switch (method) {
+      case "chat.new":
+        if (params?.peer && peerStart === "refused") throw new Error("devbox is not connected");
+        return undefined;
       case "environment.list":
         return { environments: SAVED };
       case "environment.save": {
@@ -127,7 +140,7 @@ async function mount({ previews = true, worktree = "ok" }: { previews?: boolean;
   const noop = () => {};
   const actions = newTabScreenActions({
     callNative,
-    cwd: "/Users/you",
+    cwd: tabCwd,
     leave: noop,
     selectSession: noop,
     showAllChats: noop,
@@ -143,7 +156,7 @@ async function mount({ previews = true, worktree = "ok" }: { previews?: boolean;
           peerKinds: { devbox: "ssh", "cloud-1": "cloud" },
         })}
         lastAgent="claude"
-        cwd="/Users/you"
+        cwd={tabCwd}
         projects={[
           { cwd: APP, label: "app" },
           { cwd: API, label: "api" },
@@ -340,4 +353,33 @@ test("a draft keeps only its kind's fields", async () => {
   expect(savedEnvironmentReady({ name: "Box", kind: "ssh" })).toBe(false);
   expect(savedEnvironmentReady({ name: "Mac", kind: "local", folder: "src/app" })).toBe(false);
   expect(savedEnvironmentReady({ name: "Mac", kind: "local", folder: "~/src/app" })).toBe(true);
+});
+
+test("a saved local environment starts in its folder even when the tab already sits there", async () => {
+  const calls = await mount({ tabCwd: APP });
+  await click(environmentButton());
+  await click(row("Web"));
+  await ask("run the tests");
+  expect(calls.find((call) => call.method === "workspace.useFolder")?.params).toEqual({ cwd: APP });
+  expect(calls.find((call) => call.method === "chat.new")?.params).toMatchObject({ cwd: APP });
+});
+
+test("a start the SSH machine refused sends the prompt nowhere", async () => {
+  const calls = await mount({ peerStart: "refused" });
+  await click(environmentButton());
+  await click(row("Devbox API"));
+  await ask("tail the logs");
+  expect(calls.some((call) => call.method === "chat.new")).toBe(true);
+  expect(calls.some((call) => call.method === "chat.send")).toBe(false);
+});
+
+test("New chat after a refused worktree leaves the page's create buttons working", async () => {
+  const calls = await mount({ worktree: "refused" });
+  await click(environmentButton());
+  await click(row("API worktree"));
+  await type(host.querySelector<HTMLTextAreaElement>(".nt-field"), "fix the build");
+  await click(host.querySelector('[data-create="chat"]'));
+  expect(host.querySelector('[role="alert"]')?.textContent).toContain("not a git repository");
+  await click(host.querySelector('[data-create="terminal"]'));
+  expect(calls.some((call) => call.method === "tab.open")).toBe(true);
 });
