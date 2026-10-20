@@ -3,6 +3,7 @@ import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDaemon
 import Foundation
+import enum CmuxNextLayout.NewChatPlacement
 
 /// The tab key a split's page got from the store, for its Open Tabs moves.
 private final class SplitPageKey {
