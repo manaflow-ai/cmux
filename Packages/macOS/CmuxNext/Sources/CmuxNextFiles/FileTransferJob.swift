@@ -1,0 +1,127 @@
+import Foundation
+
+/// One copy or move run by ``FileOperator/transfer(_:to:mode:resolve:)``.
+struct FileTransferJob: Sendable {
+    let sources: [URL]
+    let folder: URL
+    let mode: TransferMode
+    let namer: FileNamer
+    let resolve: @Sendable (FileConflict) async -> ConflictAnswer
+
+    func run(_ emit: (TransferEvent) -> Void) async throws {
+        let fm = FileManager.default
+        var progress = TransferProgress(itemsDone: 0, itemsTotal: sources.count, bytesDone: 0,
+                                        bytesTotal: sources.reduce(0) { $0 + Self.bytes(at: $1) }, current: nil)
+        emit(.progress(progress))
+        var placed: [URL: URL] = [:]
+        var replaced: [TrashedItem] = []
+        var standing: ConflictChoice?
+        let folderPath = folder.standardizedFileURL.path
+
+        for source in sources {
+            try Task.checkCancellation()
+            let size = Self.bytes(at: source)
+            progress.current = source
+            defer { progress.itemsDone += 1 }
+            let sourcePath = source.standardizedFileURL.path
+            if folderPath == sourcePath || folderPath.hasPrefix(sourcePath + "/") {
+                throw FileBrowserError.failed("Cannot put a folder inside itself: \(source.lastPathComponent)")
+            }
+            var target = folder.appendingPathComponent(source.lastPathComponent)
+            if mode == .move, source.deletingLastPathComponent().standardizedFileURL.path == folderPath {
+                // Moving into the folder it is already in does nothing (Finder too).
+                progress.bytesDone += size
+                emit(.progress(progress))
+                continue
+            }
+            if fm.fileExists(atPath: target.path) {
+                var isDir: ObjCBool = false
+                fm.fileExists(atPath: target.path, isDirectory: &isDir)
+                let sourceIsDir = (try? source.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
+                let choice: ConflictChoice
+                if let standing {
+                    choice = standing
+                } else {
+                    let answer = await resolve(FileConflict(source: source, existing: target,
+                                                            bothFolders: isDir.boolValue && sourceIsDir))
+                    choice = answer.choice
+                    if answer.applyToAll { standing = answer.choice }
+                }
+                switch choice {
+                case .stop:
+                    emit(.finished(placed: placed, replaced: replaced))
+                    return
+                case .skip:
+                    progress.bytesDone += size
+                    emit(.progress(progress))
+                    continue
+                case .keepBoth:
+                    let free = namer.freeName(for: source.lastPathComponent, style: .number,
+                                              taken: FileOperator.names(in: folder))
+                    target = folder.appendingPathComponent(free)
+                case .replace:
+                    var trashed: NSURL?
+                    do {
+                        try fm.trashItem(at: target, resultingItemURL: &trashed)
+                    } catch {
+                        throw FileBrowserError.failed(error.localizedDescription)
+                    }
+                    replaced.append(TrashedItem(original: target, trashed: (trashed as URL?) ?? target))
+                }
+            }
+            let base = progress.bytesDone
+            switch mode {
+            case .move:
+                if Self.sameVolume(source, folder) {
+                    guard Darwin.rename(source.path, target.path) == 0 else {
+                        throw FileBrowserError.failed(String(cString: strerror(errno)))
+                    }
+                } else {
+                    try copy(source, to: target, base: base, progress: &progress, emit: emit)
+                    try? fm.removeItem(at: source)
+                }
+            case .copy:
+                try copy(source, to: target, base: base, progress: &progress, emit: emit)
+            }
+            progress.bytesDone = base + size
+            placed[source] = target
+            emit(.progress(progress))
+        }
+        progress.current = nil
+        emit(.finished(placed: placed, replaced: replaced))
+    }
+
+    private func copy(_ source: URL, to target: URL, base: Int64, progress: inout TransferProgress,
+                      emit: (TransferEvent) -> Void) throws {
+        var snapshot = progress
+        try FileOperator.copy(source, to: target) { copied in
+            if Task.isCancelled { return false }
+            snapshot.bytesDone = base + copied
+            emit(.progress(snapshot))
+            return true
+        }
+        progress = snapshot
+    }
+
+    /// Bytes under `url` (files only; folders summed through their contents).
+    static func bytes(at url: URL) -> Int64 {
+        var info = stat()
+        guard lstat(url.path, &info) == 0 else { return 0 }
+        if info.st_mode & S_IFMT != S_IFDIR { return Int64(info.st_size) }
+        var total: Int64 = 0
+        let keys: [URLResourceKey] = [.fileSizeKey, .isRegularFileKey]
+        guard let walker = FileManager.default.enumerator(at: url, includingPropertiesForKeys: keys) else { return 0 }
+        for case let item as URL in walker {
+            if let values = try? item.resourceValues(forKeys: Set(keys)), values.isRegularFile == true {
+                total += Int64(values.fileSize ?? 0)
+            }
+        }
+        return total
+    }
+
+    static func sameVolume(_ a: URL, _ b: URL) -> Bool {
+        var sa = stat(), sb = stat()
+        guard lstat(a.path, &sa) == 0, stat(b.path, &sb) == 0 else { return false }
+        return sa.st_dev == sb.st_dev
+    }
+}

@@ -32,6 +32,7 @@ use serde_json::{Value, json};
 
 use super::Mux;
 use crate::state::agent_message_store as messages;
+use crate::state::agent_message_unsend::clip;
 use crate::state::commit::StateEffects;
 use crate::state::store::StateChanges;
 
@@ -41,6 +42,8 @@ const PAGE: usize = 200;
 const RETRY_FIRST: Duration = Duration::from_secs(1);
 const RETRY_MAX: Duration = Duration::from_secs(60);
 const ORIGIN: &str = "agent-message-pump";
+/// The limit on a delivery's stored `error`, in UTF-8 bytes.
+const ERROR_MAX: usize = 1024;
 
 /// The pump's wake and the delivery lock.
 #[derive(Default)]
@@ -174,7 +177,7 @@ impl Mux {
         }
         let (state, error) = match self.acp_prompt_message(&message, recipient) {
             Handover::Delivered => ("delivered", None),
-            Handover::Failed(error) => ("failed", Some(truncate(&error, 1024))),
+            Handover::Failed(error) => ("failed", Some(clip(&error, ERROR_MAX))),
             Handover::Unreachable => return Pumped::Unreachable,
             Handover::Unsettled(error) => {
                 let noted = self.note_agent_message_attempt(id, recipient, &error).is_ok();
@@ -195,10 +198,13 @@ impl Mux {
             Some("acp.prompt"),
             error.as_deref(),
         );
-        if marked.is_err() {
-            self.report_internal_diagnostic("agent message pump could not record a delivery");
-        }
         self.remember_unnoted(id, recipient, marked.is_err());
+        if marked.is_err() {
+            // The hand-over went out but is not recorded: the recipient
+            // waits (nothing later overtakes it) and the backoff re-arms.
+            self.report_internal_diagnostic("agent message pump could not record a delivery");
+            return Pumped::Waits;
+        }
         Pumped::Done
     }
 
@@ -223,7 +229,7 @@ impl Mux {
         recipient: &str,
         error: &str,
     ) -> anyhow::Result<()> {
-        let error = truncate(error, 1024);
+        let error = clip(error, ERROR_MAX);
         let fingerprint = json!({"operation": "agent.message.attempt", "id": id,
             "recipient": recipient, "error": error});
         self.commit_state(
@@ -293,14 +299,6 @@ fn run(mux: &Weak<Mux>, woken: &Receiver<()>) {
             .pump_agent_messages()
             .then(|| retry.map_or(RETRY_FIRST, |delay| (delay * 2).min(RETRY_MAX)));
     }
-}
-
-fn truncate(text: &str, max_bytes: usize) -> String {
-    let mut end = text.len().min(max_bytes);
-    while !text.is_char_boundary(end) {
-        end -= 1;
-    }
-    text[..end].to_owned()
 }
 
 /// No acpmux off unix: nothing is handed over and nothing withdrawn.

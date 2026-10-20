@@ -58,7 +58,9 @@ pub(super) fn handle_command_with_cancellation(
         | Command::DeleteTerminalCommands(_)) => command_history::handle(mux, client, command),
         Command::ServerStats { include } => cmd_server::server_stats(mux, client, include),
         Command::BrowserHostProvider => cmd_browser::browser_host_provider(mux, client),
-        Command::Identify { machine_metadata } => cmd_server::identify(mux, machine_metadata),
+        Command::Identify { machine_metadata, revisions } => {
+            cmd_server::identify(mux, machine_metadata, revisions)
+        }
         Command::ShutdownDaemon { pid, generation, force, end_terminals, keep_layout } => {
             cmd_server::shutdown_daemon(
                 mux,
@@ -81,6 +83,8 @@ pub(super) fn handle_command_with_cancellation(
             device_name,
             device_id,
             api_revision,
+            version,
+            install,
         } => cmd_server::set_client_info(
             mux,
             client,
@@ -93,6 +97,8 @@ pub(super) fn handle_command_with_cancellation(
             device_name,
             device_id,
             api_revision,
+            version,
+            install,
         ),
         Command::ListClients => cmd_server::list_clients(mux, client),
         Command::MachineUsage => cmd_server::machine_usage(mux),
