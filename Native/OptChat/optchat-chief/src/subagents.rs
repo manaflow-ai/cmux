@@ -330,6 +330,13 @@ impl Spawner {
     }
 
     /// New subagents start on this peer (None: on this machine).
+    /// The subagent system text a cloud subagent gets in its first message
+    /// when the peer comes from `control cloud` (no env placement).
+    pub fn with_cloud_text(self, text: String) -> Spawner {
+        let _ = text;
+        self
+    }
+
     pub fn with_cloud(mut self, cloud: Option<CloudPlacement>) -> Spawner {
         self.cloud = cloud;
         self

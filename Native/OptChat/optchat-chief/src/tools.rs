@@ -54,6 +54,19 @@ pub trait Orchestrator: Send + Sync {
         let _ = effort;
         self.spawn(tasks, cwd)
     }
+    /// `spawn` at `effort` and `place` (`"cloud"`: on the cloud peer,
+    /// `"local"`: on this host; None: the saved default
+    /// (`control cloud`), else `OPTCHAT_SUBAGENT_PEER`, else local).
+    fn spawn_placed(
+        &self,
+        tasks: Vec<String>,
+        cwd: Option<String>,
+        effort: Option<String>,
+        place: Option<String>,
+    ) -> Result<String, String> {
+        let _ = place;
+        self.spawn_with_effort(tasks, cwd, effort)
+    }
     /// Sends `message` to subagent `id`.
     fn tell(&self, id: &str, message: &str) -> Result<String, String>;
     /// `tell` with an idempotency key: a repeat of `key` is not sent again.
@@ -207,6 +220,8 @@ pub struct ControlCall {
     pub message: Option<String>,
     pub option: Option<String>,
     pub n: Option<u64>,
+    /// `cloud`: the acpmux peer cloud subagents run on, or `off`.
+    pub peer: Option<String>,
 }
 
 impl ControlCall {
@@ -239,6 +254,7 @@ impl ControlCall {
             message: text("message"),
             option: text("option"),
             n,
+            peer: None,
         };
         let needs_id = !matches!(call.action.as_str(), "status" | "cap");
         if needs_id && call.id.is_none() {
