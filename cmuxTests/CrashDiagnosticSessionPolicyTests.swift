@@ -294,6 +294,99 @@ struct CrashDiagnosticSessionPolicyTests {
     }
 
     @Test
+    func sessionSnapshotCollapsesSameSizeWindowWhenOneCheckpointSetContainsTheOther() {
+        let projectDirectory = "/Volumes/Workshop/Code/pulp"
+        let homeDirectory = "/Users/danielraffel"
+
+        func workspace(
+            id: UUID,
+            checkpointID: String?,
+            directory: String,
+            includeBinding: Bool
+        ) -> SessionWorkspaceSnapshot {
+            let panelID = UUID()
+            let agent = checkpointID.map {
+                SessionRestorableAgentSnapshot(
+                    kind: .codex,
+                    sessionId: $0,
+                    workingDirectory: includeBinding ? projectDirectory : nil
+                )
+            }
+            let binding = includeBinding && checkpointID != nil
+                ? SurfaceResumeBindingSnapshot(
+                    kind: "codex",
+                    command: "codex resume \(checkpointID!)",
+                    cwd: projectDirectory,
+                    checkpointId: checkpointID,
+                    source: "agent-hook",
+                    autoResume: true
+                )
+                : nil
+            let terminal = SessionTerminalPanelSnapshot(
+                workingDirectory: directory,
+                agent: agent,
+                resumeBinding: binding,
+                wasAgentRunning: true
+            )
+            return SessionWorkspaceSnapshot(
+                workspaceId: id,
+                processTitle: "Terminal",
+                customTitle: nil,
+                customColor: nil,
+                isPinned: false,
+                currentDirectory: directory,
+                focusedPanelId: panelID,
+                layout: .pane(SessionPaneLayoutSnapshot(panelIds: [panelID], selectedPanelId: panelID)),
+                panels: [terminalPanelSnapshot(id: panelID, directory: directory, terminal: terminal)],
+                statusEntries: [],
+                logEntries: [],
+                progress: nil,
+                gitBranch: nil
+            )
+        }
+
+        let retainedID = "01a149a7-fbec-7240-9c88-ed6faec559ca"
+        let extraID = "01a149a8-00ed-7890-845c-dce07298068a"
+        let degraded = SessionWindowSnapshot(
+            frame: nil,
+            display: nil,
+            tabManager: SessionTabManagerSnapshot(
+                selectedWorkspaceIndex: 0,
+                workspaces: [
+                    workspace(id: UUID(), checkpointID: retainedID, directory: homeDirectory, includeBinding: false),
+                    workspace(id: UUID(), checkpointID: nil, directory: homeDirectory, includeBinding: false),
+                ]
+            ),
+            sidebar: SessionSidebarSnapshot(isVisible: true, selection: .tabs, width: nil)
+        )
+        let rich = SessionWindowSnapshot(
+            frame: nil,
+            display: nil,
+            tabManager: SessionTabManagerSnapshot(
+                selectedWorkspaceIndex: 0,
+                workspaces: [
+                    workspace(id: UUID(), checkpointID: retainedID, directory: projectDirectory, includeBinding: true),
+                    workspace(id: UUID(), checkpointID: extraID, directory: projectDirectory, includeBinding: true),
+                ]
+            ),
+            sidebar: SessionSidebarSnapshot(isVisible: true, selection: .tabs, width: nil)
+        )
+
+        let pruned = SessionPersistencePolicy.pruningCmuxCrashDiagnosticWindows(
+            from: AppSessionSnapshot(
+                version: SessionSnapshotSchema.currentVersion,
+                createdAt: 10,
+                windows: [degraded, rich]
+            )
+        )
+
+        #expect(pruned.removedAny)
+        #expect(pruned.snapshot?.windows.count == 1)
+        #expect(pruned.snapshot?.windows.first?.tabManager.workspaces.count == 2)
+        #expect(pruned.snapshot?.windows.first?.tabManager.workspaces.first?.currentDirectory == projectDirectory)
+    }
+
+    @Test
     func sessionSnapshotKeepsWorkspacelessWindowWithEmptyPinnedGroup() {
         // TabManager persists an empty pinned group even when no workspace in
         // the window is restorable; that group is user state, not a phantom.
