@@ -160,8 +160,10 @@ public final class ThemeScope {
         let key = BackdropKey(selection: backdropSelection, tint: backdropTintOpacity,
                               surfaces: surfaceBackgrounds, tuning: appearanceTuning)
         guard force || key != displayedBackdrop else { return }
+        let previous = displayedBackdrop
         displayedBackdrop = key
-        BackdropRevision.shared.bump()
+        // The floor follows the picture and its tuning, never the tint: a tint drag re-reads nothing.
+        if previous?.selection != key.selection || previous?.tuning != key.tuning { BackdropRevision.shared.bump() }
         // Art Color: another work is another accent.
         if ThemeStore.shared.accentFollowsArt { update(animated: false, repaint: false) }
         repaint(animated: false, from: nil)
