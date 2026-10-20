@@ -17,7 +17,7 @@ struct MarkdownPageSecurityTests {
         let reply = try #require(await handler.reply(to: url))
         let policy = try #require(reply.response.value(forHTTPHeaderField: "Content-Security-Policy"))
 
-        #expect(try scriptSource(in: policy) == "script-src 'self'")
+        #expect(try scriptSource(in: policy) == "script-src 'self' 'wasm-unsafe-eval'")
     }
 
     @Test func devServerAllowsViteInlinePreamble() throws {
@@ -26,7 +26,7 @@ struct MarkdownPageSecurityTests {
             allowsDevServer: true
         ))
 
-        #expect(try scriptSource(in: server.csp(for: .markdown).header) == "script-src 'self' 'unsafe-inline'")
+        #expect(try scriptSource(in: server.csp(for: .markdown).header) == "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'")
     }
 
     private func scriptSource(in policy: String) throws -> String {

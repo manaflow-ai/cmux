@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import datetime as dt
-import subprocess
 import sys
 import threading
 import unittest
@@ -177,37 +176,28 @@ class GroupBisectAndLand(unittest.TestCase):
         fresh = getattr(self, "fresh", None)
         item.fresh_members = lambda prs: fresh or {target.number: target for target in prs}
         item.member_files = lambda target, base: list(target.files)
-        item.merge_green = lambda: Path("/opt/gh-merge-green")
-        item.writer.env = {}
-
         refusals = list(getattr(self, "refusals", []))
 
-        def fake_run(command, **_):
-            merges.append(command)
-            if refusals:
-                return subprocess.CompletedProcess(command, 1, "", refusals.pop(0))
-            return subprocess.CompletedProcess(command, 0, "", "")
+        def merge_one(target, validation):
+            merges.append((target.number, target.sha))
+            return refusals.pop(0) if refusals else "landed"
 
-        with mock.patch.object(nb.subprocess, "run", fake_run), mock.patch.object(nb, "now", return_value=NOW), \
+        item.merge_one = merge_one
+        with mock.patch.object(nb, "now", return_value=NOW), \
                 mock.patch.object(nb, "landing_refusal", return_value=refusal):
             outcome = item.run_group("ui", members)
         return outcome, comments, merges
 
-    def test_a_green_reviewed_group_merges_in_order_through_gh_merge_green(self):
+    def test_a_green_reviewed_group_merges_in_order_at_the_validated_heads(self):
         outcome, comments, merges = self.run_group([pr(1), pr(2), pr(3)], red_member=None)
-        self.assertEqual([command[1] for command in merges], ["o/r#1", "o/r#2", "o/r#3"])
-        for number, command in zip((1, 2, 3), merges):
-            self.assertEqual(command[0], "/opt/gh-merge-green")  # its base-red rule decides, as for any merge
-            self.assertEqual(command[command.index("--match-head-commit") + 1], pr(number).sha)
-            self.assertIn("--squash", command)
-            self.assertIn("--match-head-commit", command)
-            self.assertNotIn("--admin", command)
+        # merge_one (Landing in test_next_batch) squash-merges each through GitHub's merge API at that head.
+        self.assertEqual(merges, [(number, pr(number).sha) for number in (1, 2, 3)])
         self.assertEqual([text for _, text in outcome], ["landed", "landed", "landed"])
 
     def test_a_red_group_bisects_names_the_culprit_and_lands_the_rest(self):
         outcome, comments, merges = self.run_group([pr(1), pr(2), pr(3), pr(4)], red_member=3)
         self.assertIn((3, "culprit"), comments)
-        self.assertEqual([command[1] for command in merges], ["o/r#1", "o/r#2", "o/r#4"])
+        self.assertEqual([number for number, _ in merges], [1, 2, 4])
         self.assertEqual(dict((target.number, text) for target, text in outcome)[3], "culprit")
 
     def test_an_unreviewed_group_validates_nothing_and_merges_nothing(self):
@@ -231,17 +221,17 @@ class GroupBisectAndLand(unittest.TestCase):
         self.assertIn("no exclude list", outcome[0][1])
 
     def test_a_base_branch_modified_refusal_is_retried(self):
-        self.refusals = ["GraphQL: Base branch was modified. Review and try the merge again. (mergePullRequest)"]
+        self.refusals = ["not landed: GitHub was unreachable or busy (HTTP 405: Base branch was modified)"]
         with mock.patch.object(nb.time, "sleep"):
             outcome, comments, merges = self.run_group([pr(1), pr(2)], red_member=None)
         self.assertEqual([text for _, text in outcome], ["landed", "landed"])
-        self.assertEqual([command[1] for command in merges], ["o/r#1", "o/r#1", "o/r#2"])
+        self.assertEqual([number for number, _ in merges], [1, 1, 2])
 
-    def test_a_member_gh_merge_green_refuses_stops_the_rest(self):
-        self.refusals = ["not green: 'web / react-apps-check (1)' on abc1234, not excused by feat-cmux-next"]
+    def test_a_member_github_refuses_stops_the_rest(self):
+        self.refusals = ["not landed: GitHub refused to merge o/r#1: HTTP 409: Head branch was modified"]
         outcome, comments, merges = self.run_group([pr(1), pr(2)], red_member=None)
-        self.assertEqual([command[1] for command in merges], ["o/r#1"])
-        self.assertTrue(outcome[0][1].startswith("not landed: not green"))
+        self.assertEqual([number for number, _ in merges], [1])
+        self.assertTrue(outcome[0][1].startswith("not landed: GitHub refused"))
         self.assertEqual(outcome[1][1], "not landed: #1 did not land")
 
     def test_a_check_that_turned_red_during_validation_lands_nothing(self):
@@ -366,19 +356,8 @@ class GroupCycle(unittest.TestCase):
             item.run_groups(prs, None, {})
         self.assertEqual(ran, ["a", "a"])
 
-    def test_each_batch_uses_the_current_gh_merge_green(self):
-        shown = []
-        first, second = controller(), controller()
-        for item in (first, second):
-            item.git = lambda *args, cwd=None: shown.append(args[0]) or "#!/bin/sh\n"
-            item.merge_green()
-            item.merge_green()
-        self.assertEqual(shown.count("show"), 2)  # once per batch, never a stale copy from an earlier one
-        self.assertNotEqual(first.merge_green(), second.merge_green())
-
     def test_a_member_with_its_own_red_check_holds_the_group(self):
-        """Every member lands through gh-merge-green, which judges its own checks:
-        admitting a red one could land the members before it and strand the group."""
+        """A member red at landing would strand the members before it, so any red holds the group."""
         item = controller()
         item.reported = lambda target, kinds: ""
         ran = []
@@ -389,7 +368,7 @@ class GroupCycle(unittest.TestCase):
             item.run_groups(prs, None, skipped)
         self.assertEqual(ran, [])
         self.assertIn("#2 red check ci-status", skipped[1])
-        # A red heavy job too: the waiver covers only a stack's last PR, so a middle member would be refused.
+        # A red heavy job too: the group's bar is stricter than a single PR's.
         prs = [pr(1, labels=["batch:a"], checks=[("cmux-next swift test", "completed", "failure")]),
                pr(2, labels=["batch:a"])]
         skipped = {}
@@ -397,7 +376,7 @@ class GroupCycle(unittest.TestCase):
             item.run_groups(prs, None, skipped)
         self.assertEqual(ran, [])
         self.assertIn("#1 red check cmux-next swift test", skipped[2])
-        # A trusted `queue: known base red` doesn't let a member in: gh-merge-green may still refuse it mid-group.
+        # A trusted `queue: known base red` doesn't let a member in either.
         trusted = pr(2, labels=["batch:a", nb.OVERRIDE_BASE_RED], checks=[("ci-status", "completed", "failure")],
                      label_actors={nb.OVERRIDE_BASE_RED: "lawrencecchen"})
         skipped = {}

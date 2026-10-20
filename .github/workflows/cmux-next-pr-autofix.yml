@@ -116,7 +116,10 @@ jobs:
     name: action exports (Mac)
     needs: action-areas
     if: needs.action-areas.outputs.actions == 'true' || needs.action-areas.outputs.settings == 'true'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && 'glaeda-gui-std-xcode-26.6' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    # The exports need a logged-in session, not the console gui token, so once the
+    # fleet carries glaeda#1530's session label (vars.CI_SESSION_LABEL is 1) this
+    # takes it and runs beside a console GUI job; until then the gui label.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && (vars.CI_SESSION_LABEL == '1' && 'glaeda-session-std-xcode-26.6' || 'glaeda-gui-std-xcode-26.6') || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 40
     permissions:
       contents: read
@@ -484,6 +487,46 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  # A pull request carries only the generated files its own changes caused
+  # (scripts/cmux-next/generated_outputs.py, #21946). An output changed without
+  # its inputs (regenerated against a newer base, or a stale copy a merge kept)
+  # conflicts with every other pull request and can drop the base's newer rows;
+  # the base autofix regenerates it after each merge. The check runs the base's
+  # copy of the table on the files API's list and reads nothing from the head.
+  # The `generated-drift-ok` label skips it, for a generator fix that ships its
+  # own regenerated output in a later commit. It takes effect on the next push
+  # (a re-run reuses the event's labels).
+  generated-drift:
+    name: generated drift
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    if: ${{ !contains(github.event.pull_request.labels.*.name, 'generated-drift-ok') }}
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+          sparse-checkout: scripts/cmux-next
+          sparse-checkout-cone-mode: true
+
+      - name: Generated files this pull request did not cause
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          [[ -f scripts/cmux-next/generated_outputs.py ]] || { echo "The base has no generated_outputs.py yet."; exit 0; }
+          gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files?per_page=100" \
+            --jq '.[] | .filename, (.previous_filename // empty)' > "$RUNNER_TEMP/changed.txt"
+          if ! python3 -I scripts/cmux-next/generated_outputs.py drift --changed "$RUNNER_TEMP/changed.txt" > "$RUNNER_TEMP/drift.txt"; then
+            sed 's/^/::error::/' "$RUNNER_TEMP/drift.txt"
+            { echo "### Generated files this pull request did not cause"; sed 's/^/- /' "$RUNNER_TEMP/drift.txt"; } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
   push:
     name: push the repairs
     needs: repair
@@ -494,6 +537,7 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: read
+      pull-requests: read
     steps:
       # The apply script comes from the base branch's tip (as the repair's
       # scripts do): the patch was made by the pull request's code, and the
@@ -524,6 +568,8 @@ jobs:
           HAS_APP: ${{ secrets.CMUX_PR_AUTOFIX_APP_ID != '' && secrets.CMUX_PR_AUTOFIX_APP_KEY != '' }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
         run: |
           set -euo pipefail
           test "$(git -C head rev-parse HEAD)" = "${HEAD_SHA}"
@@ -538,13 +584,26 @@ jobs:
             echo "pushed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          "$apply" "$RUNNER_TEMP/pr-autofix/pr-autofix.patch" head | tee -a "$GITHUB_STEP_SUMMARY"
+          # Only what the pull request owns (#21946): its own files, and outputs whose
+          # inputs it changed. The list comes from the files API, not the artifact.
+          owned=()
+          if grep -q -- '--changed' "$apply"; then
+            gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files?per_page=100" \
+              --jq '.[] | .filename, (.previous_filename // empty)' > "$RUNNER_TEMP/changed.txt"
+            owned=(--changed "$RUNNER_TEMP/changed.txt")
+          fi
+          "$apply" "$RUNNER_TEMP/pr-autofix/pr-autofix.patch" head ${owned[@]+"${owned[@]}"} | tee -a "$GITHUB_STEP_SUMMARY"
+          if ! git -C head status --porcelain | grep -q .; then
+            echo "Every repair belongs to the base autofix; nothing to push." | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "pushed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           cd head
           git config user.name "cmux-autofix[bot]"
           git config user.email "cmux-autofix[bot]@users.noreply.github.com"
           git add -A
           git commit --quiet -m "chore(next): PR autofix at ${HEAD_SHA:0:12}" \
-            -m "$(grep '^fixed: ' "$RUNNER_TEMP/pr-autofix/pr-autofix.txt" | sed 's/^fixed: /- /')" \
+            -m "$(git diff --cached --name-only | sed 's/^/- /')" \
             -m "Autofix-Run: $RUN_URL"
           test "$(git rev-parse HEAD^)" = "${HEAD_SHA}"
           echo "pushed=true" >> "$GITHUB_OUTPUT"

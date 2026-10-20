@@ -7,6 +7,10 @@ import QuartzCore
 /// `sidebar.updateCard.button`, the UPDATE-CARD prototype switch; Lawrence
 /// picks one). Every variant is a theme token, never the system blue.
 public nonisolated enum SidebarUpdateButtonStyle: String, Sendable, CaseIterable, Hashable, TunableChoice {
+    /// The app's button (the default, Leo 2026-10-19: no light slab): the
+    /// hover fill with a hairline edge and the primary text, as the Updated
+    /// card's See What's New and every themed popover button.
+    case bordered
     /// The theme's foreground as the fill, its background as the text: the
     /// strongest neutral call to action.
     case inverted
@@ -18,6 +22,7 @@ public nonisolated enum SidebarUpdateButtonStyle: String, Sendable, CaseIterable
 
     public var tunableTitle: String {
         switch self {
+        case .bordered: "App button"
         case .inverted: "Inverted"
         case .accent: "App accent"
         case .themeAccent: "Theme accent"
@@ -29,7 +34,7 @@ nonisolated extension SidebarTunables {
     public static let updateCardButton = Tunable<SidebarUpdateButtonStyle>.choice(
         "sidebar.updateCard.button", .sidebar, "Update card button",
         help: "The fill of the update card's Restart to Update button (UPDATE-CARD prototype).",
-        default: .inverted, code: "SidebarTunables.updateCardButton")
+        default: .bordered, code: "SidebarTunables.updateCardButton")
 }
 
 /// The update card's full-width Restart to Update button: one click
@@ -41,6 +46,13 @@ final class SidebarUpdateButton: NSView {
     /// A secondary button (the tip card's Try It): the hover fill and the
     /// primary text, never the call-to-action fill.
     var isQuiet = false { didSet { if isQuiet != oldValue { needsDisplay = true } } }
+    /// A fixed fill (the notice card's prominent action keeps ``SidebarUpdateButtonStyle/inverted``);
+    /// nil follows `sidebar.updateCard.button` (the update card).
+    var fixedStyle: SidebarUpdateButtonStyle? { didSet { if fixedStyle != oldValue { needsLayout = true; needsDisplay = true } } }
+    /// The fill this button draws.
+    var style: SidebarUpdateButtonStyle { fixedStyle ?? SidebarTunables.updateCardButton.value }
+    /// The app's button (hairline edge, regular weight, popup row corners) rather than a call-to-action slab.
+    private var isBordered: Bool { !isQuiet && style == .bordered }
     private let label = ChromeLabel(labelWithString: "")
     private var isHovered = false { didSet { if isHovered != oldValue { needsDisplay = true } } }
     private var isPressed = false { didSet { if isPressed != oldValue { needsDisplay = true } } }
@@ -70,8 +82,12 @@ final class SidebarUpdateButton: NSView {
     override var mouseDownCanMoveWindow: Bool { false }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
+    /// The app's control height (the Updated card's button, 24 pt at the default spacing).
     static var height: CGFloat { Metrics.sidebarRowHeight - Metrics.space1 }
-    static var font: NSFont { Typography.system(size: Typography.caption.pointSize, weight: .semibold) }
+    static var font: NSFont { font(bordered: false) }
+    static func font(bordered: Bool) -> NSFont {
+        Typography.system(size: Typography.caption.pointSize, weight: bordered ? TypeScale.regular : TypeScale.emphasis)
+    }
 
     func configure(title: String, enabled: Bool, help: String?) {
         label.stringValue = title
@@ -89,8 +105,8 @@ final class SidebarUpdateButton: NSView {
 
     override func layout() {
         super.layout()
-        layer?.cornerRadius = Metrics.space2
-        label.font = Self.font
+        layer?.cornerRadius = isBordered ? PopupStyle.standard.rowCornerRadius + 2 : Metrics.space2
+        label.font = Self.font(bordered: isBordered)
         let h = ceil(label.intrinsicContentSize.height)
         label.frame = NSRect(x: Metrics.space2, y: (bounds.height - h) / 2, width: max(0, bounds.width - 2 * Metrics.space2), height: h)
     }
@@ -99,6 +115,7 @@ final class SidebarUpdateButton: NSView {
     /// `performWithTheme`).
     static func colors(_ style: SidebarUpdateButtonStyle) -> (fill: NSColor, text: NSColor) {
         switch style {
+        case .bordered: (Palette.hoverFill, Palette.textPrimary)
         case .themeAccent where Palette.hasThemeAccent: (Palette.highlight, Palette.highlightText)
         case .accent: (Palette.accent, Palette.textPrimary)
         case .inverted, .themeAccent: (Palette.textPrimary, Palette.textOnPrimary)
@@ -109,9 +126,11 @@ final class SidebarUpdateButton: NSView {
     /// darker while held, faded while disabled.
     var fill: NSColor {
         performWithTheme {
-            let base = isQuiet ? Palette.hoverFill : Self.colors(SidebarTunables.updateCardButton.value).fill
-            if isQuiet, isPressed { return Palette.pressedFill }
-            if isQuiet, isHovered { return Palette.selectionFill }
+            let neutral = isQuiet || style == .bordered
+            let base = isQuiet ? Palette.hoverFill : Self.colors(style).fill
+            if !isEnabled, neutral { return base.withAlphaComponent(0.5) }
+            if neutral, isPressed { return Palette.pressedFill }
+            if neutral, isHovered { return Palette.selectionFill }
             if !isEnabled { return base.withAlphaComponent(0.4) }
             if isPressed { return base.withAlphaComponent(0.75) }
             return isHovered ? base.withAlphaComponent(0.88) : base
@@ -121,9 +140,11 @@ final class SidebarUpdateButton: NSView {
     override func updateLayer() {
         performWithTheme {
             layer?.backgroundColor = fill.cgColor
-            layer?.borderColor = Palette.focusRing.cgColor
-            layer?.borderWidth = showsKeyFocus ? Metrics.lineWidth(1.5) : 0
-            label.textColor = isQuiet ? Palette.textPrimary : Self.colors(SidebarTunables.updateCardButton.value).text
+            let bordered = isBordered
+            layer?.borderColor = (showsKeyFocus ? Palette.focusRing : Palette.separator).cgColor
+            layer?.borderWidth = showsKeyFocus ? Metrics.lineWidth(1.5) : bordered ? Metrics.lineWidth(1) : 0
+            let text = isQuiet ? Palette.textPrimary : Self.colors(style).text
+            label.textColor = isEnabled || !bordered ? text : Palette.textSecondary
         }
     }
 

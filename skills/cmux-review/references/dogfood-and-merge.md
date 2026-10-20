@@ -15,8 +15,7 @@ directory or a chat message. `scripts/pr-media.py --pr <number> <files>` puts
 each file on the `pr-media` branch under that PR's number and prints the
 Markdown to paste; `--dry-run` shows the plan first. An mp4 is also converted to
 a gif, because GitHub renders a gif inline from a raw URL and will not render an
-mp4, so a reviewer sees the motion without clicking. `cmux record --gif` output
-needs no conversion. A gif has to stay under 5 MiB or GitHub renders a broken
+mp4, so a reviewer sees the motion without clicking. A gif has to stay under 5 MiB or GitHub renders a broken
 image, so lower `--gif-fps` or `--gif-width` if the tool refuses one; replacing
 evidence already uploaded for that PR needs `--force`.
 
@@ -25,13 +24,15 @@ Before merging, wait for the checks that judge the change (macOS compile
 admission plus the package and CLI tests CI selected for it) and skip slow
 unrelated lanes. If you merge without them, say on the PR what was not verified; the merge
 receipt (`merge_receipt.py`) records it and labels the PR `merged-unverified`. A
-main-regression comment on your PR (`main_regression_attribution.py`) is a
-fix-forward ask.
+main-regression comment on your PR is a fix-forward ask.
 
 **Approval.** The main agent owns dogfood, approval, mergeability and every
-pushed fix. Merging app, runtime or UI changes requires the user's explicit
-approval after dogfood, or a direct merge directive that names the merge action
-(`merge`, `merge it`, `auto-merge`; `finish`, `lgtm` and `ship it` are not).
+pushed fix. Into `main`, merging app, runtime or UI changes requires the user's
+explicit approval after dogfood, or a direct merge directive that names the merge
+action (`merge`, `merge it`, `auto-merge`; `finish`, `lgtm` and `ship it` are not).
+Into `feat-cmux-next`, the bar is a passed review and no red of the PR's own: label
+it `ready-to-land` after the review (again after any later push) and `next-autoland`
+merges that exact head; base reds, flakes and pending checks don't hold it.
 
 **Scope verification to the feature.** Local-backend builds can dogfood desktop
 state, menus, and release-note rendering without a shared Cloud backend. Require
