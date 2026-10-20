@@ -726,6 +726,19 @@ pub fn apply_tokio_for(
     }
 }
 
+/// The fixed login-derived subset a remote-origin harness may receive.
+///
+/// Only the resolved executable search path crosses this boundary. The
+/// person's `loginEnvAllow`, provider variables, proxy variables and shell
+/// startup layer are local authority and are never inherited by a remote
+/// process. A remote profile may still name an explicit `${env:...}` value;
+/// resolving that reference is the profile owner's authorization.
+pub fn apply_remote_tokio(cmd: &mut tokio::process::Command) {
+    if let Some(path) = agent_path() {
+        cmd.env("PATH", path);
+    }
+}
+
 /// Same, for std's process builder.
 pub fn apply_std_for(
     cmd: &mut std::process::Command,

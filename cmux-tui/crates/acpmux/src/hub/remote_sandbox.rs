@@ -192,11 +192,13 @@ fn keychain_login_allowed() -> bool {
 async fn claude_credential(
     profile: &HarnessProfile,
 ) -> Result<Option<(&'static str, String)>, String> {
-    if CREDENTIAL_ENV
-        .iter()
-        .any(|k| profile.env.contains_key(*k) || crate::chats::login_var(k).is_some())
-    {
+    if CREDENTIAL_ENV.iter().any(|k| profile.env.contains_key(*k)) {
         return Ok(None);
+    }
+    for &key in CREDENTIAL_ENV {
+        if let Some(value) = crate::chats::login_var(key) {
+            return Ok(Some((key, value)));
+        }
     }
     if !cfg!(target_os = "macos") || !keychain_login_allowed() {
         return Ok(None);
@@ -655,7 +657,6 @@ impl Hub {
         } else {
             (plan, profile.clone())
         };
-        profile.env.insert(crate::agent::REMOTE_ENV_POLICY_KEY.into(), "1".into());
         // A remote chain never runs without the permission prompt: no switch
         // to bypassPermissions (its settings disable the mode as well).
         let mut plan = plan;
@@ -667,6 +668,16 @@ impl Hub {
         {
             plan.args[i + 1] = "default".into();
         }
+        let credential = claude_credential(&profile).await.map_err(|why| {
+            RpcError::new(-32000, format!("remote chain refused: {why}"))
+                .with_data(json!({"reason": "remote.credential_expiring"}))
+        })?;
+        if let Some((key, value)) = credential {
+            profile.env.insert(key.into(), value);
+        }
+        // Whatever supplied the plan (including `sr claude proxy`), the
+        // inner program is frozen before either a VM or Seatbelt runs it.
+        plan.program = super::resolve::remote_executable(&plan.program)?;
         // A dedicated agent VM (`vmHost`, off macOS): the VM is the sandbox.
         // Bypass mode stays off (above); the session's permission policy
         // answers Claude's prompts.
@@ -678,13 +689,6 @@ impl Hub {
         let (program, args) =
             self.sandboxed_claude_plan(session, &profile, plan.program, plan.args).await?;
         profile.env.insert("CLAUDE_CODE_SUBPROCESS_ENV_SCRUB".into(), "1".into());
-        let credential = claude_credential(&profile).await.map_err(|why| {
-            RpcError::new(-32000, format!("remote chain refused: {why}"))
-                .with_data(json!({"reason": "remote.credential_expiring"}))
-        })?;
-        if let Some((key, value)) = credential {
-            profile.env.insert(key.into(), value);
-        }
         Ok((crate::claude_stdio::SpawnPlan { program, args }, std::borrow::Cow::Owned(profile)))
     }
 

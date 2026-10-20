@@ -53,6 +53,9 @@ pub(crate) fn harness_command(
     };
     let mut env = resolved_profile_env(profile)?;
     let remote_environment = env.remove(REMOTE_ENV_POLICY_KEY).as_deref() == Some("1");
+    // Internal projection marker, never profile-controlled. A hosted agent
+    // reconstructs the command's complete environment from this removal.
+    env.remove(REMOTE_ENV_CLEARED_KEY);
     // The Codex bridge runs the configured codex binary: `CODEX_PATH` of the
     // profile or its family (`defaults.codex.env`), as the ACP adapter does.
     let owned = match env.get("CODEX_PATH").filter(|p| !p.is_empty()) {
@@ -97,12 +100,15 @@ pub(crate) fn harness_command(
     // The login shell's allow-list for this harness's family (login_env.rs).
     let family_name = crate::config::derive_family(name, profile);
     let family = Some(family_name.as_str());
-    crate::login_env::apply_tokio_for(
+    if remote_environment {
+        crate::login_env::apply_remote_tokio(&mut cmd);
+    } else {
+        crate::login_env::apply_tokio_for(&mut cmd, family, Some(&env));
+    }
+    crate::config::scrub_nested_claude_env_tokio_for(
         &mut cmd,
         if remote_environment { None } else { family },
-        Some(&env),
     );
-    crate::config::scrub_nested_claude_env_tokio_for(&mut cmd, family);
     // Caller context, herdr-style: the agent knows which session it is.
     for (k, _) in std::env::vars_os() {
         if k.to_string_lossy().starts_with("ACPMUX_") {
@@ -141,6 +147,9 @@ pub(crate) fn harness_command(
     }
     cmd.args(crate::harness_limits::launch_args(program, args, session.map(|_| (cwd, &env))))
         .envs(env.iter())
+        // Keep the hosted projection's env-clear proof after every profile
+        // entry, even if an old config used the internal marker's name.
+        .env_remove(REMOTE_ENV_CLEARED_KEY)
         // Claude refuses to nest inside another Claude session.
         .env_remove("CLAUDECODE")
         .env_remove("CLAUDE_CODE_ENTRYPOINT")

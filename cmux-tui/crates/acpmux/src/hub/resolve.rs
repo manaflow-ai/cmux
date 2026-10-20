@@ -85,7 +85,7 @@ impl Hub {
             });
         }
         if remote {
-            fix_remote_executable(&mut profile)?;
+            admit_remote_profile(cfg, &resolved, &mut profile, &d.env)?;
         }
         Ok(Resolved {
             agent: resolved,
@@ -120,8 +120,15 @@ impl Hub {
 /// A remote request never chooses argv[0] with cwd/model expansion or the
 /// child working directory. Freeze a bare PATH program or configured
 /// absolute path to its canonical absolute executable before any spawn.
-fn fix_remote_executable(profile: &mut HarnessProfile) -> Result<(), RpcError> {
+pub(super) fn fix_remote_executable(profile: &mut HarnessProfile) -> Result<(), RpcError> {
     let Some(program) = profile.argv.first() else { return Err(remote_executable_refused()) };
+    profile.argv[0] = remote_executable(program)?;
+    Ok(())
+}
+
+/// Canonicalize one final remote program. This runs both on profile argv0
+/// and after any launcher (CODEX_PATH/subrouter) substitutes another binary.
+pub(super) fn remote_executable(program: &str) -> Result<String, RpcError> {
     let path = Path::new(program);
     if program.contains("${")
         || program.starts_with("~/")
@@ -138,8 +145,7 @@ fn fix_remote_executable(profile: &mut HarnessProfile) -> Result<(), RpcError> {
     if !selected.is_file() || !selected.is_absolute() {
         return Err(remote_executable_refused());
     }
-    profile.argv[0] = selected.to_string_lossy().into_owned();
-    Ok(())
+    Ok(selected.to_string_lossy().into_owned())
 }
 
 fn remote_executable_refused() -> RpcError {
@@ -147,6 +153,43 @@ fn remote_executable_refused() -> RpcError {
         "this harness has no reviewed asking mode for a remote WebSocket connection",
     )
     .with_data(json!({"reason": "remote.executable_refused"}))
+}
+
+fn remote_launch_shape_refused() -> RpcError {
+    RpcError::invalid_params(
+        "a remote WebSocket connection cannot select cwd or model text inside a harness launch",
+    )
+    .with_data(json!({"reason": "remote.launch_shape_refused"}))
+}
+
+/// The request's cwd and model are data passed to a reviewed agent, never
+/// pieces of its process command or environment. Local sessions retain the
+/// legacy expansion behavior.
+fn refuse_remote_launch_shape<'a>(
+    values: impl IntoIterator<Item = &'a String>,
+) -> Result<(), RpcError> {
+    if values.into_iter().any(|value| value.contains("${cwd}") || value.contains("${model}")) {
+        return Err(remote_launch_shape_refused());
+    }
+    Ok(())
+}
+
+pub(super) fn admit_remote_profile(
+    cfg: &crate::config::Config,
+    name: &str,
+    profile: &mut HarnessProfile,
+    defaults_env: &std::collections::BTreeMap<String, String>,
+) -> Result<(), RpcError> {
+    refuse_remote_launch_shape(
+        profile.argv.iter().chain(profile.env.values()).chain(defaults_env.values()),
+    )?;
+    fix_remote_executable(profile)?;
+    crate::web_modes::remote_start_for_config(cfg, name, profile).map(|_| ()).map_err(|_| {
+        RpcError::invalid_params(
+            "this harness has no reviewed asking mode for a remote WebSocket connection",
+        )
+        .with_data(json!({"reason": "remote.mode_not_asking"}))
+    })
 }
 
 /// The profile a session's harness name runs at a spawn: the catalog's, else
@@ -158,13 +201,20 @@ pub(super) fn session_profile(
     cwd: &Path,
     remote: bool,
 ) -> Result<HarnessProfile, String> {
-    if let Some(p) = cfg.profile(harness) {
-        return Ok(p.clone());
+    let mut profile = if let Some(p) = cfg.profile(harness) {
+        p.clone()
+    } else {
+        match folder_profiles::resolve_for_session(cfg, harness, cwd, remote) {
+            Some(found) => found.map(|(profile, _)| profile).map_err(|e| e.message),
+            None => Err(format!("unknown harness {harness:?}")),
+        }?
+    };
+    if remote {
+        let defaults = cfg.defaults_for(harness);
+        admit_remote_profile(cfg, harness, &mut profile, &defaults.env)
+            .map_err(|error| error.message)?;
     }
-    match folder_profiles::resolve_for_session(cfg, harness, cwd, remote) {
-        Some(found) => found.map(|(profile, _)| profile).map_err(|e| e.message),
-        None => Err(format!("unknown harness {harness:?}")),
-    }
+    Ok(profile)
 }
 
 /// A folder profile refusal as session/new answers it: invalid params with
