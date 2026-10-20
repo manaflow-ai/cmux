@@ -1198,6 +1198,8 @@ jobs:
             python3 tests/test_ci_launch_budget_gate.py
             python3 tests/test_strings_output_encoding.py
             bash tests/test_strip_release_bundle.sh
+            # The pre-push gate refuses a push that adds a violation and names the commit in CI.
+            python3 tests/test_cmux_next_prepush_gate.py
             python3 tests/test_app_symbol_map.py
             bash scripts/cmux-next/tests/pin-cmux-tui.test.sh
             bash scripts/cmux-next/tests/bundle-acpmux-alias.test.sh
@@ -1423,6 +1425,27 @@ jobs:
         id: capability-text
         continue-on-error: true
         run: bash scripts/cmux-next/tests/capability-text.test.sh
+      # The pre-push gate again (scripts/cmux-next/prepush-gate.py, same pinned tools): on a push,
+      # each pushed commit against its parent, so a commit pushed with --no-verify that adds a
+      # violation is named; on a pull request, what the PR adds over its base (HEAD^1).
+      - name: Pushed commits add no violations
+        id: pushed-commits
+        continue-on-error: true
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          if [[ "$EVENT_NAME" != push ]]; then
+            python3 -I scripts/cmux-next/prepush-gate.py --base HEAD^1 --head HEAD
+            exit
+          fi
+          range="HEAD^1..HEAD"
+          if [[ -n "$BEFORE" && "$BEFORE" != 0000000000000000000000000000000000000000 ]]; then
+            git fetch --no-tags --quiet --depth=200 origin "$GITHUB_SHA" "$BEFORE" || true
+            if git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then range="$BEFORE..HEAD"; fi
+          fi
+          python3 -I scripts/cmux-next/prepush-gate.py --commits "$range" | tee -a "$GITHUB_STEP_SUMMARY"
+
       # `outcome`, not `conclusion`: continue-on-error makes every conclusion success.
       - name: Fail on any red check
         if: always()
@@ -1464,6 +1487,7 @@ jobs:
             ${{ steps.app-ffi-pin.outcome }}|Check the app FFI pin
             ${{ steps.daemon-capabilities-fresh.outcome }}|Daemon capabilities export is fresh
             ${{ steps.app-capability-references.outcome }}|App capability references are listed
+            ${{ steps.pushed-commits.outcome }}|Pushed commits add no violations
         run: |
           failed=()
           # `outcome|name`: an empty outcome (a check that never ran) still names its step.
