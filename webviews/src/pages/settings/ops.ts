@@ -436,7 +436,8 @@ export type SettingsOps = {
   /** Native: show one of the person's images, or the backgrounds folder, in Finder. */
   "cmux.settings.backdrop.image.reveal": [{ id?: string }, Record<string, never>];
   /** Native: the bytes the person's own background images take. */
-  "cmux.settings.backdrop.image.usage": [Record<string, never>, { bytes: number }];
+  "cmux.settings.backdrop.image.usage": [Record<string, never>, { bytes: number; folder?: string }];
+  "cmux.settings.backdrop.image.folder": [Record<string, never>, { id: string | null }];
   /** Native: opens the Wallpaper pane of System Settings, where macOS downloads its wallpapers. */
   "cmux.settings.backdrop.wallpaper_settings": [Record<string, never>, Record<string, never>];
   /** Native: a workspace's own background (cx-t2x.5); `value` null follows appearance.background. */

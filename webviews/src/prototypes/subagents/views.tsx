@@ -373,7 +373,6 @@ export function LanesView({ nodes, platform, path, onSelect, header }: ViewProps
             data-state={node.state}
             data-selected={node.id === selected || undefined}
             onClick={() => onSelect(node)}
-            title={`${node.name}: ${node.lastEvent}`}
           >
             <span className="sa-lane-label" style={{ paddingInlineStart: Math.min(node.depth, 6) * 8 }}>
               <StatusMark state={node.state} size={10} label={false} />

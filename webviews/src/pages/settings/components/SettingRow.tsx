@@ -45,10 +45,13 @@ export const SettingRow = memo(function SettingRow({
   query = "",
   focused = false,
   filtered = false,
+  inactive = false,
 }: {
   row: SchemaRow;
   query?: string;
   focused?: boolean;
+  /** Shown but off: it applies only to a choice not made now (Change Picture without a shuffle). */
+  inactive?: boolean;
   /** Outside the search filter: collapsed in place, inert and hidden from assistive technology. */
   filtered?: boolean;
 }) {
@@ -56,7 +59,7 @@ export const SettingRow = memo(function SettingRow({
   const store = useStore();
   const labelId = useId();
   const { managed, customized } = state;
-  const disabled = !state.connected || !state.readable || managed !== null;
+  const disabled = inactive || !state.connected || !state.readable || managed !== null;
   const menu = rowMenu(row.key, state, store);
   return (
     <RowFrame

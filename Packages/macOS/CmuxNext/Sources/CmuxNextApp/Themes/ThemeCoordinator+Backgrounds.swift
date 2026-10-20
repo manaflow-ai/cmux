@@ -39,8 +39,7 @@ extension ThemeCoordinator {
         [Notification.Name.NSCalendarDayChanged, .NSSystemTimeZoneDidChange, .NSSystemClockDidChange].map { name in
             NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
                 Task { @MainActor in
-                    guard let self, self.workspaceBackgrounds.backgrounds.values.contains(BackdropSelectionSetting.dailyID)
-                          || self.appearanceScopes.backgrounds.values.contains(BackdropSelectionSetting.dailyID) else { return }
+                    guard let self, [self.workspaceBackgrounds, self.appearanceScopes].contains(where: { $0.backgrounds.values.contains(where: BackdropSelectionSetting.shuffles) }) else { return }
                     self.apply()
                 }
             }
