@@ -200,7 +200,11 @@ fn a_chief_switches_its_turn_harness_to_uniichat_and_back() {
     let answer = engine(&mut brain, set("unii"));
     assert_eq!(answer["engine"]["harness"], "unii", "{answer:#}");
     let file = optchat_chief::engine::load(&dir.path().join("engine.json"));
-    assert_eq!(file.harness.as_deref(), Some("unii"), "the next turn runs on UniiChat");
+    assert_eq!(
+        file.harness.as_deref(),
+        Some("unii"),
+        "the next turn runs on UniiChat"
+    );
     // The compactor stays on Claude: UniiChat keeps its own memory, the
     // Chief's summaries still need a Claude route.
     assert_eq!(file.compactor_harness, None);

@@ -31,15 +31,25 @@ public nonisolated struct HomeChiefHarnesses: Sendable {
         })
     }
 
+    /// Each Chief's brain home under `muxHome` (the default Chief's is `muxHome` itself).
+    @MainActor
+    static func brainHomes(muxHome: URL, chiefs: Set<String>) -> [String: URL] {
+        var homes: [String: URL] = [:]
+        for chief in chiefs {
+            homes[chief] = ChiefHome.brainHome(muxHome: muxHome, chief: chief == HomeChiefName.muxID ? nil : chief)
+        }
+        return homes
+    }
+
     /// The effective harness of each Chief in `chiefs` (participant ids) that has one; a
     /// Chief on the brain's own default is left out. Reads files off the main actor.
     public func read(chiefs: Set<String>) async -> [String: String] {
         let records = Self.recordHarnesses(await list())
-        let muxHome = muxHome
+        // brainHome is main-actor isolated: the paths are made here, the files read off it.
+        let homes = await Self.brainHomes(muxHome: muxHome, chiefs: chiefs)
         let saved = await Task.detached { () -> [String: String] in
             var saved: [String: String] = [:]
-            for chief in chiefs {
-                let home = ChiefHome.brainHome(muxHome: muxHome, chief: chief == HomeChiefName.muxID ? nil : chief)
+            for (chief, home) in homes {
                 saved[chief] = HomeChiefFiles(muxHome: home).engineHarness()
             }
             return saved
