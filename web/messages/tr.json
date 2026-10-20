@@ -3466,6 +3466,16 @@
       "title": "Kuralları cmux'ta açın",
       "intro": "Bu sayfa geçerli cmux çalışma alanındaki kuralları açar.",
       "fallback": "cmux önce kuralları gösterir ve bunları geçerli çalışma alanına yapıştırmadan önce sorar. cmux açılmazsa cmux'u yükleyin ve cmux'da aç'a tekrar tıklayın."
+    },
+    "agent": {
+      "metaTitle": "Ajan oturumunu cmux'ta aç",
+      "metaDescription": "cmux kullanılamadığında kurulum seçeneğiyle, bir ajan oturumuna giden cmux derin bağlantısını web'den açın.",
+      "title": "Ajan oturumunu aç",
+      "intro": "Bu Mac oturuma zaten erişebiliyorsa bu bağlantı ajanın oturumunu cmux'ta açar. Bağlantının kendisi hiçbir erişim izni vermez.",
+      "fallback": "cmux açılmazsa cmux'u yükleyin ve cmux'ta Aç'a yeniden tıklayın. cmux oturumu yalnızca bu Mac ona zaten erişebiliyorsa açar.",
+      "nameLabel": "Ad: {value}",
+      "hostLabel": "Ana makine: {value}",
+      "harnessLabel": "Çalıştırıcı: {value}"
     }
   },
   "download": {

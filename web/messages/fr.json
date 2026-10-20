@@ -3470,6 +3470,16 @@
       "title": "Règles ouvertes dans cmux",
       "intro": "Cette page ouvre les règles dans l'espace de travail cmux actuel.",
       "fallback": "cmux affiche d'abord les règles et demande avant de les coller dans l'espace de travail actuel. Si cmux ne s'ouvre pas, installez cmux et cliquez à nouveau sur Ouvrir dans cmux."
+    },
+    "agent": {
+      "metaTitle": "Ouvrir une session d'agent dans cmux",
+      "metaDescription": "Ouvrez depuis le web un lien profond cmux vers une session d'agent, avec une solution d'installation si cmux n'est pas disponible.",
+      "title": "Ouvrir une session d'agent",
+      "intro": "Ce lien ouvre la session de l'agent dans cmux si ce Mac peut déjà y accéder. Le lien lui-même n'accorde aucun accès.",
+      "fallback": "Si cmux ne s'ouvre pas, installez cmux et cliquez à nouveau sur Ouvrir dans cmux. cmux n'ouvre la session que si ce Mac peut déjà y accéder.",
+      "nameLabel": "Nom : {value}",
+      "hostLabel": "Hôte : {value}",
+      "harnessLabel": "Harnais : {value}"
     }
   },
   "download": {

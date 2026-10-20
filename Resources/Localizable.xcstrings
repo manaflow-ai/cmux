@@ -658405,6 +658405,65 @@
           }
         }
       }
+    },
+    "cli.newSurface.help.profileDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--profile <name|uuid>       Browser profile name or UUID"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--profile <名前|UUID>         ブラウザープロファイル名または UUID"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--profile <name|uuid>       浏览器配置文件名称或 UUID"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--profile <Name|UUID>       Browserprofilname oder -UUID"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--profile <nom|uuid>        Nom ou UUID du profil de navigateur"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--profile <name|uuid>       اسم ملف تعريف المتصفح أو معرف UUID"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--profile <name|uuid>       Nombre de perfil de navegador o UUID"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--profile <name|uuid>       瀏覽器設定檔名稱或 UUID"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--profile <name|uuid>       브라우저 프로필 이름 또는 UUID"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

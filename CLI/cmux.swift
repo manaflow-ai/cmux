@@ -8834,6 +8834,7 @@ struct CMUXCLI {
             let type = optionValue(commandArgs, name: "--type")
             let paneRaw = optionValue(commandArgs, name: "--pane")
             let url = optionValue(commandArgs, name: "--url")
+            let profile = try parseBrowserProfileOption(commandArgs).selector
             let provider = optionValue(commandArgs, name: "--provider") ?? optionValue(commandArgs, name: "--provider-id")
             let renderer = optionValue(commandArgs, name: "--renderer") ?? optionValue(commandArgs, name: "--renderer-kind")
             let workingDirectory = optionValue(commandArgs, name: "--working-directory") ?? optionValue(commandArgs, name: "--cwd")
@@ -8858,6 +8859,15 @@ struct CMUXCLI {
             if let paneId { params["pane_id"] = paneId }
             if let type { params["type"] = type }
             if let url { params["url"] = url }
+            if let profile {
+                guard type?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "browser" else {
+                    throw CLIError(message: String(
+                        localized: "browser.profile.automation.error.profileRequiresBrowserPane",
+                        defaultValue: "Browser profiles can only be used when creating a browser pane"
+                    ))
+                }
+                params["profile"] = profile
+            }
             if let placement { params["placement"] = placement }
             if let provider { params["provider_id"] = provider }
             if let renderer { params["renderer_kind"] = renderer }
@@ -12952,14 +12962,54 @@ struct CMUXCLI {
             throw CLIError(message: "canvas requires a subcommand. Try: info, mode, set-frame, align, reveal, overview, zoom, set-viewport, new-pane")
         }
         let rest = Array(commandArgs.dropFirst())
-        // Split flags ("--name value") from bare positionals so a flag's
-        // value is never mistaken for a positional argument.
+        if let rules = canvasArgumentRules(sub: sub, args: rest) {
+            let valueOptions = rules.valueOptions.union(["--workspace"])
+            try rejectUnexpectedArguments(
+                rest,
+                commandName: "canvas \(sub)",
+                valueOptions: valueOptions,
+                maxPositionals: rules.maxPositionals
+            )
+            // A blank handle resolves to nothing and would fall back to the
+            // selected workspace or focused surface, so it counts as missing.
+            // Check every occurrence: a repeated option is read by its first
+            // value, and a blank later one must not pass unnoticed.
+            var scanIndex = 0
+            while scanIndex < rest.count, rest[scanIndex] != "--" {
+                let arg = rest[scanIndex]
+                var option = arg
+                var value: String?
+                if let equals = arg.firstIndex(of: "="), valueOptions.contains(String(arg[..<equals])) {
+                    option = String(arg[..<equals])
+                    value = String(arg[arg.index(after: equals)...])
+                    scanIndex += 1
+                } else if valueOptions.contains(arg) {
+                    value = rest[scanIndex + 1]
+                    scanIndex += 2
+                } else {
+                    scanIndex += 1
+                }
+                if let value, value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    throw missingOptionValueError(option, commandName: "canvas \(sub)")
+                }
+            }
+        }
+        // Split flags ("--name value" or "--name=value") from bare positionals
+        // so a flag's value is never mistaken for a positional argument.
+        // Every canvas flag takes a value; after `--` everything is positional.
         var positionals: [String] = []
         var index = 0
+        var pastTerminator = false
         while index < rest.count {
             let arg = rest[index]
-            if arg.hasPrefix("--") {
-                index += 2
+            if pastTerminator {
+                positionals.append(arg)
+                index += 1
+            } else if arg == "--" {
+                pastTerminator = true
+                index += 1
+            } else if arg.hasPrefix("--") {
+                index += arg.contains("=") ? 1 : 2
             } else {
                 positionals.append(arg)
                 index += 1
@@ -13066,6 +13116,36 @@ struct CMUXCLI {
             idFormat: idFormat,
             fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["workspace", "surface"])
         )
+    }
+
+    /// The options a `canvas` subcommand reads a value for besides
+    /// `--workspace`, and how many positionals it takes once `--surface` or
+    /// `--target` fill their part. `nil` for an unknown subcommand.
+    private func canvasArgumentRules(
+        sub: String,
+        args: [String]
+    ) -> (valueOptions: Set<String>, maxPositionals: Int)? {
+        func given(_ name: String) -> Bool { optionValue(args, name: name) != nil }
+        let surfaceSlot = given("--surface") ? 0 : 1
+        switch sub {
+        case "info", "overview":
+            return ([], 0)
+        case "mode", "align", "zoom":
+            return ([], 1)
+        case "set-frame":
+            return (["--surface", "--x", "--y", "--width", "--height"], surfaceSlot)
+        case "reveal", "break", "select-tab":
+            return (["--surface"], surfaceSlot)
+        case "join":
+            // `join <surface> <target>`, `join <surface> --target <t>`, or both as options.
+            return (["--surface", "--target"], given("--surface") ? 0 : (given("--target") ? 1 : 2))
+        case "set-viewport":
+            return (["--x", "--y", "--zoom"], 0)
+        case "new-pane":
+            return (["--type"], 0)
+        default:
+            return nil
+        }
     }
 
     /// `cmux window displays` — list connected displays (name + index).
@@ -22486,6 +22566,7 @@ struct CMUXCLI {
               --workspace <id|ref|index>  Target workspace (default: $CMUX_WORKSPACE_ID)
               --window <id|ref|index>     Window context for workspace/pane refs and indexes
               --url <url>                 URL for browser surfaces
+              \(String(localized: "cli.newSurface.help.profileDescription", defaultValue: "--profile <name|uuid>       Browser profile name or UUID"))
               --provider <codex|claude|opencode>
                                            Provider for agent-session surfaces (default: codex)
               --renderer <react|solid>    Renderer for agent-session surfaces (default: react)
@@ -22496,6 +22577,7 @@ struct CMUXCLI {
             Example:
               cmux new-surface
               cmux new-surface --type browser --pane pane:1 --url https://example.com
+              cmux new-surface --type browser --pane pane:1 --url https://example.com --profile work
               cmux new-surface --type simulator --pane pane:1 --focus true
               cmux new-surface --type agent-session --provider claude --renderer solid --focus true
               cmux new-surface --type browser --placement dock --url https://example.com

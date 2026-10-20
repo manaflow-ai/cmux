@@ -3465,6 +3465,16 @@
       "title": "Åbn regler i cmux",
       "intro": "Denne side åbner regler i det aktuelle cmux-arbejdsområde.",
       "fallback": "cmux viser først reglerne og spørger, før de indsættes i det aktuelle arbejdsområde. Hvis cmux ikke åbner, skal du installere cmux og klikke på Åbn i cmux igen."
+    },
+    "agent": {
+      "metaTitle": "Åbn agentsession i cmux",
+      "metaDescription": "Åbn et cmux-deeplink til en agentsession fra nettet, med installationsmulighed, når cmux ikke er tilgængelig.",
+      "title": "Åbn agentsession",
+      "intro": "Dette link åbner agentens session i cmux, hvis denne Mac allerede kan nå den. Selve linket giver ingen adgang.",
+      "fallback": "Hvis cmux ikke åbner, så installer cmux og klik på Åbn i cmux igen. cmux åbner kun sessionen, hvis denne Mac allerede kan nå den.",
+      "nameLabel": "Navn: {value}",
+      "hostLabel": "Vært: {value}",
+      "harnessLabel": "Harness: {value}"
     }
   },
   "download": {

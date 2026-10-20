@@ -19,11 +19,11 @@
 # under its real name. It is not a holding area.
 #
 # Usage: cmux-machine-hygiene [--apply] --home DIR --root DIR [--root DIR]...
-#          [--tmp-dir DIR] [--min-age-days N] [--log-age-days N]
+#          [--tmp-dir DIR] [--min-age-days N] [--settle-hours N] [--log-age-days N]
 #          [--pressure-pct N] [--only CATEGORY]... [--skip CATEGORY]...
 #          [--include docker]
-# Categories: interrupted project-artifacts package-caches agent-logs
-#             temp-files git-worktrees; docker only with --include docker
+# Categories: interrupted project-artifacts build-incremental package-caches
+#             agent-logs temp-files git-worktrees; docker only with --include docker
 #             (a Docker prune affects the whole machine, not just one home),
 #             and never under CMUX_HYGIENE_SANDBOX.
 # It never runs as root. Home must be /home/NAME or /Users/NAME; roots lie
@@ -33,6 +33,13 @@
 # Output: one JSON object on stdout. Exit 0 on success, 2 on bad usage, 3 when
 # a home, root or temp directory is unsafe or the user is root, 4 when
 # another --apply run holds the lock.
+#
+# Liveness before age: a checkout (the git worktree or clone holding a
+# project) with no process inside it, so no agent session, shell or build,
+# loses its build output once nothing in it changed for --settle-hours (2).
+# --min-age-days only decides for checkouts something still works in.
+# build-incremental drops rustc's incremental caches mid-session whenever no
+# cargo or rustc runs in that checkout: they only speed up the edit loop.
 #
 # Shipped to machines through exec (images do not bake it yet), so keep it
 # self-contained, well under the provider's 64 KiB command limit, runnable
@@ -46,6 +53,7 @@ home_dir="${HOME:-}"
 home_given=0
 tmp_dir="${TMPDIR:-/tmp}"
 min_age_days=7
+settle_hours=2
 log_age_days=14
 pressure_pct=85
 roots=()
@@ -55,7 +63,8 @@ include=""
 
 usage() {
   echo "usage: cmux-machine-hygiene [--apply] --home DIR --root DIR... [--tmp-dir DIR]" >&2
-  echo "         [--min-age-days N] [--log-age-days N] [--pressure-pct N] [--only C]... [--skip C]..." >&2
+  echo "         [--min-age-days N] [--settle-hours N] [--log-age-days N] [--pressure-pct N]" >&2
+  echo "         [--only C]... [--skip C]..." >&2
   echo "         [--include docker]" >&2
   exit 2
 }
@@ -68,6 +77,7 @@ while [ $# -gt 0 ]; do
     --root) shift; roots+=("${1:-}") ;;
     --tmp-dir) shift; tmp_dir="${1:-}" ;;
     --min-age-days) shift; min_age_days="${1:-}" ;;
+    --settle-hours) shift; settle_hours="${1:-}" ;;
     --log-age-days) shift; log_age_days="${1:-}" ;;
     --pressure-pct) shift; pressure_pct="${1:-}" ;;
     --only) shift; only="$only ${1:-} " ;;
@@ -79,7 +89,7 @@ while [ $# -gt 0 ]; do
   shift
 done
 
-case "$min_age_days$log_age_days$pressure_pct" in *[!0-9]*|"") echo "ages and percentages must be whole numbers" >&2; exit 2 ;; esac
+case "$min_age_days$settle_hours$log_age_days$pressure_pct" in *[!0-9]*|"") echo "ages and percentages must be whole numbers" >&2; exit 2 ;; esac
 if [ "$(id -u)" = 0 ]; then echo "refusing to run as root" >&2; exit 3; fi
 if [ "$mode" = apply ] && { [ "$home_given" = 0 ] || [ ${#roots[@]} -eq 0 ]; }; then
   echo "--apply needs an explicit --home and at least one --root" >&2; exit 2
@@ -265,6 +275,31 @@ else
   in_use_evidence=0; : > "$in_use_file"
 fi
 
+# Working directories of running build tools (cargo, rustc and friends).
+# Without /proc, ps and lsof, every checkout counts as building.
+build_cwds_file="$state_dir/build-cwds"
+build_evidence=1
+if [ -d /proc/self/fd ]; then
+  for pid_dir in /proc/[0-9]*; do
+    case "$(cat "$pid_dir/comm" 2>/dev/null)" in
+      cargo|rustc|rustdoc|clippy-driver|sccache|cargo-clippy|cargo-nextest) readlink "$pid_dir/cwd" 2>/dev/null ;;
+    esac
+  done | grep '^/' | sort -u > "$build_cwds_file"
+elif command -v lsof >/dev/null 2>&1; then
+  lsof -n -a -d cwd -c cargo -c rustc -c rustdoc -c clippy-driver -c sccache -F n 2>/dev/null \
+    | sed -n 's/^n//p' | grep '^/' | sort -u > "$build_cwds_file"
+else
+  build_evidence=0; : > "$build_cwds_file"
+fi
+
+# Another user's processes are invisible without root, so every checkout in
+# their home would look idle: there, keep the age rule and leave incremental
+# caches alone.
+liveness_reclaim=1
+if [ "$(id -u)" != 0 ] && [ ! -O "$home_dir" ]; then
+  liveness_reclaim=0; build_evidence=0
+fi
+
 # True when a listed path equals the path or lies under it. The path goes
 # through the environment: awk -v would interpret backslashes in it.
 listed_under() {
@@ -401,6 +436,33 @@ idle_for() {
   [ -z "$(find "$1" -maxdepth 3 -mtime "-$2" -print 2>/dev/null | head -n 1)" ]
 }
 
+idle_for_hours() {
+  [ -z "$(find "$1" -maxdepth 3 -mmin "-$(($2 * 60))" -print 2>/dev/null | head -n 1)" ]
+}
+
+# The checkout holding a project: the nearest directory with a .git (a clone
+# or a worktree) between it and its root, else the project itself.
+checkout_of() {
+  local dir="$1" root="$2"
+  while :; do
+    [ -e "$dir/.git" ] && { echo "$dir"; return; }
+    [ "$dir" = "$root" ] && break
+    case "$dir" in "$root"/*) dir="${dir%/*}" ;; *) break ;; esac
+  done
+  echo "$1"
+}
+
+# Project roots to scan: the given roots plus Claude Code's worktrees
+# (<repo>/.claude/worktrees), which the main scan skips with the rest of .claude.
+scan_roots() {
+  local root
+  for root in "${roots[@]}"; do
+    printf '%s\0' "$root"
+    find "$root" -xdev -maxdepth 4 \( -name .git -o -name node_modules -o -name target \) -prune -o \
+      -type d -path '*/.claude/worktrees' -print0 2>/dev/null
+  done
+}
+
 disk_used_pct() {
   df -P -- "$home_dir" 2>/dev/null | awk 'NR == 2 { gsub("%", "", $5); print $5 + 0 }'
 }
@@ -437,14 +499,20 @@ has_marker() {
 }
 
 clean_project_artifacts() {
-  local root dir name markers project
-  for root in "${roots[@]}"; do
+  local root dir name markers project checkout
+  while IFS= read -r -d '' root; do
     while IFS= read -r -d '' dir; do
       name="${dir##*/}"; project="${dir%/*}"
       markers="$(artifact_marker "$name")"
       has_marker "$project" "$markers" || continue
-      idle_for "$dir" "$min_age_days" || continue
-      in_use "$project" && { add_item project-artifacts "$dir" 0 skipped project-in-use; continue; }
+      checkout="$(checkout_of "$project" "$root")"
+      if [ "$liveness_reclaim" = 1 ] && [ "$checkout" != "$project" ] && ! in_use "$checkout"; then
+        # Nothing works in this checkout: liveness says go, after a short settle.
+        idle_for_hours "$dir" "$settle_hours" || continue
+      else
+        idle_for "$dir" "$min_age_days" || continue
+        in_use "$project" && { add_item project-artifacts "$dir" 0 skipped project-in-use; continue; }
+      fi
       safe_remove project-artifacts "$dir"
     done < <(find "$root" -xdev \
       \( -name .git -o -name .cmux -o -name .ssh -o -name .config -o -name .claude \
@@ -454,7 +522,25 @@ clean_project_artifacts() {
          -o -name .parcel-cache -o -name .svelte-kit -o -name .nuxt -o -name .gradle \
          -o -name __pycache__ -o -name .pytest_cache -o -name .mypy_cache -o -name .ruff_cache \) \
       -print0 -prune 2>/dev/null)
-  done
+  done < <(scan_roots)
+}
+
+# --- build-incremental: rustc's incremental caches (target/<profile>/incremental)
+# in checkouts that are in use, whenever no cargo or rustc runs there.
+clean_build_incremental() {
+  local root inc target project checkout
+  [ "$build_evidence" = 1 ] || return 0
+  while IFS= read -r -d '' root; do
+    while IFS= read -r -d '' inc; do
+      target="${inc%/*}"; target="${target%/*}"; project="${target%/*}"
+      [ "${target##*/}" = target ] && [ -f "$project/Cargo.toml" ] || continue
+      checkout="$(checkout_of "$project" "$root")"
+      listed_under "$checkout" "$build_cwds_file" && { add_item build-incremental "$inc" 0 skipped building; continue; }
+      safe_remove build-incremental "$inc"
+    done < <(find "$root" -xdev \
+      \( -name .git -o -name node_modules -o -name .claude -o -name '.cmux-hygiene-*' \) -prune -o \
+      -type d -name incremental -path '*/target/*/incremental' -print0 -prune 2>/dev/null)
+  done < <(scan_roots)
 }
 
 # --- package-caches: re-downloadable, but they make the next install warm, so
@@ -537,6 +623,7 @@ clean_docker() {
 disk_before="$(disk_used_pct)"
 enabled interrupted && clean_interrupted
 enabled project-artifacts && clean_project_artifacts
+enabled build-incremental && clean_build_incremental
 enabled package-caches && clean_package_caches
 enabled agent-logs && clean_agent_logs
 enabled temp-files && clean_temp_files

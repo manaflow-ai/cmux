@@ -3468,6 +3468,16 @@
       "title": "Öffnen Sie Regeln in cmux",
       "intro": "Auf dieser Seite werden Regeln im aktuellen cmux-Arbeitsbereich geöffnet.",
       "fallback": "cmux zeigt die Regeln zuerst an und fragt nach, bevor sie in den aktuellen Arbeitsbereich eingefügt werden. Wenn cmux nicht geöffnet wird, installieren Sie cmux und klicken Sie erneut auf „In cmux öffnen“."
+    },
+    "agent": {
+      "metaTitle": "Agent-Sitzung in cmux öffnen",
+      "metaDescription": "Öffne einen cmux-Deeplink zu einer Agent-Sitzung im Web, mit Installationshinweis, falls cmux nicht verfügbar ist.",
+      "title": "Agent-Sitzung öffnen",
+      "intro": "Dieser Link öffnet die Sitzung des Agents in cmux, sofern dieser Mac sie bereits erreichen kann. Der Link selbst gewährt keinen Zugriff.",
+      "fallback": "Wenn cmux nicht geöffnet wird, installiere cmux und klicke erneut auf In cmux öffnen. cmux öffnet die Sitzung nur, wenn dieser Mac sie bereits erreichen kann.",
+      "nameLabel": "Name: {value}",
+      "hostLabel": "Host: {value}",
+      "harnessLabel": "Harness: {value}"
     }
   },
   "download": {

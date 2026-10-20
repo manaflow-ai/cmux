@@ -3468,6 +3468,16 @@
       "title": "Otwórz reguły w cmux",
       "intro": "Ta strona otwiera reguły w bieżącym obszarze roboczym cmux.",
       "fallback": "cmux najpierw pokazuje reguły i pyta przed wklejeniem ich do bieżącego obszaru roboczego. Jeśli cmux się nie otworzy, zainstaluj cmux i ponownie kliknij Otwórz w cmux."
+    },
+    "agent": {
+      "metaTitle": "Otwórz sesję agenta w cmux",
+      "metaDescription": "Otwórz z poziomu przeglądarki deeplink cmux do sesji agenta, z opcją instalacji, gdy cmux jest niedostępny.",
+      "title": "Otwórz sesję agenta",
+      "intro": "Ten link otwiera sesję agenta w cmux, jeśli ten Mac ma już do niej dostęp. Sam link nie przyznaje żadnego dostępu.",
+      "fallback": "Jeśli cmux się nie otworzy, zainstaluj cmux i ponownie kliknij Otwórz w cmux. cmux otworzy sesję tylko wtedy, gdy ten Mac ma już do niej dostęp.",
+      "nameLabel": "Nazwa: {value}",
+      "hostLabel": "Host: {value}",
+      "harnessLabel": "Środowisko: {value}"
     }
   },
   "download": {

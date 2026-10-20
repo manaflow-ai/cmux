@@ -429,7 +429,12 @@ def plan(repository: str) -> int:
     merge_sha = built_merge(run if mains_build else build_run)
     pages = gh_json([f"repos/{repository}/pulls/{pr}/files?per_page=100", "--paginate", "--slurp"]) or []
     changed = [entry["filename"] for page in pages for entry in page if isinstance(entry, dict)]
-    subprocess.run(["git", "fetch", "--no-tags", "--depth=1", "origin", head_sha], cwd=ROOT, check=True)
+    # Depth 1 only in a shallow checkout (CI's): in a full clone --depth writes
+    # .git/shallow and truncates history for every worktree sharing it.
+    shallow = subprocess.run(["git", "rev-parse", "--is-shallow-repository"], cwd=ROOT, check=True,
+                             capture_output=True, text=True).stdout.strip() == "true"
+    depth = ["--depth=1"] if shallow else []
+    subprocess.run(["git", "fetch", "--no-tags", *depth, "origin", head_sha], cwd=ROOT, check=True)
     scenarios = head_scenarios(head_sha)
     # A head that predates a tour's `paths` is still picked by main's globs.
     for name, scenario in scenarios.items():

@@ -72,6 +72,9 @@ Do not edit `CHANGELOG.md` in feature PRs; release tooling owns it.
   naming the extra lanes and why ([CI coverage](skills/cmux-testing/references/pr-ci-coverage.md)).
 - Keep branches current locally with `scripts/merge-main.sh`; follow
   [the merge-main guide](docs/ci/merge-main.md) and never force-push over its merge.
+- `gh pr merge` saying "base branch policy prohibits the merge" means the token lacks the `workflow`
+  scope or GitHub timed out, not a rule: run `gh auth refresh -h github.com -s workflow`, or merge with
+  `gh api -X PUT repos/OWNER/REPO/pulls/N/merge -f merge_method=squash -f sha=SHA`, which names the cause. Never `--admin`.
 - A first implementation pass ends with passed scoped verification and an open PR;
   do not watch CI or run speculative reviews by default.
 - Before opening a PR and before merging, check it against [REVIEW.md](REVIEW.md) (draft),
