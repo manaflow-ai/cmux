@@ -90,6 +90,14 @@ impl InstallChannel {
     }
 }
 
+/// The release `cmux --version` names. An unpublished commit artifact (the R2
+/// tree builds the cmux-next app bundles, stamped `0.0.0-r2.sha-<commit>`)
+/// names the cmux-next version, the crate version from cmux-tui/Cargo.toml
+/// [workspace.package], so the app's CLI says what the app says (1.0.0).
+pub(crate) fn release_version<'a>(distribution: &'a str, _crate_version: &'a str) -> &'a str {
+    distribution
+}
+
 /// `cmux --version`'s line after `cmux `.
 pub(crate) fn version_text(
     distribution: &str,
@@ -149,6 +157,13 @@ mod tests {
         assert_eq!(version_text("0.13.5", Some("abc"), Some("def")), "0.13.5 (abc; ghostty def)");
         assert_eq!(version_text("0.13.5", Some("abc"), None), "0.13.5 (abc)");
         assert_eq!(version_text("0.13.5", None, Some("def")), "0.13.5");
+    }
+
+    #[test]
+    fn an_unpublished_artifact_names_the_cmux_next_version() {
+        assert_eq!(release_version("0.0.0-r2.sha-0123abc", "1.0.0"), "1.0.0");
+        assert_eq!(release_version("0.13.5", "1.0.0"), "0.13.5");
+        assert_eq!(release_version("1.0.0", "1.0.0"), "1.0.0");
     }
 
     #[test]
