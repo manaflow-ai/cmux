@@ -337,7 +337,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 DebugCloudMove.register(on: control.service?.router, services: services)
                 DebugTerminalLinks.register(on: control.service?.router, services: services)
                 if let router = control.service?.router {
-                    BrowserPageService(engine: AppBrowserPageEngine(services: services)).install(on: router)
+                    // The passkey hand-off: an agent's request waits for the person's banner click.
+                    let passkeys = BrowserPasskeyRequests(host: AppBrowserPasskeyHost(services: services))
+                    services.notifications.onPasskeyBanner = { id in Task { _ = try? await passkeys.answer(id) } }
+                    BrowserPageService(engine: AppBrowserPageEngine(services: services), passkeys: passkeys).install(on: router)
                     services.apps.attach(router: router)
                 }
                 logger.info("control socket \(self.control.socketPath ?? "", privacy: .public)")
