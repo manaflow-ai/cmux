@@ -175,7 +175,8 @@ struct SidebarRevealSelectionTests {
         #expect(h.model.selectedItem == .workspace(Self.id(n)), "the second press changed the selection to \(String(describing: h.model.selectedItem))")
         #expect(h.list.selectedRowKey == key, "the second press drew \(String(describing: h.list.selectedRowKey)) selected")
         #expect(try h.shows(key), "the second press left workspace \(n) out of view")
-        if grouped { #expect(try h.shows(.group(GroupID("grp-twice"))), "the second press left the group header out of view") }
+        // The group's first member brings its header (and the list's top) along; a later member is shown alone.
+        if grouped && n == 1 { #expect(try h.shows(.group(GroupID("grp-twice"))), "the second press left the group header out of view") }
     }
 
     /// Cmd-1 / Cmd-2 pick the top items first (SidebarItemOrder); on the sidebar document they draw in a block at the
