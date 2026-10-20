@@ -398,7 +398,7 @@ done
         bun.write_text(f"""#!/bin/sh
 cat > node_modules/.bin/vp <<'VP'
 {self.FAKE_VP}VP
-chmod +x node_modules/.bin/vp
+{shutil.which("chmod")} +x node_modules/.bin/vp
 """)
         bun.chmod(0o755)
         dead = subprocess.Popen(["true"])

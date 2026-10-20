@@ -153,6 +153,36 @@ locked_version() { # package-dir name
     fi
 }
 # vp is missing, or vite-plus or oxfmt differ from the lockfile CI installs.
+# Temporary files and a held install lock go away however the hook ends.
+RUSTFMT_DEFAULTS=""
+HELD_LOCK=""
+cleanup() {
+    rm -f "${RUSTFMT_DEFAULTS:-}"
+    [[ -z "$HELD_LOCK" ]] || rm -rf "$HELD_LOCK"
+}
+trap cleanup EXIT
+trap 'exit 143' TERM
+trap 'exit 130' INT
+
+# Takes a per-worktree install lock (a directory holding the holder's PID).
+# A lock whose holder is gone, or one older than ten minutes, was left by a
+# killed hook and is taken over.
+take_install_lock() { # lock-dir
+    if ! mkdir "$1" 2>/dev/null; then
+        local holder
+        holder="$(cat "$1/pid" 2>/dev/null || true)"
+        if { [[ -n "$holder" ]] && ! kill -0 "$holder" 2>/dev/null; } \
+            || [[ -n "$(find "$1" -maxdepth 0 -mmin +10 2>/dev/null || true)" ]]; then
+            rm -rf "$1"
+            mkdir "$1" 2>/dev/null || return 1
+        else
+            return 1
+        fi
+    fi
+    HELD_LOCK="$1"
+    printf '%s\n' "$$" >"$1/pid"
+}
+
 web_packages_stale() { # package-dir
     local name want have
     [[ -x "$1/node_modules/.bin/vp" ]] || return 0
@@ -179,13 +209,17 @@ if (( ${#STAGED_WEB_PATHS[@]} > 0 && ! SKIP_FORMATTERS )); then
         # packages are installed first: bun's cache makes that about a second,
         # and lifecycle scripts never run.
         if web_packages_stale "$PACKAGE_DIR"; then
-            # One install at a time across agents sharing the checkout: npm ci
+            # One install at a time into this worktree's node_modules: npm ci
             # deletes node_modules first. A held lock means someone else is
-            # installing; format with what is there.
-            INSTALL_LOCK="$(git rev-parse --git-common-dir)/cmux-format-install-${package//\//-}.lock"
-            [[ "$INSTALL_LOCK" == /* ]] || INSTALL_LOCK="$REPO_ROOT/$INSTALL_LOCK"
-            if ! mkdir "$INSTALL_LOCK" 2>/dev/null; then
+            # installing; format with what is there, or, with no vp yet, wait
+            # (up to two minutes) for that install.
+            INSTALL_LOCK="$(git rev-parse --absolute-git-dir)/cmux-format-install-${package//\//-}.lock"
+            if ! take_install_lock "$INSTALL_LOCK"; then
                 echo "pre-commit: another agent is installing $package packages; formatting with the current ones" >&2
+                for ((wait_seconds = 0; wait_seconds < 120; wait_seconds++)); do
+                    [[ ! -x "$PACKAGE_DIR/node_modules/.bin/vp" && -d "$INSTALL_LOCK" ]] || break
+                    sleep 1
+                done
             elif [[ -f "$PACKAGE_DIR/bun.lock" ]] && command -v bun >/dev/null 2>&1; then
                 echo "pre-commit: installing $package packages for vp (bun install --frozen-lockfile --ignore-scripts)" >&2
                 (cd "$PACKAGE_DIR" && bun install --frozen-lockfile --ignore-scripts >/dev/null 2>&1) || true
@@ -198,7 +232,10 @@ if (( ${#STAGED_WEB_PATHS[@]} > 0 && ! SKIP_FORMATTERS )); then
                 echo "pre-commit: installing $package packages for vp (npm ci --ignore-scripts)" >&2
                 (cd "$PACKAGE_DIR" && npm ci --ignore-scripts --no-audit --no-fund >/dev/null 2>&1) || true
             fi
-            rmdir "$INSTALL_LOCK" 2>/dev/null || true
+            if [[ "$HELD_LOCK" == "$INSTALL_LOCK" ]]; then
+                rm -rf "$INSTALL_LOCK"
+                HELD_LOCK=""
+            fi
         fi
         VP_BIN="$PACKAGE_DIR/node_modules/.bin/vp"
         if [[ ! -x "$VP_BIN" ]]; then
@@ -308,7 +345,6 @@ if (( ${#STAGED_RUST_PATHS[@]} > 0 && ! SKIP_FORMATTERS )); then
             formatter_missing "rustfmt is unavailable (rustup component add rustfmt, and put it on PATH)"
         else
             RUSTFMT_DEFAULTS="$(mktemp "${TMPDIR:-/tmp}/cmux-rustfmt-defaults.XXXXXX")"
-            trap 'rm -f "$RUSTFMT_DEFAULTS"' EXIT
             while IFS= read -r package_root; do
                 config="$(rust_config "$package_root")"
                 RUSTFMT_ARGS=(--edition "$(rust_edition "$package_root")" --config-path "${config:-$RUSTFMT_DEFAULTS}")

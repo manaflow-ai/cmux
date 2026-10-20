@@ -31,6 +31,10 @@ while IFS= read -r remote; do
                         scripts/ci/test_execution_registry.py
                         scripts/ci/workload_entrypoints.py
                         scripts/normalize-pbxproj.py
+                        scripts/git-hooks/pre-push
+                        scripts/web_lint_prepush.py
+                        scripts/lint_swift_namespaces.py
+                        scripts/swift_source_mask.py
                     )
                     if ! git diff --quiet "$trusted_sha" -- "${trusted_inputs[@]}"; then
                         echo "warning: cmux merge-driver installer inputs differ from trusted $trusted_branch; rerun from a clean checkout." >&2

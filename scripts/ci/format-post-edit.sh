@@ -134,12 +134,27 @@ PY
 )"
 [ -n "$plan" ] || exit 0
 
+# Temporary files and a held install lock go away however the hook ends; the
+# agent's hook timeout sends TERM.
+defaults=""
+formatted=""
+held_lock=""
+cleanup() {
+  rm -f "${defaults:-}" "${formatted:-}"
+  [ -z "$held_lock" ] || rm -rf "$held_lock"
+}
+trap cleanup EXIT
+trap 'exit 143' TERM
+trap 'exit 130' INT
+
 rust_lines="$(printf '%s\n' "$plan" | grep '^rust' || true)"
 if [ -n "$rust_lines" ]; then
   # An empty config pins rustfmt's defaults, so a stray rustfmt.toml above the
   # checkout never decides the format.
   defaults="$(mktemp "${TMPDIR:-/tmp}/cmux-rustfmt-defaults.XXXXXX")"
-  trap 'rm -f "$defaults"' EXIT
+  # rustfmt's output, outside the checkout so a killed hook never leaves a file
+  # a sibling agent's `git add -A` would commit.
+  formatted="$(mktemp "${TMPDIR:-/tmp}/cmux-rustfmt-out.XXXXXX")"
   printf '%s\n' "$rust_lines" | while IFS="$(printf '\t')" read -r _ edition toolchain path config; do
     # The rustfmt of the toolchain CI's cargo fmt uses for this package.
     # rustfmt keeps a stable style across versions, so without that toolchain
@@ -160,15 +175,9 @@ if [ -n "$rust_lines" ]; then
     fi
     # Through stdin, so rustfmt formats only this file and never follows its
     # `mod` declarations into child modules another agent may be editing.
-    formatted="$ROOT/$path.cmux-fmt.$$"
     if "$rustfmt_bin" --edition "$edition" --config-path "${config:-$defaults}" <"$ROOT/$path" >"$formatted" 2>/dev/null; then
-      if cmp -s "$formatted" "$ROOT/$path"; then
-        rm -f "$formatted"
-      else
-        cat "$formatted" >"$ROOT/$path" && rm -f "$formatted"
-      fi
+      cmp -s "$formatted" "$ROOT/$path" || cat "$formatted" >"$ROOT/$path"
     else
-      rm -f "$formatted"
       echo "warning: rustfmt could not format $path (a syntax error?)" >&2
     fi
   done
@@ -197,24 +206,44 @@ web_packages_stale() { # package-dir
   return 1
 }
 
+# Takes a per-worktree install lock (a directory holding the holder's PID).
+# A lock whose holder is gone, or one older than ten minutes, was left by a
+# killed hook and is taken over.
+take_install_lock() { # lock-dir
+  if ! mkdir "$1" 2>/dev/null; then
+    holder="$(cat "$1/pid" 2>/dev/null || true)"
+    if { [ -n "$holder" ] && ! kill -0 "$holder" 2>/dev/null; } \
+      || [ -n "$(find "$1" -maxdepth 0 -mmin +10 2>/dev/null)" ]; then
+      rm -rf "$1"
+      mkdir "$1" 2>/dev/null || return 1
+    else
+      return 1
+    fi
+  fi
+  held_lock="$1"
+  printf '%s\n' "$$" >"$1/pid"
+}
+
 web_packages="$(printf '%s\n' "$plan" | sed -n 's/^web\t\([^\t]*\)\t.*/\1/p' | sort -u)"
 for package in $web_packages; do
   dir="$ROOT/$package"
   files="$(printf '%s\n' "$plan" | awk -F '\t' -v p="$package" '$1 == "web" && $2 == p { print $3 }')"
   if web_packages_stale "$dir"; then
-    # bun install updates node_modules in place. One agent installs at a time
-    # (the others format with what is there); npm ci deletes node_modules
-    # first, so npm packages are left to the pre-commit hook.
-    lock="$(git -C "$ROOT" rev-parse --git-common-dir 2>/dev/null || true)"
+    # bun install updates node_modules in place. One agent installs into a
+    # worktree's node_modules at a time (the others format with what is
+    # there); npm ci deletes node_modules first, so npm packages are left to
+    # the pre-commit hook.
+    lock="$(git -C "$ROOT" rev-parse --git-dir 2>/dev/null || true)"
     case "$lock" in /*) ;; "") lock="$ROOT/.git" ;; *) lock="$ROOT/$lock" ;; esac
     lock="$lock/cmux-format-install-$(printf '%s' "$package" | tr '/' '-').lock"
     if [ ! -f "$dir/bun.lock" ]; then
       echo "warning: $package packages differ from its lockfile; the pre-commit hook reinstalls them" >&2
     elif ! command -v bun >/dev/null 2>&1; then
       :
-    elif mkdir "$lock" 2>/dev/null; then
+    elif take_install_lock "$lock"; then
       (cd "$dir" && bun install --frozen-lockfile --ignore-scripts >/dev/null 2>&1) || true
-      rmdir "$lock" 2>/dev/null || true
+      rm -rf "$lock"
+      held_lock=""
     else
       echo "warning: another agent is installing $package packages; formatting with the current ones" >&2
     fi
