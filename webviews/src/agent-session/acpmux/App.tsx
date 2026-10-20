@@ -153,6 +153,7 @@ import {
 } from "./turnChanges/sessionRows";
 import { TurnActionsContext, chatLoginCommand, type TurnActions } from "./conversation/turnActions";
 import { UserBubble } from "./conversation/UserBubble";
+import { ChiefPromptBubble } from "./conversation/ChiefPromptBubble";
 import { editableKey, editableSeqs, editableTurns } from "./conversation/editPrompt";
 import {
   clearFindHighlights,
@@ -581,8 +582,8 @@ const MessageRow = memo(
               <pre className="cv-user__context-text selectable">{envelope.context}</pre>
             </details>
           )}
-          {envelope ? (
-            <div className="cv-user__bubble selectable">{envelope.task}</div>
+          {envelope || row.from === "chief" ? (
+            <ChiefPromptBubble text={envelope ? envelope.task : (row.text ?? "")} />
           ) : (
             <UserBubble row={row} text={row.text ?? ""} />
           )}

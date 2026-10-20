@@ -12,11 +12,21 @@
  *   deleting the snapshot. Not atomic; see `forkVm` below.
  */
 import { HttpApiBuilder } from "@effect/platform";
+import { retireVm } from "./retire.ts";
+import { VmInstanceIdentity } from "../api/instance-identity.ts";
+import { INSTANCE_IDENTITY_SCHEME } from "../../../../libs/vm-instance-identity/src/identity.ts";
 import { name, type Named } from "@gdp-ts/core";
 import { Clock, Effect, Option, Schema } from "effect";
-import { CmuxVmApi, Vm, VmList, type CreateVmRequest, type ForkVmRequest, type VmState } from "../api.ts";
+import { idempotent } from "./idempotency.ts";
+import type { IdempotencyProgress } from "../limits/ledger.ts";
+import { resizeVm } from "./resize.ts";
+import { toVm } from "./vm-view.ts";
+import { replaceVmHttpsProxy } from "./https-proxies.ts";
+import { VmImageList } from "../api/images.ts";
+import { visibleVmImages, vmImageAllowed, vmImageEvidenceOf, type VmImageAllowed } from "../proofs/vm-image.ts";
+import { CmuxVmApi, CreatedVm, Vm, VmList, type CreateVmRequest, type ForkVmRequest, type VmState } from "../api.ts";
 import { OwnershipStore } from "../db/stores.ts";
-import { actorRef, carriesRequiredLabels, type Principal } from "../domain/principal.ts";
+import { actorRef, carriesRequiredLabels, CurrentPrincipal, type Principal } from "../domain/principal.ts";
 import {
   badRequest,
   conflict,
@@ -32,45 +42,15 @@ import {
   type NotFound,
   type ServiceUnavailable,
 } from "../errors.ts";
-import { newSnapshotId, newVmId, parseSnapshotId, parseVmId, TenantId, type SnapshotId, type VmId } from "../lib/ids.ts";
+import { newSnapshotId, newVmId, parseSnapshotId, parseVmId, TenantId, type SnapshotId } from "../lib/ids.ts";
 import { TenantLimits } from "../limits/service.ts";
-import type { IdempotencyProgress } from "../limits/ledger.ts";
 import { resolveIdleTimeout, TenantPolicy } from "../policy.ts";
 import type { KeyHasScope } from "../proofs/key-has-scope.ts";
+import { vmNetworkAllowed, vmNetworkEvidenceOf, type VmNetworkAllowed } from "../proofs/vm-network.ts";
 import { tenantMayCreate, type TenantMayCreate } from "../proofs/tenant-may-create.ts";
-import { tenantOwnsSnapshot, tenantOwnsVm, visitOwnedVms, type TenantOwnsResource } from "../proofs/tenant-owns-resource.ts";
-import { UpstreamClient, type SizeRequest, type UpstreamError, type UpstreamVm } from "../upstream/client.ts";
+import { tenantDeletedVm, tenantOwnsSnapshot, tenantOwnsVm, visitOwnedVms, type TenantOwnsResource } from "../proofs/tenant-owns-resource.ts";
+import { UpstreamClient, UpstreamError, type SizeRequest } from "../upstream/client.ts";
 import { audited, auditableVmId, withCaller, withOwnedVm } from "./common.ts";
-
-const KNOWN_STATES: ReadonlyArray<VmState> = ["starting", "running", "pausing", "paused", "stopped"];
-
-const stateOf = (state: string): VmState => KNOWN_STATES.find((known) => known === state) ?? "unknown";
-
-/** Negative or absent provider limits read as "none". */
-const limitOf = (value: number | null | undefined): number | null => (value === undefined || value === null || value < 0 ? null : value);
-
-/** The public view: the cmux id, the ownership row's name and labels, and an allowlist of provider fields. */
-export const toVm = (
-  id: VmId,
-  row: { readonly displayName: string | null; readonly labels: Readonly<Record<string, string>> },
-  upstream: UpstreamVm,
-): Vm =>
-  new Vm({
-    id,
-    displayName: row.displayName,
-    labels: row.labels,
-    state: stateOf(upstream.state),
-    resources: {
-      vcpus: upstream.resources.cpu,
-      memoryMib: upstream.resources.memory,
-      diskMib: upstream.resources.storage,
-    },
-    idleTimeoutSeconds: upstream.idleTimeoutSeconds ?? null,
-    maxRunSeconds: limitOf(upstream.maxRunSeconds),
-    autoDeleteSeconds: limitOf(upstream.autoDeleteSeconds),
-    createdAt: upstream.createdAt,
-    updatedAt: upstream.updatedAt,
-  });
 
 /** Provider failures on an existing VM: 404 means the VM is gone; 409 is the given conflict; the rest is ours. */
 const onVm =
@@ -114,12 +94,6 @@ const idleOrFail = (principal: Principal, requested: number | undefined) =>
     return idle.ok ? Effect.succeed(idle.seconds) : Effect.fail(badRequest(idle.message));
   });
 
-/** SHA-256 hex of a canonical JSON rendering; same request, same fingerprint. */
-const fingerprint = (value: unknown) =>
-  Effect.promise(() => crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(value)))).pipe(
-    Effect.map((digest) => Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("")),
-  );
-
 const sortedLabels = (labels: Readonly<Record<string, string>> | undefined) =>
   labels === undefined ? null : Object.fromEntries(Object.entries(labels).sort(([a], [b]) => (a < b ? -1 : 1)));
 
@@ -138,9 +112,9 @@ interface NewVm {
  * (429). Runs `k` with the proof and releases the slot afterwards, by which
  * time a created VM is counted in the ownership table.
  */
-const withCreateSlot = <C, A, E, R>(caller: Named<C, Principal>, k: (proof: TenantMayCreate<C, "vm">) => Effect.Effect<A, E, R>) =>
+const withCreateSlot = <C, A, E, R>(caller: Named<C, Principal>, k: (proof: TenantMayCreate<C, "vm">) => Effect.Effect<A, E, R>, resume?: { readonly key: string; readonly vmId: string }) =>
   Effect.gen(function* () {
-    const decision = yield* tenantMayCreate(caller, "vm").pipe(Effect.mapError(() => unavailable()));
+    const decision = yield* tenantMayCreate(caller, "vm", resume).pipe(Effect.mapError(() => unavailable()));
     if (decision._tag === "not_entitled") {
       return yield* Effect.fail(new PaymentRequired({ message: "This team's plan does not include VMs" }));
     }
@@ -159,8 +133,9 @@ const withCreateSlot = <C, A, E, R>(caller: Named<C, Principal>, k: (proof: Tena
 
 /**
  * Creates the VM upstream (tagged with the tenant), grows it to the requested
- * size, and records it in the ownership table. If growing or recording fails,
- * the new VM is deleted by its exact id, so nothing unowned is left behind.
+ * size, and records it in the ownership table. Keyed creates retain an intent
+ * and quota slot before I/O; retries recover the same allocation. Unkeyed
+ * failures keep the legacy best-effort discard behavior.
  */
 const createRecorded = <C, S>(
   caller: Named<C, Principal>,
@@ -168,37 +143,54 @@ const createRecorded = <C, S>(
   proofs: {
     readonly mayCreate: TenantMayCreate<C, "vm">;
     readonly scope: KeyHasScope<C, "vm:write">;
+    readonly network?: VmNetworkAllowed<C>;
+    readonly image?: VmImageAllowed<C>;
     readonly source?: { readonly snapshot: Named<S, SnapshotId>; readonly owns: TenantOwnsResource<C, S> };
   },
+  attempt?: { readonly key: string; readonly prior: IdempotencyProgress | null; readonly snapshotId?: string },
 ) =>
   Effect.gen(function* () {
     const upstream = yield* UpstreamClient;
     const store = yield* OwnershipStore;
     const policy = yield* TenantPolicy;
-    const cmuxId = newVmId();
+    const parsed = attempt?.prior?.phase === "creating" ? parseVmId(attempt.prior.vmId) : Option.some(newVmId());
+    if (Option.isNone(parsed)) return yield* Effect.fail(unavailable());
+    const cmuxId = parsed.value;
+    const createdBy = attempt?.prior?.phase === "creating" ? attempt.prior.createdBy : actorRef(caller.value.actor);
+    const limits = yield* TenantLimits;
+    const journal = attempt === undefined ? undefined : {
+      context: attempt.prior?.phase === "creating" ? attempt.prior.context : null,
+      beforeSend: (context: string) => limits.advance(caller.value.tenantId, attempt.key, { phase: "creating", vmId: cmuxId, reservationId: proofs.mayCreate.reservationId, context, createdBy, ...(attempt.snapshotId === undefined ? {} : { snapshotId: attempt.snapshotId }) }).pipe(
+        Effect.mapError(() => new UpstreamError({ operation: "persistCreateIntent", status: null })),
+      ),
+      // Best effort: if the ledger cannot be reached, the intent stays retained and its own key can retry it.
+      rejected: () => limits.cancelIntent(caller.value.tenantId, attempt.key, cmuxId),
+    };
     const created = yield* upstream
       .createVm(
         caller,
         {
           cmuxId,
+          createdBy,
           idleTimeoutSeconds: spec.idleTimeoutSeconds,
           ...(spec.maxRunSeconds === undefined ? {} : { maxRunSeconds: spec.maxRunSeconds }),
           ...(spec.autoDeleteSeconds === undefined ? {} : { autoDeleteSeconds: spec.autoDeleteSeconds }),
           ...(spec.size === undefined ? {} : { size: spec.size }),
           environment: policy.environment,
+          ...(journal === undefined ? {} : { journal }),
         },
         proofs,
       )
-      .pipe(Effect.mapError(onCreate));
+      .pipe(Effect.mapError((error) => proofs.image !== undefined && (error.status === 400 || error.status === 404) ? unavailable() : onCreate(error)));
     const vm =
       spec.size === undefined
         ? created.vm
         : yield* created.grow(spec.size).pipe(
-            Effect.tapError(() => created.discard),
+            Effect.tapError(() => attempt === undefined ? created.discard : Effect.void),
             Effect.mapError((error) =>
               error.status === 429
                 ? new QuotaExceeded({ message: "VM capacity is exhausted for now; retry later", retryAfterSeconds: 60, budget: "capacity" })
-                : conflict("The VM could not be grown to the requested size; nothing was kept"),
+                : attempt === undefined ? conflict("The VM could not be grown to the requested size; nothing was kept") : unavailable(),
             ),
           );
     const createdAt = new Date(yield* Clock.currentTimeMillis);
@@ -208,13 +200,13 @@ const createRecorded = <C, S>(
         kind: "vm",
         cmuxId,
         upstreamId: created.upstreamId,
-        createdBy: actorRef(caller.value.actor),
+        createdBy,
         createdAt,
         displayName: spec.displayName,
         labels: spec.labels,
       })
       .pipe(
-        Effect.tapError(() => created.discard),
+        Effect.tapError(() => attempt === undefined ? created.discard : Effect.void),
         Effect.mapError(() => unavailable()),
       );
     return toVm(cmuxId, spec, vm);
@@ -238,44 +230,28 @@ const replayVm = <C>(caller: Named<C, Principal>, scope: KeyHasScope<C, "vm:writ
     );
   });
 
-/**
- * Runs a create or fork under an optional idempotency key. A retry with the
- * same key and request replays the first VM (or resumes a fork from its kept
- * snapshot); the same key with a different request is 409, as is a retry
- * while the first request still runs. Keys are per tenant.
- */
-const idempotent = <E, R>(
-  principal: Principal,
-  key: string | undefined,
-  request: unknown,
-  run: (resumeFrom: IdempotencyProgress | null, keyed: string | null) => Effect.Effect<Vm, E, R>,
-  replay: (vmId: string) => Effect.Effect<Vm, E | NotFound | ServiceUnavailable, R | UpstreamClient | OwnershipStore>,
-) =>
-  Effect.gen(function* () {
-    if (key === undefined) return yield* run(null, null);
-    const limits = yield* TenantLimits;
-    // A service key (cx-b4h.13) shares the team's ledger but never its keys: the same key from a member never replays to it.
-    const scoped = `${yield* fingerprint(principal.actor.kind === "service" ? ["service", principal.actor.serviceId, key] : ["key", key])}`;
-    const claim = yield* limits
-      .begin(principal.tenantId, scoped, yield* fingerprint(request))
-      .pipe(Effect.mapError(() => unavailable()));
-    switch (claim.state) {
-      case "mismatch":
-        return yield* Effect.fail(conflict("This Idempotency-Key was already used with a different request"));
-      case "in_progress":
-        return yield* Effect.fail(conflict("A request with this Idempotency-Key is still running; retry shortly"));
-      case "resume":
-        if (claim.progress.phase === "done") return yield* replay(claim.progress.vmId);
-        break;
-      case "new":
-        break;
-    }
-    const resumeFrom = claim.state === "resume" ? claim.progress : null;
-    return yield* run(resumeFrom, scoped).pipe(
-      Effect.tap((vm) => limits.advance(principal.tenantId, scoped, { phase: "done", vmId: vm.id }).pipe(Effect.ignore)),
-      Effect.tapError(() => limits.abandon(principal.tenantId, scoped)),
-    );
-  });
+/** A committed ownership row repairs completion without allocating again, including after deletion. */
+const replayRecordedAttempt = <C>(caller: Named<C, Principal>, scope: KeyHasScope<C, "vm:write">, prior: IdempotencyProgress | null, key: string | null) => Effect.gen(function* () {
+  if (prior?.phase !== "creating" || key === null) return null;
+  const status = yield* (yield* OwnershipStore).allocationStatus(caller.value.tenantId, prior.vmId).pipe(Effect.mapError(() => unavailable()));
+  if (status === "absent") return null;
+  yield* (yield* TenantLimits).advance(caller.value.tenantId, key, { phase: "done", vmId: prior.vmId }).pipe(Effect.mapError(() => unavailable()));
+  if (status === "deleted") return yield* Effect.fail(vmNotFound());
+  return yield* replayVm(caller, scope, prior.vmId);
+});
+
+const resumeSlot = (key: string | null, prior: IdempotencyProgress | null) => key !== null && prior?.phase === "creating" ? { key, vmId: prior.vmId } : undefined;
+
+const cleanupForkSnapshot = <C>(caller: Named<C, Principal>, scope: KeyHasScope<C, "vm:write">, snapshotId: string) => Effect.gen(function* () {
+  const parsed = parseSnapshotId(snapshotId);
+  if (Option.isNone(parsed)) return;
+  yield* name(parsed.value, (snapshot) => Effect.gen(function* () {
+    const owns = yield* tenantOwnsSnapshot(caller, snapshot);
+    if (owns === null) return;
+    yield* (yield* UpstreamClient).deleteSnapshot(snapshot, { owns, scope });
+    yield* (yield* OwnershipStore).markDeleted(caller.value.tenantId, "snapshot", snapshot.value, new Date(yield* Clock.currentTimeMillis));
+  }));
+}).pipe(Effect.catchAll(() => Effect.void));
 
 const createVm = (payload: CreateVmRequest, idempotencyKey: string | undefined) =>
   withCaller("vm:write", "write", (caller, scope) =>
@@ -283,6 +259,11 @@ const createVm = (payload: CreateVmRequest, idempotencyKey: string | undefined) 
       const principal = caller.value;
       yield* forbidAllowlisted(principal);
       yield* requireServiceLabels(principal, payload.labels ?? {});
+      if (payload.image !== undefined && payload.snapshotId !== undefined) return yield* Effect.fail(badRequest("Choose either an approved image or a tenant snapshot"));
+      const image = payload.image === undefined ? undefined : yield* vmImageAllowed(caller, payload.image);
+      const imageIntent = image === undefined ? undefined : vmImageEvidenceOf(image);
+      const network = payload.initialNetwork === undefined ? undefined : yield* vmNetworkAllowed(caller, payload.initialNetwork);
+      const networkIntent = network === undefined ? undefined : vmNetworkEvidenceOf(network);
       const idleTimeoutSeconds = yield* idleOrFail(principal, payload.idleTimeoutSeconds);
       const spec: NewVm = {
         displayName: payload.displayName ?? null,
@@ -302,27 +283,34 @@ const createVm = (payload: CreateVmRequest, idempotencyKey: string | undefined) 
         payload.autoDeleteSeconds ?? null,
         sortedLabels(payload.labels),
       ];
+      // Omitted network must keep the exact fingerprint of pre-feature creates.
+      if (networkIntent !== undefined) request.push(networkIntent.fingerprint);
+      if (imageIntent !== undefined) request.push(`image:${imageIntent.fingerprint}`);
       return yield* idempotent(
         principal,
         idempotencyKey,
         request,
-        () =>
+        (prior, key) =>
           Effect.gen(function* () {
+            const existing = yield* replayRecordedAttempt(caller, scope, prior, key);
+            if (existing !== null) return existing;
+            const attempt = key === null ? undefined : { key, prior };
             if (payload.snapshotId === undefined) {
-              return yield* withCreateSlot(caller, (mayCreate) => createRecorded(caller, spec, { mayCreate, scope }));
+              return yield* withCreateSlot(caller, (mayCreate) => createRecorded(caller, spec, { mayCreate, scope, ...(network === undefined ? {} : { network }), ...(image === undefined ? {} : { image }) }, attempt), resumeSlot(key, prior));
             }
             return yield* name(payload.snapshotId, (snapshot) =>
               Effect.gen(function* () {
                 const owns = yield* tenantOwnsSnapshot(caller, snapshot).pipe(Effect.mapError(() => unavailable()));
                 if (owns === null) return yield* Effect.fail(snapshotNotFound());
                 return yield* withCreateSlot(caller, (mayCreate) =>
-                  createRecorded(caller, spec, { mayCreate, scope, source: { snapshot, owns } }),
+                  createRecorded(caller, spec, { mayCreate, scope, source: { snapshot, owns }, ...(network === undefined ? {} : { network }) }, attempt),
+                  resumeSlot(key, prior),
                 );
               }),
             );
           }),
         (vmId) => replayVm(caller, scope, vmId),
-      );
+      ).pipe(Effect.map((vm) => new CreatedVm({ ...vm, ...(networkIntent === undefined ? {} : { initialNetwork: networkIntent.receipt }), ...(imageIntent === undefined ? {} : { bootImage: imageIntent.receipt }) })));
     }),
   );
 
@@ -371,11 +359,19 @@ const forkVm = (rawVmId: string, payload: ForkVmRequest, idempotencyKey: string 
         principal,
         idempotencyKey,
         request,
-        (resumeFrom, keyed) =>
-          withCreateSlot(caller, (mayCreate) =>
+        (resumeFrom, keyed) => Effect.gen(function* () {
+          const existing = yield* replayRecordedAttempt(caller, proofs.scope, resumeFrom, keyed);
+          if (existing !== null) {
+            if (resumeFrom?.phase === "creating" && resumeFrom.snapshotId !== undefined) yield* cleanupForkSnapshot(caller, proofs.scope, resumeFrom.snapshotId);
+            return existing;
+          }
+          return yield* withCreateSlot(caller, (mayCreate) =>
             Effect.gen(function* () {
               let snapshotId: string;
-              if (resumeFrom !== null && resumeFrom.phase === "snapshotted") {
+              if (resumeFrom?.phase === "creating") {
+                if (resumeFrom.snapshotId === undefined) return yield* Effect.fail(unavailable());
+                snapshotId = resumeFrom.snapshotId;
+              } else if (resumeFrom?.phase === "snapshotted") {
                 snapshotId = resumeFrom.snapshotId;
               } else {
                 const cmuxId = newSnapshotId();
@@ -415,22 +411,17 @@ const forkVm = (rawVmId: string, payload: ForkVmRequest, idempotencyKey: string 
                   if (owns === null) {
                     return yield* Effect.fail(conflict("The snapshot from the first attempt is gone; retry with a new Idempotency-Key"));
                   }
-                  const vm = yield* createRecorded(caller, spec, { mayCreate, scope: proofs.scope, source: { snapshot, owns } }).pipe(
+                  const vm = yield* createRecorded(caller, spec, { mayCreate, scope: proofs.scope, source: { snapshot, owns } }, keyed === null ? undefined : { key: keyed, prior: resumeFrom, snapshotId }).pipe(
                     Effect.mapError(() => new ForkIncomplete({ message: FORK_INCOMPLETE_MESSAGE, snapshotId: snapshot.value })),
                   );
-                  yield* upstream.deleteSnapshot(snapshot, { owns, scope: proofs.scope }).pipe(
-                    Effect.zipRight(
-                      Effect.flatMap(Clock.currentTimeMillis, (now) =>
-                        store.markDeleted(principal.tenantId, "snapshot", snapshot.value, new Date(now)),
-                      ),
-                    ),
-                    Effect.catchAll(() => Effect.void),
-                  );
+                  yield* cleanupForkSnapshot(caller, proofs.scope, snapshot.value);
                   return vm;
                 }),
               );
             }),
-          ),
+            resumeSlot(keyed, resumeFrom),
+          );
+        }),
         (vmId) => replayVm(caller, proofs.scope, vmId),
       );
     }),
@@ -472,6 +463,7 @@ const parseLabelSelectors = (selectors: ReadonlyArray<string> | undefined): Read
 };
 
 const listVms = (params: {
+  readonly createdBy?: "caller" | undefined;
   readonly limit?: number | undefined;
   readonly cursor?: string | undefined;
   readonly state?: VmState | undefined;
@@ -488,7 +480,7 @@ const listVms = (params: {
         after = decoded.value;
       }
       const limit = params.limit ?? LIST_DEFAULT_LIMIT;
-      const page = yield* visitOwnedVms(caller, { limit, after, labels: parseLabelSelectors(params.label) }, (vm, owns, row) =>
+      const page = yield* visitOwnedVms(caller, { limit, after, labels: parseLabelSelectors(params.label), createdByCaller: params.createdBy === "caller" }, (vm, owns, row) =>
         upstream.getVm(vm, { owns, scope }).pipe(
           Effect.map((current) => Option.some(toVm(vm.value, row, current))),
           // A VM gone upstream is left out; its row is cleaned up by delete or a sweep.
@@ -509,8 +501,27 @@ const listVms = (params: {
     }),
   );
 
+/** Whether the caller's tenant already deleted this VM (same allowlist and service-label rules as a live one). */
+const deletedEarlier = (rawId: string) =>
+  Effect.gen(function* () {
+    const principal = yield* CurrentPrincipal;
+    const parsed = parseVmId(rawId);
+    if (Option.isNone(parsed)) return false;
+    return yield* name(principal, parsed.value, (caller, vm) => tenantDeletedVm(caller, vm)).pipe(Effect.mapError(() => unavailable()));
+  });
+
 export const vmsHandlers = HttpApiBuilder.group(CmuxVmApi, "vms", (handlers) =>
   handlers
+    .handle("getVmInstanceIdentity", ({ path, urlParams }) => withOwnedVm(path.vmId, "vm:read", "read", (_caller, vm, proofs) => Effect.gen(function* () {
+      const upstream = yield* UpstreamClient;
+      const fingerprint = yield* upstream.instanceFingerprint(vm, proofs);
+      const presence = urlParams.checkPresence === "true" ? yield* upstream.getVm(vm, proofs).pipe(
+        Effect.map(() => "present" as const),
+        Effect.catchAll((error) => error.status === 404 ? Effect.succeed("missing" as const) : Effect.fail(unavailable())),
+      ) : undefined;
+      return new VmInstanceIdentity({ id: vm.value, scheme: INSTANCE_IDENTITY_SCHEME, fingerprint, ...(presence === undefined ? {} : { presence }) });
+    })))
+    .handle("retireVm", ({ path }) => audited("vm.retire", auditableVmId(path.vmId), retireVm(path.vmId)))
     .handle("getVm", ({ path }) =>
       withOwnedVm(path.vmId, "vm:read", "read", (_caller, vm, proofs) =>
         Effect.gen(function* () {
@@ -524,6 +535,13 @@ export const vmsHandlers = HttpApiBuilder.group(CmuxVmApi, "vms", (handlers) =>
       audited("vm.create", null, createVm(payload, headers["idempotency-key"]), (vm) => vm.id),
     )
     .handle("listVms", ({ urlParams }) => listVms(urlParams))
+    .handle("resizeVm", ({ path, payload, headers }) =>
+      audited("vm.resize", auditableVmId(path.vmId), resizeVm(path.vmId, payload, headers["idempotency-key"])),
+    )
+    .handle("listVmImages", () => withCaller("vm:read", "read", (caller) => visibleVmImages(caller).pipe(Effect.map((items) => new VmImageList({ items })))))
+    .handle("replaceVmHttpsProxy", ({ path, payload, headers }) =>
+      audited("vm.https_proxy.replace", auditableVmId(path.vmId), replaceVmHttpsProxy(path.vmId, path.hostname, payload, headers["idempotency-key"]), (receipt) => receipt.id),
+    )
     .handle("startVm", ({ path }) =>
       audited(
         "vm.start",
@@ -614,6 +632,11 @@ export const vmsHandlers = HttpApiBuilder.group(CmuxVmApi, "vms", (handlers) =>
               .markDeleted(TenantId.make(caller.value.tenantId), "vm", vm.value, now)
               .pipe(Effect.mapError(() => unavailable()));
           }),
+        ).pipe(
+          // Idempotent: the caller's own already-deleted VM answers 204 again, so a lost 204 never wedges the retry.
+          Effect.catchTag("NotFound", (missing) =>
+            deletedEarlier(path.vmId).pipe(Effect.flatMap((gone) => (gone ? Effect.void : Effect.fail(missing)))),
+          ),
         ),
       ),
     ),

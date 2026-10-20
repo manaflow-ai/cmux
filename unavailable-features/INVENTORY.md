@@ -45,7 +45,7 @@ Status column: `todo`, `done <sha>`, `skip (<owner>)`.
 | 17 | Disconnect SSH Tab | `disconnectRemoteTab` | needs daemon capability `remote-ssh-tabs` | Handlers/TabHandlers+More.swift | M | todo |
 | 18 | Remote workspaces (3) | `reconnectWorkspace`, `disconnectWorkspace`, `copyWorkspaceSSHError` | needs daemon capability `remote-workspaces-v1` | Handlers/WorkspaceHandlers.swift | M | todo |
 | 19 | Find Work | `palette.findWork` | needs app capability `github-integration` | Handlers/WorkspaceHandlers.swift | M | todo |
-| 20 | Screenshot Section | `browserScreenshotSection` | needs a selection overlay | Handlers/BrowserHandlers.swift | M | todo |
+| 20 | Screenshot Section | `browserScreenshotSection` | needs a selection overlay | Handlers/BrowserHandlers.swift | M | done b8230d79c38 |
 | 21 | Layout templates (3) | `saveLayoutTemplate`, `palette.layout.open`, `manageLayouts` | needs daemon capability `layout-templates-v1` | Handlers/WorkspaceHandlers.swift | M | todo |
 | 22 | Workspace checklist (9) | `palette.addWorkspaceChecklistItem`, `toggleChecklistItemComplete`, `palette.openWorkspaceTodoPane`, `checklistEditItem`, `checklistMarkInProgress`, `checklistCompleteItem`, `checklistRemoveItem`, `checklistOpenAsPane`, `checklistAttachImages` | needs daemon capability `workspace-checklist-v1` | Handlers/WorkspaceMetadataHandlers.swift, Handlers/SidebarHandlers.swift | L (Rust + app + pane) | todo |
 | 23 | TextBox composer (4) | `focusTextBoxInput`, `palette.terminalToggleTextBoxInput`, `cycleTextBoxSubmitAction`, `attachTextBoxFile` | needs the TextBox composer | Handlers/TerminalHandlers.swift | L | todo |

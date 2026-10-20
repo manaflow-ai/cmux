@@ -796,6 +796,9 @@ def tab_switch_rows(path: str | None) -> tuple[dict, list[str]]:
     data = json.load(open(path))
     rows, lines = {}, []
     lines += ["## Tab switch in a real window (cmux NEXT, tagged Debug build)", "",
+              "**Debug only:** these rows come from a tagged Debug build (the timing hooks exist only in "
+              "Debug), not the Release or nightly build in the table above. Compare them only with other "
+              "Debug runs.", "",
               "tab-switch-matrix.py: one pane holding N tabs of a kind, warm; end-to-end = OS input event to "
               "the Core Animation commit that shows the tab (p50 / p90 ms); late = switches past their first frame.", "",
               "| Kind | Tabs | Ctrl-Tab | Cmd-Shift-] | Click | late | per hidden tab |", "|---|---|---|---|---|---|---|"]

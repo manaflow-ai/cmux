@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "6843b0cfd4e966719acde1c323621e6a5b049829b422229956fb3c194436dc06";
+pub const ir_sha256 = "a453986b67d167174f384a45b851ba6779b4ecfde280ba17c07ea656ab7e84b0";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -1050,9 +1050,11 @@ pub const IdentifyResult = struct {
     build_id: wire.Field([]const u8) = .absent,
     capabilities: ?[]const []const u8 = null,
     cli_path: wire.Field([]const u8) = .absent,
+    crate_version: wire.Field([]const u8) = .absent,
     daemon_handoff: i64,
     generation: []const u8,
     ghostty_commit: wire.Field([]const u8) = .absent,
+    install: wire.Field([]const u8) = .absent,
     launch_snapshot_path: wire.Field([]const u8) = .absent,
     lifecycle_ready: ?bool = null,
     machine_capabilities: ?[]const []const u8 = null,
@@ -1066,6 +1068,7 @@ pub const IdentifyResult = struct {
     session: []const u8,
     session_id: ?[]const u8 = null,
     terminal_revision: u64,
+    update_command: wire.Field([]const u8) = .absent,
     version: []const u8,
     workspace_revision: u64,
 
@@ -6018,9 +6021,11 @@ pub fn homeInbox(client: anytype, request: HomeInboxRequest) !wire.Decoded(HomeI
 
 pub const IdentifyRequest = struct {
     machine_metadata: ?bool = null,
+    revisions: ?bool = null,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "machine_metadata",
+        "revisions",
     };
 };
 
@@ -6034,6 +6039,7 @@ pub fn identify(client: anytype, request: IdentifyRequest) !wire.Decoded(Identif
             .capability = null,
             .fields = &.{
                 .{ .name = "machine_metadata", .since = 12, .capability = "machine-identity-v1" },
+                .{ .name = "revisions", .since = 12, .capability = null },
             },
         },
         request,
@@ -8299,9 +8305,11 @@ pub const SetClientInfoRequest = struct {
     device_kind: wire.Field([]const u8) = .absent,
     device_name: wire.Field([]const u8) = .absent,
     display_name: wire.Field([]const u8) = .absent,
+    install: wire.Field([]const u8) = .absent,
     kind: wire.Field([]const u8) = .absent,
     name: wire.Field([]const u8) = .absent,
     user_id: wire.Field([]const u8) = .absent,
+    version: wire.Field([]const u8) = .absent,
 };
 
 pub const SetClientInfoResult = EmptyResult;
@@ -8320,7 +8328,9 @@ pub fn setClientInfo(client: anytype, request: SetClientInfoRequest) !wire.Decod
                 .{ .name = "device_kind", .since = 12, .capability = "shared-sizing-v1" },
                 .{ .name = "device_name", .since = 12, .capability = "shared-sizing-v1" },
                 .{ .name = "display_name", .since = 12, .capability = "shared-sizing-v1" },
+                .{ .name = "install", .since = 12, .capability = null },
                 .{ .name = "user_id", .since = 12, .capability = "shared-sizing-v1" },
+                .{ .name = "version", .since = 12, .capability = null },
             },
         },
         request,
