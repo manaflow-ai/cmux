@@ -55,9 +55,15 @@ impl RegistryViewport {
     /// The form written to `viewport_json`. A lone column with rows is stored
     /// as no viewport at all: the screen layout is already its compat chain,
     /// a build without `rows-v1` reads it as a split tree, and the column
-    /// lives in `resource_screen_rows` only.
+    /// lives in `resource_screen_rows` only. A lone pinned column is stored
+    /// the same way (a build without `pinned-dock-alone-v1` refuses a
+    /// one-column viewport at open) and lives in `resource_lone_docks`.
     pub(super) fn durable(&self) -> RegistryViewport {
-        if self.has_lone_row_column() { RegistryViewport::default() } else { self.clone() }
+        if self.has_lone_row_column() || self.has_lone_pinned_column() {
+            RegistryViewport::default()
+        } else {
+            self.clone()
+        }
     }
 }
 

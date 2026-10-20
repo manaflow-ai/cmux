@@ -71,11 +71,15 @@ struct HomeLoneDockTests {
     /// Only Home's own tab stays in Home: a tab right of its dock moves to a new workspace (a sidebar
     /// drop) or a new window like any tab, by drag, menu or palette.
     @Test func onlyHomesOwnTabStaysInHome() throws {
-        let store = Self.home(right: [Self.shell(2), TabSnapshot(surface: 3, kind: .browser, title: "Docs")])
+        var chief = TabSnapshot(surface: 4, kind: .conversation, title: "Chief")
+        chief.conversation = ConversationTabRef(conversation: "c1", owner: "home")
+        let store = Self.home(right: [Self.shell(2), TabSnapshot(surface: 3, kind: .browser, title: "Docs"), chief])
         let home = try #require(store.workspaces.first)
         let page = try #require(store.tab(surface: 1)), right = try #require(store.tab(surface: 3))
         #expect(TabPromotion.staysPut(tab: page.id, in: home))
         #expect(!TabPromotion.staysPut(tab: right.id, in: home))
+        let chiefTab = try #require(store.tab(surface: 4))
+        #expect(TabPromotion.staysPut(tab: chiefTab.id, in: home), "a Chief tab is Home's wherever it is")
         #expect(TabPromotion.menuRemovals(keepsTab: false).isEmpty)
         var context = TabDragContext(sourcePaneID: "2", sourcePaneTabCount: 2, sourceWorkspaceID: home.id,
                                      sourceWorkspaceTabCount: 3, draggedTabCount: 1)
@@ -95,7 +99,8 @@ struct HomeLoneDockTests {
             return HomeDock.placeholderShell(on: screen, home: home)?.surface
         }
         #expect(try placeholder([Self.shell(2)]) == 2)
-        #expect(try placeholder([Self.shell(2, cwd: nil, title: "")]) == 2)
+        #expect(try placeholder([Self.shell(2, cwd: "/Users/me/", title: "")]) == 2)
+        #expect(try placeholder([Self.shell(2, cwd: nil)]) == nil, "a shell in an unknown folder is not known to be it")
         #expect(try placeholder([Self.shell(2, cwd: "/Users/me/src/cmux", title: "cmux")]) == nil, "a shell moved on is real")
         #expect(try placeholder([Self.shell(2), Self.shell(3)]) == nil, "two tabs are the person's")
         #expect(try placeholder([TabSnapshot(surface: 2, kind: .browser, title: "~")]) == nil)

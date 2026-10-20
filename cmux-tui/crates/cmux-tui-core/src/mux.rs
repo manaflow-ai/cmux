@@ -334,7 +334,8 @@ pub(crate) use dock_columns::{ensure_permanent_columns_kept, permanent_columns};
 pub use idle_close::{IDLE_CLOSE_REAP_INTERVAL, IdleTerminalReaper, start_idle_terminal_reaper};
 pub use layout_ratio_error::LayoutRatioError;
 pub(crate) use pinned_columns::{
-    ensure_pane_takes_tabs, ensure_pinned_columns_kept, pane_in_pinned_column, pinned_columns,
+    LONE_DOCK_NEIGHBOR_WIDTH, ensure_pane_takes_tabs, ensure_pinned_columns_kept,
+    pane_in_lone_pinned_column, pinned_columns,
 };
 pub use presentation::{
     PendingTerminal, TabDirectory, TabNotificationAck, TabPinChange, TreeDecorations,

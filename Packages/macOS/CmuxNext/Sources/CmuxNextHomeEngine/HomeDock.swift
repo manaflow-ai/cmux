@@ -56,11 +56,17 @@ public final class HomeDock {
     /// A dock move was sent and the tree does not show its dock yet: a connect meanwhile (launch
     /// runs this twice, a placed Chief again) must not send a second move.
     private var moveInFlight = false
-    /// The restored placeholder shell beside the dock was looked for (once per launch, so a shell the
-    /// person opens there later is never closed on a reconnect).
+    /// The restored placeholder shell beside the dock was looked for: once per launch, and once
+    /// ever (``placeholderCheckedKey``), so a shell the person opens there later, works in and
+    /// leaves at `~` is never closed on a reconnect or a later launch.
     private var placeholderChecked = false
+    private let defaults: UserDefaults
+    /// Set once the first launch with `pinned-dock-alone-v1` looked for the placeholder shell.
+    static let placeholderCheckedKey = "cmuxNext.home.placeholderShellChecked"
 
-    public init() {}
+    public init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+    }
 
     /// The page tab of `home` and where it is, if any.
     public static func pageTab(in home: WorkspaceModel) -> (tab: TabModel, pane: PaneModel, screen: ScreenModel)? {
@@ -160,14 +166,16 @@ public final class HomeDock {
     }
 
     /// A home restored from before `pinned-dock-alone-v1` kept the terminal the dock move left on
-    /// its right. Once per launch, when that column holds nothing but such a shell (``isPlaceholderShell``),
-    /// it closes and the dock stands alone; a column with anything real in it is kept as it was.
-    private func closePlaceholder(_ connection: DaemonConnection,
-                                  workspace: @MainActor @Sendable () -> WorkspaceModel?) async throws -> String? {
-        guard !placeholderChecked else { return nil }
+    /// its right. A one-time migration: the first time a launch sees the docked Home, when that
+    /// column holds nothing but such a shell (``isPlaceholderShell``), it closes and the dock stands
+    /// alone; a column with anything real in it is kept as it was. Never again after that check.
+    func closePlaceholder(_ connection: DaemonConnection,
+                          workspace: @MainActor @Sendable () -> WorkspaceModel?) async throws -> String? {
+        guard !placeholderChecked, !defaults.bool(forKey: Self.placeholderCheckedKey),
+              let placed = workspace().flatMap(Self.pageTab(in:)) else { return nil }
         placeholderChecked = true
-        guard let placed = workspace().flatMap(Self.pageTab(in:)),
-              let shell = Self.placeholderShell(on: placed.screen, home: NSHomeDirectory()) else { return nil }
+        defaults.set(true, forKey: Self.placeholderCheckedKey)
+        guard let shell = Self.placeholderShell(on: placed.screen, home: NSHomeDirectory()) else { return nil }
         _ = try await connection.closeTabs([shell.surface], endTerminals: true)
         return "home placeholder shell closed"
     }
@@ -189,7 +197,8 @@ public final class HomeDock {
               tab.commandSinceMs == nil, tab.programStatus.isEmpty, tab.relaunch == nil, tab.remote == nil,
               !tab.showsUnread, !tab.pinned, tab.tabGroup == nil else { return false }
         let folder = home.hasSuffix("/") ? String(home.dropLast()) : home
-        let atHome = tab.cwd.map { $0 == folder || $0 == folder + "/" } ?? true
+        // A shell whose folder is unknown is not known to be the placeholder.
+        let atHome = tab.cwd.map { $0 == folder || $0 == folder + "/" } ?? false
         let title = tab.title.trimmingCharacters(in: .whitespaces)
         return atHome && (title.isEmpty || title == "~" || title == folder)
     }
@@ -203,7 +212,7 @@ public final class HomeDock {
 
     /// A Chief conversation tab: a conversation tab whose source is a conversation (not a page or
     /// an agent session). In the home workspace only Home makes them (`new-conversation-tab`).
-    static func isChiefTab(_ tab: TabModel) -> Bool {
+    public static func isChiefTab(_ tab: TabModel) -> Bool {
         tab.kind == .conversation && tab.page == nil && tab.agentSession == nil && tab.snapshot.conversation?.conversation != nil
     }
 

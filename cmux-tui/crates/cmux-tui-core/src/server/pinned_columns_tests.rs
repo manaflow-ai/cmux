@@ -319,3 +319,33 @@ fn a_screens_only_tab_becomes_a_lone_pinned_dock_without_a_respawn() {
     assert!((width - 0.4).abs() < 1e-6 && dock.pinned, "{columns:?}");
     assert_eq!(dock.role, Some(crate::model::DockRole::AgentChat));
 }
+
+/// `pinned-dock-alone-v1`: with nothing beside it, the pinned dock takes a
+/// new tab (an agent's tab beside its chat is made there, unselected) and the
+/// tab then moves out into a new column right of the dock. With a column
+/// beside it again, the dock takes no tab.
+#[test]
+fn a_lone_pinned_dock_takes_a_tab_that_then_moves_out_beside_it() {
+    let (mut wire, panes) = Wire::home();
+    let home = wire.tabs(panes[0])[0];
+    let right = wire.tabs(panes[1])[0];
+    wire.ok(json!({"cmd": "close-surface", "surface": right}));
+    let params =
+        json!({"machine": "current", "session": "current", "pane": wire.pane_id(panes[0])});
+    resource_ok(&resource(&wire.mux, "tab.create_terminal", params.clone(), Some("lone-new")));
+    let tabs = wire.tabs(panes[0]);
+    assert_eq!(tabs.len(), 2, "the lone dock took the tab: {tabs:?}");
+    assert_eq!(tabs[0], home, "the pinned tab keeps the first place");
+    let data = wire.ok(json!({
+        "cmd": "move-tab-to-column", "surface": tabs[1], "pane": panes[0], "width": 0.5,
+    }));
+    let moved: PaneId = serde_json::from_value(data["pane"].clone()).unwrap();
+    assert_eq!(wire.tabs(panes[0]), vec![home], "the tab left the dock");
+    assert_eq!(wire.tabs(moved), vec![tabs[1]]);
+    let docks = wire.mux.with_state(|state| {
+        let screen = &state.workspaces[0].screens[0];
+        screen.layout_columns.iter().map(|c| c.dock.is_some_and(|d| d.pinned)).collect::<Vec<_>>()
+    });
+    assert_eq!(docks, vec![true, false], "the dock, then the new column right of it");
+    refused(&resource(&wire.mux, "tab.create_terminal", params, Some("beside-new")));
+}

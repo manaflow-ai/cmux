@@ -1,5 +1,6 @@
 import CmuxNextActions
 import CmuxNextDaemon
+import CmuxNextHomeEngine
 
 /// Home keeps its own tab (Leo 2026-10-09, rapid-switch brief 2): it is never
 /// promoted out into a new workspace or a new window, by the tab's menu, the
@@ -17,11 +18,17 @@ enum TabPromotion {
     static func staysPut(kind: String?) -> Bool { WorkspaceMerge.staysPut(kind: kind) }
 
     /// Whether tab `id` of `workspace` stays in it: a tab of a pinned column of a fixed workspace
-    /// (Home's own tab), or any tab of a fixed workspace without a pinned column.
+    /// (Home's own tab), Home's page or a Chief tab wherever it is, or any tab of a fixed workspace
+    /// without a pinned column.
     @MainActor static func staysPut(tab id: String, in workspace: WorkspaceModel?) -> Bool {
         guard let workspace, staysPut(kind: workspace.kind) else { return false }
         var pinned = false
         for screen in workspace.screens {
+            for pane in screen.panes {
+                if let tab = pane.tabs.first(where: { $0.id == id }), tab.page == HomeDock.page || HomeDock.isChiefTab(tab) {
+                    return true
+                }
+            }
             for column in screen.columns where column.dock?.isPinned == true {
                 pinned = true
                 let panes = Set(column.layout.paneIDs)

@@ -73,7 +73,8 @@ extension NewChatPlacement {
             if select { PaneHandlers.focus(pane, in: content) }
         case .besideDock:
             // One daemon commit: the conversation tab in a split right of the pinned dock, which the
-            // daemon makes a column beside it (`conversation-tab-split-v1`).
+            // daemon makes a column beside it (`conversation-tab-split-v1`). Without that the chat
+            // opens in the dock, which takes tabs while it is alone (`pinned-dock-alone-v1`).
             guard controller.daemon.supports(DaemonCapabilities.shared.conversationTabSplit) else { break }
             opening.split = .right
         case .newDock:
