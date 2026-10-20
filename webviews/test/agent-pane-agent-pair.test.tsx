@@ -17,7 +17,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxAgentPair, AcpmuxRow } from "../src/agent-session/acpmux/model";
-import { AgentPairNote } from "../src/agent-session/acpmux/conversation/AgentPairNote";
+import { AgentPairNote, spelledWindow } from "../src/agent-session/acpmux/conversation/AgentPairNote";
 import { reduceAgentPair } from "../src/agent-session/acpmux/conversation/agentPairs";
 import { translate } from "../src/agent-session/acpmux/i18n";
 import {
@@ -153,6 +153,14 @@ test("the cap is its own reason, with its window", async () => {
   expect(pairs(rows()).map((pair) => [pair.reason, pair.count, pair.windowSecs])).toEqual([["cap", 21, 600]]);
 });
 
+test("the cap's window is spelled out in the pane language", () => {
+  expect(spelledWindow(600, "en")).toBe("10 minutes");
+  expect(spelledWindow(60, "en")).toBe("1 minute");
+  expect(spelledWindow(7200, "en")).toBe("2 hours");
+  expect(spelledWindow(90, "en")).toBe("90 seconds");
+  expect(spelledWindow(600, "de")).toBe("10 Minuten");
+});
+
 test("records for another peer, or without a pause, change nothing", () => {
   const rows = new Map<string, AcpmuxRow>();
   const at = START;
@@ -256,7 +264,7 @@ test("each reason has its own sentence", async () => {
     "Paused messages with another agent: the same message was sent 4 times in a row without progress",
   );
   expect(await text(pausedPair({ reason: "cap", count: 21, windowSecs: 600 }))).toBe(
-    "Paused messages with Reviewer: the two agents sent 21 messages in 10m without you",
+    "Paused messages with Reviewer: the two agents exchanged 21 messages within 10 minutes with no message from you",
   );
   expect(await text(pausedPair({ reason: "release_failed", count: 0, error: "the turn failed" }))).toBe(
     "Paused messages with Reviewer: a held message could not be delivered",
