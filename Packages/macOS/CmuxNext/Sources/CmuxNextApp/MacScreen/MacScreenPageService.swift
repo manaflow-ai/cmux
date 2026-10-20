@@ -153,9 +153,20 @@ extension AppServices {
     /// DEV builds: Settings > Development > Relay Only drives every Mac Screen session.
     func followMacScreenSettings(_ settings: SettingsController) {
         let shortcuts = macScreenPages.systemShortcuts
-        shortcuts.setEnabled = { [weak settings] on in
+        shortcuts.setEnabled = { [weak settings, weak self] on in
+            // The setting is user-only: the same writer check as Settings. A
+            // posted (synthetic) click or an automation run is refused; a
+            // person's click, or an accessibility press (no event in
+            // dispatch), is the user.
+            let writer = Self.systemShortcutsWriter(syntheticEvent: (NSApp as? CmuxApplication)?.currentEventIsSynthetic ?? false,
+                                                    run: ActionRunScope.current)
+            guard let descriptor = SettingsSchema.descriptor(for: MacScreenSettings.systemShortcutsPath) else { return }
             // task-owner: one settings write per menu or switch change
-            Task { try? await settings?.set(.bool(on), at: MacScreenSettings.systemShortcutsPath) }
+            Task {
+                do { try await settings?.setSetting(descriptor, to: .bool(on), by: writer) } catch is SettingUserOnly {
+                    self?.registry.refuse(String(describing: SettingUserOnly(key: descriptor.id, writer: writer)))
+                } catch {}
+            }
         }
         Task { [weak shortcuts] in
             for await on in ObservationStream({ settings.snapshot.macScreen.systemShortcuts }) {
@@ -169,6 +180,14 @@ extension AppServices {
             }
         }
         #endif
+    }
+
+    /// Who is changing Send System Shortcuts to the Remote Mac from Mac
+    /// Screen: a posted event (`debug.mouse`, `SyntheticInput`) is not the
+    /// person, nor is an automation run; otherwise the user.
+    nonisolated static func systemShortcutsWriter(syntheticEvent: Bool, run: ActionRunScope?) -> SettingWriter {
+        if syntheticEvent { return .caller("script") }
+        return run.map { SettingWriter($0.origin) } ?? .user
     }
 
     /// New Mac Screen Tab: the home page in the pane the action ran on, else the active window's focused pane.

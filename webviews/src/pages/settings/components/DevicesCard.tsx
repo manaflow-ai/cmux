@@ -752,7 +752,17 @@ function HistoryGroup({ state }: { state: DevicesState }) {
         </div>
       ) : (
         <div className="rows devices-history-scroll">
-          <table className="devices-history">
+          <table className="devices-history devices-history-fixed">
+            {/* Fixed columns keep the table inside its card at any page width. */}
+            <colgroup>
+              <col className="devices-col-time" />
+              <col className="devices-col-event" />
+              <col className="devices-col-device" />
+              <col className="devices-col-device" />
+              <col className="devices-col-scope" />
+              <col className="devices-col-detail" />
+              <col className="devices-col-duration" />
+            </colgroup>
             <thead>
               <tr>
                 <th scope="col">{columns.time}</th>
@@ -773,10 +783,16 @@ function HistoryGroup({ state }: { state: DevicesState }) {
                       {row.eventText}
                     </span>
                   </td>
-                  <td className="devices-wrap">{row.device}</td>
-                  <td className="devices-wrap">{row.host}</td>
+                  <td className="devices-wrap" title={row.device}>
+                    {row.device}
+                  </td>
+                  <td className="devices-wrap" title={row.host}>
+                    {row.host}
+                  </td>
                   <td>{row.scope}</td>
-                  <td className="devices-wrap devices-detail">{row.detail}</td>
+                  <td className="devices-wrap devices-detail" title={row.detail}>
+                    {row.detail}
+                  </td>
                   <td className="devices-nowrap">{row.duration}</td>
                 </tr>
               ))}

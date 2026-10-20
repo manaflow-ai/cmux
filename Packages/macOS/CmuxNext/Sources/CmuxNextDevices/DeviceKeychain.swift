@@ -6,9 +6,14 @@ import Security
 /// so its own items; the Keychain trusts only the app that made an item.
 public struct DeviceKeychain: Sendable {
     public let service: String
+    /// Items in the data-protection keychain (`kSecUseDataProtectionKeychain`),
+    /// as the app's other secrets: relay secrets. The device keys stay in the
+    /// file keychain they were made in (moving them would make a new device).
+    public let dataProtection: Bool
 
-    public init(service: String) {
+    public init(service: String, dataProtection: Bool = false) {
         self.service = service
+        self.dataProtection = dataProtection
     }
 
     public func read(_ account: String) throws -> Data? {
@@ -39,9 +44,11 @@ public struct DeviceKeychain: Sendable {
         guard status == errSecSuccess || status == errSecItemNotFound else { throw DeviceIdentity.Failure.keychain(status) }
     }
 
-    private func query(_ account: String) -> [String: Any] {
-        [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service,
-         kSecAttrAccount as String: account, kSecAttrSynchronizable as String: false]
+    func query(_ account: String) -> [String: Any] {
+        var query: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service,
+                                    kSecAttrAccount as String: account, kSecAttrSynchronizable as String: false]
+        if dataProtection { query[kSecUseDataProtectionKeychain as String] = true }
+        return query
     }
 
     /// Secure Enclave key use without a user-presence prompt, after first unlock, this device only.

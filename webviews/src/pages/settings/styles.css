@@ -172,7 +172,7 @@ mark {
   align-items: center;
   gap: 8px;
   width: 100%;
-  padding: 5px 8px;
+  padding: 5px 6px;
   border: 0;
   border-radius: 6px;
   background: transparent;
@@ -968,7 +968,7 @@ mark {
 
 .devices-history th,
 .devices-history td {
-  padding: 5px 8px;
+  padding: 5px 6px;
   text-align: left;
   vertical-align: top;
   box-shadow: inset 0 -1px 0 var(--border);
@@ -987,17 +987,45 @@ mark {
   white-space: nowrap;
 }
 
-/* History fits a narrow page: names and details wrap, the time keeps its date and clock together. */
+/* History fits its card at any page width: fixed columns, names and details wrap between words
+   (a single word longer than its column still breaks rather than spill), headers wrap too. */
+.devices-history-fixed {
+  table-layout: fixed;
+}
+
+.devices-history-fixed th {
+  white-space: normal;
+  overflow-wrap: break-word;
+  hyphens: auto;
+}
+
+.devices-col-time {
+  width: 15%;
+}
+
+.devices-col-event {
+  width: 13%;
+}
+
+.devices-col-device {
+  width: 15%;
+}
+
+.devices-col-scope {
+  width: 11%;
+}
+
+.devices-col-detail {
+  width: 19%;
+}
+
+.devices-col-duration {
+  width: 12%;
+}
+
 .devices-wrap {
-  overflow-wrap: anywhere;
-}
-
-.devices-detail {
-  min-width: 10em;
-}
-
-.devices-time {
-  min-width: 6.5em;
+  overflow-wrap: break-word;
+  word-break: normal;
 }
 
 /* A narrow page (about 1000 pt) keeps every device line: the label wraps and the controls go below it. */
@@ -1026,6 +1054,9 @@ mark {
 
 .devices-pill {
   display: inline-flex;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
   padding: 0 7px;
   border: 1px solid var(--border);
   border-radius: 999px;

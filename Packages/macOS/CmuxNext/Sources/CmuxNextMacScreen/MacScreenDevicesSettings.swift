@@ -346,6 +346,13 @@ public final class MacScreenDevicesSettings {
 
     /// The entry's detail: an access change as "Ask → Full Control", a decision, an end reason.
     static func detailText(_ entry: AuditEntry, viewer: String = "—", host: String = "—") -> String {
+        // A device joining or leaving names it (whichever id the entry carries).
+        if entry.event == "device_added" || entry.event == "device_removed" {
+            let name = known(viewer) ? viewer : (known(host) ? host : nil)
+            guard let name else { return entry.event == "device_added" ? "" : L.t("devices.history.someDeviceRemoved", "A device was removed") }
+            return entry.event == "device_added" ? String(format: L.t("devices.history.deviceAdded", "%@ was added"), name)
+                : String(format: L.t("devices.history.deviceRemoved", "%@ was removed"), name)
+        }
         guard let detail = entry.detail, !detail.isEmpty else { return "" }
         switch entry.event {
         case "permission_changed":
