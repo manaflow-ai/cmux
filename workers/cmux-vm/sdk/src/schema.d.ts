@@ -1149,6 +1149,11 @@ export interface components {
             autoDeleteSeconds: number | null;
             createdAt: string;
             updatedAt: string;
+            /**
+             * @description Present while the create that made this VM has not finished: the VM could not be grown to the requested size. Retry that create with its Idempotency-Key or creationKey to finish it, or delete the VM.
+             * @enum {string}
+             */
+            creation?: "pending";
         };
         Labels: {
             [key: string]: string;
@@ -1302,6 +1307,11 @@ export interface components {
             autoDeleteSeconds: number | null;
             createdAt: string;
             updatedAt: string;
+            /**
+             * @description Present while the create that made this VM has not finished: the VM could not be grown to the requested size. Retry that create with its Idempotency-Key or creationKey to finish it, or delete the VM.
+             * @enum {string}
+             */
+            creation?: "pending";
             creationKey?: components["schemas"]["VmCreationKey"];
             initialNetwork?: components["schemas"]["InitialVmNetworkReceipt"];
             bootImage?: components["schemas"]["VmImage"];
