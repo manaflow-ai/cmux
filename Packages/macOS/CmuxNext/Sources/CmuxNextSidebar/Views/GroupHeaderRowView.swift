@@ -243,9 +243,10 @@ final class GroupHeaderRowView: SidebarRowView {
         name.isHidden = renaming
         name.font = SidebarStyle.groupHeaderFont(barHeight: barHeight)
         count.font = name.font
-        // The chevron sits where a workspace row's disclosure does, at its size (cx-fo2t).
-        let chevronSide = min(b.height, SidebarStyle.controlSize)
-        chevronFrame = CGRect(x: b.width - Metrics.space3 - chevronSide, y: (b.height - chevronSide) / 2, width: chevronSide, height: chevronSide)
+        // The chevron sits where a workspace row's disclosure does, at its size (cx-fo2t), centered
+        // on the trailing column every row's dot and spinner share (SidebarStyle+TrailingColumn).
+        let chevronSide = min(b.height, SidebarStyle.trailingSlotSide)
+        chevronFrame = SidebarStyle.trailingColumnFrame(rowWidth: b.width, centerY: b.height / 2, side: chevronSide)
         chevron.frame = chevronFrame
         let control = barHeight - Metrics.space1
         // The more button keeps a stable slot left of the chevron.
