@@ -41,14 +41,14 @@ public final class AgentCursorOverlayModel: AgentCursorRendering {
     private let animatesMovement: @MainActor () -> Bool
     private var cursors: [String: Cursor] = [:]
 
-    /// - Parameter animatesMovement: read per input; defaults to the app's
-    ///   motion policy (`Motion.animatesMovement`). Tests pin it.
+    /// - Parameter animatesMovement: read per input; nil (the default) reads
+    ///   the app's motion policy (`Motion.animatesMovement`). Tests pin it.
     public init(resolver: AgentCursorTargetResolving, host: AgentCursorLayerHosting, motion: GlideMotion = GlideMotion(),
-                animatesMovement: @escaping @MainActor () -> Bool = { Motion.animatesMovement }) {
+                animatesMovement: (@MainActor () -> Bool)? = nil) {
         self.resolver = resolver
         self.host = host
         self.motion = motion
-        self.animatesMovement = animatesMovement
+        self.animatesMovement = animatesMovement ?? { Motion.animatesMovement }
     }
 
     public func render(_ event: AutomationInputEvent) {
