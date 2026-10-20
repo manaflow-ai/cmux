@@ -118,6 +118,19 @@ fn wait_send(
     }
 }
 
+/// The default script, except that the first turn never ends by itself: it
+/// works until something stops it (here: the Chief's `stop` or `sleep`).
+fn endless_first_turn() -> Script {
+    let base = default_script();
+    Box::new(move |turn, blocks| {
+        let mut events = base(turn, blocks);
+        if turn == 0 {
+            events.pop();
+        }
+        events
+    })
+}
+
 /// A turn is running for `text`, held at the fake agent.
 fn running(h: &mut Harness, text: &str) {
     h.agents.hold(true);
@@ -224,14 +237,17 @@ fn send_attaches_any_file_and_refuses_a_missing_one() {
 
 #[test]
 fn stop_ends_the_turn_with_no_final_text_and_no_failure() {
-    let mut h = Harness::new(default_script());
+    let mut h = Harness::new(endless_first_turn());
     running(&mut h, "start the work");
     let sp = spawner(&h);
     let answer = run(&mut h, move || sp.stop_turn()).expect("stop answers");
     assert!(answer.starts_with("outcome: done"), "{answer}");
-    h.agents.wait_cancels(1);
     h.agents.hold(false);
     h.settle_posts();
+    assert!(
+        !h.agents.inner.lock().unwrap().cancels.is_empty(),
+        "the session was cancelled"
+    );
     let all = sends(&h);
     assert!(
         all.iter().all(|(_, parts, _, _)| {
@@ -263,7 +279,7 @@ fn stop_outside_a_turn_is_a_noop() {
 
 #[test]
 fn sleep_ends_the_turn_and_wakes_the_chief_with_its_note() {
-    let mut h = Harness::new(default_script());
+    let mut h = Harness::new(endless_first_turn());
     running(&mut h, "watch the nightly");
     let sp = spawner(&h);
     let answer = run(&mut h, move || {
@@ -275,9 +291,12 @@ fn sleep_ends_the_turn_and_wakes_the_chief_with_its_note() {
     })
     .expect("sleep answers");
     assert!(answer.starts_with("outcome: done"), "{answer}");
-    h.agents.wait_cancels(1);
     h.agents.hold(false);
     h.settle_posts();
+    assert!(
+        !h.agents.inner.lock().unwrap().cancels.is_empty(),
+        "the session was cancelled"
+    );
     let wakes = h.brain.pending_wakes();
     assert_eq!(wakes.len(), 1, "{wakes:?}");
     assert_eq!(wakes[0].note, "check nightly run 123");

@@ -37,10 +37,12 @@ mod previews;
 mod prewarm;
 mod recover;
 mod replies;
+mod send;
 mod side;
 mod spawns;
 mod steer;
 mod turns;
+mod wakes;
 pub use replies::{REACTIONS, reaction, tapback};
 pub use turns::stuck_notice;
 
@@ -201,6 +203,20 @@ pub enum Input {
         id: String,
         session: String,
         message: String,
+    },
+    /// `send(text, attachments, reply_to)` (send.rs).
+    Send {
+        call: crate::tools::SendCall,
+        reply: Sender<Result<String, String>>,
+    },
+    /// `stop()` (wakes.rs): ends the running turn.
+    StopTurn {
+        reply: Sender<Result<String, String>>,
+    },
+    /// `sleep(seconds, note, until)` (wakes.rs).
+    Sleep {
+        call: crate::tools::SleepCall,
+        reply: Sender<Result<String, String>>,
     },
     /// `control(action, ...)` (control.rs).
     Control {
@@ -629,6 +645,12 @@ pub struct Brain {
     /// The keys of the reactions this host posted (`react` dedupe, besides
     /// the message's own reactions).
     reacted: std::collections::HashSet<String>,
+    /// The idempotency keys of this run's `send` calls (send.rs): a repeat
+    /// of one in the same turn is a noop even after the owner took it.
+    sent_keys: std::collections::HashSet<String>,
+    /// The running turn was ended by the Chief's own `stop` or `sleep`
+    /// (wakes.rs): its final text is not posted, and it is no failure.
+    tool_stopped: bool,
     /// Fetches link previews for replies' URL lines (None: replies stay text).
     previewer: Option<Arc<dyn crate::link_preview::Fetcher>>,
     /// Turns cut in a row by a lost acpmux link (`Brain::turn_cut`): past
@@ -740,6 +762,8 @@ impl Brain {
             message_seqs: HashMap::new(),
             newest_seq: 0,
             reacted: std::collections::HashSet::new(),
+            sent_keys: std::collections::HashSet::new(),
+            tool_stopped: false,
             previewer: None,
             cuts: 0,
             resume_at: None,
@@ -879,16 +903,6 @@ impl Brain {
             && self.steering.is_empty()
     }
 
-    /// The wakes the Chief asked for with `sleep`, soonest first.
-    pub fn pending_wakes(&self) -> Vec<crate::state::Wake> {
-        Vec::new()
-    }
-
-    /// Fires every wake due at `now_ms` (wall clock, ms since the epoch).
-    pub fn fire_wakes_at(&mut self, now_ms: u64) {
-        let _ = now_ms;
-    }
-
     /// When the outbox timer fires, if armed.
     pub fn next_timer(&self) -> Option<Instant> {
         match (self.outbox_timer, self.resume_at) {
@@ -903,11 +917,18 @@ impl Brain {
             if let Some(fatal) = &self.fatal {
                 return fatal.clone();
             }
-            let input = match self.next_timer() {
+            // The `sleep` wakes run on the same loop (wakes.rs); they stay
+            // out of `next_timer`, which waits only for the outbox and resume.
+            let timer = match (self.next_timer(), self.next_wake()) {
+                (Some(a), Some(b)) => Some(a.min(b)),
+                (a, b) => a.or(b),
+            };
+            let input = match timer {
                 Some(at) => match rx.recv_timeout(at.saturating_duration_since(Instant::now())) {
                     Ok(input) => input,
                     Err(RecvTimeoutError::Timeout) => {
                         self.on_timer();
+                        self.fire_wakes_at(now_ms());
                         continue;
                     }
                     Err(RecvTimeoutError::Disconnected) => return "input channel closed".into(),
@@ -1011,6 +1032,15 @@ impl Brain {
                 session,
                 message,
             } => self.tell_unsteered(&id, &session, &message),
+            Input::Send { call, reply } => {
+                let _ = reply.send(self.send(call));
+            }
+            Input::StopTurn { reply } => {
+                let _ = reply.send(self.stop_turn());
+            }
+            Input::Sleep { call, reply } => {
+                let _ = reply.send(self.sleep(call));
+            }
             Input::Control { request, reply } => {
                 let answer = self.control(&request);
                 let _ = reply.send(answer);
