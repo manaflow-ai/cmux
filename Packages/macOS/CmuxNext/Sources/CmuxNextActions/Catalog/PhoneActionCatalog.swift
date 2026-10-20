@@ -14,7 +14,7 @@ nonisolated enum PhoneActionCatalog: ActionCatalogGroup {
                    keywords: [String], cliName: String, arguments: [ActionArgument]) -> ActionDescriptor {
             ActionDescriptor(
                 id: id, title: t(key, english), keywords: ["phone", "iphone", "simulator", "ios"] + keywords,
-                category: .other, symbol: symbol, surfaces: [.palette, .keyboard], arguments: arguments,
+                category: .browser, symbol: symbol, surfaces: [.palette, .keyboard], arguments: arguments,
                 cliName: cliName,
                 // Not tied to a right-clicked object: each acts on a phone, named by `device`.
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject))
@@ -27,9 +27,9 @@ nonisolated enum PhoneActionCatalog: ActionCatalogGroup {
             phone("phone.screenshot", "action.phone.screenshot", "Take Phone Screenshot", symbol: "camera",
                   keywords: ["screenshot", "capture", "png"], cliName: "phone screenshot", arguments: [device, path]),
             phone("phone.recordStart", "action.phone.recordStart", "Record Phone", symbol: "record.circle",
-                  keywords: ["record", "video", "feedback", "bug"], cliName: "phone record start", arguments: [device]),
+                  keywords: ["record", "video", "feedback", "bug"], cliName: "phone record", arguments: [device]),
             phone("phone.recordStop", "action.phone.recordStop", "Stop Phone Recording", symbol: "stop.circle",
-                  keywords: ["record", "stop", "video"], cliName: "phone record stop", arguments: [notes]),
+                  keywords: ["record", "stop", "video"], cliName: "phone stop", arguments: [notes]),
             phone("phone.sendFeedback", "action.phone.sendFeedback", "Send Phone Recording to Chief", symbol: "paperplane",
                   keywords: ["feedback", "bug", "report", "chief", "send", "clip"], cliName: "phone feedback", arguments: [notes]),
             phone("phone.openURL", "action.phone.openURL", "Open URL on Phone", symbol: "link",

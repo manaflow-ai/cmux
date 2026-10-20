@@ -38,6 +38,12 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
     // a square of this side centred on the search field, with the plain filter glyph (no drawn
     // circle). Nil keeps MessagesLab's 26 pt accessory button.
     var roundFilterSide: CGFloat? { didSet { if roundFilterSide != oldValue { updateFilterButton(); view.needsLayout = true } } }
+    // cmux: the host lays out the header (the search field, its own buttons) in the root view's
+    // flipped bounds and returns where the list starts. Nil keeps MessagesLab's header.
+    var headerLayout: ((CGRect) -> CGFloat)? { didSet { if isViewLoaded { view.needsLayout = true } } }
+    // cmux: the neutral selection's fill (the host's theme tint, translucent); nil keeps the
+    // unemphasized grey. In the compact list the selection is a disc behind the avatar.
+    var neutralFill: NSColor? { didSet { colorsChanged() } }
     /// The resolved colors (tests).
     var currentPalette: SidebarPalette { palette }
     /// The highlighted row: a conversation id, or an extra result's internal id (`extraID`).
@@ -45,7 +51,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
     /// The highlighted row's id (tests): `selectedID`, or an extra result's internal id.
     var highlightedID: ConversationID? { highlightID }
 
-    let searchField = NSSearchField()
+    let searchField = CmuxSidebarSearchField() // cmux: reports when it takes and leaves the keyboard (the host's focus ring)
     /// v1.2: the list's clock for the row times (default: the system clock; tests and still
     /// scenes give a fixed date). Changing it takes effect on the next reloadData().
     var now: () -> Date = { Date() }
@@ -784,13 +790,18 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
 
     func layout(in bounds: CGRect) {
         let M = SidebarMetrics.self
-        let top = M.titlebar
-        let side = roundFilterSide ?? 26 // cmux: the host's round button side
-        let gap: CGFloat = roundFilterSide == nil ? 2 : 8 // cmux
-        let fb: CGFloat = filterButton.isHidden || bounds.width < SidebarMetrics.compactBelow ? 0 : side + gap
-        searchField.frame = CGRect(x: M.searchInsetX, y: top, width: max(0, bounds.width - 2 * M.searchInsetX - fb), height: M.searchHeight)
-        filterButton.frame = CGRect(x: bounds.width - M.searchInsetX - fb + gap, y: top + ((M.searchHeight - side) / 2).rounded(), width: max(0, fb - gap), height: side)
-        let listTop = top + M.searchHeight + M.searchBottomGap
+        let listTop: CGFloat
+        if let headerLayout { // cmux
+            listTop = headerLayout(bounds)
+        } else {
+            let top = M.titlebar
+            let side = roundFilterSide ?? 26 // cmux: the host's round button side
+            let gap: CGFloat = roundFilterSide == nil ? 2 : 8 // cmux
+            let fb: CGFloat = filterButton.isHidden || bounds.width < SidebarMetrics.compactBelow ? 0 : side + gap
+            searchField.frame = CGRect(x: M.searchInsetX, y: top, width: max(0, bounds.width - 2 * M.searchInsetX - fb), height: M.searchHeight)
+            filterButton.frame = CGRect(x: bounds.width - M.searchInsetX - fb + gap, y: top + ((M.searchHeight - side) / 2).rounded(), width: max(0, fb - gap), height: side)
+            listTop = top + M.searchHeight + M.searchBottomGap
+        }
         let sf = CGRect(x: 0, y: listTop, width: bounds.width, height: max(0, bounds.height - listTop))
         if scrollView.frame != sf { scrollView.frame = sf }
         noResults.frame = CGRect(x: 0, y: listTop + 40, width: bounds.width, height: 24)
@@ -982,6 +993,11 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         l.content.frame = CGRect(x: SidebarMetrics.textX, y: 0, width: metrics.textWidth, height: SidebarMetrics.rowHeight)
         l.selection.frame = CGRect(x: SidebarMetrics.selectionInsetX, y: 0, width: frame.width - 2 * SidebarMetrics.selectionInsetX, height: frame.height)
         l.selection.cornerRadius = SidebarMetrics.selectionRadius
+        if metrics.compact, neutralSelection { // cmux: the compact row's selection is a disc behind the avatar, not a slab
+            let d = SidebarMetrics.avatar + 8
+            l.selection.frame = CGRect(x: metrics.rowAvatarX - 4, y: ((frame.height - d) / 2).rounded(), width: d, height: d)
+            l.selection.cornerRadius = d / 2
+        }
         l.selection.isHidden = !selected
         l.selection.backgroundColor = windowActive ? palette.selectionActive : palette.selectionInactive
         // The separator under the text, hidden next to the selection (as NSTableView does).
@@ -1159,6 +1175,10 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         l.selection.isHidden = c.id != highlightID
         l.selection.backgroundColor = windowActive ? palette.selectionActive : palette.selectionInactive
         let ar = SidebarDraw.tileAvatar(metrics)
+        if metrics.compact, neutralSelection { // cmux: the compact tile's selection is a disc behind the avatar
+            l.selection.frame = ar.insetBy(dx: -4, dy: -4)
+            l.selection.cornerRadius = l.selection.frame.width / 2
+        }
         // The avatar: one bitmap at the largest pin size, scaled to the current one.
         l.avatar.frame = ar
         l.avatar.minificationFilter = .trilinear
@@ -1570,6 +1590,11 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         var p = SidebarPalette.resolve(view.effectiveAppearance, unreadColor: unreadColor, selectionColor: selectionColor)
         // cmux: neutral selection (see `neutralSelection`).
         if neutralSelection {
+            if let neutralFill { // cmux: the host's tint, resolved in this appearance
+                var fill = p.selectionInactive
+                view.effectiveAppearance.performAsCurrentDrawingAppearance { fill = neutralFill.cgColor }
+                p.selectionInactive = fill
+            }
             p.selectionActive = p.selectionInactive
             p.selectedText = p.name
             p.pinName = p.secondary

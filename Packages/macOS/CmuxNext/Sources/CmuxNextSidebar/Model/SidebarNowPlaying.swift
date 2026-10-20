@@ -54,6 +54,10 @@ public nonisolated struct SidebarNowPlaying: Hashable, Sendable {
         self.labels = labels
     }
 
+    /// What makes this the same media to the card's Hide (``SidebarIntent/hideNowPlayingCard``):
+    /// its title and artist. A pause or a seek keeps it; another track or source changes it.
+    public var mediaKey: String { title + "\u{1F}" + artist }
+
     /// Seeking needs a position inside a known length.
     public var canSeek: Bool { position != nil && (duration ?? 0) > 0 }
 
