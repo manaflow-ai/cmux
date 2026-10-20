@@ -147,7 +147,6 @@ final class AppsProviderChannel {
     }
 
     var isRegistered: Bool { registeredEpoch != nil && registeredEpoch == epoch }
-    var runningCount: Int { running.count }
 
     /// Source-aware production entrypoint; a retained old event cannot become a new call.
     func handle(_ envelope: DaemonEventEnvelope) -> Bool {

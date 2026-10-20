@@ -166,6 +166,9 @@ pub struct AgentRecord {
     /// The reporting adapter id (`claude`, `codex`, ...) when a hook has
     /// claimed the terminal; absent for socket-only reports.
     pub agent: Option<String>,
+    /// The harness's own session id a hook reported (`published_agent_session_id`):
+    /// hook reports keep no `session`, so clients find the agent by this.
+    pub agent_session_id: Option<String>,
     pub updated_at_ms: u64,
     /// When the terminal's agent entered `state` (Unix ms). A report that
     /// keeps the state keeps it; it restarts at a daemon restart.
