@@ -181,7 +181,8 @@ struct PageFactory {
         // Your own backgrounds from a link, removed or revealed (BackdropImagesPageProvider).
         let images = provider.backdropImages.map { images in
             BackdropImagesPageProvider(images: images.images, use: { [weak provider] in try await provider?.useBackdropImage($0) ?? "" },
-                                       inUse: { [weak services] in services?.settings?.snapshot.backdropSelection })
+                                       inUse: { [weak services] in services?.settings?.snapshot.backdropSelection }, settings: services.settings,
+                                       pickFolder: { [weak services] in await services?.viewers.picker.open(.init(choose: .folders))?.first })
         }
         let routes = [PageRoute(prefix: "cmux.settings.", provider: provider), PageRoute(prefix: "cmux.app.", provider: native),
                       // Agents > Chiefs: the same Chief editor routes as Home (ChiefProfilePageRelay, AgentHarnessCenter).
