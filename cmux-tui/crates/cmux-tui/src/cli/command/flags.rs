@@ -31,6 +31,8 @@ pub(super) const BOOLEAN_FLAGS: &[&str] = &[
     "right",
     "up",
     "down",
+    // `pane split --focus`: the new pane takes the focus.
+    "focus",
     "force",
     "end-terminals",
     // `server ensure`: private app contract, the install key comes on stdin.

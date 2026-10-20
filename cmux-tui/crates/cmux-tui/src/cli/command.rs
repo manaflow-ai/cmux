@@ -717,6 +717,22 @@ fn parse_pane_strings(
                 )?;
             }
             insert_optional_string(&mut params, flags, "cwd", "cwd");
+            // The new pane runs this instead of a shell, so no empty shell
+            // tab is left beside the command's (agent evals, mode 3).
+            match (argv, flags.take("shell")) {
+                (None, None) => {}
+                (Some(argv), None) if argv.first().is_some_and(|program| !program.is_empty()) => {
+                    params.insert("argv".into(), json!(argv));
+                }
+                (None, Some(script)) if !script.is_empty() => {
+                    params.insert("shell".into(), Value::String(script));
+                }
+                _ => return Err(UsageError::new("give exact argv after -- or one --shell script")),
+            }
+            // A script's split keeps the user's focus unless it asks.
+            if flags.boolean("focus") {
+                params.insert("focus".into(), Value::Bool(true));
+            }
             add_size(&mut params, flags)?;
             request(ResourceOperation::PaneSplit, selectors, flags, params)
         }
