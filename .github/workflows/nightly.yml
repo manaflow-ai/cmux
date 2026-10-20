@@ -4059,12 +4059,12 @@ jobs:
           bin="$app/Contents/Resources/bin"
           [ -d "$bin" ] || exit 0
           bin="$(cd -P "$bin" && pwd)"
-          echo "stopping the owners of $bin"
-          bounded 20 bash -c 'source scripts/lib/stop-cmux-tui-owners.sh && cmux_stop_cmux_tui_owners "$1"' _ "$bin" \
-            || echo "the owner stop of the signed app did not finish in 20 s"
-          # The DMG smoke's owners ran from the detached mount, so ask each
-          # remaining owner to stop through its socket with this bundle's
-          # cmux-tui; SIGTERM only that exact PID if the request fails.
+          # Ask every cmux-tui owner (the signed app's, and the DMG smoke's that
+          # ran from a copy or the detached mount) to stop through its socket
+          # with this bundle's cmux-tui, which ends its terminals; SIGTERM only
+          # that exact owner PID if the request fails, takes over 10 s, or the
+          # step is past its 80 s budget. Terminal hosts are never matched.
+          deadline=$((SECONDS + 80))
           ps -axww -o pid= -o args= | while read -r pid args; do
             case "$args" in
               */Contents/Resources/bin/cmux-tui\ --headless\ *) ;;
@@ -4072,18 +4072,25 @@ jobs:
             esac
             socket="$(printf '%s\n' "$args" | sed -nE 's/.* --socket ([^ ]+).*/\1/p')"
             echo "stopping owner $pid"
-            if [ -n "$socket" ] && bounded 10 "$bin/cmux-tui" --socket "$socket" server stop --end-terminals >/dev/null 2>&1 </dev/null; then
+            if [ "$SECONDS" -lt "$deadline" ] && [ -n "$socket" ] \
+              && bounded 10 "$bin/cmux-tui" --socket "$socket" server stop --end-terminals >/dev/null 2>&1 </dev/null; then
               continue
             fi
-            echo "server stop of owner $pid failed or took more than 10 s; SIGTERM to that PID only"
+            echo "server stop of owner $pid failed, took more than 10 s, or the budget ran out; SIGTERM to that PID only"
             kill -TERM "$pid" 2>/dev/null || true
           done
           # `cmux acp` finds the bundle's own acpmux build home (a bare
           # `acpmux` would use ~/.acpmux). The DMG app has the same bundle id.
           if [ -x "$bin/cmux" ]; then
             echo "stopping the acpmux daemon"
-            bounded 20 "$bin/cmux" acp daemon shutdown --end-agents >/dev/null 2>&1 </dev/null \
-              || echo "acp daemon shutdown failed or took more than 20 s"
+            if ! bounded 20 "$bin/cmux" acp daemon shutdown --end-agents >/dev/null 2>&1 </dev/null; then
+              echo "acp daemon shutdown failed or took more than 20 s; SIGTERM to this bundle's acpmux daemons only"
+              ps -axww -o pid= -o args= | while read -r pid args; do
+                case "$args" in
+                  "$bin/acpmux daemon run"*) kill -TERM "$pid" 2>/dev/null || true ;;
+                esac
+              done
+            fi
           fi
           echo "cmux processes after the stop:"
           ps -axww -o pid=,ppid=,args= | grep -i cmux | grep -v grep || true
