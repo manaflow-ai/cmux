@@ -1000,11 +1000,11 @@ mark {
 }
 
 .devices-col-time {
-  width: 15%;
+  width: 13%;
 }
 
 .devices-col-event {
-  width: 13%;
+  width: 16%;
 }
 
 .devices-col-device {
@@ -1016,7 +1016,7 @@ mark {
 }
 
 .devices-col-detail {
-  width: 19%;
+  width: 18%;
 }
 
 .devices-col-duration {
@@ -1052,15 +1052,15 @@ mark {
   font-size: var(--text-detail);
 }
 
+/* The event pill never clips its word: a longer event wraps inside it. */
 .devices-pill {
-  display: inline-flex;
+  display: inline-block;
   max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
+  text-align: center;
   padding: 0 7px;
   border: 1px solid var(--border);
   border-radius: 999px;
-  white-space: nowrap;
   color: var(--muted-text);
 }
 

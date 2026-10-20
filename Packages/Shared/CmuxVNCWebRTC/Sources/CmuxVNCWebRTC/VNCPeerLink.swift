@@ -45,6 +45,13 @@ final class VNCPeerLink: NSObject, @unchecked Sendable, RTCPeerConnectionDelegat
     /// Secondary channels by label (the unordered `pointer` channel).
     private var extras: [String: RTCDataChannel] = [:]
     private var candidateErrorSink: (@Sendable (ICECandidateError) -> Void)?
+    private var stallSink: (@Sendable (Bool) -> Void)?
+    /// The connection stalled (ICE `disconnected`: no consent replies for a
+    /// few seconds) or recovered (`connected`/`completed`). Any thread.
+    var onStall: (@Sendable (Bool) -> Void)? {
+        get { lock.withLock { stallSink } }
+        set { lock.withLock { stallSink = newValue } }
+    }
     /// A STUN or TURN server could not give a candidate (WebRTC's
     /// `icecandidateerror`): a TURN 401 is refused credentials, 701 an
     /// unreachable server. Any thread.
@@ -333,6 +340,11 @@ final class VNCPeerLink: NSObject, @unchecked Sendable, RTCPeerConnectionDelegat
 
     func peerConnection(_ peerConnection: RTCPeerConnection, didChange newState: RTCIceConnectionState) {
         if newState == .failed || newState == .closed { closeOffCallback() }
+        switch newState {
+        case .disconnected: onStall?(true)
+        case .connected, .completed: onStall?(false)
+        default: break
+        }
     }
 
     func peerConnection(_ peerConnection: RTCPeerConnection, didFailToGatherIceCandidate event: RTCIceCandidateErrorEvent) {

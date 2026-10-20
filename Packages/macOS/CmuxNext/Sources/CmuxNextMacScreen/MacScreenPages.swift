@@ -174,10 +174,16 @@ public final class MacScreenPages {
         namesWatch?.cancel()
         guard let hub else { return }
         namesWatch = Task { [weak self] in
-            for await names in ObservationStream({ hub.devices.map { [$0.id, $0.name] } }) {
+            for await names in ObservationStream({ hub.devices.map { [$0.id, $0.name, $0.online ? "1" : "0"] } }) {
                 guard let self else { return }
                 if store.rememberDeviceNames(Dictionary(names.map { ($0[0], $0[1]) }, uniquingKeysWith: { _, last in last })) {
                     refreshDeviceTitles()
+                }
+                // Only while this Mac's own link is up: then the hub's word on a host is current.
+                if hub.connection == .connected {
+                    for viewer in hubViewers {
+                        if let entry = names.first(where: { $0[0] == viewer.deviceID }) { viewer.hostOnlineChanged(entry[2] == "1") }
+                    }
                 }
                 for tab in tabs.values {
                     guard let id = tab.record.deviceID, let name = names.first(where: { $0[0] == id })?[1],

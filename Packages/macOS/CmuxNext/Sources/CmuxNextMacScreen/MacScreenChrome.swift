@@ -109,7 +109,7 @@ extension MacScreenPaneModel {
         guard let session else { return .missing }
         switch session.phase {
         case .connecting: return Self.connectingCard(isReconnecting: session.isReconnecting, everConnected: everConnected)
-        case .connected: return hasFrame ? nil : .waitingForPicture
+        case .connected: return Self.connectedCard(hasFrame: hasFrame, stalled: session.isStalled)
         case .failed: return .failed
         case .ended: return .ended
         }
@@ -168,6 +168,14 @@ extension MacScreenPaneModel {
         guard gate == .open else { return false }
         guard let hub else { return true }
         return hub.phase.streamingScope != nil
+    }
+
+    /// A connected session's card: none while the picture flows, Reconnecting
+    /// as soon as the connection stalls (never a frozen picture), Waiting
+    /// until the first picture.
+    static func connectedCard(hasFrame: Bool, stalled: Bool) -> MacScreenCard? {
+        if stalled { return .connecting(reconnecting: true) }
+        return hasFrame ? nil : .waitingForPicture
     }
 
     /// Every connect retries, so the reconnecting flag is set on a first

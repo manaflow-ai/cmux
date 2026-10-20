@@ -158,8 +158,9 @@ extension AppServices {
             // posted (synthetic) click or an automation run is refused; a
             // person's click, or an accessibility press (no event in
             // dispatch), is the user.
-            let writer = Self.systemShortcutsWriter(syntheticEvent: (NSApp as? CmuxApplication)?.currentEventIsSynthetic ?? false,
-                                                    run: ActionRunScope.current)
+            // SwiftUI applies the switch after the click's dispatch: the click's provenance decides.
+            let synthetic = ((NSApp as? CmuxApplication)?.currentEventIsSynthetic ?? false) || InputProvenance.shared.lastInputIsSynthetic()
+            let writer = Self.systemShortcutsWriter(syntheticEvent: synthetic, run: ActionRunScope.current)
             guard let descriptor = SettingsSchema.descriptor(for: MacScreenSettings.systemShortcutsPath) else { return }
             // task-owner: one settings write per menu or switch change
             Task {

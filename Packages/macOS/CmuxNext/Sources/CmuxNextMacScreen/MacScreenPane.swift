@@ -214,6 +214,7 @@ public final class MacScreenPane {
     private func observePhase(_ session: ScreenSession) {
         withObservationTracking {
             _ = session.phase
+            _ = session.isStalled
         } onChange: { [weak self, weak session] in
             Task { @MainActor [weak self] in
                 guard let self, let session else { return }
@@ -225,6 +226,7 @@ public final class MacScreenPane {
                     wasConnected = false
                     model.hasFrame = false
                 }
+                model.hub?.streamStalled(session.isStalled)
                 // A device hub stream that could not start, or dropped: the hub hears it too.
                 if case .failed = session.phase, model.hub?.phase.streamingScope != nil { model.hub?.streamFailed() }
                 view.needsLayout = true
@@ -243,6 +245,8 @@ public final class MacScreenPane {
 
     /// Starts a connection: the host hears it first (`willConnect`).
     private func start(_ session: ScreenSession) {
+        // A forgotten Mac's (closed) session never starts again.
+        guard model.gate != .missing, !session.isClosed else { return }
         handlers.willConnect()
         connectSession(session)
     }
@@ -359,9 +363,11 @@ public final class MacScreenPane {
         return streaming || (failed && visible)
     }
 
-    /// The Mac was forgotten: the session ends and the tab says it is not paired.
+    /// The Mac was forgotten: its stream ends now, for good (a closed session
+    /// never connects again), and the tab says it is not paired.
     public func forgotten() {
         hideTimer.cancel()
+        stoppedByPerson = true
         session?.close()
         model.gate = .missing
         view.input.releaseKeyboard()
@@ -491,6 +497,7 @@ public final class MacScreenPaneView: NSView {
     private func observe() {
         withObservationTracking {
             _ = model.card
+            _ = model.session?.isStalled
             _ = model.gate
             _ = model.hasFrame
             _ = model.viewOnly

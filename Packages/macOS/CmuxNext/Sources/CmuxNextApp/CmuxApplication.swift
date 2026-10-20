@@ -60,6 +60,7 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
         defer { if probesKey { TypingLatencyProbe.shared.mark(.dispatchEnd) } }
         let previousSynthetic = currentEventIsSynthetic
         currentEventIsSynthetic = !SyntheticInput.isUserInput(event)
+        InputProvenance.shared.note(event, synthetic: currentEventIsSynthetic)
         defer { currentEventIsSynthetic = previousSynthetic }
         inputObserver?(event)
         let previous = handlingSendEvent

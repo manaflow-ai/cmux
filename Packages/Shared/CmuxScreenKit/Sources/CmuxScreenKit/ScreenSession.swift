@@ -78,6 +78,15 @@ public final class ScreenSession {
     public private(set) var streamPath = "WebRTC"
     /// The stream dropped and is coming back on its own.
     public private(set) var isReconnecting = false
+    /// The connection stalled (ICE disconnected): no picture is coming,
+    /// though WebRTC has not given up yet. Cleared when it recovers.
+    public private(set) var isStalled = false
+    /// `close()` ran: the session never connects again.
+    @ObservationIgnored public private(set) var isClosed = false
+    /// When the current run of reconnects started (the give-up clock).
+    @ObservationIgnored private var reconnectStarted: Date?
+    /// Reconnects stop once they have tried this long, whatever `reconnectLimit` says.
+    public static let reconnectDeadline: TimeInterval = 45
     /// The TURN relays' errors in the current connection (refused
     /// credentials, unreachable), so a failure can say why; cleared on connect.
     public private(set) var relayErrors: [ICECandidateError] = []
@@ -148,6 +157,7 @@ public final class ScreenSession {
 
     /// Connects (again): any running connection is replaced.
     public func connect() {
+        guard !isClosed else { return }
         disconnect(silently: true)
         phase = .connecting
         if let makeSignaling {
@@ -222,6 +232,13 @@ public final class ScreenSession {
     private func connectStream(_ viewer: ScreenStreamViewer, name: String) {
         stream = viewer
         relayErrors = []
+        isStalled = false
+        viewer.onStall = { [weak self, weak viewer] stalled in
+            Task { @MainActor in
+                guard let self, self.stream === viewer else { return }
+                self.isStalled = stalled
+            }
+        }
         viewer.onICEError = { [weak self] error in
             guard error.isTURN else { return }
             Task { @MainActor in self?.relayErrors.append(error) }
@@ -243,8 +260,10 @@ public final class ScreenSession {
         tasks.append(Task { [weak self] in
             do {
                 try await viewer.connect()
-                guard let self else { return }
+                // A connect that finished after this session moved on (closed, disconnected) changes nothing.
+                guard let self, !Task.isCancelled, stream === viewer else { return }
                 reconnectAttempts = 0
+                reconnectStarted = nil
                 isReconnecting = false
                 viewer.setQuality(preferences.quality)
                 phase = .connected(VNCServerInfo(width: 0, height: 0, name: name, nativeFormat: .bgrx,
@@ -263,8 +282,17 @@ public final class ScreenSession {
 
     /// The stream ended without the user closing it: reconnect a few times
     /// (backing off) before showing the error.
+    /// Whether reconnecting stops: after `limit` tries, or once it has tried for ``reconnectDeadline`` seconds.
+    public nonisolated static func givesUp(attempts: Int, limit: Int, elapsed: TimeInterval) -> Bool {
+        attempts >= limit || elapsed > reconnectDeadline
+    }
+
     private func streamDropped(_ message: String) {
-        guard reconnectAttempts < reconnectLimit else {
+        isStalled = false
+        let started = reconnectStarted ?? Date()
+        reconnectStarted = started
+        guard !Self.givesUp(attempts: reconnectAttempts, limit: reconnectLimit, elapsed: Date().timeIntervalSince(started)) else {
+            reconnectStarted = nil
             // Giving up: the dropped stream's room socket would keep reconnecting.
             stream?.close()
             stream = nil
@@ -289,6 +317,8 @@ public final class ScreenSession {
     /// connection (the relay setting), where the host may still be dropping
     /// the old one.
     public func reconnect() {
+        guard !isClosed else { return }
+        reconnectStarted = nil
         reconnectTask?.cancel()
         reconnectAttempts = 0
         isReconnecting = true
@@ -298,7 +328,7 @@ public final class ScreenSession {
     /// The app came back to the foreground: a stream that dropped while it
     /// was suspended reconnects right away.
     public func resumeIfNeeded() {
-        guard isStream else { return }
+        guard isStream, !isClosed else { return }
         switch phase {
         case .failed(_, false), .ended:
             reconnectAttempts = 0
@@ -368,6 +398,7 @@ public final class ScreenSession {
     /// Stops everything, including the demo server.
     public func close() {
         disconnect()
+        isClosed = true
         demo?.stop()
         demo = nil
     }

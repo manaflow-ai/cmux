@@ -152,7 +152,11 @@ public final class DeviceHub {
         switch event {
         case let .state(state):
             connection = state
-            if state == .connected { await refreshAll() }
+            if state == .connected {
+                // Back on the hub: whatever changed while away (a relaunched host's history) is read again.
+                pushCount += 1
+                await refreshAll()
+            }
             if state == .removed { status = .failed("this device was removed") }
         case let .push(push):
             await handle(push)
@@ -209,6 +213,9 @@ public final class DeviceHub {
     public func refreshRelays() async {
         await load { try await $0.relays() } into: { hub, value in
             hub.relays = value
+            // A relay deleted elsewhere: its opened secret leaves this Mac too.
+            let listed = Set(value.map(\.id))
+            for id in hub.secrets.relayIDs() where !listed.contains(id) { hub.secrets.remove(relayID: id) }
             let sealing = RelaySealing(identity: hub.identity)
             for relay in value {
                 guard let blob = relay.sealedForThisDevice, let secret = try? sealing.open(blob, relayID: relay.id) else { continue }

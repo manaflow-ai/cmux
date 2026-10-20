@@ -7,6 +7,8 @@ public protocol RelaySecretStore: Sendable {
     func secret(relayID: String) -> RelaySecret?
     func save(_ secret: RelaySecret, relayID: String)
     func remove(relayID: String)
+    /// The relays this device holds a secret for.
+    func relayIDs() -> [String]
 }
 
 /// Opened relay secrets (`relay-<id>`) in the data-protection keychain under
@@ -61,6 +63,11 @@ public struct KeychainRelaySecretStore: RelaySecretStore {
         try? legacy?.delete("relay-\(relayID)")
     }
 
+    public func relayIDs() -> [String] {
+        let accounts = keychain.accounts() + (legacy?.accounts() ?? [])
+        return Array(Set(accounts.filter { $0.hasPrefix("relay-") }.map { String($0.dropFirst(6)) })).sorted()
+    }
+
     static func missingEntitlement(_ failure: DeviceIdentity.Failure) -> Bool {
         failure == .keychain(errSecMissingEntitlement)
     }
@@ -75,4 +82,5 @@ public final class MemoryRelaySecretStore: RelaySecretStore {
     public func secret(relayID: String) -> RelaySecret? { secrets.withLock { $0[relayID] } }
     public func save(_ secret: RelaySecret, relayID: String) { secrets.withLock { $0[relayID] = secret } }
     public func remove(relayID: String) { _ = secrets.withLock { $0.removeValue(forKey: relayID) } }
+    public func relayIDs() -> [String] { secrets.withLock { $0.keys.sorted() } }
 }

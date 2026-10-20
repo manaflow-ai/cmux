@@ -314,6 +314,34 @@ public final class MacScreenHubViewer {
         phase = .ended(reason: reason)
     }
 
+    /// The hub's view of the host: offline while this tab streams means the
+    /// stream is dead or about to be (the hub knows within its offline grace),
+    /// so it ends now with that reason instead of waiting on WebRTC.
+    func hostOnlineChanged(_ online: Bool) {
+        hostOnline = online
+        endIfHostGone()
+    }
+
+    /// The stream stalled (ICE disconnected) or recovered.
+    func streamStalled(_ stalled: Bool) {
+        self.stalled = stalled
+        endIfHostGone()
+    }
+
+    @ObservationIgnored private var hostOnline = true
+    @ObservationIgnored private var stalled = false
+
+    /// A stalled stream whose host the hub lists offline is over: end it now
+    /// rather than wait for WebRTC. Either alone is not enough: a host's
+    /// short hub drop leaves a live stream alone, and a stall may recover.
+    private func endIfHostGone() {
+        guard !hostOnline, stalled, phase.streamingScope != nil else { return }
+        failureEnd?.cancel()
+        stalled = false
+        stopStream()
+        phase = .ended(reason: "peer_offline")
+    }
+
     /// This Mac's own link to the hub is up (a failed stream then blames neither Mac's network).
     var hubConnected: Bool { hub()?.connection == .connected }
 

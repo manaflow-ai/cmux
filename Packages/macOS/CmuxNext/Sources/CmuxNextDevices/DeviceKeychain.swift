@@ -39,6 +39,17 @@ public struct DeviceKeychain: Sendable {
         guard status == errSecSuccess else { throw DeviceIdentity.Failure.keychain(status) }
     }
 
+    /// Every account under this service (empty when none or unreadable).
+    public func accounts() -> [String] {
+        var query = query("")
+        query.removeValue(forKey: kSecAttrAccount as String)
+        query[kSecReturnAttributes as String] = true
+        query[kSecMatchLimit as String] = kSecMatchLimitAll
+        var out: CFTypeRef?
+        guard SecItemCopyMatching(query as CFDictionary, &out) == errSecSuccess, let items = out as? [[String: Any]] else { return [] }
+        return items.compactMap { $0[kSecAttrAccount as String] as? String }
+    }
+
     public func delete(_ account: String) throws {
         let status = SecItemDelete(query(account) as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else { throw DeviceIdentity.Failure.keychain(status) }
