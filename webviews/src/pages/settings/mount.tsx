@@ -13,10 +13,7 @@ import { PARKED_NAME } from "../shared/pageClient";
 const parked = () => (globalThis as Record<string, unknown>)[PARKED_NAME] === true;
 
 /** Renders the page and starts its store; the returned function unmounts both. */
-export async function mountSettingsPage(
-  root: HTMLElement,
-  client: SettingsClient,
-): Promise<() => void> {
+export async function mountSettingsPage(root: HTMLElement, client: SettingsClient): Promise<() => void> {
   setLocale(document.documentElement.lang || navigator.language);
   // The one look (refined.css over layout.css): section nav, grouped cards, the app drawn as an
   // illustration in the Theme preview (Lucas #21120; the only look, Lawrence 2026-10-16).

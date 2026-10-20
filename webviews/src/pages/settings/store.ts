@@ -153,12 +153,7 @@ export class SettingsStore {
     });
     this.queryClient.setQueryDefaults(settingsKeys.themeColors, {
       queryFn: async (): Promise<ThemeColorsData> =>
-        new Map(
-          (await this.native("cmux.settings.theme.colors")).themes.map((theme) => [
-            theme.name,
-            theme,
-          ]),
-        ),
+        new Map((await this.native("cmux.settings.theme.colors")).themes.map((theme) => [theme.name, theme])),
     });
     // Any cache change (a read, an optimistic write, a rollback) is a new page state.
     this.unsubscribers.push(this.queryClient.getQueryCache().subscribe(() => this.emit()));
@@ -169,9 +164,7 @@ export class SettingsStore {
     // Every subscription at once (one round trip, not two), then the reads, so no change can land
     // between a read and its subscription.
     const listening = Promise.all([
-      this.listen("cmux.settings.host.changed", (host) =>
-        this.queryClient.setQueryData(settingsKeys.host, host),
-      ),
+      this.listen("cmux.settings.host.changed", (host) => this.queryClient.setQueryData(settingsKeys.host, host)),
       this.listen("cmux.settings.accounts.changed", (accounts) =>
         this.queryClient.setQueryData(settingsKeys.accounts, accounts),
       ),
@@ -219,8 +212,7 @@ export class SettingsStore {
           if (!this.ui.connected) this.updateUi({ connected: true });
           return read;
         } catch (error) {
-          if (error instanceof TransportError && error.code === "unavailable")
-            this.updateUi({ connected: false });
+          if (error instanceof TransportError && error.code === "unavailable") this.updateUi({ connected: false });
           throw error;
         }
       },
@@ -238,9 +230,7 @@ export class SettingsStore {
     if (revision !== undefined) this.covered = revision;
     const { queryKey } = this.scopeQuery();
     await this.queryClient.cancelQueries({ queryKey, exact: true });
-    const read = await this.queryClient
-      .fetchQuery({ ...this.scopeQuery(), staleTime: 0 })
-      .catch(() => undefined);
+    const read = await this.queryClient.fetchQuery({ ...this.scopeQuery(), staleTime: 0 }).catch(() => undefined);
     if (read) this.covered = Math.max(this.covered, read.revision);
     // A failed or cancelled read covers nothing it did not show: the next announcement reads again.
     else this.covered = this.queryClient.getQueryData<ScopeData>(queryKey)?.revision ?? 0;
@@ -261,9 +251,7 @@ export class SettingsStore {
     // An observer creates the query before any read, so the cache cannot say "already asked".
     if (this.themeColorsRequested) return;
     this.themeColorsRequested = true;
-    await this.queryClient
-      .fetchQuery({ queryKey: settingsKeys.themeColors })
-      .catch(() => undefined);
+    await this.queryClient.fetchQuery({ queryKey: settingsKeys.themeColors }).catch(() => undefined);
   }
 
   /** Sets one theme level of the active window, then re-reads the lists (the current theme). */
@@ -273,31 +261,21 @@ export class SettingsStore {
   }
 
   /** Save as Ghostty Theme (cx-wqn5.1): the host writes `base` with its edits as the user theme `name`. */
-  async saveThemeFile(
-    name: string,
-    base: string,
-    replace: boolean,
-  ): Promise<Reply<{ name?: string }>> {
-    return this.themeFileSaved(
-      await this.request("cmux.settings.theme.save", { name, base, replace }),
-    );
+  async saveThemeFile(name: string, base: string, replace: boolean): Promise<Reply<{ name?: string }>> {
+    return this.themeFileSaved(await this.request("cmux.settings.theme.save", { name, base, replace }));
   }
 
   /**
    * Import Theme File: the host asks for the file in the cmux picker (`{}` when the person left it).
    * A name in use answers `cmux.settings.theme.exists` with a `token`; `token` and `replace` retry it.
    */
-  async importThemeFile(retry?: {
-    token: string;
-    replace: boolean;
-  }): Promise<Reply<{ name?: string }>> {
+  async importThemeFile(retry?: { token: string; replace: boolean }): Promise<Reply<{ name?: string }>> {
     return this.themeFileSaved(await this.request("cmux.settings.theme.import", retry ?? {}));
   }
 
   /** After a theme file lands, the theme names and colors are read again so every picker lists it. */
   private async themeFileSaved(reply: Reply<{ name?: string }>): Promise<Reply<{ name?: string }>> {
-    if (reply.ok && reply.value.name)
-      await Promise.all([this.refresh(), this.fetchNative(settingsKeys.themeColors)]);
+    if (reply.ok && reply.value.name) await Promise.all([this.refresh(), this.fetchNative(settingsKeys.themeColors)]);
     return reply;
   }
 
@@ -308,9 +286,7 @@ export class SettingsStore {
   }
 
   /** The section's action buttons; empty when the host has none. */
-  async sectionActions(
-    section: string,
-  ): Promise<Array<{ id: string; title: string; enabled: boolean }>> {
+  async sectionActions(section: string): Promise<Array<{ id: string; title: string; enabled: boolean }>> {
     const reply = await this.request("cmux.settings.section.actions", { section });
     return reply.ok ? reply.value : [];
   }
@@ -399,16 +375,14 @@ export class SettingsStore {
 
   /** Shows a tint over the workspace `id`'s art without saving it (the slider moving). */
   previewWorkspaceOpacity(id: string, opacity: number): void {
-    if (this.ui.connected)
-      void this.request("cmux.settings.backdrop.workspace.preview", { workspace: id, opacity });
+    if (this.ui.connected) void this.request("cmux.settings.backdrop.workspace.preview", { workspace: id, opacity });
   }
 
   /** Shows `value` in the workspace `id` without saving it; `undefined` ends every preview. */
   previewWorkspaceBackground(id: string, value: string | null | undefined): void {
     if (value === undefined)
       void this.request("cmux.settings.backdrop.workspace.preview", { workspace: id, end: true });
-    else if (this.ui.connected)
-      void this.request("cmux.settings.backdrop.workspace.preview", { workspace: id, value });
+    else if (this.ui.connected) void this.request("cmux.settings.backdrop.workspace.preview", { workspace: id, value });
   }
 
   /** Browse More Art: the works matching `query`, or null when the host could not search. */
@@ -470,11 +444,7 @@ export class SettingsStore {
   }
 
   /** Runs one of the page's catalog actions (`target` is `kind:id`), then re-reads the lists. */
-  async runAction(
-    action: SettingsPageAction,
-    args: Record<string, unknown> = {},
-    target?: string,
-  ): Promise<void> {
+  async runAction(action: SettingsPageAction, args: Record<string, unknown> = {}, target?: string): Promise<void> {
     await this.request("cmux.app.action.run", target ? { action, args, target } : { action, args });
     await this.refreshHost();
   }
@@ -578,37 +548,34 @@ export class SettingsStore {
     }
     const key = settingsKeys.scope("user");
     const queryClient = this.queryClient;
-    const observer = new MutationObserver<
-      number | void,
-      TransportError,
-      Write,
-      { previous: ScopeData | undefined }
-    >(queryClient, {
-      mutationKey: settingsKeys.write,
-      mutationFn: (next) =>
-        next.kind === "set"
-          ? this.transport.set(next.key, next.value)
-          : this.transport.reset(next.kind === "reset" ? next.key : "all"),
-      onMutate: async (next) => {
-        await queryClient.cancelQueries({ queryKey: key });
-        const previous = queryClient.getQueryData<ScopeData>(key);
-        if (previous) queryClient.setQueryData(key, optimistic(previous, next));
-        return { previous };
+    const observer = new MutationObserver<number | void, TransportError, Write, { previous: ScopeData | undefined }>(
+      queryClient,
+      {
+        mutationKey: settingsKeys.write,
+        mutationFn: (next) =>
+          next.kind === "set"
+            ? this.transport.set(next.key, next.value)
+            : this.transport.reset(next.kind === "reset" ? next.key : "all"),
+        onMutate: async (next) => {
+          await queryClient.cancelQueries({ queryKey: key });
+          const previous = queryClient.getQueryData<ScopeData>(key);
+          if (previous) queryClient.setQueryData(key, optimistic(previous, next));
+          return { previous };
+        },
+        onError: (_error, _next, context) => {
+          if (context?.previous) queryClient.setQueryData(key, context.previous);
+        },
+        // The owner's revision after the write: its own change event then reads nothing more.
+        onSettled: (revision) => this.refresh(revision ?? undefined),
       },
-      onError: (_error, _next, context) => {
-        if (context?.previous) queryClient.setQueryData(key, context.previous);
-      },
-      // The owner's revision after the write: its own change event then reads nothing more.
-      onSettled: (revision) => this.refresh(revision ?? undefined),
-    });
+    );
     try {
       await observer.mutate(write);
     } catch (error) {
       const wire = error instanceof TransportError ? error.wire : wireError(error);
       const code = errorCode(wire);
       if (code === "unavailable") this.updateUi({ connected: false });
-      else if (code !== "revision_conflict" && write.kind !== "resetAll")
-        this.setError(write.key, rowError(wire));
+      else if (code !== "revision_conflict" && write.kind !== "resetAll") this.setError(write.key, rowError(wire));
       return { ok: false, error: wire };
     } finally {
       observer.reset();
@@ -629,10 +596,7 @@ export class SettingsStore {
     return reply.value;
   }
 
-  private async request<K extends SettingsOpName>(
-    op: K,
-    params: SettingsOps[K][0],
-  ): Promise<Reply<SettingsOps[K][1]>> {
+  private async request<K extends SettingsOpName>(op: K, params: SettingsOps[K][0]): Promise<Reply<SettingsOps[K][1]>> {
     try {
       return { ok: true, value: await this.client.call<SettingsOps[K][1]>(op, params) };
     } catch (error) {
