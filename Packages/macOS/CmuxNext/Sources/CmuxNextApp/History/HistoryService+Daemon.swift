@@ -88,8 +88,8 @@ extension HistoryService {
         // task-owner: one-shot import and read of the profile's visit summaries
         Task { [weak self, weak history] in
             guard let self else { return }
-            await self.flushLocalHistory(profile: profile)
-            if let legacy, let supportDirectory {
+            let flushed = await self.flushLocalHistory(profile: profile)
+            if flushed, let legacy, let supportDirectory {
                 await Self.handOver(legacy, supportDirectory: supportDirectory, profile: wireID, to: daemon)
             }
             let summaries = (try? await daemon.summaries(profile: wireID)) ?? []

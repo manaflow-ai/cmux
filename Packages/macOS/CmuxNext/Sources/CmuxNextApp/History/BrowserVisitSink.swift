@@ -12,7 +12,7 @@ final class BrowserVisitSink: BrowserHistoryPersistence {
         case remove(String)
         case clear(Date?)
         case removeHost(String)
-        case barrier(CheckedContinuation<Void, Never>)
+        case barrier(CheckedContinuation<Bool, Never>)
     }
 
     let log: BrowserVisitLog
@@ -21,7 +21,7 @@ final class BrowserVisitSink: BrowserHistoryPersistence {
 
     init(log: BrowserVisitLog) {
         self.log = log
-        let (stream, continuation) = AsyncStream<Operation>.makeStream(bufferingPolicy: .bufferingNewest(4_096))
+        let (stream, continuation) = AsyncStream<Operation>.makeStream(bufferingPolicy: .bufferingOldest(4_096))
         self.continuation = continuation
         // task-owner: the sink's lifetime; ends when the stream finishes in deinit
         drain = Task.detached {
@@ -32,7 +32,7 @@ final class BrowserVisitSink: BrowserHistoryPersistence {
                 case .remove(let url): await log.remove(url: url)
                 case .clear(let since): await log.removeVisits(since: since)
                 case .removeHost(let host): await log.remove(host: host)
-                case .barrier(let barrier): barrier.resume()
+                case .barrier(let barrier): barrier.resume(returning: true)
                 }
             }
         }
@@ -68,10 +68,19 @@ final class BrowserVisitSink: BrowserHistoryPersistence {
     }
 
     /// Waits until every local history write queued before this call finished.
-    func flush() async {
+    func flush() async -> Bool {
         await withCheckedContinuation { barrier in
-            if case .terminated = continuation.yield(.barrier(barrier)) {
-                barrier.resume()
+            switch continuation.yield(.barrier(barrier)) {
+            case .enqueued:
+                break
+            case .dropped(let dropped):
+                if case .barrier(let droppedBarrier) = dropped {
+                    droppedBarrier.resume(returning: false)
+                }
+            case .terminated:
+                barrier.resume(returning: false)
+            @unknown default:
+                barrier.resume(returning: false)
             }
         }
     }
