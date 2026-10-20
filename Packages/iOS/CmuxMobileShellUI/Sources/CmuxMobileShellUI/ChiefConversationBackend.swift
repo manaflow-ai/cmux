@@ -9,25 +9,22 @@ import Foundation
 /// visible, then refreshes its newest page so the generic Messages UI remains
 /// live without a fixed polling cadence.
 final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
-    private enum BackendText {
-        static func value(_ key: String, _ fallback: String) -> String {
-            String(localized: key, defaultValue: fallback, bundle: .module)
-        }
+    private static func backendText(_ key: String, _ fallback: String) -> String {
+        String(localized: key, defaultValue: fallback, bundle: .module)
+    }
+    private static let deselectUnsupported = backendText("mobile.chief.error.deselectUnsupported", "Chief cards cannot be deselected")
+    private static let openQuestionSheet = backendText("mobile.chief.error.openQuestionSheet", "Open the Chief question sheet to answer this card")
+    private static let cardAlreadyAnswered = backendText("mobile.chief.error.cardAlreadyAnswered", "That Chief card is already being answered")
+    private static let approvalAlreadyAnswered = backendText("mobile.chief.error.approvalAlreadyAnswered", "That approval was already answered")
+    private static let questionAlreadyAnswered = backendText("mobile.chief.error.questionAlreadyAnswered", "That question was already answered")
+    private static let optionUnavailable = backendText("mobile.chief.error.optionUnavailable", "That question option is no longer available")
+    private static let answeredCardMissing = backendText("mobile.chief.error.answeredCardMissing", "Chief did not return the answered card")
+    private static let questionNotWaiting = backendText("mobile.chief.error.questionNotWaiting", "That Chief question is no longer waiting")
+    private static let answerRequired = backendText("mobile.chief.error.answerRequired", "Choose an answer before submitting")
+    private static let answeredQuestionMissing = backendText("mobile.chief.error.answeredQuestionMissing", "Chief did not return the answered question")
 
-        static let deselectUnsupported = value("mobile.chief.error.deselectUnsupported", "Chief cards cannot be deselected")
-        static let openQuestionSheet = value("mobile.chief.error.openQuestionSheet", "Open the Chief question sheet to answer this card")
-        static let cardAlreadyAnswered = value("mobile.chief.error.cardAlreadyAnswered", "That Chief card is already being answered")
-        static let approvalAlreadyAnswered = value("mobile.chief.error.approvalAlreadyAnswered", "That approval was already answered")
-        static let questionAlreadyAnswered = value("mobile.chief.error.questionAlreadyAnswered", "That question was already answered")
-        static let optionUnavailable = value("mobile.chief.error.optionUnavailable", "That question option is no longer available")
-        static let answeredCardMissing = value("mobile.chief.error.answeredCardMissing", "Chief did not return the answered card")
-        static let questionNotWaiting = value("mobile.chief.error.questionNotWaiting", "That Chief question is no longer waiting")
-        static let answerRequired = value("mobile.chief.error.answerRequired", "Choose an answer before submitting")
-        static let answeredQuestionMissing = value("mobile.chief.error.answeredQuestionMissing", "Chief did not return the answered question")
-
-        static func unsupported(_ operation: String) -> String {
-            value("mobile.chief.error.unsupported", "Chief does not support \(operation)")
-        }
+    private static func unsupportedBackendText(_ operation: String) -> String {
+        backendText("mobile.chief.error.unsupported", "Chief does not support \(operation)")
     }
 
     /// Synthetic poll option used to open the full multi-question composer.
@@ -220,10 +217,10 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
     /// once Chief has accepted an answer.
     func votePoll(messageID: String, optionID: String, selected: Bool) async throws -> ConversationMessage {
         guard selected else {
-            throw ConversationBackendError(code: -1, message: BackendText.deselectUnsupported)
+            throw ConversationBackendError(code: -1, message: Self.deselectUnsupported)
         }
         if optionID == Self.questionComposerOptionID {
-            throw ConversationBackendError(code: -1, message: BackendText.openQuestionSheet)
+            throw ConversationBackendError(code: -1, message: Self.openQuestionSheet)
         }
         let pendingPart: MobileChiefPart? = withState { state in
             guard let parts = state.structuredPartsByMessageID[messageID] else { return nil }
@@ -236,7 +233,7 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
             state.decidingMessageIDs.insert(messageID).inserted
         }
         guard claimed else {
-            throw ConversationBackendError(code: -1, message: BackendText.cardAlreadyAnswered)
+            throw ConversationBackendError(code: -1, message: Self.cardAlreadyAnswered)
         }
         defer {
             withState { $0.decidingMessageIDs.remove(messageID) }
@@ -245,7 +242,7 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
         case "approval":
             guard let approval = part.approval else { throw unsupported("approval cards") }
             guard approval.decided == nil else {
-                throw ConversationBackendError(code: -1, message: BackendText.approvalAlreadyAnswered)
+                throw ConversationBackendError(code: -1, message: Self.approvalAlreadyAnswered)
             }
             _ = try await client.approve(conversation: conversationID, request: approval.request, choice: optionID)
         case "question":
@@ -253,13 +250,13 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
                 throw unsupported("question cards")
             }
             guard question.isPending else {
-                throw ConversationBackendError(code: -1, message: BackendText.questionAlreadyAnswered)
+                throw ConversationBackendError(code: -1, message: Self.questionAlreadyAnswered)
             }
             guard let item = Self.pollQuestion(from: question) else {
                 throw unsupported("multi-item or multi-select question cards")
             }
             guard item.options.contains(where: { $0.id == optionID }) else {
-                throw ConversationBackendError(code: -1, message: BackendText.optionUnavailable)
+                throw ConversationBackendError(code: -1, message: Self.optionUnavailable)
             }
             // The generic poll can represent one single-select item. Do not
             // invent answers for hidden items or collapse a multi-select ask
@@ -308,7 +305,7 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
         if let previous = withState({ $0.previousMessagesByID[messageID] }) {
             return publishUpdatedMessage(previous)
         }
-        throw ConversationBackendError(code: -1, message: BackendText.answeredCardMissing)
+        throw ConversationBackendError(code: -1, message: Self.answeredCardMissing)
     }
 
     func edit(messageID: String, text: String) async throws -> ConversationMessage {
@@ -342,10 +339,10 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
     /// free-text Other value, matching the Mac Chief implementation.
     func answerQuestion(messageID: String, choices: [String], text: String?) async throws -> ConversationMessage {
         guard let question = question(for: messageID), question.isPending else {
-            throw ConversationBackendError(code: -1, message: BackendText.questionNotWaiting)
+            throw ConversationBackendError(code: -1, message: Self.questionNotWaiting)
         }
         guard !choices.isEmpty || (text?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false) else {
-            throw ConversationBackendError(code: -1, message: BackendText.answerRequired)
+            throw ConversationBackendError(code: -1, message: Self.answerRequired)
         }
         _ = try await client.answer(
             conversation: conversationID,
@@ -384,7 +381,7 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
         if let previous = withState({ $0.previousMessagesByID[messageID] }) {
             return publishUpdatedMessage(previous)
         }
-        throw ConversationBackendError(code: -1, message: BackendText.answeredQuestionMissing)
+        throw ConversationBackendError(code: -1, message: Self.answeredQuestionMissing)
     }
 
     func uploadImage(_ data: Data, mimeType: String) async throws -> ConversationAttachment {
@@ -877,6 +874,6 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
     }
 
     private func unsupported(_ operation: String) -> ConversationBackendError {
-        ConversationBackendError(code: -32601, message: BackendText.unsupported(operation))
+        ConversationBackendError(code: -32601, message: Self.unsupportedBackendText(operation))
     }
 }
