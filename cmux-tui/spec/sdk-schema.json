@@ -1941,6 +1941,28 @@
      "presence": "required",
      "nullable": false
     },
+    "api_revision": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint32"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "constraints": [
+      "The API revision this daemon reads and writes natively (cmux-tui/spec/api-compat.json). Absent on daemons from before revisions."
+     ]
+    },
+    "min_api_revision": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint32"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "constraints": [
+      "The oldest API revision this daemon translates to and from for a client that declares it with set-client-info."
+     ]
+    },
     "capabilities": {
      "type": {
       "kind": "array",
@@ -9298,6 +9320,19 @@
       "capability": "shared-sizing-v1",
       "constraints": [
        "Stable per-install device id; tells two devices of one user apart."
+      ]
+     },
+     "api_revision": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint32"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "constraints": [
+       "The API revision the client reads and writes. An older revision within the daemon's range is translated both ways by the daemon; a newer client translates for itself; an older one than min_api_revision is refused. Absent: revision 12."
       ]
      }
     },

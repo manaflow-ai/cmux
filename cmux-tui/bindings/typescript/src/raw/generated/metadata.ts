@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 9392cc109f8bc0c8c0f000289c18ad6bb03e6eb1a959c08811fc510fb5f822e0. */
+/* cmux-tui mux protocol 12, IR 23c9826d750d16e26fda9d1f733bd4a3343a6b82ffa2c3fa877b07aabeb345f7. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "9392cc109f8bc0c8c0f000289c18ad6bb03e6eb1a959c08811fc510fb5f822e0" as const;
+export const SDK_IR_SHA256 = "23c9826d750d16e26fda9d1f733bd4a3343a6b82ffa2c3fa877b07aabeb345f7" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -2627,6 +2627,10 @@ export const COMMAND_METADATA = {
     "since": 6,
     "capability": null,
     "fields": {
+      "api_revision": {
+        "since": 12,
+        "capability": null
+      },
       "device_id": {
         "since": 12,
         "capability": "shared-sizing-v1"
@@ -7126,6 +7130,17 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
   "IdentifyResult": {
     "additional_properties": false,
     "fields": {
+      "api_revision": {
+        "constraints": [
+          "The API revision this daemon reads and writes natively (cmux-tui/spec/api-compat.json). Absent on daemons from before revisions."
+        ],
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "uint32"
+        }
+      },
       "app": {
         "nullable": false,
         "presence": "required",
@@ -7258,6 +7273,17 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "MachinePlatform"
+        }
+      },
+      "min_api_revision": {
+        "constraints": [
+          "The oldest API revision this daemon translates to and from for a client that declares it with set-client-info."
+        ],
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "uint32"
         }
       },
       "pid": {
@@ -24084,6 +24110,19 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "request": {
       "additional_properties": false,
       "fields": {
+        "api_revision": {
+          "constraints": [
+            "The API revision the client reads and writes. An older revision within the daemon's range is translated both ways by the daemon; a newer client translates for itself; an older one than min_api_revision is refused. Absent: revision 12."
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "uint32"
+          }
+        },
         "capabilities": {
           "constraints": [
             "Advertises additive client capabilities for this connection."

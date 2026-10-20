@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "9392cc109f8bc0c8c0f000289c18ad6bb03e6eb1a959c08811fc510fb5f822e0";
+pub const ir_sha256 = "23c9826d750d16e26fda9d1f733bd4a3343a6b82ffa2c3fa877b07aabeb345f7";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -1044,6 +1044,7 @@ pub const IdMapping = struct {
 };
 
 pub const IdentifyResult = struct {
+    api_revision: wire.Field(u32) = .absent,
     app: []const u8,
     build_commit: wire.Field([]const u8) = .absent,
     build_id: wire.Field([]const u8) = .absent,
@@ -1058,6 +1059,7 @@ pub const IdentifyResult = struct {
     machine_id: ?[]const u8 = null,
     machine_name: ?[]const u8 = null,
     machine_platform: ?MachinePlatform = null,
+    min_api_revision: wire.Field(u32) = .absent,
     pid: u32,
     protocol: u32,
     registry_id: []const u8,
@@ -8274,6 +8276,7 @@ pub fn setCellPixels(client: anytype, request: SetCellPixelsRequest) !wire.Decod
 }
 
 pub const SetClientInfoRequest = struct {
+    api_revision: wire.Field(u32) = .absent,
     capabilities: wire.Field([]const []const u8) = .absent,
     device_id: wire.Field([]const u8) = .absent,
     device_kind: wire.Field([]const u8) = .absent,
@@ -8295,6 +8298,7 @@ pub fn setClientInfo(client: anytype, request: SetClientInfoRequest) !wire.Decod
             .since = 6,
             .capability = null,
             .fields = &.{
+                .{ .name = "api_revision", .since = 12, .capability = null },
                 .{ .name = "device_id", .since = 12, .capability = "shared-sizing-v1" },
                 .{ .name = "device_kind", .since = 12, .capability = "shared-sizing-v1" },
                 .{ .name = "device_name", .since = 12, .capability = "shared-sizing-v1" },

@@ -170,6 +170,7 @@ use resource_trust::{
     conversation_resource_client, handles_resource_connection_operation,
     trusted_local_resource_client,
 };
+mod api_revision_wire;
 mod conversation_tabs_wire;
 mod conversations;
 mod detached_terminals;
@@ -757,6 +758,10 @@ enum Command {
         device_name: Option<String>,
         #[serde(default)]
         device_id: Option<String>,
+        /// The API revision the client reads and writes
+        /// (server/api_revision_wire.rs). Absent: revision 12.
+        #[serde(default)]
+        api_revision: Option<u32>,
     },
     ListClients,
     /// Read the machine-level model spend readout hosted by this daemon.

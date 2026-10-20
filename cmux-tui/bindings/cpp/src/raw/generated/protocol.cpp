@@ -4077,6 +4077,11 @@ Result<IdMapping> Codec<IdMapping>::decode(const Json& value) {
 Result<Json> Codec<IdentifyResult>::encode(const IdentifyResult& value) {
     (void)value;
     Json::Object object;
+    if (!value.api_revision.is_absent()) {
+        auto encoded = encode_value(value.api_revision);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("api_revision", std::move(encoded).value());
+    }
     object.emplace("app", Json(std::string("cmux-tui")));
     if (!value.build_commit.is_absent()) {
         auto encoded = encode_value(value.build_commit);
@@ -4137,6 +4142,11 @@ Result<Json> Codec<IdentifyResult>::encode(const IdentifyResult& value) {
         if (!encoded) return std::move(encoded).error();
         object.emplace("machine_platform", std::move(encoded).value());
     }
+    if (!value.min_api_revision.is_absent()) {
+        auto encoded = encode_value(value.min_api_revision);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("min_api_revision", std::move(encoded).value());
+    }
     auto encoded_pid = encode_value(value.pid);
     if (!encoded_pid) return std::move(encoded_pid).error();
     object.emplace("pid", std::move(encoded_pid).value());
@@ -4170,6 +4180,16 @@ Result<IdentifyResult> Codec<IdentifyResult>::decode(const Json& value) {
     auto source = value.as_object();
     if (!source) return std::move(source).error();
     IdentifyResult result{};
+    const Json* field_api_revision = value.find("api_revision");
+    if (field_api_revision) {
+        if (field_api_revision->is_null()) {
+            result.api_revision = Field<std::uint32_t>::null();
+        } else {
+            auto decoded = decode_value<std::uint32_t>(*field_api_revision);
+            if (!decoded) return std::move(decoded).error();
+            result.api_revision = Field<std::uint32_t>(std::move(decoded).value());
+        }
+    }
     const Json* field_app = value.find("app");
     if (!field_app) {
         return make_error(ErrorCode::decode, "missing required field 'app'");
@@ -4282,6 +4302,16 @@ Result<IdentifyResult> Codec<IdentifyResult>::decode(const Json& value) {
         auto decoded = decode_value<MachinePlatform>(*field_machine_platform);
         if (!decoded) return std::move(decoded).error();
         result.machine_platform = std::move(decoded).value();
+    }
+    const Json* field_min_api_revision = value.find("min_api_revision");
+    if (field_min_api_revision) {
+        if (field_min_api_revision->is_null()) {
+            result.min_api_revision = Field<std::uint32_t>::null();
+        } else {
+            auto decoded = decode_value<std::uint32_t>(*field_min_api_revision);
+            if (!decoded) return std::move(decoded).error();
+            result.min_api_revision = Field<std::uint32_t>(std::move(decoded).value());
+        }
     }
     const Json* field_pid = value.find("pid");
     if (!field_pid) {
@@ -28613,6 +28643,11 @@ Result<SetCellPixelsRequest> Codec<SetCellPixelsRequest>::decode(const Json& val
 Result<Json> Codec<SetClientInfoRequest>::encode(const SetClientInfoRequest& value) {
     (void)value;
     Json::Object object;
+    if (!value.api_revision.is_absent()) {
+        auto encoded = encode_value(value.api_revision);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("api_revision", std::move(encoded).value());
+    }
     if (!value.capabilities.is_absent()) {
         auto encoded = encode_value(value.capabilities);
         if (!encoded) return std::move(encoded).error();
@@ -28660,6 +28695,16 @@ Result<SetClientInfoRequest> Codec<SetClientInfoRequest>::decode(const Json& val
     auto source = value.as_object();
     if (!source) return std::move(source).error();
     SetClientInfoRequest result{};
+    const Json* field_api_revision = value.find("api_revision");
+    if (field_api_revision) {
+        if (field_api_revision->is_null()) {
+            result.api_revision = Field<std::uint32_t>::null();
+        } else {
+            auto decoded = decode_value<std::uint32_t>(*field_api_revision);
+            if (!decoded) return std::move(decoded).error();
+            result.api_revision = Field<std::uint32_t>(std::move(decoded).value());
+        }
+    }
     const Json* field_capabilities = value.find("capabilities");
     if (field_capabilities) {
         if (field_capabilities->is_null()) {
@@ -40937,7 +40982,8 @@ constexpr std::array<CommandFieldRequirement, 3> kCommand213FieldRequirements{{
     {"paste", 7U, ""},
     {"terminal_id", 0U, "terminal-input-while-creating-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 5> kCommand217FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 6> kCommand217FieldRequirements{{
+    {"api_revision", 12U, ""},
     {"device_id", 12U, "shared-sizing-v1"},
     {"device_kind", 12U, "shared-sizing-v1"},
     {"device_name", 12U, "shared-sizing-v1"},

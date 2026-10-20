@@ -80,6 +80,7 @@ pub(super) fn handle_command_with_cancellation(
             device_kind,
             device_name,
             device_id,
+            api_revision,
         } => cmd_server::set_client_info(
             mux,
             client,
@@ -91,6 +92,7 @@ pub(super) fn handle_command_with_cancellation(
             device_kind,
             device_name,
             device_id,
+            api_revision,
         ),
         Command::ListClients => cmd_server::list_clients(mux, client),
         Command::MachineUsage => cmd_server::machine_usage(mux),

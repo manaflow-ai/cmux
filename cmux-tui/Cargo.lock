@@ -1591,6 +1591,7 @@ dependencies = [
  "anyhow",
  "base64",
  "cmux-agent-pane-policy",
+ "cmux-api-compat",
  "cmux-app-host",
  "cmux-app-manifest",
  "cmux-config",
