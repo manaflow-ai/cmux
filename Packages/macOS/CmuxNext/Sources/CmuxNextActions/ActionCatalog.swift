@@ -132,6 +132,7 @@ public nonisolated enum ActionCatalog {
         RemoteActionCatalog.self,
         MachineIconActionCatalog.self,
         SettingsActionCatalog.self,
+        DensityActionCatalog.self,
         ChromeStyleActionCatalog.self,
         BackdropActionCatalog.self,
         PaneBackgroundActionCatalog.self,
