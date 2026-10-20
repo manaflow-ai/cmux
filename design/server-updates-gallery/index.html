@@ -54,7 +54,7 @@
   .glass::after { content: ""; position: absolute; inset: 0; border-radius: inherit; padding: 1px; pointer-events: none;
     background: linear-gradient(to bottom, var(--rim-top), var(--rim-bottom));
     -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask-composite: exclude; }
-  .glass.toast { border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,.22); }
+  .glass.toast { border-radius: 9px; box-shadow: 0 8px 24px rgba(0,0,0,.22); }
   .glass.dialog { border-radius: 14px; box-shadow: 0 12px 34px rgba(0,0,0,.28); }
   .glass.tip { border-radius: 10px; }
 
@@ -87,7 +87,7 @@
 const term = `$ cmux server status\ncmux-tui 0.1.0 (old1234) protocol 12\nmissing: tab-groups-v1 workspace-checklist-v1 browser-profiles-v1 +2\n$ git log --oneline -3\nfac0b43 test(cmux-next): server update notices (red)\nebbf516 test(cmux-tui): Home screen close guard\n...\n$ ▍`;
 const variants = [
   { cls: "v0", title: "Today (before)", note: "Opaque toast with an 8 pt radius, theme-tinted dialog glass without a rim, flat 13% text fill on the tip." },
-  { cls: "vA", title: "A · Rex neutral", rec: true, note: "Neutral gray glass, soft top-lit rim, 12/14/10 pt continuous corners. Text keeps the theme's color. Shipped." },
+  { cls: "vA", title: "A · Rex neutral", rec: true, note: "Neutral gray glass, soft top-lit rim, 9/14/10 pt continuous corners. Text keeps the theme's color. Shipped." },
   { cls: "vB", title: "B · Clear glass, strong rim", note: "More see-through and a brighter rim. It looks great on calm wallpapers, but text gets harder to read over busy ones." },
   { cls: "vC", title: "C · Theme tint + rim", note: "Today's theme-tinted glass plus the rim. The toast picks up the theme hue, so it reads less like a system prompt." },
 ];

@@ -130,7 +130,7 @@ pill (share it, do not fork):
 - material: Liquid Glass on macOS 26+, vibrancy before, opaque under Reduce Transparency (as today);
 - tint: **neutral** (no theme hue): white veil on dark, black veil on light, alpha from the style;
 - rim: a 1 px inside stroke, a vertical gradient (brighter top, faint bottom), per appearance;
-- corners: continuous; toast 12 pt, dialog `Metrics.panelCornerRadius`, card `Metrics.space3`;
+- corners: continuous; toast 9 pt, dialog `Metrics.panelCornerRadius`, card `Metrics.space3`;
 - shadow: one soft elevation-2 shadow (toast, dialog); none for in-sidebar cards.
 
 Gallery: four looks (today, A "Rex neutral", B "neutral + stronger rim", C "theme tint + rim") for

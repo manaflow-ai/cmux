@@ -49,8 +49,8 @@ public nonisolated struct FloatingGlassStyle: Sendable, Equatable {
             && lhs.lightRim == rhs.lightRim && lhs.castsShadow == rhs.castsShadow
     }
 
-    /// Toasts: a 12 pt rounded rect (never a capsule), with a shadow.
-    public static let toast = FloatingGlassStyle(cornerRadius: 12, darkVeilAlpha: 0.42, lightVeilAlpha: 0.55,
+    /// Toasts: a 9 pt rounded rect (never a capsule, even on a one-line toast), with a shadow.
+    public static let toast = FloatingGlassStyle(cornerRadius: 9, darkVeilAlpha: 0.42, lightVeilAlpha: 0.55,
                                                  darkRim: (0.30, 0.06), lightRim: (0.85, 0.10), castsShadow: true)
     /// Dialogs, confirms and prompt bars: the panel radius, a little denser veil for longer text.
     public static let dialog = FloatingGlassStyle(cornerRadius: 14, darkVeilAlpha: 0.48, lightVeilAlpha: 0.62,

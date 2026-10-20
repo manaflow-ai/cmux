@@ -2,7 +2,7 @@ public import AppKit
 
 /// A toast: the message, the action button and a close button on the shared
 /// neutral Liquid Glass (``FloatingGlassStyle/toast``: gray glass, a top-lit
-/// rim, 12 pt continuous corners; user 2026-10-20, after Rex), opaque under
+/// rim, 9 pt continuous corners; user 2026-10-20, after Rex), opaque under
 /// Reduce Transparency, with the popups' shadow. VoiceOver reads the message; the buttons are reachable with
 /// VoiceOver and by click. The pointer on it holds it (`onHover`).
 @MainActor
