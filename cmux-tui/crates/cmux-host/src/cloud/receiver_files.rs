@@ -185,7 +185,6 @@ fn checked_snapshot<H: Http>(
 
 /// Kept separate from the public agent reply: private bootstrap is available
 /// only to the root role's authenticated child chain.
-#[cfg(test)]
 pub(super) fn bootstrap<H: Http>(
     paths: &Paths,
     instance: &str,

@@ -327,6 +327,8 @@ struct Live {
 
 struct Worker {
     bootstrap: Option<super::bootstrap_role::WorkerBridge>,
+    bootstrap_retry_at: Option<u64>,
+    bootstrap_backoff: Backoff,
     paths: Paths,
     store: FileStore,
     instance_id: String,
@@ -359,6 +361,8 @@ impl Worker {
         control.set_nonblocking(true)?;
         Ok(Worker {
             bootstrap: None,
+            bootstrap_retry_at: None,
+            bootstrap_backoff: Backoff::new(1_000, 30_000),
             store: FileStore::new(paths.clone()),
             paths,
             instance_id,
@@ -399,10 +403,12 @@ impl Worker {
             log("no bind.json and no bound.json; waiting for bind.json");
         }
         loop {
+            self.drive_bootstrap();
             let deadline = [
                 self.live.as_ref().and_then(|l| l.session.next_deadline()),
                 self.bind_retry_at,
                 self.activity.retry_at,
+                self.bootstrap_retry_at,
             ]
             .into_iter()
             .flatten()
@@ -435,7 +441,6 @@ impl Worker {
                 });
             }
             let bootstrap_wakes = self.bootstrap.as_ref().and_then(|bridge| bridge.wake_set());
-            let bootstrap_from = fds.len();
             if let Some(wakes) = &bootstrap_wakes {
                 fds.extend(wakes.fds());
             }
@@ -452,11 +457,8 @@ impl Worker {
             if ready(0) && self.control_words()? {
                 return Ok(());
             }
-            if fds[bootstrap_from..].iter().any(|fd| fd.revents != 0)
-                && let Some(bridge) = &self.bootstrap
-            {
-                bridge.drive();
-            }
+            // The retained bootstrap descriptors wake the next loop's drive.
+            // Process control and binding changes before preparing private data.
             if ready(1) {
                 let bind = self.inotify.read_events()?.iter().any(|e| e.name == "bind.json");
                 if bind {
@@ -480,6 +482,34 @@ impl Worker {
         }
     }
 
+    fn drive_bootstrap(&mut self) {
+        let Some(bridge) = &self.bootstrap else { return };
+        bridge.drive();
+        if self.bootstrap_retry_at.is_some_and(|at| at > self.now()) {
+            return;
+        }
+        self.bootstrap_retry_at = None;
+        let Some(live) = self.live.as_mut() else { return };
+        // The opaque request pins both this role incarnation and the actual
+        // authenticated daemon endpoint before the bounded original-self read.
+        let Some(request) = bridge.prepare_native() else { return };
+        let frame = super::receiver_files::bootstrap(
+            &self.paths,
+            &self.instance_id,
+            &mut live.client,
+            wall_ms(),
+        )
+        .and_then(|bootstrap| bootstrap.encode());
+        if frame.is_ok_and(|frame| bridge.publish_native(request, frame)) {
+            self.bootstrap_backoff.reset();
+        } else {
+            // Optional receiving failure does not stop status/activity. Retry
+            // only after a real source/publication failure, with bounded backoff.
+            self.bootstrap_retry_at =
+                Some(self.now() + self.bootstrap_backoff.next(0, random_unit()));
+        }
+    }
+
     /// `resume` and `stop` from the role; `true` when the worker must end.
     fn control_words(&mut self) -> io::Result<bool> {
         let mut buf = [0u8; 256];
@@ -497,6 +527,8 @@ impl Worker {
             match word.as_str() {
                 "stop" => return Ok(true),
                 "resume" => {
+                    self.bootstrap_retry_at = None;
+                    self.bootstrap_backoff.reset();
                     if let Some(bridge) = &mut self.bootstrap {
                         bridge.resume();
                         if self.live.is_some() {

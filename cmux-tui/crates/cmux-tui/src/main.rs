@@ -2009,10 +2009,10 @@ fn run_server(
     provider_workspace_authority: Option<ProviderWorkspaceAuthority>,
     config: config::StartupConfigSnapshot,
 ) -> anyhow::Result<()> {
-    // Seal private root stdin before any later terminal-host exec. This
-    // transport accepts only role lifetimes; it starts no serving role.
+    // Seal private root stdin before any later terminal-host exec. Native
+    // support, when requested at startup, attaches only after the mux exists.
     #[cfg(target_os = "linux")]
-    let _root_bootstrap = match cmux_link::root_bootstrap::Daemon::from_stdin() {
+    let mut root_bootstrap = match cmux_link::root_bootstrap::Daemon::from_stdin() {
         Ok(bootstrap) => bootstrap,
         Err(error) => {
             eprintln!("cmux: root bootstrap unavailable: {error}");
@@ -2257,15 +2257,29 @@ fn run_server(
             }
         });
     let pending_server = restoring_server.attach(mux.clone());
-    // Kept alive until this function returns; dropping it removes the socket.
-    #[cfg(unix)]
-    let _link_entry = link::start_link_entry(
-        args.link_entry,
-        args.supervised_link_state.as_deref(),
+    #[cfg(target_os = "linux")]
+    let native_receiver = link::attach_native_receiver(
+        root_bootstrap.as_mut(),
+        args.link_entry || args.supervised_link_state.is_some(),
         &mux,
         &socket_path,
     )
     .inspect_err(|_| mux.shutdown())?;
+    #[cfg(all(unix, not(target_os = "linux")))]
+    let native_receiver = false;
+    // Kept alive until this function returns; dropping it removes the socket.
+    #[cfg(unix)]
+    let _link_entry = if native_receiver {
+        None
+    } else {
+        link::start_link_entry(
+            args.link_entry,
+            args.supervised_link_state.as_deref(),
+            &mux,
+            &socket_path,
+        )
+        .inspect_err(|_| mux.shutdown())?
+    };
 
     #[cfg(unix)]
     let remote_runtime = if args.remote {
