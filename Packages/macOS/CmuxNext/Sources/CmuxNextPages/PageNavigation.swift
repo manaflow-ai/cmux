@@ -44,9 +44,14 @@ public nonisolated struct PageEngineOptions: Sendable, Equatable {
     /// Render at the display's full rate instead of the rate nearest 60 fps (the agent pane's
     /// render rate). Off by default.
     public var fullFrameRate: Bool
+    /// Keeps this page on WebKit whatever `browser.defaultEngine` says, for this reason (the update
+    /// island floats over the window: ``PageWebKitReason/transparentOverlay``). Nil lets
+    /// ``PageEnginePolicy`` decide.
+    public var requiresWebKit: PageWebKitReason?
 
-    public init(fullFrameRate: Bool = false) {
+    public init(fullFrameRate: Bool = false, requiresWebKit: PageWebKitReason? = nil) {
         self.fullFrameRate = fullFrameRate
+        self.requiresWebKit = requiresWebKit
     }
 
     public static let standard = PageEngineOptions()

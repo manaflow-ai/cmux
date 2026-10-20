@@ -58,14 +58,22 @@ final class LinkOpener {
     }
 
     /// Where an item opened from `source` lands now, by ``LinkOpenPlacement``.
+    /// A source that takes no tabs (Home's pinned dock) finds the pane on its right by the layout's
+    /// column order (``LinkOpenPlacement/paneRight(of:columns:takesTabs:recency:)``), not by drawn
+    /// frames, which miss a strip column that is scrolled or not laid out yet.
     func target(from source: PaneController) -> LinkOpenPlacement<LayoutPaneID>.Target {
-        let right = source.workspace.flatMap { content in
-            PaneHandlers.neighbor(of: source.layoutPaneID, direction: .right, in: content).flatMap { id in
-                content.panes[id]?.stripModel.showsNewTabButton == true ? id : nil
+        let takesTabs = source.stripModel.showsNewTabButton
+        let right = source.workspace.flatMap { content -> LayoutPaneID? in
+            let takes: (LayoutPaneID) -> Bool = { content.panes[$0]?.stripModel.showsNewTabButton == true }
+            if !takesTabs, let screen = content.layoutModel.screen(containing: source.layoutPaneID),
+               let found = LinkOpenPlacement<LayoutPaneID>.paneRight(of: source.layoutPaneID,
+                                                                     columns: screen.layout.visualColumns.map(\.root.panes),
+                                                                     takesTabs: takes, recency: content.recentPanes) {
+                return found
             }
+            return PaneHandlers.neighbor(of: source.layoutPaneID, direction: .right, in: content).flatMap { takes($0) ? $0 : nil }
         }
-        return LinkOpenPlacement(setting: placement())
-            .target(source: source.layoutPaneID, takesTabs: source.stripModel.showsNewTabButton, right: right)
+        return LinkOpenPlacement(setting: placement()).target(source: source.layoutPaneID, takesTabs: takesTabs, right: right)
     }
 
     /// Opens through `make` where the rule puts it. `background`: the opened tab takes no focus.
@@ -86,6 +94,9 @@ final class LinkOpener {
                 guard let self, let source else { return }
                 self.move(surface, from: source, to: .besideColumn, focus: !background)
             }
+        case .besideDock:
+            // The daemon makes a tab aimed at a lone pinned dock in a new column right of it.
+            return make(source, nil)
         }
     }
 
@@ -113,6 +124,8 @@ final class LinkOpener {
         switch target(from: source) {
         case .pane(let id):
             (source.workspace?.panes[id] ?? source).newTerminalTab(cwd: path)
+        case .besideDock:
+            source.workspace?.newColumn(after: source.layoutPaneID, options: SpawnOptions(cwd: path, workspace: source.workspace?.workspace.key))
         case .splitRight, .newColumn:
             var invocation = ActionInvocation(target: ActionTargetRef(kind: .pane, id: source.paneKey),
                                               arguments: ["cwd": .string(path)], origin: .user)
