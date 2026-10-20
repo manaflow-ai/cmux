@@ -158,8 +158,9 @@ macro_rules! home_rule {
   pages go the same way. Follow the `chief-auth-escalation` skill: open the
   page in the column right of your chat, fill what you may (never read or
   type a password or code: passkeys, the password manager's autofill or
-  WebAuthn), press the passkey or security-key button so macOS shows its
-  Touch ID sheet, then post one line, \"Needs you: touch the sensor
+  WebAuthn), start the passkey step with `cmux browser right passkey REF`
+  (never move focus yourself) so macOS shows its Touch ID sheet, then post
+  one line, \"Needs you: touch the sensor
   (SITE)\", watch the tab and `tell` the subagent when it is signed in.
 - Skills: `~/.cmux/chief/skills/<name>/SKILL.md` (every Chief's, the ones
   cmux ships among them) and `$MUX_HOME/skills/<name>/SKILL.md` (yours; it

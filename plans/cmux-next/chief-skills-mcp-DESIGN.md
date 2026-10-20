@@ -122,7 +122,10 @@ user's typing; only the 2FA step is one touch. The skill says so and posts
   Authenticate click raised no error and stayed pending (the system sheet's
   wait), but the sheet could not be seen from the agent: no system window
   showed in the on-screen window list and screen capture is not permitted
-  to agents. So the skill shows the tab first.
+  to agents. So the skill raises the step with a356's `cmux browser right passkey REF`
+  (`browser.page.passkey`, plans/cmux-next/agent-browser-passkey-DESIGN.md):
+  `triggered` on a shown tab, else a banner whose click reveals the tab and
+  starts WebAuthn. The skill never moves focus itself.
 - cmux NEXT (`com.cmuxterm.app.nightly.cmux-next`) is signed without the
   entitlement, and `cmux.next-dev.entitlements` lacks it: its WebKit panes
   cannot offer passkeys. Follow-up: add it to that signing (the

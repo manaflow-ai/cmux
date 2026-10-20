@@ -46,24 +46,31 @@ password) or `oauth` (a "Sign in with ..." page).
 
 ## 4. Trigger the Touch ID sheet
 
-First show the tab: `cmux browser <tab_…> select`. WebAuthn runs only in a
-shown, focused page; in a tab behind others WebKit refuses at once with
-"The document is not focused" (checked live 2026-10-20 on webauthn.io).
-Showing the sign-in tab is the one focus change this flow makes. If the
-page still says it is not focused, the user is not at the cmux window:
-post the line from step 5 and press the button again when they answer.
+Never move focus yourself: no `select`, no window raise. Raise the passkey
+step with `cmux browser right passkey REF --agent "<your name>" --reason
+"aN: REASON"`, where REF is the snapshot ref of the "Sign in with a
+passkey", "Security key" or "Touch ID" button (no REF when the page already
+called WebAuthn and waits). It answers:
 
-Then click the passkey, security-key or Touch ID button, or, when the page has
-already started WebAuthn, leave it waiting. macOS then shows its Touch ID
-sheet over cmux. Check that the page waits on the authenticator (snapshot:
-"Waiting for your security key", a passkey sheet, or the page's own
-spinner).
+- `triggered`: the tab was shown in the key window, the app clicked REF
+  and macOS shows its Touch ID sheet now.
+- `pending` with a request id: the tab is hidden, so the app posted a
+  banner "<you> needs your passkey"; the user's click on it shows the page
+  and clicks REF once (expires after 5 minutes; a new raise replaces it).
+
+WebAuthn runs only in a shown, focused page: in a hidden tab WebKit fails
+at once with "The document is not focused" (checked live 2026-10-20), which
+is why the verb waits for the user's click instead of taking their tab.
+If your cmux has no `passkey` verb yet (an older build), post the line from
+step 5 and ask the user to show the tab; do not select it yourself.
 
 ## 5. Ask for the touch, once
 
 Post one short line, nothing more:
 
-`Needs you: touch the sensor (SITE)`
+`Needs you: touch the sensor (SITE)` when it was `triggered`, or
+`Needs you: click the passkey banner, then touch the sensor (SITE)` when
+it is `pending`
 
 Do not explain the flow, and do not ask "should I". If the site has no
 passkey or security key step and needs a password or code typed by hand,
