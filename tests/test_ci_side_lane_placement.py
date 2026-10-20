@@ -348,8 +348,14 @@ class CmuxNextWiring(unittest.TestCase):
             runs_on = jobs[name]["runs-on"]
             with self.subTest(job=name):
                 self.assertEqual(evaluate(runs_on, self.context("3", runner=STD, triggering_actor=bot)), overflow(name))
-                self.assertEqual(evaluate(runs_on, self.context("4", runner=STD, triggering_actor=bot)), overflow(name))
-                self.assertEqual(evaluate(runs_on, self.context("5", runner=SIDE, triggering_actor=bot)), overflow(name))
+                # A bot attempt 4+ follows a refusal on attempt 3 (owned_pool_rescue
+                # REFUSAL_RESCUE_ATTEMPT): it leaves the fleet, which may have lost that runner.
+                self.assertEqual(evaluate(runs_on, self.context("4", runner=STD, triggering_actor=bot)), FALLBACK)
+                self.assertEqual(evaluate(runs_on, self.context("5", runner=SIDE, triggering_actor=bot)), FALLBACK)
+                for attempt in ("4", "5"):
+                    unplaced = self.context(attempt, triggering_actor=bot)
+                    unplaced["needs"] = {}
+                    self.assertFalse(str(evaluate(runs_on, unplaced)).startswith("glaeda-"), (name, attempt))
                 # A free Blacksmith slot the placement found takes the overflow.
                 free = self.context("3", runner=STD, triggering_actor=bot)
                 free["needs"][self.PLACEMENT]["outputs"]["retry_runner"] = FALLBACK

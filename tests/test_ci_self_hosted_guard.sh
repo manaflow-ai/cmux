@@ -1259,10 +1259,11 @@ check_no_self_hosted_fleet_runners() {
   local session_owned_selector="vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('[\"pull_request\",\"push\",\"workflow_dispatch\"]'), github.event_name) && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && (vars.CI_SESSION_LABEL == '1' && 'glaeda-session-std-xcode-26.6' || 'glaeda-gui-std-xcode-26.6')"
   local session_autofix_selector="vars.CI_PR_POOL_OWNED == '1' && (vars.CI_SESSION_LABEL == '1' && 'glaeda-session-std-xcode-26.6' || 'glaeda-gui-std-xcode-26.6')"
   # The same labels as the last fallback of swift-test / daemon-test / generated-files with no
-  # placement result, at any attempt: a bot attempt 3+ waits behind the fleet rather than in a
-  # Blacksmith queue (2026-10-20: 5+ hour waits on blacksmith-12vcpu-macos-26).
-  local gui_owned_rerun_selector="vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('[\"pull_request\",\"push\",\"workflow_dispatch\"]'), github.event_name) && 'glaeda-gui-std-xcode-26.6'"
-  local session_owned_rerun_selector="vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('[\"pull_request\",\"push\",\"workflow_dispatch\"]'), github.event_name) && (vars.CI_SESSION_LABEL == '1' && 'glaeda-session-std-xcode-26.6' || 'glaeda-gui-std-xcode-26.6')"
+  # placement result through the bot's attempt 3: it waits behind the fleet rather than in a
+  # Blacksmith queue (2026-10-20: 5+ hour waits on blacksmith-12vcpu-macos-26). A refused attempt
+  # 3 (owned_pool_rescue REFUSAL_RESCUE_ATTEMPT) still leaves the fleet on attempt 4.
+  local gui_owned_rerun_selector="vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('[\"pull_request\",\"push\",\"workflow_dispatch\"]'), github.event_name) && (github.run_attempt <= 3 || github.triggering_actor != 'github-actions[bot]') && 'glaeda-gui-std-xcode-26.6'"
+  local session_owned_rerun_selector="vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('[\"pull_request\",\"push\",\"workflow_dispatch\"]'), github.event_name) && (github.run_attempt <= 3 || github.triggering_actor != 'github-actions[bot]') && (vars.CI_SESSION_LABEL == '1' && 'glaeda-session-std-xcode-26.6' || 'glaeda-gui-std-xcode-26.6')"
   local gui_fork_pr_branch="github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || "
   local hits="" line content content_without_allowed
   # Inspect runner-selection lines only: runs-on:, matrix `os:`, and scalar list
