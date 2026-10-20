@@ -22,6 +22,9 @@ private final class EnsureFocusMiniaturizedTestWindow: NSWindow {
 
     /// Supplies deterministic miniaturized state without changing AppKit state.
     override var isMiniaturized: Bool { miniaturizedForTesting }
+
+    /// Releases the test window without requiring AppKit UI state.
+    deinit {}
 }
 
 @MainActor
