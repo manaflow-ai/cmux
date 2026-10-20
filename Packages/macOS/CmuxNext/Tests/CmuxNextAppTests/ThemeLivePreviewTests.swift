@@ -91,6 +91,8 @@ import Testing
         settings.endPreview()
         await settle { scope.appearanceTuning.hue == AppearanceTuning.identity.hue }
         #expect(scope.appearanceTuning.hue == AppearanceTuning.identity.hue)
+        // The stream holds the setting weakly: keep it alive through the last check.
+        withExtendedLifetime(terminal) {}
     }
 
     @Test func previewingAnAppThemeReachesTheChromeAndEndingRevertsIt() async throws {

@@ -92,7 +92,7 @@ nonisolated enum AppearanceSettingsSchema {
                 help: SettingsText.keyed("settings.appearance.experimentalControls.help",
                                         "Applies Hue and Saturation to the window's tint. Off, they have no effect."),
                 kind: .toggle, default: .bool(false),
-                keywords: ["experimental", "wallpaper", "tuner", "transparency", "hue", "saturation", "labs"]
+                keywords: ["experimental", "tuning", "tint", "transparency", "hue", "saturation", "labs"]
             ),
             SettingDescriptor(
                 WindowBackgroundSetting.opacityPath, section: .appearance, group: window,

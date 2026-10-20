@@ -39358,7 +39358,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "색조와 채도를 윈도우 색조에 적용합니다. 끄면 아무 효과가 없습니다."
+            "value": "색조와 채도를 창의 틴트에 적용합니다. 끄면 아무 효과가 없습니다."
           }
         },
         "ja": {
@@ -39893,20 +39893,20 @@
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Hue"
+            "state": "translated",
+            "value": "Nijansa"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Hue"
+            "state": "translated",
+            "value": "Nuance"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Hue"
+            "state": "translated",
+            "value": "Tonalità"
           }
         },
         "km": {
@@ -39917,50 +39917,50 @@
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Hue"
+            "state": "translated",
+            "value": "Fargetone"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Hue"
+            "state": "translated",
+            "value": "Odcień"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Hue"
+            "state": "translated",
+            "value": "Matiz"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Hue"
+            "state": "translated",
+            "value": "Оттенок"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Hue"
+            "state": "translated",
+            "value": "ฮิว"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Hue"
+            "state": "translated",
+            "value": "Ton"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Hue"
+            "state": "translated",
+            "value": "Відтінок"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Hue"
+            "state": "translated",
+            "value": "Sắc độ"
           }
         }
       }
@@ -40155,20 +40155,20 @@
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Saturation"
+            "state": "translated",
+            "value": "Zasićenost"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Saturation"
+            "state": "translated",
+            "value": "Mætning"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Saturation"
+            "state": "translated",
+            "value": "Saturazione"
           }
         },
         "km": {
@@ -40179,50 +40179,50 @@
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Saturation"
+            "state": "translated",
+            "value": "Metning"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Saturation"
+            "state": "translated",
+            "value": "Nasycenie"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Saturation"
+            "state": "translated",
+            "value": "Saturação"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Saturation"
+            "state": "translated",
+            "value": "Насыщенность"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Saturation"
+            "state": "translated",
+            "value": "ความอิ่มตัวของสี"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Saturation"
+            "state": "translated",
+            "value": "Doygunluk"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Saturation"
+            "state": "translated",
+            "value": "Насиченість"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Saturation"
+            "state": "translated",
+            "value": "Độ bão hòa"
           }
         }
       }
