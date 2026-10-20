@@ -42,6 +42,7 @@ public final class ShareCmuxView: NSView {
         self.writeToPasteboard = writeToPasteboard
         surface = OverlaySurfaceView(material: .opaque, interactive: true)
         copyButton = CmuxDialogButtonView(CmuxDialogButton(id: "copy-link", title: ShareCmuxStrings.copyLink, role: .default),
+                                          hint: .return,
                                           target: nil, action: #selector(ShareCmuxView.copyMessage))
         closeButton = NSButton(image: NSImage.icon(.actionClose, size: 12),
                                target: nil, action: nil)
