@@ -18,6 +18,8 @@
 //     included) and `cmux.editor.look` (`EditorLook`, settings, theme.css, appearance or languages);
 //   - the host may call the page: `cmux.editor.flush {}` saves pending edits now and answers
 //     `{dirty}` (false when everything is on disk), before the host closes the tab or quits;
+//   - `cmux.app.action.run {action: "commandPalette"}` opens the app's native command palette: Monaco's
+//     own palette (F1, the context menu's Command Palette) is replaced by it;
 //   - page commands (cmux.page.command) from the app's key dispatcher: `save`, `find`, `findNext`,
 //     `findPrevious`, `useSelectionForFind`, `hideFind`, `zoomIn`, `zoomOut`, `zoomReset`, and
 //     `editorAction` with `text` a Monaco action id from `EDITOR_ACTIONS` (keys.ts).
@@ -36,6 +38,9 @@ export const EDITOR_OPEN_LINK_OP = "cmux.editor.openLink";
  * dispatcher lets the next key reach the editor until `pending` is false (or 5 s pass). */
 export const EDITOR_KEY_SEQUENCE_OP = "cmux.editor.keySequence";
 export const EDITOR_FLUSH_OP = "cmux.editor.flush";
+/** Page to host: `{action: "commandPalette"}` runs the app's native command palette (Monaco's F1 and
+ * its context menu's Command Palette). The editor descriptor admits only that action. */
+export const APP_ACTION_RUN_OP = "cmux.app.action.run";
 /** Page to host: `{path, text, baseHash}` after an edit (the quit hook's unsaved state and draft). */
 export const EDITOR_EDITED_OP = "cmux.editor.edited";
 export const EDITOR_CHANGES = "cmux.editor.changes";

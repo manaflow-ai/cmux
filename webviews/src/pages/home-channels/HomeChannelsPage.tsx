@@ -502,6 +502,7 @@ export function HomeChannelsPage({
                 onOpenPalette={() => setPalette(true)}
                 onCompose={online && caps.start ? () => store.sheets.open({ kind: "newMessage" }) : undefined}
                 actions={rowActions}
+                chiefs={sheetState.chiefs}
               />
               <section className={`lg-main${snap.thread ? " with-sheet" : ""}`} aria-label={place || t("page.title")}>
                 {snap.loading ? null : empty || !open ? (

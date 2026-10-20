@@ -144,12 +144,21 @@ extension AgentPaneRequest {
             self = .touched
         case "newTab.context":
             self = .newTabContext
+        case "newTab.warm":
+            if let warm = params?["warm"] as? [String: Any], let data = try? JSONSerialization.data(withJSONObject: warm),
+               data.count <= AgentPaneNewTab.maximumWarmBytes, let text = String(data: data, encoding: .utf8) {
+                self = .newTabWarm(text)
+            } else {
+                self = .unsupported(method)
+            }
         case "newTab.setTemplate":
             if let template = params?["template"] as? String, !template.isEmpty, template.count <= 32 {
                 self = .setNewTabTemplate(template)
             } else {
                 self = .unsupported(method)
             }
+        case "nowPlaying.command":
+            if let command = AgentPaneNowPlaying.Command(params) { self = .nowPlaying(command) } else { self = .unsupported(method) }
         case "newTab.remember":
             // One input (R86): the agent pick, and the model picked on it in `folder`.
             if let agent = params?["agent"] as? String, !agent.isEmpty, agent.count <= 128 {

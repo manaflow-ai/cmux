@@ -36142,6 +36142,198 @@
         "$defs": {}
       }
     },
+    "home.requests.list": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "invite",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {},
+        "extra": false
+      },
+      "result": {
+        "kind": "object",
+        "fields": {
+          "requests": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "object",
+                "fields": {
+                  "conversation": {
+                    "required": true,
+                    "type": {
+                      "kind": "ref",
+                      "name": "ConversationId"
+                    }
+                  },
+                  "inviter": {
+                    "required": true,
+                    "type": {
+                      "kind": "primitive",
+                      "name": "string"
+                    }
+                  },
+                  "kind": {
+                    "required": true,
+                    "type": {
+                      "kind": "enum",
+                      "values": [
+                        "dm",
+                        "group"
+                      ]
+                    }
+                  },
+                  "title": {
+                    "required": false,
+                    "type": {
+                      "kind": "primitive",
+                      "name": "string"
+                    }
+                  },
+                  "preview": {
+                    "required": true,
+                    "type": {
+                      "kind": "primitive",
+                      "name": "string"
+                    }
+                  },
+                  "created_at": {
+                    "required": true,
+                    "type": {
+                      "kind": "primitive",
+                      "name": "string"
+                    }
+                  },
+                  "expires_at": {
+                    "required": true,
+                    "type": {
+                      "kind": "primitive",
+                      "name": "string"
+                    }
+                  },
+                  "trusted": {
+                    "required": true,
+                    "type": {
+                      "kind": "primitive",
+                      "name": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "errors": [
+        "archived",
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "forbidden",
+        "idempotency.conflict",
+        "kind_forbids",
+        "not_participant",
+        "owner.unreachable",
+        "unknown_conversation",
+        "validation.invalid"
+      ],
+      "owner": "cloud:ConversationDO",
+      "risk": "read",
+      "principals": [
+        "session"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/read"
+        }
+      },
+      "cli": {
+        "path": "chat requests list",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "home"
+      },
+      "docs": "Your message requests: open invites to your verified email from people you are not connected to, newest first (at most 20). trusted marks a sender with your company email domain.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "not": {
+          "type": "null"
+        },
+        "$defs": {}
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "requests": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "conversation": {
+                  "$ref": "#/$defs/ConversationId"
+                },
+                "inviter": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "dm",
+                    "group"
+                  ]
+                },
+                "title": {
+                  "type": "string"
+                },
+                "preview": {
+                  "type": "string"
+                },
+                "created_at": {
+                  "type": "string"
+                },
+                "expires_at": {
+                  "type": "string"
+                },
+                "trusted": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "conversation",
+                "inviter",
+                "kind",
+                "preview",
+                "created_at",
+                "expires_at",
+                "trusted"
+              ],
+              "additionalProperties": true
+            }
+          }
+        },
+        "required": [
+          "requests"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "ConversationId": {
+            "type": "string",
+            "pattern": "^conv_(dm_)?[0-9A-HJKMNP-TV-Z]{26}$",
+            "description": "conv_<26> (group or chief) or conv_dm_<26> (one-to-one, derived from the pair)."
+          }
+        }
+      }
+    },
     "home.search": {
       "class": "read",
       "idempotency": "forbidden",
@@ -36536,6 +36728,13 @@
               "name": "boolean"
             }
           },
+          "trust_same_domain": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            }
+          },
           "expected_revision": {
             "required": false,
             "type": {
@@ -36585,6 +36784,13 @@
                   "kind": "primitive",
                   "name": "boolean"
                 }
+              },
+              "trust_same_domain": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "boolean"
+                }
               }
             }
           }
@@ -36619,7 +36825,7 @@
         "expose": "never",
         "group": "home"
       },
-      "docs": "Choose who can find you by email or phone, who may start a conversation with you or add you to one (anyone, teams, nobody), and whether a message request also sends an email.",
+      "docs": "Choose who can find you by email or phone, who may start a conversation with you or add you to one (anyone, teams, nobody), whether a message request also sends an email, and whether people with your company email domain reach you directly (trust_same_domain, default on).",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",
@@ -36639,6 +36845,9 @@
             ]
           },
           "email_requests": {
+            "type": "boolean"
+          },
+          "trust_same_domain": {
             "type": "boolean"
           }
         },
@@ -36664,13 +36873,17 @@
           },
           "email_requests": {
             "type": "boolean"
+          },
+          "trust_same_domain": {
+            "type": "boolean"
           }
         },
         "required": [
           "discoverable_by_email",
           "discoverable_by_phone",
           "allow_requests_from",
-          "email_requests"
+          "email_requests",
+          "trust_same_domain"
         ],
         "additionalProperties": true,
         "$defs": {}
@@ -36967,6 +37180,124 @@
         "group": "team"
       },
       "docs": "Remove a host from the team directory (its owner or a team admin).",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "host": {
+            "$ref": "#/$defs/HostId"
+          }
+        },
+        "required": [
+          "host"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "HostId": {
+            "type": "string",
+            "pattern": "^host_[a-z0-9]{20}$",
+            "description": "A machine's session host, enrolled by its link."
+          }
+        }
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "host": {
+            "$ref": "#/$defs/HostId"
+          }
+        },
+        "required": [
+          "host"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "HostId": {
+            "type": "string",
+            "pattern": "^host_[a-z0-9]{20}$",
+            "description": "A machine's session host, enrolled by its link."
+          }
+        }
+      }
+    },
+    "host.replica.purge": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "host",
+      "ancestors": [
+        "team"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "host": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "HostId"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "object",
+            "fields": {
+              "host": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "HostId"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "revision.conflict",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "owner": "cloud:TeamDO",
+      "risk": "destructive",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "host replica purge",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "team"
+      },
+      "docs": "Delete the cloud copy of a host's read replica (its owner only), also while the host is off. The host stays enrolled; it publishes again only while its own app keeps the replica on.",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",
@@ -42032,6 +42363,135 @@
         }
       }
     },
+    "invite.accept_verified": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "invite",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "conversation": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "ConversationId"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "HomeConversationCommit"
+          }
+        ]
+      },
+      "errors": [
+        "accept_locked",
+        "archived",
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "forbidden",
+        "idempotency.conflict",
+        "invite_expired",
+        "kind_forbids",
+        "not_participant",
+        "owner.unreachable",
+        "unknown_conversation",
+        "unknown_invite",
+        "validation.invalid"
+      ],
+      "owner": "cloud:ConversationDO",
+      "risk": "mutate-own",
+      "principals": [
+        "session"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "chat requests accept",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "home"
+      },
+      "docs": "Accept a message request in Home: the open email invite to your verified email joins you, with no link. Anyone else gets unknown_invite.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "conversation": {
+            "$ref": "#/$defs/ConversationId"
+          }
+        },
+        "required": [
+          "conversation"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "ConversationId": {
+            "type": "string",
+            "pattern": "^conv_(dm_)?[0-9A-HJKMNP-TV-Z]{26}$",
+            "description": "conv_<26> (group or chief) or conv_dm_<26> (one-to-one, derived from the pair)."
+          }
+        }
+      },
+      "output_json_schema": {
+        "$ref": "#/$defs/HomeConversationCommit",
+        "$defs": {
+          "MessageId": {
+            "type": "string",
+            "pattern": "^msg_[0-9A-Za-z]{1,64}$"
+          },
+          "HomeConversationCommit": {
+            "type": "object",
+            "properties": {
+              "rev": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "seq": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "message_id": {
+                "$ref": "#/$defs/MessageId"
+              },
+              "change": {}
+            },
+            "required": [
+              "rev",
+              "change"
+            ],
+            "additionalProperties": true,
+            "description": "rev after the op; seq and message_id for a new message; change is the committed Change."
+          }
+        }
+      }
+    },
     "invite.approve_join": {
       "class": "mutation",
       "idempotency": "required",
@@ -46785,6 +47245,143 @@
             "description": "rev after the op; seq and message_id for a new message; change is the committed Change."
           }
         }
+      }
+    },
+    "request.dismiss": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "invite",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "conversation": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "ConversationId"
+            }
+          },
+          "block": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "object",
+            "fields": {
+              "dismissed": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "boolean"
+                }
+              },
+              "blocked": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "boolean"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "errors": [
+        "archived",
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "forbidden",
+        "idempotency.conflict",
+        "kind_forbids",
+        "not_participant",
+        "owner.unreachable",
+        "unknown_conversation",
+        "unknown_invite",
+        "validation.invalid"
+      ],
+      "owner": "cloud:ConversationDO",
+      "risk": "mutate-own",
+      "principals": [
+        "session"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "chat requests dismiss",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "home"
+      },
+      "docs": "Hide a message request; with block, also hide and never email later invites from its sender. The sender is not told.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "conversation": {
+            "$ref": "#/$defs/ConversationId"
+          },
+          "block": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "conversation"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "ConversationId": {
+            "type": "string",
+            "pattern": "^conv_(dm_)?[0-9A-HJKMNP-TV-Z]{26}$",
+            "description": "conv_<26> (group or chief) or conv_dm_<26> (one-to-one, derived from the pair)."
+          }
+        }
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "dismissed": {
+            "type": "boolean"
+          },
+          "blocked": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "dismissed",
+          "blocked"
+        ],
+        "additionalProperties": true,
+        "$defs": {}
       }
     },
     "run.get": {
