@@ -22,7 +22,7 @@ struct CopyUnwrappedShortcutTests {
     @Test func copyUnwrappedAllowsFocusedDockTerminal() {
         let dock = ShortcutFocusState(browser: false, markdown: false, sidebar: true)
         #expect(ShortcutAction.copyUnwrapped.defaultFocusWhenClause.evaluate(dock))
-        #expect(ShortcutAction.copyUnwrapped.defaultFocusWhenClause
-            == ShortcutAction.toggleTerminalCopyMode.defaultFocusWhenClause)
+        let browser = ShortcutFocusState(browser: true, markdown: false, sidebar: false)
+        #expect(!ShortcutAction.copyUnwrapped.defaultFocusWhenClause.evaluate(browser))
     }
 }
