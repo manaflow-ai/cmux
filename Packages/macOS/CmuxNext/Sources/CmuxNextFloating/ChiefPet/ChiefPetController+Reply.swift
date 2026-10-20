@@ -10,8 +10,7 @@ extension ChiefPetController {
         let reply = replyPanelOnce()
         reply.show(targets: ChiefPetReply.targets(feed))
         if let visible = panel.screen?.visibleFrame ?? ChiefPetPanel.screenUnderPointer()?.visibleFrame {
-            reply.setFrame(ChiefPetBubblePanel.frame(height: ChiefPetReplyPanel.size.height, over: panel.frame, in: visible,
-                                                     width: ChiefPetReplyPanel.size.width, gap: ChiefPetReplyPanel.gap), display: false)
+            reply.setFrame(ChiefPetReplyPanel.frame(over: panel.frame, in: visible), display: false)
         }
         hideBubble()
         reply.present()

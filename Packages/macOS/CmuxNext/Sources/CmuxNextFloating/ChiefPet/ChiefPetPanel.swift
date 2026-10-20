@@ -104,6 +104,8 @@ public final class ChiefPetPanel: NSPanel, NSWindowDelegate {
 /// The rail's tools take their own clicks. Clicks work on the first press: the panel is never key.
 final class ChiefPetView: NSView {
     var onClick: (() -> Void)?
+    /// After each step of a drag, with the panel already moved (the notices follow it live).
+    var onDragMoved: (() -> Void)?
     var onDragEnded: (() -> Void)?
     /// The pointer in screen points; tests drive their own.
     var pointer: () -> CGPoint = { NSEvent.mouseLocation }
@@ -181,6 +183,7 @@ final class ChiefPetView: NSView {
         if !dragging, !ChiefPetPlacement.isDrag(from: press.start, to: point) { return }
         dragging = true
         window.setFrameOrigin(CGPoint(x: press.origin.x + point.x - press.start.x, y: press.origin.y + point.y - press.start.y))
+        onDragMoved?()
     }
 
     override func mouseUp(with event: NSEvent) {

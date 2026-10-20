@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextSettings
 import CmuxNextSidebar
 import Observation
 
@@ -51,7 +52,10 @@ import Observation
 
     func menu(workspace: String?) -> NSMenu {
         let avatar = avatar(workspace: workspace)
-        let menu = ProfileMenuBuilder(registry: services.registry).make(profile: ProfileMenuProfile(name: avatar.name), avatar: avatar.image(diameter: Double(Metrics.smallIconSize)))
+        // Show Chief / Hide Chief reads the `home.chiefPetEnabled` that applies now (the menu is built at each open).
+        let menu = ProfileMenuBuilder(registry: services.registry).make(profile: ProfileMenuProfile(name: avatar.name),
+                                                                        avatar: avatar.image(diameter: Double(Metrics.smallIconSize)),
+                                                                        chiefPetShown: services.settings?.snapshot.homeChiefPetEnabled)
         SidebarAccount.addRows(to: menu, account: account, registry: services.registry)
         return menu
     }

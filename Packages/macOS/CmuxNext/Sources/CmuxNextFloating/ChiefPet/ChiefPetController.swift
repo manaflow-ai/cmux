@@ -148,6 +148,20 @@ public final class ChiefPetController {
         }
     }
 
+    /// Places the shown bubble and reply box toward the quadrant with room around the pet's frame now.
+    func followPet() {
+        guard let panel, let visible = panel.screen?.visibleFrame ?? ChiefPetPanel.screenUnderPointer()?.visibleFrame else { return }
+        if let bubble, bubble.isVisible {
+            let height = ChiefPetBubblePanel.height(count: feed.notices.count, expanded: expanded)
+            let frame = ChiefPetBubblePanel.frame(height: height, over: panel.frame, in: visible)
+            if frame != bubble.frame { bubble.setFrame(frame, display: false) }
+        }
+        if let replyPanel, replyPanel.isVisible {
+            let frame = ChiefPetReplyPanel.frame(over: panel.frame, in: visible)
+            if frame != replyPanel.frame { replyPanel.setFrame(frame, display: false) }
+        }
+    }
+
     func hideBubble() {
         guard let bubble, bubble.isVisible else { return }
         bubble.parent?.removeChildWindow(bubble)
@@ -167,8 +181,10 @@ public final class ChiefPetController {
             self.panel?.setExpanded(self.expanded)
             self.render(animated: false)
         }
-        // A drag moves the bubble with the pet (a child window); at its end the bubble turns
-        // to the side with room (above, or below near the screen's top).
+        // A drag moves the bubble with the pet (a child window), and each step turns it (and the
+        // reply box) toward the quadrant with room, so the drop moves nothing. Only frames
+        // change: nothing is redrawn and nothing fades in again.
+        made.pet.onDragMoved = { [weak self] in self?.followPet() }
         made.pet.onDragEnded = { [weak self, weak made] in
             made?.saveOrigin()
             self?.render(animated: false)
