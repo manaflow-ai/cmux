@@ -67,7 +67,7 @@ pub(super) struct SocketRoute<'a> {
 
 impl<'a> SocketRoute<'a> {
     /// The route of a request on `path`, with the app that owns that daemon.
-    pub(super) fn new(path: &'a Path, derived: bool, global: &super::GlobalArgs) -> Self {
+    pub(super) fn new(path: &'a Path, derived: bool, global: &GlobalArgs) -> Self {
         #[cfg(unix)]
         let app = super::frontend_browser::owning_app_socket(global, path);
         #[cfg(not(unix))]
@@ -92,6 +92,7 @@ pub(super) fn apply(
         .as_object_mut()
         .ok_or_else(|| Failure::Transport("cmux: request params are not an object".into()))?;
     let route = route(params);
+    let caller_route = caller_route && this_machine(params);
     for step in steps {
         match step {
             Resolve::CallerWorkspace { terminal } => {
@@ -340,9 +341,10 @@ fn next_event(events: &mut Reader, deadline: Instant) -> bool {
 /// selectors above it name the caller's own path, so an agent or a script in
 /// a cmux terminal acts on its own workspace and pane, never on the one the
 /// person is looking at. `current` stays the focused object when the request
-/// routes to another session or machine, when no caller is known or it
-/// cannot be found, below a parent that is not the caller's, above an
-/// explicit id or name, and for a browser target, which a caller never is.
+/// routes to another session or machine (`caller_route` is false), when no
+/// caller is known or it cannot be found, below a parent that is not the
+/// caller's, above an explicit id or name, and for a browser target, which a
+/// caller never is.
 fn caller_scopes(
     params: &mut Map<String, Value>,
     caller_route: bool,
@@ -351,8 +353,6 @@ fn caller_scopes(
     let value = |params: &Map<String, Value>, scope: &str| {
         params.get(scope).and_then(Value::as_str).map(str::to_owned)
     };
-    let caller_route = caller_route
-        && params.get("machine").and_then(Value::as_str).is_none_or(|machine| machine == "current");
     let named = |selector: &str| {
         CALLER_SCOPES.iter().any(|scope| value(params, scope).as_deref() == Some(selector))
     };
@@ -418,6 +418,12 @@ fn caller_scopes(
         params.insert(scope.into(), Value::String(id));
     }
     Ok(())
+}
+
+/// Whether the request stays on this machine: another machine is never the
+/// caller's (`--machine`).
+fn this_machine(params: &Map<String, Value>) -> bool {
+    params.get("machine").and_then(Value::as_str).is_none_or(|machine| machine == "current")
 }
 
 /// The caller's workspace, screen, pane, tab and terminal ids, keyed by
@@ -820,11 +826,15 @@ mod tests {
         // An explicit id below `current` keeps its focused parents.
         let below = json!({"workspace": "current", "screen": "current", "pane": "pane_x"});
         assert_eq!(scoped(below.clone(), true, mine.clone()), Ok(below));
-        // Another machine is never the caller's.
+        // Another machine is never the caller's: `apply` routes it as
+        // another session.
         let remote = json!({"machine": "m2", "workspace": "current", "pane": "current"});
-        assert_eq!(scoped(remote.clone(), true, mine.clone()), Ok(remote));
+        assert!(!this_machine(remote.as_object().unwrap()));
+        assert!(this_machine(json!({"machine": "current"}).as_object().unwrap()));
+        assert!(this_machine(&Map::new()));
+        assert_eq!(scoped(remote.clone(), false, mine.clone()), Ok(remote));
         let remote_caller = json!({"machine": "m2", "workspace": "current", "pane": "caller"});
-        assert_eq!(scoped(remote_caller, true, mine), Err("selector.invalid".into()));
+        assert_eq!(scoped(remote_caller, false, mine), Err("selector.invalid".into()));
     }
 
     #[test]
