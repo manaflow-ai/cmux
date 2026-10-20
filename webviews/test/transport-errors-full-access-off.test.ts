@@ -27,7 +27,8 @@ test("both refusals count as host refusals; other failures do not", () => {
 });
 
 // The switch boundary: a mode picked while a new chat starts goes out once it opens; acpmux
-// refuses it (the error as direct.ts rejects it) and the pane says why instead of staying quiet.
+// refuses it (the error as direct.ts rejects it) and the pane says why instead of staying quiet:
+// the held-mode notice names the mode, and its reason is the localized refusal, not acpmux's English.
 test("a queued full-access pick that acpmux refuses shows the refusal", async () => {
   const notices: string[] = [];
   const store = new HarnessSwitch();
@@ -56,7 +57,9 @@ test("a queued full-access pick that acpmux refuses shows the refusal", async ()
   store.pickMode("bypassPermissions");
   expect(await opened).toBe("s1");
   await new Promise((done) => setTimeout(done, 0));
-  expect(notices).toEqual([translate("transport.fullAccessOff")]);
+  expect(notices).toEqual([
+    translate("switch.modeFailed", { mode: "bypassPermissions", reason: translate("transport.fullAccessOff") }),
+  ]);
 });
 
 // The mode picker's warning color follows the same rule acpmux and the app enforce
