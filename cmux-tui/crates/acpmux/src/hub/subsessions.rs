@@ -638,7 +638,7 @@ impl Hub {
                 tracing::warn!(session = %probe.id, "sub-session start mode skipped: {}", e.message);
             }
         }
-        let accepted = self.send_family_prompt(parent, &probe, &req.prompt, None).await;
+        let accepted = self.send_family_prompt(parent, &probe, &req.prompt, None, false).await;
         let accepted = match accepted {
             Ok(v) => v,
             Err(e) => {
@@ -698,14 +698,15 @@ impl Hub {
         .map_err(refuse)
     }
 
-    /// Sends `text` from `from` to `to` as a prompt with the family
-    /// provenance; answers once it is accepted (started or queued).
+    /// Sends `text` from `from` to `to` as a prompt with the family provenance; answers once it
+    /// is accepted (started or queued). `interrupt`: `Hub::interrupt_once_queued`.
     async fn send_family_prompt(
         self: &Arc<Self>,
         from: &Arc<Session>,
         to: &Arc<Session>,
         text: &str,
         prompt_id: Option<String>,
+        interrupt: bool,
     ) -> Result<Value, RpcError> {
         let fm = from.meta();
         let provenance = json!({
@@ -715,9 +716,11 @@ impl Hub {
             "to": to.id,
         });
         let (tx, rx) = tokio::sync::oneshot::channel::<Value>();
+        let stop = self.interrupt_once_queued(to, interrupt);
         let opts = PromptOptions {
             prompt_id: Some(prompt_id.unwrap_or_else(|| format!("sub-{}", uuid::Uuid::now_v7()))),
             on_accepted: Some(Box::new(move |v| {
+                stop(&v);
                 let _ = tx.send(v);
             })),
             provenance: Some(provenance),
@@ -904,10 +907,7 @@ impl Hub {
                 "a sub-session never interrupts its parent: send without interrupt, and the message waits for the parent's turn to end",
             ));
         }
-        if interrupt && target.turn().is_some() {
-            self.cancel(target).await?;
-        }
-        let accepted = self.send_family_prompt(caller, target, text, prompt_id).await?;
+        let accepted = self.send_family_prompt(caller, target, text, prompt_id, interrupt).await?;
         Ok(json!({
             "sessionId": target.id,
             "queued": accepted.get("queued").cloned().unwrap_or(json!(false)),
