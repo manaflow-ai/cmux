@@ -72,3 +72,30 @@ BrowserPageTabsTests, BrowserPageCookiesTests; shared package glide/palette/publ
 Rust cmux-browser-host: automation_input, gate_typing, provider input tests. Live scripts:
 `agent-cursor-visual-check.py` (human watches), `agent-cursor-visibility-live.py` (resolver JSON only).
 No dogfood scenario covers browser use.
+
+## Done in the browser use thread (2026-10-19)
+
+- Name tag on every cursor (agent name, or the REPL session name); level while the arrow turns.
+- `cmux browser … --agent NAME` (default `$CMUX_AGENT_NAME`, Claude under `CLAUDECODE`, Codex
+  under `CODEX_SANDBOX`/`CODEX_THREAD_ID`): each agent its own cursor, color and tag.
+- `drag SELECTOR TARGET` and `upload SELECTOR FILE…` CLI verbs (`browser.page.drag|upload`); a drag
+  glides grab → drop; a page scroll with no selector draws.
+- Selectors reach open shadow roots and same-origin frames (rects in top-viewport px).
+- Chromium page scripts run with a user gesture (WebKit already did): `target=_blank` and
+  `window.open` from a CLI click open tabs instead of hitting the popup blocker.
+- `debug.agent_cursor` reports drawn cursors; `scripts/cmux-next/browser-use-scenarios-live.py`
+  runs 7 scenarios × 2 engines with 80 checks and writes the proof gallery.
+
+## Still open
+
+- CLI dialogs: a CLI click that opens `alert/confirm/prompt` blocks its page script (the REPL's
+  `DialogBroker` handles dialogs; the CLI has no `dialog` verb yet).
+- CLI downloads: no verb (REPL has `waitForEvent('download')`).
+- The page script runs before the cursor animates, so the page shows the result while the cursor
+  is still gliding (visible in mid-glide shots of the drag).
+- The cursor does not hide while the person drives the tab with their own mouse for CLI sessions
+  (no lease); REPL sessions pause to an outline.
+- REPL `dragTo`, `selectOption`, `setInputFiles` still announce nothing (cmux-browser-host gate).
+- Window recordings miss Chromium page pixels (no Screen Recording grant); stills include them.
+- Fleet capture minis (`capture-host`) are not reachable from this Mac (no SSH aliases); the proof
+  ran on a fleet-built tagged app launched in the background on this Mac.
