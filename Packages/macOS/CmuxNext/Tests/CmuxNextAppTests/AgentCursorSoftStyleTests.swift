@@ -90,7 +90,9 @@ struct AgentCursorSoftStyleTests {
         #expect((cursor.glassTag.backgroundColor?.alpha ?? 0) == 1, "an opaque mask: full blur under the tag")
         let plan = GlideMotion().plan(fromX: 100, fromY: 100, toX: 300, toY: 200, endHeading: 2.5)
         host.apply(.glide(session: session, plan: plan))
-        #expect(cursor.glassRoot.animation(forKey: "agentCursor.glide") != nil, "the blur glides with the tag")
+        // The end of the glide, not a stored animation: headless fleet hosts return none (see 1fac57d4412).
+        let last = try #require(plan.samples.last)
+        #expect(cursor.glassRoot.position == CGPoint(x: last.x, y: last.y), "the blur ends the glide under the tag")
         #expect(cursor.glassRoot.position == cursor.root.position)
         host.apply(.indicate(session: session, anchor: CGPoint(x: 5, y: 5)))
         #expect(cursor.glassTag.isHidden, "no blur without the tag")
