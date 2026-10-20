@@ -1,6 +1,270 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.tabs.newTabNowPlaying": {
+      "comment": "Settings: toggle that shows the Now Playing player (the music playing on this Mac) on the New Tab page.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إظهار قيد التشغيل الآن في علامة التبويب الجديدة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikaži Sada se reproducira na novoj kartici"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis Afspilles nu på ny fane"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "„Aktuelle Wiedergabe“ im neuen Tab anzeigen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Now Playing on New Tab"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar Reproduciendo ahora en la nueva pestaña"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher À l’écoute dans le nouvel onglet"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra In riproduzione nella nuova scheda"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新規タブに再生中を表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្ហាញ​អ្វី​ដែល​កំពុង​ចាក់​នៅ​លើ​ផ្ទាំង​ថ្មី"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 탭에 지금 재생 중 보기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis Spilles nå på ny fane"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokaż Teraz odtwarzane na nowej karcie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar Tocando Agora na nova aba"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показывать «Сейчас играет» в новой вкладке"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดงกำลังเล่นบนแท็บใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yeni Sekmede Şimdi Çalıyor’u Göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показувати «Зараз грає» в новій вкладці"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hiện Đang phát trên thẻ mới"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在新标签页上显示“正在播放”"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在新分頁上顯示「正在播放」"
+          }
+        }
+      }
+    },
+    "settings.tabs.newTabNowPlaying.help": {
+      "comment": "Settings: help under Show Now Playing on New Tab. 'Show Now Playing' is the Sidebar setting's title.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مشغّل لما يتم تشغيله، في صفحة علامة التبويب الجديدة. إيقاف «إظهار قيد التشغيل الآن» يخفيه أيضًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plejer za ono što se reproducira, na stranici nove kartice. Isključivanje opcije Prikaži Sada se reproducira sakriva i njega."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En afspiller til det, der spiller, på siden for ny fane. Slås Vis Afspilles nu fra, skjules den også."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Player für die aktuelle Wiedergabe auf der Seite „Neuer Tab“. Ist „Aktuelle Wiedergabe“ in der Seitenleiste aus, ist er ebenfalls ausgeblendet."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A player for what is playing, on the New Tab page. Turning off Show Now Playing hides it too."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un reproductor de lo que suena, en la página de nueva pestaña. Desactivar Mostrar Reproduciendo ahora también lo oculta."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un lecteur pour ce qui est en cours de lecture, sur la page du nouvel onglet. Désactiver Afficher À l’écoute le masque aussi."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un lettore per ciò che è in riproduzione, nella pagina della nuova scheda. Disattivando Mostra In riproduzione viene nascosto anche questo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新規タブのページに、再生中の項目のプレーヤーを表示します。「再生中を表示」をオフにすると、これも非表示になります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កម្មវិធី​ចាក់​សម្រាប់​អ្វី​ដែល​កំពុង​ចាក់ នៅ​លើ​ទំព័រ​ផ្ទាំង​ថ្មី។ ការ​បិទ​បង្ហាញ​អ្វី​ដែល​កំពុង​ចាក់ ក៏​លាក់​វា​ដែរ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 탭 페이지에 지금 재생 중인 항목의 플레이어를 보여 줍니다. 지금 재생 중 보기를 끄면 이것도 가려집니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En spiller for det som spilles, på siden for ny fane. Slås Vis Spilles nå av, skjules den også."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odtwarzacz tego, co gra, na stronie nowej karty. Wyłączenie opcji Pokaż Teraz odtwarzane też go ukrywa."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um player do que está tocando, na página da nova aba. Desativar Mostrar Tocando Agora também o oculta."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Плеер того, что сейчас играет, на странице новой вкладки. Если выключить «Показывать „Сейчас играет“», он тоже скрывается."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เครื่องเล่นสำหรับสิ่งที่กำลังเล่น บนหน้าแท็บใหม่ การปิดแสดงกำลังเล่นจะซ่อนส่วนนี้ด้วย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yeni sekme sayfasında çalan içerik için bir oynatıcı. Şimdi Çalıyor’u Göster kapatılınca bu da gizlenir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Плеєр того, що зараз грає, на сторінці нової вкладки. Якщо вимкнути «Показувати „Зараз грає“», він теж ховається."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trình phát cho nội dung đang phát, trên trang thẻ mới. Tắt Hiện Đang phát cũng ẩn trình phát này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在新标签页上显示正在播放内容的播放器。关闭“显示正在播放”也会隐藏它。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在新分頁頁面上顯示正在播放內容的播放器。關閉「顯示正在播放」也會隱藏它。"
+          }
+        }
+      }
+    },
     "settings.sidebar.nowPlaying.enabled": {
       "extractionState": "manual",
       "localizations": {

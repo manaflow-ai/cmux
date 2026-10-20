@@ -7,6 +7,12 @@ extension NowPlayingSettings {
     public nonisolated static let enabledDefault = true
 }
 
+extension NowPlayingSettings {
+    /// `tabs.newTabNowPlaying`: On by default. Off: no player on the New Tab page and no space kept for it; the sidebar card stays. sidebar.nowPlaying.enabled off hides both.
+    public nonisolated static let newTabPath = ["tabs", "newTabNowPlaying"]
+    public nonisolated static let newTabDefault = true
+}
+
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
 nonisolated enum NowPlayingSettingsSchema {
     /// The Now Playing player (Austin's idea, Leo 2026-10-18): on by default, and the user can hide it.
@@ -22,6 +28,23 @@ nonisolated enum NowPlayingSettingsSchema {
                 kind: .toggle,
                 default: .bool(NowPlayingSettings.enabledDefault),
                 keywords: ["music", "now playing", "player", "media", "spotify", "song", "sidebar"]
+            ),
+        ]
+    }
+
+    /// The New Tab page's Now Playing player (Leo 2026-10-19: "disableable"): on by default; its right-click menu's Hide Now Playing turns it off.
+    static var newTabDescriptors: [SettingDescriptor] {
+        let group = SettingsText.keyed("settings.group.tabs", "Tabs")
+        return [
+            SettingDescriptor(
+                NowPlayingSettings.newTabPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.tabs.newTabNowPlaying", "Show Now Playing on New Tab"),
+                help: SettingsText.keyed("settings.tabs.newTabNowPlaying.help", "A player for what is playing, on the New Tab page. Turning off Show Now Playing hides it too."),
+                kind: .toggle,
+                default: .bool(NowPlayingSettings.newTabDefault),
+                keywords: ["music", "now playing", "player", "media", "spotify", "song", "new tab", "new chat"]
             ),
         ]
     }

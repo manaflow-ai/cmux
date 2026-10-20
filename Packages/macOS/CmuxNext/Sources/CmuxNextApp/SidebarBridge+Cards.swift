@@ -11,7 +11,7 @@ import Observation
 extension SidebarBridge {
     func observeCards() {
         cardsObservation?.cancel()
-        let nowPlaying = model.followNowPlaying(services.cache.pageRequests.sidebarSources) { [weak services] in services?.settings?.snapshot.nowPlaying.enabled ?? NowPlayingSettings.enabledDefault }
+        let nowPlaying = model.followNowPlaying(services.cache.pageRequests.sidebarSources, settings: { [weak services] in services?.settings }, registry: services.registry)
         cardsObservation = SidebarCardFeed.start(model: model, updater: services.updater, window: state, registry: services.registry, settings: services.settings).cancelling(nowPlaying)
     }
 }

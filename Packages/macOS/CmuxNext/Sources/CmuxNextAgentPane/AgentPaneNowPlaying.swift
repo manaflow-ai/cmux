@@ -10,7 +10,8 @@ public import Foundation
 public final class AgentPaneNowPlaying {
     public static let shared = AgentPaneNowPlaying()
 
-    /// What plays, nil while nothing does or the player is hidden (`sidebar.nowPlaying.enabled`).
+    /// What plays, nil while nothing does or the player is hidden (`sidebar.nowPlaying.enabled`, or
+    /// `tabs.newTabNowPlaying` for the New Tab page only).
     public var track: Track? {
         didSet {
             guard track != oldValue else { return }
@@ -38,9 +39,11 @@ public final class AgentPaneNowPlaying {
         public var canNext: Bool
         /// The controls' titles: play, pause, previous, next.
         public var labels: [String: String]
+        /// The name of the app that plays (Spotify, Music) for the menu's Open in; nil for cmux's own.
+        public var source: String?
 
         public init(title: String, artist: String, artwork: String?, isPlaying: Bool, position: TimeInterval?, duration: TimeInterval?,
-                    rate: Double, positionDate: Date, canPrevious: Bool, canNext: Bool, labels: [String: String]) {
+                    rate: Double, positionDate: Date, canPrevious: Bool, canNext: Bool, labels: [String: String], source: String? = nil) {
             self.title = title
             self.artist = artist
             self.artwork = artwork
@@ -52,6 +55,7 @@ public final class AgentPaneNowPlaying {
             self.canPrevious = canPrevious
             self.canNext = canNext
             self.labels = labels
+            self.source = source
         }
 
         var json: JSONValue {
@@ -64,16 +68,23 @@ public final class AgentPaneNowPlaying {
             if let artwork { object["artwork"] = .string(artwork) }
             if let position { object["position"] = .number(position) }
             if let duration { object["duration"] = .number(duration) }
+            if let source { object["source"] = .string(source) }
             return .object(object)
         }
     }
 
-    /// A page's control (`nowPlaying.command {command, seconds}`).
+    /// A page's control (`nowPlaying.command {command, seconds}`), or its menu's page items.
     public nonisolated enum Command: Hashable, Sendable {
         case playPause
         case previous
         case next
         case seek(TimeInterval)
+        /// Open in: brings the app that plays forward.
+        case open
+        /// Hide Now Playing (false) and its Undo (true): `tabs.newTabNowPlaying`.
+        case show(Bool)
+        /// Now Playing Settings…: Settings at `tabs.newTabNowPlaying`.
+        case settings
 
         /// The page's params, nil for anything else.
         init?(_ params: [String: Any]?) {
@@ -81,6 +92,10 @@ public final class AgentPaneNowPlaying {
             case "playPause": self = .playPause
             case "previous": self = .previous
             case "next": self = .next
+            case "open": self = .open
+            case "hide": self = .show(false)
+            case "show": self = .show(true)
+            case "settings": self = .settings
             case "seek":
                 guard let seconds = (params?["seconds"] as? NSNumber)?.doubleValue, seconds.isFinite, seconds >= 0 else { return nil }
                 self = .seek(seconds)

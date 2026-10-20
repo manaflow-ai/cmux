@@ -34,6 +34,42 @@
           ]
         }
       ]
+    },
+    {
+      "name": "newTab",
+      "section": "general",
+      "group": {
+        "key": "settings.group.tabs",
+        "text": "Tabs"
+      },
+      "note": "The New Tab page's Now Playing player (Leo 2026-10-19: \"disableable\"): on by default; its right-click menu's Hide Now Playing turns it off.",
+      "rows": [
+        {
+          "key": "tabs.newTabNowPlaying",
+          "name": "newTab",
+          "note": "On by default. Off: no player on the New Tab page and no space kept for it; the sidebar card stays. sidebar.nowPlaying.enabled off hides both.",
+          "title": {
+            "key": "settings.tabs.newTabNowPlaying",
+            "text": "Show Now Playing on New Tab"
+          },
+          "help": {
+            "key": "settings.tabs.newTabNowPlaying.help",
+            "text": "A player for what is playing, on the New Tab page. Turning off Show Now Playing hides it too."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "music",
+            "now playing",
+            "player",
+            "media",
+            "spotify",
+            "song",
+            "new tab",
+            "new chat"
+          ]
+        }
+      ]
     }
   ]
 }

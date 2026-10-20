@@ -1,7 +1,8 @@
 // What plays, as the host pushes it for the New Tab page's player (`nowPlaying`, CmuxNextAgentPane
 // AgentPaneNowPlaying): the sidebar card's track (cmux's player, a browser tab, Spotify, Music), or
-// null while nothing plays or the player is hidden (`sidebar.nowPlaying.enabled`). A module store
-// like recentlyClosed.ts, so a push that arrives before the screen mounts is kept.
+// null while nothing plays or the player is hidden (`sidebar.nowPlaying.enabled`, or
+// `tabs.newTabNowPlaying` for this page only). A module store like recentlyClosed.ts, so a push
+// that arrives before the screen mounts is kept.
 import { useSyncExternalStore } from "react";
 
 export type NowPlayingTrack = {
@@ -17,6 +18,8 @@ export type NowPlayingTrack = {
   positionDate: number;
   canPrevious: boolean;
   canNext: boolean;
+  /// The app that plays (Spotify, Music), for the menu's Open in; absent for cmux's own player and tabs.
+  source?: string;
   labels: { play: string; pause: string; previous: string; next: string };
 };
 
@@ -55,6 +58,7 @@ export function setNowPlaying(value: unknown): void {
         next: text(labels.next, "Next"),
       },
       ...(typeof raw.artwork === "string" && raw.artwork.startsWith("data:image/") ? { artwork: raw.artwork } : {}),
+      ...(typeof raw.source === "string" && raw.source.trim() ? { source: raw.source.trim().slice(0, 64) } : {}),
       ...(position !== undefined ? { position } : {}),
       ...(duration !== undefined && duration > 0 ? { duration } : {}),
     };
