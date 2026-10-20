@@ -48,7 +48,7 @@ import { newTabChipSnapshot } from "./newtab/chipDefaults";
 import { HarnessesScreen } from "./harnesses/HarnessesScreen";
 import { openHarnessesPage, registerHarnessesPage, useHarnessesPage } from "./harnesses/harnessesPage";
 import { injectedNewTabContext, useEarlyNewTabContext, useNewTabAdoption, useNewTabPlaces } from "./newtab/adoption";
-import { publishSessions, useSharedSessions } from "./newtab/chatStore";
+import { publishSessions, sharesChatList, useSharedSessions } from "./newtab/chatStore";
 import { heldPick, withDraftFolder } from "./newtab/draftFolder";
 import { rememberRecentFolders } from "./newtab/recentProject";
 import { publishWarmNewTab, shownNewTabSessions, useWarmNewTabSessions } from "./newtab/warmSnapshot";
@@ -5158,18 +5158,11 @@ function AcpmuxPane() {
   const carriedSessions = shownNewTabSessions(composerSnapshot, warmSessions);
   // Over that, the New Tab page lists the chats every page shares (newtab/chatStore.ts): the newest
   // list any page received, drawn on its first frame and updated in place when another page hears a
-  // change. Debug Settings `newTab.privateChatLists` lists this page's own connection's chats, as
-  // before; so does a page on another machine's daemon, whose chats are not this Mac's, and a page
-  // whose daemon is down, which shows that rather than chats it cannot open.
-  const ownNewTabSessions = carriedSessions ?? composerSnapshot.sessions;
+  // change. Debug Settings `newTab.privateChatLists`, a page on another machine's daemon and a page
+  // whose daemon is down list this page's own (`sharesChatList`).
   const newTabSessions = useSharedSessions(
-    ownNewTabSessions,
-    !!newTab &&
-      !newTab.privateChatLists &&
-      composerSnapshot.origin !== "remote" &&
-      composerSnapshot.origin !== "peer" &&
-      composerSnapshot.connection !== "disconnected" &&
-      composerSnapshot.connection !== "debug",
+    carriedSessions ?? composerSnapshot.sessions,
+    sharesChatList(newTab, composerSnapshot),
   );
   const newTabSnapshot = useMemo(
     () =>

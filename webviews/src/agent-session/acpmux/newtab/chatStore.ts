@@ -176,6 +176,20 @@ function value(): Stored | undefined {
 
 const unsubscribed = () => () => {};
 
+/// Whether a page lists the shared chats: a New Tab page (`page`, its context) of this Mac's daemon
+/// (before its handshake no origin is named, and another machine's context turns the store off with
+/// `privateChatLists`, as Debug Settings `newTab.privateChatLists` does), whose daemon is not down: a
+/// down daemon shows that, not chats the page cannot open. An older acpmux names no origin
+/// (`unknown`) and may be another machine's, as `publishable` reads it.
+export function sharesChatList(
+  page: { privateChatLists?: boolean } | undefined,
+  snapshot: Pick<AcpmuxSnapshot, "origin" | "connection">,
+): boolean {
+  if (!page || page.privateChatLists) return false;
+  if (snapshot.origin !== undefined && snapshot.origin !== "local") return false;
+  return snapshot.connection !== "disconnected" && snapshot.connection !== "debug";
+}
+
 /// `sharedSessions` as a hook: the page re-renders when it or another page publishes. `enabled`
 /// false (not a New Tab page, a chat on another machine, or Debug Settings
 /// `newTab.privateChatLists`) lists the page's own chats and does not listen.

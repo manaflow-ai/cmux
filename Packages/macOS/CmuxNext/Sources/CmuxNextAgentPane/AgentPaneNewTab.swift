@@ -107,6 +107,10 @@ extension AgentPaneNewTab {
         if local {
             page.host = AgentPaneModel.localMachineDisplayName
             page.warm = Self.warmed
+        } else {
+            // Another machine's page lists its own chats, never the ones this Mac's pages share
+            // (webviews newtab/chatStore.ts), not even before its handshake names its origin.
+            page.privateChatLists = true
         }
         return page
     }

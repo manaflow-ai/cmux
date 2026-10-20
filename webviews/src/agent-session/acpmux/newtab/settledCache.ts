@@ -16,6 +16,8 @@ export type SettledChats = { rows: AllChatsRow[]; nextCursor?: string; ready: bo
 /// The `deviceChats` push count the stored first page answers, in this page; pushes past it are
 /// changes no read here has taken in yet.
 let reflected = 0;
+/// This page read the first page itself (`rememberChats`).
+let readHere = false;
 
 function storage(): Storage | undefined {
   try {
@@ -51,10 +53,25 @@ export function settledChats(): SettledChats | undefined {
 /// during the read still counts as unread).
 export function rememberChats(value: SettledChats, atPush: number): void {
   reflected = Math.max(reflected, atPush);
+  readHere = true;
   write(CHATS_KEY, value);
 }
 
-/// True when the chat index pushed a change since the stored first page was read in this page.
+/// True when this page has not read the first page yet (the stored one is another page's, maybe
+/// from long ago), or the chat index pushed a change since the stored first page was read in this
+/// page. A list mounted again in the same page draws its rows and reads nothing.
 export function chatsChangedSinceSettled(): boolean {
-  return devicePushCount() > reflected;
+  return !readHere || devicePushCount() > reflected;
+}
+
+/// A new page's start (tests): nothing read in it yet. `keepStore` keeps what other pages stored.
+export function resetSettledChatsForTests(options: { keepStore?: boolean } = {}): void {
+  reflected = devicePushCount();
+  readHere = false;
+  if (options.keepStore) return;
+  try {
+    storage()?.removeItem(CHATS_KEY);
+  } catch {
+    // A blocked store holds nothing.
+  }
 }
