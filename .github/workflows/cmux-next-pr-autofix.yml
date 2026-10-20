@@ -534,6 +534,10 @@ jobs:
 
   push:
     name: push the repairs
+    # The contents-write App key is never exposed to PR-controlled workflow
+    # code. A main-only environment intentionally leaves PR repairs as an
+    # artifact until this push is moved behind a trusted workflow_run broker.
+    environment: cmux-pr-autofix
     needs: [action-areas, action-exports, repair]
     # Explicit status checks: the implicit success() would fail on the
     # action-exports job, which most pull requests skip. The areas must have
