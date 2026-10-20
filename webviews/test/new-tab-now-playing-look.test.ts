@@ -5,7 +5,8 @@
 // one soft surface with a hairline edge and concentric rounded artwork; Previous and Next fill a
 // soft round under the pointer while Play or Pause is the one filled control; the right-click menu
 // opens at the pointer with its items; and once the host clears the track (the setting turned off)
-// the content below moves up by exactly the card and its margin, so no space is kept.
+// the content below moves up by exactly the card, its margin and its parent's gap, so no space is
+// kept.
 //
 // It renders the real New Tab screen on the gallery stage. CI fails the file when it cannot launch
 // (requireBrowserLane). Locally: CMUX_BROWSER_TESTS=1 bun test test/new-tab-now-playing-look.test.ts
@@ -164,6 +165,9 @@ await requireBrowserLane("new-tab-now-playing-look.test.ts", async () => {
       const card = document.querySelector<HTMLElement>(".nt-player")!;
       const rect = card.getBoundingClientRect();
       const margin = parseFloat(getComputedStyle(card).marginTop);
+      // A flex or grid parent's gap goes with the card too.
+      const parent = getComputedStyle(card.parentElement!);
+      const gap = /flex|grid/.test(parent.display) ? parseFloat(parent.rowGap) || 0 : 0;
       // The first box after the card in document order, whatever the template draws there.
       const after = [...document.querySelectorAll<HTMLElement>("body *")].find(
         (element) =>
@@ -179,7 +183,7 @@ await requireBrowserLane("new-tab-now-playing-look.test.ts", async () => {
       return {
         gone: document.querySelector(".nt-player") === null,
         moved: before - after.getBoundingClientRect().top,
-        card: rect.height + margin,
+        card: rect.height + margin + gap,
       };
     });
     if (shift === null) return; // Nothing below the card on this stage: nothing can shift.
