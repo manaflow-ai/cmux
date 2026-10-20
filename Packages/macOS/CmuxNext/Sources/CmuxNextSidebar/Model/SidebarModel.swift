@@ -96,6 +96,12 @@ public final class SidebarModel {
     /// When this app's user last asked for a sidebar change (`noteUserIntent`): only a change
     /// that follows within `userIntentWindow` moves rows on a spring (calm-sidebar-movement).
     @ObservationIgnored var userIntentAt: ContinuousClock.Instant?
+    /// `sectionsRevision` of the last quiet set (`setSections(_:quiet:)`): that change shows with no motion.
+    @ObservationIgnored var quietRevision: UInt64?
+    /// How many quiet sets moved `sectionsRevision`.
+    @ObservationIgnored private var quietSets: UInt64 = 0
+    /// `sectionsRevision` without the quiet sets: a settling drop waits for its own move, not for an attention re-sort.
+    var loudRevision: UInt64 { sectionsRevision &- quietSets }
     /// The clock `noteUserIntent` reads; tests inject a fixed instant.
     @ObservationIgnored public var userIntentClock: @MainActor () -> ContinuousClock.Instant = { .now }
     /// True once: at the first structural set after the user's move.
@@ -369,14 +375,20 @@ public final class SidebarModel {
 
     /// Shows `new` (the App's mapping of daemon state) with this window's
     /// collapsed sections applied; assigns only when something changed.
-    public func setSections(_ new: [SidebarSection]) {
+    /// `quiet`: a change nobody asked for (an attention re-sort): it never moves rows on a spring.
+    public func setSections(_ new: [SidebarSection], quiet: Bool = false) {
         // The sidebar document places every item: links in machine lists, Pinned and custom groups in their own list sections.
         var shown = docDrag.flatMap { drag in SidebarDocStore.current?.shown.map { $0.arrange(new, drag: drag) } } ?? new
         for index in shown.indices {
             let collapsed = collapsedSections.contains(shown[index].id)
             if shown[index].isCollapsed != collapsed { shown[index].isCollapsed = collapsed }
         }
+        let revision = sectionsRevision
         sections = shown // the setter skips an unchanged list
+        if quiet, sectionsRevision != revision {
+            quietRevision = sectionsRevision
+            quietSets &+= 1
+        }
     }
 
     /// Row content of workspaces already listed (status, title, unread,

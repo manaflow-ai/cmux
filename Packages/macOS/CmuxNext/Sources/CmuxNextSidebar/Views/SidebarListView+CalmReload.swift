@@ -17,8 +17,11 @@ extension SidebarListView {
     /// Returns false when the change waits for the pointer to leave.
     @discardableResult
     func showModelChange(animates: Bool) -> Bool {
-        let byUser = model.followsUserIntent
-        if !byUser, holdsModelChangeNow {
+        let byUser = model.structureFollowsUserIntent
+        // An attention re-sort waits for a drag, drop or landing too (they reload at their end): no row slides under
+        // the card, and the drop's settle is not cut short.
+        let quiet = model.quietRevision == model.sectionsRevision
+        if !byUser, holdsModelChangeNow || quiet && (drag != nil || settling != nil || landing != nil || external != nil) {
             holdsModelChange = true
             return false
         }

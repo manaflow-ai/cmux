@@ -153,7 +153,7 @@ extension SidebarListViewComponents {
 
     /// Ends a settling drop once its move landed (the list's structure or the blocks changed); returns it.
     func settleDrop() -> SidebarSettlingDrop? {
-        guard let held = settling, model.sectionsRevision != held.revision || blocks != held.blocks else { return nil }
+        guard let held = settling, model.loudRevision != held.revision || blocks != held.blocks else { return nil }
         settling = nil
         return held
     }
