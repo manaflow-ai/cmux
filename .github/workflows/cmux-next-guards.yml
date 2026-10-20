@@ -251,3 +251,32 @@ jobs:
         env:
           CMUX_STRINGS_BEST_EFFORT: ""
         run: node webviews/scripts/pages/gen-strings.mjs
+
+  # The tests of feat-cmux-next's own CI tooling (nightly-next's App ID, the
+  # cmux-tui republish path, the crash ratchet, the red-checks comment, the
+  # backdrop art generator). Each is stdlib Python with fakes for the network
+  # and the binaries it calls, so the job needs nothing but a checkout.
+  tooling-tests:
+    # A fork pull request runs on a hosted runner, never on LINUX_RUNNER.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: nightly-next's App ID and profile through the ASC API
+        run: python3 tests/test_asc_developer_id_app.py
+
+      - name: A rebuilt cmux-tui commit reuses its earlier publication
+        run: python3 tests/test_cmux_tui_republish_same_commit.py
+
+      - name: The crash ratchet is judged against the base
+        run: python3 tests/test_crash_ratchet_compare.py
+
+      - name: The red-checks line of the PR status comment
+        run: python3 tests/test_pr_red_checks_comment.py
+
+      - name: The backdrop art catalog and brightness range
+        run: python3 tests/test_backdrop_art_generator.py

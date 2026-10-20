@@ -20,10 +20,7 @@ if (!built) console.warn("agent-pane-no-capsules: skipping (run scripts/cmux-nex
 
 /** Capsules by nature: a toggle's track, a slider's track and fill, a progress bar, drawn lines,
  * and the composer's model, effort and access chips, whose hover, focus and open background is the
- * Claude app's soft pill (#22107; composer-chip-plain-rest and composer-chip-press check it). The
- * Cards New Tab template (u2851, from the user's scrawl of Aside's New Tab page) is a pill design
- * on purpose: its field, its Search | Ask switch (track, thumb and buttons) and its selected Chats
- * tab are round (newtab/screen.css). The other templates keep small-radius rects. */
+ * Claude app's soft pill (#22107; composer-chip-plain-rest and composer-chip-press check it). */
 const SHAPES = new Set([
   ".acpmux-switch",
   ".acpmux-effort-track",
@@ -36,11 +33,6 @@ const SHAPES = new Set([
   ".acpmux-model .acpmux-picker-button",
   ".acpmux-effort .acpmux-picker-button",
   ".acpmux-access .acpmux-picker-button",
-  '.nt-screen[data-template="cards"][data-pill] .nt-box',
-  '.nt-screen[data-template="cards"][data-pill] .nt-mode-track',
-  '.nt-screen[data-template="cards"][data-pill] .nt-mode-thumb',
-  '.nt-screen[data-template="cards"][data-pill] .nt-mode-track button',
-  '.nt-screen[data-template="cards"] .nt-chats-tab.is-selected',
 ]);
 
 const px = (value: string | undefined) => (value && /^-?[\d.]+px$/.test(value) ? parseFloat(value) : undefined);

@@ -484,7 +484,19 @@ export function NewTabScreen(props: Props) {
     }
     const view = field.current?.ownerDocument.defaultView;
     view?.addEventListener(FOCUS_LOCATION_EVENT, focus);
-    return () => view?.removeEventListener(FOCUS_LOCATION_EVENT, focus);
+    // The page got the keyboard back (a tab or pane switch back: WebKit focuses the window as its
+    // web view becomes first responder) with nothing in it focused, as after a press on the page's
+    // background: the field takes it, as the chat composer does (composerFocus.ts), keeping its
+    // caret and the page's scroll. A field, menu or button that has focus keeps it.
+    const reclaim = () => {
+      const active = field.current?.ownerDocument.activeElement;
+      if (!active || active === field.current?.ownerDocument.body) field.current?.focus({ preventScroll: true });
+    };
+    if (focusOnShow) view?.addEventListener("focus", reclaim);
+    return () => {
+      view?.removeEventListener(FOCUS_LOCATION_EVENT, focus);
+      view?.removeEventListener("focus", reclaim);
+    };
   }, [inputToken, focusOnShow]);
 
   const activate = (row: ScreenRow) => {
@@ -920,17 +932,6 @@ export function NewTabScreen(props: Props) {
           </div>
         )}
         <div ref={setBox} className="nt-box">
-          {/* What was pasted on the field or dropped on the page, as a chat's composer shows it. */}
-          <AttachmentStrip
-            attachments={attachments}
-            {...(attachError ? { error: attachError } : {})}
-            dropping={dropping}
-            codex={harness === "codex"}
-            onRemove={(id) => {
-              setAttachments((current) => current.filter((item) => item.id !== id));
-              field.current?.focus();
-            }}
-          />
           {/* A press anywhere on the field's row (its padding, the glyph) focuses the field, as a
             browser's address bar does; the text itself keeps its own press (caret, selection).
             Cursor rule (cx-d0d.80): the I-beam only over the text, the arrow elsewhere. */}
@@ -975,6 +976,19 @@ export function NewTabScreen(props: Props) {
               }}
             />
           </div>
+          {/* What was pasted on the field or dropped on the page, as a chat's composer shows it, under
+            the field: the box's top is where the page anchors it, so the strip grows away from the
+            text and never moves it (Leo 2026-10-19: the composer kept "going to places"). */}
+          <AttachmentStrip
+            attachments={attachments}
+            {...(attachError ? { error: attachError } : {})}
+            dropping={dropping}
+            codex={harness === "codex"}
+            onRemove={(id) => {
+              setAttachments((current) => current.filter((item) => item.id !== id));
+              field.current?.focus();
+            }}
+          />
           {!pill && pickers}
         </div>
         {/* Claude Code's split, the chat composer's (ComposerFoot.tsx): the mode, model and effort in

@@ -1253,7 +1253,7 @@ export default agentPaneEntry({
       }),
     },
     "model-menu-starred": {
-      note: "Play: in a new chat, open the model picker, star Sonnet, then open the rail's Starred tab: it lists the starred models of every harness. A started chat's harness is fixed, so its menu has no rail (#22226).",
+      note: "Play: open the model picker, star Sonnet, then open the rail's Starred tab: it lists the starred models of every harness.",
       checks: {
         layoutShiftMax: {
           value: 0.055,
@@ -1261,6 +1261,8 @@ export default agentPaneEntry({
             "Filtering the model catalog reflows rows inside the fixed-height popup; the transcript and composer anchors must remain fixed.",
         },
       },
+      // A chat before its first send: a started chat's model menu has no harness rail, so no
+      // Starred tab (75bc9406caf7, #22226).
       ready: { newSession: true, cwd: CWD },
       snapshot: noChat([], {
         summary: { sessionId: "", cwd: CWD, harness: "claude", model: "claude-opus-5-5", effort: "high" },

@@ -62,12 +62,6 @@ await requireBrowserLane("markdown-selection-drag.test.ts", async () => {
 
   const open = async (engine: string): Promise<Page> => {
     const context = await browsers.get(engine)!.newContext({ viewport: { width: 800, height: 900 } });
-    // The page runs in a Mac WebView, where ProseMirror's Mod (Select All is Mod-a) is Cmd: its
-    // keymaps read navigator.platform once, as they load. On a Linux runner Mod was Ctrl, so the
-    // Cmd-A below selected nothing.
-    await context.addInitScript(() =>
-      Object.defineProperty(Navigator.prototype, "platform", { get: () => "MacIntel", configurable: true }),
-    );
     const page = await context.newPage();
     const port = (vite!.httpServer!.address() as { port: number }).port;
     for (let attempt = 1; ; attempt++) {
@@ -152,7 +146,8 @@ await requireBrowserLane("markdown-selection-drag.test.ts", async () => {
       test("Cmd-A selects the document and reveals no syntax", async () => {
         const page = await open(engine);
         await park(page);
-        await page.keyboard.press("Meta+a");
+        // Cmd-A on the Mac; on the Linux runners ProseMirror's Select All is Ctrl-A.
+        await page.keyboard.press("ControlOrMeta+a");
         await rest(page);
         expect(await revealed(page)).toBe(0);
         expect(await page.locator(".md-prose .md-math-inline").count()).toBe(1);

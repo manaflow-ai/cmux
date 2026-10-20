@@ -1,4 +1,4 @@
-import CmuxNextPages
+import CmuxNextRemoteFetch
 import Foundation
 
 /// Fetches a reply's web image for the page, which has no network of its own (CSP

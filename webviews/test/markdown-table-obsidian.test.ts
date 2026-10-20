@@ -166,11 +166,6 @@ await requireBrowserLane("markdown-table-obsidian.test.ts", async () => {
         expect(after).toBeLessThan(before + 100);
         // A view setting: the file is not edited.
         expect(await page.locator("[data-status]").first().getAttribute("data-status")).not.toBe("edited");
-        // The page sends the width to the host (cmux.markdown.setTableWidths) after the drag, and the
-        // gallery host stores it a task later: reload only once it has, or the reload races the write.
-        await page.waitForFunction(() =>
-          Object.keys(localStorage).some((key) => key.startsWith("cmux.gallery.markdown.tableWidths:")),
-        );
 
         await load(page);
         const reloaded = (await cell(page, "Role")).box.width;
