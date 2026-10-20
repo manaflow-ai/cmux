@@ -5,7 +5,7 @@ import Testing
 
 /// Lawrence 2026-10-19 (u2455): "I think the sidebar renders too often." The
 /// sidebar's work counters (`SidebarPerfCounters`) per phase, with 10 and 100
-/// workspaces (a third in groups): idle, a selection change, streaming output
+/// workspaces (a third in groups): idle, a selection change, a click on a row, streaming output
 /// (one row's text changing), typing (a row patch that changes nothing), and
 /// a group drag (moves, then the drop). A change that is not structural
 /// re-renders only the rows it changed: it never lays the list out again and
@@ -39,7 +39,7 @@ import Testing
             nodes.append(.group(SidebarGroup(id: id, name: "Group \(g)", color: .green, workspaces: members.map(ws))))
         }
         nodes += ids[min(ids.count, 3 * perGroup)...].map { .workspace(ws($0)) }
-        let model = SidebarModel(sections: [SidebarSection(kind: .machine(machine), nodes: nodes)], activeWorkspaceID: ids.last)
+        let model = SidebarModel(sections: [SidebarSection(kind: .machine(machine), nodes: nodes)], activeWorkspaceID: ids.first)
         let sidebar = SidebarView(model: model, design: DesignSettings())
         let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 260, height: 900), styleMask: [.borderless],
                               backing: .buffered, defer: false)
@@ -79,12 +79,25 @@ import Testing
         let idle = Self.counts()
 
         // A selection change (a click on another workspace, as the app answers it).
-        let target = h.ids[count / 2]
+        let target = h.ids[3] // on screen: a reveal scroll would realize other rows
         h.model.click(target)
         h.model.activeWorkspaceID = target
         h.sidebar.renderNow()
         await Self.settle()
         let selection = Self.counts()
+
+        // A real click (mouse down and up) on another workspace's row.
+        let clicked = try #require(h.list.displayed.row(for: .workspace(h.ids[5])))
+        let at = h.list.convert(NSPoint(x: 80, y: clicked.y + clicked.height / 2), to: nil)
+        for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+            let event = try #require(NSEvent.mouseEvent(with: type, location: at, modifierFlags: [], timestamp: 0,
+                                                        windowNumber: h.window.windowNumber, context: nil, eventNumber: 0,
+                                                        clickCount: 1, pressure: 1))
+            if type == .leftMouseDown { h.list.mouseDown(with: event) } else { h.list.mouseUp(with: event) }
+        }
+        h.sidebar.renderNow()
+        await Self.settle()
+        let click = Self.counts()
 
         // Streaming output: one row's title changes 20 times.
         let streamed = h.ids[1]
@@ -114,12 +127,14 @@ import Testing
         if let landing = h.list.landing { h.list.finishLand(landing, then: nil) }
         let drop = Self.counts()
 
-        print("render-counts n=\(count) realized=\(realized) idle=\(idle) selection=\(selection) streaming=\(streaming) "
+        print("render-counts n=\(count) realized=\(realized) idle=\(idle) selection=\(selection) click=\(click) streaming=\(streaming) "
               + "typing=\(typing) dragMoves=\(moves) drop=\(drop)")
 
         #expect(idle.reloads == 0 && idle.configures == 0, "idle re-rendered: \(idle)")
         #expect(selection.reloads == 0, "a selection change laid the whole list out: \(selection)")
         #expect(selection.configures <= 2, "a selection change configured \(selection.configures) of \(realized) rows")
+        #expect(click.reloads == 0, "a click on a row laid the whole list out: \(click)")
+        #expect(click.configures <= 2, "a click configured \(click.configures) of \(realized) rows")
         #expect(streaming.reloads == 0, "streaming output laid the whole list out: \(streaming)")
         // Each patch configures its row (and a group member's header): never the other rows.
         #expect(streaming.configures <= 20 * 2, "20 patches of one row configured \(streaming.configures) rows")
