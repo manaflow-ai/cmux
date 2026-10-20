@@ -53,7 +53,7 @@ pub(super) const PROFILE: &str = include_str!("../../sandbox/remote-chain.sb");
 /// The identity of what a remote chain runs under: the profile and the env
 /// policy (bump `ENV_POLICY` when the child env rules change).
 pub(super) fn profile_id() -> String {
-    const ENV_POLICY: &str = "env-v2: credential by env, CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1, endpoint pinned by --settings env, user settings skipped for a profile's own endpoint";
+    const ENV_POLICY: &str = "env-v3: remote allowlist, credential by profile env, CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1, endpoint pinned by --settings env, user settings skipped for a profile's own endpoint";
     crate::sha256::sha256_hex(format!("{PROFILE}\n{ENV_POLICY}").as_bytes())
 }
 
@@ -655,6 +655,7 @@ impl Hub {
         } else {
             (plan, profile.clone())
         };
+        profile.env.insert(crate::agent::REMOTE_ENV_POLICY_KEY.into(), "1".into());
         // A remote chain never runs without the permission prompt: no switch
         // to bypassPermissions (its settings disable the mode as well).
         let mut plan = plan;

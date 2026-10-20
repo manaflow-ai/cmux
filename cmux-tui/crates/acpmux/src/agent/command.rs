@@ -6,6 +6,14 @@ use anyhow::{Result, anyhow};
 use std::process::Stdio;
 use tokio::process::Command;
 
+/// A spawn-only profile marker: remote-origin harnesses start from the
+/// explicit base below, never the daemon's ambient environment. Removed
+/// before the profile env is applied.
+pub(crate) const REMOTE_ENV_POLICY_KEY: &str = "ACPMUX_REMOTE_ENV_POLICY";
+/// `Command` exposes its env edits but not `env_clear`; this removal records
+/// that clear for the agent-host environment projection (`command_env`).
+const REMOTE_ENV_CLEARED_KEY: &str = "__ACPMUX_REMOTE_ENV_CLEARED";
+
 /// The harness command line and environment, as acpmux runs it: the login
 /// environment, no nested-agent markers, the session's `ACPMUX_*` caller
 /// context, and the profile's env. Shared by direct children and hosts.
@@ -44,6 +52,7 @@ pub(crate) fn harness_command(
         owned
     };
     let mut env = resolved_profile_env(profile)?;
+    let remote_environment = env.remove(REMOTE_ENV_POLICY_KEY).as_deref() == Some("1");
     // The Codex bridge runs the configured codex binary: `CODEX_PATH` of the
     // profile or its family (`defaults.codex.env`), as the ACP adapter does.
     let owned = match env.get("CODEX_PATH").filter(|p| !p.is_empty()) {
@@ -69,6 +78,9 @@ pub(crate) fn harness_command(
     }
     let (program, args) = (&owned.0, &owned.1);
     let mut cmd = crate::session_scope::command(program, session.map(|(id, _)| id), &env);
+    if remote_environment {
+        apply_remote_base(&mut cmd);
+    }
     // The daemon's own prompt-cache switches and turn-scoped values are
     // never the agent's (a daemon started from inside a Claude Code or Chief
     // turn can carry them). The profile, preset and session env below may
@@ -85,7 +97,11 @@ pub(crate) fn harness_command(
     // The login shell's allow-list for this harness's family (login_env.rs).
     let family_name = crate::config::derive_family(name, profile);
     let family = Some(family_name.as_str());
-    crate::login_env::apply_tokio_for(&mut cmd, family, Some(&env));
+    crate::login_env::apply_tokio_for(
+        &mut cmd,
+        if remote_environment { None } else { family },
+        Some(&env),
+    );
     crate::config::scrub_nested_claude_env_tokio_for(&mut cmd, family);
     // Caller context, herdr-style: the agent knows which session it is.
     for (k, _) in std::env::vars_os() {
@@ -192,12 +208,27 @@ fn resolved_profile_env(
 
 /// The full environment `cmd` gives its child (inherited, then changed).
 pub(crate) fn command_env(cmd: &Command) -> Vec<(String, String)> {
-    let mut env: std::collections::BTreeMap<String, String> = std::env::vars().collect();
-    for (k, v) in cmd.as_std().get_envs() {
-        let k = k.to_string_lossy().into_owned();
+    let changes: Vec<(String, Option<String>)> = cmd
+        .as_std()
+        .get_envs()
+        .map(|(key, value)| {
+            (
+                key.to_string_lossy().into_owned(),
+                value.map(|value| value.to_string_lossy().into_owned()),
+            )
+        })
+        .collect();
+    let cleared =
+        changes.iter().any(|(key, value)| key == REMOTE_ENV_CLEARED_KEY && value.is_none());
+    let mut env: std::collections::BTreeMap<String, String> =
+        if cleared { Default::default() } else { std::env::vars().collect() };
+    for (k, v) in changes {
+        if k == REMOTE_ENV_CLEARED_KEY {
+            continue;
+        }
         match v {
             Some(v) => {
-                env.insert(k, v.to_string_lossy().into_owned());
+                env.insert(k, v);
             }
             None => {
                 env.remove(&k);
@@ -205,4 +236,38 @@ pub(crate) fn command_env(cmd: &Command) -> Vec<(String, String)> {
         }
     }
     env.into_iter().collect()
+}
+
+/// Start a remote-origin harness with operating-system identity and locale,
+/// then layer the common login allowlist and its explicit profile/session
+/// values. Unrelated tokens, SSH_AUTH_SOCK, and ambient CMUX_* never enter.
+fn apply_remote_base(cmd: &mut Command) {
+    let allowed = |key: &std::ffi::OsStr| {
+        let key = key.to_string_lossy();
+        key.starts_with("LC_")
+            || [
+                "HOME",
+                "USER",
+                "LOGNAME",
+                "SHELL",
+                "TMPDIR",
+                "LANG",
+                "LANGUAGE",
+                "TERM",
+                "COLORTERM",
+                "TZ",
+                // Windows process startup and temporary-directory basics.
+                "SYSTEMROOT",
+                "WINDIR",
+                "COMSPEC",
+                "PATHEXT",
+                "TEMP",
+                "TMP",
+                "USERPROFILE",
+            ]
+            .iter()
+            .any(|allowed| key.eq_ignore_ascii_case(allowed))
+    };
+    let base: Vec<_> = std::env::vars_os().filter(|(key, _)| allowed(key)).collect();
+    cmd.env_clear().envs(base).env_remove(REMOTE_ENV_CLEARED_KEY);
 }
