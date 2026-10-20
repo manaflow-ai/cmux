@@ -163,6 +163,12 @@ def test_environment_secret_rollout_keeps_untrusted_jobs_secretless() -> None:
     promotion = workflow("cloud-vm-image-contract.yml")["jobs"]["promote"]
     assert promotion.get("environment") == "cloud-vm-image-promotion"
 
+    backend_jobs = workflow("backend.yml")["jobs"]
+    for job_name in ("preview", "preview-cleanup"):
+        assert "vars.CMUX_NEXT_PREVIEW_BROKER_ENABLED == '1'" in backend_jobs[job_name].get("if", ""), (
+            f"backend {job_name} must skip before its protected environment is evaluated"
+        )
+
     docs_caller = workflow("docs-channels.yml")["jobs"]
     assert "secrets" not in docs_caller["nightly"]
     assert "secrets" not in docs_caller["release"]
@@ -178,6 +184,9 @@ def test_environment_secret_rollout_keeps_untrusted_jobs_secretless() -> None:
 
     pr_autofix = workflow("cmux-next-pr-autofix.yml")["jobs"]["push"]
     assert pr_autofix.get("environment") == "cmux-pr-autofix"
+    assert "github.event_name != 'pull_request'" in pr_autofix.get("if", ""), (
+        "the protected App job must skip PR refs before environment evaluation"
+    )
 
     trusted_automation = (
         ("ci-failure-attribution.yml", "attribute", "ci-attribution-agent"),
