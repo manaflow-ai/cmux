@@ -1,6 +1,9 @@
 // A thought reads as Codex and Claude desktop draw one (Leo 2026-10-13, transcript row design): a
-// muted, closed "Thought for 4s" line whose full text shows once opened, and "Thinking…" while the
-// agent is still thinking. Before, the whole thought sat on the row after a "Thought" label.
+// muted, closed "Thought for 4s" line whose full text shows once opened, and "Thinking" while the
+// agent is still thinking. Before, only a long thought folded (ThoughtRow.tsx); a short one sat on
+// its row in full after a "Thought" label. The fold is the Debug toggle
+// agentPane.debug.foldLongThoughts, which the app turns on (`data-fold-long-thoughts="on"`); its
+// threshold agentPane.debug.thoughtFoldThreshold defaults to "every".
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
@@ -23,6 +26,7 @@ beforeAll(() => {
     IS_REACT_ACT_ENVIRONMENT: true,
   });
   host = window.document.querySelector<HTMLElement>("#root")!;
+  window.document.documentElement.dataset.foldLongThoughts = "on";
 });
 
 afterAll(() => {
@@ -72,7 +76,7 @@ test("a finished thought is one closed 'Thought for 4s' line that opens to its t
   expect(host.querySelector(".cv-thought__text")?.textContent).toBe(TEXT);
 });
 
-test("the thought the agent is still writing reads 'Thinking…'", async () => {
+test("the thought the agent is still writing reads 'Thinking'", async () => {
   const { appendThought } = await import("../src/agent-session/acpmux/direct");
   const row = {
     id: "activity-2",
@@ -83,7 +87,7 @@ test("the thought the agent is still writing reads 'Thinking…'", async () => {
   };
   // The running turn's last row (turns.ts liveTurn marks it).
   await render({ ...row, live: true });
-  expect(host.querySelector(".cv-thought")?.textContent).toBe("Thinking…");
+  expect(host.querySelector(".cv-thought__label")?.textContent).toBe("Thinking");
   // An earlier row of the same turn, with an answer after it, has finished thinking.
   await render(row);
   expect(host.querySelector(".cv-thought")?.textContent).toBe("Thought for 2s");

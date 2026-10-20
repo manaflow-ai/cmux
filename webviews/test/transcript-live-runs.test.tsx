@@ -20,7 +20,7 @@ const row = (id: string, kind: string, extra: Partial<AcpmuxRow> = {}): AcpmuxRo
 const call = (id: string, kind: string, status = "completed") => ({
   kind: "tool",
   text: "",
-  tool: { id, title: id, kind, status },
+  tool: { id: `call-${id}`, title: id, kind, status },
 });
 const run = (id: string, calls: ReturnType<typeof call>[]) => row(id, "activity", { items: calls });
 const text = (id: string) => row(id, "assistant", { text: id });

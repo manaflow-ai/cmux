@@ -232,6 +232,55 @@ test("a long thought shows in full while it streams and folds only when done, wi
 const row = () => container.querySelector<HTMLElement>(".cv-thought");
 const label = () => container.querySelector(".cv-thought__label")?.textContent;
 
+// The default threshold, "every" (agentPane.debug.thoughtFoldThreshold): every thought folds once
+// done, as Codex and Claude desktop draw one, however short (transcript rows, cx-bwbfv).
+test("by default a short thought folds once done to its 'Thought for' line", () => {
+  threshold = "every";
+  height = 20;
+  render({ ...thought("Check the branch first."), startedAt: 1_000, endedAt: 5_000 }, false, "every:0");
+  expect(toggle()?.getAttribute("aria-expanded")).toBe("false");
+  expect(toggle()?.textContent).toBe("Thought for 4s");
+  expect(body()).toBeNull();
+  click();
+  expect(body()?.textContent).toBe("Check the branch first.");
+});
+
+test("by default a thought still streaming reads Thinking, however short, with its text", () => {
+  threshold = "every";
+  height = 20;
+  render(thought("Check the branch first."), true, "every-live:0");
+  expect(toggle()).toBeNull();
+  expect(label()).toBe("Thinking");
+  expect(row()?.classList.contains("is-live")).toBe(false);
+  expect(container.querySelector(".cv-thought__text")?.textContent).toBe("Check the branch first.");
+});
+
+test("a thought sent as one chunk lasts until the step after it started", () => {
+  const once = { ...thought(), startedAt: 1_000, endedAt: 1_000 };
+  expect(thoughtDuration(once, 4_000)).toBe(3_000);
+  // A later chunk wins over an earlier next step, and a next step dated before the thought counts for nothing.
+  expect(thoughtDuration({ ...once, endedAt: 9_000 }, 4_000)).toBe(8_000);
+  expect(thoughtDuration(once, 500)).toBe(0);
+  threshold = "every";
+  act(() => {
+    root ??= createRoot(container);
+    root.render(<ThoughtRow id="until:0" item={once} until={4_000} />);
+  });
+  expect(toggle()?.textContent).toBe("Thought for 3s");
+});
+
+test("the Debug choices viewport and codex keep a short done thought in full after Thought", () => {
+  for (const choice of ["viewport", "codex"] as const) {
+    threshold = choice;
+    height = 20;
+    render(thought("Check the branch first."), false, `${choice}-short:0`);
+    expect(toggle()).toBeNull();
+    expect(label()).toBe("Thought");
+    act(() => root!.unmount());
+    root = undefined;
+  }
+});
+
 test("a long thought streaming holds the live viewport and reads Thinking", () => {
   height = THOUGHT_LIVE_PX + 1;
   render(thought(), true, "live:0");
@@ -320,4 +369,15 @@ test("with Reduce Motion the toggle opens and closes at once", () => {
 test("the folded line reads the first line without heading marks", () => {
   expect(thoughtPreview("**Planning the retry fix**\n\nMore detail.")).toBe("Planning the retry fix");
   expect(thoughtPreview("## Check errors\nnext")).toBe("Check errors");
+});
+
+test("the page reads the fold threshold from <html>, every thought when the app sets none", () => {
+  const html = dom!.window.document.documentElement;
+  expect(layout.threshold()).toBe("every");
+  html.dataset.thoughtFoldThreshold = "viewport";
+  expect(layout.threshold()).toBe("viewport");
+  html.dataset.thoughtFoldThreshold = "codex";
+  expect(layout.threshold()).toBe("codex");
+  html.dataset.thoughtFoldThreshold = "unknown";
+  expect(layout.threshold()).toBe("every");
 });

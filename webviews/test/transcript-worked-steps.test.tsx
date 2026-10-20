@@ -26,6 +26,8 @@ beforeAll(() => {
     IS_REACT_ACT_ENVIRONMENT: true,
   });
   host = window.document.querySelector<HTMLElement>("#root")!;
+  // The app turns the thought fold on (Debug toggle agentPane.debug.foldLongThoughts).
+  window.document.documentElement.dataset.foldLongThoughts = "on";
 });
 
 afterAll(() => {
@@ -88,7 +90,8 @@ function turn() {
   }));
 }
 
-test("an open 'Worked for' lists every step, and text between calls is prose", async () => {
+/// The open "Worked for" of the turn, drawn: each step line's words, in order.
+async function openWorkedFor(): Promise<(string | null | undefined)[]> {
   const { AcpmuxDirectClient } = await import("../src/agent-session/acpmux/direct");
   const { turnView, WORKED } = await import("../src/agent-session/acpmux/conversation/turns");
   const { ToolRows } = await import("../src/agent-session/acpmux/conversation/TurnRows");
@@ -110,6 +113,7 @@ test("an open 'Worked for' lists every step, and text between calls is prose", a
   const open = turnView(rows, new Set([worked.id]));
   const work = open.slice(open.indexOf(open.find((row) => row.id === worked.id)!) + 1);
   const activity = work.filter((row) => row.kind === "activity");
+  act(() => root?.unmount());
   root = createRoot(host);
   await act(async () =>
     root!.render(
@@ -120,10 +124,29 @@ test("an open 'Worked for' lists every step, and text between calls is prose", a
       </>,
     ),
   );
-  const lines = [...host.querySelectorAll(".cv-tools > .cv-tool, .cv-tools > .cv-message")].map(
+  return [...host.querySelectorAll(".cv-tools > .cv-tool, .cv-tools > .cv-message")].map(
     (node) => node.querySelector(".cv-tool__text, .cv-thought__label, .cv-message__party.is-to")?.textContent,
   );
-  expect(lines).toEqual(["Thought for 1s", "Ran 2 commands", "Thought for 1s", "Read 11 files", "coordinator"]);
+}
+
+test("an open 'Worked for' lists every step, and text between calls is prose", async () => {
+  expect(await openWorkedFor()).toEqual([
+    "Thought for 1s",
+    "Ran 2 commands",
+    "Thought for 1s",
+    "Read 11 files",
+    "coordinator",
+  ]);
   // Nothing scrolls inside the open turn: the whole list is the transcript's.
   expect(host.querySelector(".cv-tool-run")).toBeNull();
+});
+
+test("with the Debug toggle workedForFoldsRuns, an open 'Worked for' folds a run under its summary again", async () => {
+  host.ownerDocument.documentElement.dataset.workedForRuns = "fold";
+  try {
+    // The first run folds under its summary; the second holds a message card, which never hides there.
+    expect(await openWorkedFor()).toEqual(["Ran commands", "Thought for 1s", "Read 11 files", "coordinator"]);
+  } finally {
+    delete host.ownerDocument.documentElement.dataset.workedForRuns;
+  }
 });
