@@ -46,7 +46,7 @@ DEBUG_COMPILE = "cmux app scheme compile (Debug)"
 REACT = "react-apps-check"
 # cmux-next.yml jobs the gate waits for by name.
 NEXT_LANES = (ROUTING, FAST_TIER, "cmux-next Swift canary", DEBUG_COMPILE)
-FAST = re.compile(r"^(cmux-next fast tier|cmux-next Swift canary|cmux app scheme compile \(Debug\)|(.* / )?react-apps-check)$")
+FAST = re.compile(r"^(cmux-next fast tier( \(cargo\))?|cmux-next Swift canary|cmux app scheme compile \(Debug\)|(.* / )?react-apps-check)$")
 GATING = re.compile(r"react-apps-check|web status|app[- ]?size|size[- ]cap|crash", re.I)
 # The full gate's own lanes on feat-cmux-next. The fast gate does not wait for them,
 # but one that already finished red is judged as the full gate judges it.

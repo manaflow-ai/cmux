@@ -128,6 +128,12 @@ class FastGate(unittest.TestCase):
         _, _, reds = run(Reader(rollup))
         self.assertEqual(reds, ["app-size", "cmux-next fast tier"])
 
+    def test_a_red_cargo_fast_tier_is_reported(self):
+        """The fast tier's cargo entries run in their own Linux job; its red is a fast-lane red."""
+        _, seen, reds = run(Reader(GREEN + [check("cmux-next fast tier (cargo)", conclusion="FAILURE")]))
+        self.assertIn("cmux-next fast tier (cargo)", seen)
+        self.assertEqual(reds, ["cmux-next fast tier (cargo)"])
+
     def test_completed_reds_in_the_full_gate_lanes_are_reported_pending_ones_are_not(self):
         """The fast gate does not wait for ci-status, the swift test or the Release compile,
         but a completed red one is judged as the full gate judges it."""
