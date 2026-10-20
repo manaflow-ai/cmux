@@ -106,8 +106,7 @@ impl NegotiatedRevision {
                 ))
             }
         })?;
-        // RED: the revision is negotiated but never stored yet.
-        let peer = if negotiated.translator == Translator::Us { 0 } else { 0 };
+        let peer = if negotiated.translator == Translator::Us { client_revision } else { 0 };
         self.peer.store(peer, Ordering::Release);
         Ok(())
     }
