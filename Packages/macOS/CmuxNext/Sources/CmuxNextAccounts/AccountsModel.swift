@@ -93,29 +93,12 @@ public final class AccountsModel {
         refresh()
     }
 
-    /// Starts the provider's own login. Returns why it did not start (the
-    /// row is busy), or nil. Before any detection finished, the login starts
-    /// once one has.
+    /// Starts the provider's own login now. Returns why it did not start
+    /// (the row is busy, including Checking…), or nil. Callers that can wait
+    /// use ``performReauthenticate(_:)``. A row already Re-authenticating
+    /// opens the login again (its tab may be gone).
     @discardableResult
     public func reauthenticate(_ provider: AIProvider) -> String? {
-        guard row(provider).canReauthenticate else { return nil }
-        guard hasDetected else {
-            Task { await settle(); startReauthentication(provider) }
-            return nil
-        }
-        return startReauthentication(provider)
-    }
-
-    /// ``reauthenticate(_:)`` after detection settled, so a busy row's refusal
-    /// reaches the palette or CLI.
-    public func performReauthenticate(_ provider: AIProvider) async -> String? {
-        await settle()
-        return reauthenticate(provider)
-    }
-
-    /// A row already Re-authenticating opens the login again (its tab may be gone).
-    @discardableResult
-    private func startReauthentication(_ provider: AIProvider) -> String? {
         let state = row(provider)
         guard state.canReauthenticate else { return nil }
         guard state.phase == .idle || state.phase == .reauthenticating else { return AccountsStrings.errorBusy }
@@ -123,6 +106,13 @@ public final class AccountsModel {
         pendingReauth.insert(provider)
         services.reauthenticate(provider, plan: provider.reauthPlan)
         return nil
+    }
+
+    /// ``reauthenticate(_:)`` after detection settled, in the caller's task,
+    /// so a busy row's refusal reaches the page, palette or CLI.
+    public func performReauthenticate(_ provider: AIProvider) async -> String? {
+        await settle()
+        return reauthenticate(provider)
     }
 
     /// Connect: asks for a paste first when there is no local secret to send.
