@@ -200,7 +200,7 @@ fn cmux_version_parses_to_the_version_report() {
 /// A bundled CLI's path names its app bundle.
 #[test]
 fn the_bundle_is_found_from_the_bundled_cli_path() {
-    let exe = std::path::Path::new("/Applications/cmux NIGHTLY.app/Contents/Resources/bin/cmux");
+    let exe = Path::new("/Applications/cmux NIGHTLY.app/Contents/Resources/bin/cmux");
     assert_eq!(bundle_of(exe), Some(PathBuf::from("/Applications/cmux NIGHTLY.app")));
-    assert_eq!(bundle_of(std::path::Path::new("/usr/local/bin/cmux")), None);
+    assert_eq!(bundle_of(Path::new("/usr/local/bin/cmux")), None);
 }
