@@ -2,8 +2,9 @@ import type { Principal, RowReader, SqlStore } from "@cmux/ownership"
 import { MachineId } from "@cmux/protocol"
 import { Effect, Exit, Schema } from "effect"
 import { vmGate, type VmReply } from "./cloud-vm.ts"
+import type { MachineRow } from "./domains/cloud.ts"
 import { digest, pointOf, type NetworkIdentity } from "./host-network-peers.ts"
-import { liveVmReceiver, originalVmReceiverGrant, vmReceiverStamp } from "./cloud-vm-receiver-identity.ts"
+import { boundVmReceiver, liveVmReceiver, originalVmReceiverGrant, vmReceiverStamp } from "./cloud-vm-receiver-identity.ts"
 import { VmReceiverGenerations, type ReceiverTransitionAudit } from "./cloud-vm-receiver-generations.ts"
 
 const Version = Schema.String.check(Schema.isPattern(/^[0-9a-f]{64}$/))
@@ -28,17 +29,21 @@ export const cloudVmReceiverLifecycle = (d: Deps, p: Principal, params: unknown)
     }
     const refuse = (reply: VmReply): VmReply => { d.audit({ phase: r.phase, machine: r.machine, changed: false, outcome: "refused" }); return reply }
     const gate = () => vmGate(d.team, p, r.machine, d.rows)
+    const permitted = r.phase === "read" || r.phase === "end" ? boundVmReceiver : liveVmReceiver
+    // Power state gates activation, but cannot change the original identity
+    // whose receiver must retire during park. Preserve the running scope hash.
+    const stamp = (row: MachineRow) => vmReceiverStamp({ ...row, status: "running" })
     const first = gate(), started = d.now()
     if (!first.ok) return refuse(first)
-    if (!p.user || !p.install || !p.grant || !liveVmReceiver(first.row, p) || (p.expires_at !== undefined && p.expires_at <= started)) return refuse(forbidden())
-    const original = vmReceiverStamp(first.row)
+    if (!p.user || !p.install || !p.grant || !permitted(first.row, p) || (p.expires_at !== undefined && p.expires_at <= started)) return refuse(forbidden())
+    const original = stamp(first.row)
     let own: NetworkIdentity | null
     try { own = await d.own(p.user, p.install, p.grant, r.machine) }
     catch { return refuse(unavailable()) }
     const now = d.now(), current = gate()
     // Timeout/cancellation must fence the continuation before any authority change.
     if (signal.aborted || now < started || now >= started + 15_000) return refuse(unavailable())
-    if (!current.ok || !liveVmReceiver(current.row, p) || vmReceiverStamp(current.row) !== original
+    if (!current.ok || !permitted(current.row, p) || stamp(current.row) !== original
       || !originalVmReceiverGrant(p, own, now) || (p.expires_at !== undefined && p.expires_at <= now)) return refuse(forbidden())
     const scope = digest(["cmux-vm-receiver-scope-v1", original, p.grant, own.authority_version, pointOf(own)])
     // No I/O or await separates the final original-scope check from the atomic
