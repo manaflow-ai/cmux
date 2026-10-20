@@ -212,3 +212,34 @@ test("after a typed space the hidden suggestion is not taken by Tab", async () =
   await press("Tab");
   expect(field().textContent).not.toContain("Continue PR #123");
 });
+
+// Greptile on #21882: no session summary carries a PR yet, so the live source is the chat folder's
+// own PR, which the App reads with gh for the header's chip (header/headerState.ts, cx-tcwj).
+test("the chat folder's PR from the header's gh read is suggested when no session reports one", async () => {
+  const { headerState, setHeaderState } = await import("../src/agent-session/acpmux/header/headerState");
+  const header = (pullRequest: unknown) =>
+    act(async () => setHeaderState({ pullRequest, version: headerState().version + 1 }));
+  const live = {
+    url: "https://github.com/you/app/pull/77",
+    number: 77,
+    title: "Stream tool output",
+    state: "open",
+    checks: { state: "failing", passed: 1, total: 3 },
+  };
+  try {
+    await render(fresh([]));
+    expect(shown()).toBe("Do anything");
+    await header(live);
+    expect(shown()).toStartWith("Fix the failing checks on PR #77");
+    await header({ ...live, state: "draft", checks: { state: "pending", passed: 0, total: 1 } });
+    expect(shown()).toStartWith("Finish draft PR #77: Stream tool output");
+    await header({ ...live, state: "merged", checks: { state: "passing", passed: 3, total: 3 } });
+    expect(shown()).toBe("Do anything");
+    // A chat already working on that PR keeps it.
+    await header({ ...live, checks: { state: "passing", passed: 3, total: 3 } });
+    await render(fresh([prChat({ sessionId: "busy", indicator: "working" }, { number: 77 })]));
+    expect(shown()).toBe("Do anything");
+  } finally {
+    await header(null);
+  }
+});
