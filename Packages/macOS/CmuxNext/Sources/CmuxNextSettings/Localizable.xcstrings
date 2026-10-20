@@ -1,6 +1,138 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.appearance.backgroundBlur.summary": {
+      "comment": "One-line summary of the window Material setting (Frosted, Glass, Clear Glass, None) in the wallpaper card.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clear Glass shows the desktop through the wallpaper"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يُظهر الزجاج الشفاف سطح المكتب عبر الخلفية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prozirno staklo prikazuje radnu površinu kroz pozadinu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klart glas viser skrivebordet gennem baggrunden"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klares Glas zeigt den Schreibtisch durchs Hintergrundbild"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El vidrio claro muestra el escritorio a través del fondo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le verre clair montre le bureau à travers le fond"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il vetro chiaro mostra la scrivania attraverso lo sfondo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クリアガラスでは壁紙越しにデスクトップが見えます"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កញ្ចក់ថ្លាបង្ហាញផ្ទៃតុតាមរយៈផ្ទាំងរូបភាព"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "투명 유리는 배경화면 너머로 데스크탑을 보여 줍니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klart glass viser skrivebordet gjennom bakgrunnen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przezroczyste szkło pokazuje biurko przez tapetę"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O vidro claro mostra a mesa através do papel de parede"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Прозрачное стекло показывает рабочий стол сквозь обои"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "กระจกใสจะแสดงเดสก์ท็อปผ่านภาพพื้นหลัง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Şeffaf Cam, masaüstünü duvar kâğıdının ardından gösterir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Прозоре скло показує робочий стіл крізь шпалери"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kính trong cho thấy màn hình nền qua hình nền"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "透明玻璃会透过墙纸显示桌面"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "透明玻璃會透過桌布顯示桌面"
+          }
+        }
+      }
+    },
     "settings.group.chiefChat": {
       "comment": "Settings group in Agents: how the Chief chat looks.",
       "extractionState": "manual",
@@ -789,270 +921,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "程式碼相對內文大小的比例。等寬字體在相同大小下看起來比內文字體大，所以程式碼預設會稍小一些。"
-          }
-        }
-      }
-    },
-    "settings.tabs.newTabNowPlaying": {
-      "comment": "Settings: toggle that shows the Now Playing player (the music playing on this Mac) on the New Tab page.",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "إظهار قيد التشغيل الآن في علامة التبويب الجديدة"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Prikaži Sada se reproducira na novoj kartici"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vis Afspilles nu på ny fane"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "„Aktuelle Wiedergabe“ im neuen Tab anzeigen"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Show Now Playing on New Tab"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostrar Reproduciendo ahora en la nueva pestaña"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Afficher À l’écoute dans le nouvel onglet"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostra In riproduzione nella nuova scheda"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "新規タブに再生中を表示"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "បង្ហាញ​អ្វី​ដែល​កំពុង​ចាក់​នៅ​លើ​ផ្ទាំង​ថ្មី"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "새 탭에 지금 재생 중 보기"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vis Spilles nå på ny fane"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pokaż Teraz odtwarzane na nowej karcie"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostrar Tocando Agora na nova aba"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Показывать «Сейчас играет» в новой вкладке"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "แสดงกำลังเล่นบนแท็บใหม่"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Yeni Sekmede Şimdi Çalıyor’u Göster"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Показувати «Зараз грає» в новій вкладці"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hiện Đang phát trên thẻ mới"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在新标签页上显示“正在播放”"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在新分頁上顯示「正在播放」"
-          }
-        }
-      }
-    },
-    "settings.tabs.newTabNowPlaying.help": {
-      "comment": "Settings: help under Show Now Playing on New Tab.",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "مشغّل لما يتم تشغيله، في صفحة علامة التبويب الجديدة."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Plejer za ono što se reproducira, na stranici nove kartice."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "En afspiller til det, der afspilles, på siden for ny fane."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ein Player für die aktuelle Wiedergabe auf der Seite „Neuer Tab“."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "A player for what is playing, on the New Tab page."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Un reproductor de lo que está sonando, en la página de nueva pestaña."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Un lecteur pour ce qui est en cours de lecture, sur la page du nouvel onglet."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Un player per ciò che è in riproduzione, nella pagina della nuova scheda."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "再生中のメディアのプレーヤー。新規タブのページに表示されます。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "កម្មវិធី​ចាក់​សម្រាប់​អ្វី​ដែល​កំពុង​ចាក់ នៅ​លើ​ទំព័រ​ផ្ទាំង​ថ្មី។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "재생 중인 항목의 플레이어로, 새 탭 페이지에 표시됩니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "En spiller for det som spilles, på siden for ny fane."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Odtwarzacz tego, co gra, na stronie nowej karty."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Um player do que está tocando, na página da nova aba."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Плеер для того, что сейчас играет, на странице новой вкладки."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "เครื่องเล่นสำหรับสิ่งที่กำลังเล่น บนหน้าแท็บใหม่"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Çalan içerik için bir oynatıcı; yeni sekme sayfasında."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Плеєр для того, що зараз грає, на сторінці нової вкладки."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Trình phát cho nội dung đang phát, trên trang thẻ mới."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "正在播放内容的播放器，位于新标签页。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "正在播放內容的播放器，位於新分頁。"
           }
         }
       }
@@ -8531,127 +8399,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Default Engine"
+            "value": "Browser Engine"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "デフォルトのエンジン"
+            "value": "ブラウザエンジン"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "المحرك الافتراضي"
+            "value": "محرك المتصفح"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Zadani mehanizam"
+            "value": "Mehanizam preglednika"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Standardmotor"
+            "value": "Browsermotor"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Standard-Engine"
+            "value": "Browser-Engine"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Motor predeterminado"
+            "value": "Motor del navegador"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Moteur par défaut"
+            "value": "Moteur du navigateur"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Motore predefinito"
+            "value": "Motore del browser"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ម៉ាស៊ីនលំនាំដើម"
+            "value": "ម៉ាស៊ីនកម្មវិធីរុករក"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "기본 엔진"
+            "value": "브라우저 엔진"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Standardmotor"
+            "value": "Nettlesermotor"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Domyślny silnik"
+            "value": "Silnik przeglądarki"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Motor padrão"
+            "value": "Motor do navegador"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Движок по умолчанию"
+            "value": "Движок браузера"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "เอนจินเริ่มต้น"
+            "value": "เอนจินเบราว์เซอร์"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Varsayılan Motor"
+            "value": "Tarayıcı Motoru"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Типовий рушій"
+            "value": "Рушій браузера"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Công cụ mặc định"
+            "value": "Công cụ trình duyệt"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "默认引擎"
+            "value": "浏览器引擎"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "預設引擎"
+            "value": "瀏覽器引擎"
           }
         }
       }
@@ -8662,127 +8530,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "New browser tabs open in this engine."
+            "value": "Browser tabs and cmux pages, such as History and Apps, open in this engine."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "新しいブラウザタブはこのエンジンで開きます。"
+            "value": "ブラウザタブと、履歴やアプリなどの cmux のページはこのエンジンで開きます。"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "تُفتح علامات تبويب المتصفح الجديدة بهذا المحرك."
+            "value": "تُفتح علامات تبويب المتصفح وصفحات cmux، مثل السجل والتطبيقات، بهذا المحرك."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nove kartice preglednika otvaraju se u ovom mehanizmu."
+            "value": "Kartice preglednika i cmux stranice, kao što su Historija i Aplikacije, otvaraju se u ovom mehanizmu."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nye browserfaner åbnes med denne motor."
+            "value": "Browserfaner og cmux-sider som Historik og Apps åbnes med denne motor."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Neue Browser-Tabs öffnen sich mit dieser Engine."
+            "value": "Browser-Tabs und cmux-Seiten wie Verlauf und Apps öffnen sich mit dieser Engine."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Las pestañas nuevas del navegador se abren con este motor."
+            "value": "Las pestañas del navegador y las páginas de cmux, como Historial y Apps, se abren con este motor."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Les nouveaux onglets s’ouvrent avec ce moteur."
+            "value": "Les onglets du navigateur et les pages de cmux, comme Historique et Apps, s’ouvrent avec ce moteur."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Le nuove schede del browser si aprono con questo motore."
+            "value": "Le schede del browser e le pagine di cmux, come Cronologia e App, si aprono con questo motore."
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ផ្ទាំងកម្មវិធីរុករកថ្មីបើកក្នុងម៉ាស៊ីននេះ។"
+            "value": "ផ្ទាំងកម្មវិធីរុករក និងទំព័រ cmux ដូចជា ប្រវត្តិ និង កម្មវិធី បើកក្នុងម៉ាស៊ីននេះ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "새 브라우저 탭은 이 엔진으로 열립니다."
+            "value": "브라우저 탭과 기록, 앱 같은 cmux 페이지는 이 엔진으로 열립니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nye nettleserfaner åpnes med denne motoren."
+            "value": "Nettleserfaner og cmux-sider som Historikk og Apper åpnes med denne motoren."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nowe karty przeglądarki otwierają się w tym silniku."
+            "value": "Karty przeglądarki i strony cmux, takie jak Historia i Aplikacje, otwierają się w tym silniku."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Novas abas do navegador abrem neste motor."
+            "value": "Abas do navegador e páginas do cmux, como Histórico e Apps, abrem neste motor."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Новые вкладки браузера открываются в этом движке."
+            "value": "Вкладки браузера и страницы cmux, такие как История и Приложения, открываются в этом движке."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "แท็บเบราว์เซอร์ใหม่จะเปิดด้วยเอนจินนี้"
+            "value": "แท็บเบราว์เซอร์และหน้าของ cmux เช่น ประวัติ และ แอป จะเปิดด้วยเอนจินนี้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Yeni tarayıcı sekmeleri bu motorla açılır."
+            "value": "Tarayıcı sekmeleri ve Geçmiş ile Uygulamalar gibi cmux sayfaları bu motorla açılır."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Нові вкладки браузера відкриваються в цьому рушії."
+            "value": "Вкладки браузера та сторінки cmux, як-от Історія та Програми, відкриваються в цьому рушії."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tab trình duyệt mới mở bằng công cụ này."
+            "value": "Tab trình duyệt và các trang của cmux, như Lịch sử và Ứng dụng, mở bằng công cụ này."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "新浏览器标签页使用此引擎打开。"
+            "value": "浏览器标签页和 cmux 页面（如历史记录和应用）使用此引擎打开。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "新的瀏覽器標籤頁會以此引擎開啟。"
+            "value": "瀏覽器標籤頁和 cmux 頁面（例如歷史記錄和 App）會以此引擎開啟。"
           }
         }
       }
@@ -130385,6 +130253,270 @@
         }
       }
     },
+    "settings.tabs.newTabNowPlaying": {
+      "comment": "Settings: toggle that shows the Now Playing player (the music playing on this Mac) on the New Tab page.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إظهار قيد التشغيل الآن في علامة التبويب الجديدة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikaži Sada se reproducira na novoj kartici"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis Afspilles nu på ny fane"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "„Aktuelle Wiedergabe“ im neuen Tab anzeigen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Now Playing on New Tab"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar Reproduciendo ahora en la nueva pestaña"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher À l’écoute dans le nouvel onglet"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra In riproduzione nella nuova scheda"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新規タブに再生中を表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្ហាញ​អ្វី​ដែល​កំពុង​ចាក់​នៅ​លើ​ផ្ទាំង​ថ្មី"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 탭에 지금 재생 중 보기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis Spilles nå på ny fane"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokaż Teraz odtwarzane na nowej karcie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar Tocando Agora na nova aba"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показывать «Сейчас играет» в новой вкладке"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดงกำลังเล่นบนแท็บใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yeni Sekmede Şimdi Çalıyor’u Göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показувати «Зараз грає» в новій вкладці"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hiện Đang phát trên thẻ mới"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在新标签页上显示“正在播放”"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在新分頁上顯示「正在播放」"
+          }
+        }
+      }
+    },
+    "settings.tabs.newTabNowPlaying.help": {
+      "comment": "Settings: help under Show Now Playing on New Tab.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مشغّل لما يتم تشغيله، في صفحة علامة التبويب الجديدة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plejer za ono što se reproducira, na stranici nove kartice."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En afspiller til det, der afspilles, på siden for ny fane."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Player für die aktuelle Wiedergabe auf der Seite „Neuer Tab“."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A player for what is playing, on the New Tab page."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un reproductor de lo que está sonando, en la página de nueva pestaña."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un lecteur pour ce qui est en cours de lecture, sur la page du nouvel onglet."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un player per ciò che è in riproduzione, nella pagina della nuova scheda."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再生中のメディアのプレーヤー。新規タブのページに表示されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កម្មវិធី​ចាក់​សម្រាប់​អ្វី​ដែល​កំពុង​ចាក់ នៅ​លើ​ទំព័រ​ផ្ទាំង​ថ្មី។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "재생 중인 항목의 플레이어로, 새 탭 페이지에 표시됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En spiller for det som spilles, på siden for ny fane."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odtwarzacz tego, co gra, na stronie nowej karty."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um player do que está tocando, na página da nova aba."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Плеер для того, что сейчас играет, на странице новой вкладки."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เครื่องเล่นสำหรับสิ่งที่กำลังเล่น บนหน้าแท็บใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Çalan içerik için bir oynatıcı; yeni sekme sayfasında."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Плеєр для того, що зараз грає, на сторінці нової вкладки."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trình phát cho nội dung đang phát, trên trang thẻ mới."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在播放内容的播放器，位于新标签页。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在播放內容的播放器，位於新分頁。"
+          }
+        }
+      }
+    },
     "settings.category.mobile": {
       "extractionState": "manual",
       "localizations": {
@@ -132884,6 +133016,3035 @@
           "stringUnit": {
             "state": "translated",
             "value": "程式碼區塊與行內程式碼的字體。留空則使用終端機字體。代理程式聊天也使用它，除非設定了自己的字體。"
+          }
+        }
+      }
+    },
+    "settings.markdown.remoteImages": {
+      "comment": "Settings row: whether Markdown viewers load web images without asking per document",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Load Web Images Automatically"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تحميل صور الويب تلقائيًا"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatski učitaj web slike"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indlæs webbilleder automatisk"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Webbilder automatisch laden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cargar imágenes web automáticamente"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Charger automatiquement les images web"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Carica automaticamente le immagini web"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Web画像を自動的に読み込む"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ទុករូបភាពវេបដោយស្វ័យប្រវត្តិ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "웹 이미지 자동으로 불러오기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Last inn nettbilder automatisk"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatycznie wczytuj obrazy z internetu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Carregar imagens da web automaticamente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Автоматически загружать изображения из интернета"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "โหลดรูปภาพจากเว็บโดยอัตโนมัติ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Web Görsellerini Otomatik Yükle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Автоматично завантажувати зображення з інтернету"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tự động tải hình ảnh trên web"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自动加载网页图片"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動載入網頁圖片"
+          }
+        }
+      }
+    },
+    "settings.markdown.remoteImages.help": {
+      "comment": "Settings help for automatic Markdown web images",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Web image sites can see your address and when you open a document. When off, each document asks before loading its web images."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يمكن لمواقع صور الويب رؤية عنوانك ووقت فتح المستند. عند إيقاف هذا الخيار، يطلب كل مستند الإذن قبل تحميل صور الويب الخاصة به."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Web lokacije sa slikama mogu vidjeti vašu adresu i kada otvorite dokument. Kada je isključeno, svaki dokument traži dopuštenje prije učitavanja svojih web slika."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Websteder med billeder kan se din adresse, og hvornår du åbner et dokument. Når indstillingen er slået fra, spørger hvert dokument, før det indlæser sine webbilleder."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Websites mit Bildern können deine Adresse und den Zeitpunkt sehen, zu dem du ein Dokument öffnest. Wenn dies deaktiviert ist, fragt jedes Dokument vor dem Laden seiner Webbilder nach."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los sitios de imágenes web pueden ver tu dirección y cuándo abres un documento. Si se desactiva, cada documento pide permiso antes de cargar sus imágenes web."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les sites hébergeant des images peuvent voir votre adresse et quand vous ouvrez un document. Lorsque cette option est désactivée, chaque document demande avant de charger ses images web."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I siti che ospitano immagini possono vedere il tuo indirizzo e quando apri un documento. Se l'opzione è disattivata, ogni documento chiede prima di caricare le proprie immagini web."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Web画像のサイトには、あなたのアドレスとドキュメントを開いた時刻が伝わります。オフの場合、各ドキュメントはWeb画像を読み込む前に確認します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "គេហទំព័ររូបភាពអាចមើលឃើញអាសយដ្ឋានរបស់អ្នក និងពេលអ្នកបើកឯកសារ។ នៅពេលបិទ ឯកសារនីមួយៗនឹងសួរមុនពេលផ្ទុករូបភាពវេបរបស់វា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "웹 이미지 사이트는 사용자의 주소와 문서를 연 시간을 알 수 있습니다. 이 기능을 끄면 각 문서가 웹 이미지를 불러오기 전에 묻습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nettsteder som leverer bilder, kan se adressen din og når du åpner et dokument. Når dette er av, spør hvert dokument før nettbilder lastes inn."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Witryny udostępniające obrazy mogą zobaczyć Twój adres i czas otwarcia dokumentu. Gdy opcja jest wyłączona, każdy dokument pyta przed wczytaniem obrazów z internetu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sites de imagens da web podem ver seu endereço e quando você abre um documento. Quando desativado, cada documento pergunta antes de carregar suas imagens da web."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сайты с изображениями могут узнать ваш адрес и время открытия документа. Когда этот параметр выключен, каждый документ запрашивает разрешение перед загрузкой изображений из интернета."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เว็บไซต์รูปภาพบนเว็บสามารถเห็นที่อยู่ของคุณและเวลาที่คุณเปิดเอกสาร เมื่อปิด แต่ละเอกสารจะถามก่อนโหลดรูปภาพจากเว็บ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Web görseli siteleri adresinizi ve bir belgeyi ne zaman açtığınızı görebilir. Kapalıyken her belge, web görsellerini yüklemeden önce sorar."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сайти із зображеннями можуть дізнатися вашу адресу й час відкриття документа. Коли цей параметр вимкнено, кожен документ запитує дозвіл перед завантаженням зображень з інтернету."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Các trang hình ảnh trên web có thể thấy địa chỉ của bạn và thời điểm bạn mở tài liệu. Khi tắt, mỗi tài liệu sẽ hỏi trước khi tải hình ảnh trên web."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "网页图片网站可以看到你的地址和打开文档的时间。关闭时，每份文档都会在加载网页图片前询问。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "網頁圖片網站可以看到你的位址和開啟文件的時間。關閉時，每份文件都會在載入網頁圖片前詢問。"
+          }
+        }
+      }
+    },
+    "settings.appearance.paneBackgrounds": {
+      "comment": "Settings row title: whether the window has one background or each pane its own.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pane Backgrounds"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "خلفيات الأجزاء"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pozadine okna"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rudebaggrunde"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bereichshintergründe"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fondos de paneles"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arrière-plans des volets"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sfondi dei riquadri"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペインの背景"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ទៃខាងក្រោយផ្ទាំង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "창 영역 배경"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rutebakgrunner"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tła paneli"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fundos dos painéis"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Фоны панелей"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "พื้นหลังของบานหน้าต่าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bölme Arka Planları"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тла панелей"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hình nền khung"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "窗格背景"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "窗格背景"
+          }
+        }
+      }
+    },
+    "settings.appearance.paneBackgrounds.help": {
+      "comment": "Settings row help for Pane Backgrounds.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "One background behind the whole window, or a copy in each pane. A pane's own background (right-click a pane) shows either way."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "خلفية واحدة خلف النافذة كلها، أو نسخة في كل جزء. تظهر خلفية الجزء الخاصة (انقر بزر الماوس الأيمن على الجزء) في الحالتين."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jedna pozadina iza cijelog prozora ili kopija u svakom oknu. Vlastita pozadina okna (desni klik na okno) prikazuje se u oba slučaja."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Én baggrund bag hele vinduet eller en kopi i hver rude. En rudes egen baggrund (højreklik på en rude) vises i begge tilfælde."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Hintergrund hinter dem ganzen Fenster oder eine Kopie in jedem Bereich. Der eigene Hintergrund eines Bereichs (Rechtsklick auf den Bereich) wird immer angezeigt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un fondo detrás de toda la ventana o una copia en cada panel. El fondo propio de un panel (clic derecho en el panel) se muestra en ambos casos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un arrière-plan derrière toute la fenêtre, ou une copie dans chaque volet. L'arrière-plan propre d'un volet (clic droit sur le volet) s'affiche dans les deux cas."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uno sfondo dietro l'intera finestra o una copia in ogni riquadro. Lo sfondo proprio di un riquadro (clic destro sul riquadro) si vede in entrambi i casi."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ウインドウ全体に1つの背景、またはペインごとにコピーを表示します。ペイン固有の背景（ペインを右クリック）はどちらの場合も表示されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ទៃខាងក្រោយមួយនៅពីក្រោយបង្អួចទាំងមូល ឬច្បាប់ចម្លងមួយក្នុងផ្ទាំងនីមួយៗ។ ផ្ទៃខាងក្រោយផ្ទាល់ខ្លួនរបស់ផ្ទាំង (ចុចកណ្ដុរស្ដាំលើផ្ទាំង) បង្ហាញទាំងពីរករណី។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "창 전체 뒤에 배경 하나, 또는 각 창 영역에 사본을 표시합니다. 창 영역 자체 배경(창 영역을 오른쪽 클릭)은 어느 쪽이든 표시됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Én bakgrunn bak hele vinduet, eller en kopi i hver rute. En rutes egen bakgrunn (høyreklikk på en rute) vises uansett."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jedno tło za całym oknem lub kopia w każdym panelu. Własne tło panelu (kliknij panel prawym przyciskiem) jest widoczne w obu przypadkach."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um fundo atrás da janela inteira ou uma cópia em cada painel. O fundo próprio de um painel (clique com o botão direito no painel) aparece nos dois casos."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Один фон за всем окном или копия в каждой панели. Собственный фон панели (щелчок правой кнопкой по панели) виден в обоих случаях."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "พื้นหลังเดียวหลังทั้งหน้าต่าง หรือสำเนาในแต่ละบานหน้าต่าง พื้นหลังเฉพาะของบานหน้าต่าง (คลิกขวาที่บานหน้าต่าง) จะแสดงทั้งสองแบบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tüm pencerenin arkasında tek bir arka plan ya da her bölmede bir kopya. Bir bölmenin kendi arka planı (bölmeye sağ tıklayın) her iki durumda da görünür."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Одне тло за всім вікном або копія в кожній панелі. Власне тло панелі (клацніть панель правою кнопкою) видно в обох випадках."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Một hình nền phía sau toàn bộ cửa sổ, hoặc một bản sao trong mỗi khung. Hình nền riêng của khung (nhấp chuột phải vào khung) luôn hiển thị."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "整个窗口后面一个背景，或每个窗格各有一份副本。窗格自己的背景（右键点按窗格）在两种情况下都会显示。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "整個視窗後方一個背景，或每個窗格各有一份副本。窗格自己的背景（在窗格上按右鍵）在兩種情況下都會顯示。"
+          }
+        }
+      }
+    },
+    "settings.appearance.paneBackgrounds.summary": {
+      "comment": "Settings row summary (one short line) for Pane Backgrounds.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "One background or one per pane"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "خلفية واحدة أو واحدة لكل جزء"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jedna pozadina ili po jedna za okno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Én baggrund eller én pr. rude"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Hintergrund oder einer pro Bereich"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un fondo o uno por panel"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un arrière-plan ou un par volet"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uno sfondo o uno per riquadro"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1つの背景またはペインごと"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ទៃខាងក្រោយមួយ ឬមួយក្នុងមួយផ្ទាំង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "배경 하나 또는 창 영역마다 하나"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Én bakgrunn eller én per rute"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jedno tło lub jedno na panel"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um fundo ou um por painel"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Один фон или по одному на панель"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "พื้นหลังเดียวหรือหนึ่งต่อบานหน้าต่าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tek arka plan ya da bölme başına bir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Одне тло або по одному на панель"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Một hình nền hoặc mỗi khung một"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一个背景或每个窗格一个"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一個背景或每個窗格一個"
+          }
+        }
+      }
+    },
+    "settings.choice.paneBackgrounds.shared": {
+      "comment": "Pane Backgrounds choice: one background behind the whole window.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "One for the Window"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "واحدة للنافذة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jedna za prozor"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Én til vinduet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Einer für das Fenster"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uno para la ventana"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un pour la fenêtre"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uno per la finestra"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ウインドウに1つ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មួយសម្រាប់បង្អួច"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "창에 하나"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Én for vinduet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jedno dla okna"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um para a janela"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Один на окно"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หนึ่งสำหรับหน้าต่าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pencere için bir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Одне на вікно"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Một cho cửa sổ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "整个窗口一个"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "整個視窗一個"
+          }
+        }
+      }
+    },
+    "settings.choice.paneBackgrounds.perPane": {
+      "comment": "Pane Backgrounds choice: each pane draws its own copy of the background.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "One per Pane"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "واحدة لكل جزء"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Po jedna za okno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Én pr. rude"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Einer pro Bereich"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uno por panel"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un par volet"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uno per riquadro"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペインごとに1つ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មួយក្នុងមួយផ្ទាំង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "창 영역마다 하나"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Én per rute"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jedno na panel"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um por painel"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "По одному на панель"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หนึ่งต่อบานหน้าต่าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bölme başına bir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "По одному на панель"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mỗi khung một"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每个窗格一个"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每個窗格一個"
+          }
+        }
+      }
+    },
+    "settings.browser.keepNeighborTabsAwake": {
+      "comment": "Settings row in Browser > Memory: browser.keepNeighborTabsAwake.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إبقاء علامات التبويب المجاورة نشطة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Drži susjedne kartice budnim"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hold nabofaner vågne"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Benachbarte Tabs wach halten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep Neighbor Tabs Awake"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mantener activas las pestañas vecinas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Garder les onglets voisins actifs"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mantieni attive le schede vicine"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "隣のタブを起こしたままにする"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "រក្សាផ្ទាំងជិតខាងឱ្យភ្ញាក់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "인접한 탭 깨어 있게 유지"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hold nabofaner våkne"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Utrzymuj sąsiednie karty w gotowości"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Manter abas vizinhas ativas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не усыплять соседние вкладки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ให้แท็บข้างเคียงทำงานอยู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Komşu sekmeleri uyanık tut"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не присипляти сусідні вкладки"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Giữ các tab lân cận luôn hoạt động"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "保持相邻标签页唤醒"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "保持相鄰分頁喚醒"
+          }
+        }
+      }
+    },
+    "settings.browser.keepNeighborTabsAwake.help": {
+      "comment": "Settings row in Browser > Memory: browser.keepNeighborTabsAwake.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تبقى علامات التبويب على جانبي علامة التبويب المعروضة محمّلة وتعمل، فيكون التبديل إليها فوريًا. القيمة 0 توقفه. ضغط الذاكرة ووضع الطاقة المنخفضة يوقفانه."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kartice sa svake strane prikazane kartice ostaju učitane i rade, pa je prelazak na njih trenutan. 0 isključuje. Nedostatak memorije i način niske potrošnje ga isključuju."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Faner på hver side af den viste fane forbliver indlæst og kørende, så skift til dem sker med det samme. 0 slår det fra. Hukommelsespres og strømbesparelse slår det fra."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tabs links und rechts vom angezeigten Tab bleiben geladen und aktiv, sodass der Wechsel sofort erfolgt. 0 schaltet es aus. Speicherdruck und Stromsparmodus schalten es aus."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tabs on each side of the shown tab stay loaded and running, so switching to them is instant. 0 turns it off. Memory pressure and Low Power Mode turn it off."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Las pestañas a cada lado de la pestaña visible siguen cargadas y en marcha, así cambiar a ellas es instantáneo. 0 lo desactiva. La presión de memoria y el modo de bajo consumo lo desactivan."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Les onglets de chaque côté de l’onglet affiché restent chargés et actifs : y passer est instantané. 0 désactive. La pression mémoire et le mode Économie d’énergie le désactivent."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le schede ai lati della scheda mostrata restano caricate e attive, così passarci è immediato. 0 lo disattiva. La pressione sulla memoria e la modalità di risparmio energetico lo disattivano."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "表示中のタブの両側にあるタブを読み込んだまま動かし続けるので、すぐに切り替えられます。0でオフ。メモリ不足時と低電力モードではオフになります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្ទាំងនៅសងខាងផ្ទាំងដែលកំពុងបង្ហាញ នៅតែផ្ទុក និងដំណើរការ ដូច្នេះការប្ដូរទៅវាគឺភ្លាមៗ។ 0 បិទវា។ សម្ពាធអង្គចងចាំ និងរបៀបថាមពលទាបបិទវា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "표시 중인 탭 양쪽의 탭이 로드된 채로 실행되므로 즉시 전환할 수 있습니다. 0이면 끕니다. 메모리 부족과 저전력 모드에서는 꺼집니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Faner på hver side av den viste fanen forblir lastet og kjører, så bytte til dem skjer umiddelbart. 0 slår det av. Minnepress og strømsparingsmodus slår det av."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Karty po obu stronach wyświetlanej karty pozostają wczytane i działają, więc przełączanie na nie jest natychmiastowe. 0 wyłącza. Brak pamięci i tryb niskiego zużycia energii wyłączają tę funkcję."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "As abas de cada lado da aba exibida continuam carregadas e em execução, então alternar para elas é instantâneo. 0 desativa. Pressão de memória e o Modo de Pouca Energia desativam."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вкладки по обе стороны от показанной остаются загруженными и работают, поэтому переход на них мгновенный. 0 выключает. При нехватке памяти и в режиме энергосбережения выключается."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แท็บทั้งสองข้างของแท็บที่แสดงอยู่จะยังโหลดและทำงานอยู่ จึงสลับไปได้ทันที 0 คือปิด แรงกดดันหน่วยความจำและโหมดพลังงานต่ำจะปิดฟีเจอร์นี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gösterilen sekmenin iki yanındaki sekmeler yüklü ve çalışır kalır, böylece onlara geçiş anında olur. 0 kapatır. Bellek baskısı ve Düşük Güç Modu bunu kapatır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вкладки з обох боків від показаної лишаються завантаженими й працюють, тож перехід на них миттєвий. 0 вимикає. Брак пам’яті та режим енергозбереження вимикають це."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Các tab ở hai bên tab đang hiển thị vẫn được tải và chạy, nên chuyển sang chúng diễn ra tức thì. 0 để tắt. Áp lực bộ nhớ và Chế độ nguồn điện thấp sẽ tắt tính năng này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "当前标签页两侧的标签页保持加载并运行，切换过去即刻完成。0 为关闭。内存压力和低电量模式下会关闭。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "目前分頁兩側的分頁保持載入並執行，切換過去即刻完成。0 為關閉。記憶體壓力與低耗電模式下會關閉。"
+          }
+        }
+      }
+    },
+    "settings.choice.ultraCompact": {
+      "comment": "Density choice: denser than Compact (appearance.density).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ultra-compact"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مضغوط جدًا"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ultrakompaktno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ultrakompakt"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ultrakompakt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ultracompacta"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ultra-compact"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ultracompatta"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "超コンパクト"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បង្រួមខ្លាំង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "초컴팩트"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ultrakompakt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ultrakompaktowa"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ultracompacta"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сверхкомпактная"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "กะทัดรัดพิเศษ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Çok kompakt"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Надкомпактна"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Siêu gọn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "超紧凑"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "超緊湊"
+          }
+        }
+      }
+    },
+    "settings.choice.cozy": {
+      "comment": "Density choice: between Compact and Comfortable (appearance.density).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cozy"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "متوسط"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ugodno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hyggelig"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Behaglich"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Acogedora"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Douillet"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Accogliente"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ほどよい"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មធ្យម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "아늑함"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Koselig"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przytulna"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aconchegante"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Уютная"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "พอดี"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Orta"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Затишна"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vừa"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "适中"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "適中"
+          }
+        }
+      }
+    },
+    "settings.choice.spacious": {
+      "comment": "Density choice: roomier than Comfortable (appearance.density).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spacious"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "واسع"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Široko"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rummelig"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Weitläufig"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Espaciosa"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Spacieux"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Spaziosa"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "広々"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទូលាយ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "널찍함"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Romslig"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bardzo przestronna"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Espaçosa"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Просторная"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "โปร่ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Geniş"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Дуже простора"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rộng rãi"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "宽敞"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "寬敞"
+          }
+        }
+      }
+    },
+    "settings.appearance.density.help": {
+      "comment": "Help under the Density setting.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Row height, padding, corners, icons and text size together. Compact is the default."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ارتفاع الصفوف والهوامش والزوايا والأيقونات وحجم النص معًا. المضغوط هو الافتراضي."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Visina redova, razmaci, uglovi, ikone i veličina teksta zajedno. Kompaktno je zadano."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rækkehøjde, afstand, hjørner, ikoner og tekststørrelse samlet. Kompakt er standard."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zeilenhöhe, Abstände, Ecken, Symbole und Textgröße gemeinsam. Kompakt ist der Standard."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Altura de filas, márgenes, esquinas, iconos y tamaño del texto a la vez. Compacta es la predeterminada."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hauteur des lignes, marges, coins, icônes et taille du texte ensemble. Compact est la valeur par défaut."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Altezza delle righe, spaziature, angoli, icone e dimensione del testo insieme. Compatta è il valore predefinito."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "行の高さ、余白、角、アイコン、文字サイズをまとめて変えます。標準はコンパクトです。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កម្ពស់ជួរ គម្លាត ជ្រុង រូបតំណាង និងទំហំអក្សរ រួមគ្នា។ បង្រួម គឺជាលំនាំដើម។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "행 높이, 여백, 모서리, 아이콘, 텍스트 크기를 함께 바꿉니다. 기본값은 컴팩트입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Radhøyde, avstand, hjørner, ikoner og tekststørrelse samlet. Kompakt er standard."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wysokość wierszy, odstępy, narożniki, ikony i rozmiar tekstu razem. Domyślna jest kompaktowa."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Altura das linhas, espaçamento, cantos, ícones e tamanho do texto juntos. Compacta é o padrão."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Высота строк, отступы, углы, значки и размер текста вместе. По умолчанию — компактная."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ความสูงแถว ระยะห่าง มุม ไอคอน และขนาดข้อความไปพร้อมกัน ค่าเริ่มต้นคือกะทัดรัด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Satır yüksekliği, boşluk, köşeler, simgeler ve metin boyutu birlikte. Varsayılan Kompakt."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Висота рядків, відступи, кути, значки й розмір тексту разом. Типово — компактна."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chiều cao hàng, khoảng đệm, góc, biểu tượng và cỡ chữ cùng lúc. Mặc định là Gọn."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "行高、间距、圆角、图标和文字大小一起变化。默认为紧凑。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "列高、間距、圓角、圖示和文字大小一起變化。預設為緊湊。"
+          }
+        }
+      }
+    },
+    "settings.appearance.customDensity": {
+      "comment": "Setting title: the custom density in use (appearance.customDensity).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Custom Density"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "كثافة مخصصة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prilagođena gustoća"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Brugerdefineret tæthed"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eigene Dichte"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Densidad personalizada"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Densité personnalisée"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Densità personalizzata"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "カスタム密度"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ដង់ស៊ីតេផ្ទាល់ខ្លួន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "사용자 지정 밀도"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Egendefinert tetthet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gęstość niestandardowa"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Densidade Personalizada"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Своя плотность"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ความหนาแน่นแบบกำหนดเอง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Özel Yoğunluk"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Власна щільність"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mật độ tùy chỉnh"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "自定密度"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "自訂密度"
+          }
+        }
+      }
+    },
+    "settings.appearance.customDensities": {
+      "comment": "Setting title: the list of the user's own densities (appearance.customDensities).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Custom Densities"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الكثافات المخصصة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prilagođene gustoće"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Brugerdefinerede tætheder"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eigene Dichten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Densidades personalizadas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Densités personnalisées"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Densità personalizzate"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "カスタム密度一覧"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ដង់ស៊ីតេផ្ទាល់ខ្លួន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "사용자 지정 밀도 목록"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Egendefinerte tettheter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gęstości niestandardowe"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Densidades Personalizadas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Свои плотности"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ความหนาแน่นแบบกำหนดเองทั้งหมด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Özel Yoğunluklar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Власні щільності"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Các mật độ tùy chỉnh"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "自定密度列表"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "自訂密度清單"
+          }
+        }
+      }
+    },
+    "settings.choice.link.linkPlacement": {
+      "comment": "Settings choice for a browser link click (the Command-click default): open the link where the Open Links and Files setting (layout.linkPlacement) puts links: by default the pane right of the page, or a new split there.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Same as Open Links and Files"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مثل «فتح الروابط والملفات»"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Isto kao „Otvaranje linkova i fajlova”"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Som \"Åbn links og filer\""
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wie „Links und Dateien öffnen“"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Igual que «Abrir enlaces y archivos»"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comme « Ouvrir les liens et les fichiers »"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Come «Apri link e file»"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「リンクとファイルを開く場所」と同じ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ដូច «បើកតំណ និងឯកសារ»"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\"링크 및 파일 열기\"와 같음"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Som «Åpne lenker og filer»"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jak „Otwieranie linków i plików”"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Igual a \"Abrir links e arquivos\""
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Как «Открытие ссылок и файлов»"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เหมือน \"เปิดลิงก์และไฟล์\""
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\"Bağlantıları ve Dosyaları Aç\" ile aynı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Як «Відкриття посилань і файлів»"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Giống \"Mở liên kết và tệp\""
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "与“打开链接和文件”相同"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "與「打開連結和檔案」相同"
+          }
+        }
+      }
+    },
+    "settings.sidebar.groupHeader.memberCount": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Group Member Count"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إظهار عدد أعضاء المجموعة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prikaži broj članova grupe"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis antal medlemmer i gruppen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mitgliederzahl der Gruppe anzeigen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostrar número de miembros del grupo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Afficher le nombre de membres du groupe"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostra numero di membri del gruppo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "グループのメンバー数を表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បង្ហាញចំនួនសមាជិកក្រុម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "그룹 멤버 수 표시"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis antall medlemmer i gruppen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokazuj liczbę członków grupy"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostrar número de membros do grupo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показывать число участников группы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แสดงจำนวนสมาชิกของกลุ่ม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Grup üye sayısını göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показувати кількість учасників групи"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hiện số thành viên nhóm"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "显示分组成员数"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "顯示群組成員數"
+          }
+        }
+      }
+    },
+    "settings.sidebar.groupHeader.memberCount.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A collapsed group shows how many workspaces it holds after its name. Off, it shows only its loading spinner."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعرض المجموعة المطوية عدد مساحات العمل التي تضمها بعد اسمها. عند الإيقاف، تعرض مؤشر التحميل فقط."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skupljena grupa nakon naziva prikazuje koliko radnih prostora sadrži. Isključeno: prikazuje samo indikator učitavanja."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En sammenklappet gruppe viser efter navnet, hvor mange arbejdsområder den har. Fra: Den viser kun sin indlæsningsindikator."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eine eingeklappte Gruppe zeigt nach ihrem Namen, wie viele Arbeitsbereiche sie enthält. Aus: Sie zeigt nur ihren Ladeindikator."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un grupo contraído muestra cuántos espacios de trabajo contiene después de su nombre. Desactivado, solo muestra su indicador de carga."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un groupe replié affiche le nombre de ses espaces de travail après son nom. Désactivé, il n’affiche que son indicateur de chargement."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un gruppo compresso mostra quanti spazi di lavoro contiene dopo il nome. Disattivato, mostra solo l’indicatore di caricamento."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "折りたたんだグループの名前の後に、含まれるワークスペースの数を表示します。オフの場合は読み込み中のスピナーのみを表示します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ក្រុមដែលបានបង្រួមបង្ហាញចំនួនកន្លែងធ្វើការបន្ទាប់ពីឈ្មោះ។ ពេលបិទ វាបង្ហាញតែសញ្ញាកំពុងផ្ទុកប៉ុណ្ណោះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "접힌 그룹은 이름 뒤에 포함된 워크스페이스 수를 표시합니다. 끄면 로딩 표시기만 표시합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En sammenslått gruppe viser etter navnet hvor mange arbeidsområder den har. Av: Den viser bare innlastingsindikatoren."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zwinięta grupa pokazuje po nazwie, ile zawiera obszarów roboczych. Wyłączone: pokazuje tylko wskaźnik ładowania."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Um grupo recolhido mostra quantos espaços de trabalho contém após o nome. Desativado, mostra apenas o indicador de carregamento."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Свёрнутая группа показывает после названия, сколько в ней рабочих пространств. Если выключено, показывается только индикатор загрузки."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "กลุ่มที่ยุบอยู่จะแสดงจำนวนพื้นที่ทำงานต่อจากชื่อ เมื่อปิด จะแสดงเฉพาะตัวบอกการโหลด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Daraltılmış bir grup, adından sonra kaç çalışma alanı içerdiğini gösterir. Kapalıyken yalnızca yükleme göstergesini gösterir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Згорнута група показує після назви, скільки в ній робочих просторів. Якщо вимкнено, показується лише індикатор завантаження."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nhóm thu gọn hiện số không gian làm việc sau tên. Khi tắt, chỉ hiện biểu tượng đang tải."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "折叠的分组在名称后显示其包含的工作区数量。关闭时只显示加载指示器。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "收合的群組會在名稱後顯示其包含的工作區數量。關閉時只顯示載入指示器。"
+          }
+        }
+      }
+    },
+    "settings.sidebar.groupHeader.unreadCount": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Group Unread Count"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إظهار عدد غير المقروء في المجموعة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prikaži broj nepročitanih u grupi"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis ulæste i gruppen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ungelesene der Gruppe anzeigen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostrar no leídos del grupo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Afficher les non-lus du groupe"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostra non letti del gruppo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "グループの未読数を表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បង្ហាញចំនួនមិនទាន់អានរបស់ក្រុម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "그룹 읽지 않음 수 표시"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis uleste i gruppen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokazuj nieprzeczytane w grupie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostrar não lidas do grupo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показывать непрочитанные в группе"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แสดงจำนวนที่ยังไม่อ่านของกลุ่ม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Grubun okunmamış sayısını göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показувати непрочитані в групі"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hiện số chưa đọc của nhóm"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "显示分组未读数"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "顯示群組未讀數"
+          }
+        }
+      }
+    },
+    "settings.sidebar.groupHeader.unreadCount.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A collapsed group shows how many unread notifications its workspaces have. Off, it shows only its loading spinner."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعرض المجموعة المطوية عدد الإشعارات غير المقروءة في مساحات عملها. عند الإيقاف، تعرض مؤشر التحميل فقط."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skupljena grupa prikazuje koliko nepročitanih obavještenja imaju njeni radni prostori. Isključeno: prikazuje samo indikator učitavanja."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En sammenklappet gruppe viser, hvor mange ulæste notifikationer dens arbejdsområder har. Fra: Den viser kun sin indlæsningsindikator."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eine eingeklappte Gruppe zeigt, wie viele ungelesene Mitteilungen ihre Arbeitsbereiche haben. Aus: Sie zeigt nur ihren Ladeindikator."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un grupo contraído muestra cuántas notificaciones sin leer tienen sus espacios de trabajo. Desactivado, solo muestra su indicador de carga."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un groupe replié affiche le nombre de notifications non lues de ses espaces de travail. Désactivé, il n’affiche que son indicateur de chargement."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un gruppo compresso mostra quante notifiche non lette hanno i suoi spazi di lavoro. Disattivato, mostra solo l’indicatore di caricamento."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "折りたたんだグループに、ワークスペースの未読通知の数を表示します。オフの場合は読み込み中のスピナーのみを表示します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ក្រុមដែលបានបង្រួមបង្ហាញចំនួនការជូនដំណឹងមិនទាន់អានរបស់កន្លែងធ្វើការ។ ពេលបិទ វាបង្ហាញតែសញ្ញាកំពុងផ្ទុកប៉ុណ្ណោះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "접힌 그룹은 워크스페이스의 읽지 않은 알림 수를 표시합니다. 끄면 로딩 표시기만 표시합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En sammenslått gruppe viser hvor mange uleste varsler arbeidsområdene har. Av: Den viser bare innlastingsindikatoren."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zwinięta grupa pokazuje, ile nieprzeczytanych powiadomień mają jej obszary robocze. Wyłączone: pokazuje tylko wskaźnik ładowania."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Um grupo recolhido mostra quantas notificações não lidas seus espaços de trabalho têm. Desativado, mostra apenas o indicador de carregamento."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Свёрнутая группа показывает число непрочитанных уведомлений её рабочих пространств. Если выключено, показывается только индикатор загрузки."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "กลุ่มที่ยุบอยู่จะแสดงจำนวนการแจ้งเตือนที่ยังไม่อ่านของพื้นที่ทำงาน เมื่อปิด จะแสดงเฉพาะตัวบอกการโหลด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Daraltılmış bir grup, çalışma alanlarındaki okunmamış bildirim sayısını gösterir. Kapalıyken yalnızca yükleme göstergesini gösterir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Згорнута група показує кількість непрочитаних сповіщень її робочих просторів. Якщо вимкнено, показується лише індикатор завантаження."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nhóm thu gọn hiện số thông báo chưa đọc của các không gian làm việc. Khi tắt, chỉ hiện biểu tượng đang tải."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "折叠的分组显示其工作区的未读通知数。关闭时只显示加载指示器。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "收合的群組會顯示其工作區的未讀通知數。關閉時只顯示載入指示器。"
+          }
+        }
+      }
+    },
+    "settings.choice.newTabPositionStart": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "At the Start"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "先頭"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "في البداية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Na početku"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "I starten"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Am Anfang"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Al principio"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Au début"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "All’inizio"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "នៅដើម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "맨 앞"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "I starten"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Na początku"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No início"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "В начале"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ที่จุดเริ่มต้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Başta"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "На початку"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ở đầu"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "开头"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "開頭"
+          }
+        }
+      }
+    },
+    "settings.browser.siteEngines": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Site Engines"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "محركات المواقع"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mehanizmi za stranice"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Motorer pr. websted"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Engines pro Website"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Motores por sitio"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Moteurs par site"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Motori per sito"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "サイトごとのエンジン"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ម៉ាស៊ីនតាមគេហទំព័រ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "사이트별 엔진"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Motorer per nettsted"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Silniki dla witryn"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Motores por site"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Движки для сайтов"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เอนจินตามเว็บไซต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Site Motorları"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Рушії для сайтів"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Công cụ theo trang web"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "按网站选择引擎"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "依網站選擇引擎"
+          }
+        }
+      }
+    },
+    "settings.browser.siteEngines.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sites that always open in one engine: a site, such as spotify.com, and chromium or webkit. Spotify, Netflix and other protected media sites open in WebKit, because their media does not play in Chromium."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مواقع تُفتح دائمًا بمحرك واحد: موقع، مثل spotify.com، و chromium أو webkit. تُفتح Spotify و Netflix ومواقع الوسائط المحمية الأخرى في WebKit، لأن وسائطها لا تعمل في Chromium."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Stranice koje se uvijek otvaraju u jednom mehanizmu: stranica, kao što je spotify.com, i chromium ili webkit. Spotify, Netflix i druge stranice sa zaštićenim medijima otvaraju se u WebKitu, jer se njihovi mediji ne reproduciraju u Chromiumu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Websteder, der altid åbnes med én motor: et websted, f.eks. spotify.com, og chromium eller webkit. Spotify, Netflix og andre websteder med beskyttede medier åbnes i WebKit, fordi deres medier ikke afspilles i Chromium."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Websites, die immer in einer Engine geöffnet werden: eine Website wie spotify.com und chromium oder webkit. Spotify, Netflix und andere Websites mit geschützten Medien öffnen sich in WebKit, weil ihre Medien in Chromium nicht abgespielt werden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sitios que siempre se abren con un motor: un sitio, como spotify.com, y chromium o webkit. Spotify, Netflix y otros sitios con contenido protegido se abren en WebKit, porque su contenido no se reproduce en Chromium."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sites toujours ouverts avec un moteur : un site, comme spotify.com, et chromium ou webkit. Spotify, Netflix et d’autres sites de médias protégés s’ouvrent dans WebKit, car leurs médias ne sont pas lus dans Chromium."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Siti che si aprono sempre con un motore: un sito, come spotify.com, e chromium o webkit. Spotify, Netflix e altri siti con contenuti protetti si aprono in WebKit, perché i loro contenuti non vengono riprodotti in Chromium."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "常に 1 つのエンジンで開くサイトです。spotify.com などのサイトと、chromium または webkit を指定します。Spotify、Netflix などの保護されたメディアのサイトは、Chromium では再生できないため WebKit で開きます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "គេហទំព័រដែលតែងតែបើកក្នុងម៉ាស៊ីនមួយ៖ គេហទំព័រ ដូចជា spotify.com និង chromium ឬ webkit ។ Spotify, Netflix និងគេហទំព័រមេឌៀដែលបានការពារផ្សេងទៀតបើកក្នុង WebKit ព្រោះមេឌៀរបស់វាមិនចាក់ក្នុង Chromium ទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "항상 한 엔진으로 여는 사이트입니다. spotify.com 같은 사이트와 chromium 또는 webkit을 지정합니다. Spotify, Netflix 및 기타 보호된 미디어 사이트는 Chromium에서 미디어가 재생되지 않으므로 WebKit으로 열립니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nettsteder som alltid åpnes med én motor: et nettsted, for eksempel spotify.com, og chromium eller webkit. Spotify, Netflix og andre nettsteder med beskyttede medier åpnes i WebKit, fordi mediene deres ikke spilles av i Chromium."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Witryny, które zawsze otwierają się w jednym silniku: witryna, np. spotify.com, oraz chromium lub webkit. Spotify, Netflix i inne witryny z chronionymi multimediami otwierają się w WebKit, ponieważ ich multimedia nie odtwarzają się w Chromium."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sites que sempre abrem em um motor: um site, como spotify.com, e chromium ou webkit. Spotify, Netflix e outros sites de mídia protegida abrem no WebKit, porque a mídia deles não toca no Chromium."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сайты, которые всегда открываются в одном движке: сайт, например spotify.com, и chromium или webkit. Spotify, Netflix и другие сайты с защищённым контентом открываются в WebKit, потому что их медиа не воспроизводятся в Chromium."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เว็บไซต์ที่เปิดด้วยเอนจินเดียวเสมอ: เว็บไซต์ เช่น spotify.com และ chromium หรือ webkit โดย Spotify, Netflix และเว็บไซต์สื่อที่มีการป้องกันอื่นๆ จะเปิดใน WebKit เพราะสื่อของเว็บไซต์เหล่านี้เล่นใน Chromium ไม่ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Her zaman tek bir motorla açılan siteler: spotify.com gibi bir site ve chromium veya webkit. Spotify, Netflix ve diğer korumalı medya siteleri, medyaları Chromium’da oynatılmadığı için WebKit’te açılır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сайти, що завжди відкриваються в одному рушії: сайт, як-от spotify.com, і chromium або webkit. Spotify, Netflix та інші сайти із захищеним вмістом відкриваються у WebKit, бо їхні медіа не відтворюються в Chromium."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Các trang luôn mở bằng một công cụ: một trang, như spotify.com, và chromium hoặc webkit. Spotify, Netflix và các trang phương tiện được bảo vệ khác mở trong WebKit, vì phương tiện của chúng không phát được trong Chromium."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "始终使用同一引擎打开的网站：填写网站（如 spotify.com）以及 chromium 或 webkit。Spotify、Netflix 等受保护媒体网站会在 WebKit 中打开，因为其媒体无法在 Chromium 中播放。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "一律以同一引擎開啟的網站：填寫網站（例如 spotify.com）以及 chromium 或 webkit。Spotify、Netflix 等受保護媒體網站會在 WebKit 中開啟，因為其媒體無法在 Chromium 中播放。"
           }
         }
       }

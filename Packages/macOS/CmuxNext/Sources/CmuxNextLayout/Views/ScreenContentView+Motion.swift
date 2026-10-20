@@ -85,6 +85,10 @@ extension ScreenContentView {
             // Before the frame moves: chrome that re-checks itself on the move reads the rest.
             let rest = frame.targetRect.offsetBy(dx: scrolls ? restStrip : 0, dy: -rowOffset(of: pane))
             host.restOffset = CGVector(dx: rest.minX - placed.minX, dy: rest.minY - placed.minY)
+            // On a spring until the frame it lands at is laid out (`PaneHostView.isOnLayoutSpring`).
+            let springing = frame.rect != frame.targetRect
+            if springing { host.isOnLayoutSpring = true }
+            defer { if !springing { host.isOnLayoutSpring = false } }
             if host.frame != placed {
                 host.frame = placed
                 // Its tab strip and content lay out in this frame's step, with the frame: never a

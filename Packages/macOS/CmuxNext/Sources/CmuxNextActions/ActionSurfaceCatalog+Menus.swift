@@ -167,6 +167,8 @@ nonisolated extension ActionSurfaceCatalog {
         "tab.restart": [p(.tab, .create, -3)],
         "newTab.toRight": [p(.tab, .create, -2)],
         "newTab.ofKind": [p(.tab, .create, -1, folder: .new)],
+        "newTab.atStart": [p(.tab, .create, 4, folder: .new)],
+        "newTab.atEnd": [p(.tab, .create, 5, folder: .new)],
         "newSurface": [p(.tab, .create, 0, folder: .new), p(.newTab, .create, 0)],
         "openBrowser.chromium": [p(.tab, .create, 2, folder: .new), p(.newTab, .create, 2)],
         "closeTab": [p(.tab, .close, 604)],

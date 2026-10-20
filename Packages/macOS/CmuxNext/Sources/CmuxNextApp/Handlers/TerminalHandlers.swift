@@ -16,6 +16,7 @@ enum TerminalHandlers {
         bindKeep(registry, ctx)
         bindCopyMode(registry, ctx)
         bindUnported(registry)
+        TextBoxHandlers.bind(into: registry, context: ctx)
     }
 
     /// Runs a Ghostty binding action on the targeted or focused terminal.
@@ -139,10 +140,6 @@ enum TerminalHandlers {
     }
 
     private static func bindUnported(_ registry: ActionRegistry) {
-        let textBox = RefusalStrings.textBoxUnported
-        for id: ActionID in ["focusTextBoxInput", "palette.terminalToggleTextBoxInput", "cycleTextBoxSubmitAction", "attachTextBoxFile"] {
-            registry.bindUnavailable(id, reason: textBox)
-        }
         for id: ActionID in ["resumeCommandSet", "resumeCommandEdit", "resumeCommandClear"] {
             registry.bindUnavailable(id, reason: RefusalStrings.needsDaemonCapability("resume-command"))
         }

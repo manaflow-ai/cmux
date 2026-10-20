@@ -14,7 +14,7 @@ import type { OwnedResource } from "../../src/db/stores.ts";
 import { newSnapshotId, SnapshotId, TenantId, UpstreamId, type VmId } from "../../src/lib/ids.ts";
 import { makeUpstreamSnapshots } from "../../src/upstream/live-snapshots.ts";
 import { makeUpstreamTerminals } from "../../src/upstream/live-terminals.ts";
-import { UpstreamSnapshots } from "../../src/upstream/snapshots.ts";
+import { UpstreamSnapshots, type UpstreamSnapshotsService } from "../../src/upstream/snapshots.ts";
 import { UpstreamTerminals } from "../../src/upstream/terminals.ts";
 import type { FakeUpstream } from "./fake-upstream.ts";
 
@@ -38,6 +38,10 @@ export interface FakePtySession {
 }
 
 export function makeS3aFakes(resources: OwnedResource[], provider: FakeUpstream) {
+  let snapshotClient: UpstreamSnapshotsService | null = null;
+  let snapshotFetch: ((request: Request) => Promise<Response>) | null = null;
+  const deleted = new Set<string>();
+  const tombstones = new Map<string, { readonly row: SnapshotRow; readonly tenantId: string; readonly createdBy: string }>();
   const meta = new Map<string, SnapshotMeta>();
   /** Raw requests this fake served (terminal and snapshot reads), for header checks. */
   const requests: Request[] = [];
@@ -52,8 +56,8 @@ export function makeS3aFakes(resources: OwnedResource[], provider: FakeUpstream)
     return {
       id: SnapshotId.make(resource.cmuxId),
       sourceVmId: info?.sourceVmId ?? null,
-      displayName: info?.displayName ?? null,
-      labels: info?.labels ?? {},
+      displayName: resource.displayName,
+      labels: resource.labels,
       createdAt: resource.createdAt,
     };
   };
@@ -61,12 +65,22 @@ export function makeS3aFakes(resources: OwnedResource[], provider: FakeUpstream)
   const snapshotStore = Layer.succeed(SnapshotStore, {
     record: (snapshot) =>
       Effect.suspend(() => {
-        if (!state.failSnapshotRecord) return Effect.void;
+        if (!state.failSnapshotRecord) {
+          if (tombstones.has(snapshot.id)) return Effect.fail(new StoreError({ operation: "snapshots.record", cause: "deleted" }));
+          const existing = resources.find((row) => row.cmuxId === snapshot.id);
+          if (existing !== undefined && (deleted.has(snapshot.id) || existing.tenantId !== snapshot.tenantId || existing.kind !== "snapshot"
+            || existing.upstreamId !== snapshot.upstreamId || existing.createdBy !== snapshot.createdBy
+            || existing.createdAt.getTime() !== snapshot.createdAt.getTime()
+            || JSON.stringify(meta.get(snapshot.id)) !== JSON.stringify({ sourceVmId: snapshot.sourceVmId, displayName: snapshot.displayName, labels: snapshot.labels })))
+            return Effect.fail(new StoreError({ operation: "snapshots.record", cause: "conflict" }));
+          return Effect.void;
+        }
         state.failSnapshotRecord = false;
         return Effect.fail(new StoreError({ operation: "snapshots.record", cause: "injected" }));
       }).pipe(
         Effect.zipRight(
           Effect.sync(() => {
+            if (resources.some((row) => row.cmuxId === snapshot.id)) return;
             resources.push({
               tenantId: snapshot.tenantId,
               kind: "snapshot",
@@ -81,15 +95,16 @@ export function makeS3aFakes(resources: OwnedResource[], provider: FakeUpstream)
           }),
         ),
       ),
+    inspect: (tenantId, id) => Effect.sync(() => { const row = ownedSnapshot(tenantId, id); const old = tombstones.get(id); return row === undefined ? old?.tenantId === tenantId ? Option.some({ ...old.row, createdBy: old.createdBy, deleted: true }) : Option.none() : Option.some({ ...rowOf(row), createdBy: row.createdBy, deleted: deleted.has(id) }); }),
     describe: (tenantId, id) =>
       Effect.sync(() => {
         const found = ownedSnapshot(tenantId, id);
-        return found === undefined ? Option.none() : Option.some(rowOf(found));
+        return found === undefined || deleted.has(id) ? Option.none() : Option.some(rowOf(found));
       }),
     list: (tenantId, page) =>
       Effect.sync(() =>
         resources
-          .filter((row) => row.tenantId === tenantId && row.kind === "snapshot")
+          .filter((row) => row.tenantId === tenantId && row.kind === "snapshot" && !deleted.has(row.cmuxId))
           .filter((row) => page.createdBy === undefined || row.createdBy === page.createdBy)
           .map(rowOf)
           .filter((row) => page.sourceVmId === null || row.sourceVmId === page.sourceVmId)
@@ -107,18 +122,19 @@ export function makeS3aFakes(resources: OwnedResource[], provider: FakeUpstream)
     markDeleted: (tenantId, id) =>
       Effect.sync(() => {
         const index = resources.findIndex((row) => row.tenantId === tenantId && row.kind === "snapshot" && row.cmuxId === id);
-        if (index >= 0) resources.splice(index, 1);
+        const row = resources[index];
+        if (row !== undefined) { tombstones.set(id, { row: rowOf(row), tenantId, createdBy: row.createdBy }); deleted.add(id); resources.splice(index, 1); }
       }),
   });
 
-  const snapshotJson = (snapshot: { readonly id: string; readonly sourceVmId: string; readonly autoDeleteSeconds: number | null }) => ({
+  const snapshotJson = (snapshot: import("./fake-upstream.ts").FakeSnapshot) => ({
     id: snapshot.id,
     sourceVmId: snapshot.sourceVmId,
-    slug: `slug-${snapshot.id}`,
-    displayName: `cmux internal ${snapshot.id}`,
+    slug: snapshot.slug ?? `slug-${snapshot.id}`,
+    displayName: snapshot.displayName ?? `cmux internal ${snapshot.id}`,
     accountId: "acct-leak-check",
-    public: false,
-    ttlSeconds: null,
+    public: snapshot.public ?? false,
+    ttlSeconds: snapshot.ttlSeconds ?? null,
     autoDeleteSeconds: snapshot.autoDeleteSeconds,
     lastUsedAt: null,
     createdAt: "2026-10-03T00:00:00Z",
@@ -149,7 +165,7 @@ export function makeS3aFakes(resources: OwnedResource[], provider: FakeUpstream)
     }
     if (oneSnapshot?.[1] !== undefined) {
       const id = decodeURIComponent(oneSnapshot[1]);
-      const snapshot = provider.snapshots.get(id);
+      const snapshot = provider.snapshots.get(id) ?? [...provider.snapshots.values()].find((s) => s.slug === id);
       if (snapshot === undefined) return Response.json({ code: "NOT_FOUND", message: `snapshot ${id} not found` }, { status: 404 });
       return Response.json(snapshotJson(snapshot));
     }
@@ -195,10 +211,12 @@ export function makeS3aFakes(resources: OwnedResource[], provider: FakeUpstream)
   };
 
   const layer = (fetch: (request: Request) => Promise<Response>) => {
-    const config = { baseUrl: UPSTREAM_URL, apiKey: Redacted.make(UPSTREAM_KEY), environment: "local" as const, fetch };
+    const config = { baseUrl: UPSTREAM_URL, apiKey: Redacted.make(UPSTREAM_KEY), environment: "local" as const, fetch: (request: Request) => fetch(request) };
+    snapshotFetch = fetch;
+    snapshotClient = makeUpstreamSnapshots(config);
     return Layer.mergeAll(
       snapshotStore,
-      Layer.succeed(UpstreamSnapshots, makeUpstreamSnapshots(config)),
+      Layer.succeed(UpstreamSnapshots, snapshotClient),
       Layer.succeed(UpstreamTerminals, makeUpstreamTerminals(config)),
     );
   };
@@ -206,6 +224,11 @@ export function makeS3aFakes(resources: OwnedResource[], provider: FakeUpstream)
   return {
     upstream,
     layer,
+    changeSnapshotCredential(apiKey: string) {
+      if (snapshotClient === null || snapshotFetch === null) throw new Error("snapshot client not initialized");
+      const send = snapshotFetch;
+      Object.assign(snapshotClient, makeUpstreamSnapshots({ baseUrl: UPSTREAM_URL, apiKey: Redacted.make(apiKey), environment: "local", fetch: (request) => send(request) }));
+    },
     requests,
     /** Records a snapshot owned by `tenant` and backed by a fake upstream snapshot. */
     addSnapshot(

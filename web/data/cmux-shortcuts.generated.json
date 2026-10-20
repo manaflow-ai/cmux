@@ -506,47 +506,6 @@
           "aliases": []
         },
         {
-          "id": "home.newMessage",
-          "title": {
-            "en": "New Message…",
-            "ar": "رسالة جديدة…",
-            "bs": "Nova poruka…",
-            "da": "Ny besked…",
-            "de": "Neue Nachricht …",
-            "es": "Nuevo mensaje…",
-            "fr": "Nouveau message…",
-            "it": "Nuovo messaggio…",
-            "ja": "新規メッセージ…",
-            "km": "សារថ្មី…",
-            "ko": "새로운 메시지…",
-            "no": "Ny melding …",
-            "pl": "Nowa wiadomość…",
-            "pt-BR": "Nova mensagem…",
-            "ru": "Новое сообщение…",
-            "th": "ข้อความใหม่…",
-            "tr": "Yeni Mesaj…",
-            "uk": "Нове повідомлення…",
-            "vi": "Tin nhắn mới…",
-            "zh-CN": "新信息…",
-            "zh-TW": "新訊息…"
-          },
-          "shortcut": null,
-          "chord": null,
-          "aliases": [
-            {
-              "keys": [
-                {
-                  "key": "n",
-                  "modifiers": [
-                    "cmd"
-                  ]
-                }
-              ],
-              "when": "topPage == home || surfaceKind == home || surfaceKind == home-dock"
-            }
-          ]
-        },
-        {
           "id": "focusHistoryBack",
           "title": {
             "en": "Go Back",
@@ -1616,18 +1575,6 @@
             {
               "keys": [
                 {
-                  "key": "",
-                  "modifiers": [
-                    "opt",
-                    "cmd"
-                  ]
-                }
-              ],
-              "when": null
-            },
-            {
-              "keys": [
-                {
                   "key": "",
                   "modifiers": [
                     "ctrl"
@@ -1684,18 +1631,6 @@
           },
           "chord": null,
           "aliases": [
-            {
-              "keys": [
-                {
-                  "key": "",
-                  "modifiers": [
-                    "opt",
-                    "cmd"
-                  ]
-                }
-              ],
-              "when": null
-            },
             {
               "keys": [
                 {
@@ -2983,14 +2918,27 @@
             "zh-TW": "聚焦左側窗格"
           },
           "shortcut": {
-            "key": "h",
+            "key": "",
             "modifiers": [
-              "ctrl",
+              "opt",
               "cmd"
             ]
           },
           "chord": null,
-          "aliases": []
+          "aliases": [
+            {
+              "keys": [
+                {
+                  "key": "h",
+                  "modifiers": [
+                    "ctrl",
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": null
+            }
+          ]
         },
         {
           "id": "focusRight",
@@ -3018,14 +2966,27 @@
             "zh-TW": "聚焦右側窗格"
           },
           "shortcut": {
-            "key": "l",
+            "key": "",
             "modifiers": [
-              "ctrl",
+              "opt",
               "cmd"
             ]
           },
           "chord": null,
-          "aliases": []
+          "aliases": [
+            {
+              "keys": [
+                {
+                  "key": "l",
+                  "modifiers": [
+                    "ctrl",
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": null
+            }
+          ]
         },
         {
           "id": "focusUp",

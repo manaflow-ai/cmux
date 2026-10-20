@@ -229,7 +229,7 @@ fn pinned_column_refuses_moves_in_and_the_pinned_tab_moving_out_or_back() {
 /// pane or its tab away is refused too, through the resource API the CLI and MCP use.
 #[test]
 fn pinned_column_survives_pane_close_screen_close_and_a_split() {
-    let (mut wire, panes) = Wire::home();
+    let (wire, panes) = Wire::home();
     let home = wire.tabs(panes[0])[0];
     let pane = json!({"machine": "current", "session": "current", "pane": wire.pane_id(panes[0])});
     refused(&resource(&wire.mux, "pane.close", pane.clone(), Some("close-home-pane")));

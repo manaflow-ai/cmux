@@ -42,6 +42,7 @@ final class AppControl {
         let service = try ControlService.start(registry: registry, settings: settings, launch: launch,
                                                frameSource: frames, watchdog: watchdog)
         self.service = service
+        services.restartControlListener = { [weak service] in try service?.restartListener() }
         registerSyncBarrier(service.router, daemon: services.daemon)
         service.router.register(HistoryControl.methods(services: services))
         service.router.register(TabSearchControl.methods())
@@ -51,6 +52,7 @@ final class AppControl {
         service.router.register(ServerReachControl.methods(services: services))
         service.router.register(KeybindingControl.methods(services: services))
         service.router.register(SettingsControl.methods(services: services))
+        service.router.register(PermissionsControl.methods(services: services))
         service.router.register(SessionTransferControl.methods(services: services))
         // The error journal (`cmux errors`): app log, page consoles, acpmux, Chief, crash reports.
         let errors = ErrorJournalService.make(environment: services.environment)
