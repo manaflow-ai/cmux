@@ -76,7 +76,19 @@ export async function mountMarkdownPage(state: MarkdownPageVariant, context: Sta
       settings,
       themeCSS: state.themeCSS ?? "",
       appearance: context.appearance,
+      ...(widths(path) !== undefined && { tableWidths: widths(path) }),
     };
+  };
+  // The app keeps a file's table column widths with the file (its extended attribute) and sends
+  // them back in the config; here the frame's storage stands in, so they outlive a reload.
+  const widthsKey = (path: string) => `cmux.gallery.markdown.tableWidths:${path}`;
+  const widths = (path: string): unknown => {
+    try {
+      const saved = localStorage.getItem(widthsKey(path));
+      return saved === null ? undefined : JSON.parse(saved);
+    } catch {
+      return undefined;
+    }
   };
   const dir = state.path.replace(/[^/]*$/, "");
   const host = installMockHost(
@@ -104,6 +116,15 @@ export async function mountMarkdownPage(state: MarkdownPageVariant, context: Sta
       "cmux.markdown.listFiles": () => ({ entries: [...files.keys()].map((path) => path.slice(dir.length)) }),
       "cmux.markdown.loadRemoteImages": () => ({ remoteImageBase: "/__gallery/none/" }),
       "cmux.markdown.openLink": () => null,
+      "cmux.markdown.setTableWidths": (params: { path: string; value: unknown }) => {
+        try {
+          if (params.value === null) localStorage.removeItem(widthsKey(params.path));
+          else localStorage.setItem(widthsKey(params.path), JSON.stringify(params.value));
+        } catch {
+          // A refused storage only loses the widths on the next reload.
+        }
+        return { attribute: true, fallback: true };
+      },
       "cmux.markdown.recents": () => ({
         items: Object.keys(state.files ?? {}).map((path, index) => ({
           path,
