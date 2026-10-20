@@ -26,6 +26,54 @@
 .cv-chip:hover .cv-chip__label {
   text-decoration-style: solid;
 }
+/* A web link reads as a link: blue, its underline faint until hover (Leo 2026-10-19). */
+.cv-chip.is-web {
+  color: var(--agent-link);
+  text-decoration: none;
+}
+.cv-chip.is-web .cv-chip__icon {
+  color: currentColor;
+}
+.cv-chip.is-web .cv-chip__label {
+  text-decoration: underline solid;
+  text-decoration-thickness: 1px;
+  text-decoration-color: color-mix(in srgb, currentColor 40%, transparent);
+}
+.cv-chip.is-web:hover .cv-chip__label {
+  text-decoration-color: currentColor;
+}
+/* A pull request, an issue or a file is a reference chip: a pill with its icon, as Claude
+   desktop draws "owner/repo#N · title". It wraps with the line (box-decoration-break). */
+.cv-chip.is-ref,
+.cv-chip.is-path {
+  padding: 1px 6px 1px 5px;
+  border-radius: 6px;
+  background: color-mix(in srgb, currentColor 10%, transparent);
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+.cv-chip.is-ref:hover,
+.cv-chip.is-path:hover {
+  background: color-mix(in srgb, currentColor 16%, transparent);
+}
+.cv-chip.is-ref .cv-chip__label,
+.cv-chip.is-path .cv-chip__label {
+  font-weight: 500;
+  text-decoration: none;
+}
+.cv-chip.is-path {
+  color: var(--cv-text);
+}
+.cv-chip__icon--gh {
+  vertical-align: -1.5px;
+}
+.cv-chip__title {
+  color: var(--cv-text);
+}
+.cv-chip__title::before {
+  content: " · ";
+  color: var(--cv-text-muted);
+}
 .cv-chip:focus-visible {
   outline: 1px solid var(--cv-link);
   outline-offset: 1px;

@@ -492,12 +492,16 @@
   border-radius: var(--cv-code-radius, 5px);
   background: var(--cv-code-bg);
 }
+/* Links are blue (--agent-link, shared/styles.css), underlined faintly, solidly on hover. */
 .cv-link {
-  color: var(--cv-link);
-  text-decoration: none;
+  color: var(--agent-link);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-decoration-color: color-mix(in srgb, currentColor 40%, transparent);
+  text-underline-offset: 3px;
 }
 .cv-link:hover {
-  text-decoration: underline;
+  text-decoration-color: currentColor;
 }
 .cv-link__icon {
   vertical-align: var(--cv-link-icon-align, -3px);
@@ -735,6 +739,7 @@
 }
 .cv-link.is-file {
   color: var(--cv-text);
+  text-decoration: none;
 }
 
 /* Math (Math.tsx): KaTeX at its own size (1.21em of the text), as ChatGPT sets it. KaTeX's
