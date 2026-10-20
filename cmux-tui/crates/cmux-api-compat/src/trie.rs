@@ -61,8 +61,10 @@ impl Node {
 
     /// Adds one operation (in chain order) to the trie.
     pub(crate) fn apply(&mut self, op: Op) {
-        if !self.slow.is_empty() {
-            // Once a node is materialized, later rules run on the value, in order.
+        // Once a node is materialized, a later rule that touches what a
+        // materializing rule touched runs on the value, in order. One that
+        // commutes with all of them stays in the trie (which runs first).
+        if self.slow.iter().any(|slow| !slow.commutes_with(&op)) {
             self.slow.push(op);
             return;
         }
