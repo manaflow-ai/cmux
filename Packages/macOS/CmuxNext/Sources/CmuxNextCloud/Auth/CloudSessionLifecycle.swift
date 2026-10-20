@@ -62,6 +62,11 @@ package final class CloudSessionLifecycle {
         return schedule()
     }
 
+    /// Reconciles changed authority without retiring an unchanged account's install.
+    package func authorityChanged(_ value: AuthenticatedSessionIdentity) -> Task<Void, Never> {
+        refresh(value)
+    }
+
     /// Immediately fences late startup; its returned task joins local retirement.
     package func stop() -> Task<Void, Never> {
         stopped = true; desired = nil

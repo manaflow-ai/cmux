@@ -24,6 +24,7 @@ package actor CloudTeamScope {
         package let call: @Sendable (_ path: String, _ body: Data) async throws -> Data
         package let wireLeases: @Sendable () async throws -> [CloudAuthorityWireLease]
         package let refreshAuthority: @Sendable () async throws -> Snapshot
+        let nativeContext: @Sendable () async throws -> NativeInstallContext
     }
     package enum Failure: Error, Equatable { case changed, unavailable, notMember, ssoRequired, invalidIdentity, invalidRequest }
 
@@ -104,7 +105,7 @@ package actor CloudTeamScope {
         }, wireLeases: { try await leases.leases() }, refreshAuthority: { [weak self] in
             guard let self else { throw Failure.changed }
             return try await self.snapshot(selected, context: context)
-        })
+        }, nativeContext: { try await self.identity.nativeContext(team: found.id) })
     }
 
     package func token() async throws -> String {

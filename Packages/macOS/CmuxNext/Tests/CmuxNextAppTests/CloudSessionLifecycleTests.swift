@@ -90,4 +90,34 @@ import Testing
         #expect(world.live == a)
         await world.lifecycle.stop().value
     }
+
+    @Test func authorityLossRefusesAHeldStartupEvenWhenTheAuthSessionIsUnchanged() async {
+        let world = CloudSessionLifecycleWorld()
+        let a = world.choose("a", generation: 1)
+        world.holdStart()
+        let starting = world.lifecycle.update(a)
+        await world.waitUntilHeld()
+        let reconciling = world.lifecycle.authorityChanged(a)
+        #expect(!world.admissionOpen)
+        #expect(!world.lifecycle.isCurrent(a))
+        world.release()
+        await starting.value; await reconciling.value
+        #expect(world.events.suffix(3) == ["refused a:1", "begin a:1", "ready a:1"])
+        #expect(world.events.filter { $0 == "retire" }.count == 1)
+        #expect(world.live == a)
+        await world.lifecycle.stop().value
+    }
+
+    @Test func aRetiredSessionsAuthorityCallbackCannotFenceTheNewSession() async {
+        let world = CloudSessionLifecycleWorld()
+        let a = world.choose("a", generation: 1)
+        await world.lifecycle.update(a).value
+        let b = world.choose("a", generation: 2)
+        await world.lifecycle.update(b).value
+        let before = world.events, fences = world.fences
+        await world.lifecycle.authorityChanged(a).value
+        #expect(world.events == before && world.fences == fences)
+        #expect(world.live == b)
+        await world.lifecycle.stop().value
+    }
 }

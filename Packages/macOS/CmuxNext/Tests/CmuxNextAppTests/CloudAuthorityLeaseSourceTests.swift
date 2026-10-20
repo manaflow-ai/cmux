@@ -99,4 +99,33 @@ import Testing
         #expect(await world.listings == 1)
         #expect(await world.owner.registrations == 1)
     }
+
+    @Test func nativeReconnectCannotEnterPersonalRegistrationRecovery() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (world, identity, scopes) = try await setup(root)
+        let original = try await identity.accountContext(), snapshot = try await scopes.snapshot()
+        await identity.invalidate()
+        await world.owner.denyPersonalRecovery()
+        let context = try await snapshot.nativeContext()
+        #expect(context.install == original.install && context.point == original.point)
+        #expect(context.generation == original.generation && context.account == original.account)
+        #expect(MacInstallIdentity.team(ofToken: context.token) == snapshot.team)
+        #expect(await world.owner.registrations == 1)
+    }
+
+    @Test(arguments: ["authority", "selection", "unbound"])
+    func nativeReconnectRefusesTheOriginalScopeAfterAuthorityLoss(change: String) async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (world, identity, scopes) = try await setup(root)
+        let snapshot = try await scopes.snapshot()
+        switch change {
+        case "authority": await world.changeAuthority(String(repeating: "c", count: 64))
+        case "selection": await world.select(nil)
+        default: await identity.unbind()
+        }
+        await #expect(throws: (any Error).self) { try await snapshot.nativeContext() }
+        #expect(await world.owner.registrations == 1)
+    }
 }
