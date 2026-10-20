@@ -2,8 +2,10 @@
 // 2026-10-11), in the same tokens and type steps as the changelog page:
 //  - UpdatedCard (after an update, the sidebar's bottom card slot): the composer's surface, as every
 //    sidebar card (Leo 2026-10-13), a quiet eyebrow with the short version ("Updated to nightly
-//    3845050"), the update's lead change as its headline (else "What's new in this build"), how
-//    many more changes came with it, and one button. Share cmux is the palette's (app.shareCmux).
+//    3845050"), the update's top changes listed one line each (u2441, gallery #01 "Compact list",
+//    2026-10-19; else "What's new in this build"), the count of the changes not listed and one
+//    button on one row. The x shows only on hover or keyboard focus. Share cmux is the palette's
+//    (app.shareCmux).
 //  - UpdateReadyHighlights (hovering the staged "Restart to Update" card): only what the card lacks
 //    (Leo 2026-10-13; the card has Update Ready, the short version and the date): the full build,
 //    the top three changes numbered, each a title and one line, and "See all changes", once.
@@ -29,8 +31,6 @@ export function UpdatedCard({
   strings: Strings;
   actions: UpdateSurfaceActions;
 }) {
-  const [lead] = data.items;
-  const more = data.items.length - 1 + data.moreCount;
   const titleId = useId();
   return (
     <section className="wn-card" aria-labelledby={titleId}>
@@ -50,9 +50,21 @@ export function UpdatedCard({
           </svg>
         </button>
       )}
-      <div className="wn-card-headline">{lead ? lead.title : strings.t("updates.card.whatsNewInBuild")}</div>
-      {lead && more > 0 && <div className="wn-card-line">{strings.format("updates.card.more", String(more))}</div>}
+      {data.items.length > 0 ? (
+        <ul className="wn-card-changes">
+          {data.items.map((item) => (
+            <li key={item.id} title={item.title}>
+              {item.title}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <div className="wn-card-headline">{strings.t("updates.card.whatsNewInBuild")}</div>
+      )}
       <div className="wn-card-actions">
+        {data.items.length > 0 && data.moreCount > 0 && (
+          <span className="wn-card-more">{strings.format("updates.card.more", String(data.moreCount))}</span>
+        )}
         <button type="button" className="wn-card-primary" onClick={actions.openChangelog}>
           {strings.t("updates.card.seeWhatsNew")}
         </button>

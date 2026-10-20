@@ -8,7 +8,7 @@
             login (until the batch App exists): poll, debounce, run batches
   run       the batch: select eligible PRs, stack them on feat-cmux-next,
             validate the stack once (every cmux-next tier plus a fleet
-            production build), land each PR with gh-merge-green, or bisect a
+            production build), land each PR through GitHub's merge API at that head, or bisect a
             red stack down to the PR that broke it
   stack     stack PRs locally and print the result (no pushes, no GitHub writes)
   select    print which open PRs are eligible and why the others are not
@@ -124,6 +124,7 @@ SWIFT_GENERATED = (
     "docs/mdm/com.manaflow.cmux.plist",
     "docs/mdm/com.manaflow.cmux.intune.plist",
     "docs/mdm/managed-preferences.md",
+    "schemas/settings-export/settings-schema.sources.sha256",
     "Packages/macOS/CmuxNext/ci-target-graph.json",
 )
 # cmux-tui/bindings/codegen/generate.py output.
@@ -465,6 +466,42 @@ def red_fast_checks(pr: PullRequest) -> list[str]:
                    if status == "completed" and conclusion in RED and name not in HEAVY_CHECKS | fixable})
 
 
+# Never waived by an override label: risk evidence judges the PR's own description and merge freeze its
+# own paths, and neither runs on the stack, so the batch can't judge them for it.
+NEVER_WAIVED = frozenset({"risk evidence", "merge freeze"})
+
+
+def freeze_check(repo: str, number: int, env: dict[str, str]) -> tuple[int, str]:
+    """merge_freeze.py's verdict right before the merge: 0 clear, 1 frozen, 2 unreadable (never clear).
+
+    A freeze opened after the PR's own `merge freeze` check ran still stops it here."""
+    try:
+        done = subprocess.run([sys.executable, str(TOOLS_ROOT / "scripts/ci/merge_freeze.py"), "check", "--repo", repo,
+                               "--pr", str(number), "--base", BASE], capture_output=True, text=True, env=env, timeout=120)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        return 2, str(error)
+    return (done.returncode if done.returncode in (0, 1) else 2), (done.stdout + done.stderr).strip()[-300:]
+
+
+def drop_frozen(prs: list[PullRequest], check: Callable[[int], tuple[int, str]]
+                ) -> tuple[list[PullRequest], dict[int, str]]:
+    """Leave out PRs a merge freeze covers (or whose freeze state can't be read) before stacking, so one
+    frozen PR never stops every batch at its place in the stack until the freeze lapses."""
+    kept, skipped = [], {}
+    for pr in prs:
+        code, detail = check(pr.number)
+        if code == 0:
+            kept.append(pr)
+        else:
+            skipped[pr.number] = (f"frozen: {detail}" if code == 1 else f"freeze state unreadable: {detail}")[:200]
+    return kept, skipped
+
+
+# A transient GitHub or network error, from gh's message (as GitHub.graphql retries).
+TRANSIENT = re.compile(r"HTTP 5\d\d|Base branch was modified|unexpected end of JSON input|TLS handshake timeout|"
+                       r"connection reset|i/o timeout|timed out|EOF", re.I)
+
+
 def red_format_checks(pr: PullRequest) -> list[str]:
     return sorted({name for name, status, conclusion in pr.checks
                    if status == "completed" and conclusion in RED and name in FORMAT_CHECKS})
@@ -593,6 +630,9 @@ def ineligible_reason(pr: PullRequest, at: dt.datetime, stale_days: int = STALE_
     if pr.number in coordinator_prs():
         return "coord-2 lands it (listed in its merge-ready file)"
     red = red_fast_checks(pr)
+    never = sorted(name for name in red if name.lower() in NEVER_WAIVED)
+    if never:
+        return "red check " + ", ".join(never)
     # A trusted `queue: known base red` lets the batch judge it: a job red on
     # feat-cmux-next itself never counts against the stack.
     if red and OVERRIDE_BASE_RED not in trusted_labels(pr):
@@ -1547,17 +1587,8 @@ class Controller:
             f"{failing}\n\nNext: fix, push."))
 
     # -- landing
-    def merge_green(self) -> Path:
-        path = Path(tempfile.gettempdir()) / "gh-merge-green"
-        if not path.exists():
-            self.git("fetch", "--quiet", "--no-tags", "origin", "+refs/heads/main:refs/remotes/origin/main")
-            path.write_text(self.git("show", "refs/remotes/origin/main:scripts/gh-merge-green") + "\n")
-            path.chmod(0o755)
-        return path
-
     def land(self, validation: Validation) -> list[tuple[PullRequest, str]]:
         landed = []
-        helper = self.merge_green()
         fresh = {pr.number: pr for pr in open_prs(self.gh, fresh=True)}
         landing = getattr(self.args, "land", True) and not self.args.dry_run and not self.args.no_land
         stop = 0
@@ -1615,7 +1646,7 @@ class Controller:
                 f"Batch queue: landing. [Batch]({self.run_url}), stack `{validation.stack.head[:12]}` "
                 f"on `{validation.stack.base[:12]}`, [heavy tier]({validation.heavy_url}), "
                 f"build: {validation.build.get('link', 'n/a')}."))
-            outcome = self.merge_one(helper, pr, validation)
+            outcome = self.merge_one(pr, validation)
             landed.append((pr, outcome))
             if "GitHub refused to merge" in outcome:
                 self.comment_once(pr, "refused", (
@@ -1635,70 +1666,50 @@ class Controller:
                 f"`{stack.base[:12]}` with " + " ".join(f"#{item.number}" for item in stack.included) + ". "
                 f"Fleet production build: job `{build.get('job_id', 'n/a')}` ({build.get('link', 'n/a')}). "
                 f"{heavy}. Validated this PR at `{pr.sha[:12]}`.\n\n"
-                "Next: land it yourself on this receipt (`gh pr merge --squash --match-head-commit`; gh-merge-green is optional).")
+                "Next: land it yourself on this receipt (`gh pr merge --squash --match-head-commit`).")
 
-    def waivable(self, line: str, validation: Validation) -> bool:
-        """Whether every red lane in gh-merge-green's refusal is a heavy-tier
-        job the stack ran green, so --override waives only what the batch tested.
+    def merge_one(self, pr: PullRequest, validation: Validation) -> str:
+        """Squash-merge the exact head this batch validated through GitHub's merge API.
 
-        The line reads `not green: <lane>; <lane> on <sha>, not excused by ...`.
-        A lane is a quoted check (`'cmux-next swift test'`) or a cmux-next run
-        verdict (`cmux-next run <id> attempt <n> (<event>) is failure`), whose
-        failed jobs then decide."""
-        found = re.match(r"not green: (.+) on [0-9a-f]{7,40}, not excused by ", line)
-        if not found:
-            return False
-
-        def passed(name: str) -> bool:
-            return name in HEAVY_CHECKS and any(job.endswith(name) for job in validation.heavy_passed)
-
-        for lane in found.group(1).split("; "):
-            quoted = re.fullmatch(r"'(.+)'", lane)
-            verdict = re.fullmatch(r"cmux-next run (\d+) attempt \d+ \(\S+\) is failure", lane)
-            if quoted:
-                if not passed(quoted.group(1)):
-                    return False
-            elif verdict:
+        The batch already ran every tier on the stack, so checks aren't re-judged here, except the two the
+        stack can't run: a `risk evidence` check on the head must have finished green (an edited description
+        regrades it), and the merge freezes are read again, since one may have opened after the PR's own
+        check ran. GitHub's default squash body is kept, with every commit's Co-authored-by trailer. A
+        transient error (5xx, network, "Base branch was modified") is retried once, after checking whether
+        GitHub merged anyway; it never marks the PR refused. A real refusal (the head moved, a conflict)
+        does, and the PR waits for a push."""
+        try:
+            runs = self.gh.api(f"repos/{self.args.repo}/commits/{pr.sha}/check-runs?check_name=risk%20evidence&per_page=100") or {}
+        except RuntimeError as error:
+            return f"not landed: risk evidence unreadable ({str(error)[-120:]}); the next batch tries again"
+        for run in runs.get("check_runs", []):
+            if run.get("status") != "completed" or (run.get("conclusion") or "") not in PASS:
+                return "not landed: risk evidence has not passed on this head; the next batch tries again"
+        code, detail = freeze_check(self.args.repo, pr.number, getattr(self.gh, "env", None) or dict(os.environ))
+        if code == 1:
+            return f"not landed: frozen ({detail})"
+        if code != 0:
+            return f"not landed: the merge freeze state is unreadable ({detail})"
+        path = f"repos/{self.args.repo}/pulls/{pr.number}/merge"
+        for attempt in (1, 2):
+            try:
+                self.writer.api(path, method="PUT", body={"sha": pr.sha, "merge_method": "squash"})
+                return "landed"
+            except RuntimeError as error:
+                text = str(error)
+                if not TRANSIENT.search(text):
+                    return f"not landed: GitHub refused to merge {self.args.repo}#{pr.number}: {text[-200:]}"
+                # A timeout can come back after GitHub merged: look before trying again.
                 try:
-                    jobs = self.failed_jobs(int(verdict.group(1)))
-                except RuntimeError as error:  # unreadable: nothing is waived
-                    log(f"could not read run {verdict.group(1)}: {error}")
-                    return False
-                if not jobs or not all(passed(job) for job in jobs):
-                    return False
-            else:
-                return False
-        return True
-
-    def merge_one(self, helper: Path, pr: PullRequest, validation: Validation) -> str:
-        ref = f"{self.args.repo}#{pr.number}"
-        env = {**self.writer.env, "GH_MERGE_GREEN_NO_AUTO_UPDATE": "1"}
-        passed = ", ".join(validation.heavy_passed) or "no heavy-tier job"
-        reason = (f"cmux-next batch {self.run_url} validated this exact head in stack "
-                  f"{validation.stack.head[:12]}: these passed there: {passed}, and the fleet production build")
-        deadline = time.monotonic() + 30 * 60
-        # Each --override call follows a refusal that waivable() just approved;
-        # a later refusal is judged again, so a lane that turns red meanwhile is never waived unchecked.
-        override = False
-        while True:
-            # Trailing flags reach gh pr merge after gh-merge-green's own: GitHub
-            # merges only the head this batch validated, never a newer push.
-            command = [str(helper), ref, *(["--override", reason] if override else []), "--squash",
-                       "--match-head-commit", pr.sha]
-            completed = subprocess.run(command, capture_output=True, text=True, env=env)
-            output = (completed.stdout + completed.stderr).strip()
-            if completed.returncode == 0:
-                return "landed" + (" (override: own heavy check red, batch green)" if override else "")
-            line = next((item for item in output.splitlines() if item.startswith("not green")), output[-300:])
-            pending = re.search(r"is (queued|in_progress|waiting|pending|requested)/", line) or "has not run" in line
-            if not override and self.waivable(line, validation):
-                override = True  # the batch ran that tier on this head's stack
-                continue
-            override = False
-            if pending and time.monotonic() < deadline:
-                time.sleep(120)
-                continue
-            return f"not landed: {line}"
+                    state = self.gh.api(f"repos/{self.args.repo}/pulls/{pr.number}") or {}
+                except RuntimeError:
+                    state = {}
+                if state.get("merged") and (state.get("head") or {}).get("sha") == pr.sha:
+                    return "landed"
+                if attempt == 2:
+                    return f"not landed: GitHub was unreachable or busy ({text[-160:]}); the next batch tries again"
+                time.sleep(15)
+        return "not landed"
 
     def after_landing(self) -> None:
         """Merges by the job token start no push workflows; start the base ones.
@@ -1808,6 +1819,10 @@ class Controller:
         landing = (getattr(self.args, "land", True) and not self.args.dry_run and not self.args.no_land
                    and not landing_refusal())
         eligible, waiting = admit_reviewed(eligible, self.gh, landing)
+        if landing:
+            env = getattr(self.gh, "env", None) or dict(os.environ)
+            eligible, frozen = drop_frozen(eligible, lambda number: freeze_check(self.args.repo, number, env))
+            waiting.update(frozen)
         skipped.update(waiting)
         if not eligible:
             write_summary("Nothing reviewed to land.\n\n" + "\n".join(

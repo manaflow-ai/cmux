@@ -133,6 +133,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
             id: "agents", title: SettingsText.keyed("settings.category.agents", "Agents"), symbol: "sparkles",
             groups: [
                 GroupSpec(group: "settings.group.agentChat", keys: ["app.warnBeforeClosingAgentSession"]),
+                // How the Chief chat's bubbles look (the theme's colours, or iMessage's).
+                group("settings.group.chiefChat"),
                 group("settings.group.computerUse"),
                 // The free AI model while signed out (cx-ds09i).
                 group("settings.group.freeModel"),
@@ -140,6 +142,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
                 group("settings.group.sessions"),
                 // Whether agent sessions may start sub-sessions, how many and how deep.
                 group("settings.group.subsessions"),
+                // The Chief pet floating over every app, and its character.
+                group("settings.group.chiefPet"),
             ],
             // Harnesses lists every harness; Your Agents (BRING-YOUR-OWN-HARNESS) adds, checks and
             // removes the ones you added.

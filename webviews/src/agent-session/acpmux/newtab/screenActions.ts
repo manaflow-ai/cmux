@@ -77,6 +77,7 @@ export function newTabScreenActions(deps: {
     loadChatsPage: (params) => callNative("chats.page", params) as Promise<AllChatsPage | undefined>,
     onShowAll: deps.showAllChats,
     onTouched: () => ignore(callNative("newTab.touched")),
+    onNowPlaying: (command) => ignore(callNative("nowPlaying.command", { command })),
     // A blank terminal in the tab's folder (nothing typed), or a browser tab on the new tab page.
     onCreate: (kind) =>
       ignore(
