@@ -17,6 +17,8 @@ export type MessageMenuTarget = {
   text: string;
   markdown?: string;
   forkSeq?: number;
+  /// The chat opens a side chat through `forkSeq` (the chat menu's New side chat, from this turn).
+  sideChat?: true;
   /// A prompt that was not sent: its row, for Retry (`chat.retryPrompt`).
   retryRowId?: string;
   /// The message's web links and images, each once, for Open Link.
@@ -37,9 +39,41 @@ export const canFork = (snapshot: AcpmuxSnapshot) =>
   snapshot.connection !== "disconnected" &&
   !snapshot.connection.startsWith("connecting");
 
-/// Whether every completed turn can be forked: acpmux forks a Claude chat through any of them
-/// (`hub/fork_at.rs`, cx-yqiv); other agents fork only at a chat's end.
-export const forksAnyTurn = (family: string | undefined) => family === "claude";
+/// Whether every completed turn can be forked: acpmux forks a Claude or Codex chat through any of
+/// them (`hub/fork_at.rs`, cx-yqiv, cx-a7r); other agents fork only at a chat's end.
+export const forksAnyTurn = (family: string | undefined) => family === "claude" || family === "codex";
+
+/// Every turn a fork can start from, newest first: its seq and the prompt that began it (on one
+/// line). A steer later in the turn does not rename it, nor does a prompt that failed or is still
+/// pending; a turn begun without text (an image only) is left out rather than shown under another
+/// turn's prompt.
+export function forkablePrompts(
+  rows: readonly { kind: string; seq?: number; text?: string; failed?: boolean; pending?: boolean }[],
+) {
+  const prompts: { seq: number; text: string }[] = [];
+  let prompt: string | undefined;
+  for (const row of rows) {
+    if (row.kind === "user" && (row.failed || row.pending)) continue;
+    if (row.kind === "user" && prompt === undefined) prompt = row.text?.trim().replace(/\s+/g, " ") ?? "";
+    else if (row.kind === "turnSummary") {
+      if (row.seq !== undefined && prompt) prompts.push({ seq: row.seq, text: prompt });
+      prompt = undefined;
+    }
+  }
+  return prompts.reverse();
+}
+
+/// The chat menu's Fork submenu's earlier turns: up to eight, newest first, after From here (the
+/// latest turn). The latest turn is left out by its seq, not by position: an image-only latest turn
+/// is not in `forkablePrompts`, so the first entry is then an earlier turn.
+export function earlierForkPrompts(
+  rows: readonly { kind: string; seq?: number; text?: string; failed?: boolean; pending?: boolean }[],
+) {
+  const latest = latestForkSeq(rows);
+  return forkablePrompts(rows)
+    .filter((prompt) => prompt.seq !== latest)
+    .slice(0, 8);
+}
 
 /// The latest completed turn's summary event: the one turn a fork goes through unless the chat
 /// `forksAnyTurn` (`acp.session.fork` refuses another agent's earlier turn).
@@ -52,8 +86,13 @@ export function latestForkSeq(rows: readonly { kind: string; seq?: number }[]): 
 }
 
 /// The message a transcript row shows (`data-row-id`; a copy folded into "Worked for" ends in
-/// `:fold`), or undefined for a row that is not a prompt or a reply.
-export function messageMenuTarget(snapshot: AcpmuxSnapshot, rowId: string): MessageMenuTarget | undefined {
+/// `:fold`), or undefined for a row that is not a prompt or a reply. `sideChat`: the chat opens a
+/// side chat (the chat menu shows New side chat), so a turn that forks opens one too.
+export function messageMenuTarget(
+  snapshot: AcpmuxSnapshot,
+  rowId: string,
+  sideChat = false,
+): MessageMenuTarget | undefined {
   const id = rowId.endsWith(":fold") ? rowId.slice(0, -":fold".length) : rowId;
   const row = snapshot.rows.find((candidate) => candidate.id === id);
   if (!row?.text || (row.kind !== "user" && row.kind !== "assistant")) return undefined;
@@ -67,6 +106,7 @@ export function messageMenuTarget(snapshot: AcpmuxSnapshot, rowId: string): Mess
   const target: MessageMenuTarget =
     row.kind === "user" ? { text: row.text } : { text: plainText(row.text), markdown: row.text };
   if (forkSeq !== undefined) target.forkSeq = forkSeq;
+  if (forkSeq !== undefined && sideChat) target.sideChat = true;
   if (row.kind === "user" && row.failed) target.retryRowId = row.id;
   const links = webLinks(row.text);
   if (links.length > 0) target.links = links;

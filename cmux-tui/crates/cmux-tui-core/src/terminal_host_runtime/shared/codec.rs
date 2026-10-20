@@ -9,7 +9,6 @@ use cmux_pty::PtyOpenError;
 use ghostty_vt::CursorShape;
 
 use super::super::*;
-use super::host_state::pty_size;
 
 pub(crate) fn encode_snapshot(snapshot: &HostSnapshot) -> anyhow::Result<Vec<u8>> {
     encode_snapshot_for_version(snapshot, PROTOCOL_VERSION, false)
@@ -56,6 +55,31 @@ pub(crate) fn encode_snapshot_for_version(
     if include_terminal_metadata {
         put_string(&mut output, &snapshot.osc_progress)?;
     }
+    // Like the records, only when the client negotiated it.
+    if let Some(activity) = &snapshot.shell_activity {
+        if !include_terminal_metadata {
+            anyhow::bail!("shell activity requires the terminal metadata tail");
+        }
+        put_shell_activity(&mut output, activity);
+    }
+    // The host sets the records only when the client negotiated them.
+    if let Some(program_status) = &snapshot.program_status {
+        if !include_terminal_metadata {
+            anyhow::bail!("program status requires the terminal metadata tail");
+        }
+        let mut tail = Vec::new();
+        super::program_status_codec::put_program_status(&mut tail, program_status)?;
+        // Records a program can fill must never cost the attach: past the
+        // frame budget the daemon gets none.
+        if output.len() + tail.len() > MAX_FRAME_PAYLOAD {
+            tail.clear();
+            super::program_status_codec::put_program_status(
+                &mut tail,
+                &ProgramStatusSnapshot { records: Vec::new(), next_seq: program_status.next_seq },
+            )?;
+        }
+        output.extend_from_slice(&tail);
+    }
     if output.len() > MAX_FRAME_PAYLOAD {
         anyhow::bail!("terminal-host snapshot payload is too large");
     }
@@ -83,6 +107,31 @@ pub(crate) fn decode_snapshot_for_version(
     protocol_version: u16,
     include_terminal_metadata: bool,
 ) -> anyhow::Result<HostSnapshot> {
+    decode_snapshot_with_program_status(
+        payload,
+        protocol_version,
+        include_terminal_metadata,
+        false,
+        false,
+    )
+}
+
+/// `decode_snapshot_for_version` that also reads the OSC 133 shell state
+/// when `FLAG_SHELL_ACTIVITY` was negotiated, and the OSC 7501 records when
+/// `FLAG_PROGRAM_STATUS` was.
+pub(crate) fn decode_snapshot_with_program_status(
+    payload: &[u8],
+    protocol_version: u16,
+    include_terminal_metadata: bool,
+    include_shell_activity: bool,
+    include_program_status: bool,
+) -> anyhow::Result<HostSnapshot> {
+    if include_program_status && !include_terminal_metadata {
+        anyhow::bail!("program status requires the terminal metadata tail");
+    }
+    if include_shell_activity && !include_terminal_metadata {
+        anyhow::bail!("shell activity requires the terminal metadata tail");
+    }
     if !(LEGACY_PROTOCOL_VERSION..=PROTOCOL_VERSION).contains(&protocol_version) {
         anyhow::bail!("unsupported terminal-host snapshot protocol {protocol_version}");
     }
@@ -133,7 +182,13 @@ pub(crate) fn decode_snapshot_for_version(
     } else {
         String::new()
     };
-    pty_size(cols, rows, cell_pixels)?;
+    let shell_activity =
+        if include_shell_activity { Some(decode_shell_activity(&mut decoder)?) } else { None };
+    let program_status = if include_program_status {
+        Some(super::program_status_codec::program_status(&mut decoder)?)
+    } else {
+        None
+    };
     decoder.finish()?;
     Ok(HostSnapshot {
         cols,
@@ -148,6 +203,55 @@ pub(crate) fn decode_snapshot_for_version(
         command,
         cwd,
         osc_progress,
+        program_status,
+        shell_activity,
+    })
+}
+
+const SHELL_BUSY: u8 = 1 << 0;
+const SHELL_INTERACTIVE: u8 = 1 << 1;
+const SHELL_LINE_MODES_ARMED: u8 = 1 << 2;
+const SHELL_PROMPT: u8 = 1 << 3;
+
+/// The `FLAG_SHELL_ACTIVITY` tail: a flags byte, then the command's start
+/// (Unix ms) when `SHELL_BUSY` is set and the prompt's when `SHELL_PROMPT`
+/// is. Unix ms, not an `Instant`, so the time means the same to the daemon.
+fn put_shell_activity(output: &mut Vec<u8>, activity: &ShellActivitySnapshot) {
+    let mut flags = 0;
+    if activity.busy_since_ms.is_some() {
+        flags |= SHELL_BUSY;
+        if activity.interactive {
+            flags |= SHELL_INTERACTIVE;
+        }
+        if activity.line_modes_armed {
+            flags |= SHELL_LINE_MODES_ARMED;
+        }
+    }
+    if activity.prompt_since_ms.is_some() {
+        flags |= SHELL_PROMPT;
+    }
+    output.push(flags);
+    for since in [activity.busy_since_ms, activity.prompt_since_ms].into_iter().flatten() {
+        output.extend_from_slice(&since.to_le_bytes());
+    }
+}
+
+fn decode_shell_activity(
+    decoder: &mut PayloadDecoder<'_>,
+) -> anyhow::Result<ShellActivitySnapshot> {
+    let flags = decoder.u8()?;
+    if flags & !(SHELL_BUSY | SHELL_INTERACTIVE | SHELL_LINE_MODES_ARMED | SHELL_PROMPT) != 0
+        || (flags & SHELL_BUSY == 0 && flags & (SHELL_INTERACTIVE | SHELL_LINE_MODES_ARMED) != 0)
+    {
+        anyhow::bail!("terminal-host shell activity is invalid");
+    }
+    let busy_since_ms = if flags & SHELL_BUSY != 0 { Some(decoder.u64()?) } else { None };
+    let prompt_since_ms = if flags & SHELL_PROMPT != 0 { Some(decoder.u64()?) } else { None };
+    Ok(ShellActivitySnapshot {
+        busy_since_ms,
+        interactive: flags & SHELL_INTERACTIVE != 0,
+        line_modes_armed: flags & SHELL_LINE_MODES_ARMED != 0,
+        prompt_since_ms,
     })
 }
 
@@ -273,7 +377,6 @@ pub(crate) fn encode_resize(
         .validate_for_replay(replay.len())
         .map_err(|_| anyhow::anyhow!("terminal-host Kitty replay offset is invalid"))?;
     let cell_pixels = (cell_pixels.0.max(1), cell_pixels.1.max(1));
-    pty_size(cols, rows, cell_pixels)?;
     if replay.len() > crate::surface::VT_REPLAY_MAX_BYTES {
         anyhow::bail!("terminal-host resize replay is too large");
     }
@@ -339,7 +442,6 @@ pub(crate) fn decode_host_resize_payload_for_version(
     } else {
         KittyReplayState::disabled()
     };
-    pty_size(cols, rows, cell_pixels)?;
     decoder.finish()?;
     Ok(DecodedHostResize { cols, rows, cell_pixels, replay, kitty_image_aliases, kitty_state })
 }
@@ -552,13 +654,24 @@ impl HostLaunch {
     /// The scrollback a host keeps: only what its bounded replay
     /// (`VT_REPLAY_MAX_BYTES`, sent on daemon adopt and reconnect) can carry.
     /// The replay budgets 32 bytes a cell and Ghostty stores about 8 for plain
-    /// text, so this keeps some 4x the rows a replay sends; pages dense with
-    /// unique styles, graphemes or hyperlinks store more per cell, and a
-    /// restart then restores fewer rows. The daemon's terminal holds the
-    /// full scrollback every client reads; a second full copy here cost up
-    /// to 50 MB per busy terminal.
+    /// text, so past the replay budget this keeps some 4x the rows a replay
+    /// sends; pages dense with unique styles, graphemes or hyperlinks store
+    /// more per cell, and a restart then restores fewer rows. The daemon's
+    /// terminal holds the full scrollback every client reads; with a limit
+    /// raised past the replay budget, a second full copy here would cost the
+    /// whole limit again per busy terminal. At the 10 MB default both hold the same.
     pub(crate) fn host_scrollback(daemon_scrollback: usize) -> usize {
         daemon_scrollback.min(crate::surface::VT_REPLAY_MAX_BYTES)
+    }
+
+    /// The TERM the child runs with: the caller's environment is applied
+    /// after `term`, so its last TERM wins (the NEXT app sends xterm-ghostty).
+    pub(crate) fn child_term(&self) -> &str {
+        self.extra_env
+            .iter()
+            .rev()
+            .find_map(|(key, value)| (key == "TERM").then_some(value.as_str()))
+            .unwrap_or(&self.term)
     }
 }
 
@@ -572,7 +685,6 @@ impl HostLaunch {
         }
         let (cols, rows) = normalize_terminal_geometry(self.cols, self.rows)?;
         let cell_pixels = (self.cell_pixels.0.max(1), self.cell_pixels.1.max(1));
-        pty_size(cols, rows, cell_pixels)?;
         let mut output = Vec::new();
         put_string(&mut output, &self.endpoint)?;
         put_string(&mut output, &self.record_path)?;
@@ -633,7 +745,6 @@ impl HostLaunch {
         }
         let default_colors = decode_default_colors(&mut decoder)?;
         let cell_pixels = (decoder.u16()?.max(1), decoder.u16()?.max(1));
-        pty_size(cols, rows, cell_pixels)?;
         let kitty_graphics_limits = decode_kitty_graphics_limits(&mut decoder)?;
         anyhow::ensure!(decoder.offset <= MAX_LAUNCH_PAYLOAD, "launch is too large");
         let seed = if decoder.has_remaining() { decoder.blob()?.to_vec() } else { Vec::new() };

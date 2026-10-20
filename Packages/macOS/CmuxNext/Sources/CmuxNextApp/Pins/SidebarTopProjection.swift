@@ -1,7 +1,6 @@
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDesign
-import CmuxNextIcons
 import CmuxNextSidebar
 
 /// Workspaces in the top region (PINNED-ITEMS-END-TO-END P1, P2): how a
@@ -27,9 +26,9 @@ enum SidebarTopProjection: Equatable {
         switch self {
         case .legacy:
             let pinned = Set(machines.daemons.flatMap { $0.store.workspaces.filter(\.pinned).map(\.id) })
-            return SidebarMembership.pinnedFirst(filtered, pinned: pinned)
+            return SidebarRowSection.pinnedFirst(filtered, pinned: pinned)
         case .layout(let hidden):
-            return SidebarMembership.hiding(filtered, workspaces: hidden)
+            return SidebarRowSection.hiding(filtered, workspaces: hidden)
         }
     }
 }
@@ -47,20 +46,31 @@ struct SidebarWorkspaceItems {
         return infos
     }
 
-    /// A workspace's title and the glyph its row stands for: the user's
-    /// symbol (tinted), else the mark of the agent in its front tab, else its
-    /// front tab's kind glyph (SidebarMapping.row, the one row rule), in the
-    /// workspace's color. The selection marks it active (SidebarModel.selectedItem).
+    /// A workspace's title and the glyph its row stands for (SidebarMapping.row, the one row
+    /// rule): the user's symbol (tinted) or emoji, else the user's stored image or the front
+    /// page's favicon, else none: text only, no kind glyph or agent brand
+    /// (WORKSPACE-ROWS-NO-DEFAULT-ICON), in the workspace's color, with the row's status.
+    /// The selection marks it active (SidebarModel.selectedItem).
     static func workspaceInfo(_ workspace: WorkspaceModel) -> SidebarItemInfo {
         let row = SidebarMapping.shared.row(workspace, machine: .local, showsUnread: false)
-        let color = SidebarMapping.shared.color(workspace.color)
+        var info = glyphInfo(row, color: SidebarMapping.shared.color(workspace.color))
+        info.activity = row.activity
+        info.activityStyle = row.activityStyle
+        return info
+    }
+
+    private static func glyphInfo(_ row: SidebarWorkspace, color: GroupColor?) -> SidebarItemInfo {
         switch row.icon {
         case .symbol(let name, let tint)?: return SidebarItemInfo(title: row.title, symbol: name, color: tint)
         case .emoji(let text, let chip)?: return SidebarItemInfo(title: row.title, symbol: "face.smiling", color: chip, emoji: text)
-        default: break
+        case .favicon(let image)?:
+            var info = SidebarItemInfo(title: row.title, symbol: "globe", color: color)
+            info.favicon = image
+            return info
+        case .swatch?, nil:
+            var info = SidebarItemInfo(title: row.title, symbol: "textformat", color: color)
+            info.textOnly = true
+            return info
         }
-        let icon = row.kind.iconName
-        let symbol = IconCatalog.bundled.entry(for: icon)?.sf ?? "square.stack"
-        return SidebarItemInfo(title: row.title, symbol: symbol, icon: icon, color: color, brand: row.kindBrand)
     }
 }

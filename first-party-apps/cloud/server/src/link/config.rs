@@ -28,7 +28,8 @@ pub enum LinkConfig {
     Waiting,
     Ready(LinkPaths),
     /// A valid answer with `hub_socket: null`: no `cmux link` runs. Connect
-    /// answers `link_unavailable` until a `link.changed` brings a hub.
+    /// answers `link_unavailable` and sends one new `link.get`; that answer
+    /// or a `link.changed` brings the hub.
     NoHub,
     /// The host answered `host.error`. `retry`: the next connect sends one
     /// new `link.get` (each retryable error allows one; nothing loops).
@@ -223,7 +224,15 @@ impl<C: ControlPlane> Server<C> {
                 false,
             )),
             LinkConfig::Waiting => Err(unavailable("cmux has not sent the link details yet", true)),
-            LinkConfig::NoHub => Err(unavailable("the cmux link is not running", true)),
+            LinkConfig::NoHub => {
+                // A link may have started since the answer: this connect asks
+                // once more (one request per connect; a connect while it waits
+                // sends none, so nothing loops).
+                if self.host_requests().request(LINK_GET, json!({})) {
+                    self.attach_mut().link = LinkConfig::Waiting;
+                }
+                Err(unavailable("the cmux link is not running", true))
+            }
             LinkConfig::Invalid(why) => Err(CloudError::new(
                 LINK_DETAILS_INVALID,
                 format!("cmux sent link details that are not valid: {why}"),

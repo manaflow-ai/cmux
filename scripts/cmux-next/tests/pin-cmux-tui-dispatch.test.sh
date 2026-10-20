@@ -95,7 +95,8 @@ resolve() { # <commit> [env...]: resolve-commit at <commit>
   : > "$TMP/curl.log"
   status=0
   out=$(cd "$src" && env -u GITHUB_STEP_SUMMARY -u GITHUB_OUTPUT PATH="$TMP/bin:$PATH" GH_TOKEN=test-token \
-    CMUX_TUI_TREE_WAIT_SECONDS=1 CMUX_TUI_TREE_POLL_SECONDS=1 CMUX_TUI_TREE_DISPATCH_SETTLE_SECONDS=0 "$@" \
+    CMUX_TUI_TREE_WAIT_SECONDS=1 CMUX_TUI_TREE_POLL_SECONDS=1 CMUX_TUI_TREE_DISPATCH_SETTLE_SECONDS=0 \
+    CMUX_TUI_TREE_ACTIVE_WAIT_SECONDS=0 "$@" \
     bash scripts/cmux-next/pin-cmux-tui.sh resolve-commit 2>"$TMP/err") || status=$?
   err=$(cat "$TMP/err")
   dispatches=$(grep -c '^POST .*/dispatches$' "$TMP/curl.log" || true)

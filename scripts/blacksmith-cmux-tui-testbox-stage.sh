@@ -85,7 +85,7 @@ the benchmarked commit is not checked out on this Testbox
   present:  $(git rev-parse HEAD 2>/dev/null || echo unknown)
 Push the commit, then pin this box to it before running a stage:
   git push origin <branch>
-  blacksmith testbox run --id $testbox_id 'set -euo pipefail; git fetch --no-tags origin $expected_source_sha; git reset --hard $expected_source_sha; git submodule foreach --quiet "echo \\\$sm_path" | xargs -r git submodule deinit --force --; git submodule update --init --depth 1 ghostty-next'
+  blacksmith testbox run --id $testbox_id 'set -euo pipefail; git fetch --no-tags origin $expected_source_sha; git reset --hard $expected_source_sha; git submodule foreach --quiet "echo \\\$sm_path" | xargs -r git submodule deinit --force --; if [ -f scripts/ci/init-submodule.sh ]; then bash scripts/ci/init-submodule.sh ghostty-next; else git submodule update --init --depth 1 ghostty-next; fi'
 REMEDY
   exit 65
 }
@@ -380,7 +380,10 @@ ghostty_next_zon_sha256="$(sha256sum ghostty-next/build.zig.zon | cut -d ' ' -f 
 
 case "$stage" in
   first-clean)
-    rm -rf "$repo_root/cmux-tui/target"
+    # target/ is the warm sticky disk mount point: empty it, keep the mount.
+    if [[ -d "$repo_root/cmux-tui/target" ]]; then
+      find "$repo_root/cmux-tui/target" -mindepth 1 -delete
+    fi
     ;;
   changed-file)
     if [[ ! -f "$repo_root/$changed_file" ]]; then

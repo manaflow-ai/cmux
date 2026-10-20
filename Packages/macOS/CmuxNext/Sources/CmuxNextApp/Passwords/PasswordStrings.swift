@@ -4,6 +4,9 @@ import Foundation
 /// `passwords.page.` keys live in the same table, see webviews/scripts/pages/gen-strings.mjs).
 nonisolated enum PasswordStrings {
     static var pageTitle: String { String(localized: "passwords.page.title", defaultValue: "Passwords", table: "Passwords", bundle: .module) }
+    static var exportOff: String {
+        String(localized: "passwords.page.exportOff", defaultValue: "Turn on Allow Password Export in Settings to export.", table: "Passwords", bundle: .module)
+    }
     static var availableAfterUpdate: String {
         String(localized: "passwords.page.availableAfterUpdate", defaultValue: "Available after the next update", table: "Passwords", bundle: .module)
     }

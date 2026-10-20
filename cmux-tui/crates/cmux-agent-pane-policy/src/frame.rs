@@ -1,10 +1,9 @@
 //! The allowlist step on one page frame (CmuxNextAgentPane
 //! `AcpmuxPaneMethods.decide`, `decideFrame`, AcpmuxPaneMethods.swift): size,
 //! the duplicate-key check before any parse, JSON-RPC 2.0, only the keys
-//! `jsonrpc`, `id`, `method` and `params` (stricter than Swift today: a
-//! known Swift gap, see tests/cases/frames.json `swift_expect`), a method, C1
-//! (no `mcpServers` to spawn), `initialize` first and only first, then the
-//! allowlist (default deny). It is only the first step: a host runs the full
+//! `jsonrpc`, `id`, `method` and `params`, a method, C1 (no `mcpServers` to
+//! spawn), `initialize` first and only first, then the allowlist (default
+//! deny). It is only the first step: a host runs the full
 //! check, [`crate::check::check_frame`].
 
 use crate::data::policy;

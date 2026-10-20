@@ -1,22 +1,23 @@
 //! What origin `page` may call (plans/cmux-next/request-origin.md, "Page
-//! access"; coordinator decisions 2026-10-04 and 2026-10-05).
+//! access"; coordinator decisions 2026-10-04 and 2026-10-05; page-router-v1,
+//! cmux-tui/spec/page-router.md).
 //!
-//! A page's JS reaches the daemon only through a page relay, and what an
-//! operation returns reaches that JS. Origin page is refused EVERY catalog
-//! operation unless an allow entry names it. The match below names every
-//! catalog operation with no wildcard, so a new operation does not compile
-//! until someone classifies it, and an allow entry is a deliberate edit.
+//! A page's JS reaches the daemon only through a page relay or a page
+//! connection, and what an operation returns reaches that JS. The match
+//! below names every catalog operation with no wildcard, so a new operation
+//! does not compile until someone classifies it.
 //!
-//! The allow list is empty: no shipped cmux-next page calls a catalog
-//! operation (the page relay carries only `history.*` and `apps.*`, which
-//! are not catalog operations). Precondition for any allow entry: a
-//! per-page identity on the relay (today one relay connection carries every
-//! page, so the daemon cannot tell which page sent a request), a rule that
-//! limits the entry to that page's own object (never "any terminal by id"),
-//! and its own test.
+//! A connection with no page id (a page relay without `page` in its hello)
+//! is refused EVERY catalog operation. A connection with a page id gets its
+//! page's allow list (spec/page-router.json, the one source): `read`
+//! operations, and `gesture` operations only with a host confirmation for
+//! exactly that request. The hard classes (input, screen reads, attach,
+//! renderer grants, the file system) stay refused whatever a list names:
+//! only a [`Denied::NotAllowed`] operation can be allow-listed.
 
 use serde_json::{Value, json};
 
+use super::page_router_table::{self, PageGrant};
 use super::{RequestOrigin, forbidden};
 use crate::resource::{ResourceError, ResourceOperation as Op};
 
@@ -71,8 +72,11 @@ const fn access(operation: Op) -> Access {
         | Op::BrowserInputKey
         | Op::BrowserInputMouse
         | Op::BrowserInputWheel
-        // A message becomes an agent's input at its next turn.
-        | Op::AgentMessageSend => Access::Denied(Denied::Input),
+        // A message becomes an agent's input at its next turn; a release
+        // lets a held one through, and an unsend sends the agent a notice.
+        | Op::AgentMessageSend
+        | Op::AgentMessageRelease
+        | Op::AgentMessageUnsend => Access::Denied(Denied::Input),
         Op::TerminalScreenRead
         | Op::TerminalHistoryRead
         | Op::TerminalHistoryClear
@@ -93,6 +97,7 @@ const fn access(operation: Op) -> Access {
         | Op::ClientDetach => Access::Denied(Denied::Attach),
         Op::TerminalRendererGrantCreate => Access::Denied(Denied::Renderer),
         Op::GitStatus
+        | Op::GitBranches
         | Op::GitDiff
         | Op::GitFilesList
         | Op::GitFilesSearch
@@ -116,7 +121,8 @@ const fn access(operation: Op) -> Access {
         | Op::ProjectAdd
         | Op::ProjectUpdate
         | Op::ProjectRemove
-        | Op::ProjectSync => Access::Denied(Denied::FileSystem),
+        | Op::ProjectSync
+        | Op::ProjectSourceUpdate => Access::Denied(Denied::FileSystem),
         // A browser profile's visited pages: never a page's to read or delete.
         Op::HistoryEntriesList
         | Op::HistoryEntriesRemove
@@ -128,7 +134,8 @@ const fn access(operation: Op) -> Access {
         | Op::HistoryVisitTitle
         | Op::HistoryVisitRemove
         | Op::HistoryVisitSummaries
-        | Op::HistoryVisitImport => Access::Denied(Denied::NotAllowed),
+        | Op::HistoryVisitImport
+        | Op::HistoryTrailRecord => Access::Denied(Denied::NotAllowed),
         Op::PaneCreate | Op::PaneSplit | Op::TabCreateTerminal => Access::DeniedWithCwd,
         Op::MachineList
         | Op::MachineGet
@@ -232,6 +239,11 @@ const fn access(operation: Op) -> Access {
         | Op::ClosedList
         | Op::ClosedDelete
         | Op::ClosedReopen
+        | Op::StashCreate
+        | Op::StashList
+        | Op::StashRestore
+        | Op::StashDelete
+        | Op::StashImport
         | Op::WindowRecordList
         | Op::SettingsSchema
         | Op::SettingsList
@@ -240,10 +252,41 @@ const fn access(operation: Op) -> Access {
         | Op::SettingsSet
         | Op::SettingsReset
         | Op::SettingsResetAll
+        | Op::KeybindingsGet
+        | Op::KeybindingsSet
+        | Op::KeybindingsRemove
+        | Op::KeybindingsReset
         | Op::WindowRecordPut
         | Op::WindowRecordDelete
         | Op::SidebarLayoutGet
         | Op::SidebarLayoutUpdate
+        | Op::SidebarGet
+        | Op::SidebarMove
+        | Op::SidebarPin
+        | Op::SidebarUnpin
+        | Op::SidebarItemAdd
+        | Op::SidebarItemRemove
+        | Op::SidebarItemUpdate
+        | Op::SidebarItemRemoveRef
+        | Op::SidebarSectionAdd
+        | Op::SidebarSectionUpdate
+        | Op::SidebarSectionMove
+        | Op::SidebarSectionRemove
+        | Op::SidebarGroupCreate
+        | Op::SidebarGroupUpdate
+        | Op::SidebarGroupUngroup
+        | Op::SidebarAdopt
+        | Op::SidebarApply
+        | Op::SidebarReset
+        | Op::BrowserDevicesList
+        | Op::BrowserDevicesAddCustom
+        | Op::BrowserDevicesRemoveCustom
+        | Op::BrowserTabEmulate
+        | Op::BrowserTabEmulateClear
+        | Op::BrowserTabSetProfile
+        | Op::BrowserProfileList
+        | Op::BrowserProfileCreate
+        | Op::BrowserProfileOpen
         | Op::PaletteUsageGet
         | Op::PaletteUsageRecord
         | Op::PaletteUsageImport
@@ -275,6 +318,7 @@ const fn access(operation: Op) -> Access {
         | Op::TabUpdate
         | Op::TabGroupAddTabs
         | Op::TabGroupClose
+        | Op::LayoutBulk
         | Op::TabGroupCreate
         | Op::TabGroupGet
         | Op::TabGroupList
@@ -286,6 +330,8 @@ const fn access(operation: Op) -> Access {
         | Op::WorkspacePlacementList
         | Op::WorkspaceUpdate
         | Op::WorkspaceAgentFolderSet
+        // Page home-channels opens a clicked web link on the person's gesture.
+        | Op::WorkspaceOpenUrl
         | Op::WorkspaceGroupCreate
         | Op::WorkspaceGroupDelete
         | Op::WorkspaceGroupList
@@ -307,6 +353,24 @@ const fn access(operation: Op) -> Access {
         | Op::ChiefEngineGet
         | Op::ChiefEngineSet
         | Op::ChiefStop
+        // A page reads and edits the person's Chiefs only where its
+        // page-router entry lists the operation (home-channels,
+        // chief-profile-ws-v1); create, delete, the grant, instructions and
+        // personality need a gesture.
+        | Op::ChiefProfileList
+        | Op::ChiefProfileGet
+        | Op::ChiefProfileCreate
+        | Op::ChiefProfileUpdate
+        | Op::ChiefProfileDelete
+        | Op::ChiefProfileAvatarSet
+        | Op::ChiefProfileAvatarGet
+        // Adopting an agent as a Chief: no page route at all (owner only,
+        // from a terminal; chief_registry_resource.rs refuses any page).
+        | Op::ChiefProfileAdopt
+        // Avatars: a page reads them only through its allow list
+        // (page-router.json: home-channels reads participant.avatar.get).
+        | Op::ParticipantAvatarSet
+        | Op::ParticipantAvatarGet
         // A page never reads or writes the person's conversations.
         | Op::ConversationList
         | Op::ConversationGet
@@ -335,4 +399,72 @@ pub(super) fn refusal(operation: Op, params: &Value) -> Option<ResourceError> {
         "derived": RequestOrigin::Page.wire_name(),
     });
     Some(forbidden(denied.message(), details))
+}
+
+/// The refusal of `operation` with `params` for a connection of page
+/// `page` whose request origin (after its claim) is `origin`, or `None`
+/// when the page's allow list admits it.
+pub(super) fn page_refusal(
+    page: &str,
+    operation: Op,
+    params: &Value,
+    origin: RequestOrigin,
+) -> Option<ResourceError> {
+    // A hard class is refused whatever the list names (fail closed).
+    let hard = match access(operation) {
+        Access::Denied(Denied::NotAllowed) => false,
+        Access::Denied(_) => true,
+        Access::DeniedWithCwd => params.get("cwd").is_some_and(|cwd| !cwd.is_null()),
+    };
+    if hard {
+        // The connection's own origin (a WebSocket page derives agent).
+        let mut error = refusal(operation, params)?;
+        error.details["derived"] = json!(origin.wire_name());
+        return Some(error);
+    }
+    let grant = match page_router_table::grant(page, operation.wire_name()) {
+        // A Chief edit that names a gesture field (the grant, instructions,
+        // personality) needs the person's gesture even where the page may
+        // edit Chiefs (chief-profile-ws-v1).
+        PageGrant::Read if writes_chief_gesture_field(operation, params) => PageGrant::Gesture,
+        grant => grant,
+    };
+    if matches!(grant, PageGrant::Gesture | PageGrant::Confirm) && origin == RequestOrigin::User {
+        return None;
+    }
+    let reason = page_router_table::missing_confirmation_reason(grant)?;
+    Some(page_forbidden(page, operation.wire_name(), reason, origin))
+}
+
+/// Whether `operation` is a Chief create or edit whose params name a gesture
+/// field (chief_registry.rs `GESTURE_FIELDS`). Create and delete are on the
+/// page's gesture list themselves (page-router.json).
+fn writes_chief_gesture_field(operation: Op, params: &Value) -> bool {
+    matches!(operation, Op::ChiefProfileCreate | Op::ChiefProfileUpdate)
+        && params.as_object().is_some_and(crate::chief_registry::names_gesture_field)
+}
+
+/// `origin.forbidden` for page `page`: `page_not_allowed` (not on its
+/// list), `gesture_required` or `confirmation_required` (on its list,
+/// without the person's gesture or confirmation).
+pub(crate) fn page_forbidden(
+    page: &str,
+    operation: &str,
+    reason: &str,
+    origin: RequestOrigin,
+) -> ResourceError {
+    let message = match reason {
+        "gesture_required" => {
+            format!("page {page} may call {operation} only on the person's gesture")
+        }
+        "confirmation_required" => {
+            format!("page {page} may call {operation} only after the person confirms it")
+        }
+        _ => format!("page {page} may not call {operation}"),
+    };
+    let mut details = json!({"derived": origin.wire_name(), "reason": reason});
+    if reason != "page_not_allowed" {
+        details["required"] = json!(RequestOrigin::User.wire_name());
+    }
+    ResourceError::new(super::ORIGIN_FORBIDDEN, message, details, false)
 }

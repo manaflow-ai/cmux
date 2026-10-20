@@ -24,7 +24,7 @@ const data: MockData = {
     { id: "default", name: "Personal" },
     { id: "work", name: "Atlas research and development" },
   ],
-  sections: { passwords: true, passkeys: true, exceptions: true, export: true },
+  sections: { passwords: true, passkeys: true, exceptions: true, export: true, browserImport: true },
   passwords: {
     default: [
       password("atlas", "atlas.example.test", "sample-user"),
@@ -121,6 +121,10 @@ export default passwordsPageEntry({
     "update-required": variant(
       {},
       { ...data, sections: { passwords: false, passkeys: true, exceptions: false, export: false } },
+    ),
+    "export-off": variant(
+      { note: "Allow Password Export is off (the default): Export is disabled and says where to turn it on." },
+      { ...data, sections: { ...data.sections, exportOff: true } },
     ),
     "all-unavailable": variant(
       {},

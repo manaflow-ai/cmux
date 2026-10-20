@@ -99,6 +99,9 @@ final class PageState {
                                                   sectionIndex: sectionIndex))
             }
         }
+        // The empty query's Pinned section (the user's pins, `PaletteRankSettings`): the searcher
+        // finds it by its order, since the pins can change while the rows stay.
+        if page.showsRecent { sections.append(.pinned) }
         // The empty query's Suggested section (rows with a suggestion rank);
         // appended after the item sections, like the typing section.
         if page.showsRecent, entries.contains(where: { $0.suggestedRank != nil }) {

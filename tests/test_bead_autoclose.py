@@ -43,6 +43,10 @@ BEADS = {
 
 FAKE_GH = """#!/usr/bin/env python3
 import json, sys
+if not any(arg.startswith("q=") for arg in sys.argv):
+    open(%(gh_log)r, "a").write(json.dumps(sys.argv[1:]) + "\\n")
+    print(json.dumps({"data": {"addComment": {"commentEdge": {"node": {"url": "comment-url"}}}}}))
+    raise SystemExit
 query = next(arg[2:] for arg in sys.argv if arg.startswith("q="))
 nodes = json.loads(open(%(open)r).read()) if "is:open" in query else json.loads(open(%(merged)r).read())
 since = next((word[len("merged:>="):] for word in query.split() if word.startswith("merged:>=")), "")
@@ -61,6 +65,8 @@ if args[0] == "show":
     print(json.dumps([dict(bead, id=args[1])]))
 elif args[0] == "children":
     print("[]")
+elif "create" in args:
+    print(json.dumps({"id": "cx-created"}))
 """
 RECORDING = "#!/bin/sh\necho \"$0 $*\" >> %(log)r\nexit 1\n"
 
@@ -72,11 +78,11 @@ class BeadAutocloseTests(unittest.TestCase):
         root = Path(self.temporary.name)
         self.bin = root / "bin"
         self.bin.mkdir()
-        self.bd_log, self.ssh_log = root / "bd.log", root / "ssh.log"
+        self.bd_log, self.gh_log, self.ssh_log = root / "bd.log", root / "gh.log", root / "ssh.log"
         (root / "merged.json").write_text(json.dumps(MERGED))
         (root / "open.json").write_text(json.dumps(OPEN))
         (root / "beads.json").write_text(json.dumps(BEADS))
-        self.write(self.bin / "gh", FAKE_GH % {"open": str(root / "open.json"), "merged": str(root / "merged.json")})
+        self.write(self.bin / "gh", FAKE_GH % {"open": str(root / "open.json"), "merged": str(root / "merged.json"), "gh_log": str(self.gh_log)})
         self.fake_bd = root / "fake-bd"
         self.write(self.fake_bd, FAKE_BD % {"log": str(self.bd_log), "beads": str(root / "beads.json")})
         self.write(self.bin / "ssh", RECORDING % {"log": str(self.ssh_log)})
@@ -102,15 +108,16 @@ class BeadAutocloseTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         closes = self.bd_calls("close")
         self.assertEqual([call[3] for call in closes], ["cx-task1", "cx-body1"], closes)
-        self.assertEqual(closes[0][:4], ["--actor", "op-lane", "close", "cx-task1"])
+        self.assertEqual(closes[0][:4], ["--actor", "leo", "close", "cx-task1"])
         self.assertIn(f"landed {'a' * 12} (#1): fix: a (cx-task1)", closes[0][5])
         comments = {call[3]: call for call in self.bd_calls("comment")}
         # A part or slice marker in the title is a partial landing: a comment
-        # with the pull request link, never a close. A bead the body merely
-        # mentions is not touched.
-        self.assertEqual(sorted(comments), ["cx-epic1", "cx-multi", "cx-slice", "cx-slice2"])
+        # with the pull request link, never a close. Body references are handled
+        # too, so the referenced bead gets the same landing comment.
+        self.assertEqual(sorted(comments), ["cx-epic1", "cx-multi", "cx-other", "cx-slice", "cx-slice2"])
         self.assertIn("https://github.com/manaflow-ai/cmux/pull/4", comments["cx-slice"][4])
         self.assertIn("https://github.com/manaflow-ai/cmux/pull/6", comments["cx-slice2"][4])
+        self.assertIn("https://github.com/manaflow-ai/cmux/pull/6", comments["cx-other"][4])
         self.assertEqual(comments["cx-epic1"][1], "leo")
         self.assertEqual(comments["cx-multi"][1], "leo")  # "unassigned" acts as leo
         self.assertIn("not closed", comments["cx-multi"][4])
@@ -126,6 +133,60 @@ class BeadAutocloseTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual([call[3] for call in self.bd_calls("close")], ["cx-multi"], result.stdout)
         self.assertEqual(self.bd_calls("comment"), [])
+
+    def test_body_and_commit_references_are_each_handled_as_beads(self):
+        root = Path(self.temporary.name)
+        merged = [{"number": 8, "title": "fix: references", "mergedAt": "2026-10-10T08:00:00Z",
+                   "mergeCommit": {"oid": "8" * 40}, "baseRefName": "feat-cmux-next",
+                   "body": "Related to cx-body2.",
+                   "commits": {"nodes": [{"message": "Implement cx-commit2"}]}}]
+        beads = dict(BEADS, **{
+            "cx-body2": {"status": "open", "issue_type": "task", "assignee": "lane"},
+            "cx-commit2": {"status": "open", "issue_type": "task", "assignee": "lane"},
+        })
+        (root / "merged.json").write_text(json.dumps(merged))
+        (root / "beads.json").write_text(json.dumps(beads))
+        result = self.run_script("--since", "2026-10-10T00:00:00Z", BEADS_BD_COMMAND=str(self.fake_bd))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual([call[3] for call in self.bd_calls("close")], ["cx-body2", "cx-commit2"])
+
+    def test_open_beadless_pr_is_created_and_linked(self):
+        root = Path(self.temporary.name)
+        (root / "open.json").write_text(json.dumps([{
+            "id": "pr-node", "number": 10, "title": "feat: automatic bead",
+            "body": "No tracker id yet.", "url": "https://github.com/manaflow-ai/cmux/pull/10",
+            "baseRefName": "feat-cmux-next",
+        }]))
+        result = self.run_script("--since", "2026-10-10T00:00:00Z", BEADS_BD_COMMAND=str(self.fake_bd))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        creates = [call for call in self.bd_calls("create")]
+        self.assertEqual(len(creates), 1)
+        self.assertEqual(creates[0][:3], ["--actor", "leo", "create"])
+        self.assertIn("--external-ref", creates[0])
+        self.assertIn("https://github.com/manaflow-ai/cmux/pull/10", creates[0])
+        # The link goes to the PR's status comment through pr-status.yml (posted as
+        # github-actions), never as a comment under the token's own account.
+        calls = [json.loads(line) for line in self.gh_log.read_text().splitlines()]
+        self.assertEqual(calls, [["workflow", "run", "pr-status.yml", "-R", "manaflow-ai/cmux",
+                                  "--ref", "main", "-f", "pr=10", "-f", "bead=cx-created"]])
+
+    def test_a_failed_link_keeps_the_bead_and_never_creates_a_second(self):
+        root = Path(self.temporary.name)
+        (root / "open.json").write_text(json.dumps([{
+            "id": "pr-node", "number": 10, "title": "feat: automatic bead",
+            "url": "https://github.com/manaflow-ai/cmux/pull/10", "baseRefName": "feat-cmux-next",
+        }]))
+        failing = self.gh_log.parent / "failing-bin"
+        failing.mkdir()
+        self.write(failing / "gh", "#!/bin/sh\ncase \"$1\" in workflow) echo 'HTTP 403' >&2; exit 1;; esac\n"
+                   f"exec {self.bin / 'gh'} \"$@\"\n")
+        env = {"PATH": f"{failing}{os.pathsep}{self.env['PATH']}", "BEADS_BD_COMMAND": str(self.fake_bd)}
+        first = self.run_script("--since", "2026-10-10T00:00:00Z", **env)
+        self.assertEqual(first.returncode, 1, first.stdout)
+        self.assertIn("linking it on the PR failed", first.stdout)
+        second = self.run_script("--since", "2026-10-10T00:00:00Z", **env)
+        self.assertEqual(second.returncode, 0, second.stderr)
+        self.assertEqual(len(self.bd_calls("create")), 1)
 
     def test_a_second_run_does_not_repeat_comments_or_closes(self):
         # The search starts at (or before) the last merge handled, so it sees that merge again.
@@ -149,7 +210,7 @@ class BeadAutocloseTests(unittest.TestCase):
     def test_dry_run_changes_nothing(self):
         result = self.run_script("--dry-run", "--since", "2026-10-10T00:00:00Z", BEADS_BD_COMMAND=str(self.fake_bd))
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("close cx-task1 as op-lane", result.stdout)
+        self.assertIn("close cx-task1 as leo", result.stdout)
         self.assertEqual(self.bd_calls("close") + self.bd_calls("comment"), [])
         self.assertFalse(self.state.exists())
 

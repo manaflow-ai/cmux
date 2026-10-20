@@ -65,9 +65,10 @@ D = daemon-owned, A = app-owned.
 | Screen, workspace and tab groups | D | no | candidate |
 | Sidebar sections and items | A (layout doc) | no | per sidebar-sections.md 10 |
 | Tabs | derived | no | candidate (per-tab override) |
-| Bookmark folders | D | no | candidate |
+| Bookmark folders | D | yes (daemon, `bookmark-icon-v1`) | done in daemon (`update-bookmark {icon}`); app picker and renderer missing |
 | cmux.json actions and buttons | A (config) | symbol or image path | accept the wire string |
 | Home conversation reactions | D | emoji | same picker |
+| Machines in the sidebar (session registry records) | D | yes (daemon, `session-icon-v1`) | done in daemon (`set-session-icon {session_id, icon}`; `put-session` keeps it); app picker and renderer missing |
 | Cloud machines, servers | per record | no | candidate |
 | App manifests | package author | own field | out of scope |
 | Agent personas, layouts, snippets | none yet | no record | blocked on an owner |

@@ -9,14 +9,17 @@ public nonisolated struct ClassicSessionWorkspace: Codable, Equatable, Sendable 
     public let remote: ClassicSessionRemote?
     /// The Cloud VM it ran on; nil unless it was a Cloud VM workspace.
     public let cloudVM: String?
+    /// Whether it had panels that do not come over (markdown, file preview).
+    public let leftOutPanels: Bool
 
     public init(name: String, workingDirectory: String, layout: ClassicSessionLayout,
-                remote: ClassicSessionRemote? = nil, cloudVM: String? = nil) {
+                remote: ClassicSessionRemote? = nil, cloudVM: String? = nil, leftOutPanels: Bool = false) {
         self.name = name
         self.workingDirectory = workingDirectory
         self.layout = layout
         self.remote = remote
         self.cloudVM = cloudVM
+        self.leftOutPanels = leftOutPanels
     }
 
     /// This workspace with each folder that `exists` rejects replaced by
@@ -24,7 +27,8 @@ public nonisolated struct ClassicSessionWorkspace: Codable, Equatable, Sendable 
     public func openingMissingFolders(in home: String, exists: (String) -> Bool) -> ClassicSessionWorkspace {
         func folder(_ path: String) -> String { exists(path) ? path : home }
         return ClassicSessionWorkspace(name: name, workingDirectory: folder(workingDirectory),
-                                       layout: layout.mappingFolders(folder), remote: remote, cloudVM: cloudVM)
+                                       layout: layout.mappingFolders(folder), remote: remote, cloudVM: cloudVM,
+                                       leftOutPanels: leftOutPanels)
     }
 }
 

@@ -25,6 +25,7 @@ not rows; they are reserved parent values. Every other node is a row:
 | `source_key` | folders made by a browser import: the import source (`<browser>/<profile dir>`), so a re-import replaces that folder; else null |
 | `created_ms` | creation time (an import keeps the source's date added) |
 | `last_used_ms` | last open from any bookmark surface, or null |
+| `icon` | folders only (`bookmark-icon-v1`): the shared icon string (one emoji, an SF Symbol name, or a stored `image:`/`svg:sha256-<hex>` asset), or null |
 
 Rules: a folder may not move into itself or a descendant; nodes never move
 between profiles (Move to Browser Profile copies); deleting a folder deletes
@@ -57,7 +58,8 @@ CREATE TABLE IF NOT EXISTS bookmarks (
   favicon_key TEXT,
   source_key TEXT,
   created_ms INTEGER NOT NULL,
-  last_used_ms INTEGER
+  last_used_ms INTEGER,
+  icon TEXT                             -- folders only; added by bookmark-icon-v1
 );
 CREATE INDEX IF NOT EXISTS bookmarks_parent ON bookmarks(browser_profile_id, parent_id, position);
 ```
@@ -68,13 +70,16 @@ and emits `bookmarks-changed {browser_profile_id, bookmarks_revision}`):
 - `list-bookmarks {browser_profile_id}` → `{bookmarks_revision, bookmarks:[node]}`,
   ordered by parent then index. Node JSON: `{id, browser_profile_id, parent,
   kind, index, title, url?, favicon_key?, source_key?, created_ms,
-  last_used_ms?}`.
+  last_used_ms?, icon?}`.
 - `create-bookmark {browser_profile_id, parent, index?, kind, title, url?,
   favicon_key?, source_key?, created_ms?, bookmark?}` → `{bookmark, changed}`; an
   existing `id` returns the stored node with `changed:false` (idempotent
   retries). Absent `index` appends.
-- `update-bookmark {bookmark, title?, url?, favicon_key?, last_used_ms?}`; absent
-  keeps, null clears `favicon_key` / `last_used_ms`.
+- `update-bookmark {bookmark, title?, url?, favicon_key?, last_used_ms?, icon?}`;
+  absent keeps, null clears `favicon_key` / `last_used_ms` / `icon`. `icon`
+  (`bookmark-icon-v1`) is for folders only (refused on a `url` node); an asset
+  icon must name a stored blob. Create and import take no icon; a replacing
+  import keeps its folder's icon.
 - `move-bookmark {bookmark, parent, index}` (same profile; refuses a cycle).
 - `delete-bookmark {bookmark}` → `{deleted:[ids]}` (subtree).
 - `import-bookmarks {browser_profile_id, parent, index?, source_key?,

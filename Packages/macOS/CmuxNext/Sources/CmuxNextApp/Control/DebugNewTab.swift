@@ -3,7 +3,9 @@ import AppKit
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextBridge
+import CmuxNextResources
 import CmuxNextSettings
+import CmuxNextWakeups
 import Darwin
 import WebKit
 
@@ -23,6 +25,7 @@ import WebKit
 /// the tab the pane showed, then each character as a key-down: the page is left before its field
 /// could report readiness, so its key hold must end and the keys reach the tab shown (nightly
 /// 2026-10-11: they waited forever and Cmd-T opened nothing).
+/// `drop_spare` drops the prewarmed spare, so the next opening loads cold.
 @MainActor
 enum DebugNewTab {
     static func handle(_ params: [String: JSONValue], _ services: AppServices?) async -> JSONValue {
@@ -47,9 +50,17 @@ enum DebugNewTab {
             case "bench_open": return await DebugNewTabBench.open(params, controller, services)
             default: return await DebugNewTabBench.bang(params, controller, services)
             }
+        case "bench_create":
+            // Cmd-N / Cmd-T / Cmd-D / Cmd-Shift-D: key to visible and to confirmed (instant-new-surfaces).
+            guard let controller = controller(params, services) else { return .object(["error": .string("no such window")]) }
+            return await DebugInstantCreateBench.run(params, controller, services)
         case "frame_strip":
             guard let controller = controller(params, services) else { return .object(["error": .string("no such window")]) }
             return await DebugFrameStrip.run(params, controller, services)
+        case "drop_spare":
+            // The next opening loads cold, as after memory pressure (scripts/ci/frame-pacing/golden.py).
+            services.newTabSpares.dropAll()
+            return state(services)
         case "retarget":
             // What a key-window change does, for no-activate runs whose windows never become key.
             guard let window = controller(params, services)?.window else { return .object(["error": .string("no such window")]) }
@@ -67,14 +78,14 @@ enum DebugNewTab {
         if let spare = pool.spare {
             // Ready: the page asked for its handshake, so it is loaded and rendered.
             var entry: [String: JSONValue] = ["window": .number(Double(spare.window)), "ready": .bool(spare.view.model.hasHandshake)]
-            if let pid = webProcess(spare.view.webView) {
+            if let pid = WebContentProcess.identifier(of: spare.view.webView) {
                 entry["pid"] = .number(Double(pid))
-                entry["footprint_mb"] = footprint(pid).map { .number($0) } ?? .null
+                entry["footprint_mb"] = ProcessUsage.sample(pid).map { .number(Double($0.physFootprint) / 1_048_576) } ?? .null
             }
             spares.append(.object(entry))
         }
         return .object([
-            "likely": .bool(pool.isLikely), "spares": .array(spares), "openings": .array(pool.openings.map(opening)),
+            "spares": .array(spares), "openings": .array(pool.openings.map(opening)),
             "target_window": pool.target.map { .number(Double($0.windowNumber)) } ?? .null,
             "last_retarget_ms": pool.lastRetargetMilliseconds.map { .number($0) } ?? .null,
             "last_recycle_refusal": pool.lastRecycleRefusal.map { .string($0) } ?? .null,
@@ -136,21 +147,6 @@ enum DebugNewTab {
             return .object(["error": .string("the page returned no JSON")])
         }
         return value
-    }
-
-    private static func webProcess(_ webView: WKWebView) -> Int32? {
-        guard webView.responds(to: NSSelectorFromString("_webProcessIdentifier")),
-              let pid = (webView.value(forKey: "_webProcessIdentifier") as? NSNumber)?.int32Value, pid > 0 else { return nil }
-        return pid
-    }
-
-    /// Physical footprint in MB (what Activity Monitor's Memory column shows).
-    private static func footprint(_ pid: Int32) -> Double? {
-        var info = rusage_info_v4()
-        let result = withUnsafeMutablePointer(to: &info) { pointer in
-            pointer.withMemoryRebound(to: rusage_info_t?.self, capacity: 1) { proc_pid_rusage(pid, RUSAGE_INFO_V4, $0) }
-        }
-        return result == 0 ? Double(info.ri_phys_footprint) / 1_048_576 : nil
     }
 }
 #endif

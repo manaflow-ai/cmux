@@ -94,6 +94,13 @@ pub(super) fn run(args: &[String]) -> i32 {
         eprintln!("{USAGE}");
         return 64;
     };
+    // A machine too old for `fs-v1` says so before anything is copied.
+    if let Some(outdated) =
+        super::machine_gate::outdated(&socket, &[cmux_tui_core::fs_ops::FS_CAPABILITY])
+    {
+        println!("{}", outdated.line());
+        return 1;
+    }
     if action == Action::Pull {
         return finish_pull(pull::pull(&socket, &local, &remote));
     }
@@ -155,6 +162,40 @@ pub(super) fn pull_back(
 /// The error code of a failed push.
 pub(super) fn push_failure_code(error: &anyhow::Error) -> String {
     remote::refusal_code(error).unwrap_or("sync_failed").to_string()
+}
+
+/// One request on the machine daemon's socket: its `data`, or its refusal
+/// (whose code [`push_failure_code`] tells).
+pub(super) fn machine_call(
+    socket: &Path,
+    cmd: &str,
+    params: serde_json::Value,
+) -> anyhow::Result<serde_json::Value> {
+    Remote::connect(socket)?.call(cmd, params)
+}
+
+/// What is at `path` on the machine (`file`, `dir`, ...); None when nothing.
+pub(super) fn remote_kind(socket: &Path, path: &str) -> anyhow::Result<Option<String>> {
+    Remote::connect(socket)?.kind(path)
+}
+
+/// Copies the one regular file at `local` (never through a symlink) to
+/// `target` on the machine, making its folder.
+pub(super) fn copy_file(socket: &Path, local: &Path, target: &str) -> anyhow::Result<()> {
+    use std::os::unix::fs::PermissionsExt as _;
+    let meta = std::fs::symlink_metadata(local)
+        .with_context(|| format!("cannot read {}", local.display()))?;
+    if !meta.file_type().is_file() {
+        anyhow::bail!("{} is not a regular file", local.display());
+    }
+    let file = LocalFile {
+        source: Source::File(local.to_path_buf()),
+        permissions: local::permissions_of(meta.permissions().mode()),
+    };
+    let mut remote = Remote::connect(socket)?;
+    let (parent, _) = remote::split(target)?;
+    remote.mkdir_all(parent)?;
+    write(&mut remote, target, &file).map(|_| ())
 }
 
 /// Deletes the folder at `path` on the machine whose daemon `socket`
@@ -225,6 +266,25 @@ fn push(socket: &Path, local: &Path, remote_root: &str) -> anyhow::Result<Summar
 /// Whether `folder` is in a git working copy (its top folder or below it).
 pub(super) fn in_git(folder: &Path) -> bool {
     !matches!(local::GitDirs::of(folder), Ok(None))
+}
+
+/// The top folder of the git working copy `folder` is in; None outside git
+/// or above `ceiling` (`GIT_CEILING_DIRECTORIES`). For a folder a Cloud
+/// machine named: no system config, no bare repository found by discovery,
+/// no fsmonitor.
+pub(super) fn git_top(folder: &Path, ceiling: &std::ffi::OsStr) -> Option<PathBuf> {
+    let output = std::process::Command::new("git")
+        .args(["-c", "safe.bareRepository=explicit", "-c", "core.fsmonitor=false", "-C"])
+        .arg(folder)
+        .args(["rev-parse", "--show-toplevel"])
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_CEILING_DIRECTORIES", ceiling)
+        .stdin(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .output()
+        .ok()?;
+    let top = String::from_utf8(output.stdout).ok().filter(|_| output.status.success())?;
+    std::fs::canonicalize(top.trim()).ok()
 }
 
 /// Whether `name` reads as `.git` on any disk ([`names::is_dotgit`]).

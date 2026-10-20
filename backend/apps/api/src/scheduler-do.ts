@@ -3,7 +3,7 @@ import type { OpFrame, OwnerFrame, Principal, RejectFrame, ResultFrame } from "@
 import type { Body, Run } from "@cmux/protocol"
 import { deadlineOf, dispatchable, dueFires, matchingEventTriggers, schedulerDomain, TERMINAL, type SchedulerState } from "./domains/scheduler.ts"
 import { afterCreate } from "./domains/scheduler-policy.ts"
-import { allAutomations, automationOf, isLegacyHead, openRuns, runBody, runRowOf, SCHEDULER_PRIVATE_TABLES, TABLE_RUN } from "./domains/scheduler-rows.ts"
+import { allAutomations, automationOf, chargedUser, isLegacyHead, openRuns, runBody, runRowOf, SCHEDULER_PRIVATE_TABLES, TABLE_RUN } from "./domains/scheduler-rows.ts"
 import { schedulerRead } from "./scheduler-reads.ts"
 import { codeRefOf, precheckCodeOp } from "./code-check.ts"
 import type { CodeStorageError } from "./code-storage.ts"
@@ -21,6 +21,8 @@ export interface AutomationRunParams {
   readonly body: Body
   /** What triggered the run, when it carries data (a webhook delivery's body). */
   readonly input?: unknown
+  /** The member whose monthly AI limit this run's cost counts against: the automation's owner (created_by; cx-ds09i). */
+  readonly charged_user?: string
 }
 
 export interface RunReport {
@@ -310,7 +312,9 @@ export class SchedulerDO extends OwnerDO<SchedulerState> {
         automation_version: run.automation_version,
         trigger: run.trigger,
         body: runBody(engine.rows, run),
-        ...(stored ? { input: JSON.parse(stored.json) as unknown } : {})
+        ...(stored ? { input: JSON.parse(stored.json) as unknown } : {}),
+        // Who started the run (scheduler-runs.ts startRun); a run row from before names none: the automation's creator.
+        ...((run.charged_user ?? chargedUser(engine.rows, run.automation)) ? { charged_user: run.charged_user ?? chargedUser(engine.rows, run.automation) } : {})
       }
       try {
         await this.env.AUTOMATION_RUN.create({ id: run.id, params })

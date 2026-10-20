@@ -1,7 +1,7 @@
 @testable import CmuxNextControl
 import CmuxNextSettings
 import Foundation
-import Synchronization
+import CmuxNextCompat
 import Testing
 
 /// architecture.md 5a: reads never touch the main actor; mutations are

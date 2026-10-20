@@ -24,9 +24,8 @@ extension SettingsWindowService {
                 ]
             }),
             "profile_colors": .array(GroupColor.allCases.map { color in
-                // Opaque colors only (hex drops alpha): grey keeps its own swatch and fill.
-                ["name": .string(color.rawValue), "swatch": .string(Self.hex(color.markColor)),
-                 "fill": .string(Self.hex(color == .grey ? color.fill : color.themedChipFill))]
+                // Opaque colors only (hex drops alpha).
+                ["name": .string(color.rawValue), "swatch": .string(Self.hex(color.markColor)), "fill": .string(Self.hex(color.chipFill))]
             }),
             // R82 commit 4: theme levels of the active window, terminal facts, the settings file
             // and the wallpaper choices (thumbnails at cmux-page://cmux.settings/backdrop/<id>).
@@ -45,20 +44,7 @@ extension SettingsWindowService {
             // Computer Use Setup (Agents): the helper's grants, the same state as the palette action.
             "computer_use": services.onboarding.computerUseSetup.pageJSON,
             "settings_file": services.settings.map { .string($0.file.url.path(percentEncoded: false)) } ?? .null,
-            // Art carries its picker collection (Dark Art, Museum Icons, Calm, Doré) and the
-            // person's own images theirs ("Your images"); the page groups the grid by it.
-            "backdrops": .array(Self.backdrops.choices.map { choice -> JSONValue in
-                var row: [String: JSONValue] = ["id": .string(choice.id), "title": .string(choice.title),
-                                                "attribution": .string(choice.attribution)]
-                if case .art(let art) = choice {
-                    row["collection"] = .string(art.collection.rawValue)
-                    row["collection_title"] = .string(art.collection.title)
-                } else if case .file = choice {
-                    row["collection"] = .string(BackdropUserImages.collection)
-                    row["collection_title"] = .string(BackdropUserImages.collectionTitle)
-                }
-                return .object(row)
-            }),
+            "backdrops": Self.backdrops.pageRows,
             "derived": .object(pageDerivedNumbers()),
         ]
     }
@@ -73,11 +59,10 @@ extension SettingsWindowService {
         return derived
     }
 
-    /// The wallpaper grid's choices (bounded: a large Desktop Pictures folder stays quick), read
-    /// each time so an image the person just added is listed.
+    /// The wallpaper grid's choices, read each time so an image the person just added, or a
+    /// macOS wallpaper they just downloaded, is listed as it is now.
     static var backdrops: BackdropCatalog {
-        BackdropCatalog(systemDirectory: URL(fileURLWithPath: "/System/Library/Desktop Pictures"), fileManager: .default,
-                        userImages: userImages)
+        BackdropCatalog(systemDirectory: AppleWallpapers.system.desktopPictures, fileManager: .default, userImages: userImages)
     }
 
     /// The person's own background images, in the backgrounds folder.
@@ -107,9 +92,10 @@ extension SettingsWindowService {
         return .object(object)
     }
 
-    private static func listRow(_ row: SettingsListRow) -> JSONValue {
+    /// One list row; `icon` is its wire icon (the page draws an emoji, or an asset from `icon/<ref>`).
+    static func listRow(_ row: SettingsListRow) -> JSONValue {
         ["id": .string(row.id), "title": .string(row.title), "subtitle": row.subtitle.map(JSONValue.string) ?? .null,
-         "active": .bool(row.isActive)]
+         "icon": .string(row.icon.wire), "active": .bool(row.isActive)]
     }
 
     static func hex(_ color: NSColor) -> String {

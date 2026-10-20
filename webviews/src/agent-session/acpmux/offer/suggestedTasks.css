@@ -1,0 +1,282 @@
+/* An agent's suggested tasks (SuggestedTasks.tsx): one quiet card, 28px lines, no bold. A started
+   task is one row hung off the card by an elbow; a task's result is one muted line. */
+.acpmux-tasks {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  margin: 4px 0;
+  padding: 2px 0 4px;
+  border-radius: 10px;
+  background: var(--acpmux-composer-tray);
+  color: var(--agent-text);
+  font-size: var(--text-control);
+  line-height: 18px;
+}
+.acpmux-tasks[data-quiet] {
+  padding: 0;
+  background: none;
+}
+.acpmux-tasks-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 28px;
+  padding: 0 6px 0 12px;
+}
+.acpmux-tasks-count {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.acpmux-tasks-note,
+.acpmux-task-note {
+  flex: none;
+  color: var(--acpmux-composer-dim);
+  white-space: nowrap;
+}
+.acpmux-tasks-head:has(.acpmux-tasks-note) .acpmux-tasks-count {
+  flex: none;
+}
+.acpmux-task {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  margin: 2px 4px 0;
+  padding: 4px 2px 0 8px;
+  border-top: 1px solid color-mix(in srgb, var(--agent-text) 8%, transparent);
+}
+.acpmux-tasks-head + .acpmux-task {
+  border-top: 0;
+  margin-top: 0;
+}
+.acpmux-task-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 24px;
+}
+.acpmux-task-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.acpmux-task-prompt {
+  display: -webkit-box;
+  margin: 0;
+  padding-right: 24px;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  color: var(--acpmux-composer-dim);
+  font-size: var(--text-detail);
+  line-height: 16px;
+  overflow-wrap: anywhere;
+}
+.acpmux-task-error {
+  margin-top: 2px;
+  color: var(--agent-danger);
+  font-size: var(--text-detail);
+  overflow-wrap: anywhere;
+}
+.acpmux-task-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  height: 28px;
+  margin-left: -8px;
+}
+.acpmux-task-spacer {
+  flex: 1;
+}
+.acpmux-task-actions .acpmux-task-note {
+  flex: 0 1 auto;
+  min-width: 0;
+  padding: 0 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.acpmux-task-action,
+.acpmux-task-dismiss,
+.acpmux-task-row,
+.acpmux-task-received-line {
+  border: 0;
+  background: none;
+  color: var(--agent-text);
+  font: inherit;
+  cursor: default;
+}
+.acpmux-task-action {
+  flex: none;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 6px;
+  font-weight: 500;
+}
+.acpmux-task-action[data-primary] {
+  background: var(--agent-text);
+  color: var(--agent-page-bg, var(--acpmux-base));
+}
+.acpmux-task-action:not([data-primary]):not(:disabled):hover,
+.acpmux-task-action[data-popup-open] {
+  background: var(--acpmux-composer-hover);
+}
+.acpmux-task-action[data-primary]:not(:disabled):hover {
+  background: color-mix(in srgb, var(--agent-text) 85%, transparent);
+}
+.acpmux-task-action:disabled,
+.acpmux-task-dismiss:disabled {
+  color: var(--acpmux-composer-dim);
+}
+.acpmux-task-action[data-primary]:disabled {
+  background: color-mix(in srgb, var(--agent-text) 40%, transparent);
+  color: var(--agent-page-bg, var(--acpmux-base));
+}
+.acpmux-task-dismiss {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  color: var(--acpmux-composer-dim);
+}
+.acpmux-task-dismiss:not(:disabled):hover {
+  background: var(--acpmux-composer-hover);
+  color: var(--agent-text);
+}
+.acpmux-task-action:focus-visible,
+.acpmux-task-dismiss:focus-visible,
+.acpmux-task-row:focus-visible,
+.acpmux-task-received-line:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: 1px;
+}
+.acpmux-task-menu .ui-menu-check {
+  display: inline-flex;
+  justify-content: center;
+  width: 14px;
+  flex: none;
+}
+
+/* A started task: `⎿ title  subtitle  •  ›`, one 28px line. */
+.acpmux-task-started {
+  min-width: 0;
+  padding: 0 4px;
+}
+.acpmux-tasks-head + .acpmux-task-started,
+.acpmux-task + .acpmux-task-started {
+  margin-top: 2px;
+}
+.acpmux-task-row {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  height: 28px;
+  overflow: hidden;
+  padding: 0 6px 0 8px;
+  border-radius: 6px;
+  text-align: start;
+}
+.acpmux-task-row:hover {
+  background: var(--acpmux-composer-hover);
+}
+.acpmux-task-elbow {
+  flex: none;
+  color: var(--acpmux-composer-dim);
+}
+/* The subtitle gives way first (its basis is 0); the title only past 70% of the line. */
+.acpmux-task-row-title {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 70%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.acpmux-task-row-sub {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--acpmux-composer-dim);
+  font-size: var(--text-detail);
+}
+.acpmux-task-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--acpmux-composer-dim);
+}
+.acpmux-task-started[data-state="running"] .acpmux-task-dot {
+  background: var(--agent-accent);
+}
+.acpmux-task-started[data-state="waiting"] .acpmux-task-dot {
+  background: var(--acpmux-warning);
+}
+.acpmux-task-started[data-state="failed"] .acpmux-task-dot {
+  background: var(--agent-danger);
+}
+.acpmux-task-started[data-state="done"] .acpmux-task-dot {
+  background: var(--agent-success, var(--acpmux-composer-dim));
+}
+.acpmux-task-row > :last-child,
+.acpmux-task-received-line > :last-child {
+  flex: none;
+  margin-left: auto;
+  color: var(--acpmux-composer-dim);
+}
+
+/* "Received message from <title> ›": one muted 26px line in the thread. */
+.acpmux-task-received {
+  display: flex;
+  min-width: 0;
+}
+.acpmux-task-received-line {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  height: 26px;
+  padding: 0 6px;
+  margin-left: -6px;
+  overflow: hidden;
+  border-radius: 6px;
+  color: var(--acpmux-composer-dim);
+  font-size: var(--text-control);
+  white-space: pre;
+}
+.acpmux-task-received-line:hover {
+  background: var(--acpmux-composer-hover);
+  color: var(--agent-text);
+}
+.acpmux-task-received-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--agent-text);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--agent-text) 35%, transparent);
+  text-underline-offset: 2px;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .acpmux-task-action,
+  .acpmux-task-dismiss,
+  .acpmux-task-row,
+  .acpmux-task-received-line {
+    transition:
+      background-color var(--acpmux-motion-hover) var(--acpmux-motion-ease),
+      color var(--acpmux-motion-hover) var(--acpmux-motion-ease);
+  }
+}

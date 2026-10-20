@@ -20,10 +20,29 @@ pub(super) fn run(
     env: &BTreeMap<String, String>,
     limit: Duration,
 ) -> Result<(bool, String), String> {
+    run_for(argv, env, limit, None)
+}
+
+/// `run` with the login allow-list of the harness `family` (an auth check).
+pub(super) fn run_for(
+    argv: &[String],
+    env: &BTreeMap<String, String>,
+    limit: Duration,
+    family: Option<&str>,
+) -> Result<(bool, String), String> {
+    // A sign-in check (`family` set) reads the user's credentials: none while
+    // agent launches are off (cx-9ettq). `--version` checks still run.
+    if family.is_some() && crate::launch_policy::agent_launch_disabled() {
+        return Err(crate::launch_policy::DISABLED_MESSAGE.to_owned());
+    }
     let (program, args) = argv.split_first().ok_or("no command")?;
     let mut cmd = Command::new(program);
-    crate::login_env::apply_std(&mut cmd);
-    crate::config::scrub_nested_claude_env(&mut cmd);
+    // The daemon starter's turn values are not this command's (config::TURN_SCOPED_ENV).
+    for k in crate::config::inherited_caller_scoped_keys() {
+        cmd.env_remove(k);
+    }
+    crate::login_env::apply_std_for(&mut cmd, family, Some(env));
+    crate::config::scrub_nested_claude_env_for(&mut cmd, family);
     cmd.envs(env).args(args).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
     #[cfg(unix)]
     std::os::unix::process::CommandExt::process_group(&mut cmd, 0);
@@ -109,20 +128,43 @@ pub fn installed_version(path: &str) -> Result<String, String> {
 
 /// A profile's `auth.check` command, with the profile's `env`: exit 0 means
 /// signed in.
-pub fn auth_check(argv: &[String], env: &BTreeMap<String, String>) -> Result<bool, String> {
-    run(argv, env, TIMEOUT).map(|(ok, _)| ok)
+pub fn auth_check(
+    argv: &[String],
+    env: &BTreeMap<String, String>,
+    family: &str,
+) -> Result<bool, String> {
+    run_for(argv, env, TIMEOUT, Some(family)).map(|(ok, _)| ok)
+}
+
+/// `codex login status` with the harness's `env`: Some(true) signed in (exit
+/// 0), Some(false) only for Codex's own "Not logged in"; None for any other
+/// failure (a custom provider, a bad config, an older CLI, no `codex` here),
+/// which says nothing about a sign-in.
+pub fn codex_login_status(env: &BTreeMap<String, String>) -> Option<bool> {
+    let argv = ["codex", "login", "status"].map(String::from);
+    match run_for(&argv, env, TIMEOUT, Some("codex")) {
+        Ok((true, _)) => Some(true),
+        Ok((false, text)) if text.to_ascii_lowercase().contains("not logged in") => Some(false),
+        _ => None,
+    }
 }
 
 /// Whether `latest` is newer than `installed`, by their numeric parts. A
 /// version that does not parse is never called outdated.
 pub fn is_newer(latest: &str, installed: &str) -> bool {
+    compare_versions(latest, installed) == Some(std::cmp::Ordering::Greater)
+}
+
+/// Numeric version ordering, retaining the difference between equality and
+/// a version that cannot be compared. Missing evidence is not equality.
+pub fn compare_versions(left: &str, right: &str) -> Option<std::cmp::Ordering> {
     fn parts(v: &str) -> Option<Vec<u64>> {
         let core = v.trim().trim_start_matches('v').split(['-', '+', ' ']).next()?;
         core.split('.').map(|p| p.parse().ok()).collect()
     }
-    let (Some(mut a), Some(mut b)) = (parts(latest), parts(installed)) else { return false };
+    let (mut a, mut b) = (parts(left)?, parts(right)?);
     let n = a.len().max(b.len());
     a.resize(n, 0);
     b.resize(n, 0);
-    a > b
+    Some(a.cmp(&b))
 }

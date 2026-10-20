@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "833243e7eea65e5b085bff8f6a115ed5fa1cfcee18a967cc03f9b844a722c396",
+  "catalog_sha256": "ba5f3ff8d35e5a49e4f18d24553dd06b411cd0bb83b4af6a775af7ef38ba7aa7",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -10,7 +10,13 @@
     "agent.message.mark": {
       "class": "mutation"
     },
+    "agent.message.release": {
+      "class": "mutation"
+    },
     "agent.message.send": {
+      "class": "mutation"
+    },
+    "agent.message.unsend": {
       "class": "mutation"
     },
     "agent.report": {
@@ -26,6 +32,15 @@
       "class": "mutation"
     },
     "browser.close": {
+      "class": "mutation"
+    },
+    "browser.devices.add_custom": {
+      "class": "mutation"
+    },
+    "browser.devices.list": {
+      "class": "read"
+    },
+    "browser.devices.remove_custom": {
       "class": "mutation"
     },
     "browser.forward": {
@@ -52,7 +67,25 @@
     "browser.navigate": {
       "class": "mutation"
     },
+    "browser.profile.create": {
+      "class": "mutation"
+    },
+    "browser.profile.list": {
+      "class": "read"
+    },
+    "browser.profile.open": {
+      "class": "mutation"
+    },
     "browser.reload": {
+      "class": "mutation"
+    },
+    "browser.tab.emulate": {
+      "class": "mutation"
+    },
+    "browser.tab.emulate.clear": {
+      "class": "mutation"
+    },
+    "browser.tab.set_profile": {
       "class": "mutation"
     },
     "browser.viewer.release": {
@@ -65,6 +98,30 @@
       "class": "read"
     },
     "chief.engine.set": {
+      "class": "mutation"
+    },
+    "chief.profile.adopt": {
+      "class": "mutation"
+    },
+    "chief.profile.avatar.get": {
+      "class": "read"
+    },
+    "chief.profile.avatar.set": {
+      "class": "mutation"
+    },
+    "chief.profile.create": {
+      "class": "mutation"
+    },
+    "chief.profile.delete": {
+      "class": "mutation"
+    },
+    "chief.profile.get": {
+      "class": "read"
+    },
+    "chief.profile.list": {
+      "class": "read"
+    },
+    "chief.profile.update": {
       "class": "mutation"
     },
     "chief.stop": {
@@ -142,6 +199,9 @@
     "frontend_projection.put": {
       "class": "mutation"
     },
+    "git.branches": {
+      "class": "read"
+    },
     "git.checkpoint.create": {
       "class": "mutation"
     },
@@ -205,6 +265,9 @@
     "history.site.remove": {
       "class": "mutation"
     },
+    "history.trail.record": {
+      "class": "mutation"
+    },
     "history.visit.import": {
       "class": "mutation"
     },
@@ -218,6 +281,21 @@
       "class": "read"
     },
     "history.visit.title": {
+      "class": "mutation"
+    },
+    "keybindings.get": {
+      "class": "read"
+    },
+    "keybindings.remove": {
+      "class": "mutation"
+    },
+    "keybindings.reset": {
+      "class": "mutation"
+    },
+    "keybindings.set": {
+      "class": "mutation"
+    },
+    "layout.bulk": {
       "class": "mutation"
     },
     "machine.get": {
@@ -304,6 +382,12 @@
     "pane.zoom": {
       "class": "mutation"
     },
+    "participant.avatar.get": {
+      "class": "read"
+    },
+    "participant.avatar.set": {
+      "class": "mutation"
+    },
     "project.add": {
       "class": "mutation"
     },
@@ -314,6 +398,9 @@
       "class": "mutation"
     },
     "project.remove": {
+      "class": "mutation"
+    },
+    "project.source.update": {
       "class": "mutation"
     },
     "project.sync": {
@@ -502,6 +589,60 @@
     "settings.snapshot": {
       "class": "read"
     },
+    "sidebar.adopt": {
+      "class": "mutation"
+    },
+    "sidebar.apply": {
+      "class": "mutation"
+    },
+    "sidebar.get": {
+      "class": "read"
+    },
+    "sidebar.group.create": {
+      "class": "mutation"
+    },
+    "sidebar.group.ungroup": {
+      "class": "mutation"
+    },
+    "sidebar.group.update": {
+      "class": "mutation"
+    },
+    "sidebar.item.add": {
+      "class": "mutation"
+    },
+    "sidebar.item.remove": {
+      "class": "mutation"
+    },
+    "sidebar.item.remove_ref": {
+      "class": "mutation"
+    },
+    "sidebar.item.update": {
+      "class": "mutation"
+    },
+    "sidebar.move": {
+      "class": "mutation"
+    },
+    "sidebar.pin": {
+      "class": "mutation"
+    },
+    "sidebar.reset": {
+      "class": "mutation"
+    },
+    "sidebar.section.add": {
+      "class": "mutation"
+    },
+    "sidebar.section.move": {
+      "class": "mutation"
+    },
+    "sidebar.section.remove": {
+      "class": "mutation"
+    },
+    "sidebar.section.update": {
+      "class": "mutation"
+    },
+    "sidebar.unpin": {
+      "class": "mutation"
+    },
     "sidebar_layout.get": {
       "class": "read"
     },
@@ -524,6 +665,21 @@
       "class": "mutation"
     },
     "sidebar_view.resize": {
+      "class": "mutation"
+    },
+    "stash.create": {
+      "class": "mutation"
+    },
+    "stash.delete": {
+      "class": "mutation"
+    },
+    "stash.import": {
+      "class": "mutation"
+    },
+    "stash.list": {
+      "class": "read"
+    },
+    "stash.restore": {
       "class": "mutation"
     },
     "stream.cancel": {
@@ -698,6 +854,9 @@
       "class": "read"
     },
     "workspace.move": {
+      "class": "mutation"
+    },
+    "workspace.open_url": {
       "class": "mutation"
     },
     "workspace.place": {

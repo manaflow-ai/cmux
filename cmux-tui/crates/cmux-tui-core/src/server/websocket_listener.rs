@@ -9,7 +9,11 @@ use tungstenite::protocol::WebSocketConfig;
 use tungstenite::protocol::frame::coding::CloseCode;
 use tungstenite::{Message, WebSocket, accept_hdr_with_config};
 
+use super::attachment_http;
+use super::page_files;
 use super::*;
+use crate::net_keepalive::{WebSocketKeepalive, enable_tcp_keepalive};
+use crate::pairing::CredentialMatch;
 
 /// A running opt-in WebSocket listener. Dropping it stops accepts and closes clients.
 pub struct WebSocketServer {
@@ -72,6 +76,44 @@ pub fn serve_websocket_with_access(
     allow_insecure_bind: bool,
     access: &WebSocketAccess,
 ) -> anyhow::Result<WebSocketServer> {
+    serve_websocket_with_pages(mux, addr, token, allow_insecure_bind, access, None)
+}
+
+/// [`serve_websocket_with_access`] that also answers plain `GET /pages/...`
+/// requests with files of the page bundle directory `pages`
+/// (spec/transports.md "App listener and page files"; [`super::page_bundle_dir`]).
+pub fn serve_websocket_with_pages(
+    mux: Arc<Mux>,
+    addr: SocketAddr,
+    token: Option<String>,
+    allow_insecure_bind: bool,
+    access: &WebSocketAccess,
+    pages: Option<PathBuf>,
+) -> anyhow::Result<WebSocketServer> {
+    serve_websocket_with_keepalive(
+        mux,
+        addr,
+        token,
+        allow_insecure_bind,
+        access,
+        pages,
+        WebSocketKeepalive::default(),
+    )
+}
+
+/// [`serve_websocket_with_pages`] with a chosen dead-peer policy. Every
+/// production listener uses [`WebSocketKeepalive::default`]; tests pass
+/// short intervals to observe pings and dead-peer closes.
+#[doc(hidden)]
+pub fn serve_websocket_with_keepalive(
+    mux: Arc<Mux>,
+    addr: SocketAddr,
+    token: Option<String>,
+    allow_insecure_bind: bool,
+    access: &WebSocketAccess,
+    pages: Option<PathBuf>,
+    keepalive: WebSocketKeepalive,
+) -> anyhow::Result<WebSocketServer> {
     // WebSocket has no TLS here. Remote deployments must explicitly opt in and
     // should put cmux-tui behind a TLS-terminating reverse proxy.
     if !addr.ip().is_loopback() && !allow_insecure_bind {
@@ -89,7 +131,8 @@ pub fn serve_websocket_with_access(
     }
     let listener = TcpListener::bind(addr)?;
     let local_addr = listener.local_addr()?;
-    let policy = Arc::new(websocket_listener_policy(local_addr, access));
+    let policy = websocket_listener_policy(local_addr, access);
+    let rules = Arc::new(ListenerRules { policy, pages, keepalive });
     let shutdown = Arc::new(AtomicBool::new(false));
     let connections = Arc::new(Mutex::new(HashMap::new()));
     let next_connection = Arc::new(AtomicU64::new(1));
@@ -119,6 +162,7 @@ pub fn serve_websocket_with_access(
             if stream.set_nodelay(true).is_err() {
                 continue;
             }
+            enable_tcp_keepalive(&stream);
             if thread_shutdown.load(Ordering::Acquire) {
                 break;
             }
@@ -129,7 +173,7 @@ pub fn serve_websocket_with_access(
             }
             let mux = mux.clone();
             let token = token.clone();
-            let policy = policy.clone();
+            let rules = rules.clone();
             let render_service = render_service.clone();
             let connections = thread_connections.clone();
             let cleanup_connections = thread_connections.clone();
@@ -141,7 +185,7 @@ pub fn serve_websocket_with_access(
                         stream,
                         peer,
                         token.as_deref(),
-                        &policy,
+                        &rules,
                         render_service,
                         Some(permit),
                     );
@@ -164,16 +208,21 @@ pub(super) fn handle_websocket_connection(
     token: Option<&str>,
     render_service: Arc<RenderService>,
 ) {
-    let policy = cmux_local_auth::ListenerPolicy::loopback(0);
-    handle_websocket_connection_with_permit(
-        mux,
-        stream,
-        peer,
-        token,
-        &policy,
-        render_service,
-        None,
-    );
+    let rules = ListenerRules {
+        policy: cmux_local_auth::ListenerPolicy::loopback(0),
+        pages: None,
+        keepalive: WebSocketKeepalive::default(),
+    };
+    handle_websocket_connection_with_permit(mux, stream, peer, token, &rules, render_service, None);
+}
+
+/// What a listener checks and serves besides the protocol: the Host/Origin
+/// rule, the page bundle directory (none: every page request is a 404) and
+/// when an idle connection is pinged and closed.
+struct ListenerRules {
+    policy: cmux_local_auth::ListenerPolicy,
+    pages: Option<PathBuf>,
+    keepalive: WebSocketKeepalive,
 }
 
 /// The Origin and Host rule of a daemon WebSocket listener bound on `local`.
@@ -205,6 +254,17 @@ fn check_websocket_handshake(
     policy.check(&values("host"), &values("origin"))
 }
 
+/// The page id of an accepted handshake's Origin, when it is one Origin
+/// that names a cmux page.
+fn handshake_page(request: &tungstenite::handshake::server::Request) -> Option<String> {
+    let mut origins = request.headers().get_all("origin").iter();
+    let origin = origins.next()?.to_str().ok()?;
+    if origins.next().is_some() {
+        return None;
+    }
+    crate::request_origin::page_router_table::page_from_origin(origin)
+}
+
 // The handshake callback's error type is tungstenite's HTTP response.
 #[allow(clippy::result_large_err)]
 fn handle_websocket_connection_with_permit(
@@ -212,26 +272,45 @@ fn handle_websocket_connection_with_permit(
     stream: TcpStream,
     peer: SocketAddr,
     token: Option<&str>,
-    policy: &cmux_local_auth::ListenerPolicy,
+    rules: &ListenerRules,
     render_service: Arc<RenderService>,
     connection_permit: Option<ConnectionPermit>,
 ) {
-    let stream = SynchronizedTcpStream::new(stream);
+    let mut stream = stream;
     if stream.set_read_timeout(Some(WEBSOCKET_HANDSHAKE_TIMEOUT)).is_err()
         || stream.set_write_timeout(Some(WEBSOCKET_HANDSHAKE_TIMEOUT)).is_err()
     {
         return;
     }
+    // The request head decides: a WebSocket handshake (replayed to the
+    // handshake below) or a page file request (answered and closed).
+    let Some((head_bytes, head)) = page_files::read_request_head(&mut stream) else { return };
+    if !head.is_websocket_upgrade() {
+        // Download links (`ws-attachments-v1`), else page files.
+        if head.target.starts_with(attachment_http::PREFIX) {
+            attachment_http::serve(stream, &head, &rules.policy, &mux);
+        } else {
+            page_files::serve(stream, &head, &rules.policy, rules.pages.as_deref());
+        }
+        return;
+    }
+    let stream = SynchronizedTcpStream::with_replay(stream, head_bytes);
     let auth_config = WebSocketConfig::default()
         .read_buffer_size(4 * 1024)
         .write_buffer_size(4 * 1024)
         .max_write_buffer_size(WEBSOCKET_INBOUND_MESSAGE_MAX_BYTES)
         .max_message_size(Some(WEBSOCKET_AUTH_MAX_BYTES))
         .max_frame_size(Some(WEBSOCKET_AUTH_MAX_BYTES));
+    // The page a host's page Origin names (`cmux-page://cmux.<page>`,
+    // page-router-v1): the web view sets it, page script cannot.
+    let page = std::cell::Cell::new(None::<String>);
     let callback = |request: &tungstenite::handshake::server::Request,
                     response: tungstenite::handshake::server::Response| {
-        match check_websocket_handshake(policy, request) {
-            Ok(()) => Ok(response),
+        match check_websocket_handshake(&rules.policy, request) {
+            Ok(()) => {
+                page.set(handshake_page(request));
+                Ok(response)
+            }
             Err(refusal) => {
                 let mut denied = tungstenite::handshake::server::ErrorResponse::new(Some(
                     refusal.reason().to_owned(),
@@ -245,19 +324,30 @@ fn handle_websocket_connection_with_permit(
         return;
     };
 
-    if !authenticate_websocket(&mux, &mut websocket, peer, token) {
+    let handshake_page = page.take();
+    let Some(admission) =
+        authenticate_websocket(&mux, &mut websocket, peer, token, handshake_page.as_deref())
+    else {
         let frame = CloseFrame { code: CloseCode::Policy, reason: "authentication failed".into() };
         let _ = websocket.close(Some(frame));
         let _ = websocket.flush();
         return;
-    }
+    };
     websocket.set_config(|config| {
         config.max_message_size = Some(WEBSOCKET_INBOUND_MESSAGE_MAX_BYTES);
         config.max_frame_size = Some(WEBSOCKET_INBOUND_MESSAGE_MAX_BYTES);
     });
-    let _ = websocket.get_mut().set_read_timeout(None);
+    // The read timeout is the ping clock: a read that sees nothing for one
+    // interval returns, and the loop below pings or gives up.
+    let keepalive = rules.keepalive;
+    if websocket.get_mut().set_read_timeout(Some(keepalive.ping_interval)).is_err() {
+        return;
+    }
     let _ = websocket.get_mut().set_write_timeout(Some(STREAM_WRITE_TIMEOUT));
     let Ok(writer_stream) = websocket.get_ref().try_clone() else { return };
+    // Shares the write lock with the writer thread and tungstenite's Pong
+    // replies, so a Ping is never written inside another frame.
+    let Ok(mut ping_stream) = websocket.get_ref().try_clone() else { return };
     let Ok(writer_shutdown) = writer_stream.try_clone_raw() else { return };
     let Ok(control) = writer_stream.try_clone_raw() else { return };
     let _ = writer_stream.set_write_timeout(Some(STREAM_WRITE_TIMEOUT));
@@ -292,18 +382,41 @@ fn handle_websocket_connection_with_permit(
         return;
     };
     let client = mux.control_clients.register(ClientTransport::WebSocket, writer.clone());
+    if admission == CredentialMatch::Person {
+        mux.control_clients.mark_person(client);
+    }
     let mut hello = client_hello::HelloGate::new(ClientTransport::WebSocket);
+    // A page-bound credential admits its page only: the page's raw commands and its
+    // `cmux.protocol/2` allow list, nothing else (page-credential-scoped-v1). It matched only
+    // because the handshake named that page.
+    match handshake_page {
+        Some(page) if admission == CredentialMatch::Page => {
+            hello.scope_to_page(&page);
+            origin_gate::set_scoped_page(&mux, client, page);
+        }
+        Some(page) => origin_gate::set_page(&mux, client, page),
+        // A page-bound credential matched only a handshake that named its page.
+        None => {}
+    }
     let surface_scheduler = Arc::new(ConnectionSurfaceScheduler::new_inner(
         mux.surface_operation_admission.clone(),
         connection_permit.clone(),
     ));
 
+    // Any inbound byte, including part of a frame or a Pong, is liveness.
+    let mut idle_since = Instant::now();
+    let mut bytes_seen = websocket.get_ref().bytes_read();
     loop {
         if !writer.is_open() {
             break;
         }
 
         let incoming = websocket.read();
+        let bytes_read = websocket.get_ref().bytes_read();
+        if bytes_read != bytes_seen {
+            bytes_seen = bytes_read;
+            idle_since = Instant::now();
+        }
         match incoming {
             Ok(Message::Text(text)) => {
                 let mut text = text.to_string();
@@ -323,12 +436,31 @@ fn handle_websocket_connection_with_permit(
                 if !keep_open {
                     break;
                 }
+                // Time spent handling the frame (a handler can wait on a
+                // slow client's queue) is not inbound silence.
+                idle_since = Instant::now();
             }
             Ok(Message::Ping(_)) | Ok(Message::Pong(_)) => {
                 let _ = websocket.flush();
             }
             Ok(Message::Close(_)) => break,
             Ok(_) => break,
+            // A full ping interval of inbound silence (the read timeout:
+            // WouldBlock on Unix, TimedOut on Windows). Tungstenite keeps a
+            // partly read frame buffered across it.
+            Err(tungstenite::Error::Io(error))
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                ) =>
+            {
+                if idle_since.elapsed() >= keepalive.dead_peer_timeout {
+                    break;
+                }
+                if ping_stream.write_websocket_ping().is_err() {
+                    break;
+                }
+            }
             Err(_) => break,
         }
     }
@@ -339,25 +471,34 @@ fn handle_websocket_connection_with_permit(
     drop(connection_permit);
 }
 
+/// What admitted the connection, once authenticated: `Person` for a
+/// pairing-store credential (a human-approved pairing, or the verified app's
+/// `page-credential`); `None` (the match kind, not a refusal) for the static
+/// or file token (any same-user process can read the file, so it never
+/// carries the person's Cloud lease); `Page` for a page-bound credential
+/// (`page-credential {page}`), which admits only a handshake whose Origin
+/// names its page (`handshake_page`) and only that page's commands.
 fn authenticate_websocket(
     mux: &Arc<Mux>,
     websocket: &mut WebSocket<SynchronizedTcpStream>,
     peer: SocketAddr,
     configured_token: Option<&str>,
-) -> bool {
-    let Ok(Message::Text(text)) = websocket.read() else { return false };
+    handshake_page: Option<&str>,
+) -> Option<CredentialMatch> {
+    let Ok(Message::Text(text)) = websocket.read() else { return None };
     let mut text = text.to_string();
     if let Some(mut provided) = auth_token(&text) {
-        let authenticated = configured_token
-            .is_some_and(|expected| constant_time_eq(provided.as_bytes(), expected.as_bytes()))
-            || mux.authenticate_pairing_credential(&provided);
+        let matched = mux.authenticate_page_handshake(&provided, handshake_page);
+        let authenticated = matched != CredentialMatch::None
+            || configured_token
+                .is_some_and(|expected| constant_time_eq(provided.as_bytes(), expected.as_bytes()));
         zeroize_string(&mut provided);
         zeroize_string(&mut text);
-        return authenticated;
+        return authenticated.then_some(matched);
     }
     if !pairing_request(&text) {
         zeroize_string(&mut text);
-        return false;
+        return None;
     }
     zeroize_string(&mut text);
 
@@ -369,7 +510,7 @@ fn authenticate_websocket(
                     .to_string()
                     .into(),
             ));
-            return false;
+            return None;
         }
     };
     if websocket
@@ -386,16 +527,17 @@ fn authenticate_websocket(
         .is_err()
     {
         mux.cancel_pairing(challenge.id);
-        return false;
+        return None;
     }
 
     match decision.recv_timeout(Duration::from_secs(challenge.expires_in)) {
         Ok(PairingDecision::Approved { credential }) => websocket
             .send(Message::Text(json!({"paired": {"credential": credential}}).to_string().into()))
-            .is_ok(),
+            .is_ok()
+            .then_some(CredentialMatch::Person),
         Ok(PairingDecision::Denied) | Err(_) => {
             mux.cancel_pairing(challenge.id);
-            false
+            None
         }
     }
 }

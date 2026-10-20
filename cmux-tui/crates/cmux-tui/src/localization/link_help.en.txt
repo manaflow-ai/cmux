@@ -1,4 +1,4 @@
-USAGE: cmux link <init|show|peer|serve|dial|install-agent|uninstall-agent> [OPTIONS]
+USAGE: cmux link <init|show|peer|serve|ensure|stop|status|dial|install-agent|uninstall-agent> [OPTIONS]
 
 The link owns this machine's overlay endpoint: one WireGuard key and one UDP
 port for every paired machine. Same network only: no relay yet.
@@ -13,6 +13,15 @@ port for every paired machine. Same network only: no relay yet.
         [--server-config PATH]      server.json with an owner_session block (default
                                     ~/.config/cmux/server.json): the server's owner, and
                                     only the owner, also reaches the Chief brain's daemon
+  ensure [--install ID] [--port PORT] [--session-socket PATH] [--server-config PATH]
+                                    start `serve` in its own session unless one runs for this
+                                    state directory (init first when there is none; --port 0
+                                    binds any free port); one JSON line with status
+                                    running|started|restarted
+  stop                              stop the link of this state directory (its registered pid)
+  status                            print whether the link runs, and its pid, socket and build
+  archive                           after a sign-out: keep the install's key and peers under
+                                    its name and remove the config (the link must be stopped)
   dial --host ID [--service daemon|ssh|owner_session] [--socket ABSOLUTE_PATH]
                                     bridge stdin and stdout to a paired install or Cloud
                                     host; one JSON line on stderr, exit 0 ok, 2 unknown host,

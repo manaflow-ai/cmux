@@ -80,8 +80,10 @@ pub fn message_text(message: &Message) -> String {
         .iter()
         .filter_map(|part| match part {
             Part::Text { text, .. } => Some(text.as_str()),
+            // A link preview is found by its title (the URL is in the text part that carries it).
+            Part::LinkPreview { title, .. } => title.as_deref(),
             Part::Question(question) => question.items.first().map(|item| item.prompt.as_str()),
-            Part::Work { .. } | Part::Attachment { .. } => None,
+            Part::Work { .. } | Part::Attachment { .. } | Part::Unknown(_) => None,
         })
         .collect::<Vec<_>>()
         .join(" ");

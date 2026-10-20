@@ -3,26 +3,21 @@ import CmuxNextActions
 import CmuxNextDaemon
 import CmuxNextWakeups
 
-/// Pending window record saves: at most one write in flight and one
-/// requested after it, so saves are bounded and land in order.
+/// Pending window record saves: at most one in flight and one after it, in order.
 struct WindowRecordSaves {
     var requested = false
     var scheduled = false
     var inFlight = false
-    /// Tickets of the actions whose changes the next write carries; they
-    /// close once it lands, so `action.run` answers after the record is
-    /// stored (plans/cmux-next/state-ownership.md 3 and 4).
+    /// Tickets of the actions the next write carries; they close once it lands, so `action.run`
+    /// answers after the record is stored (plans/cmux-next/state-ownership.md 3 and 4).
     var tickets: [CommandTicket] = []
     /// The task draining saves, so the quit flush can await it.
     var drain: Task<Void, Never>?
 }
 
-/// Writes the window records in the daemon's `personal` projection
-/// (state-ownership.md 3): each holds the window's selected tab per pane and
-/// its focused pane, and is written on every selection or focus change,
-/// coalesced within one main-actor turn. Geometry still settles for 500 ms
-/// first, so a window drag does not write per frame. Owned by
-/// `WindowManager` (`recordSaver`).
+/// Writes the window records in the daemon's `personal` projection (state-ownership.md 3): tab per
+/// pane and focused pane, on each selection or focus change, coalesced per turn (`WindowRecordSaves`);
+/// an unchanged document writes nothing. Geometry settles for 500 ms first. Owned by `WindowManager`.
 @MainActor
 final class WindowRecordSaver {
     unowned let manager: WindowManager
@@ -30,12 +25,9 @@ final class WindowRecordSaver {
     let geometryTimer = DemandTimer(owner: "WindowManager.geometry")
     /// Coalesced saves of the window records.
     var saves = WindowRecordSaves()
-    /// The daemon window records this install last put, by window id
-    /// (`window-records-v1`): written again only when they change.
-    private var mirrored: [String: JSONValue] = [:]
-    /// Whether this run read the daemon's records of this install once, so
-    /// records of windows that are gone (an earlier run) get deleted.
-    private var reconciled = false
+    /// The daemon's window records of this install (`window-records-v1`).
+    private let recordMirror = WindowRecordMirror()
+    private var selectedTabsCache: [String: (key: SelectedTabsKey, tabs: [String: String])] = [:]
     private var services: AppServices { manager.services }
 
     init(manager: WindowManager) {
@@ -59,8 +51,7 @@ final class WindowRecordSaver {
         stateDidChange(any)
     }
 
-    /// Records the window's focused pane when it changed (the focus
-    /// coordinator settled), and saves.
+    /// Records the window's focused pane when it changed (the focus coordinator settled), and saves.
     func focusDidSettle(_ state: WindowState, pane: String?) {
         guard state.savedFocusedPane != pane else { return }
         state.savedFocusedPane = pane
@@ -80,8 +71,7 @@ final class WindowRecordSaver {
         }
     }
 
-    /// Writes the records once more through the same queue, after any write
-    /// in flight, so an older write cannot land after it (quit).
+    /// Writes the records once more after any write in flight, so an older one cannot land after it (quit).
     func flushSaves() async {
         requestSave()
         await saves.drain?.value
@@ -96,7 +86,9 @@ final class WindowRecordSaver {
             saves.requested = false
             let tickets = saves.tickets
             saves.tickets = []
+            let requested = CACurrentMediaTime()
             let failure = await saveNow()
+            if failure == nil { DebugTabSwitch.confirmed(requestedAt: requested) }
             for ticket in tickets { await services.daemon.closeTicket(ticket, label: "save window records", error: failure) }
         }
         saves.inFlight = false
@@ -128,60 +120,25 @@ final class WindowRecordSaver {
         }
     }
 
-    /// Mirrors each window into the daemon's window records
-    /// (`window-records-v1`, reopen-closed.md 4): which workspaces it lists
-    /// and whether it is open. Closed history names the window each group
-    /// left from them, and a window that closes becomes a `window` group.
-    /// Only those fields go there (a selection change writes nothing); the
-    /// window projection above stays the restore record. A failed write is
-    /// logged and tried again on the next save.
+    /// Mirrors the windows into the daemon's window records (`WindowRecordMirror`).
     private func mirror(_ records: [WindowRecord]) async {
         let daemon = services.daemon
         guard daemon.supports(DaemonCapabilities.shared.windowRecords), let connection = daemon.connection,
               let install = try? services.cloud.localDeviceID() else { return }
-        let registry = manager.registry.value
-        if !reconciled, let stored = try? await connection.state.windowRecordIDs(installID: install) {
-            reconciled = true
-            // Known as written, so the loop below deletes the ones no window wants.
-            for id in stored where mirrored[id] == nil { mirrored[id] = .null }
-        }
-        var wanted: [String: JSONValue] = [:]
-        for record in records {
-            var fields: [String: JSONValue] = ["id": .string(record.id), "open": .bool(registry.window(record.id)?.isOpen ?? true),
-                                               "workspace_keys": .array(record.workspaceKeys.map { .string($0.rawValue) })]
-            if let key = record.workspaceKey { fields["workspace_key"] = .string(key.rawValue) }
-            wanted[record.id] = .object(fields)
-        }
-        for (id, record) in wanted where mirrored[id] != record {
-            do {
-                try await connection.state.putWindowRecord(installID: install, windowID: id, record: record)
-                mirrored[id] = record
-            } catch {
-                daemon.logger.error("window_record.put failed: \(String(describing: error), privacy: .public)")
-            }
-        }
-        for id in Set(mirrored.keys).subtracting(wanted.keys) {
-            do {
-                try await connection.state.deleteWindowRecord(installID: install, windowID: id)
-                mirrored[id] = nil
-            } catch DaemonError.command(_, _, let code, _, _) where code == "resource.not_found" {
-                mirrored[id] = nil
-            } catch {
-                // Kept: the next save tries the delete again.
-                daemon.logger.error("window_record.delete failed: \(String(describing: error), privacy: .public)")
-            }
+        await recordMirror.sync(records, installID: install, client: connection.state) { message in
+            daemon.logger.error("\(message, privacy: .public)")
         }
     }
 
+    /// Front first by the registry's recency (`WindowManager.windowDidOrder`): a save never asks the
+    /// window server (`NSApp.orderedWindows` is a synchronous query, cx-8w027.25).
     func currentRecords() -> [WindowRecord] {
-        let ordered = NSApp.orderedWindows
         let value = manager.registry.value
         let states = manager.states
+        let order = Dictionary(value.recency.enumerated().map { ($1, $0) }, uniquingKeysWith: min)
         return value.windows.compactMap { window in
             let controller = manager.controller(for: window.id)
-            let order = controller?.window.flatMap { ordered.firstIndex(of: $0) }
-                ?? (value.recency.firstIndex(of: window.id) ?? 0) + ordered.count
-            var record = value.record(window.id, state: states[window.id], order: order,
+            var record = value.record(window.id, state: states[window.id], order: order[window.id] ?? order.count,
                                       isFullScreen: controller?.window?.styleMask.contains(.fullScreen) == true
                                           || states[window.id]?.restoresFullScreen == true,
                                       selectedTabs: selectedTabs(window: window))
@@ -191,26 +148,32 @@ final class WindowRecordSaver {
         }
     }
 
-    /// The pane last focused in each workspace the window lists: the focus
-    /// machine's memory, and the shown workspace's current pane.
+    /// The pane last focused in each workspace the window lists (focus memory, the shown one's pane).
     private func focusedPanes(window: WindowRegistry.Window) -> [String: String] {
         guard let state = manager.states[window.id] else { return [:] }
         let focus = state.focus.state
-        var panes = focus.remembered
+        var panes = state.focus.rememberedPanes()
         if let workspace = focus.topology.workspace, let pane = focus.pane { panes[workspace] = pane }
         let listed = Set(window.workspaceIDs)
         return panes.filter { listed.contains($0.key) }
     }
 
-    /// Remembered tab per pane across the window's workspaces.
+    /// Remembered tab per pane across the window's workspaces, read again only when an input moved
+    /// (its tab memory, its workspaces, a daemon batch): a save after a switch reads no pane.
     private func selectedTabs(window: WindowRegistry.Window) -> [String: String] {
         guard let state = manager.states[window.id] else { return [:] }
+        let key = SelectedTabsKey(selection: state.selection.revision, workspaces: window.workspaceIDs,
+                                  batches: services.machines.daemons.map(\.store.appliedSequence))
+        if let cached = selectedTabsCache[window.id], cached.key == key { return cached.tabs }
         var selected: [String: String] = [:]
         for id in window.workspaceIDs {
             for pane in services.workspace(id: id)?.screens.flatMap(\.panes) ?? [] {
                 if let tab = state.selection.selection(in: pane.id) { selected[pane.id] = tab }
             }
         }
+        selectedTabsCache[window.id] = (key, selected)
         return selected
     }
 }
+
+private struct SelectedTabsKey: Equatable { var selection: UInt64, workspaces: [String], batches: [UInt64] }

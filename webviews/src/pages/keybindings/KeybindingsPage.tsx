@@ -22,6 +22,11 @@ function plain(event: KeyboardEvent): boolean {
   return !event.metaKey && !event.ctrlKey && !event.altKey && !event.nativeEvent.isComposing && event.keyCode !== 229;
 }
 
+/** IME candidate navigation and commit must stay with the composing text field. */
+function composing(event: KeyboardEvent): boolean {
+  return event.nativeEvent.isComposing || event.keyCode === 229;
+}
+
 const ICONS = {
   // Pencil.
   change: "M10.75 2.75 13.25 5.25 5.5 13H3v-2.5ZM9 4.5l2.5 2.5",
@@ -71,7 +76,7 @@ export function KeybindingsPage({ store, strings }: { store: KeybindingsStore; s
   const selected = snap.rows.find((row) => identity(row) === snap.selection);
 
   const tableKeys = (event: KeyboardEvent) => {
-    if (!plain(event) || snap.editing) return;
+    if (!plain(event) || composing(event) || snap.editing) return;
     // Return on a focused button belongs to that button.
     const onControl = (event.target as Element).closest?.("button, input") != null;
     if (event.key === "ArrowDown") store.select(moveSelection(snap.rows, snap.selection, 1));
@@ -83,7 +88,7 @@ export function KeybindingsPage({ store, strings }: { store: KeybindingsStore; s
   };
 
   const searchKeys = (event: KeyboardEvent<HTMLInputElement>) => {
-    if (!plain(event)) return;
+    if (!plain(event) || composing(event)) return;
     if (event.key === "Escape" && (snap.text || snap.keyFilter || snap.conflictsOnly)) {
       store.resetQuery();
       event.preventDefault();
@@ -284,6 +289,7 @@ function BindingRow({ binding, strings, selected, editing, recordingDisplay, res
             type="button"
             className="keys-conflict"
             aria-label={strings.format("keybindings.page.conflicts", String(binding.conflicts.length))}
+            // tooltip-allow: an icon and a count; the tooltip says what it counts
             title={strings.format("keybindings.page.conflicts", String(binding.conflicts.length))}
             onClick={(event) => {
               event.stopPropagation();
@@ -312,7 +318,7 @@ function BindingRow({ binding, strings, selected, editing, recordingDisplay, res
             onBlur={() => store.cancelEdit()}
             onKeyDown={(event) => {
               event.stopPropagation();
-              if (!plain(event)) return;
+              if (!plain(event) || composing(event)) return;
               if (event.key === "Enter") {
                 event.preventDefault();
                 void store.commitWhen(binding, event.currentTarget.value);

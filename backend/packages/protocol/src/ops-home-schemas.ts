@@ -34,6 +34,11 @@ export const PartIndex = Schema.Number.check(Schema.isInt(), Schema.isGreaterTha
 
 export const ConversationKind = Schema.Literals(["chief", "dm", "group"]).annotate({ identifier: "ConversationKind" })
 
+/** Group roles (home-core conversation/roles.ts): one owner; admins manage people; read_only members only read. */
+export const ParticipantRole = Schema.Literals(["owner", "admin", "member", "read_only"]).annotate({ identifier: "HomeParticipantRole" })
+/** A role an op may grant (never owner: that is ownership.transfer). */
+export const GrantableRole = Schema.Literals(["admin", "member", "read_only"]).annotate({ identifier: "HomeGrantableRole" })
+
 export const Participant = Schema.Struct({
   id: ParticipantId,
   kind: Schema.Literals(["human", "agent", "address"]),
@@ -41,7 +46,7 @@ export const Participant = Schema.Struct({
   agent_class: Schema.optionalKey(Schema.Literals(["mux", "agent"])),
   acp_session: Schema.optionalKey(Schema.String),
   owner_user: Schema.optionalKey(Schema.String),
-  role: Schema.optionalKey(Schema.Literals(["owner", "member"])),
+  role: Schema.optionalKey(ParticipantRole),
   joined_seq: Schema.optionalKey(Seq),
   added_by: Schema.optionalKey(Schema.String),
   left_at: Schema.optionalKey(Timestamp)
@@ -64,6 +69,17 @@ export const TextRun = Schema.Struct({
 }).annotate({ identifier: "HomeTextRun", description: "A styled range of a text part, in UTF-16 code units." })
 
 const Sha256 = Schema.String.check(Schema.isPattern(/^[0-9a-f]{64}$/)).annotate({ identifier: "HomeSha256", description: "SHA-256 of the bytes, lowercase hex." })
+
+/**
+ * The owners count a link preview's title and site in code points and its URL in UTF-8 bytes
+ * (cmux-conversation link_preview.rs, home-core link-preview.ts). The UTF-16 `isMaxLength`
+ * beside each is only the loose bound JSON Schema can state (a code point is at most 2 units, a
+ * URL has no more units than bytes); these filters are the rule.
+ */
+const maxCodePoints = (max: number) =>
+  Schema.makeFilter((value: string) => [...value].length <= max || `at most ${max} characters`)
+const utf8MaxBytes = (max: number) =>
+  Schema.makeFilter((value: string) => new TextEncoder().encode(value).length <= max || `at most ${max} UTF-8 bytes`)
 
 /** A derived image of an attachment (a video's poster, an image's preview): JPEG or WebP, capped per variant. */
 const derivedImage = (identifier: string, maxBytes: number, description: string) =>
@@ -93,7 +109,15 @@ export const Part = Schema.Union([
     duration_ms: Schema.optionalKey(Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0))),
     poster: Schema.optionalKey(derivedImage("HomeAttachmentPoster", 2_000_000, "Video only: the poster image uploaded with the video's slot (intent `poster`, then PUT to `poster_upload`); it must equal the one the video's record holds. Fetch it with POST /v1/home/attachments/url {variant: \"poster\"}.")),
     preview: Schema.optionalKey(derivedImage("HomeAttachmentPreview", 512_000, "Image only: a small preview uploaded with the image's slot (intent `preview`, then PUT to `preview_upload`); it must equal the one the image's record holds. Fetch it with POST /v1/home/attachments/url {variant: \"preview\"}."))
-  }).annotate({ description: "A file uploaded to this conversation first (POST /v1/home/attachments/intent, then PUT the bytes); the owner refuses a hash it does not hold." })
+  }).annotate({ description: "A file uploaded to this conversation first (POST /v1/home/attachments/intent, then PUT the bytes); the owner refuses a hash it does not hold." }),
+  Schema.Struct({
+    type: Schema.Literal("link_preview"),
+    url: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(2048), utf8MaxBytes(2048)),
+    // A null title, site or image is absent, as both owners read it (serde `Option`, link-preview.ts).
+    title: Schema.optionalKey(Schema.NullOr(Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(600), maxCodePoints(300)))),
+    site: Schema.optionalKey(Schema.NullOr(Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(506), maxCodePoints(253)))),
+    image: Schema.optionalKey(Schema.NullOr(derivedImage("HomeLinkPreviewImage", 512_000, "An ordinary image attachment the sender uploaded to this conversation (intent, then PUT; image/jpeg or image/webp, at most 512000 bytes); the owner refuses a hash it does not hold with the same type and size. Fetch it with POST /v1/home/attachments/url {hash: image.hash}.")))
+  }).annotate({ description: "A link with the preview its sender fetched; receivers render only from this part and never fetch the URL. url is http(s) with a host and no user info, at most 2048 UTF-8 bytes; title and site have no control characters." })
 ]).annotate({ identifier: "HomePart" })
 export const Parts = Schema.Array(Part).check(Schema.isMinLength(1), Schema.isMaxLength(16))
 
@@ -106,6 +130,18 @@ export const ReactionKind = Schema.Union([
 
 export const Reaction = Schema.Struct({ author: ParticipantId, part_index: PartIndex, kind: ReactionKind, at: Timestamp }).annotate({ identifier: "HomeReaction" })
 
+export const ThreadStatus = Schema.Literals(["open", "resolved"]).annotate({ identifier: "HomeThreadStatus" })
+
+/** The thread object a root message carries (thread.update, conversation-thread-objects-v1). */
+export const ThreadState = Schema.Struct({
+  title: Schema.optionalKey(Schema.String),
+  owner: Schema.optionalKey(ParticipantId),
+  resolved: Schema.optionalKey(Schema.Struct({ by: ParticipantId, at: Timestamp, seq: Seq }))
+}).annotate({
+  identifier: "HomeThreadState",
+  description: "title, owner and resolution of a thread root. The thread reads as resolved only while no live reply has a seq above resolved.seq: a new reply reopens it."
+})
+
 export const Message = Schema.Struct({
   id: MessageId,
   conversation: ConversationId,
@@ -115,6 +151,7 @@ export const Message = Schema.Struct({
   parts: Schema.Array(Part),
   reply_to: Schema.optionalKey(PartRef),
   thread_root: Schema.optionalKey(MessageId),
+  thread: Schema.optionalKey(ThreadState),
   created_at: Timestamp,
   edited_at: Schema.optionalKey(Timestamp),
   retracted_at: Schema.optionalKey(Timestamp),
@@ -130,8 +167,16 @@ export const ThreadSummary = Schema.Struct({
   reply_count: Seq,
   last_reply_seq: Schema.NullOr(Seq),
   last_reply_at: Schema.NullOr(Timestamp),
-  authors: Schema.Array(ParticipantId).check(Schema.isMaxLength(3))
-}).annotate({ identifier: "HomeThreadSummary" })
+  authors: Schema.Array(ParticipantId).check(Schema.isMaxLength(3)),
+  status: Schema.optionalKey(ThreadStatus),
+  title: Schema.optionalKey(Schema.String),
+  owner: Schema.optionalKey(ParticipantId),
+  resolved_by: Schema.optionalKey(ParticipantId),
+  resolved_at: Schema.optionalKey(Timestamp)
+}).annotate({
+  identifier: "HomeThreadSummary",
+  description: "status is derived (resolved while the root's resolution is newer than every live reply); title and owner come from the root's thread object; resolved_by and resolved_at only while resolved."
+})
 
 export const DeliveryState = Schema.Literals(["queued", "sent", "delivered", "bounced", "complained", "failed", "suppressed", "refused_env"]).annotate({ identifier: "HomeDeliveryState" })
 
@@ -182,7 +227,8 @@ export const ConversationSummary = Schema.Struct({
   state: Schema.optionalKey(Schema.Literals(["active", "archived"])),
   settings: Schema.optionalKey(ConversationSettings),
   invites: Schema.optionalKey(Schema.Array(PublicInvite)),
-  retention_days: Schema.optionalKey(Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(30)))
+  retention_days: Schema.optionalKey(Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(30))),
+  member_count: Schema.optionalKey(Seq.annotate({ description: "A large group (more than 64 members): participants is a roster of at most 16 humans plus the owner and agents; this counts every current participant, and conversation.members pages them." }))
 }).annotate({ identifier: "HomeConversationSummary" })
 
 /** The owner's answer to a conversation mutation (home-core domain `value`). */
@@ -208,6 +254,8 @@ export const InboxEntry = Schema.Struct({
   ),
   dm_peer: Schema.optionalKey(ParticipantId),
   removed: Schema.Boolean,
+  large: Schema.optionalKey(Schema.Boolean.annotate({ description: "A large group: inbox.list pulls this row from the conversation, and the inbox stream bumps it only when you are named (a mention, your own message, being added or removed)." })),
+  member_count: Schema.optionalKey(Seq),
   unread: Seq,
   mentions: Seq,
   counts_rev: Seq,

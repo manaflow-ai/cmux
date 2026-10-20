@@ -82,6 +82,7 @@ pub(crate) fn create_personal_schema(transaction: &Transaction<'_>) -> anyhow::R
            group_id TEXT,
            browser_profile_id TEXT,
            theme TEXT,
+           remote_localhost INTEGER CHECK(remote_localhost IN (0,1)),
            PRIMARY KEY(session_id, workspace_key)
          );
          CREATE TABLE IF NOT EXISTS personal_terminals (
@@ -94,6 +95,10 @@ pub(crate) fn create_personal_schema(transaction: &Transaction<'_>) -> anyhow::R
     add_group_top_position(transaction)?;
     add_group_column(transaction, "icon", "TEXT")?;
     add_group_column(transaction, "pinned", "INTEGER NOT NULL DEFAULT 0 CHECK(pinned IN (0,1))")?;
+    add_workspace_remote_localhost(transaction)?;
+    // `session-icon-v1`: a session's (machine's) icon, the shared icon
+    // string. Added before the open-time blob sweep reads it.
+    super::mutation_ledger::add_nullable_column(transaction, "sessions", "icon")?;
     Ok(())
 }
 
@@ -108,6 +113,20 @@ fn add_group_column(connection: &Connection, name: &str, declaration: &str) -> a
         connection.execute_batch(&format!(
             "ALTER TABLE personal_groups ADD COLUMN {name} {declaration}"
         ))?;
+    }
+    Ok(())
+}
+
+/// `personal_workspaces.remote_localhost` (`personal-remote-localhost-v1`),
+/// added in place to older registries (additive, no schema version bump).
+fn add_workspace_remote_localhost(connection: &Connection) -> anyhow::Result<()> {
+    let present = connection
+        .prepare("SELECT 1 FROM pragma_table_info('personal_workspaces') WHERE name = 'remote_localhost'")?
+        .exists([])?;
+    if !present {
+        connection.execute_batch(
+            "ALTER TABLE personal_workspaces ADD COLUMN remote_localhost INTEGER CHECK(remote_localhost IN (0,1))",
+        )?;
     }
     Ok(())
 }
@@ -204,6 +223,11 @@ pub struct PersonalSession {
     pub last_seen_ms: Option<u64>,
     pub capabilities: Option<Value>,
     pub migrated: bool,
+    /// The icon the sidebar shows for this session's machine
+    /// (`session-icon-v1`): one emoji, an SF Symbol name or a stored image or
+    /// SVG (`require_icon_asset`). Set only by `set-session-icon`;
+    /// `put-session` keeps it.
+    pub icon: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -242,7 +266,7 @@ pub struct PersonalGroup {
     /// order before mixed order.
     pub top_index: Option<usize>,
     /// The group's icon (`workspace-group-icon-v1`): the shared icon string,
-    /// one emoji or an SF Symbol name (`validate_presentation_icon`).
+    /// one emoji, an SF Symbol name or a stored image or SVG (`require_icon_asset`).
     pub icon: Option<String>,
     /// Pinned (saved) group (`workspace-group-pin-v1`): it stays when its
     /// workspaces close; clients keep it as an empty saved group.
@@ -257,6 +281,11 @@ pub struct PersonalWorkspace {
     pub group: Option<String>,
     pub browser_profile_id: Option<String>,
     pub theme: Option<String>,
+    /// The workspace's own remote-localhost choice
+    /// (`personal-remote-localhost-v1`): whether its browser tabs open its
+    /// machine's localhost. None follows the `browser.remoteLocalhost`
+    /// setting.
+    pub remote_localhost: Option<bool>,
 }
 
 /// The own theme of one session-qualified terminal
@@ -430,7 +459,7 @@ pub(crate) fn personal_revision(connection: &Connection) -> anyhow::Result<u64> 
 pub(crate) fn read_sessions(connection: &Connection) -> anyhow::Result<Vec<PersonalSession>> {
     let mut statement = connection.prepare(
         "SELECT session_id, machine_name, session_name, transport_json, last_seen_ms,
-                capabilities_json, migrated
+                capabilities_json, migrated, icon
          FROM sessions ORDER BY session_id",
     )?;
     let rows = statement.query_map([], |row| {
@@ -442,12 +471,21 @@ pub(crate) fn read_sessions(connection: &Connection) -> anyhow::Result<Vec<Perso
             row.get::<_, Option<i64>>(4)?,
             row.get::<_, Option<String>>(5)?,
             row.get::<_, i64>(6)?,
+            row.get::<_, Option<String>>(7)?,
         ))
     })?;
     let mut sessions = Vec::new();
     for row in rows {
-        let (session_id, machine_name, session_name, transport, last_seen, capabilities, migrated) =
-            row?;
+        let (
+            session_id,
+            machine_name,
+            session_name,
+            transport,
+            last_seen,
+            capabilities,
+            migrated,
+            icon,
+        ) = row?;
         sessions.push(PersonalSession {
             session_id,
             machine_name,
@@ -457,6 +495,7 @@ pub(crate) fn read_sessions(connection: &Connection) -> anyhow::Result<Vec<Perso
             last_seen_ms: last_seen.map(u64::try_from).transpose()?,
             capabilities: parse_json(capabilities)?,
             migrated: migrated != 0,
+            icon,
         });
     }
     Ok(sessions)
@@ -592,7 +631,7 @@ pub(crate) fn read_group(
 
 pub(crate) fn read_workspaces(connection: &Connection) -> anyhow::Result<Vec<PersonalWorkspace>> {
     let mut statement = connection.prepare(
-        "SELECT session_id, workspace_key, group_id, browser_profile_id, theme FROM personal_workspaces
+        "SELECT session_id, workspace_key, group_id, browser_profile_id, theme, remote_localhost FROM personal_workspaces
          ORDER BY position ASC, session_id ASC, workspace_key ASC",
     )?;
     let rows = statement.query_map([], |row| {
@@ -602,11 +641,12 @@ pub(crate) fn read_workspaces(connection: &Connection) -> anyhow::Result<Vec<Per
             row.get::<_, Option<String>>(2)?,
             row.get::<_, Option<String>>(3)?,
             row.get::<_, Option<String>>(4)?,
+            row.get::<_, Option<bool>>(5)?,
         ))
     })?;
     let mut workspaces = Vec::new();
     for (index, row) in rows.enumerate() {
-        let (session_id, workspace_key, group, browser_profile_id, theme) = row?;
+        let (session_id, workspace_key, group, browser_profile_id, theme, remote_localhost) = row?;
         workspaces.push(PersonalWorkspace {
             session_id,
             workspace_key,
@@ -614,9 +654,53 @@ pub(crate) fn read_workspaces(connection: &Connection) -> anyhow::Result<Vec<Per
             group,
             browser_profile_id,
             theme,
+            remote_localhost,
         });
     }
     Ok(workspaces)
+}
+
+/// One personal row with its ordinal in the personal order (the order of
+/// [`read_workspaces`]), read by its key and the order index.
+pub(crate) fn read_workspace(
+    connection: &Connection,
+    session_id: &str,
+    workspace_key: &str,
+) -> anyhow::Result<Option<PersonalWorkspace>> {
+    let Some((position, group, browser_profile_id, theme, remote_localhost)) = connection
+        .query_row(
+            "SELECT position, group_id, browser_profile_id, theme, remote_localhost
+             FROM personal_workspaces WHERE session_id = ?1 AND workspace_key = ?2",
+            params![session_id, workspace_key],
+            |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, Option<String>>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                    row.get::<_, Option<bool>>(4)?,
+                ))
+            },
+        )
+        .optional()?
+    else {
+        return Ok(None);
+    };
+    let before: i64 = connection.query_row(
+        "SELECT COUNT(*) FROM personal_workspaces
+         WHERE (position, session_id, workspace_key) < (?1, ?2, ?3)",
+        params![position, session_id, workspace_key],
+        |row| row.get(0),
+    )?;
+    Ok(Some(PersonalWorkspace {
+        session_id: session_id.to_string(),
+        workspace_key: workspace_key.to_string(),
+        index: usize::try_from(before)?,
+        group,
+        browser_profile_id,
+        theme,
+        remote_localhost,
+    }))
 }
 
 pub(crate) fn read_snapshot(connection: &Connection) -> anyhow::Result<PersonalSnapshot> {
@@ -647,10 +731,16 @@ pub(crate) fn read_terminals(connection: &Connection) -> anyhow::Result<Vec<Pers
     Ok(rows.collect::<Result<Vec<_>, _>>()?)
 }
 
+/// The position of a new last row: a gap after the last one, so later
+/// moves next to it need no renumbering
+/// ([`super::personal_mutations::row_position`]).
 pub(crate) fn next_workspace_position(connection: &Connection) -> anyhow::Result<i64> {
     Ok(connection.query_row(
-        "SELECT COALESCE(MAX(position) + 1, 0) FROM personal_workspaces",
-        [],
+        "SELECT COALESCE(MAX(position) + ?1, ?2) FROM personal_workspaces",
+        rusqlite::params![
+            super::personal_mutations::row_position::GAP,
+            super::personal_mutations::row_position::FIRST
+        ],
         |row| row.get::<_, i64>(0),
     )?)
 }
@@ -671,6 +761,8 @@ pub(crate) fn commit_personal(
         object.insert("personal_revision".into(), json!(revision));
     }
     append_presentation_record(transaction, kind, subjects, &payload)?;
+    // sidebar-doc-v1: the sidebar document follows the old personal write.
+    crate::state::sidebar_doc_sync::sync_from_legacy(transaction)?;
     Ok(revision)
 }
 

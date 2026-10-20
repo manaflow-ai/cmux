@@ -1,10 +1,10 @@
 import type { EventFrame, OwnerFrame, Principal } from "@cmux/ownership"
 import { teamEventVisible, teamSubscriberView } from "./domains/team-visibility.ts"
-import { teamDomain, type TeamState } from "./domains/team.ts"
+import { aiLimitViewOf, codeRunLimit, teamDomain, type TeamState } from "./domains/team.ts"
 import type { Env } from "./env.ts"
 import { OwnerDO, type ReadResult } from "./owner-do.ts"
-import { teamRead, teamVmAccountsFence } from "./team-reads.ts"
-import { can, firstOwner, homeCoMembersOf, roleOf, TABLE_MEMBER, TEAM_PRIVATE_TABLES } from "./domains/team-members.ts"
+import { teamRead, teamVmAccountsFence, withAiSpend } from "./team-reads.ts"
+import { can, firstOwner, homeCoMembersOf, hostOf, memberOf, roleOf, TABLE_MEMBER, TEAM_PRIVATE_TABLES } from "./domains/team-members.ts"
 import { integrationSyncPending, releasePending, sliceHash, type IntegrationFields } from "./domains/team-integration-sync.ts"
 import { runSyncPending, runSyncPush } from "./domains/team-run-sync.ts"
 import { cloudPolicyOf, currentPolicy, integrationSlice } from "./domains/team-policy.ts"
@@ -14,19 +14,29 @@ import { domainExternal, recheckDomains as recheckDue, type DomainReply, type Ht
 import { nextRecheckAt } from "./domains/team-domains.ts"
 import { ssoExternal } from "./team-sso-external.ts"
 import { ssoCallback, ssoMaxAgeMs, ssoSessionConnection, ssoRedeem, ssoStart, type LoginDeps } from "./team-sso-login.ts"
-import { stackServer, type StackServer } from "./stack-server.ts"
+import { stackReadPace, stackServer, type StackServer } from "./stack-server.ts"
 import { connectionForDomain } from "./domains/team-sso.ts"
 import { mayEnrollServer, serverPlacementActive, type ServerEnrollRefused } from "./domains/team-servers.ts"
 import { revokeInstallCerts, sshExternal, type SshCaDeps } from "./team-ssh-ca.ts"
 import { vmAdminExternal } from "./team-vm-taint-admin.ts"
 import { memberAdminExternal } from "./team-member-admin.ts"
+import { vmApiTenantOf, type VmApiTenant, type VmApiTenantPurpose } from "./team-vm-api-tenant.ts"
+import { ensurePersonalTenant, personalTenantTarget, type EnsurePersonalTenantReply } from "./team-vm-api-personal.ts"
+import { PersonalTenantStore } from "./team-vm-api-personal-store.ts"
+import { personalTenantStack, type PersonalTenantStack } from "./team-vm-api-personal-stack.ts"
+import { personalTeamIdFor, stackTeamIdFor, userIdFor } from "./domains/user.ts"
+import { listMembers } from "./domains/team-members.ts"
 import type { SshPresence } from "./team-ssh-presence.ts"
 import { cleanupRemovedMembers, revokeMemberCertsNow } from "./team-member-cleanup.ts"
+import { HostReplicaDrops, hostsLeavingOwner, type ReplicaDropTarget } from "./team-host-replica-drop.ts"
 
 /** TeamDO: membership cache and the account directory of hosts (U2). */
 export type { SignInRules } from "./team-sign-in-rules.ts"
 /** The principal of the plain member view in event effects (no user: no own devices). */
 const MEMBER_VIEW: Principal = { identity: "view:member", kind: "session" }
+
+/** How long one confirmed solo-membership read of a personal VM tenant is reused. */
+const PERSONAL_SOLO_CACHE_MS = 30_000
 
 export class TeamDO extends OwnerDO<TeamState> {
   constructor(ctx: DurableObjectState, env: Env) {
@@ -59,10 +69,10 @@ export class TeamDO extends OwnerDO<TeamState> {
     return this.boundEngine?.rows
   }
 
-  protected read(state: TeamState, op: string, params: unknown, principal: Principal): ReadResult {
-    return teamRead(state, op, params, principal, this.rows)
-  }
-  override async readOp(entity: string, principal: Principal, op: string, params: unknown): Promise<ReadResult> { const r = await super.readOp(entity, principal, op, params); return (r.ok && (await teamVmAccountsFence(() => this.teamVm(entity).currentInstall(entity), principal, op))) || r }
+  protected read(state: TeamState, op: string, params: unknown, principal: Principal): ReadResult { return teamRead(state, op, params, principal, this.rows) }
+  async aiUserLimit(entity: string, user: string): Promise<number> { return codeRunLimit(this.isBound(entity) ? this.bind(entity).currentState : undefined, this.rows, user) } // RPC from code runs: this member's AI limit only, 0 for a non-member (team-ai-limit.ts)
+  async aiLimitView(entity: string, user: string, cursor?: string) { return aiLimitViewOf(this.isBound(entity) ? this.bind(entity).currentState : undefined, this.rows, entity, user, cursor) } // RPC from the team.ai_limit.get route
+  override async readOp(entity: string, principal: Principal, op: string, params: unknown): Promise<ReadResult> { const r = await super.readOp(entity, principal, op, params); const fenced = (r.ok && (await teamVmAccountsFence(() => this.teamVm(entity).currentInstall(entity), principal, op))) || r; return op === "team.ai_limit.get" ? withAiSpend(this.env, entity, fenced, (await import("./inference/plan.ts")).storedPlan(this.ctx.storage.sql)) : fenced }
 
   /** Backoff after a failed push to ConnectionDO (in memory: a restart retries at once). */
   private syncRetryAt: number | null = null
@@ -74,11 +84,24 @@ export class TeamDO extends OwnerDO<TeamState> {
 
   /** Wake while ConnectionDO lacks the current policy version (spec/enterprise.md 4.6) or SchedulerDO lacks the run class. */
   protected override nextWakeAt(state: TeamState, now: number): number | null {
+    const base = this.nextTeamWakeAt(state, now)
+    const dropAt = this.replicaDrops.nextAt(now)
+    return base === null ? dropAt : dropAt === null ? base : Math.min(base, dropAt)
+  }
+
+  /** A host that left its owner loses its read replica (team-host-replica-drop.ts); the queue is SQL, the alarm retries. */
+  private _replicaDrops: HostReplicaDrops | undefined
+  private get replicaDrops(): HostReplicaDrops {
+    return (this._replicaDrops ??= new HostReplicaDrops(this.ctx.storage.sql, (host) => this.env.HOST_DO.get(this.env.HOST_DO.idFromName(host)) as unknown as ReplicaDropTarget))
+  }
+
+  private nextTeamWakeAt(state: TeamState, now: number): number | null {
     const stackAt = this.stackSync.nextWakeAt(state, now)
     if (!state.team) return stackAt
     if (Object.keys(state.member_cleanup ?? {}).length > 0) return Math.max(now, this.cleanupRetryAt ?? now)
     if (Object.keys(state.server_revocations ?? {}).length > 0) return Math.max(now, this.revokeRetryAt ?? now)
     const times = [
+      this.personalTenantWakeAt(),
       nextRecheckAt(state),
       stackAt,
       integrationSyncPending(state) || releasePending(state) ? Math.max(now, this.syncRetryAt ?? now) : null,
@@ -119,6 +142,13 @@ export class TeamDO extends OwnerDO<TeamState> {
    * version, synced by version and hash), so a crash between steps replays.
    */
   protected override async onWake(now: number): Promise<void> {
+    const personalAt = this.personalTenantWakeAt()
+    if (personalAt !== null && personalAt <= now) {
+      const reply = await this.ensurePersonalVmApiTenant(this.boundEntity() ?? "", false, now)
+      // An answer that left the due wake time untouched would re-arm the alarm at once: park it for the next explicit create.
+      if (reply.status === "unavailable" && this.personalTenantWakeAt() === personalAt) try { this.personalTenantStore.park() } catch { /* read again on the next create */ }
+    }
+    await this.replicaDrops.flush(now)
     // Stack re-checks, and a deleted Stack team's members leaving through team.member.remove (team-stack-sync.ts).
     if (this.boundEngine) await this.stackSync.wake(now)
     if (this.cleanupRetryAt === null || now >= this.cleanupRetryAt) this.cleanupMembers()
@@ -130,6 +160,86 @@ export class TeamDO extends OwnerDO<TeamState> {
       // After the integration push, so a slow SchedulerDO never delays it (review P3).
       await this.syncRunPolicy(now)
     }
+  }
+
+  /** Internal Cloud service routing only: never binds an unknown team or grants VM authority. */
+  async vmApiTenantState(entity: string): Promise<"unknown" | "active" | "deleted" | "invalid"> {
+    if (this.boundEntity() !== null && this.boundEntity() !== entity) return "invalid"
+    const state = this.boundEntity() === entity ? this.boundEngine?.currentState : undefined
+    if (!state?.team) return "unknown"
+    if (!vmApiTenantOf(state, entity, this.env.STACK_PROJECT_ID, "cleanup")) return "invalid"
+    return state.team.deleted_at === undefined ? "active" : "deleted"
+  }
+
+  async vmApiTenant(entity: string, purpose: VmApiTenantPurpose): Promise<VmApiTenant | null> {
+    const state = this.boundEntity() === entity ? this.boundEngine?.currentState : undefined
+    const shared = vmApiTenantOf(state, entity, this.env.STACK_PROJECT_ID, purpose)
+    if (shared || state?.team?.kind !== "personal" || state.team.id !== entity || (purpose !== "operate" && purpose !== "cleanup")) return shared
+    let intent
+    try { intent = this.personalTenantStore.read() } catch { return null }
+    const target = personalTenantTarget(intent, entity, this.env.STACK_PROJECT_ID)
+    if (!target || !intent) return null
+    if (purpose === "cleanup") return target
+    if (this.personalTenantOwner(entity) !== intent.marker.user) return null
+    const source = await this.personalStackUser(intent.marker.user).catch(() => null)
+    if (source !== intent.marker.stack_user || userIdFor(this.env.STACK_PROJECT_ID, source) !== intent.marker.user) return null
+    // The ordinary Stack mirror receives deletion webhooks even though this logical owner is personal.
+    const canonical = stackTeamIdFor(this.env.STACK_PROJECT_ID, target.tenant)
+    if (canonical === entity) return null
+    const mirror = this.env.TEAM_DO.get(this.env.TEAM_DO.idFromName(canonical)) as unknown as { vmApiTenantState(e: string): Promise<string> }
+    const status = await mirror.vmApiTenantState(canonical).catch(() => null)
+    if (status !== "unknown" && status !== "active") return null
+    // Solo membership is re-read (briefly cached), not trusted from provisioning: anyone added to the
+    // tenant's Stack team could otherwise reach the owner's personal VMs through the VM API.
+    return (await this.personalTenantSolo(target.tenant, intent.marker.stack_user)) ? target : null
+  }
+
+  private personalSoloChecked: { readonly key: string; readonly at: number } | undefined
+  private async personalTenantSolo(tenant: string, stackUser: string): Promise<boolean> {
+    const key = `${tenant}\n${stackUser}`, now = Date.now()
+    if (this.personalSoloChecked?.key === key && now - this.personalSoloChecked.at < PERSONAL_SOLO_CACHE_MS) return true
+    this.personalSoloChecked = undefined
+    const stack = this.personalStack ?? personalTenantStack(this.env)
+    const members = await stack?.members(tenant).catch(() => null)
+    if (!members || members.length !== 1 || members[0] !== stackUser) return false
+    this.personalSoloChecked = { key, at: now }
+    return true
+  }
+
+  private readonly personalTenantStore = new PersonalTenantStore(this.sqlStore)
+  private personalTenantWakeAt(): number | null { try { return this.personalTenantStore.read()?.nextAt ?? null } catch { return null } }
+  /** Test dependency; ordinary deployments use the existing server-key identity store. */
+  personalStack: PersonalTenantStack | undefined
+  private personalTenantFlight: Promise<EnsurePersonalTenantReply> | undefined
+  private personalTenantOwner(entity: string): string | null {
+    if (this.boundEntity() !== entity) return null
+    const state = this.boundEngine?.currentState
+    if (state?.team?.id !== entity || state.team.kind !== "personal" || state.team.deleted_at !== undefined) return null
+    const page = listMembers(state, this.rows, undefined, 2)
+    const owner = page.items.length === 1 && page.next === null && page.items[0]?.role === "owner" ? page.items[0].user : null
+    return owner && personalTeamIdFor(owner) === entity ? owner : null
+  }
+  private async personalStackUser(user: string): Promise<string | null> {
+    const stub = this.env.USER_DO.get(this.env.USER_DO.idFromName(user)) as unknown as { stackUserOf(entity: string): Promise<string | null> }
+    return stub.stackUserOf(user)
+  }
+  /** Provisioning is a separate owner command; reads and cleanup never call it. */
+  async ensureVmApiTenant(entity: string): Promise<EnsurePersonalTenantReply> {
+    const shared = vmApiTenantOf(this.boundEntity() === entity ? this.boundEngine?.currentState : undefined, entity, this.env.STACK_PROJECT_ID, "operate")
+    if (shared) return { status: "ready", target: shared }
+    return this.ensurePersonalVmApiTenant(entity, true, Date.now())
+  }
+  private ensurePersonalVmApiTenant(entity: string, allowCreate: boolean, now: number): Promise<EnsurePersonalTenantReply> {
+    if (!this.personalTenantOwner(entity)) return Promise.resolve({ status: "unavailable" })
+    if (this.personalTenantFlight) return this.personalTenantFlight
+    this.personalTenantFlight = ensurePersonalTenant({ store: this.personalTenantStore, team: entity, project: this.env.STACK_PROJECT_ID, owner: () => this.personalTenantOwner(entity), stackUserOf: (user) => this.personalStackUser(user), stack: this.personalStack ?? personalTenantStack(this.env), now, allowCreate })
+      .then(async (reply) => {
+        if (reply.status !== "ready") return reply
+        const target = await this.vmApiTenant(entity, "operate")
+        return target ? { status: "ready" as const, target } : { status: "unavailable" as const }
+      })
+      .finally(() => { this.personalTenantFlight = undefined; this.scheduleAlarm() })
+    return this.personalTenantFlight
   }
 
   async cloudPolicy(entity: string) { return cloudPolicyOf(this.isBound(entity) ? this.bind(entity).currentState : undefined) } // RPC from CloudDO (CLOUD-CONNECT-ACCESS, cloud.idlePause)
@@ -189,6 +299,13 @@ export class TeamDO extends OwnerDO<TeamState> {
 
   /** A member removal settles their SSH certificates and hosts in the same turn (the alarm retries; team-member-cleanup.ts). */
   protected override afterOp(_principal: Principal, op: string, frames: ReadonlyArray<OwnerFrame>) {
+    const leaving = hostsLeavingOwner(op, frames)
+    if (leaving.length > 0) {
+      this.replicaDrops.queue(leaving, Date.now())
+      // The alarm is armed before the call, so an eviction during it still retries.
+      this.scheduleAlarm()
+      this.ctx.waitUntil(this.replicaDrops.flush(Date.now()).finally(() => this.scheduleAlarm()))
+    }
     if (op === "team.member.remove") this.cleanupMembers()
     // A member who left (or a team Stack deleted) loses its sockets here now; CloudDO closes its own from the outbox (review P1-2).
     const v = (frames.find((f) => f.t === "result") as { value?: { user?: string; removed?: boolean; deleted?: boolean } } | undefined)?.value
@@ -355,6 +472,20 @@ export class TeamDO extends OwnerDO<TeamState> {
     return connection !== undefined && state.sso_connections?.[connection]?.state === "active"
   }
 
+  /**
+   * RPC from the Worker before a host replica socket (host-replica/wire.ts): the install that
+   * enrolled the host publishes; its owner's other sessions and installs read; anyone else nothing.
+   * A chief token (principal.agent) gets nothing in this slice: no chief needs the replica yet.
+   */
+  async hostReplicaRole(entity: string, host: string, principal: Principal): Promise<"publisher" | "reader" | null> {
+    if (!this.isBound(entity) || !principal.user || principal.agent) return null
+    const record = hostOf(this.bind(entity).currentState, this.rows, host)
+    // An orphaned host (its owner left the team) has no owner to read it until a team owner reassigns it.
+    if (!record || record.owner_user !== principal.user || record.orphaned) return null
+    // A removed member's hosts are orphaned by the cleanup a moment later; no socket opens in between.
+    if (!memberOf(this.bind(entity).currentState, this.rows, principal.user)) return null
+    return principal.kind === "install" && principal.install === record.enrolled_by ? "publisher" : "reader"
+  }
   async serverPlacementActive(entity: string, host: string, install: string): Promise<boolean> { return this.isBound(entity) && serverPlacementActive(this.bind(entity).currentState, this.rows, host, install) } // RPC from UserDO.installGrant (placed chief): enrolled here, no revocation pending
   /** May this signed-in principal add a server to this team? An early refusal before the approval writes anything. */
   /** RPC from TeamVmDO's bind (vm-image.md 6b): the owner whose UserDO holds the team VM's install. */
@@ -442,8 +573,8 @@ export class TeamDO extends OwnerDO<TeamState> {
     return { revoked }
   }
 
-  /** Stack server access for SSO sign-in; tests replace it. */
-  stack: StackServer | undefined = undefined
+  /** Stack server access for SSO sign-in, and the shared pace of its webhook reads; tests replace them. */
+  stack: StackServer | undefined = undefined; stackPace: (() => Promise<boolean>) | undefined = undefined
 
   private loginDeps(entity: string): LoginDeps {
     const engine = this.bind(entity)
@@ -486,13 +617,14 @@ export class TeamDO extends OwnerDO<TeamState> {
   }
   async memberRole(entity: string, user: string): Promise<string | null> { return (await this.membership(entity, user))?.role ?? null } // team selection (x-cmux-team)
   async noOwner(entity: string): Promise<boolean> { return this.isBound(entity) && noOwnerOf(this.bind(entity).currentState) } // RPC from TeamVmDO's team_vm.status (review P2-3)
+  async inferencePlan(entity: string, user: string, stackUser?: string) { return (await import("./inference/plan.ts")).inferencePlanOf(this.ctx.storage.sql, this.isBound(entity) ? this.bind(entity).currentState : null, entity, this.stack ?? stackServer(this.env), stackUser, user) } // RPC from the model router: the paid-plan gate (inference/plan.ts)
   /** RPC from the Stack webhook route (stack-webhook.ts): one delivery reconciled with Stack, one at a time per team. */
   async stackWebhook(entity: string, event: StackEvent): Promise<StackSyncReply> {
     this.bind(entity)
     return this.stackSync.deliver(event).finally(() => this.scheduleAlarm())
   }
 
-  private readonly stackSync = new StackTeamSync(() => ({ team: this.boundEntity() ?? "", stackProjectId: this.env.STACK_PROJECT_ID, stack: this.stack ?? stackServer(this.env), sql: this.ctx.storage.sql, state: () => this.boundEngine!.currentState, rows: () => this.rows, submitSystem: (op, params, key) => this.submitSystem(op, params, key), revokeStuck: (user) => [revokeMemberCertsNow({ sql: this.ctx.storage.sql, now: () => Date.now(), submitSystem: (op, params, key) => this.submitSystem(op, params, key) }, user), this.closeSockets((p) => p.user === user, "left the team")] }))
+  private readonly stackSync = new StackTeamSync(() => ({ team: this.boundEntity() ?? "", stackProjectId: this.env.STACK_PROJECT_ID, stack: this.stack ?? stackServer(this.env), sql: this.ctx.storage.sql, state: () => this.boundEngine!.currentState, rows: () => this.rows, submitSystem: (op, params, key) => this.submitSystem(op, params, key), revokeStuck: (user) => [revokeMemberCertsNow({ sql: this.ctx.storage.sql, now: () => Date.now(), submitSystem: (op, params, key) => this.submitSystem(op, params, key) }, user), this.closeSockets((p) => p.user === user, "left the team")], pace: () => this.stackPace?.() ?? stackReadPace(this.env) }))
 
   protected maySubscribe(state: TeamState, principal: Principal): boolean { return can(state, this.rows, principal.user, "team.resources") }
 }

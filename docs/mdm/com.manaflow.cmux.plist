@@ -81,6 +81,38 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<integer>0</integer>
+			<key>pfm_description</key>
+			<string>Each machine deletes its oldest closed tabs, screens, workspaces and windows past this many. 0 keeps them all.</string>
+			<key>pfm_name</key>
+			<string>history.closed.maxGroups</string>
+			<key>pfm_range_max</key>
+			<real>10000</real>
+			<key>pfm_range_min</key>
+			<real>0.0</real>
+			<key>pfm_title</key>
+			<string>Recently Closed Items to Keep</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<integer>0</integer>
+			<key>pfm_description</key>
+			<string>Each machine deletes closed items that are older. 0 keeps them however old they are.</string>
+			<key>pfm_name</key>
+			<string>history.closed.maxAgeDays</string>
+			<key>pfm_range_max</key>
+			<real>3650</real>
+			<key>pfm_range_min</key>
+			<real>0.0</real>
+			<key>pfm_title</key>
+			<string>Keep Recently Closed Items For</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<string>minimal</string>
 			<key>pfm_description</key>
 			<string>Minimal has no titlebar strip; the top row moves the window.</string>
@@ -136,27 +168,6 @@
 			<string>Start Agent from Any App</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
-		</dict>
-		<dict>
-			<key>pfm_default</key>
-			<string>page</string>
-			<key>pfm_description</key>
-			<string>What Cmd-T and the + button open. Auto picks the kind you last opened in that folder.</string>
-			<key>pfm_name</key>
-			<string>tabs.newTabKind</string>
-			<key>pfm_range_list</key>
-			<array>
-				<string>same-kind</string>
-				<string>terminal</string>
-				<string>browser</string>
-				<string>agent</string>
-				<string>page</string>
-				<string>auto</string>
-			</array>
-			<key>pfm_title</key>
-			<string>New Tab Opens</string>
-			<key>pfm_type</key>
-			<string>string</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>
@@ -251,22 +262,104 @@
 			<key>pfm_default</key>
 			<array/>
 			<key>pfm_description</key>
-			<string>Action ids of the buttons hidden from the tab bar. Right-click a button to hide it, the tab bar's buttons to show it again.</string>
+			<string>Actions shown as buttons next to the tab bar's More button. The rest are in the More menu, where Show in Tab Bar pins them back.</string>
 			<key>pfm_name</key>
-			<string>tabs.hiddenButtons</string>
+			<string>tabs.toolbarButtons</string>
 			<key>pfm_subkeys</key>
 			<array>
 				<dict>
 					<key>pfm_name</key>
 					<string>Item</string>
+					<key>pfm_range_list</key>
+					<array>
+						<string>splitRight</string>
+						<string>splitDown</string>
+						<string>openDiffViewer</string>
+						<string>file.open</string>
+						<string>agentPane.searchChats</string>
+						<string>toggleSplitZoom</string>
+					</array>
 					<key>pfm_type</key>
 					<string>string</string>
 				</dict>
 			</array>
 			<key>pfm_title</key>
-			<string>Hidden Tab Bar Buttons</string>
+			<string>Tab Bar Buttons</string>
 			<key>pfm_type</key>
 			<string>array</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>shrink</string>
+			<key>pfm_description</key>
+			<string>Shrink narrows every tab to the minimum width before the strip scrolls. Scroll keeps tabs wide and scrolls sooner.</string>
+			<key>pfm_name</key>
+			<string>tabs.overflow</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>shrink</string>
+				<string>scroll</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Tab Overflow</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_description</key>
+			<string>Widest a tab gets when the strip has room.</string>
+			<key>pfm_name</key>
+			<string>appearance.metrics.tabMaxWidth</string>
+			<key>pfm_range_max</key>
+			<real>320</real>
+			<key>pfm_range_min</key>
+			<real>120</real>
+			<key>pfm_title</key>
+			<string>Maximum Tab Width</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_description</key>
+			<string>When the strip is crowded, every tab shrinks evenly to this width, and the selected tab stays at least this wide.</string>
+			<key>pfm_name</key>
+			<string>appearance.metrics.tabMinActiveWidth</string>
+			<key>pfm_range_max</key>
+			<real>320</real>
+			<key>pfm_range_min</key>
+			<real>32</real>
+			<key>pfm_title</key>
+			<string>Minimum Selected Tab Width</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_description</key>
+			<string>Narrowest the other tabs get before the strip scrolls. Never wider than the selected tab's minimum.</string>
+			<key>pfm_name</key>
+			<string>appearance.metrics.tabMinInactiveWidth</string>
+			<key>pfm_range_max</key>
+			<real>320</real>
+			<key>pfm_range_min</key>
+			<real>16</real>
+			<key>pfm_title</key>
+			<string>Minimum Tab Width</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_description</key>
+			<string>Width of a pinned tab.</string>
+			<key>pfm_name</key>
+			<string>appearance.metrics.tabPinnedWidth</string>
+			<key>pfm_range_max</key>
+			<real>120</real>
+			<key>pfm_range_min</key>
+			<real>24</real>
+			<key>pfm_title</key>
+			<string>Pinned Tab Width</string>
+			<key>pfm_type</key>
+			<string>real</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>
@@ -303,60 +396,6 @@
 			<string>Swap Cmd-T and Cmd-N</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
-		</dict>
-		<dict>
-			<key>pfm_default</key>
-			<string>auto</string>
-			<key>pfm_description</key>
-			<string>Automatic shows the tab bar in terminal and browser panes, and hides it for an agent chat alone in its column. Show or hide one pane's tab bar from the command palette.</string>
-			<key>pfm_name</key>
-			<string>tabs.tabBar.terminal</string>
-			<key>pfm_range_list</key>
-			<array>
-				<string>auto</string>
-				<string>always</string>
-				<string>never</string>
-			</array>
-			<key>pfm_title</key>
-			<string>Tab Bar in Terminal Panes</string>
-			<key>pfm_type</key>
-			<string>string</string>
-		</dict>
-		<dict>
-			<key>pfm_default</key>
-			<string>auto</string>
-			<key>pfm_description</key>
-			<string>Automatic shows the tab bar in terminal and browser panes, and hides it for an agent chat alone in its column. Show or hide one pane's tab bar from the command palette.</string>
-			<key>pfm_name</key>
-			<string>tabs.tabBar.browser</string>
-			<key>pfm_range_list</key>
-			<array>
-				<string>auto</string>
-				<string>always</string>
-				<string>never</string>
-			</array>
-			<key>pfm_title</key>
-			<string>Tab Bar in Browser Panes</string>
-			<key>pfm_type</key>
-			<string>string</string>
-		</dict>
-		<dict>
-			<key>pfm_default</key>
-			<string>auto</string>
-			<key>pfm_description</key>
-			<string>Automatic shows the tab bar in terminal and browser panes, and hides it for an agent chat alone in its column. Show or hide one pane's tab bar from the command palette.</string>
-			<key>pfm_name</key>
-			<string>tabs.tabBar.agent</string>
-			<key>pfm_range_list</key>
-			<array>
-				<string>auto</string>
-				<string>always</string>
-				<string>never</string>
-			</array>
-			<key>pfm_title</key>
-			<string>Tab Bar in Agent Chats</string>
-			<key>pfm_type</key>
-			<string>string</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>
@@ -578,7 +617,7 @@
 			<key>pfm_default</key>
 			<true/>
 			<key>pfm_description</key>
-			<string>After an update, a What's New item shows at the top of the sidebar until you open it.</string>
+			<string>After an update, a card at the bottom of the sidebar links to What's New until you open or dismiss it.</string>
 			<key>pfm_name</key>
 			<string>updates.showWhatsNew</string>
 			<key>pfm_title</key>
@@ -638,6 +677,134 @@
 			<string>Computer Use Driver</string>
 			<key>pfm_type</key>
 			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>Lets agents use the free cmux AI model while you are signed out. The first time an agent uses it, cmux proves to the Cloud service that this is a real Mac. Sign in for more models and higher limits.</string>
+			<key>pfm_name</key>
+			<string>freeModel.enabled</string>
+			<key>pfm_title</key>
+			<string>Free AI Model Without Sign-In</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>pluggedIn</string>
+			<key>pfm_description</key>
+			<string>Stops idle sleep while an agent on this Mac is working. Your display can still turn off, and closing the lid still puts the Mac to sleep.</string>
+			<key>pfm_name</key>
+			<string>sessions.keepAwake</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>off</string>
+				<string>pluggedIn</string>
+				<string>always</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Keep Mac Awake While Agents Work</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>So your phone can find this Mac, cmux registers with its servers this Mac's name, device ID and platform, the app's bundle ID, version and build channel, the Mac's relay address and connection key, and your account and team IDs. Workspace names, folders, full paths and terminal output go only over the encrypted link to your phone. None of that, and no branch name or repo URL, is sent to cmux servers. Exception: while “Show This Mac's Workspaces on Your Phone While It's Off” is on, cmux servers store each workspace's ID, resource ID, short ID, name, name revision, group, color, icon, pinned state, unread mark, unread count and whether it is active.</string>
+			<key>pfm_name</key>
+			<string>phone.allowConnections</string>
+			<key>pfm_title</key>
+			<string>Let Your Phone Use This Mac</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>Off, your phone can still follow, type into and answer what's already running.</string>
+			<key>pfm_name</key>
+			<string>phone.startSessions</string>
+			<key>pfm_title</key>
+			<string>Let Your Phone Start New Workspaces</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>pluggedIn</string>
+			<key>pfm_description</key>
+			<string>A sleeping Mac can't be reached from your phone until it wakes. Closing the lid still puts the Mac to sleep.</string>
+			<key>pfm_name</key>
+			<string>phone.keepAwake</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>off</string>
+				<string>pluggedIn</string>
+				<string>always</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Keep Mac Awake for Your Phone</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>cmux stores this Mac's workspace names, colors and unread counts so your phone can show them while the Mac is off. A workspace name can be a folder's name. No paths, tab titles or terminal output. Turning this off deletes the copy.</string>
+			<key>pfm_name</key>
+			<string>phone.cloudReplica</string>
+			<key>pfm_title</key>
+			<string>Show This Mac's Workspaces on Your Phone While It's Off</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>An agent can start other agent sessions to work on parts of a task in parallel. They show under its session in the sidebar.</string>
+			<key>pfm_name</key>
+			<string>agents.subsessions.enabled</string>
+			<key>pfm_title</key>
+			<string>Let Agents Start Sub-sessions</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<integer>50</integer>
+			<key>pfm_description</key>
+			<string>The most sub-sessions one session can have open at the same time. Closing a sub-session frees its place.</string>
+			<key>pfm_name</key>
+			<string>agents.subsessions.maxChildren</string>
+			<key>pfm_range_max</key>
+			<real>1000</real>
+			<key>pfm_range_min</key>
+			<real>1</real>
+			<key>pfm_title</key>
+			<string>Open Sub-sessions per Session</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<integer>10</integer>
+			<key>pfm_description</key>
+			<string>How many levels of sub-sessions can start under a session. 1 lets a session start sub-sessions that cannot start their own.</string>
+			<key>pfm_name</key>
+			<string>agents.subsessions.maxDepth</string>
+			<key>pfm_range_max</key>
+			<real>100</real>
+			<key>pfm_range_min</key>
+			<real>1</real>
+			<key>pfm_title</key>
+			<string>Deepest Nesting</string>
+			<key>pfm_type</key>
+			<string>real</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>
@@ -821,6 +988,18 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>A workspace you have not named shows its front tab's name: a page's title, an agent chat's title, or a terminal's title or folder. Your own name always wins.</string>
+			<key>pfm_name</key>
+			<string>workspaces.autoName</string>
+			<key>pfm_title</key>
+			<string>Name Workspaces from Tabs</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<string>@</string>
 			<key>pfm_description</key>
 			<string>Typed into an empty query, this character enters the scope. A prefix you assign moves from any other scope.</string>
@@ -991,6 +1170,39 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<dict/>
+			<key>pfm_description</key>
+			<string>A word that names a command by its action id ("vs": "splitRight"). Typing the whole word in the command palette puts that command first.</string>
+			<key>pfm_name</key>
+			<string>palette.aliases</string>
+			<key>pfm_title</key>
+			<string>Command Aliases</string>
+			<key>pfm_type</key>
+			<string>dictionary</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<array/>
+			<key>pfm_description</key>
+			<string>Commands shown first when the command palette opens, in this order, by action id.</string>
+			<key>pfm_name</key>
+			<string>palette.pins</string>
+			<key>pfm_subkeys</key>
+			<array>
+				<dict>
+					<key>pfm_name</key>
+					<string>Item</string>
+					<key>pfm_type</key>
+					<string>string</string>
+				</dict>
+			</array>
+			<key>pfm_title</key>
+			<string>Pinned Commands</string>
+			<key>pfm_type</key>
+			<string>array</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<true/>
 			<key>pfm_description</key>
 			<string>Show chats stored on this device. Nothing is uploaded.</string>
@@ -1118,6 +1330,7 @@
 			<array>
 				<string>neutral</string>
 				<string>theme</string>
+				<string>art</string>
 				<string>red</string>
 				<string>green</string>
 				<string>yellow</string>
@@ -1330,6 +1543,7 @@
 			<key>pfm_range_list</key>
 			<array>
 				<string>none</string>
+				<string>daily</string>
 				<string>david-death-of-marat</string>
 				<string>goya-saturn</string>
 				<string>velde-small-ship-storm</string>
@@ -1646,6 +1860,20 @@
 			<string>real</string>
 		</dict>
 		<dict>
+			<key>pfm_description</key>
+			<string>Text size of tabs, the sidebar and other controls. Terminal text has its own size.</string>
+			<key>pfm_name</key>
+			<string>appearance.interfaceScale</string>
+			<key>pfm_range_max</key>
+			<real>1.25</real>
+			<key>pfm_range_min</key>
+			<real>0.90000000000000002</real>
+			<key>pfm_title</key>
+			<string>Interface Size</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
 			<key>pfm_name</key>
 			<string>appearance.metrics.sidebarWidth</string>
 			<key>pfm_range_max</key>
@@ -1700,7 +1928,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<string>both</string>
+			<string>tabs</string>
 			<key>pfm_description</key>
 			<string>How the focused pane stands out: its border, subtler tabs in the other panes, both or neither.</string>
 			<key>pfm_name</key>
@@ -1753,9 +1981,84 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<string>borders</string>
+			<string>flat-sidebar-line</string>
 			<key>pfm_description</key>
-			<string>How panes are told apart. None draws no border or divider at all; dragging between panes still resizes them.</string>
+			<string>The look of the window: whether panes sit in one rounded card, and where lines are drawn. Separation, Sidebar Background and the sidebar border still win when you set them.</string>
+			<key>pfm_name</key>
+			<string>appearance.chromeStyle</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>default</string>
+				<string>card</string>
+				<string>card-outlined</string>
+				<string>flat</string>
+				<string>flat-sidebar-line</string>
+				<string>bare</string>
+				<string>panes</string>
+				<string>two-tone</string>
+				<string>floating</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Window Style</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>Splits, closes, moves, zooms, column scrolls and screen switches slide into place. Off: they change at once.</string>
+			<key>pfm_name</key>
+			<string>ui.paneAnimations</string>
+			<key>pfm_title</key>
+			<string>Animate Panes</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>A new tab grows into its place in the tab bar. Off shows it there at once.</string>
+			<key>pfm_name</key>
+			<string>ui.animations.newTab</string>
+			<key>pfm_title</key>
+			<string>Animate New Tabs</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>A new workspace row opens in the sidebar. Off shows it there at once.</string>
+			<key>pfm_name</key>
+			<string>ui.animations.newWorkspace</string>
+			<key>pfm_title</key>
+			<string>Animate New Workspaces</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>none</string>
+			<key>pfm_description</key>
+			<string>None stops tabs, rows and panes exactly at their place. Subtle lets them settle with a small bounce.</string>
+			<key>pfm_name</key>
+			<string>ui.animations.bounce</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>none</string>
+				<string>subtle</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Animation Bounce</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_description</key>
+			<string>How panes are told apart. None draws no border or divider at all; dragging between panes still resizes them. Default: dividers inside the curved main pane, borders otherwise.</string>
 			<key>pfm_name</key>
 			<string>layout.paneSeparation</string>
 			<key>pfm_range_list</key>
@@ -2205,6 +2508,23 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<string>animated</string>
+			<key>pfm_description</key>
+			<string>Static draws a still, distinct shape for each state. Reduce Motion always uses Static.</string>
+			<key>pfm_name</key>
+			<string>appearance.statusIndicator.animation</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>animated</string>
+				<string>static</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Status Indicators</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<integer>1</integer>
 			<key>pfm_name</key>
 			<string>appearance.statusIndicator.size</string>
@@ -2277,7 +2597,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<true/>
+			<false/>
 			<key>pfm_description</key>
 			<string>A shell command that runs a while shows as busy.</string>
 			<key>pfm_name</key>
@@ -2399,6 +2719,155 @@
 			<string>boolean</string>
 		</dict>
 		<dict>
+			<key>pfm_default</key>
+			<integer>72</integer>
+			<key>pfm_description</key>
+			<string>The widest a line of text gets, in characters (30 to 1000). On a wider window the text stays centered with margins. Wide tables and code scroll sideways in their own box.</string>
+			<key>pfm_name</key>
+			<string>markdown.layout.width</string>
+			<key>pfm_range_max</key>
+			<real>1000</real>
+			<key>pfm_range_min</key>
+			<real>30</real>
+			<key>pfm_title</key>
+			<string>Text Width</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Text fills the whole pane instead of the text width.</string>
+			<key>pfm_name</key>
+			<string>markdown.layout.fullWidth</string>
+			<key>pfm_title</key>
+			<string>Full Width</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<integer>16</integer>
+			<key>pfm_description</key>
+			<string>The text size every markdown viewer opens at. Cmd-= and Cmd-- change it in one viewer; Cmd-0 goes back to this size.</string>
+			<key>pfm_name</key>
+			<string>markdown.font.size</string>
+			<key>pfm_range_max</key>
+			<real>40</real>
+			<key>pfm_range_min</key>
+			<real>8</real>
+			<key>pfm_title</key>
+			<string>Default Font Size</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>system</string>
+			<key>pfm_name</key>
+			<string>markdown.font.preset</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>system</string>
+				<string>serif</string>
+				<string>mono</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Font</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<real>1.6000000000000001</real>
+			<key>pfm_name</key>
+			<string>markdown.font.lineHeight</string>
+			<key>pfm_range_max</key>
+			<real>2.3999999999999999</real>
+			<key>pfm_range_min</key>
+			<real>1</real>
+			<key>pfm_title</key>
+			<string>Line Height</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<integer>1</integer>
+			<key>pfm_description</key>
+			<string>The gap after each paragraph, as a share of the text size.</string>
+			<key>pfm_name</key>
+			<string>markdown.spacing.paragraph</string>
+			<key>pfm_range_max</key>
+			<real>3</real>
+			<key>pfm_range_min</key>
+			<real>0.0</real>
+			<key>pfm_title</key>
+			<string>Paragraph Spacing</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<real>0.875</real>
+			<key>pfm_description</key>
+			<string>Code as a share of the text size. A monospaced font looks bigger than the text font at the same size, so code is a little smaller by default.</string>
+			<key>pfm_name</key>
+			<string>markdown.code.scale</string>
+			<key>pfm_range_max</key>
+			<real>1.25</real>
+			<key>pfm_range_min</key>
+			<real>0.59999999999999998</real>
+			<key>pfm_title</key>
+			<string>Code Font Size</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>markdown.code.blockSize</string>
+			<key>pfm_range_max</key>
+			<real>32</real>
+			<key>pfm_range_min</key>
+			<real>8</real>
+			<key>pfm_title</key>
+			<string>Code Block Size</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>scroll</string>
+			<key>pfm_name</key>
+			<string>markdown.tables</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>scroll</string>
+				<string>wrap</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Wide Tables</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>app</string>
+			<key>pfm_name</key>
+			<string>markdown.theme</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>app</string>
+				<string>light</string>
+				<string>dark</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Page Theme</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
 			<key>pfm_description</key>
 			<string>A monospaced font installed on this Mac.</string>
 			<key>pfm_name</key>
@@ -2419,6 +2888,626 @@
 			<string>Font Size</string>
 			<key>pfm_type</key>
 			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_description</key>
+			<string>Empty uses the terminal font.</string>
+			<key>pfm_name</key>
+			<string>editor.fontFamily</string>
+			<key>pfm_title</key>
+			<string>Font Family</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_description</key>
+			<string>Empty uses the terminal font size. Cmd-= and Cmd-- change it in one editor.</string>
+			<key>pfm_name</key>
+			<string>editor.fontSize</string>
+			<key>pfm_range_max</key>
+			<real>72</real>
+			<key>pfm_range_min</key>
+			<real>6</real>
+			<key>pfm_title</key>
+			<string>Font Size</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>normal</string>
+			<key>pfm_name</key>
+			<string>editor.fontWeight</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>normal</string>
+				<string>bold</string>
+				<string>300</string>
+				<string>500</string>
+				<string>600</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Font Weight</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_name</key>
+			<string>editor.fontLigatures</string>
+			<key>pfm_title</key>
+			<string>Font Ligatures</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<integer>0</integer>
+			<key>pfm_description</key>
+			<string>0 computes it from the font size. A value under 8 multiplies the font size.</string>
+			<key>pfm_name</key>
+			<string>editor.lineHeight</string>
+			<key>pfm_range_max</key>
+			<real>150</real>
+			<key>pfm_range_min</key>
+			<real>0.0</real>
+			<key>pfm_title</key>
+			<string>Line Height</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<integer>0</integer>
+			<key>pfm_name</key>
+			<string>editor.letterSpacing</string>
+			<key>pfm_range_max</key>
+			<real>20</real>
+			<key>pfm_range_min</key>
+			<real>-5</real>
+			<key>pfm_title</key>
+			<string>Letter Spacing</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<integer>4</integer>
+			<key>pfm_name</key>
+			<string>editor.tabSize</string>
+			<key>pfm_range_max</key>
+			<real>16</real>
+			<key>pfm_range_min</key>
+			<real>1</real>
+			<key>pfm_title</key>
+			<string>Tab Size</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>Tab inserts spaces. Off inserts a tab character.</string>
+			<key>pfm_name</key>
+			<string>editor.insertSpaces</string>
+			<key>pfm_title</key>
+			<string>Insert Spaces</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>Tab size and spaces follow the file's own indentation.</string>
+			<key>pfm_name</key>
+			<string>editor.detectIndentation</string>
+			<key>pfm_title</key>
+			<string>Detect Indentation</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>off</string>
+			<key>pfm_description</key>
+			<string>Opt-Z turns it on and off.</string>
+			<key>pfm_name</key>
+			<string>editor.wordWrap</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>off</string>
+				<string>on</string>
+				<string>wordWrapColumn</string>
+				<string>bounded</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Word Wrap</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<integer>80</integer>
+			<key>pfm_name</key>
+			<string>editor.wordWrapColumn</string>
+			<key>pfm_range_max</key>
+			<real>1000</real>
+			<key>pfm_range_min</key>
+			<real>10</real>
+			<key>pfm_title</key>
+			<string>Wrap Column</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>on</string>
+			<key>pfm_name</key>
+			<string>editor.lineNumbers</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>on</string>
+				<string>off</string>
+				<string>relative</string>
+				<string>interval</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Line Numbers</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<array/>
+			<key>pfm_description</key>
+			<string>Columns where a vertical line shows.</string>
+			<key>pfm_name</key>
+			<string>editor.rulers</string>
+			<key>pfm_subkeys</key>
+			<array>
+				<dict>
+					<key>pfm_name</key>
+					<string>Item</string>
+					<key>pfm_type</key>
+					<string>string</string>
+				</dict>
+			</array>
+			<key>pfm_title</key>
+			<string>Rulers</string>
+			<key>pfm_type</key>
+			<string>array</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_name</key>
+			<string>editor.minimap.enabled</string>
+			<key>pfm_title</key>
+			<string>Minimap</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>selection</string>
+			<key>pfm_name</key>
+			<string>editor.renderWhitespace</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>none</string>
+				<string>boundary</string>
+				<string>selection</string>
+				<string>trailing</string>
+				<string>all</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Show Whitespace</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_name</key>
+			<string>editor.renderControlCharacters</string>
+			<key>pfm_title</key>
+			<string>Show Control Characters</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>line</string>
+			<key>pfm_name</key>
+			<string>editor.renderLineHighlight</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>none</string>
+				<string>gutter</string>
+				<string>line</string>
+				<string>all</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Current Line Highlight</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_name</key>
+			<string>editor.bracketPairColorization.enabled</string>
+			<key>pfm_title</key>
+			<string>Color Bracket Pairs</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_name</key>
+			<string>editor.guides.bracketPairs</string>
+			<key>pfm_title</key>
+			<string>Bracket Pair Guides</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_name</key>
+			<string>editor.guides.indentation</string>
+			<key>pfm_title</key>
+			<string>Indentation Guides</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>always</string>
+			<key>pfm_name</key>
+			<string>editor.matchBrackets</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>always</string>
+				<string>near</string>
+				<string>never</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Highlight Matching Brackets</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>The lines that open the scopes around the top line stay at the top while you scroll.</string>
+			<key>pfm_name</key>
+			<string>editor.stickyScroll.enabled</string>
+			<key>pfm_title</key>
+			<string>Sticky Scroll</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_name</key>
+			<string>editor.folding</string>
+			<key>pfm_title</key>
+			<string>Code Folding</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_name</key>
+			<string>editor.scrollBeyondLastLine</string>
+			<key>pfm_title</key>
+			<string>Scroll Past the Last Line</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_name</key>
+			<string>editor.smoothScrolling</string>
+			<key>pfm_title</key>
+			<string>Smooth Scrolling</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_name</key>
+			<string>editor.mouseWheelZoom</string>
+			<key>pfm_title</key>
+			<string>Zoom with Command and the Scroll Wheel</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>line</string>
+			<key>pfm_name</key>
+			<string>editor.cursorStyle</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>line</string>
+				<string>block</string>
+				<string>underline</string>
+				<string>line-thin</string>
+				<string>block-outline</string>
+				<string>underline-thin</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Cursor Style</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>blink</string>
+			<key>pfm_name</key>
+			<string>editor.cursorBlinking</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>blink</string>
+				<string>smooth</string>
+				<string>phase</string>
+				<string>expand</string>
+				<string>solid</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Cursor Blinking</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>off</string>
+			<key>pfm_name</key>
+			<string>editor.cursorSmoothCaretAnimation</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>off</string>
+				<string>explicit</string>
+				<string>on</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Animate Cursor Movement</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<integer>0</integer>
+			<key>pfm_name</key>
+			<string>editor.cursorSurroundingLines</string>
+			<key>pfm_range_max</key>
+			<real>50</real>
+			<key>pfm_range_min</key>
+			<real>0.0</real>
+			<key>pfm_title</key>
+			<string>Lines Kept Around the Cursor</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>alt</string>
+			<key>pfm_description</key>
+			<string>The key you hold while you click to add a cursor.</string>
+			<key>pfm_name</key>
+			<string>editor.multiCursorModifier</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>alt</string>
+				<string>ctrlCmd</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Add a Cursor With</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_name</key>
+			<string>editor.autoClosingBrackets</string>
+			<key>pfm_title</key>
+			<string>Close Brackets</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_name</key>
+			<string>editor.autoClosingQuotes</string>
+			<key>pfm_title</key>
+			<string>Close Quotes</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_name</key>
+			<string>editor.linkedEditing</string>
+			<key>pfm_title</key>
+			<string>Rename Matching Tags Together</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_name</key>
+			<string>editor.quickSuggestions</string>
+			<key>pfm_title</key>
+			<string>Suggest While Typing</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_name</key>
+			<string>editor.wordBasedSuggestions</string>
+			<key>pfm_title</key>
+			<string>Suggest Words from the File</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>on</string>
+			<key>pfm_name</key>
+			<string>editor.acceptSuggestionOnEnter</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>on</string>
+				<string>smart</string>
+				<string>off</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Return Accepts a Suggestion</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_name</key>
+			<string>editor.emptySelectionClipboard</string>
+			<key>pfm_title</key>
+			<string>Copy the Line When Nothing Is Selected</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>always</string>
+			<key>pfm_name</key>
+			<string>editor.find.seedSearchStringFromSelection</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>always</string>
+				<string>selection</string>
+				<string>never</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Find Starts With</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>afterDelay</string>
+			<key>pfm_name</key>
+			<string>editor.autoSave</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>afterDelay</string>
+				<string>off</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Save Automatically</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<integer>1000</integer>
+			<key>pfm_name</key>
+			<string>editor.autoSaveDelay</string>
+			<key>pfm_range_max</key>
+			<real>60000</real>
+			<key>pfm_range_min</key>
+			<real>100</real>
+			<key>pfm_title</key>
+			<string>Pause Before Saving</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_name</key>
+			<string>editor.trimTrailingWhitespace</string>
+			<key>pfm_title</key>
+			<string>Remove Trailing Spaces on Save</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_name</key>
+			<string>editor.insertFinalNewline</string>
+			<key>pfm_title</key>
+			<string>End Files with a Newline on Save</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Runs the language's formatter when one is installed.</string>
+			<key>pfm_name</key>
+			<string>editor.formatOnSave</string>
+			<key>pfm_title</key>
+			<string>Format on Save</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>auto</string>
+			<key>pfm_description</key>
+			<string>cmux reads that editor's settings and keybindings files and never changes them. A setting you make here wins.</string>
+			<key>pfm_name</key>
+			<string>editor.importFrom</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>auto</string>
+				<string>vscode</string>
+				<string>cursor</string>
+				<string>windsurf</string>
+				<string>vscodium</string>
+				<string>zed</string>
+				<string>none</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Take Defaults From</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>same</string>
+			<key>pfm_description</key>
+			<string>Same as Main Pane gives the sidebar the main pane's background. Separate shades the sidebar darker than the main pane.</string>
+			<key>pfm_name</key>
+			<string>appearance.sidebarSurface</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>same</string>
+				<string>separate</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Sidebar Background</string>
+			<key>pfm_type</key>
+			<string>string</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>
@@ -2593,18 +3682,31 @@
 			<key>pfm_default</key>
 			<string>compact</string>
 			<key>pfm_description</key>
-			<string>Expanded rows show each workspace's status or folder under its name, how long ago it changed, and its pull request and computer.</string>
+			<string>Comfortable rows keep one line on taller rows with more space around them. Expanded rows show each workspace's status or folder under its name, how long ago it changed, and its pull request and computer.</string>
 			<key>pfm_name</key>
 			<string>sidebar.density</string>
 			<key>pfm_range_list</key>
 			<array>
 				<string>compact</string>
+				<string>comfortable</string>
 				<string>expanded</string>
 			</array>
 			<key>pfm_title</key>
 			<string>Sidebar Density</string>
 			<key>pfm_type</key>
 			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Workspace rows show a separate icon for working, waiting for input, error and done. Off, a row shows a spinner while it works and a blue dot when it is ready for you.</string>
+			<key>pfm_name</key>
+			<string>sidebar.detailedStatusIcons</string>
+			<key>pfm_title</key>
+			<string>Detailed Status Icons</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>
@@ -2629,7 +3731,7 @@
 			<key>pfm_default</key>
 			<true/>
 			<key>pfm_description</key>
-			<string>A "Did you know" card above the account button shows one cmux feature a day that you have not used yet.</string>
+			<string>A "Did you know" card above the account button shows one cmux feature a day that you have not used yet. Each tip shows only once.</string>
 			<key>pfm_name</key>
 			<string>sidebar.cards.tips</string>
 			<key>pfm_title</key>
@@ -2750,6 +3852,225 @@
 			<string>Wrap Around</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>A card with details opens when the pointer rests on a workspace or a tab.</string>
+			<key>pfm_name</key>
+			<string>sidebar.hoverCards.enabled</string>
+			<key>pfm_title</key>
+			<string>Show Hover Cards</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<integer>250</integer>
+			<key>pfm_description</key>
+			<string>How long the pointer rests on a workspace or a tab before its card opens. While a card shows, the next one opens at once.</string>
+			<key>pfm_name</key>
+			<string>sidebar.hoverCards.delay</string>
+			<key>pfm_range_max</key>
+			<real>5000</real>
+			<key>pfm_range_min</key>
+			<real>0.0</real>
+			<key>pfm_title</key>
+			<string>Hover Card Delay</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>A player for what is playing, at the bottom of the sidebar and on the new chat page.</string>
+			<key>pfm_name</key>
+			<string>sidebar.nowPlaying.enabled</string>
+			<key>pfm_title</key>
+			<string>Show Now Playing</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>Workspace, theme and color changes blend from the old colors to the new ones. Off: they change at once.</string>
+			<key>pfm_name</key>
+			<string>appearance.colorTransition.enabled</string>
+			<key>pfm_title</key>
+			<string>Animate Color Changes</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<integer>200</integer>
+			<key>pfm_description</key>
+			<string>How long a color change takes. 0 changes colors at once.</string>
+			<key>pfm_name</key>
+			<string>appearance.colorTransition.duration</string>
+			<key>pfm_range_max</key>
+			<real>2000</real>
+			<key>pfm_range_min</key>
+			<real>0.0</real>
+			<key>pfm_title</key>
+			<string>Color Change Duration</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>easeOut</string>
+			<key>pfm_description</key>
+			<string>How a color change moves over its duration. Spring uses Spring Response and Spring Damping; Custom uses the four Bezier values.</string>
+			<key>pfm_name</key>
+			<string>appearance.colorTransition.curve</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>easeOut</string>
+				<string>easeInOut</string>
+				<string>linear</string>
+				<string>spring</string>
+				<string>cubicBezier</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Color Change Curve</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<real>0.29999999999999999</real>
+			<key>pfm_description</key>
+			<string>Seconds a spring color change takes to reach its new colors.</string>
+			<key>pfm_name</key>
+			<string>appearance.colorTransition.springResponse</string>
+			<key>pfm_range_max</key>
+			<real>2</real>
+			<key>pfm_range_min</key>
+			<real>0.050000000000000003</real>
+			<key>pfm_title</key>
+			<string>Spring Response</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<integer>1</integer>
+			<key>pfm_description</key>
+			<string>1 arrives smoothly with no overshoot. Above 1 is slower; below 1 arrives sooner.</string>
+			<key>pfm_name</key>
+			<string>appearance.colorTransition.springDamping</string>
+			<key>pfm_range_max</key>
+			<real>2</real>
+			<key>pfm_range_min</key>
+			<real>0.10000000000000001</real>
+			<key>pfm_title</key>
+			<string>Spring Damping</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<real>0.41999999999999998</real>
+			<key>pfm_description</key>
+			<string>A control point of the Custom (Bezier) curve, as in CSS cubic-bezier().</string>
+			<key>pfm_name</key>
+			<string>appearance.colorTransition.bezierX1</string>
+			<key>pfm_range_max</key>
+			<real>1</real>
+			<key>pfm_range_min</key>
+			<real>0.0</real>
+			<key>pfm_title</key>
+			<string>Bezier X1</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<integer>0</integer>
+			<key>pfm_description</key>
+			<string>A control point of the Custom (Bezier) curve, as in CSS cubic-bezier().</string>
+			<key>pfm_name</key>
+			<string>appearance.colorTransition.bezierY1</string>
+			<key>pfm_range_max</key>
+			<real>2</real>
+			<key>pfm_range_min</key>
+			<real>-1</real>
+			<key>pfm_title</key>
+			<string>Bezier Y1</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<real>0.57999999999999996</real>
+			<key>pfm_description</key>
+			<string>A control point of the Custom (Bezier) curve, as in CSS cubic-bezier().</string>
+			<key>pfm_name</key>
+			<string>appearance.colorTransition.bezierX2</string>
+			<key>pfm_range_max</key>
+			<real>1</real>
+			<key>pfm_range_min</key>
+			<real>0.0</real>
+			<key>pfm_title</key>
+			<string>Bezier X2</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<integer>1</integer>
+			<key>pfm_description</key>
+			<string>A control point of the Custom (Bezier) curve, as in CSS cubic-bezier().</string>
+			<key>pfm_name</key>
+			<string>appearance.colorTransition.bezierY2</string>
+			<key>pfm_range_max</key>
+			<real>2</real>
+			<key>pfm_range_min</key>
+			<real>-1</real>
+			<key>pfm_title</key>
+			<string>Bezier Y2</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>oklab</string>
+			<key>pfm_description</key>
+			<string>OKLab blends with even lightness. sRGB mixes the red, green and blue channels.</string>
+			<key>pfm_name</key>
+			<string>appearance.colorTransition.colorSpace</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>oklab</string>
+				<string>srgb</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Color Blend Space</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>crossfade</string>
+			<key>pfm_description</key>
+			<string>What color changes do while Reduce Motion is on in macOS.</string>
+			<key>pfm_name</key>
+			<string>appearance.colorTransition.reduceMotion</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>crossfade</string>
+				<string>instant</string>
+				<string>full</string>
+			</array>
+			<key>pfm_title</key>
+			<string>With Reduce Motion</string>
+			<key>pfm_type</key>
+			<string>string</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>
@@ -2889,7 +4210,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<true/>
+			<false/>
 			<key>pfm_description</key>
 			<string>The text of the workspace's newest unread notification.</string>
 			<key>pfm_name</key>
@@ -3464,6 +4785,42 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<array>
+				<string>media</string>
+				<string>zoom</string>
+				<string>downloads</string>
+			</array>
+			<key>pfm_description</key>
+			<string>Buttons shown next to the address bar. The rest are in the More menu, where Show in Toolbar pins them back.</string>
+			<key>pfm_name</key>
+			<string>browser.toolbarButtons</string>
+			<key>pfm_subkeys</key>
+			<array>
+				<dict>
+					<key>pfm_name</key>
+					<string>Item</string>
+					<key>pfm_range_list</key>
+					<array>
+						<string>media</string>
+						<string>zoom</string>
+						<string>favorites</string>
+						<string>downloads</string>
+						<string>designMode</string>
+						<string>profile</string>
+						<string>theme</string>
+						<string>devTools</string>
+					</array>
+					<key>pfm_type</key>
+					<string>string</string>
+				</dict>
+			</array>
+			<key>pfm_title</key>
+			<string>Toolbar Buttons</string>
+			<key>pfm_type</key>
+			<string>array</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<string>chromium</string>
 			<key>pfm_description</key>
 			<string>New browser tabs open in this engine.</string>
@@ -3500,6 +4857,30 @@
 			<string>browser.showBookmarksBar</string>
 			<key>pfm_title</key>
 			<string>Show Bookmarks Bar</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>When an agent drives a browser tab, show its cursor, clicks and typed keys on the page. Password fields show dots.</string>
+			<key>pfm_name</key>
+			<string>browser.showAgentCursor</string>
+			<key>pfm_title</key>
+			<string>Show Agent Cursor</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>The full uBlock Origin blocks ads and trackers in Chromium tabs. Takes effect after cmux restarts.</string>
+			<key>pfm_name</key>
+			<string>browser.builtInAdBlocker</string>
+			<key>pfm_title</key>
+			<string>Built-in uBlock Origin</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>
@@ -3659,6 +5040,102 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<string>off</string>
+			<key>pfm_description</key>
+			<string>The material of the address bar. Transparent draws no fill. Clear glass shows more of what is behind it. Off uses the flat theme color.</string>
+			<key>pfm_name</key>
+			<string>browser.omnibar.glass</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>transparent</string>
+				<string>regular</string>
+				<string>clear</string>
+				<string>off</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Address Bar Glass</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>background</string>
+			<key>pfm_description</key>
+			<string>The color over the glass, from the terminal theme. Accent is the theme's own accent color, or gray when the theme has none.</string>
+			<key>pfm_name</key>
+			<string>browser.omnibar.glassTint</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>background</string>
+				<string>accent</string>
+				<string>none</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Glass Tint</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<real>0.34999999999999998</real>
+			<key>pfm_name</key>
+			<string>browser.omnibar.glassTintStrength</string>
+			<key>pfm_range_max</key>
+			<real>1</real>
+			<key>pfm_range_min</key>
+			<real>0.0</real>
+			<key>pfm_title</key>
+			<string>Tint Strength</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>theme</string>
+			<key>pfm_description</key>
+			<string>Match Theme uses the standard bar radius. Capsule rounds the ends fully. Also accepts a number from 0 to 16 in a raw profile.</string>
+			<key>pfm_name</key>
+			<string>browser.omnibar.cornerRadius</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>theme</string>
+				<string>capsule</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Address Bar Corners</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>A soft shadow under the glass address bar.</string>
+			<key>pfm_name</key>
+			<string>browser.omnibar.shadow</string>
+			<key>pfm_title</key>
+			<string>Address Bar Shadow</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<integer>0</integer>
+			<key>pfm_description</key>
+			<string>How much the address bar covers a see-through window. At 0 it is as see-through as the window, but never so clear that its text stops being readable.</string>
+			<key>pfm_name</key>
+			<string>browser.omnibar.backgroundOpacity</string>
+			<key>pfm_range_max</key>
+			<real>1</real>
+			<key>pfm_range_min</key>
+			<real>0.0</real>
+			<key>pfm_title</key>
+			<string>Address Bar Opacity</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<string>backgroundTab</string>
 			<key>pfm_description</key>
 			<string>In Chromium tabs, Download keeps Chrome's default.</string>
@@ -3761,6 +5238,18 @@
 			<key>pfm_default</key>
 			<true/>
 			<key>pfm_description</key>
+			<string>When off, links you click in terminals, agent chats, Home and cmux pages open in your default browser. Shift-Command-click opens a link in the other browser.</string>
+			<key>pfm_name</key>
+			<string>browser.openLinksInCmuxBrowser</string>
+			<key>pfm_title</key>
+			<string>Open Links in cmux Browser</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
 			<string>When off, links clicked in terminal output open in your default browser.</string>
 			<key>pfm_name</key>
 			<string>browser.openTerminalLinksInCmuxBrowser</string>
@@ -3794,7 +5283,7 @@
 			<key>pfm_default</key>
 			<array/>
 			<key>pfm_description</key>
-			<string>Terminal links that match open in your default browser. Text matches anywhere in the URL, * and ? are wildcards, and re: starts a regular expression.</string>
+			<string>Links that match open in your default browser. Text matches anywhere in the URL, * and ? are wildcards, and re: starts a regular expression.</string>
 			<key>pfm_name</key>
 			<string>browser.urlsToAlwaysOpenExternally</string>
 			<key>pfm_subkeys</key>
@@ -3813,6 +5302,66 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<string></string>
+			<key>pfm_description</key>
+			<string>The app Open in Text Editor uses for a path: an app name, a bundle ID or the path of an app. Empty uses the app that opens source code.</string>
+			<key>pfm_name</key>
+			<string>files.textEditor</string>
+			<key>pfm_title</key>
+			<string>Text Editor</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>A browser tab asks to save a sign-in you submit. Tabs an agent drives never ask.</string>
+			<key>pfm_name</key>
+			<string>browser.passwords.offerToSave</string>
+			<key>pfm_title</key>
+			<string>Offer to Save Passwords</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>Offers a generated password when a site asks for a new one, and saves it.</string>
+			<key>pfm_name</key>
+			<string>browser.passwords.generate</string>
+			<key>pfm_title</key>
+			<string>Suggest Strong Passwords</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Lets the Passwords page write every saved password to a plain-text CSV file, after you confirm with Touch ID or your password.</string>
+			<key>pfm_name</key>
+			<string>browser.passwords.allowExport</string>
+			<key>pfm_title</key>
+			<string>Allow Password Export</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>When a site emails you a code or link, its tab offers it. Only on the sender's own site, never filled without your click, and never stored.</string>
+			<key>pfm_name</key>
+			<string>browser.verificationAutofill.enabled</string>
+			<key>pfm_title</key>
+			<string>Fill Codes from Verification Emails</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<false/>
 			<key>pfm_description</key>
 			<string>When off, location data is removed from photos and videos before they are attached.</string>
@@ -3822,6 +5371,52 @@
 			<string>Keep Location in Photos and Videos</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Show Channels below Home in the sidebar. You can also turn it on or off from the command palette.</string>
+			<key>pfm_name</key>
+			<string>home.channelsEnabled</string>
+			<key>pfm_title</key>
+			<string>Channels</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>A small Chief floats over every app and shows agent events above it. Drag it anywhere; click it to message the Chief or reply to a session.</string>
+			<key>pfm_name</key>
+			<string>home.chiefPetEnabled</string>
+			<key>pfm_title</key>
+			<string>Show Chief Pet</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>orb</string>
+			<key>pfm_name</key>
+			<string>home.chiefPetMascot</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>orb</string>
+				<string>orb-spark</string>
+				<string>orb-hood</string>
+				<string>machine</string>
+				<string>machine-cyan</string>
+				<string>machine-blue</string>
+				<string>moon</string>
+				<string>moon-blue</string>
+				<string>fox</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Character</string>
+			<key>pfm_type</key>
+			<string>string</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>
@@ -4019,6 +5614,24 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<string>once</string>
+			<key>pfm_description</key>
+			<string>When a notification alerts while cmux isn't the active app.</string>
+			<key>pfm_name</key>
+			<string>notifications.dockBounce</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>off</string>
+				<string>once</string>
+				<string>untilActive</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Bounce Dock Icon</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<true/>
 			<key>pfm_description</key>
 			<string>Notifications from agents and cmux notify go to your cmux account's feed and can reach your iPhone.</string>
@@ -4205,6 +5818,18 @@
 			<key>pfm_default</key>
 			<false/>
 			<key>pfm_description</key>
+			<string>Show Home as a full page instead of a workspace with the Chief docked on the left. Takes effect after cmux restarts.</string>
+			<key>pfm_name</key>
+			<string>labs.classicHome</string>
+			<key>pfm_title</key>
+			<string>Classic Home</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
 			<string>Uses your gh login to read notifications and review requests on this Mac. Sign in with gh auth login first.</string>
 			<key>pfm_name</key>
 			<string>feed.github.enabled</string>
@@ -4351,6 +5976,24 @@
 			<string>Agent Chat Zoom</string>
 			<key>pfm_type</key>
 			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>fullAccess</string>
+			<key>pfm_description</key>
+			<string>What a new chat may do without asking. Picking a mode in a chat sets it too, until you change this setting again.</string>
+			<key>pfm_name</key>
+			<string>agents.defaultPermissionMode</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>fullAccess</string>
+				<string>standard</string>
+				<string>ask</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Permission Mode for New Chats</string>
+			<key>pfm_type</key>
+			<string>string</string>
 		</dict>
 		<dict>
 			<key>pfm_description</key>

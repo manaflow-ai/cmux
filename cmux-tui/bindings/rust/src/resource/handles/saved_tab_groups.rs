@@ -53,6 +53,10 @@ pub struct SavedTabGroupSnapshot {
     pub index: u32,
     #[serde(deserialize_with = "deserialize_decimal")]
     pub updated_at_ms: u64,
+    /// The saved group's icon (`tab-group-icon-v1`); a reopen gives the live
+    /// group this icon. Older daemons omit it.
+    #[serde(default)]
+    pub icon: Option<String>,
     #[serde(flatten)]
     pub additional: BTreeMap<String, Value>,
 }

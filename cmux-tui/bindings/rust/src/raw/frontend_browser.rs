@@ -85,14 +85,16 @@ pub struct FrontendBrowserTabCreated {
     pub replayed: bool,
 }
 
-/// `update-frontend-browser-tab`: the location the page reports. `None`
-/// leaves a field unchanged; `favicon_url: Update::Clear` clears the favicon.
+/// `update-frontend-browser-tab`: the location and browser profile the page
+/// reports. `None` leaves a field unchanged; `Update::Clear` clears a nullable
+/// field such as the favicon or profile.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct FrontendBrowserTabUpdate {
     pub surface: u64,
     pub url: Option<String>,
     pub title: Option<String>,
     pub favicon_url: Update<String>,
+    pub profile_id: Update<String>,
     pub owner: Option<String>,
 }
 
@@ -103,6 +105,7 @@ pub struct FrontendBrowserTabUpdated {
     pub url: String,
     pub title: Option<String>,
     pub favicon_url: Option<String>,
+    pub profile_id: Option<String>,
     pub owner: Option<String>,
     /// False when the record already held these values.
     pub changed: bool,
@@ -119,7 +122,7 @@ impl CmuxClient {
     ) -> Result<FrontendBrowserTabCreated> {
         validate_idempotency_key(&create.idempotency_key)?;
         if self.server_info().is_none() {
-            self.identify(IdentifyRequest {})?;
+            self.identify(IdentifyRequest::default())?;
         }
         self.require_capability_field(
             "new-frontend-browser-tab",
@@ -167,6 +170,11 @@ impl CmuxClient {
                 Update::Set(url) => Optional::Value(url),
             },
             owner: optional(update.owner),
+            profile_id: match update.profile_id {
+                Update::Unchanged => Optional::Missing,
+                Update::Clear => Optional::Null,
+                Update::Set(profile_id) => Optional::Value(profile_id),
+            },
         })?;
         let text = |key: &str| result.get(key).and_then(Value::as_str).map(str::to_string);
         let updated = || -> Option<FrontendBrowserTabUpdated> {
@@ -175,6 +183,7 @@ impl CmuxClient {
                 url: text("url")?,
                 title: text("title"),
                 favicon_url: text("favicon_url"),
+                profile_id: text("profile_id"),
                 owner: text("owner"),
                 changed: result.get("changed")?.as_bool()?,
             })

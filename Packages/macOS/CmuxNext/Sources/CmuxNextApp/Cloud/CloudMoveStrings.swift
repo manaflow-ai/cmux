@@ -46,6 +46,16 @@ enum CloudMoveStrings {
     static var unresolved: String {
         String(localized: "cloud.move.unresolved", defaultValue: "The move didn't finish, so the chat is paused. Retry to finish it.", table: "Cloud", bundle: .module)
     }
+    /// After a relaunch: the chat's move stopped before the chat moved (cx-rppd.16).
+    static var unfinishedMove: String {
+        String(localized: "cloud.move.unfinishedMove", defaultValue: "Moving this chat to Cloud didn't finish. Retry to finish it, or dismiss to keep it here.",
+               table: "Cloud", bundle: .module)
+    }
+    /// After a relaunch: the chat moved, but its tab on the machine never opened (cx-rppd.16).
+    static var unfinishedShow: String {
+        String(localized: "cloud.move.unfinishedShow", defaultValue: "This chat moved to Cloud, but its tab there didn't open. Retry to open it.",
+               table: "Cloud", bundle: .module)
+    }
     static var inProgress: String {
         String(localized: "cloud.move.inProgress", defaultValue: "This chat is already moving. Retry in a moment.", table: "Cloud", bundle: .module)
     }
@@ -53,6 +63,13 @@ enum CloudMoveStrings {
         String(format: String(localized: "cloud.move.teamMachine", defaultValue: "%@ is a team machine. Chats move only to a machine you own.",
                               table: "Cloud", bundle: .module), machine)
     }
+    /// The machine's cmux-tui is too old for the move (`machine_outdated`, cx-rppd.13).
+    static func outdatedMachine(_ machine: String) -> String {
+        String(format: String(localized: "cloud.move.outdatedMachine", defaultValue: "%@ runs an older cmux that can't take this chat yet. Update the machine to move it.",
+                              table: "Cloud", bundle: .module), machine)
+    }
+    /// What a link CLI answers when the machine's cmux-tui is too old for it (cmux-tui `link/machine_gate.rs`).
+    static let outdatedCode = "machine_outdated"
     static func unknownMachine(_ machine: String) -> String {
         String(format: String(localized: "cloud.move.unknownMachine", defaultValue: "cmux can't confirm who owns %@, so the chat stays on this Mac.",
                               table: "Cloud", bundle: .module), machine)

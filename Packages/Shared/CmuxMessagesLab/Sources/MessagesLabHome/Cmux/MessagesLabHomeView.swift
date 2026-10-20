@@ -16,9 +16,14 @@ public final class MessagesLabHomeView: NSView {
     /// - Parameters:
     ///   - store: the app's HomeStore (one per daemon session; the view never creates one).
     ///   - wake: the engine clock's one-shot timer (CmuxNext: DemandTimer).
-    public init(store: HomeStore, conversation: ConversationID, me: ParticipantID, wake: any ChatWakeScheduler) {
+    ///   - diagrams: draws ```` ```mermaid ```` fences as diagram bubbles (CmuxNext: the
+    ///     JavaScriptCore Ondine renderer); nil keeps them as text.
+    public init(store: HomeStore, conversation: ConversationID, me: ParticipantID, wake: any ChatWakeScheduler,
+                diagrams: (any HomeDiagramRendering)? = nil) {
         MessagesLabHomeView.liveFormatting()
         HomeMarkdownPolicy.install()
+        // Before the projection maps its first messages, so a diagram never shows as text first.
+        if let diagrams { HomeDiagramRowProvider.install(diagrams) }
         controller = ChatController(wake: wake)
         // Link cards fetch their preview (title, image) for links the user or an agent sent (README).
         projection = HomeProjection(store: store, conversation: conversation, me: me, controller: controller,
@@ -27,7 +32,13 @@ public final class MessagesLabHomeView: NSView {
         wantsLayer = true
         addSubview(controller.host)
         projection.start()
+        // Reduce Motion changes (the system setting or the host's pin) still or restart the loops
+        // already running (MessagesLabHomeView+Motion.swift).
+        motionObservers = observeReduceMotion()
     }
+
+    /// The Reduce Motion observers (weak: a closed view's turn is a no-op).
+    private var motionObservers: [any NSObjectProtocol] = []
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
@@ -129,19 +140,31 @@ public final class MessagesLabHomeView: NSView {
         }
     }
 
-    /// cmux: a click on a Chief subagent's link in agent text (`URL.isChiefSubagentLink`); the host
+    /// cmux: a click on a cmux app link in agent text (`URL.isCmuxAppLink`); the host
     /// opens it in the app (`link.open`). Nil: the link opens nothing.
     public var onAppLink: ((URL) -> Void)? {
         get { controller.onAppLink }
         set { controller.onAppLink = newValue }
     }
 
+    /// cmux: a click on any other link in the transcript (`otherTarget`: Shift-Command held).
+    /// Defaults to the system; the host routes it (cmux: its link setting).
+    public var onOpenLink: (_ url: URL, _ otherTarget: Bool) -> Void {
+        get { controller.onOpenLink }
+        set { controller.onOpenLink = newValue }
+    }
+
     /// A click (or Space/Return with the keyboard) on the header's name
-    /// pill: cmux shows the Chief's settings sidebar there.
+    /// pill: cmux shows the Chief's settings popover under it.
     public var onNamePill: () -> Void {
         get { controller.host.paneHeader.onContact }
         set { controller.host.paneHeader.onContact = newValue }
     }
+
+    /// The header's name pill: the view a popover from it anchors to.
+    public var namePill: NSView { controller.host.paneHeader.pill }
+    /// The header views a click on which runs ``onNamePill``: the pill and the avatar.
+    public var namePillToggles: [NSView] { [controller.host.paneHeader.pill, controller.host.paneHeader.avatar] }
 
     /// The header avatar's text (one or two characters, an emoji); nil
     /// shows the conversation's initials.
@@ -165,6 +188,54 @@ public final class MessagesLabHomeView: NSView {
 
     /// The field's text view (the pane's primary input).
     public var primaryInput: NSView { controller.demo?.compose.textView.view ?? self }
+
+    /// Whether focusing this view should move the keyboard from `responder`
+    /// to ``primaryInput``.
+    ///
+    /// False only while the keyboard is on a text view or text field (the
+    /// field itself, the thread header's field, a find field) or on the
+    /// transcript while the person makes or holds a text selection there.
+    /// - Parameter responder: The window's first responder now.
+    /// - Returns: True when the host should make ``primaryInput`` first responder.
+    public func primaryInputShouldTakeKeyboard(from responder: NSResponder?) -> Bool {
+        controller.composeShouldTakeKeyboard(from: responder)
+    }
+
+    /// Whether ``pasteIntoPrimaryInput(_:)`` has something to paste: text, or
+    /// files and pictures Home's attachment intake takes.
+    public var canPasteIntoPrimaryInput: Bool { controller.canPasteIntoCompose() }
+
+    /// Cmd+V from a part of Home that is not a text field: the message box
+    /// takes the keyboard, then the paste (text, files and pictures, as a
+    /// paste in the box or a drop does).
+    /// - Parameter sender: The paste's sender, passed to the box's `paste(_:)`.
+    public func pasteIntoPrimaryInput(_ sender: Any?) { controller.pasteIntoCompose(sender) }
+
+    /// After a drop on Home or the file picker: the message box takes the
+    /// keyboard with the caret at the end of the draft, and its window
+    /// becomes key, so the person can type at once. Call it only for an
+    /// entry point aimed at Home (never for automation).
+    public func focusPrimaryInputForTyping() { controller.focusComposeForTyping() }
+
+    /// Whether a plain Up or Down arrow from `responder`, while Home has the
+    /// keyboard, recalls sent messages in the message box: not from a text
+    /// input (it moves its own caret) and not from a transcript text selection.
+    /// The box itself answers false: its own key handling recalls there.
+    /// - Parameter responder: The window's first responder now.
+    /// - Returns: True when the host should call ``recallPrimaryInputHistory(older:)``.
+    public func primaryInputHistoryTakesArrowKeys(from responder: NSResponder?) -> Bool {
+        controller.historyTakesArrowKeys(from: responder)
+    }
+
+    /// Up (`older`) or Down from outside the message box: the box takes the
+    /// keyboard, and Up shows the newest sent message (each further Up an
+    /// older one; Down steps back toward the draft, which is kept).
+    /// - Parameter older: True for Up, false for Down.
+    /// - Returns: True when the box took the key.
+    @discardableResult
+    public func recallPrimaryInputHistory(older: Bool) -> Bool {
+        controller.recallHistoryFromOutside(older ? .older : .newer)
+    }
 
     /// Puts text in the field (first-run suggestions).
     public func setDraft(_ text: String) {
@@ -283,6 +354,7 @@ public final class MessagesLabHomeView: NSView {
             out["receiptHeight"] = Double(row.spec.height)
             break
         }
+        out.merge(debugScaleGeometry()) { $1 }  // the per-view render scale (MessagesLabHomeView+ScaleDebug.swift)
         return out
     }
 
@@ -298,8 +370,51 @@ public final class MessagesLabHomeView: NSView {
         return nil
     }
 
+    /// Automation (DEBUG socket): the visible rows as drawn, in window coordinates (AppKit: origin
+    /// at the bottom left), top to bottom. A message part gives its bubble body (RowDraw.bodyRect in
+    /// the row's content, which RowCell.snapRow moves onto the window's device pixels) and its drawn
+    /// balloon (RowDraw.balloon: an outgoing text balloon lies a little inside the body on macOS 27);
+    /// a thread preview and any other row give the row's content box (both).
+    public func debugRowFrames() -> [(kind: String, key: String, outgoing: Bool, frame: CGRect, balloon: CGRect)] {
+        guard let demo = controller.demo, controller.host.window != nil, let hostLayer = controller.host.layer else { return [] }
+        var rows: [(kind: String, key: String, outgoing: Bool, frame: CGRect, balloon: CGRect)] = []
+        for case let cell as RowCell in demo.collection.visibleCells where !cell.isHidden {
+            guard let spec = cell.spec else { continue }
+            let content = cell.contentView.layer
+            let kind: String, outgoing: Bool, rect: CGRect, drawn: CGRect
+            switch spec.kind {
+            case let .part(p):
+                kind = { if case .text = p.part { return "text" }; return "part" }()
+                outgoing = p.outgoing
+                rect = RowDraw.bodyRect(spec)
+                drawn = RowDraw.balloon(rect, row: p, scale: demo.renderScale)  // this pane's own scale (258b385)
+            case .threadPreview(let pv):
+                kind = "preview"; outgoing = pv.outgoing
+                rect = CGRect(origin: .zero, size: content.bounds.size); drawn = rect
+            default:
+                kind = "other"; outgoing = false
+                rect = CGRect(origin: .zero, size: content.bounds.size); drawn = rect
+            }
+            func inWindow(_ r: CGRect) -> CGRect { controller.host.convert(content.convert(r, to: hostLayer), to: nil) }
+            rows.append((kind, spec.key, outgoing, inWindow(rect), inWindow(drawn)))
+        }
+        return rows.sorted { $0.frame.maxY > $1.frame.maxY }
+    }
+
+    /// Automation (DEBUG socket): MessagesLab's width pass counters (every window view): passes run and
+    /// passes deferred to the next display frame (WindowView's resize pacing).
+    public var debugWidthPasses: (passes: Int, deferred: Int) {
+        (MessagesWindowView.widthPasses, MessagesWindowView.widthPassesDeferred)
+    }
+    /// MessagesLab's frame budget for width passes (s): a later width change in a display frame runs at once
+    /// while that frame's passes cost less (f11642b resize-pace).
+    public var debugWidthPassBudget: Double { Double(MessagesWindowView.widthPassFrameBudget) }
+
     /// The window view's origin in window points (bottom-left origin), for automation.
     public var debugHostOrigin: CGPoint { controller.host.convert(CGPoint.zero, to: nil) }
+    /// The window view's frame in window points (bottom-left origin), for automation (its right edge: a pane
+    /// whose width is a fraction of a device pixel).
+    public var debugHostFrame: CGRect { controller.host.convert(controller.host.bounds, to: nil) }
 
     /// Automation (DEBUG socket): the text of the newest `limit` messages
     /// this view holds (its own store), oldest first.

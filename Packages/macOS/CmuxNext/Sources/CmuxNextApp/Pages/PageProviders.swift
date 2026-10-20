@@ -127,10 +127,31 @@ final class DaemonPageRelay: PageProvider {
         let key = Self.idempotencyKey(members.removeValue(forKey: "idempotency_key")?.stringValue, context: context)
         do {
             // The page relay connection: origin `page`, or the user with a native-sheet token.
-            let result = try await PageRelayChannel.shared(for: services.machines.local).send(
+            let result = try await PageRelayChannel.shared(for: services.machines.local, page: context.page).send(
                 operation: String(op.dropFirst("cmux.".count)), params: try Self.daemonParams(members), idempotencyKey: key,
                 context: context)
             return try Self.pageValue(result)
+        } catch let error as DaemonError {
+            throw Self.pageError(error)
+        }
+    }
+
+    /// A page stream `cmux.<ns>.<event>` is the daemon subscribe event `<ns>-<event>`
+    /// (`cmux.history.changed` -> `history-changed`), as the daemon sent it, on the page's relay
+    /// connection (page-events-v1, cx-hnmbt.9). The daemon decides which events a page hears; a
+    /// stream it does not name is `unknown_op` (the page then reads without live updates).
+    func subscribe(_ stream: String, filter: CmuxNextSettings.JSONValue, context: PageCallContext,
+                   onEvent: @escaping @MainActor (CmuxNextSettings.JSONValue) -> Void) async throws -> PageSubscription {
+        guard stream.hasPrefix("cmux.") else { throw PageError.unknownOp(stream) }
+        guard services.machines.local.connection != nil else { throw PageError.closed }
+        let event = stream.dropFirst("cmux.".count).replacingOccurrences(of: ".", with: "-")
+        do {
+            let cancel = try await PageRelayChannel.shared(for: services.machines.local, page: context.page).listen(event: event) { payload in
+                onEvent((try? Self.pageValue(payload)) ?? .object([:]))
+            }
+            return PageSubscription(onCancel: cancel)
+        } catch is PageRelayChannel.NoSuchEvent {
+            throw PageError.unknownOp(stream)
         } catch let error as DaemonError {
             throw Self.pageError(error)
         }
@@ -164,6 +185,31 @@ final class DaemonPageRelay: PageProvider {
         default:
             return PageError(code: "cmux.daemon.failed", message: error.description)
         }
+    }
+}
+
+/// A namespace an organization policy can turn off (DisabledFeatures): while `turnedOff` answers a
+/// reason, every call and stream is refused with it (`cmux.policy.turned_off`), so a page that was
+/// open before the policy arrived stops too.
+@MainActor
+final class PolicyGatedPageProvider: PageProvider {
+    private let inner: any PageProvider
+    private let turnedOff: @MainActor () -> String?
+
+    init(inner: any PageProvider, turnedOff: @escaping @MainActor () -> String?) {
+        self.inner = inner
+        self.turnedOff = turnedOff
+    }
+
+    func call(_ op: String, params: CmuxNextSettings.JSONValue, context: PageCallContext) async throws -> CmuxNextSettings.JSONValue {
+        if let reason = turnedOff() { throw PageError(code: "cmux.policy.turned_off", message: reason) }
+        return try await inner.call(op, params: params, context: context)
+    }
+
+    func subscribe(_ stream: String, filter: CmuxNextSettings.JSONValue, context: PageCallContext,
+                   onEvent: @escaping @MainActor (CmuxNextSettings.JSONValue) -> Void) async throws -> PageSubscription {
+        if let reason = turnedOff() { throw PageError(code: "cmux.policy.turned_off", message: reason) }
+        return try await inner.subscribe(stream, filter: filter, context: context, onEvent: onEvent)
     }
 }
 

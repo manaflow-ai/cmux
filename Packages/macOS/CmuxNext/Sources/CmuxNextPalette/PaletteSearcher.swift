@@ -1,4 +1,5 @@
 public import Foundation
+import CmuxNextCompat
 import os
 
 /// Runs searches off the main actor on the latest index snapshot. Each
@@ -8,12 +9,15 @@ public actor PaletteSearcher {
     private var index = PaletteSearchIndex(entries: [])
     private var indexVersion = -1
     private let bridge: PaletteRankerBridge?
+    /// The user's aliases and pins, applied to every rank. The palette sets them on each open
+    /// (`PaletteSources.rankSettings`), before the open's searches start.
+    nonisolated let rankSettings = Mutex(PaletteRankSettings())
     /// Tests: runs on the actor as each call returns, the moment another caller of the shared
     /// searcher would get it next (state-audit P2), so a test interleaves deterministically.
     private var betweenCalls: (@Sendable (isolated PaletteSearcher) -> Void)?
 
     private nonisolated static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "palette.searcher")
-    /// Why the shared ranker did not load here (its bundle is missing or broken), nil when it
+    /// Why the shared ranker did not load here, nil when it
     /// did. Without it every query ranks to no rows, so the reason is kept and logged, not lost.
     public nonisolated let loadError: PaletteRankerBridgeError?
 
@@ -111,8 +115,11 @@ public actor PaletteSearcher {
         if Task.isCancelled { return nil }
         guard let bridge else { return [] }
         do {
+            // The page's Pinned section (`PalettePageState` adds it to a page that shows Recent).
+            let pinned = sectionOrders.firstIndex(of: PaletteSection.pinnedOrder)
             return try bridge.rankEmpty(entries: entries, version: version, sectionOrders: sectionOrders,
-                                        frecency: frecency, now: now, showsRecent: showsRecent)
+                                        frecency: frecency, now: now, showsRecent: showsRecent,
+                                        settings: rankSettings.withLock { $0 }, pinnedSectionIndex: pinned)
         } catch {
             return []
         }
@@ -140,7 +147,8 @@ public actor PaletteSearcher {
                 now: now,
                 showsRecent: showsRecent,
                 keepsSectionOrder: keepsSectionOrder,
-                ranksPrefixFirst: ranksPrefixFirst
+                ranksPrefixFirst: ranksPrefixFirst,
+                settings: rankSettings.withLock { $0 }
             )
         } catch {
             return (generation, [])

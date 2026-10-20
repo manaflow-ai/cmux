@@ -48,9 +48,17 @@ pub(super) fn handle_resource_line(
         })
         .and_then(|actor| check_pairing_accept(mux, client, &envelope, &actor).map(|()| actor))
         .and_then(|actor| crate::resource_router::validate_resource_envelope(envelope, actor));
+    crate::debug_spans::mark("origin.admitted");
     match admitted {
         Ok(request) => handle_resource_connection_message(mux, client, request, writer),
-        Err(error) => send_resource_response(writer, id, operation, Err(error)),
+        Err(error) => {
+            if operation == ResourceOperation::HistoryTrailRecord {
+                // The trail's failure log (cx-hnmbt.14): an origin refusal
+                // never reaches the history module.
+                crate::history_ops::log_trail_refusal(mux, client, &error);
+            }
+            send_resource_response(writer, id, operation, Err(error))
+        }
     }
 }
 
@@ -128,6 +136,18 @@ pub(super) fn may_approve_pairing(mux: &Mux, client: u64) -> bool {
     matches!(connection_actor(mux, client), Actor::Frontend { .. })
 }
 
+/// Whether `client` derives origin `user` (the verified cmux app). On every
+/// platform; a client with no record, or one with no proof, is not.
+pub(super) fn is_user(mux: &Mux, client: u64) -> bool {
+    derived_origin(mux, client) == RequestOrigin::User
+}
+
+/// Whether `client` derives the page origin (a page WebSocket or the host's
+/// page relay, with or without a page id).
+pub(super) fn is_page(mux: &Mux, client: u64) -> bool {
+    derived_origin(mux, client) == RequestOrigin::Page
+}
+
 /// The origin `client` derives; a client with no record is an agent.
 fn derived_origin(mux: &Mux, client: u64) -> RequestOrigin {
     let state = mux.control_clients.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -189,6 +209,80 @@ fn peer_or_local(mux: &Mux, client: u64, transport: ClientTransport, local: Acto
     }
 }
 
+/// What the daemon knows about a connection for the hosting-app check
+/// (`crate::apps::hosting_app_connection`, the door of origin `user`).
+pub(super) struct AppConnection {
+    /// Bound to an agent's conversation; switches to the identity lane's
+    /// terminal/acp_session actor with `agent` once it lands.
+    pub(super) agent: bool,
+    /// Proved, never declared: the install-key hello or the app's code
+    /// signature (P8, server/app_trust.rs). `set-client-info kind` and a
+    /// page relay never count.
+    pub(super) verified_app: bool,
+}
+
+pub(super) fn app_connection(mux: &Mux, client: u64) -> AppConnection {
+    let verified_app = {
+        let state =
+            mux.control_clients.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        state
+            .clients
+            .get(&client)
+            .is_some_and(|record| record.origin.derive() == RequestOrigin::User)
+    };
+    AppConnection {
+        agent: mux.conversation_principal(client) != crate::conversation_store::LOCAL_USER,
+        verified_app,
+    }
+}
+
+/// A WebSocket connection admitted with a page-bound credential
+/// (`page-credential {page}`): fixed at accept, with its page.
+pub(super) fn set_scoped_page(mux: &Mux, client: u64, page: String) {
+    let mut state =
+        mux.control_clients.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some(record) = state.clients.get_mut(&client) {
+        record.origin.page = Some(page);
+        record.origin.scoped_page = true;
+    }
+}
+
+/// The conversation events a page-bound connection of the Channels page
+/// hears (and `chief-changed`, its Chiefs, and `participant-avatar-changed`,
+/// the pictures it draws); every other page-bound connection hears none.
+static CHANNELS_SCOPED_EVENTS: std::sync::LazyLock<[String; 8]> = std::sync::LazyLock::new(|| {
+    [
+        "conversation-changed",
+        "conversation-typing",
+        "conversation-draft",
+        "conversation-run-changed",
+        "conversation-live",
+        "conversation-inbox-changed",
+        "chief-changed",
+        "participant-avatar-changed",
+    ]
+    .map(String::from)
+});
+
+/// The subscribe events a page relay connection hears (page-router.json
+/// `events` of its page; none for a relay without a page), a page-bound
+/// connection's (its page's conversation events), or `None` for any other
+/// connection, whose stream stays as it was.
+pub(super) fn page_relay_events(mux: &Mux, client: u64) -> Option<&'static [String]> {
+    let state = mux.control_clients.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let origin = &state.clients.get(&client)?.origin;
+    if origin.scoped_page {
+        let channels = origin.page.as_deref() == Some("home-channels");
+        return Some(if channels { &CHANNELS_SCOPED_EVENTS[..] } else { &[] });
+    }
+    (origin.role == HelloRole::PageRelay).then(|| {
+        origin
+            .page
+            .as_deref()
+            .map_or(&[][..], crate::request_origin::page_router_table::page_events)
+    })
+}
+
 #[cfg(unix)]
 /// Gate A2 on the legacy `apps-*` door: `Err` unless `client` derives
 /// origin `user` (a verified cmux app connection).
@@ -216,6 +310,7 @@ pub(super) fn set_hello(
     role: HelloRole,
     peer_key: Option<String>,
     signature_proved: bool,
+    page: Option<String>,
 ) -> bool {
     let mut state =
         mux.control_clients.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -225,8 +320,50 @@ pub(super) fn set_hello(
     }
     record.origin.role = role;
     record.origin.peer_key = peer_key;
+    record.origin.page = page;
     record.origin.verified_app = role == HelloRole::Main && signature_proved;
     true
+}
+
+/// The page a WebSocket connection serves, from its handshake Origin
+/// (`page-router-v1`): fixed at accept, before the connection's first line.
+pub(super) fn set_page(mux: &Mux, client: u64, page: String) {
+    let mut state =
+        mux.control_clients.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some(record) = state.clients.get_mut(&client) {
+        record.origin.page = Some(page);
+    }
+}
+
+/// The page id of `client` (a page WebSocket's handshake Origin, or a page
+/// relay's hello), or `None` (also for a client with no record). For the
+/// audit actor only: an access decision reads [`websocket_admission`].
+pub(super) fn connection_page(mux: &Mux, client: u64) -> Option<String> {
+    let state = mux.control_clients.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    state.clients.get(&client).and_then(|record| record.origin.page.clone())
+}
+
+/// How a WebSocket connection was admitted, for the Chief registry
+/// (`chief-profile-ws-v1`): `None` for a client with no record or a poisoned
+/// registry lock (fail closed).
+pub(super) struct WebSocketAdmission {
+    /// A pairing-store credential (an approved pairing, or the verified app's
+    /// person page credential).
+    pub(super) person: bool,
+    /// The page of the handshake Origin.
+    pub(super) page: Option<String>,
+    /// Admitted with a credential bound to that page (`page-credential {page}`).
+    pub(super) scoped_page: bool,
+}
+
+pub(super) fn websocket_admission(mux: &Mux, client: u64) -> Option<WebSocketAdmission> {
+    let state = mux.control_clients.state.lock().ok()?;
+    let record = state.clients.get(&client)?;
+    matches!(record.transport, ClientTransport::WebSocket).then(|| WebSocketAdmission {
+        person: record.person,
+        page: record.origin.page.clone(),
+        scoped_page: record.origin.scoped_page,
+    })
 }
 
 /// Step 2 passed (prover B): `client`, a role-main connection, is the
@@ -266,14 +403,17 @@ fn issue(
     request: &crate::resource_router::ParsedResourceRequest,
 ) -> Result<Value, ResourceError> {
     mux.resolve_resource_path(crate::ResourceTarget::Session, &request.selectors)?;
-    let operation =
-        serde_json::from_value::<ResourceOperation>(json!(string_field(request, "operation")))
-            .map_err(|_| {
-                ResourceError::validation_invalid(
-                    Some("operation"),
-                    "operation must be a cmux.protocol/2 catalog operation",
-                )
-            })?;
+    // A catalog operation, or a routed one (page-router-v1 namespaces).
+    let operation = string_field(request, "operation");
+    let known = serde_json::from_value::<ResourceOperation>(json!(operation)).is_ok()
+        || crate::request_origin::page_router_table::routed(operation).is_some();
+    if !known {
+        return Err(ResourceError::validation_invalid(
+            Some("operation"),
+            "operation must be a cmux.protocol/2 catalog or routed operation",
+        ));
+    }
+    let operation = operation.to_owned();
     let params_sha256 = string_field(request, "params_sha256").to_string();
     if !valid_sha256_hex(&params_sha256) {
         return Err(ResourceError::validation_invalid(
@@ -320,7 +460,7 @@ fn issue(
             json!({"required": "user", "derived": derived.wire_name(), "reason": "relay_mismatch"}),
         ));
     };
-    relay_record.origin.store_confirmation(
+    relay_record.origin.store_named_confirmation(
         token.clone(),
         operation,
         params_sha256,
@@ -403,3 +543,7 @@ mod page_access_tests;
 #[cfg(all(test, unix))]
 #[path = "pairing_gate_tests.rs"]
 mod pairing_gate_tests;
+
+#[cfg(all(test, unix))]
+#[path = "chief_profile_ws_tests.rs"]
+mod chief_profile_ws_tests;

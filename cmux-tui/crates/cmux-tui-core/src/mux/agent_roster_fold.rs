@@ -179,19 +179,20 @@ impl Mux {
             }
             let mut deltas = Vec::new();
             while host.cursor < commit.sequence {
-                let page = match registry.session_journal_after(host.cursor, 512) {
+                // Terminal output between agent events is skipped by the read:
+                // the roster ignores it, and this runs under the registry lock.
+                let (records, reached) = match registry.session_journal_without_output_after(
+                    host.cursor,
+                    commit.sequence,
+                    512,
+                ) {
                     Ok(page) => page,
                     Err(error) => {
                         eprintln!("cmux-tui: reading agent journal tail failed: {error}");
                         return;
                     }
                 };
-                if page.records.is_empty() {
-                    break;
-                }
-                for record in
-                    page.records.iter().take_while(|record| record.sequence <= commit.sequence)
-                {
+                for record in &records {
                     let changes = host.roster.apply(&RosterEvent::from_record(record));
                     // Hooks already use the durable projector, which decides
                     // events with the same session fence as this fold.
@@ -202,8 +203,8 @@ impl Mux {
                     {
                         deltas.extend(changes);
                     }
-                    host.cursor = record.sequence;
                 }
+                host.cursor = reached;
             }
             (deltas, host.cursor, host.roster.snapshot().to_string())
         };

@@ -1,6 +1,7 @@
 import CmuxNextBrowser
 import CmuxNextDaemon
 import CmuxNextHistory
+import CmuxNextSettings
 import Foundation
 
 /// The read-side merge of every history owner (plans/cmux-next/history.md
@@ -19,6 +20,7 @@ final class HistoryService {
     let hidden: HiddenHistoryStore
     let agents: AgentHistory
     let commands: CommandHistory
+    let closedRetention: ClosedHistoryRetention
     /// Tabs this process made a page for (a later page for the same tab is
     /// a reload, not a visit).
     var installedPageKeys: Set<String> = []
@@ -30,6 +32,7 @@ final class HistoryService {
         hidden = HiddenHistoryStore(services: services)
         agents = AgentHistory(services: services, hidden: hidden)
         commands = CommandHistory(services: services)
+        closedRetention = ClosedHistoryRetention(services: services)
     }
 
     /// Launch: page history becomes durable in `supportDirectory`.
@@ -41,6 +44,15 @@ final class HistoryService {
         cache.onProfileHistoryCreated = { [weak self] profile, history in self?.attach(history, profile: profile) }
         cache.onProfileHistoryDropped = { [weak self] profile in self?.forget(profile: profile) }
         adoptDaemonHistoryOnFirstConnection()
+        // Folders of closed workspaces deleted while the app was not running (the CLI, another app).
+        DaemonClosedHistory.emptyAgentHomeTrash()
+    }
+
+    /// Launch: keeps each daemon's command recording and closed-history
+    /// retention in step with the settings.
+    func startDaemonSync(settings: SettingsController) {
+        commands.start(settings: settings)
+        closedRetention.start(settings: settings)
     }
 
     // MARK: Pages
@@ -133,9 +145,11 @@ final class HistoryService {
     }
 
     /// Closed tabs, screens and workspaces, as the daemons record them
-    /// (`closed-history-v2`): the only closed history (reopen-closed.md 9).
+    /// (`closed-history-v2`): the only closed history (reopen-closed.md 9). Newest first, a page
+    /// closed again once (``DaemonClosedHistory/newestOnce(_:_:)``).
     func closedEntries() -> [HistoryEntry] {
-        DaemonClosedHistory.entries(DaemonClosedHistory.allKinds, in: services).filter { Self.isWorthReopening($0.item) }.map { entry in
+        let shown = DaemonClosedHistory.entries(DaemonClosedHistory.allKinds, in: services).filter { Self.isWorthReopening($0.item) }
+        return DaemonClosedHistory.newestOnce(shown) { ($0.item, $0.daemon.machineID) }.map { entry in
             let item = entry.item, tab = Self.shownTab(item)
             let kind: CmuxNextHistory.ClosedItem.Kind = switch item.kind {
             case .tab: tab?.kind == "browser" ? .browserTab : .terminalTab
@@ -196,9 +210,9 @@ final class HistoryService {
         let wants = { (kind: HistoryEntry.Kind) in kinds.isEmpty || kinds.contains(kind) }
         let since = range.start(now: Date())
         if daemonHistory != nil {
-            // The daemon removes page visits and hides agents; closed items age out in their
-            // owners; the trail is the app's; terminal commands are deleted as rows in each daemon.
-            let appOwned: Set<HistoryEntry.Kind> = [.location, .command]
+            // The daemon removes page visits and trail entries and hides agents; terminal commands
+            // are deleted as rows in each connected daemon. The app's Back/Forward steps drop too.
+            let appOwned: Set<HistoryEntry.Kind> = [.command]
             let owned = kinds.isEmpty ? Set(HistoryEntry.Kind.allCases).subtracting(appOwned) : kinds.subtracting(appOwned)
             if !owned.isEmpty { daemonMutation { try await $0.clear(kinds: owned, range: range) } }
             if wants(.command) { commands.delete(since: since) }
@@ -244,9 +258,11 @@ final class HistoryService {
     func remove(_ entry: HistoryEntry) {
         // Pages keep the app path: the omnibox removes the URL and its persistence (the daemon when
         // it serves history-v1) removes every visit of it.
-        if daemonHistory != nil, entry.kind != .location, entry.kind != .page, entry.kind != .command {
+        if daemonHistory != nil, entry.kind != .page, entry.kind != .command {
             let id = entry.id
             daemonMutation { try await $0.remove(ids: [id]) }
+            // The daemon removes every trail entry of the place; so do the app's Back/Forward steps.
+            if case .location(let location, _) = entry.payload { services.locationTrail.remove(location.key) }
             onChange?()
             return
         }

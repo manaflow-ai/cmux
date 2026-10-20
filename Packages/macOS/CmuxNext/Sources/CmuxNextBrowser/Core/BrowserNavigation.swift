@@ -20,8 +20,10 @@ public nonisolated struct BrowserLoadError: Error, Hashable, Sendable {
     public var message: String
     public var failingURL: URL?
     /// The engine draws its own page for this failure, so the pane shows no
-    /// cmux view over it: only Chromium's certificate interstitial, after
-    /// Proceed on a named host left the decision to it (HSTS).
+    /// cmux view over it: Chromium's net error pages and certificate
+    /// interstitial in a Chromium tab (Lawrence 2026-10-13). WebKit draws
+    /// none, so its tabs show cmux's pages; so does an agent-driven
+    /// Chromium tab for a certificate error.
     public var engineShowsPage = false
 
     public init(domain: String, code: Int, message: String, failingURL: URL? = nil) {

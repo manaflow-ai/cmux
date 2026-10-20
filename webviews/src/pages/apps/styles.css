@@ -13,7 +13,7 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 8px 12px;
-  padding: 10px 16px;
+  padding: 10px var(--page-edge);
   border-bottom: 1px solid var(--page-separator);
 }
 
@@ -57,10 +57,20 @@
 }
 
 .apps-error {
-  display: block;
-  padding: 6px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px var(--page-edge);
   color: var(--page-text-2);
   border-bottom: 1px solid var(--page-separator);
+}
+
+.apps-error-copy {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  min-width: 0;
 }
 
 .apps-scroll {
@@ -72,7 +82,7 @@
 .apps-discover-list {
   max-width: 1200px;
   margin: 0 auto;
-  padding: 0 16px 24px;
+  padding: 0 var(--page-edge) 24px;
 }
 
 .apps-chips {
@@ -204,7 +214,7 @@
 
 .apps-badge {
   display: inline-block;
-  font-size: 10.5px;
+  font-size: var(--text-caption);
   padding: 1px 6px;
   border-radius: 999px;
   background: var(--page-hover);
@@ -267,6 +277,17 @@
   flex: 1;
   overflow-y: auto;
   min-height: 0;
+}
+
+.apps-detail-state .apps-detail-body {
+  min-height: 220px;
+}
+
+.apps-detail-state-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
 }
 
 .apps-detail-body {
@@ -462,7 +483,7 @@ code {
 .apps-installed {
   max-width: 980px;
   margin: 0 auto;
-  padding: 16px;
+  padding: var(--page-edge);
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -513,6 +534,52 @@ code {
   color: var(--page-text-3);
   padding: 24px;
   text-align: center;
+}
+
+.apps-state {
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  gap: 6px;
+  flex: 1;
+  min-height: 180px;
+  padding: 32px;
+  color: var(--page-text-2);
+  text-align: center;
+}
+
+.apps-state strong {
+  color: var(--page-text);
+  font-size: var(--text-body);
+}
+
+.apps-state > span:last-child {
+  max-width: 340px;
+  font-size: var(--text-detail);
+}
+
+.apps-state-mark {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  margin-bottom: 4px;
+  border: 1px solid var(--page-separator);
+  border-radius: 9px;
+  color: var(--page-text-2);
+  background: var(--page-hover);
+  font-size: var(--text-title);
+}
+
+.apps-state-empty {
+  min-height: 220px;
+  margin-top: 8px;
+  border: 1px dashed var(--page-separator);
+  border-radius: 12px;
+}
+
+.apps-state-error {
+  gap: 8px;
 }
 
 @media (prefers-reduced-motion: reduce) {

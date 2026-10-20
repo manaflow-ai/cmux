@@ -8,7 +8,7 @@ import CmuxNextIcons
 /// when it has anything. Drag an item to reorder it; drop a link to bookmark
 /// it there. Frames are laid out by hand (no Auto Layout inside the bar).
 public final class BookmarksBarView: NSView {
-    public static var height: CGFloat { Metrics.tabHeight + Metrics.space2 }
+    public static var height: CGFloat { Metrics.controlHeight + Metrics.space2 }
     static let dragType = NSPasteboard.PasteboardType("com.cmuxterm.bookmark-id")
 
     public weak var source: (any BookmarksBarSource)? { didSet { reload() } }
@@ -16,7 +16,7 @@ public final class BookmarksBarView: NSView {
     private var visibleCount = 0
     private let overflow = NSButton()
     private let otherButton = NSButton()
-    private let emptyLabel = NSTextField(labelWithString: "")
+    private let emptyLabel = ChromeLabel(labelWithString: "")
     private let dropIndicator = CALayer()
     private var menus: [BookmarkFolderMenu] = []
     private var isStale = true
@@ -59,7 +59,7 @@ public final class BookmarksBarView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    public override var isFlipped: Bool { true }
+    nonisolated public override var isFlipped: Bool { true }
 
     /// Rebuilds the items from the source (the host calls it when the
     /// profile's bookmarks change). A bar not in a window (a hidden tab)
@@ -92,7 +92,7 @@ public final class BookmarksBarView: NSView {
     public override func layout() {
         super.layout()
         let inset = Metrics.paneChromeInset
-        let itemHeight = Metrics.tabHeight
+        let itemHeight = Metrics.controlHeight
         let y = (bounds.height - itemHeight) / 2
         otherButton.font = Typography.body
         overflow.font = Typography.body
@@ -125,7 +125,7 @@ public final class BookmarksBarView: NSView {
                                   width: max(0, bounds.width - 2 * inset - otherWidth - Metrics.space4), height: labelHeight)
     }
 
-    public override var wantsUpdateLayer: Bool { true }
+    nonisolated public override var wantsUpdateLayer: Bool { true }
 
     public override func updateLayer() {
         performWithTheme {

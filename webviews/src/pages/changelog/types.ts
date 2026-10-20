@@ -32,6 +32,8 @@ export interface Highlight {
   body: string;
   media?: HighlightMedia[];
   action?: { id: string; title: string };
+  /** The highlight file's category; absent reads as new. */
+  category?: WhatsNewCategory;
 }
 
 /** Text per Apple language code (`WhatsNewText`); `en` is always there. */
@@ -64,12 +66,21 @@ export interface SummaryLine {
   title: string;
 }
 
+/** One change of a build: its title, author and pull request (the provider fills these from the
+    commit subjects when older notes carry none, `ReleaseNotes.changeItems`). */
+export interface ChangeItem {
+  title: string;
+  author?: string;
+  pr?: number;
+}
+
 export interface ReleaseNotes {
   build: string;
   shortVersion: string;
   date: string;
   highlights: Highlight[];
   changes: string[];
+  items?: ChangeItem[];
   whatsNew?: WhatsNewDocument;
   summary?: SummaryLine[];
 }

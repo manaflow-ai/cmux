@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextBrowser
 import CmuxNextBrowserImport
+import CmuxNextCookieImport
 import CmuxNextDesign
 import CmuxNextOnboarding
 import CmuxNextSettings
@@ -20,12 +21,15 @@ final class AppOnboardingServices: OnboardingServices {
         self.owner = owner
     }
 
-    func detectBrowsers() async -> [BrowserSource] {
-        await Task.detached {
-            let environment = ImportEnvironment.live { NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0) }
-            return BrowserSourceDetector(environment: environment).detect()
-        }.value
-    }
+    /// Folder grants (Debug Settings `browserImport.folderGrant`).
+    private let folderAccess = BrowserFolderAccess()
+
+    func detectBrowsers() async -> [BrowserSource] { await folderAccess.detect() }
+    func browsersAwaitingAccess() async -> [ImportBrowser] { await folderAccess.awaiting() }
+    func accessFolder(for browser: ImportBrowser) -> URL? { folderAccess.folder(browser) }
+    func requestFolderAccess(for browser: ImportBrowser) async -> Bool { await folderAccess.request(browser) }
+
+    func importPasswordsFromCSV(into profile: String?) { try? PasswordCSVFiles(services: services).chooseImport(profile: profile ?? BrowserProfileRecord.defaultID) }
 
     func runImport(_ plan: ImportPlan, progress: @escaping @MainActor (ImportProgress) -> Void) async throws -> ImportSummary {
         let cache = services.cache
@@ -35,27 +39,39 @@ final class AppOnboardingServices: OnboardingServices {
         let cef = cache.cef
         // One Keychain prompt per browser for cookies and passwords together; the keys go when the run ends.
         let keys = OneReadSafeStorage(SafeStorageKeys().live())
-        let cookies = CookieImporter(destination: AppCookieDestination { writes, profile in try await cef.importCookies(writes, into: profile) },
+        let cookies = CookieImporter(destination: ChromiumCookieDestination { writes, profile in try await cef.importCookies(writes, into: profile) },
                                      keys: keys)
         // Passwords only from profiles the user agreed to on the consent screen (the plan carries no others).
         var passwords: PasswordImporter?
+        // Sign-ins saved with another password are held for the toast's Replace when this fork can replace them (API 20).
+        var hold: PasswordConflictHold?
         if plan.items.contains(where: { $0.kinds.contains(.passwords) }), await cef.canImportPasswords() {
-            passwords = PasswordImporter(keys: keys, destination: AppPasswordDestination(available: true) { rows, profile in
+            hold = cef.canReplacePasswords ? PasswordConflictHold { rows, profile in try await cef.replacePasswords(rows, in: profile) } : nil
+            passwords = PasswordImporter(keys: keys, destination: AppPasswordDestination(available: true, hold: hold) { rows, profile in
                 try await cef.importPasswords(rows, into: profile)
             }, primaryPassword: { profile in await FirefoxPrimaryPassword.prompt(profile) })
         }
         let importer = BrowserImporter(provisioning: AppBrowserProfileProvisioning(profiles: services.browserProfiles), store: owner.importStore,
                                        cookies: cookies, passwords: passwords)
-        let summary = try await importer.run(plan, into: destination) { step in
-            Task { @MainActor in progress(step) }
+        let summary: ImportSummary
+        let endAccess = folderAccess.access(plan)
+        defer { endAccess() }
+        do {
+            summary = try await importer.run(plan, into: destination) { step in
+                Task { @MainActor in progress(step) }
+            }
+        } catch {
+            hold?.release()
+            throw error
         }
         owner.browserImportOffer.importFinished(summary)
+        // The app window, not the tool window: closing that with Done would take the offer with it.
+        let windows = services.windows
+        if let hold { BrowserImportConflictOffer.offer(hold) { windows.active?.window ?? NSApp.mainWindow } }
         return summary
     }
 
-    func canImportPasswords() async -> Bool {
-        await services.cache.cef.canImportPasswords()
-    }
+    func canImportPasswords() async -> Bool { await services.cache.cef.canImportPasswords() }
 
     /// Touch ID, or the Mac's password where there is none. Only a Mac with
     /// no login password at all goes on without it; any other failure stops
@@ -70,14 +86,8 @@ final class AppOnboardingServices: OnboardingServices {
         return (try? await context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason)) ?? false
     }
 
-    func openExternal(_ url: URL) {
-        NSWorkspace.shared.openInBackground(url)
-    }
-
-    /// The person's click in the import step: the same run as the palette's Import from Another Browser….
-    func importFromFiles(into profile: String?) {
-        BrowserFileImport(services: services).run(profile: profile ?? BrowserProfileRecord.defaultID)
-    }
+    func openExternal(_ url: URL) { NSWorkspace.shared.openInBackground(url) }
+    func importFromFiles(into profile: String?) { BrowserFileImport(services: services).run(profile: profile ?? BrowserProfileRecord.defaultID) }
 
     /// Computer Use Setup's grants (`ComputerUseSetup`, the same state the
     /// palette action and Settings show). The step shows whenever Computer
@@ -89,18 +99,12 @@ final class AppOnboardingServices: OnboardingServices {
         services.registry.disabledFeatures.contains(.computerUse) ? nil : computerUseSource
     }
 
-    private var resolvedComputerUseSource: (any ComputerUsePermissionSource)?
-    private var computerUseSource: any ComputerUsePermissionSource {
-        if let resolvedComputerUseSource { return resolvedComputerUseSource }
+    private lazy var computerUseSource: any ComputerUsePermissionSource = {
         #if DEBUG
         if ProcessInfo.processInfo.environment["CMUX_NEXT_ONBOARDING_COMPUTER_USE"] == "mock" {
-            let mock = MockComputerUsePermissionSource(helperAppURL: URL(fileURLWithPath: "/Applications/cmux Computer Use.app"))
-            resolvedComputerUseSource = mock
-            return mock
+            return MockComputerUsePermissionSource(helperAppURL: URL(fileURLWithPath: "/Applications/cmux Computer Use.app"))
         }
         #endif
-        let source = AppComputerUsePermissionSource(setup: services.onboarding.computerUseSetup)
-        resolvedComputerUseSource = source
-        return source
-    }
+        return AppComputerUsePermissionSource(setup: services.onboarding.computerUseSetup)
+    }()
 }

@@ -72,6 +72,19 @@ nonisolated enum BookmarkActionCatalog: ActionCatalogGroup {
                 surfaces: [.palette, .contextMenu], arguments: [query], targets: [.bookmark],
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.clipboard), contextMenus: [ActionSurfaceCatalog.p(.bookmark, .inspect, 150)])
             ),
+            // A folder's own icon (`bookmark-icon-v1`): an icon argument sets it (CLI, MCP),
+            // else the icon picker opens beside the folder. A bookmark's menu leaves both out.
+            ActionDescriptor(
+                id: "bookmark.setIcon", title: t("action.bookmark.setIcon", "Set Bookmark Folder Icon…"),
+                keywords: ["bookmark", "folder", "icon", "emoji", "symbol"], category: .browser, symbol: "face.smiling",
+                surfaces: [.contextMenu], arguments: [query, CatalogArgument.iconString.optional], targets: [.bookmark],
+                cliName: "bookmark set-icon"
+            ),
+            ActionDescriptor(
+                id: "bookmark.clearIcon", title: t("action.bookmark.clearIcon", "Remove Bookmark Folder Icon"),
+                keywords: ["bookmark", "folder", "icon", "emoji", "symbol", "reset"], category: .browser, symbol: "xmark.circle",
+                surfaces: [.contextMenu], arguments: [query], targets: [.bookmark], cliName: "bookmark clear-icon"
+            ),
             ActionDescriptor(
                 id: "bookmark.move", title: t("action.bookmark.move", "Move Bookmark…"),
                 keywords: ["bookmark", "folder", "reorder", "move"], category: .browser, symbol: "arrow.up.arrow.down",

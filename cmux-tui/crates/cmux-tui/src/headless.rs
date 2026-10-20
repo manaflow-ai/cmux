@@ -23,6 +23,9 @@ where
     // The daemon is ready: apps with an `always` server start off this path.
     #[cfg(unix)]
     cmux_tui_core::server::start_apps_when_ready(mux);
+    // The brains of the Chiefs that are not the default, when the app asked
+    // for them (CMUX_TUI_CHIEF_BRAINS); they end with this owner.
+    let chief_brains = cmux_tui_core::chief_brains::start(mux, socket_path);
     // Keep the process alive; the control socket drives everything and
     // the mux reaps exited surfaces itself. The loop blocks until a signal,
     // a daemon shutdown request or the end of the remote runtime wakes it;
@@ -61,6 +64,9 @@ where
         generation = wake.wait(generation).unwrap();
     }
     drop(generation);
+    if let Some(chief_brains) = chief_brains {
+        chief_brains.stop();
+    }
     #[cfg(unix)]
     if let Some(orphan_exit) = orphan_exit {
         orphan_exit.stop();
@@ -70,20 +76,53 @@ where
 
 /// The WebSocket token: `--ws-token`, else `server.ws_token`. A headless
 /// daemon with a WebSocket listener needs one (fail closed): it has no TUI
-/// to approve a pairing, and only a human surface may approve one (cx-ehrq).
+/// to approve a pairing on its own (cx-ehrq). On a loopback listener with no
+/// configured token it mints one (`minted` true) that the caller writes to
+/// the 0600 credential file next to the socket (`websocket_credential`),
+/// so a same-user host (the app) reads it and nothing puts it on argv
+/// (cx-hnmbt.2). A wider bind still needs a configured token.
 pub(crate) fn ws_token(
     args: &Args,
     ws_addr: &Option<String>,
     configured: &Option<String>,
-) -> anyhow::Result<Option<String>> {
+) -> anyhow::Result<WsToken> {
     let token = args.ws_token.clone().or_else(|| configured.clone());
     let token = token.filter(|token| !token.trim().is_empty());
-    if args.headless && ws_addr.is_some() && token.is_none() {
+    if !args.headless || token.is_some() {
+        return Ok(WsToken { token, minted: false });
+    }
+    let Some(addr) = ws_addr else { return Ok(WsToken { token: None, minted: false }) };
+    let loopback =
+        addr.parse::<std::net::SocketAddr>().is_ok_and(|address| address.ip().is_loopback());
+    if !loopback {
         anyhow::bail!(
-            "--headless --ws needs --ws-token (or server.ws_token): a headless daemon has no TUI to approve a pairing"
+            "--headless --ws on a non-loopback address needs --ws-token (or server.ws_token): a headless daemon has no TUI to approve a pairing"
         );
     }
-    Ok(token)
+    Ok(WsToken { token: Some(websocket_credential::mint_token()?), minted: true })
+}
+
+/// The WebSocket token a daemon starts with, and whether it minted it.
+pub(crate) struct WsToken {
+    pub token: Option<String>,
+    pub minted: bool,
+}
+
+/// Stops the listeners and the mux of a served session, then releases the
+/// socket.
+#[cfg(unix)]
+pub(crate) fn finish_server_shutdown<W, R>(
+    websocket_server: Option<W>,
+    mux: &Arc<Mux>,
+    socket_path: &Path,
+    remote_shutdown: anyhow::Result<Option<R>>,
+    result: anyhow::Result<()>,
+) -> anyhow::Result<()> {
+    drop(websocket_server);
+    mux.shutdown();
+    mux.release_ownership(socket_path);
+    remote_shutdown.map(|_| ())?;
+    result
 }
 
 /// Wakes `run_headless`. Callers set their flag first; the wait re-checks
@@ -106,19 +145,23 @@ mod tests {
 
     #[test]
     fn a_headless_websocket_listener_needs_a_token() {
+        let token = |args: &crate::Args, ws: &Option<String>, configured: &Option<String>| {
+            super::ws_token(args, ws, configured).map(|value| value.token)
+        };
         let ws = Some("127.0.0.1:0".to_string());
+        let wide = Some("0.0.0.0:0".to_string());
         let headless = args(&["--headless", "--ws", "127.0.0.1:0"]);
-        assert!(super::ws_token(&headless, &ws, &None).is_err());
-        assert!(super::ws_token(&headless, &ws, &Some(" ".into())).is_err());
-        assert_eq!(
-            super::ws_token(&headless, &ws, &Some("t".into())).unwrap().as_deref(),
-            Some("t")
-        );
+        assert!(token(&headless, &wide, &None).is_err());
+        assert!(token(&headless, &wide, &Some(" ".into())).is_err());
+        // A loopback listener mints its own credential (cx-hnmbt.2).
+        let minted = super::ws_token(&headless, &ws, &None).unwrap();
+        assert!(minted.minted && minted.token.is_some_and(|value| value.len() == 64));
+        assert_eq!(token(&headless, &ws, &Some("t".into())).unwrap().as_deref(), Some("t"));
         let flagged = args(&["--headless", "--ws", "127.0.0.1:0", "--ws-token", "f"]);
-        assert_eq!(super::ws_token(&flagged, &ws, &None).unwrap().as_deref(), Some("f"));
+        assert_eq!(token(&flagged, &ws, &None).unwrap().as_deref(), Some("f"));
         // The TUI that runs the daemon approves pairings itself.
         let interactive = args(&["--ws", "127.0.0.1:0"]);
-        assert_eq!(super::ws_token(&interactive, &ws, &None).unwrap(), None);
-        assert_eq!(super::ws_token(&headless, &None, &None).unwrap(), None);
+        assert_eq!(token(&interactive, &ws, &None).unwrap(), None);
+        assert_eq!(token(&headless, &None, &None).unwrap(), None);
     }
 }

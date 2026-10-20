@@ -5,7 +5,9 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
+import { playFailures } from "./support/galleryPlay";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("composer-capture.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -32,6 +34,7 @@ await requireBrowserLane("composer-capture.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
+    await warmViteServer(vite, "/gallery/frame.html");
     browser = await chromium.launch({ headless: true });
   });
   afterAll(async () => {
@@ -42,10 +45,15 @@ await requireBrowserLane("composer-capture.test.ts", async () => {
   const play = async (variant: string) => {
     const page = await browser!.newPage({ viewport: { width: 760, height: 560 } });
     await page.goto(stageURL(variant));
-    await page.waitForFunction(() => {
-      const ready = document.documentElement.dataset.galleryReady;
-      return ready === "1" || ready === "error";
-    });
+    // The first page waits on a cold Vite compiling the gallery, past 30 s on a busy runner.
+    await page.waitForFunction(
+      () => {
+        const ready = document.documentElement.dataset.galleryReady;
+        return ready === "1" || ready === "error";
+      },
+      undefined,
+      { timeout: 90_000 },
+    );
     await page.waitForFunction(() => Boolean(document.documentElement.dataset.galleryPlay));
     const result = await page.evaluate(() => ({
       play: document.documentElement.dataset.galleryPlay,
@@ -57,16 +65,16 @@ await requireBrowserLane("composer-capture.test.ts", async () => {
 
   test("Attach Screenshot… attaches the host's region capture", async () => {
     const result = await play("attach-screenshot");
-    expect(result.play, result.report).toBe("pass");
+    expect(playFailures(result.report)).toEqual([]);
   });
 
   test("a capture too large to attach says so", async () => {
     const result = await play("attach-screenshot-too-large");
-    expect(result.play, result.report).toBe("pass");
+    expect(playFailures(result.report)).toEqual([]);
   });
 
   test("a cancelled Attach Window… attaches nothing", async () => {
     const result = await play("attach-window-cancelled");
-    expect(result.play, result.report).toBe("pass");
+    expect(playFailures(result.report)).toEqual([]);
   });
 });

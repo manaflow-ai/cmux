@@ -12,15 +12,15 @@ final class WorkspaceStatusView: NSView {
     private var status = SidebarWorkspaceStatus()
     private var reservesBar = false
 
-    override var isFlipped: Bool { true }
-    override var wantsUpdateLayer: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
+    nonisolated override var wantsUpdateLayer: Bool { true }
 
     /// `reservesBar`: the row has a progress bar, drawn between the log line and the label.
     func configure(_ status: SidebarWorkspaceStatus, reservesBar: Bool) {
         self.status = status
         self.reservesBar = reservesBar
         while labels.count < status.lines.count {
-            let label = SidebarRowView.label(font: SidebarStyle.subtitleFont)
+            let label = SidebarRowView.attributedLabel(font: SidebarStyle.subtitleFont)
             labels.append(label)
             addSubview(label)
         }
@@ -65,7 +65,7 @@ final class WorkspaceStatusView: NSView {
         switch line {
         case .entry(let entry):
             let color = entry.tint.map(Self.color) ?? Palette.textSecondary
-            return compose(icon: entry.icon, color: color, text: entry.displayText, textColor: color)
+            return compose(icon: entry.icon, color: color, text: entry.displayText, textColor: color, image: entry.image)
         case .more(let count):
             return compose(icon: nil, color: Palette.textTertiary, text: Strings.statusMore(count), textColor: Palette.textTertiary)
         case .log(let log):
@@ -76,13 +76,20 @@ final class WorkspaceStatusView: NSView {
         }
     }
 
-    /// `icon` is an SF Symbol name or one emoji; an unknown symbol name is
-    /// left out rather than drawn as text.
+    /// `icon` is an SF Symbol name or one emoji; an unknown symbol name (or a stored asset not
+    /// read yet) is left out rather than drawn as text. `image` is a stored asset's image.
     private static func compose(icon: String?, color: NSColor, text: String, textColor: NSColor,
-                                iconScale: CGFloat = 0.85) -> NSAttributedString {
+                                iconScale: CGFloat = 0.85, image: SidebarFavicon? = nil) -> NSAttributedString {
         let font = SidebarStyle.subtitleFont
         let result = NSMutableAttributedString()
-        if let icon, !icon.isEmpty {
+        if let image {
+            let attachment = NSTextAttachment()
+            let side = font.pointSize
+            attachment.image = NSImage(cgImage: image.image, size: NSSize(width: side, height: side))
+            attachment.bounds = CGRect(x: 0, y: (font.capHeight - side) / 2, width: side, height: side)
+            result.append(NSAttributedString(attachment: attachment))
+            result.append(NSAttributedString(string: " ", attributes: [.font: font]))
+        } else if let icon, !icon.isEmpty {
             let config = NSImage.SymbolConfiguration(pointSize: font.pointSize * iconScale, weight: .medium)
                 .applying(NSImage.SymbolConfiguration(paletteColors: [color]))
             if let image = NSImage(systemSymbolName: icon, accessibilityDescription: nil)?.withSymbolConfiguration(config) {

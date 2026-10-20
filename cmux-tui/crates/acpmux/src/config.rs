@@ -21,7 +21,114 @@ pub fn home() -> PathBuf {
     if let Some(path) = HOME_OVERRIDE.get() {
         return path.clone();
     }
+    default_home()
+}
+
+/// The default state directory, with no ACPMUX_HOME and no override: the
+/// person's own daemon home (a hand, which runs its own daemon, protects it).
+pub fn default_home() -> PathBuf {
     dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")).join(".acpmux")
+}
+
+/// Make one acpmux state directory owner-only, including an existing directory
+/// created by an older build under a permissive umask. Refuse links and a
+/// directory owned by another user before changing its permissions.
+#[cfg(unix)]
+pub(crate) fn private_state_dir(dir: &Path) -> Result<()> {
+    use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt};
+
+    std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir)?;
+    let opened = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW)
+        .open(dir)
+        .with_context(|| format!("open private state directory {}", dir.display()))?;
+    let metadata = opened.metadata()?;
+    // SAFETY: getuid has no preconditions.
+    let uid = unsafe { libc::getuid() };
+    anyhow::ensure!(
+        metadata.is_dir() && metadata.uid() == uid,
+        "{} is not a state directory owned by this user",
+        dir.display()
+    );
+    refuse_extended_acl(&opened, dir)?;
+    if metadata.mode() & 0o077 != 0 {
+        opened
+            .set_permissions(std::fs::Permissions::from_mode(0o700))
+            .with_context(|| format!("make {} owner-only", dir.display()))?;
+    }
+    Ok(())
+}
+
+/// Open an existing state file without following a final symlink, verify its
+/// owner and type, and narrow an older file to mode 0600 before reading it.
+#[cfg(unix)]
+pub(crate) fn private_state_file(path: &Path) -> Result<std::fs::File> {
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
+
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(path)
+        .with_context(|| format!("open private state file {}", path.display()))?;
+    let metadata = file.metadata()?;
+    // SAFETY: getuid has no preconditions.
+    let uid = unsafe { libc::getuid() };
+    anyhow::ensure!(
+        metadata.is_file() && metadata.uid() == uid,
+        "{} is not a state file owned by this user",
+        path.display()
+    );
+    refuse_extended_acl(&file, path)?;
+    if metadata.mode() & 0o077 != 0 {
+        file.set_permissions(std::fs::Permissions::from_mode(0o600))
+            .with_context(|| format!("make {} owner-only", path.display()))?;
+    }
+    Ok(file)
+}
+
+/// macOS numeric chmod leaves extended ACL entries intact. Refuse them before
+/// trusting old state; accepting and merely deleting one would authenticate
+/// bytes another account may already have changed.
+#[cfg(target_os = "macos")]
+fn refuse_extended_acl(file: &std::fs::File, path: &Path) -> Result<()> {
+    use std::os::fd::AsRawFd;
+
+    type Acl = *mut core::ffi::c_void;
+    const ACL_TYPE_EXTENDED: libc::c_int = 0x0000_0100;
+    unsafe extern "C" {
+        fn acl_get_fd_np(fd: libc::c_int, acl_type: libc::c_int) -> Acl;
+        fn acl_free(object: *mut core::ffi::c_void) -> libc::c_int;
+    }
+
+    // SAFETY: the descriptor is live; the returned ACL is released below.
+    let acl = unsafe { acl_get_fd_np(file.as_raw_fd(), ACL_TYPE_EXTENDED) };
+    if acl.is_null() {
+        let error = std::io::Error::last_os_error();
+        // macOS reports ENOENT when the object has no extended ACL.
+        return if error.raw_os_error() == Some(libc::ENOENT) { Ok(()) } else { Err(error.into()) };
+    }
+    // SAFETY: `acl` came from acl_get_fd_np and is released exactly once.
+    unsafe { acl_free(acl) };
+    anyhow::bail!("{} has an extended ACL", path.display())
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn refuse_extended_acl(_file: &std::fs::File, _path: &Path) -> Result<()> {
+    Ok(())
+}
+
+/// Windows: owner-only DACL on the directory and children, including a
+/// directory an older build made with inherited wider permissions.
+#[cfg(windows)]
+pub(crate) fn private_state_dir(dir: &Path) -> Result<()> {
+    crate::owner_only::private_dir(dir)?;
+    Ok(())
+}
+
+#[cfg(windows)]
+pub(crate) fn private_state_file(path: &Path) -> Result<std::fs::File> {
+    Ok(crate::owner_only::open_read(path)?)
 }
 
 /// Unix socket path, by the rule every host and client shares
@@ -44,32 +151,56 @@ pub fn socket_path() -> PathBuf {
     // socket there. The long path fails to bind with a clear error instead.
     let dir = PathBuf::from(format!("/tmp/acpmux-{uid}"));
     if resolved.parent() == Some(dir.as_path()) && !private_dir(&dir, uid) {
-        return configured.map(PathBuf::from).unwrap_or_else(|| home().join("acpmux.sock"));
+        return absolute(
+            configured.map(PathBuf::from).unwrap_or_else(|| home().join("acpmux.sock")),
+        );
     }
-    resolved
+    absolute(resolved)
 }
 
-/// Windows port: the socket path rule there is `cmux::local_socket`'s (a
-/// later landing).
-#[cfg(not(unix))]
+/// A relative `ACPMUX_SOCKET` against this process's folder: the daemon
+/// hands the path to harnesses that run in a project folder
+/// (`hub/person.rs` `caller_env`), where a relative one names another file.
+fn absolute(path: PathBuf) -> PathBuf {
+    if path.is_relative() {
+        std::env::current_dir().map(|d| d.join(&path)).unwrap_or(path)
+    } else {
+        path
+    }
+}
+
+/// Windows: `ACPMUX_SOCKET`, else `<home>\\acpmux.sock`; a long home (AF_UNIX
+/// paths are limited to 108 bytes there too) falls back to a short path in an
+/// owner-only folder in this user's temp folder, derived from the home path
+/// so daemon and clients agree.
+#[cfg(windows)]
 pub fn socket_path() -> PathBuf {
-    std::env::var("ACPMUX_SOCKET")
-        .ok()
-        .filter(|v| !v.is_empty())
-        .map(PathBuf::from)
-        .unwrap_or_else(|| home().join("acpmux.sock"))
+    if let Some(v) = std::env::var("ACPMUX_SOCKET").ok().filter(|v| !v.is_empty()) {
+        return absolute(PathBuf::from(v));
+    }
+    let preferred = home().join("acpmux.sock");
+    if preferred.as_os_str().len() < 96 {
+        return preferred;
+    }
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in home().to_string_lossy().bytes() {
+        hash ^= b as u64;
+        hash = hash.wrapping_mul(0x0100_0000_01b3);
+    }
+    let dir = std::env::temp_dir().join("acpmux");
+    let path = dir.join(format!("{hash:016x}.sock"));
+    if path.as_os_str().len() < 96 && cmux::local_socket::private_directory(&dir).is_ok() {
+        return path;
+    }
+    preferred
 }
 
 /// Create `dir` mode 0700 if missing; true only when it is a real directory
 /// owned by `uid` that nobody else can enter.
 #[cfg(unix)]
 fn private_dir(dir: &Path, uid: u32) -> bool {
-    use std::os::unix::fs::{DirBuilderExt, MetadataExt};
-    let _ = std::fs::DirBuilder::new().mode(0o700).create(dir);
-    match std::fs::symlink_metadata(dir) {
-        Ok(m) => m.is_dir() && m.uid() == uid && m.mode() & 0o077 == 0,
-        Err(_) => false,
-    }
+    // SAFETY: getuid has no preconditions.
+    uid == unsafe { libc::getuid() } && private_state_dir(dir).is_ok()
 }
 
 /// How acpmux talks to the agent process.
@@ -231,6 +362,25 @@ pub fn derive_family(name: &str, profile: &HarnessProfile) -> String {
     name.split(['-', '_', '.']).next().unwrap_or(name).to_lowercase()
 }
 
+/// Which agent store a fork through an earlier turn copies (`hub/fork_at.rs`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TurnCut {
+    /// Claude Code's transcript (`claude -p`, Claude Code's own protocol).
+    Claude,
+    /// Codex's rollout (codex-acp, which forks a thread only at its end).
+    Codex,
+}
+
+/// How profile `name` forks through an earlier turn; None when its agent
+/// forks only at a chat's end.
+pub fn turn_cut(name: &str, profile: &HarnessProfile) -> Option<TurnCut> {
+    match profile.kind {
+        HarnessKind::ClaudeStdio => Some(TurnCut::Claude),
+        HarnessKind::Acp if derive_family(name, profile) == "codex" => Some(TurnCut::Codex),
+        _ => None,
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 #[derive(Default)]
@@ -382,6 +532,30 @@ impl Default for TuiConfig {
     }
 }
 
+/// `titles` in the config: how a chat its harness never titles gets one.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct TitlesConfig {
+    /// `generate`: title such a chat after its first turn. Default on.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub generate: Option<bool>,
+    /// `command`: an argv that reads the request on stdin and prints the
+    /// title. Env `ACPMUX_TITLE_COMMAND` (one program) wins. Unset: the
+    /// chat's own Claude Code profile, with `model`; another harness's chat
+    /// then keeps its first-prompt title.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub command: Option<Vec<String>>,
+    /// `model`: the Claude model of the default command. Default `haiku`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+}
+
+impl TitlesConfig {
+    pub fn is_default(&self) -> bool {
+        self == &Self::default()
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct Config {
@@ -392,6 +566,10 @@ pub struct Config {
     pub peers: BTreeMap<String, PeerConfig>,
     #[serde(default, alias = "defaultAgent")]
     pub default_harness: Option<String>,
+    /// More login-shell variables agents get, beyond the allow-list
+    /// (`login_env::allowed`): exact names or `PREFIX_*`. Default empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub login_env_allow: Vec<String>,
     /// Per-family (or per-profile) session defaults, keyed by family or
     /// profile name: `{"claude": {"model": "claude-opus-5", "effort": "high",
     /// "policy": "approve-edits", "prefer": ["claude-cr", "claude"]}}`.
@@ -405,6 +583,19 @@ pub struct Config {
     pub store: StoreConfig,
     #[serde(default)]
     pub permission_policy: PermissionPolicy,
+    /// `defaultPermissionMode`: the permission mode a new chat starts in when
+    /// the person has not picked one for its harness (`hub/start_mode.rs`):
+    /// `fullAccess`, `standard` or `ask`. Absent: the cmux setting
+    /// `agents.defaultPermissionMode`, else `fullAccess`. For acpmux without
+    /// the cmux app, and for hermetic tests.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_permission_mode: Option<String>,
+    /// `lastPermissionMode`, `lastPermissionModeSetting`: the level of the latest mode pick
+    /// from the app pane, and the cmux setting then (`hub/start_mode.rs` `start_level`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_permission_mode: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_permission_mode_setting: Option<String>,
     /// `composerMaxRows`: most rows the TUI composer grows to before it
     /// scrolls. Env `ACPMUX_COMPOSER_ROWS` overrides. Default 12.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -420,6 +611,16 @@ pub struct Config {
     /// ended. Default 90000.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_start_timeout_ms: Option<u64>,
+    /// `autoResumeDelaysMs`: the wait before each automatic continuation of a turn a
+    /// connection error cut off (`hub/auto_resume.rs`), one entry per attempt. Default
+    /// `[10000, 60000, 300000, 1200000]`; `[]` turns it off. Checked on load: at most 4
+    /// entries of 1 s to 1 h; anything else falls back to the default with a warning.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::hub::auto_resume::delays_from_config"
+    )]
+    pub auto_resume_delays_ms: Option<Vec<u64>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub websocket: Option<WebSocketConfig>,
     #[serde(default)]
@@ -434,6 +635,13 @@ pub struct Config {
     /// instant (`hub/pool/`).
     #[serde(default, skip_serializing_if = "PoolConfig::is_default")]
     pub pool: PoolConfig,
+    /// `btw`: side sessions (`hub/btw.rs`): the model they start on, per harness.
+    #[serde(default, skip_serializing_if = "BtwConfig::is_default")]
+    pub btw: BtwConfig,
+    /// `titles`: short titles for chats their harness never titles
+    /// (`hub/titles.rs`).
+    #[serde(default, skip_serializing_if = "TitlesConfig::is_default")]
+    pub titles: TitlesConfig,
     /// `coderouterClaudeRoute`: the CodeRouter CLI subcommand that runs
     /// Claude Code through a CodeRouter route. When it is set (env
     /// `ACPMUX_CODEROUTER_CLAUDE_ROUTE` wins) and `coderouter` or `cr` is on
@@ -621,7 +829,13 @@ impl Config {
         cfg.join_discovered(discover_harnesses(route.as_deref()));
         if cfg.default_harness.is_none() {
             cfg.auto_default = true;
-            cfg.default_harness = cfg.harnesses.keys().next().cloned();
+            // A terminal harness (an installed `muse`, say) runs no ACP
+            // session, so it never becomes the default.
+            cfg.default_harness = cfg
+                .harnesses
+                .iter()
+                .find(|(_, profile)| profile.kind != HarnessKind::Terminal)
+                .map(|(name, _)| name.clone());
         }
         // Installed ACP Registry agents (the cached copy; no network, nothing
         // started), after the default so a registry agent never becomes it
@@ -716,7 +930,7 @@ impl Config {
             return Ok(());
         };
         if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)?;
+            private_state_dir(parent)?;
         }
         let mut on_disk = self.clone();
         on_disk
@@ -774,74 +988,44 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
             .create(true)
             .truncate(true)
             .mode(0o600)
+            .custom_flags(libc::O_NOFOLLOW)
             .open(&tmp)
             .with_context(|| format!("write {}", tmp.display()))?;
         f.write_all(bytes).with_context(|| format!("write {}", tmp.display()))?;
     }
-    // Windows port: owner-only is an ACL there (a later landing); the file
-    // keeps the folder's ACL (a user profile folder is private by default).
-    #[cfg(not(unix))]
-    std::fs::write(&tmp, bytes).with_context(|| format!("write {}", tmp.display()))?;
+    // Windows: created with an owner-only access list (`owner_only.rs`).
+    #[cfg(windows)]
+    {
+        use std::io::Write;
+        // A file a crashed process left under a reused pid is stale.
+        let mut f = match crate::owner_only::create_new(&tmp) {
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                std::fs::remove_file(&tmp).with_context(|| format!("remove {}", tmp.display()))?;
+                crate::owner_only::create_new(&tmp)
+            }
+            other => other,
+        }
+        .with_context(|| format!("write {}", tmp.display()))?;
+        f.write_all(bytes).with_context(|| format!("write {}", tmp.display()))?;
+    }
     std::fs::rename(&tmp, path).with_context(|| format!("rename to {}", path.display()))?;
     Ok(())
 }
 
-/// Variables a Claude Code session plants for its own children: a
-/// per-session API proxy and auth, hooks, and wrapper shims. A daemon or
-/// agent launched from inside such a session must not inherit them, or its
-/// Claude processes dial a proxy that dies with that session ("API Error:
-/// Connection refused"). Applied only when `CLAUDECODE` is set, so a user's
-/// own `ANTHROPIC_*` settings in a plain shell still pass through.
-pub fn scrub_nested_claude_env(cmd: &mut std::process::Command) {
-    for k in nested_claude_keys() {
-        cmd.env_remove(k);
-    }
-    cmd.env_remove(LAUNCH_CREDENTIAL_ENV);
-}
-
-/// The cmux terminal launch credential (plans/cmux-next/identity.md
-/// section 2). It names the one terminal that started a process; acpmux, its
-/// daemon, agents and hooks serve many terminals, so none of them carries it.
-/// Both scrubs remove it from every child they prepare.
-pub const LAUNCH_CREDENTIAL_ENV: &str = "CMUX_LAUNCH_CREDENTIAL";
-
-/// The keys `scrub_nested_claude_env` removes, from the daemon's environment
-/// and the imported login environment.
-fn nested_claude_keys() -> Vec<std::ffi::OsString> {
-    if std::env::var_os("CLAUDECODE").is_none() {
-        return Vec::new();
-    }
-    std::env::vars_os()
-        .map(|(k, _)| k)
-        .chain(crate::login_env::imported_keys().into_iter().map(Into::into))
-        .filter(|k| {
-            let key = k.to_string_lossy();
-            key.starts_with("CLAUDE")
-                || key.starts_with("ANTHROPIC_")
-                || key.starts_with("CMUX_CLAUDE_")
-                || key.starts_with("SUBROUTER_CLAUDE_")
-                || key == "NODE_OPTIONS"
-        })
-        .collect()
-}
-
-/// Same, for tokio's process builder.
-pub fn scrub_nested_claude_env_tokio(cmd: &mut tokio::process::Command) {
-    for k in nested_claude_keys() {
-        cmd.env_remove(k);
-    }
-    cmd.env_remove(LAUNCH_CREDENTIAL_ENV);
-}
-
+mod nested_env;
+#[cfg(windows)]
+pub(crate) use nested_env::nested_claude_keys;
+pub use nested_env::{
+    CHIEF_CREDENTIAL_ENV, LAUNCH_CREDENTIAL_ENV, scrub_nested_claude_env,
+    scrub_nested_claude_env_for, scrub_nested_claude_env_tokio, scrub_nested_claude_env_tokio_for,
+};
+pub(crate) use nested_env::{inherited_caller_scoped_keys, is_nested_claude_key};
 mod launchers;
 pub(crate) use launchers::which;
 pub use launchers::{subrouter_route, verify_launchers, verify_launchers_with};
 mod codex_adapter;
 mod discover;
-pub use codex_adapter::{
-    CODEX_ACP_PACKAGE, adapter_package_launch, codex_through_adapter_package,
-    resolve_adapter_package_bin,
-};
+pub use codex_adapter::{CODEX_ACP_PACKAGE, adapter_package_launch, resolve_adapter_package_bin};
 pub use discover::{
     CODEROUTER_CLAUDE_PROFILE, CODEROUTER_CLAUDE_ROUTE_ENV, add_coderouter_route,
     coderouter_claude_route, discover_harnesses, discover_harnesses_from,
@@ -850,6 +1034,8 @@ mod peer;
 pub use peer::PeerConfig;
 mod pool;
 pub use pool::PoolConfig;
+mod btw;
+pub use btw::BtwConfig;
 pub mod folder_profiles;
 pub mod profiles;
 pub use profiles::{

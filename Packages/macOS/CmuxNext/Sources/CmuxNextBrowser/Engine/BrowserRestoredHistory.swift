@@ -1,16 +1,20 @@
 public import Foundation
 
-/// One back/forward entry saved before a relaunch: the page, its title, and
-/// how far down it was scrolled.
+/// One back/forward entry saved before a relaunch: the page, its title,
+/// how far down it was scrolled, and whether its document came from a form
+/// submission (a POST): such an entry is never sent again without the
+/// person (BR-R1); the daemon keeps the flag with the entry.
 public nonisolated struct BrowserSavedEntry: Hashable, Sendable {
     public var url: URL
     public var title: String?
     public var scrollY: Double?
+    public var formPost: Bool
 
-    public init(url: URL, title: String? = nil, scrollY: Double? = nil) {
+    public init(url: URL, title: String? = nil, scrollY: Double? = nil, formPost: Bool = false) {
         self.url = url
         self.title = title
         self.scrollY = scrollY
+        self.formPost = formPost
     }
 
     var navigationEntry: BrowserNavigationEntry { BrowserNavigationEntry(url: url, title: title) }

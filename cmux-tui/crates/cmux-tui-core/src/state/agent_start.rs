@@ -10,7 +10,11 @@
 //! 3. `workspace`: the first folder of the workspace's terminal tabs, in
 //!    screen, pane and tab order.
 //! 4. `agent_home`: the workspace's private agent-home folder,
-//!    `<data dir>/cmux/agent-home/<workspace id>` (the app makes it).
+//!    `<data dir>/cmux/agent-home/<workspace id>` (the app makes it). A seed
+//!    that is itself an agent-home folder (Open Chat of a chat that ran in
+//!    another workspace's, cx-djoj7) is the agent-home folder instead: the
+//!    chat resumes where it ran, and acpmux adopts it only there. The
+//!    workspace's own agent-home folder as a seed is still skipped.
 //!
 //! A candidate counts only when it names an existing folder (made canonical
 //! here) that is not the user's home folder, not a folder above it, and not
@@ -125,29 +129,51 @@ pub(crate) fn check(
     Ok(folder)
 }
 
+/// `seed` canonical when it is an agent-home folder itself: a folder right
+/// under the agent-home base named by a workspace id.
+fn named_agent_home(seed: &str, base: Option<&Path>) -> Option<PathBuf> {
+    let base = canonical(base?);
+    let folder = std::fs::canonicalize(seed).ok()?;
+    let named = folder.file_name()?.to_str().is_some_and(safe_id);
+    (named && folder.is_dir() && folder.parent() == Some(base.as_path())).then_some(folder)
+}
+
 /// The answer for `inputs` (the rules in the module comment).
 pub(crate) fn resolve(inputs: &Inputs<'_>) -> Value {
-    let agent_home = inputs
+    let mut agent_home = inputs
         .agent_home_base
         .filter(|_| safe_id(inputs.workspace_id))
         .map(|base| base.join(inputs.workspace_id).to_string_lossy().into_owned());
     let mut answer = serde_json::Map::new();
-    answer.insert("agent_home".into(), json!(agent_home));
     let check = |path: &str| check(path, inputs.home, inputs.agent_home_base);
     let mut found: Option<(PathBuf, &str)> = None;
+    // A seed naming an agent-home folder decides: no later rule replaces it.
+    let mut named = false;
     if let Some(seed) = inputs.seed {
         match check(seed) {
             Ok(folder) => found = Some((folder, "seed")),
-            Err(skip) => {
-                answer.insert("skipped".into(), json!({"cwd": seed, "reason": skip.as_str()}));
-            }
+            Err(skip) => match named_agent_home(seed, inputs.agent_home_base) {
+                // The workspace's own stays skipped: its chosen or tab folder still wins.
+                Some(folder)
+                    if skip == Skip::AgentHome
+                        && agent_home.as_deref().map(Path::new).map(canonical).as_deref()
+                            != Some(folder.as_path()) =>
+                {
+                    agent_home = Some(folder.to_string_lossy().into_owned());
+                    named = true;
+                }
+                _ => {
+                    answer.insert("skipped".into(), json!({"cwd": seed, "reason": skip.as_str()}));
+                }
+            },
         }
     }
-    if found.is_none() {
+    answer.insert("agent_home".into(), json!(agent_home));
+    if found.is_none() && !named {
         found =
             inputs.chosen.and_then(|chosen| check(chosen).ok()).map(|folder| (folder, "chosen"));
     }
-    if found.is_none() {
+    if found.is_none() && !named {
         found = inputs
             .tab_folders
             .iter()
@@ -231,7 +257,7 @@ impl Mux {
             .ok_or_else(|| ResourceError::not_found("workspace", "<resolved>"))?;
         let id = workspace.as_str().to_owned();
         // The agent-home folder is named by the workspace's durable key, as the app names it
-        // (`AgentHome.path(for: workspace.id)`) and moves it on a History reopen.
+        // (`AgentHome.path(for: workspace.id)`); closed.reopen moves it (agent_home_moves).
         let key = self
             .with_state(|state| {
                 state

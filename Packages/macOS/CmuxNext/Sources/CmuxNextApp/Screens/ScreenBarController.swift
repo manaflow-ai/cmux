@@ -13,7 +13,7 @@ import Observation
 /// strip intents into `ScreenCommands` / `ScreenGroupCommands`.
 @MainActor
 final class ScreenBarController {
-    let model = TabStripModel(style: .chrome, showsNewTabButton: true)
+    let model = TabStripModel(style: .chrome, showsNewTabButton: true, allowsMultiSelection: false) // screen actions take one screen
     let view: TabStripView
     private unowned let content: WorkspaceContentController
     private let preview: ScreenPreviewSource
@@ -56,7 +56,8 @@ final class ScreenBarController {
     private func snapshot() -> Snapshot { Self.snapshot(content) }
 
     private static func snapshot(_ content: WorkspaceContentController) -> Snapshot {
-        Snapshot(bar: ScreenBarMapping.shared.snapshot(content.workspace, untitled: ScreenStrings.untitled, emojiIcon: ScreenEmojiIcon.icon),
+        Snapshot(bar: ScreenBarMapping.shared.snapshot(content.workspace, untitled: ScreenStrings.untitled, emojiIcon: ScreenEmojiIcon.icon,
+                                                       assetIcon: IconAssetImages.shared.tabIcon(owner: content.daemon)),
                  active: content.layoutModel.activeScreenID?.rawValue)
     }
 
@@ -146,7 +147,7 @@ final class ScreenBarController {
             view.restoreDetachedGroup(start.groupID)
         case .toggleGroupCollapsed, .moveGroup, .addToGroup, .removeFromGroup, .group, .createGroup:
             handleGroup(intent)
-        case .moveToNewSplit, .moveToNewColumn:
+        case .moveToNewSplit, .moveToNewColumn, .reorderTabs, .toggleAudioMute:
             break
         }
     }
@@ -234,6 +235,7 @@ final class ScreenPreviewSource: TabPreviewProvider {
         let selected = content.state.selection.selection(in: pane.id)
             ?? (pane.tabs.indices.contains(pane.defaultTabIndex) ? pane.tabs[pane.defaultTabIndex].id : pane.tabs.first?.id)
         guard let key = selected else { return nil }
-        return await content.services.cache.previewImage(for: key, maxPixelSize: maxPixelSize)
+        let cache = content.services.cache
+        return await TabPreviewSource.shown(cache.previewImage(for: key, maxPixelSize: maxPixelSize), key: key, cache: cache)
     }
 }

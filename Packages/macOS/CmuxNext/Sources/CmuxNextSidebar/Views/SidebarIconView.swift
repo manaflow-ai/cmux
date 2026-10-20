@@ -1,5 +1,4 @@
 import AppKit
-import CmuxAgentBrands
 import CmuxNextIcons
 import CmuxNextDesign
 import QuartzCore
@@ -7,22 +6,23 @@ import QuartzCore
 /// Workspace icon: the user's choice, an SF Symbol (tinted with the
 /// workspace color), one emoji (on a chip of the workspace color) or a color
 /// alone shown as a small dot; a browser workspace's page icon, untinted;
-/// else the row's type glyph from the icon
-/// registry, or the brand mark of the agent it shows, at row size.
+/// else nothing. It has no kind glyph or agent brand fallback: workspace rows
+/// are text only by default (WORKSPACE-ROWS-NO-DEFAULT-ICON, Lawrence 2026-10-14).
+/// Tab rows draw their own kind and brand marks.
 final class SidebarIconView: NSView {
     private let imageView = NSImageView()
     private let swatch = CALayer()
     private let emoji = SidebarEmojiGlyphView()
     private var icon: WorkspaceIcon?
+    /// What the last `configure` drew from (the glyphs scale with the title font).
+    private var configured: (icon: WorkspaceIcon?, pointSize: CGFloat)?
     /// One ink for every symbol, tinted or not (the solid group header's
     /// glyph ink, cx-qno.22: a red icon must not vanish on a red bar); nil
     /// keeps a symbol's tint and draws an uncolored one in the secondary text color.
     var symbolInk: NSColor? { didSet { if symbolInk != oldValue { needsDisplay = true } } }
 
-    /// Rows reserve room for a chosen icon or a built-in type glyph.
-    static func showsIcon(_ icon: WorkspaceIcon?, fallback: IconName? = nil) -> Bool {
-        icon != nil || fallback != nil
-    }
+    /// Rows reserve room only for a chosen icon or a page's favicon.
+    static func showsIcon(_ icon: WorkspaceIcon?) -> Bool { icon != nil }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -37,7 +37,7 @@ final class SidebarIconView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
-    override var wantsUpdateLayer: Bool { true }
+    nonisolated override var wantsUpdateLayer: Bool { true }
 
     /// The chip behind a colored emoji: the color, light enough that the emoji reads.
     static let chipAlpha: CGFloat = 0.35
@@ -47,9 +47,14 @@ final class SidebarIconView: NSView {
         if case .emoji(_, _?)? = icon { !swatch.isHidden } else { false }
     }
 
-    func configure(icon: WorkspaceIcon?, fallback: IconName? = nil, brand: String? = nil) {
+    func configure(icon: WorkspaceIcon?) {
+        // A row's status tick configures the row again with the same icon: keep the image. A new
+        // NSImage redraws (pack icons run their drawing handler) and relays out at the next display.
+        let pointSize = SidebarStyle.titleFont.pointSize
+        if let configured, configured.icon == icon, configured.pointSize == pointSize { return }
+        configured = (icon, pointSize)
         self.icon = icon
-        isHidden = !Self.showsIcon(icon, fallback: fallback)
+        isHidden = !Self.showsIcon(icon)
         emoji.isHidden = true
         switch icon {
         case let .emoji(text, chip)?:
@@ -65,13 +70,9 @@ final class SidebarIconView: NSView {
         case let .favicon(favicon)?:
             imageView.image = NSImage(cgImage: favicon.image, size: NSSize(width: SidebarStyle.kindGlyphSize, height: SidebarStyle.kindGlyphSize))
             imageView.isHidden = false
-        case .swatch?:
+        case .swatch?, nil:
+            imageView.image = nil
             imageView.isHidden = true
-        case nil:
-            let side = SidebarStyle.kindGlyphSize
-            imageView.image = brand.flatMap { AgentBrandCatalog.templateImage(brand: $0, size: side) }
-                ?? fallback.map { NSImage.icon($0, size: side, style: .line) }
-            imageView.isHidden = imageView.image == nil
         }
         needsDisplay = true
         needsLayout = true
@@ -88,7 +89,7 @@ final class SidebarIconView: NSView {
             } else {
                 nil
             }
-            if let tint { imageView.contentTintColor = tint }
+            if let tint { imageView.setTint(tint) }
             switch icon {
             case let .swatch(color)?:
                 swatch.isHidden = false

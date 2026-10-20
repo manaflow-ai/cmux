@@ -253,6 +253,148 @@ fn closed_reopen_publishes_the_reopened_tab_in_its_screen_like_a_tab_create() {
     );
 }
 
+/// A topology mutation remains replayable after the daemon restarts: the
+/// workspace and its surviving terminal keep their identities while the
+/// closed split tab is restored through the public CLI.
+#[test]
+fn split_close_and_restore_survive_a_daemon_restart() {
+    let mut server = HeadlessServer::start("split-close-restore-restart");
+    state_cli(&server, None, &["workspace", "create", "--name", "survivor"]);
+    let before = state_cli_topology(&server);
+    let workspace = workspace_id_named(&server, "survivor");
+    let source_screen = before["screens"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|screen| screen["workspace_id"] == workspace.as_str())
+        .and_then(|screen| screen["id"].as_str())
+        .unwrap()
+        .to_string();
+    let source_pane = before["panes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|pane| pane["screen_id"] == source_screen.as_str())
+        .and_then(|pane| pane["id"].as_str())
+        .unwrap()
+        .to_string();
+    let source_tab = before["tabs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|tab| tab["pane_id"] == source_pane.as_str())
+        .and_then(|tab| tab["id"].as_str())
+        .unwrap()
+        .to_string();
+    let source_terminal = before["terminals"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|terminal| terminal["tab_id"] == source_tab.as_str())
+        .and_then(|terminal| terminal["id"].as_str())
+        .unwrap()
+        .to_string();
+
+    let split_before = state_cli_topology(&server);
+    state_cli(&server, None, &["pane", &source_pane, "split", "--right"]);
+    let split_after = state_cli_topology(&server);
+    let pane_ids = |snapshot: &serde_json::Value| {
+        snapshot["panes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|pane| pane["id"].as_str().unwrap().to_string())
+            .collect::<Vec<_>>()
+    };
+    let split_pane = pane_ids(&split_after)
+        .into_iter()
+        .find(|pane| !pane_ids(&split_before).contains(pane))
+        .expect("split did not create a pane");
+    let split_tab = split_after["tabs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|tab| tab["pane_id"] == split_pane.as_str())
+        .and_then(|tab| tab["id"].as_str())
+        .unwrap()
+        .to_string();
+    let split_terminal = split_after["terminals"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|terminal| terminal["tab_id"] == split_tab.as_str())
+        .and_then(|terminal| terminal["id"].as_str())
+        .unwrap()
+        .to_string();
+
+    // Reopening a retained terminal must reuse it regardless of the time
+    // taken by the restart. Do not rely on the unplaced-terminal grace.
+    state_cli(&server, None, &["terminal", &split_terminal, "keep", "on"]);
+    state_cli(&server, None, &["pane", &split_pane, "close"]);
+    let closed = state_cli(&server, None, &["closed", "list"]);
+    let groups = closed.as_array().unwrap();
+    assert_eq!(groups.len(), 1, "closing one pane must record one closed group: {closed}");
+    assert_eq!(groups[0]["member_count"], 1, "{closed}");
+    let closed_id = groups[0]["id"].as_str().unwrap().to_string();
+
+    // Reopen the same daemon state through its real server entrypoint rather
+    // than replacing the lifecycle with a mock.
+    server.child.kill().unwrap();
+    server.child.wait().unwrap();
+    server.child = Command::new(bin())
+        .args(["--headless", "--socket"])
+        .arg(&server.socket)
+        .arg("--state")
+        .arg(&server.state)
+        .env("CMUX_TUI_CONFIG", server.dir.join("config.json"))
+        .env_remove("SSH_CONNECTION")
+        .env_remove("SSH_CLIENT")
+        .env_remove("SSH_TTY")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    server.wait_for_socket();
+
+    let after_restart = state_cli_topology(&server);
+    assert_eq!(workspace_of_terminal(&after_restart, &source_terminal), workspace);
+    let panes_after_restart = pane_ids(&after_restart);
+    assert_eq!(panes_after_restart.len(), 1, "{after_restart}");
+    assert_eq!(panes_after_restart[0], source_pane, "{after_restart}");
+    let tabs_after_restart = tab_ids(&server);
+    assert_eq!(tabs_after_restart.len(), 1, "{after_restart}");
+    assert_eq!(tabs_after_restart[0], source_tab, "{after_restart}");
+    let restored_groups = state_cli(&server, None, &["closed", "list"]);
+    assert_eq!(restored_groups[0]["id"], closed_id.as_str(), "{restored_groups}");
+    assert!(
+        after_restart["terminals"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|terminal| terminal["id"] == split_terminal.as_str()),
+        "closed terminal was not retained for restore: {after_restart}"
+    );
+
+    let before_reopen = tab_ids(&server);
+    let reopened = state_cli(&server, None, &["closed", &closed_id, "reopen"]);
+    let restored_tab = new_tab(&before_reopen, &tab_ids(&server));
+    assert_eq!(reopened["value"]["tab_ids"], serde_json::json!([restored_tab]), "{reopened}");
+    let restored = state_cli_topology(&server);
+    assert_eq!(workspace_of_terminal(&restored, &source_terminal), workspace);
+    let tab = restored["tabs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|tab| tab["id"] == restored_tab.as_str())
+        .expect("reopened tab is present in the snapshot");
+    assert_eq!(tab["content_id"], split_terminal.as_str(), "{restored}");
+    assert_eq!(tab["pane_id"], source_pane.as_str(), "{restored}");
+    assert_eq!(workspace_of_terminal(&restored, &split_terminal), workspace);
+    assert!(tab_ids(&server).contains(&source_tab), "{restored}");
+    assert_eq!(restored["terminals"].as_array().unwrap().len(), 2, "{restored}");
+    assert_eq!(state_cli(&server, None, &["closed", "list"]), serde_json::json!([]));
+}
+
 /// The tab ids of `pane`'s layout leaf in the screen upserts of `changes`.
 fn leaf_tabs(changes: &[serde_json::Value], pane: &str) -> Option<serde_json::Value> {
     fn find(node: &serde_json::Value, pane: &str) -> Option<serde_json::Value> {
@@ -542,4 +684,69 @@ fn leaf_active(changes: &[serde_json::Value], pane: &str) -> serde_json::Value {
         .iter()
         .find_map(|change| find(&change["value"]["layout"]["root"], pane))
         .unwrap_or_else(|| panic!("no leaf of pane {pane}: {changes:?}"))
+}
+
+/// Retention for `history.closed.maxAgeDays` and `history.closed.maxGroups`
+/// (reopen-closed.md 2; the app applies the settings, like
+/// `history.commandRetentionDays`): `closed clear --before-ms T` deletes the
+/// groups closed before T, and `closed clear --keep-newest N` every group but
+/// the newest N. Both are hard deletes and cannot be reopened.
+#[test]
+fn state_cli_closed_clear_before_and_keep_newest_through_a_real_daemon() {
+    let server = HeadlessServer::start("state-cli-closed-retention");
+    let names = ["oldest", "middle", "newer", "newest"];
+    for name in names {
+        state_cli(&server, None, &["workspace", "create", "--name", name, "--empty"]);
+    }
+    for name in names {
+        let workspace = workspace_id_named(&server, name);
+        state_cli(&server, None, &["workspace", &workspace, "close"]);
+        // Distinct close times, so before-ms can split them.
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let closed_names = || -> Vec<String> {
+        let mut names = state_cli(&server, None, &["closed", "list"])
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|item| item["name"].as_str().unwrap_or_default().to_string())
+            .collect::<Vec<_>>();
+        names.sort();
+        names
+    };
+    assert_eq!(closed_names(), ["middle", "newer", "newest", "oldest"]);
+    let middle_closed_at = state_cli(&server, None, &["closed", "list"])
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["name"] == "middle")
+        .and_then(|item| item["closed_at_ms"].as_str().map(str::to_string))
+        .expect("middle has a close time");
+
+    let aged = state_cli(&server, None, &["closed", "clear", "--before-ms", &middle_closed_at]);
+    assert_eq!(aged["value"]["deleted"].as_array().map(Vec::len), Some(1), "{aged}");
+    assert_eq!(closed_names(), ["middle", "newer", "newest"]);
+
+    let trimmed = state_cli(&server, None, &["closed", "clear", "--keep-newest", "1"]);
+    assert_eq!(trimmed["value"]["deleted"].as_array().map(Vec::len), Some(2), "{trimmed}");
+    assert_eq!(closed_names(), ["newest"]);
+    let none = state_cli(&server, None, &["closed", "clear", "--keep-newest", "1"]);
+    assert_eq!(none["value"]["deleted"], serde_json::json!([]), "{none}");
+
+    for (flags, needle) in [
+        (vec!["closed", "clear", "--keep-newest", "-1"], "--keep-newest"),
+        (vec!["closed", "clear", "--before-ms", "soon"], "--before-ms"),
+    ] {
+        let bad = Command::new(bin())
+            .args(["--json", "--socket"])
+            .arg(&server.socket)
+            .args(&flags)
+            .env("LC_ALL", "C")
+            .env_remove("CMUX_TUI_SOCKET")
+            .env_remove("CMUX_TUI_TERMINAL_ID")
+            .output()
+            .unwrap();
+        assert!(!bad.status.success(), "{flags:?} was accepted");
+        assert!(String::from_utf8_lossy(&bad.stderr).contains(needle), "{flags:?}");
+    }
 }

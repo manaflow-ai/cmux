@@ -8,10 +8,23 @@ import CmuxNextSettings
 enum PaletteSourcesBridge {
     static func make(services: AppServices) -> PaletteSources {
         var sources = makeBase(services: services)
+        // A typed path or web address: Open it, or Ask Agent about it (Cmd-P and Cmd-Shift-P).
+        sources.goTo = AppPaletteGoToSource(services: services)
         // cmux.json `palette.scopes.<id>.prefix`, read on every open.
         sources.scopePrefixes = { [weak services] in
             let assigned = services?.settings?.snapshot.paletteScopePrefixes.assigned ?? [:]
             return Dictionary(uniqueKeysWithValues: assigned.map { (PaletteScopeID($0.key), $0.value) })
+        }
+        // cmux.json `palette.aliases` and `palette.pins`, read on every open.
+        sources.rankSettings = { [weak services] in
+            guard let services else { return PaletteRankSettings() }
+            let setting = PaletteRankingSetting(services.settings?.fileRoot ?? .object([:]))
+            // A renamed action's former id still names it.
+            let canonical = { (id: String) in services.registry.canonicalID(for: ActionID(rawValue: id)).rawValue }
+            var aliases: [String: [String]] = [:]
+            for (id, words) in setting.aliases { aliases[canonical(id), default: []] += words }
+            var seen = Set<String>()
+            return PaletteRankSettings(aliases: aliases, pins: setting.pins.map(canonical).filter { seen.insert($0).inserted })
         }
         // Theme rows draw the theme's swatch strip (R98), from the catalog's
         // cache (read off the main thread at launch).
@@ -24,6 +37,7 @@ enum PaletteSourcesBridge {
 
     private static func makeBase(services: AppServices) -> PaletteSources {
         PaletteSources(workspaces: WorkspaceSource(services: services), tabs: TabSource(services: services),
+                       navigation: AppPaletteNavigationSource(services: services),
                        targets: targetSource(services),
                        context: { [weak services] in services.map(capturedTargets) ?? [] },
                        // Theme pickers preview the highlighted theme live.
@@ -72,10 +86,15 @@ enum PaletteSourcesBridge {
 
         var workspaces: [PaletteWorkspace] {
             let shown = services.windows.active?.state.workspaceID
+            var groupNames: [String: String] = [:]
+            for group in AppPaletteNavigationSource.groups(services) {
+                for id in group.workspaceIDs where groupNames[id] == nil { groupNames[id] = group.name }
+            }
             return services.machines.allWorkspaces.map(\.0).map { workspace in
                 let cwd = workspace.screens.flatMap(\.panes).flatMap(\.tabs).first { $0.cwd != nil }?.cwd
                 return PaletteWorkspace(id: workspace.id, title: workspace.displayName, directory: cwd,
-                                        isSelected: workspace.id == shown, unreadCount: workspace.unreadCount)
+                                        isSelected: workspace.id == shown, unreadCount: workspace.unreadCount,
+                                        groupName: groupNames[workspace.id])
             }
         }
 

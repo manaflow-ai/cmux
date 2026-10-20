@@ -64,38 +64,94 @@
  
      // MARK: Selected message (a click on a bubble)
  
-@@ -219,7 +232,7 @@
+@@ -178,8 +191,11 @@
+         guard let key = selectedKey, let demo = controller.demo else { return nil }
+         for case let cell as RowCell in demo.collection.visibleCells where !cell.isHidden {
+             guard let spec = cell.spec, spec.key == key, case let .part(p) = spec.kind else { continue }
+-            let body = cell.convert(RowDraw.bodyRect(spec), to: demo)
+-            return BubblePath.make(body: body, outgoing: p.outgoing, tail: p.tail).cgPath
++            // cmux: MessagesLab 2281879's selection outline (this file stays at bd65bbf): the drawn balloon.
++            let frame = RowDraw.bodyRect(spec)
++            let body = cell.convert(RowDraw.balloon(frame, row: p), to: demo)
++            return BubblePath.make(body: body, outgoing: p.outgoing, tail: p.tail, cornersOf: frame.size,
++                                   circularEnds: RowDraw.circularEnds(p)).cgPath  // cmux: MessagesLab 267d218's ends
+         }
+         return nil
+     }
+@@ -218,11 +234,8 @@
+     /// when the point is not on text.
      @discardableResult
      func selectWord(at p: CGPoint) -> Bool {
-         guard let pos = position(at: p), let demo = controller.demo, let i = demo.model.index[pos.key],
+-        guard let pos = position(at: p), let demo = controller.demo, let i = demo.model.index[pos.key],
 -              case let .part(row) = demo.model.rows[i].spec.kind, let tl = row.text else { return false }
-+              case let .part(row)? = demo.model.rows[checked: i]?.spec.kind, let tl = row.text else { return false } // cmux: checked
-         let str = NSAttributedString(string: tl.text)
-         guard str.length > 0 else { return false }
-         let r = str.doubleClick(at: min(pos.offset, str.length - 1))
-@@ -255,28 +268,31 @@
-         if p.y < r.body.minY { return TextPosition(key: r.key, offset: 0) }
-         if p.y > r.body.maxY { return TextPosition(key: r.key, offset: (tl.text as NSString).length) }
-         let x = p.x - r.body.minX - Fixture.bubblePadX, y = p.y - r.body.minY - Fixture.bubblePadY
+-        let str = NSAttributedString(string: tl.text)
+-        guard str.length > 0 else { return false }
+-        let r = str.doubleClick(at: min(pos.offset, str.length - 1))
++        guard let pos = position(at: p), let g = geometry(key: pos.key), g.length > 0 else { return false }
++        let r = g.wordRange(at: min(pos.offset, g.length - 1))
+         anchor = TextPosition(key: pos.key, offset: r.location)
+         focus = TextPosition(key: pos.key, offset: NSMaxRange(r))
+         downPoint = nil
+@@ -230,13 +243,30 @@
+         return true
+     }
+ 
++    /// The drawn text geometry of a row (cmux: the layout the row DRAWS with). A markdown
++    /// row's `text` is a one-line proxy of its display string, measured as one line as wide
++    /// as the whole string: hit-testing and highlighting through it put the highlight past
++    /// the bubble and off the glyphs (scrawl 2026-10-18, "highlighting ... is broken").
++    /// Markdown rows use their MarkdownLayout, long rows their tiled layout, plain rows
++    /// their TextLayout; offsets are the display string's in every case.
++    static func geometry(_ spec: RowSpec) -> RowTextGeometry? {
++        guard case let .part(p) = spec.kind, SelText.isText(p.part) else { return nil }
++        return p.geometry(width: spec.width)
++    }
++
++    private func geometry(key: String) -> RowTextGeometry? {
++        guard let demo = controller.demo, let i = demo.model.index.value(for: key),
++              let spec = demo.model.rows[checked: i]?.spec else { return nil } // cmux: checked
++        return Self.geometry(spec)
++    }
++
+     /// Rows with text, in transcript order (model index).
+-    private func textRows() -> [(index: Int, key: String, row: PartRow, body: CGRect)] {
++    private func textRows() -> [(index: Int, key: String, geometry: RowTextGeometry, body: CGRect)] {
+         guard let demo = controller.demo else { return [] }
+-        var out: [(Int, String, PartRow, CGRect)] = []
++        var out: [(Int, String, RowTextGeometry, CGRect)] = []
+         for case let cell as RowCell in demo.collection.visibleCells where !cell.isHidden {
+-            guard let spec = cell.spec, case let .part(p) = spec.kind, p.text != nil, let i = demo.model.index[spec.key] else { continue }
+-            out.append((i, spec.key, p, cell.convert(RowDraw.bodyRect(spec), to: demo)))
++            guard let spec = cell.spec, let g = Self.geometry(spec), let i = demo.model.index[spec.key] else { continue }
++            out.append((i, spec.key, g, cell.convert(RowDraw.bodyRect(spec), to: demo)))
+         }
+         return out.sorted { $0.0 < $1.0 }
+     }
+@@ -251,61 +281,61 @@
+             let db = p.y < b.body.minY ? b.body.minY - p.y : max(0, p.y - b.body.maxY)
+             return da < db
+         }!
+-        guard let tl = r.row.text else { return nil }
+-        if p.y < r.body.minY { return TextPosition(key: r.key, offset: 0) }
+-        if p.y > r.body.maxY { return TextPosition(key: r.key, offset: (tl.text as NSString).length) }
+-        let x = p.x - r.body.minX - Fixture.bubblePadX, y = p.y - r.body.minY - Fixture.bubblePadY
 -        let i = min(tl.lines.count - 1, max(0, Int(floor(y / Fixture.lineHeight))))
 -        let line = ctLine(tl, i)
-+        let i = min(tl.lines.count - 1, max(0, CrashGuard.int(floor(y / Fixture.lineHeight), in: CrashGuard.countRange))) // cmux: no trap on NaN
-+        // cmux: a text with no lines (i == -1 trapped) is at its start.
-+        guard let lineRange = tl.lines[checked: i]?.range, let line = ctLine(tl, i) else { return TextPosition(key: r.key, offset: 0) }
-         let idx = CTLineGetStringIndexForPosition(line, CGPoint(x: max(0, x), y: 0))
+-        let idx = CTLineGetStringIndexForPosition(line, CGPoint(x: max(0, x), y: 0))
 -        let off = idx == kCFNotFound ? tl.lines[i].range.location : tl.lines[i].range.location + idx
 -        return TextPosition(key: r.key, offset: min(off, NSMaxRange(tl.lines[i].range)))
-+        let off = idx == kCFNotFound ? lineRange.location : lineRange.location + idx
-+        return TextPosition(key: r.key, offset: min(off, NSMaxRange(lineRange)))
++        return Self.position(at: p, body: r.body, key: r.key, geometry: r.geometry)
      }
  
 -    private func ctLine(_ tl: TextLayout, _ i: Int) -> CTLine {
-+    private func ctLine(_ tl: TextLayout, _ i: Int) -> CTLine? { // cmux: nil for a line outside the text
-+        guard let range = tl.lines[checked: i]?.range else { return nil }
-         let attr = tl.attributed(color: .white, linkColor: .white)
+-        let attr = tl.attributed(color: .white, linkColor: .white)
 -        return CTLineCreateWithAttributedString(attr.attributedSubstring(from: tl.lines[i].range))
-+        guard NSMaxRange(range) <= attr.length else { return nil } // cmux: lines measured for another text
-+        return CTLineCreateWithAttributedString(attr.attributedSubstring(from: range))
++    /// The offset in one row for a point in the same coordinates as `body`.
++    static func position(at p: CGPoint, body: CGRect, key: String, geometry g: RowTextGeometry) -> TextPosition {
++        if p.y < body.minY { return TextPosition(key: key, offset: 0) }
++        if p.y > body.maxY { return TextPosition(key: key, offset: g.length) }
++        let local = CGPoint(x: p.x - body.minX, y: p.y - body.minY)
++        return TextPosition(key: key, offset: max(0, min(g.offset(at: local), g.length)))
      }
  
      /// Selected (row key, range) pairs in order, over the loaded rows.
@@ -109,17 +165,58 @@
          for i in lo...hi {
 -            guard case let .part(p) = demo.model.rows[i].spec.kind, let tl = p.text else { continue }
 -            let key = demo.model.rows[i].spec.key
-+            guard let spec = demo.model.rows[checked: i]?.spec, case let .part(p) = spec.kind, let tl = p.text else { continue } // cmux: checked
+-            let len = (tl.text as NSString).length
+-            let from = key == s.key ? s.offset : 0
+-            let to = key == e.key ? e.offset : len
++            guard let spec = demo.model.rows[checked: i]?.spec, let g = Self.geometry(spec) else { continue } // cmux: checked
 +            let key = spec.key
-             let len = (tl.text as NSString).length
-             let from = key == s.key ? s.offset : 0
-             let to = key == e.key ? e.offset : len
-@@ -300,7 +316,7 @@
-                     let inter = NSIntersectionRange(sel, line.range)
-                     let empty = line.range.length == 0 && NSLocationInRange(line.range.location, sel)
-                     guard inter.length > 0 || empty else { continue }
++            let len = g.length
++            let from = min(key == s.key ? s.offset : 0, len)
++            let to = min(key == e.key ? e.offset : len, len)
+             guard to > from else { continue }
+             let r = NSRange(location: from, length: to - from)
+-            out.append((key, r, (tl.text as NSString).substring(with: r)))
++            out.append((key, r, g.substring(r)))
+         }
+         return out
+     }
+ 
+     var selectedText: String { selectedRanges().map(\.text).joined(separator: "\n") }
+ 
++    /// Highlight rects of one row's selected range, in the coordinates of `body`, only the
++    /// lines inside `visible` (same coordinates). Drawn from the row's own geometry, so a
++    /// markdown, plain or long row highlights exactly its drawn glyphs, inside its bubble.
++    static func highlightRects(_ sel: NSRange, body: CGRect, geometry g: RowTextGeometry, visible: ClosedRange<CGFloat>) -> [CGRect] {
++        let v0 = visible.lowerBound - body.minY, v1 = visible.upperBound - body.minY
++        guard v1 >= 0, v0 <= body.height else { return [] }
++        return g.selectionRects(sel, visible: max(0, v0)...max(0, v1)).compactMap { rect in
++            // Never past the bubble (a margin, a wide frag): the highlight stays on the body.
++            let r = rect.offsetBy(dx: body.minX, dy: body.minY).intersection(body)
++            return r.isNull || r.width <= 0 || r.height <= 0 ? nil : r
++        }
++    }
++
+     /// Rebuild the highlight for the rows on screen.
+     func refresh() {
+         let path = CGMutablePath()
+         let ranges = Dictionary(selectedRanges().map { ($0.key, $0.range) }, uniquingKeysWith: { a, _ in a })
+-        if !ranges.isEmpty {
++        if !ranges.isEmpty, let demo = controller.demo {
++            let visible = demo.bounds.minY...demo.bounds.maxY
+             for r in textRows() {
+-                guard let sel = ranges[r.key], let tl = r.row.text else { continue }
+-                for (i, line) in tl.lines.enumerated() {
+-                    let inter = NSIntersectionRange(sel, line.range)
+-                    let empty = line.range.length == 0 && NSLocationInRange(line.range.location, sel)
+-                    guard inter.length > 0 || empty else { continue }
 -                    let ct = ctLine(tl, i)
-+                    guard let ct = ctLine(tl, i) else { continue } // cmux: a line from another text draws nothing
-                     let x0 = CTLineGetOffsetForStringIndex(ct, inter.location - line.range.location, nil)
-                     let x1 = inter.length > 0 ? CTLineGetOffsetForStringIndex(ct, NSMaxRange(inter) - line.range.location, nil) : x0 + 4
-                     path.addRect(CGRect(x: r.body.minX + Fixture.bubblePadX + x0, y: r.body.minY + Fixture.bubblePadY + CGFloat(i) * Fixture.lineHeight,
+-                    let x0 = CTLineGetOffsetForStringIndex(ct, inter.location - line.range.location, nil)
+-                    let x1 = inter.length > 0 ? CTLineGetOffsetForStringIndex(ct, NSMaxRange(inter) - line.range.location, nil) : x0 + 4
+-                    path.addRect(CGRect(x: r.body.minX + Fixture.bubblePadX + x0, y: r.body.minY + Fixture.bubblePadY + CGFloat(i) * Fixture.lineHeight,
+-                                        width: max(2, x1 - x0), height: Fixture.lineHeight))
+-                }
++                guard let sel = ranges[r.key] else { continue }
++                for rect in Self.highlightRects(sel, body: r.body, geometry: r.geometry, visible: visible) { path.addRect(rect) }
+             }
+         }
+         CATransaction.begin(); CATransaction.setDisableActions(true)

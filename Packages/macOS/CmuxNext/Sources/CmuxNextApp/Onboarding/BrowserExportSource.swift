@@ -1,9 +1,8 @@
 import Foundation
 
 /// A browser whose export steps Import from Another Browser… shows, one row
-/// of `browser-export-steps.json`. The steps' text follows `family`; a
-/// Chromium browser's rows name the pages it exports from. The password
-/// managers (1Password, Bitwarden) export passwords only.
+/// of `browser-export-steps.json`. The steps' text follows `family`; a Chromium browser's rows
+/// name the pages it exports from. Password managers (1Password, Bitwarden) export passwords only.
 nonisolated struct BrowserExportSource: Decodable, Equatable, Sendable {
     enum Family: String, Decodable, Sendable {
         case chromium

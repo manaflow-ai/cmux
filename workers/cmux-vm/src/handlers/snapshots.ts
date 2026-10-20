@@ -300,6 +300,13 @@ export const snapshotsHandlers = HttpApiBuilder.group(CmuxVmApi, "snapshots", (h
               }
               labels = parsed.value;
             }
+            const required = caller.value.requiredLabels;
+            if (required !== undefined) {
+              if (labels !== null && Object.entries(labels).some(([key, value]) => key in required && required[key] !== value)) {
+                return new SnapshotList({ items: [], nextCursor: null });
+              }
+              labels = { ...labels, ...required };
+            }
             const allowlist = caller.value.resourceAllowlist;
             const rows = yield* store
               .list(caller.value.tenantId, {
@@ -308,6 +315,7 @@ export const snapshotsHandlers = HttpApiBuilder.group(CmuxVmApi, "snapshots", (h
                 sourceVmId,
                 labels,
                 only: allowlist === null ? null : [...allowlist],
+                ...(urlParams.createdBy === "caller" ? { createdBy: actorRef(caller.value.actor) } : {}),
               })
               .pipe(Effect.mapError(() => unavailable()));
             const page = rows.slice(0, limit);

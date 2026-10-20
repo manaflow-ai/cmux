@@ -69,6 +69,9 @@ impl Mux {
 
     pub fn emit(&self, event: MuxEvent) {
         self.activity.observe(&event);
+        if let MuxEvent::Conversation(conversation) = &event {
+            self.chiefs().brains.observe(conversation);
+        }
         self.subscribers.emit(event);
     }
 
@@ -111,6 +114,16 @@ impl Mux {
         }
     }
 
+    pub(crate) fn emit_terminal_program_status(
+        &self,
+        surface: SurfaceId,
+        status: Option<crate::program_status::ShownProgramStatus>,
+    ) {
+        for placement in self.terminal_event_placements(surface) {
+            self.emit(MuxEvent::ProgramStatusChanged { surface: placement, status });
+        }
+    }
+
     pub(crate) fn emit_terminal_bell(&self, surface: SurfaceId) {
         for placement in self.terminal_event_placements(surface) {
             self.emit(MuxEvent::Bell(placement));
@@ -138,7 +151,7 @@ impl Mux {
     #[cfg(test)]
     pub(super) fn emit_terminal_exited(&self, surface: SurfaceId) {
         for placement in self.terminal_event_placements(surface) {
-            self.emit(MuxEvent::SurfaceExited(placement));
+            self.emit(MuxEvent::SurfaceExited(placement, None));
         }
     }
 

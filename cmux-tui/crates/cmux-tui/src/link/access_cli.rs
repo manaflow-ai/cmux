@@ -21,6 +21,8 @@
 //!   read-write copy stays (it may hold work not brought back yet). What
 //!   the machine already read stays read: a revoke stops what comes next.
 //! - `grants [--machine ID] [--session ID]`: the grants kept here.
+//! - `upload --socket PATH --remote-root DIR FILE...`: files the person
+//!   dropped or pasted into the chat, copied once each ([`uploads`]).
 //!
 //! What may be shared and the record: [`grants`]. What goes of a shared
 //! folder: its files (a git working copy's tracked and untracked files that
@@ -37,6 +39,8 @@
 //! `error_code` (`sync_conflict` with `conflicts`). Unix only, like the link.
 
 mod grants;
+mod requests;
+mod uploads;
 
 use std::path::{Path, PathBuf};
 
@@ -48,7 +52,12 @@ use super::sync_cli::{self, Back};
 const USAGE: &str = "usage: cmux link access grant --socket PATH --machine ID --session ID --remote-root DIR [--mode read|write] FOLDER
        cmux link access sync --socket PATH --machine ID [--session ID]
        cmux link access revoke --machine ID --session ID [--socket PATH] (--all | FOLDER)
-       cmux link access grants [--machine ID] [--session ID]";
+       cmux link access grants [--machine ID] [--session ID]
+       cmux link access request [--socket PATH] [--session ID] [--reason TEXT] [--timeout SECONDS] (PATH | --secret NAME)
+       cmux link access upload --socket PATH --remote-root DIR FILE...
+       cmux link access triage --socket PATH --machine ID --session ID [--session ID]...
+       cmux link access answer --socket PATH --machine ID --session ID --request ID [--remote-root DIR] (--allow PATH --target PATH | --always PATH --target PATH --folder DIR | --share-secret NAME | --deny [--reason TEXT])
+         (--share-secret reads the value from stdin, byte for byte: no newline is removed)";
 
 /// File names that never go from a shared folder (ASCII case folded):
 /// env, credential and key files. Best effort: a secret under any other
@@ -147,6 +156,22 @@ struct Args {
     mode: Option<String>,
     all: bool,
     positional: Vec<String>,
+    /// Every `--session`, in order (`triage` takes several).
+    sessions: Vec<String>,
+    reason: Option<String>,
+    timeout: Option<u64>,
+    request: Option<String>,
+    /// `answer --target PATH`: where the card said the path leads.
+    target: Option<String>,
+    /// `answer --always --folder DIR`: the folder the card said Always shares.
+    folder: Option<String>,
+    allow: bool,
+    always: bool,
+    deny: bool,
+    /// `request --secret NAME`: the secret asked for.
+    secret: Option<String>,
+    /// `answer --share-secret NAME`: the value comes on stdin.
+    share_secret: bool,
 }
 
 fn parse(args: &[String]) -> Option<Args> {
@@ -156,7 +181,21 @@ fn parse(args: &[String]) -> Option<Args> {
         match arg.as_str() {
             "--socket" => parsed.socket = Some(PathBuf::from(rest.next()?)),
             "--machine" => parsed.machine = Some(rest.next()?.clone()),
-            "--session" => parsed.session = Some(rest.next()?.clone()),
+            "--session" => {
+                let session = rest.next()?.clone();
+                parsed.sessions.push(session.clone());
+                parsed.session = Some(session);
+            }
+            "--reason" => parsed.reason = Some(rest.next()?.clone()),
+            "--timeout" => parsed.timeout = Some(rest.next()?.parse().ok()?),
+            "--request" => parsed.request = Some(rest.next()?.clone()),
+            "--target" => parsed.target = Some(rest.next()?.clone()),
+            "--folder" => parsed.folder = Some(rest.next()?.clone()),
+            "--allow" => parsed.allow = true,
+            "--always" => parsed.always = true,
+            "--deny" => parsed.deny = true,
+            "--secret" => parsed.secret = Some(rest.next()?.clone()),
+            "--share-secret" => parsed.share_secret = true,
             "--remote-root" => parsed.remote_root = Some(rest.next()?.clone()),
             "--mode" => parsed.mode = Some(rest.next()?.clone()),
             "--all" => parsed.all = true,
@@ -165,7 +204,9 @@ fn parse(args: &[String]) -> Option<Args> {
         }
     }
     let ids = [&parsed.machine, &parsed.session];
-    if ids.iter().any(|id| id.as_deref().is_some_and(|id| !grants::plain_id(id))) {
+    if ids.iter().any(|id| id.as_deref().is_some_and(|id| !grants::plain_id(id)))
+        || parsed.sessions.iter().any(|session| !grants::plain_id(session))
+    {
         return None;
     }
     Some(parsed)
@@ -202,6 +243,16 @@ pub(super) fn run(args: &[String]) -> i32 {
         eprintln!("{USAGE}");
         return 64;
     };
+    // A secret flag means nothing to any other action: refuse it.
+    if (args.secret.is_some() && action != "request") || (args.share_secret && action != "answer") {
+        eprintln!("{USAGE}");
+        return 64;
+    }
+    // A machine too old for this action says so before anything changes.
+    if let Some(line) = outdated_line(action, args.socket.as_deref()) {
+        println!("{line}");
+        return 1;
+    }
     let answer = match (action.as_str(), &args) {
         (
             "grant",
@@ -239,6 +290,84 @@ pub(super) fn run(args: &[String]) -> i32 {
         ("grants", Args { positional, .. }) if positional.is_empty() => {
             list(args.machine.as_deref(), args.session.as_deref())
         }
+        ("request", Args { positional, secret, .. })
+            if positional.len() + usize::from(secret.is_some()) == 1 =>
+        {
+            let what = match secret {
+                Some(name) => requests::Asked::Secret(name),
+                None => requests::Asked::File(&positional[0]),
+            };
+            requests::request(
+                args.socket.as_deref(),
+                args.session.as_deref(),
+                args.reason.as_deref(),
+                std::time::Duration::from_secs(args.timeout.unwrap_or(300)),
+                what,
+            )
+        }
+        ("upload", Args { socket: Some(socket), remote_root: Some(root), positional, .. })
+            if !positional.is_empty() =>
+        {
+            let Some(root) = grants::remote_root(root) else {
+                eprintln!("{USAGE}");
+                return 64;
+            };
+            uploads::upload(socket, &root, positional)
+        }
+        (
+            "triage",
+            Args { socket: Some(socket), machine: Some(machine), positional, sessions, .. },
+        ) if positional.is_empty() && !sessions.is_empty() => {
+            requests::triage(socket, machine, sessions)
+        }
+        (
+            "answer",
+            Args {
+                socket: Some(socket),
+                machine: Some(machine),
+                session: Some(session),
+                request: Some(request),
+                positional,
+                allow,
+                always,
+                deny,
+                share_secret,
+                ..
+            },
+        ) if [*allow, *always, *deny, *share_secret].iter().filter(|set| **set).count() == 1
+            && positional.len() == usize::from(!*deny) =>
+        {
+            let how = if *allow {
+                requests::How::Allow
+            } else if *always {
+                requests::How::Always
+            } else if *share_secret {
+                requests::How::ShareSecret
+            } else {
+                requests::How::Deny
+            };
+            let root = match args.remote_root.as_deref().map(grants::remote_root) {
+                Some(None) => {
+                    eprintln!("{USAGE}");
+                    return 64;
+                }
+                root => root.flatten(),
+            };
+            requests::answer(
+                socket,
+                machine,
+                session,
+                request,
+                root.as_deref(),
+                how,
+                requests::Shown {
+                    path: positional.first().map(String::as_str),
+                    target: args.target.as_deref(),
+                    folder: args.folder.as_deref(),
+                },
+                args.reason.as_deref(),
+            )
+        }
         _ => {
             eprintln!("{USAGE}");
             return 64;
@@ -258,6 +387,21 @@ pub(super) fn run(args: &[String]) -> i32 {
             1
         }
     }
+}
+
+/// The `machine_outdated` line when the machine's cmux-tui is too old for
+/// what `action` needs there ([`super::machine_gate`]). `request` runs on the
+/// machine itself and is never gated, and neither is `revoke`: a revoke
+/// always ends the grants on this Mac, whatever the machine runs.
+fn outdated_line(action: &str, socket: Option<&Path>) -> Option<Value> {
+    let needed = match action {
+        "triage" | "answer" => {
+            cmux_tui_core::server::agent_transfer::access_requests::ACCESS_REQUEST_CAPABILITY
+        }
+        "grant" | "sync" | "upload" => cmux_tui_core::fs_ops::FS_CAPABILITY,
+        _ => return None,
+    };
+    super::machine_gate::outdated(socket?, &[needed]).map(|outdated| outdated.line())
 }
 
 fn grant(

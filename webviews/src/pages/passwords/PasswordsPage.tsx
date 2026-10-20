@@ -124,14 +124,16 @@ export function PasswordsPage({ store, strings }: { store: PasswordsStore; strin
               ))}
             </select>
           )}
-          <button
-            type="button"
-            className="pw-button pw-import-browser"
-            disabled={disconnected}
-            onClick={() => void store.importFromBrowser()}
-          >
-            {t("passwords.page.importBrowser")}
-          </button>
+          {snap.sections.browserImport && (
+            <button
+              type="button"
+              className="pw-button pw-import-browser"
+              disabled={disconnected}
+              onClick={() => void store.importFromBrowser()}
+            >
+              {t("passwords.page.importBrowser")}
+            </button>
+          )}
           <button
             type="button"
             className="pw-button pw-import-files"
@@ -143,8 +145,15 @@ export function PasswordsPage({ store, strings }: { store: PasswordsStore; strin
           <button
             type="button"
             className="pw-button pw-export"
-            disabled={!snap.sections.export || disconnected}
-            title={snap.sections.export ? undefined : t("passwords.page.availableAfterUpdate")}
+            disabled={!snap.sections.export || snap.sections.exportOff === true || disconnected}
+            // tooltip-allow: why the button is disabled
+            title={
+              !snap.sections.export
+                ? t("passwords.page.availableAfterUpdate")
+                : snap.sections.exportOff
+                  ? t("passwords.page.exportOff")
+                  : undefined
+            }
             onClick={() => void store.exportAll()}
           >
             {t("passwords.page.export")}

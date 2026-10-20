@@ -11,6 +11,12 @@ public final class TabGroupModel: Identifiable {
     public internal(set) var members: [TabGroupMember]
     /// Linked saved record (`saved-tab-groups-v1`).
     public internal(set) var savedID: SavedTabGroupID?
+    /// The shared icon string (`tab-group-icon-v1`); nil is none.
+    public internal(set) var icon: String?
+    /// A saved group's record names this group as its open one
+    /// (`SavedTabGroupModel.openGroup`). Kept per group by the store, so a
+    /// pane reads its own groups, never the saved list.
+    public internal(set) var isSaved = false
 
     init(_ s: TabGroupSnapshot) {
         id = s.id
@@ -19,6 +25,7 @@ public final class TabGroupModel: Identifiable {
         collapsed = s.collapsed
         members = s.tabs
         savedID = s.savedID
+        icon = s.icon
     }
 
     func update(_ s: TabGroupSnapshot) {
@@ -27,6 +34,7 @@ public final class TabGroupModel: Identifiable {
         if collapsed != s.collapsed { collapsed = s.collapsed }
         if members != s.tabs { members = s.tabs }
         if savedID != s.savedID { savedID = s.savedID }
+        if icon != s.icon { icon = s.icon }
     }
 
     func setCollapsed(_ value: Bool) {
@@ -46,6 +54,8 @@ public final class SavedTabGroupModel: Identifiable {
     public let id: SavedTabGroupID
     public internal(set) var name: String
     public internal(set) var color: String?
+    /// The shared icon string (`tab-group-icon-v1`); nil is none.
+    public internal(set) var icon: String?
     public internal(set) var tabs: [SavedTab]
     public internal(set) var openGroup: TabGroupID?
 
@@ -53,6 +63,7 @@ public final class SavedTabGroupModel: Identifiable {
         id = s.id
         name = s.name
         color = s.color
+        icon = s.icon
         tabs = s.tabs
         openGroup = s.openGroup
     }
@@ -60,6 +71,7 @@ public final class SavedTabGroupModel: Identifiable {
     func update(_ s: SavedTabGroupSnapshot) {
         if name != s.name { name = s.name }
         if color != s.color { color = s.color }
+        if icon != s.icon { icon = s.icon }
         if tabs != s.tabs { tabs = s.tabs }
         if openGroup != s.openGroup { openGroup = s.openGroup }
     }

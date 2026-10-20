@@ -39,6 +39,9 @@ final class BookmarkService {
     @ObservationIgnored var homeObservation: Task<Void, Never>?
     @ObservationIgnored var barObservation: Task<Void, Never>?
     @ObservationIgnored var faviconObservation: Task<Void, Never>?
+    /// Stored folder icons a bar drew the folder symbol for while they load (``followFolderIcons()``).
+    var awaitedFolderIcons: Set<String> = []
+    @ObservationIgnored var folderIconObservation: Task<Void, Never>?
     @ObservationIgnored var migrating = false
     /// The folder each profile's last bookmark went to, offered for the next one.
     @ObservationIgnored var lastFolder: [String: String] = [:]

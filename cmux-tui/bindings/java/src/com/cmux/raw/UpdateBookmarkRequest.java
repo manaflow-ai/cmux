@@ -14,6 +14,8 @@ import java.util.Objects;
 public final class UpdateBookmarkRequest implements WireValue {
     private final String bookmark;
     private final Field<String> faviconKey;
+    /** Folders only; null clears. Refused on a url node. */
+    private final Field<String> icon;
     private final Field<UInt64> lastUsedMs;
     private final Field<String> mutationId;
     private final Field<String> origin;
@@ -24,6 +26,7 @@ public final class UpdateBookmarkRequest implements WireValue {
         if (!builder.bookmarkSet) throw new IllegalArgumentException("bookmark is required");
         this.bookmark = Wire.nonNull(builder.bookmark, "bookmark");
         this.faviconKey = builder.faviconKey;
+        this.icon = builder.icon;
         this.lastUsedMs = builder.lastUsedMs;
         this.mutationId = builder.mutationId;
         this.origin = builder.origin;
@@ -35,6 +38,7 @@ public final class UpdateBookmarkRequest implements WireValue {
 
     public String bookmark() { return bookmark; }
     public Field<String> faviconKey() { return faviconKey; }
+    public Field<String> icon() { return icon; }
     public Field<UInt64> lastUsedMs() { return lastUsedMs; }
     public Field<String> mutationId() { return mutationId; }
     public Field<String> origin() { return origin; }
@@ -49,6 +53,10 @@ public final class UpdateBookmarkRequest implements WireValue {
         Object rawFaviconKey = Wire.optional(object, "favicon_key");
         if (!Wire.isMissing(rawFaviconKey)) {
             builder.faviconKey(rawFaviconKey == null ? null : Wire.string(rawFaviconKey, "UpdateBookmarkRequest.favicon_key"));
+        }
+        Object rawIcon = Wire.optional(object, "icon");
+        if (!Wire.isMissing(rawIcon)) {
+            builder.icon(rawIcon == null ? null : Wire.string(rawIcon, "UpdateBookmarkRequest.icon"));
         }
         Object rawLastUsedMs = Wire.optional(object, "last_used_ms");
         if (!Wire.isMissing(rawLastUsedMs)) {
@@ -78,6 +86,7 @@ public final class UpdateBookmarkRequest implements WireValue {
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
         Wire.put(object, "bookmark", bookmark);
         Wire.put(object, "favicon_key", faviconKey);
+        Wire.put(object, "icon", icon);
         Wire.put(object, "last_used_ms", lastUsedMs);
         Wire.put(object, "mutation_id", mutationId);
         Wire.put(object, "origin", origin);
@@ -89,11 +98,11 @@ public final class UpdateBookmarkRequest implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof UpdateBookmarkRequest that)) return false;
-        return Objects.equals(bookmark, that.bookmark) && Objects.equals(faviconKey, that.faviconKey) && Objects.equals(lastUsedMs, that.lastUsedMs) && Objects.equals(mutationId, that.mutationId) && Objects.equals(origin, that.origin) && Objects.equals(title, that.title) && Objects.equals(url, that.url);
+        return Objects.equals(bookmark, that.bookmark) && Objects.equals(faviconKey, that.faviconKey) && Objects.equals(icon, that.icon) && Objects.equals(lastUsedMs, that.lastUsedMs) && Objects.equals(mutationId, that.mutationId) && Objects.equals(origin, that.origin) && Objects.equals(title, that.title) && Objects.equals(url, that.url);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(bookmark, faviconKey, lastUsedMs, mutationId, origin, title, url); }
+    public int hashCode() { return Objects.hash(bookmark, faviconKey, icon, lastUsedMs, mutationId, origin, title, url); }
 
     @Override
     public String toString() { return "UpdateBookmarkRequest" + toWire(); }
@@ -102,6 +111,7 @@ public final class UpdateBookmarkRequest implements WireValue {
         private String bookmark;
         private boolean bookmarkSet;
         private Field<String> faviconKey = Field.omitted();
+        private Field<String> icon = Field.omitted();
         private Field<UInt64> lastUsedMs = Field.omitted();
         private Field<String> mutationId = Field.omitted();
         private Field<String> origin = Field.omitted();
@@ -115,6 +125,10 @@ public final class UpdateBookmarkRequest implements WireValue {
         }
         public Builder faviconKey(String value) {
             this.faviconKey = Field.ofNullable(value);
+            return this;
+        }
+        public Builder icon(String value) {
+            this.icon = Field.ofNullable(value);
             return this;
         }
         public Builder lastUsedMs(UInt64 value) {

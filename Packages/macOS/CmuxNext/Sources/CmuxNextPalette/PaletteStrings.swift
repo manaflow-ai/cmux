@@ -3,6 +3,7 @@ import Foundation
 
 /// Localized strings for the palette. Keys live in Localizable.xcstrings (en, ja).
 nonisolated enum PaletteStrings {
+    static var sectionPinned: String { String(localized: "palette.section.pinned", defaultValue: "Pinned", bundle: .module) }
     static var sectionSuggested: String { String(localized: "palette.section.suggested", defaultValue: "Suggested", bundle: .module) }
     static var sectionRecent: String { String(localized: "palette.section.recent", defaultValue: "Recent", bundle: .module) }
     static var sectionWorkspaces: String { String(localized: "palette.section.workspaces", defaultValue: "Workspaces", bundle: .module) }
@@ -46,6 +47,30 @@ nonisolated enum PaletteStrings {
     static var turnOff: String { String(localized: "palette.command.turnOff", defaultValue: "Turn Off", bundle: .module) }
     static var workspaceKeyword: String { String(localized: "palette.keyword.workspace", defaultValue: "workspace", bundle: .module) }
     static var tabKeyword: String { String(localized: "palette.keyword.tab", defaultValue: "tab", bundle: .module) }
+    static var groupKeyword: String { String(localized: "palette.keyword.group", defaultValue: "group", bundle: .module) }
+    static var paneKeyword: String { String(localized: "palette.keyword.pane", defaultValue: "pane", bundle: .module) }
+    static var sectionGroups: String { String(localized: "palette.section.groups", defaultValue: "Groups", bundle: .module) }
+    static var sectionPanes: String { String(localized: "palette.section.panes", defaultValue: "Panes", bundle: .module) }
+    static var goToAnythingPlaceholder: String {
+        String(localized: "palette.placeholder.goToAnything", defaultValue: "Search workspaces, groups, panes and tabs…", bundle: .module)
+    }
+    static var copySessionID: String { String(localized: "palette.command.copySessionID", defaultValue: "Copy Session ID", bundle: .module) }
+    static var goToGroup: String { String(localized: "palette.command.goToGroup", defaultValue: "Go to Group", bundle: .module) }
+    static var focusPane: String { String(localized: "palette.command.focusPane", defaultValue: "Focus Pane", bundle: .module) }
+    static func groupWorkspaceCount(_ count: Int) -> String {
+        String(localized: "palette.group.workspaceCount", defaultValue: "Workspaces: \(count)", bundle: .module)
+    }
+    // The kind of a Go to Workspace row, drawn at its right edge.
+    static var kindGroup: String { String(localized: "palette.kind.group", defaultValue: "Group", bundle: .module) }
+    static var kindPane: String { String(localized: "palette.kind.pane", defaultValue: "Pane", bundle: .module) }
+    static var kindTab: String { String(localized: "palette.kind.tab", defaultValue: "Tab", bundle: .module) }
+    static var kindTerminal: String { String(localized: "palette.kind.terminal", defaultValue: "Terminal", bundle: .module) }
+    static var kindBrowser: String { String(localized: "palette.kind.browser", defaultValue: "Browser", bundle: .module) }
+    static var kindRemoteTerminal: String { String(localized: "palette.kind.remoteTerminal", defaultValue: "Remote Terminal", bundle: .module) }
+    static var kindAgentChat: String { String(localized: "palette.kind.agentChat", defaultValue: "Agent Chat", bundle: .module) }
+    static var kindMarkdown: String { String(localized: "palette.kind.markdown", defaultValue: "Markdown", bundle: .module) }
+    static var kindFile: String { String(localized: "palette.kind.file", defaultValue: "File", bundle: .module) }
+    static var kindPage: String { String(localized: "palette.kind.page", defaultValue: "Page", bundle: .module) }
     static var switchToWorkspace: String { String(localized: "palette.command.switchToWorkspace", defaultValue: "Switch to Workspace", bundle: .module) }
     static var renameWorkspace: String { String(localized: "palette.command.renameWorkspace", defaultValue: "Rename Workspace…", bundle: .module) }
     static var closeWorkspace: String { String(localized: "palette.command.closeWorkspace", defaultValue: "Close Workspace", bundle: .module) }
@@ -93,4 +118,17 @@ extension PaletteStrings {
     static var optionCancel: String { ShortcutRecorderStrings.optionCancel }
     static var optionRemove: String { ShortcutRecorderStrings.optionRemove }
     static var optionRestoreDefault: String { ShortcutRecorderStrings.optionRestoreDefault }
+    // Cmd-P and Cmd-Shift-P rows for a typed path or web address (GoToPaletteRows).
+    static var sectionGoTo: String { String(localized: "palette.section.goTo", defaultValue: "Go To", bundle: .module) }
+    static var kindFolder: String { String(localized: "palette.kind.folder", defaultValue: "Folder", bundle: .module) }
+    static func goToOpen(_ place: String) -> String { String(localized: "palette.goTo.open", defaultValue: "Open \(place)", bundle: .module) }
+    static var goToFolderHint: String { String(localized: "palette.goTo.folderHint", defaultValue: "New terminal tab in this folder", bundle: .module) }
+    static var goToAskCommand: String { String(localized: "palette.goTo.askCommand", defaultValue: "Ask Agent", bundle: .module) }
+    static func goToAsk(_ place: String) -> String { String(localized: "palette.goTo.ask", defaultValue: "Ask Agent about \(place)", bundle: .module) }
+    static func goToAskWithPrompt(_ place: String, _ prompt: String) -> String {
+        String(localized: "palette.goTo.askWithPrompt", defaultValue: "Ask Agent about \(place): \(prompt)", bundle: .module)
+    }
+    static var goToAskHint: String { String(localized: "palette.goTo.askHint", defaultValue: "New agent chat; type your prompt", bundle: .module) }
+    static var goToAskSendsHint: String { String(localized: "palette.goTo.askSendsHint", defaultValue: "New agent chat; sends this prompt", bundle: .module) }
+    static var goToCopyURL: String { String(localized: "palette.goTo.copyURL", defaultValue: "Copy URL", bundle: .module) }
 }

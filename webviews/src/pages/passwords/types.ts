@@ -43,6 +43,10 @@ export interface Sections {
   passkeys: boolean;
   exceptions: boolean;
   export: boolean;
+  /** `browser.passwords.allowExport` is off (the default): export waits for that setting. */
+  exportOff?: boolean;
+  /** Import from Browser… can read other browsers (false in a build that compiles those reads out). */
+  browserImport?: boolean;
 }
 
 export interface StateResult {
@@ -78,6 +82,7 @@ export interface PasswordException {
 }
 
 export interface ChangedEvent {
-  profile: string;
+  /** Absent when a Settings switch the page shows (Allow Password Export) changed. */
+  profile?: string;
   revision: number;
 }

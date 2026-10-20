@@ -17,7 +17,11 @@ fn run(mux: &Arc<Mux>, request: Value) -> anyhow::Result<Value> {
     let mut request = request;
     request["id"] = json!(7);
     let request: Request = serde_json::from_str(&request.to_string())?;
-    handle_command(mux, mux.local_test_client(0), request.cmd, &writer)
+    // The cmux app's own connection: only it may delete a browser profile.
+    let client = mux.local_test_client(0);
+    origin_gate::set_role_for_test(mux, client, "main");
+    origin_gate::set_verified_app_for_test(mux, client, true);
+    handle_command(mux, client, request.cmd, &writer)
 }
 
 fn bookmarks_mux() -> Arc<Mux> {
@@ -705,4 +709,213 @@ fn random_bookmark_ops_keep_the_tree_invariants_and_replays_change_nothing() {
             }
         }
     }
+}
+
+// MARK: Folder icons (`bookmark-icon-v1`)
+
+fn update(mux: &Arc<Mux>, request: Value) -> anyhow::Result<Value> {
+    let mut request = request;
+    request["cmd"] = json!("update-bookmark");
+    run(mux, request)
+}
+
+/// A folder and a URL bookmark under the Bookmarks Bar.
+fn folder_and_page(mux: &Arc<Mux>) {
+    create(
+        mux,
+        json!({"browser_profile_id":"default","parent":"bar","kind":"folder","title":"Work",
+               "bookmark":FOLDER}),
+    );
+    create(
+        mux,
+        json!({"browser_profile_id":"default","parent":FOLDER,"kind":"url","title":"Docs",
+               "url":"https://example.com/docs","bookmark":PAGE}),
+    );
+}
+
+fn listed_icon(mux: &Arc<Mux>, id: &str) -> Option<Value> {
+    listed(mux, "default")["bookmarks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|node| node["id"] == id)
+        .unwrap_or_else(|| panic!("no bookmark {id}"))
+        .get("icon")
+        .cloned()
+}
+
+/// Store an SVG through the wire (`put-blob`) and return its icon value.
+fn put_svg(mux: &Arc<Mux>) -> String {
+    use base64::Engine as _;
+    let svg = br#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M0 0h16v16H0z"/></svg>"#;
+    let stored = run(
+        mux,
+        json!({"cmd":"put-blob","media_type":"image/svg+xml",
+               "data":base64::engine::general_purpose::STANDARD.encode(svg)}),
+    )
+    .unwrap();
+    stored["icon"].as_str().unwrap().to_string()
+}
+
+#[test]
+fn bookmark_icon_capability_is_advertised() {
+    let mux = bookmarks_mux();
+    let identity = run(&mux, json!({"cmd":"identify"})).unwrap();
+    assert!(
+        identity["capabilities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value == "bookmark-icon-v1"),
+        "{identity}"
+    );
+}
+
+#[test]
+fn a_bookmark_folder_takes_an_icon_and_clears_it() {
+    let mux = bookmarks_mux();
+    folder_and_page(&mux);
+    let events = mux.subscribe();
+
+    let set = update(&mux, json!({"bookmark":FOLDER,"icon":"🚀"})).unwrap();
+    assert_eq!(set["changed"], true, "{set}");
+    assert_eq!(set["bookmark"]["icon"], "🚀");
+    assert_eq!(set["bookmark"]["title"], "Work");
+    assert_eq!(listed_icon(&mux, FOLDER), Some(json!("🚀")));
+    assert_eq!(bookmark_events(&events).len(), 1);
+
+    let symbol = update(&mux, json!({"bookmark":FOLDER,"icon":"folder.fill"})).unwrap();
+    assert_eq!(symbol["changed"], true);
+    assert_eq!(listed_icon(&mux, FOLDER), Some(json!("folder.fill")));
+    assert_eq!(bookmark_events(&events).len(), 1);
+
+    // The same icon again changes nothing and emits nothing.
+    let revision = listed(&mux, "default")["bookmarks_revision"].clone();
+    let same = update(&mux, json!({"bookmark":FOLDER,"icon":"folder.fill"})).unwrap();
+    assert_eq!(same["changed"], false);
+    assert_eq!(same["bookmark"]["icon"], "folder.fill");
+    assert_eq!(listed(&mux, "default")["bookmarks_revision"], revision);
+    assert!(bookmark_events(&events).is_empty());
+
+    // An absent icon keeps it; another field's update leaves it alone.
+    let renamed = update(&mux, json!({"bookmark":FOLDER,"title":"Projects"})).unwrap();
+    assert_eq!(renamed["bookmark"]["icon"], "folder.fill");
+
+    // JSON null clears it, and a cleared icon is omitted.
+    let cleared = update(&mux, json!({"bookmark":FOLDER,"icon":null})).unwrap();
+    assert_eq!(cleared["changed"], true);
+    assert!(cleared["bookmark"].get("icon").is_none(), "{cleared}");
+    assert_eq!(listed_icon(&mux, FOLDER), None);
+    bookmark_events(&events);
+    let again = update(&mux, json!({"bookmark":FOLDER,"icon":null})).unwrap();
+    assert_eq!(again["changed"], false);
+    assert!(bookmark_events(&events).is_empty());
+}
+
+#[test]
+fn a_bookmark_icon_is_refused_on_a_url_and_when_it_is_not_an_icon() {
+    let mux = bookmarks_mux();
+    folder_and_page(&mux);
+    let revision = listed(&mux, "default")["bookmarks_revision"].clone();
+    // Only a folder takes an icon.
+    assert_eq!(error_code(update(&mux, json!({"bookmark":PAGE,"icon":"🚀"}))), "invalid_params");
+    assert_eq!(error_code(update(&mux, json!({"bookmark":PAGE,"icon":null}))), "invalid_params");
+    for bad in ["Not An Icon", "", "🚀🚀", "svg:sha256-nothex", "image:"] {
+        assert_eq!(
+            error_code(update(&mux, json!({"bookmark":FOLDER,"icon":bad}))),
+            "invalid_params",
+            "{bad:?}"
+        );
+    }
+    // The roots are not rows.
+    assert_eq!(error_code(update(&mux, json!({"bookmark":"bar","icon":"🚀"}))), "invalid_params");
+    assert_eq!(listed(&mux, "default")["bookmarks_revision"], revision);
+    assert_eq!(listed_icon(&mux, FOLDER), None);
+    assert_eq!(listed_icon(&mux, PAGE), None);
+}
+
+/// A stored SVG is a folder icon too: a missing one is refused, a stored one
+/// sets, and the blob outlives the sweep while the folder names it.
+#[test]
+fn a_bookmark_folder_icon_takes_a_stored_asset_and_keeps_it_from_the_sweep() {
+    use crate::workspace_registry::personal_store::blobs::sweep_blobs;
+    let mux = bookmarks_mux();
+    folder_and_page(&mux);
+    let missing = format!("svg:sha256-{}", "0".repeat(64));
+    assert_eq!(
+        error_code(update(&mux, json!({"bookmark":FOLDER,"icon":missing}))),
+        "unknown_icon_asset"
+    );
+    let icon = put_svg(&mux);
+    // The digest of an SVG does not name a raster.
+    let swapped = icon.replace("svg:", "image:");
+    assert_eq!(
+        error_code(update(&mux, json!({"bookmark":FOLDER,"icon":swapped}))),
+        "unknown_icon_asset"
+    );
+    assert_eq!(listed_icon(&mux, FOLDER), None);
+
+    let set = update(&mux, json!({"bookmark":FOLDER,"icon":icon})).unwrap();
+    assert_eq!(set["changed"], true);
+    assert_eq!(set["bookmark"]["icon"], json!(icon));
+    assert_eq!(listed_icon(&mux, FOLDER), Some(json!(icon)));
+
+    // Long after the put, only the folder's reference keeps the blob.
+    mux.with_icon_registry(|registry| sweep_blobs(&registry.connection.get(), u64::MAX / 2))
+        .unwrap();
+    run(&mux, json!({"cmd":"get-blob","blob":icon})).unwrap();
+}
+
+#[test]
+fn a_keyed_bookmark_icon_update_replays_its_result() {
+    let mux = bookmarks_mux();
+    folder_and_page(&mux);
+    let events = mux.subscribe();
+    let request = json!({"cmd":"update-bookmark","bookmark":FOLDER,"icon":"⭐",
+                         "origin":"bookmarks-test","mutation_id":"m-icon"});
+    let original = run(&mux, request.clone()).unwrap();
+    assert_eq!(original["replayed"], false);
+    assert_eq!(original["changed"], true);
+    assert_eq!(original["bookmark"]["icon"], "⭐");
+    assert_eq!(bookmark_events(&events).len(), 1);
+    let revision = listed(&mux, "default")["bookmarks_revision"].clone();
+    let again = run(&mux, request).unwrap();
+    assert_eq!(again["replayed"], true);
+    assert_eq!(without_replayed(&again), without_replayed(&original));
+    assert_eq!(listed(&mux, "default")["bookmarks_revision"], revision);
+    assert!(bookmark_events(&events).is_empty());
+    // The same key with another icon is another request.
+    assert_eq!(
+        error_code(run(
+            &mux,
+            json!({"cmd":"update-bookmark","bookmark":FOLDER,"icon":"🚀",
+                   "origin":"bookmarks-test","mutation_id":"m-icon"})
+        )),
+        "invalid_params"
+    );
+    assert_eq!(listed_icon(&mux, FOLDER), Some(json!("⭐")));
+}
+
+#[test]
+fn a_bookmark_folder_icon_survives_a_replacing_import() {
+    let mux = bookmarks_mux();
+    let import = |title: &str| {
+        run(
+            &mux,
+            json!({"cmd":"import-bookmarks","browser_profile_id":"default","parent":"bar",
+                   "source_key":"chrome/Default","replace":true,
+                   "nodes":[{"kind":"folder","title":title,"children":[
+                       {"kind":"url","title":"A","url":"https://a.example"}]}]}),
+        )
+        .unwrap()
+    };
+    let root = import("Chrome")["root_ids"][0].as_str().unwrap().to_string();
+    update(&mux, json!({"bookmark":root,"icon":"globe"})).unwrap();
+    let again = import("Chrome 2");
+    assert_eq!(again["root_ids"], json!([root]));
+    let listing = listed(&mux, "default");
+    let folder = &listing["bookmarks"][0];
+    assert_eq!(folder["id"], json!(root));
+    assert_eq!(folder["title"], "Chrome 2");
+    assert_eq!(folder["icon"], "globe");
 }

@@ -31,7 +31,9 @@ public nonisolated struct KeyBindingLayers: Hashable, Sendable {
 public nonisolated struct KeyBindingRemoval: Hashable, Sendable {
     public enum WhenMatch: Hashable, Sendable {
         case any
-        /// Structurally equal; nil is an entry without a `when`.
+        /// The same clause as text (`WhenClause.text` is canonical: a
+        /// one-clause or nested `&&` reads as its parts); nil is an entry
+        /// without a `when`.
         case exactly(WhenClause?)
     }
 
@@ -49,7 +51,7 @@ public nonisolated struct KeyBindingRemoval: Hashable, Sendable {
         guard entry.command == command, keys == nil || entry.keys == keys else { return false }
         switch when {
         case .any: return true
-        case .exactly(let clause): return entry.when == clause
+        case .exactly(let clause): return entry.when?.text == clause?.text
         }
     }
 }

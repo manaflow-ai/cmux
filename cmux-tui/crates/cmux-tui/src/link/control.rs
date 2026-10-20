@@ -81,13 +81,30 @@ pub(super) trait OverlayListener: Send + 'static {
     ) -> impl Future<Output = Option<(Self::Stream, [u8; 32], SocketAddr)>> + Send;
 }
 
+/// `{"op":"link.status"}`: the reply is the link's status line (see
+/// `super::status_line`), which `cmux link ensure` and `cmux link status`
+/// read.
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StatusRequest {
+    op: StatusOp,
+}
+
+#[derive(serde::Deserialize)]
+enum StatusOp {
+    #[serde(rename = "link.status")]
+    Status,
+}
+
 /// Serve the local socket. Each caller must be this user and
 /// signed as cmux (`cmux_link::caller`); others are closed unanswered.
+/// `status` is the one-line answer to `link.status`.
 pub(super) async fn serve_local<O: Overlay, S: ConnectInfoSource>(
     listener: UnixListener,
     overlay: Arc<O>,
     peers: Arc<Peers>,
     resolver: Arc<CloudResolver<S>>,
+    status: Arc<str>,
 ) -> io::Result<()> {
     let mut failures = 0u32;
     loop {
@@ -104,7 +121,13 @@ pub(super) async fn serve_local<O: Overlay, S: ConnectInfoSource>(
                 continue;
             }
         };
-        tokio::spawn(serve_local_request(stream, overlay.clone(), peers.clone(), resolver.clone()));
+        tokio::spawn(serve_local_request(
+            stream,
+            overlay.clone(),
+            peers.clone(),
+            resolver.clone(),
+            status.clone(),
+        ));
     }
 }
 
@@ -116,6 +139,7 @@ async fn serve_local_request<O: Overlay, S: ConnectInfoSource>(
     overlay: Arc<O>,
     peers: Arc<Peers>,
     resolver: Arc<CloudResolver<S>>,
+    status: Arc<str>,
 ) {
     // The signature check calls into the OS; keep it off the async workers.
     let fd = stream.as_raw_fd();
@@ -128,6 +152,10 @@ async fn serve_local_request<O: Overlay, S: ConnectInfoSource>(
         let ok = apply_cloud_event(&event, &*overlay, &resolver).await;
         let reply = if ok { "{\"ok\":true}\n" } else { "{\"ok\":false}\n" };
         let _ = stream.write_all(reply.as_bytes()).await;
+        return;
+    }
+    if let Some(StatusRequest { op: StatusOp::Status }) = parse_line::<StatusRequest>(&first) {
+        let _ = stream.write_all(format!("{status}\n").as_bytes()).await;
         return;
     }
     if parse_line::<ReloadRequest>(&first).is_some() {

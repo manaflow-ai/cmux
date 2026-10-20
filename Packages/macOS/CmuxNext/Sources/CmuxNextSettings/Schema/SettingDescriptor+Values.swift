@@ -38,7 +38,7 @@ extension SettingDescriptor {
             return number.range.contains(double)
         case .color:
             return value.stringValue.map(Self.isHexColor) ?? false
-        case .sound:
+        case .sound, .text:
             return value.stringValue != nil
         case .url:
             if BrowserOmnibarSetting.templatePaths.contains(path) { return value.stringValue.map(BrowserOmnibarSetting.isSearchTemplate) ?? false }
@@ -67,7 +67,7 @@ extension SettingDescriptor {
         case .stringList:
             guard case .array(let items) = value else { return false }
             return items.allSatisfy { $0.stringValue.map { !$0.isEmpty } ?? false }
-        case .orderedChoices(let choices):
+        case .orderedChoices(let choices), .choiceSet(let choices):
             guard case .array(let items) = value else { return false }
             return items.allSatisfy { item in item.stringValue.map { text in choices.contains { $0.value == text } } ?? false }
         }

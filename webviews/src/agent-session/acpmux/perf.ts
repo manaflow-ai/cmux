@@ -71,10 +71,12 @@ export function summary(values: number[]): { p50_ms: number; p95_ms: number; max
   };
 }
 
-/** True when the mounted rows [mountedTop, mountedBottom) leave part of the viewport empty. */
+/** Pixel extent [top, bottom) of one run of mounted rows. */
+export type MountedSpan = readonly [top: number, bottom: number];
+
+/** True when the mounted rows (separate runs, as a fast scroll mounts them) leave part of the viewport empty. */
 export function isBlank(
-  mountedTop: number,
-  mountedBottom: number,
+  mounted: readonly MountedSpan[],
   scrollTop: number,
   viewportHeight: number,
   contentHeight: number,
@@ -82,7 +84,8 @@ export function isBlank(
   const viewTop = Math.max(0, scrollTop);
   const viewBottom = Math.min(contentHeight, scrollTop + viewportHeight);
   if (viewBottom <= viewTop) return false;
-  return mountedTop > viewTop + 0.5 || mountedBottom < viewBottom - 0.5;
+  // Runs are separated by rows that are not mounted, so one run has to hold the whole view.
+  return !mounted.some(([top, bottom]) => top <= viewTop + 0.5 && bottom >= viewBottom - 0.5);
 }
 
 /** A fixed-capacity ring of per-frame samples; the oldest is overwritten. */
@@ -165,9 +168,8 @@ export class AcpmuxPerf {
   private spansSinceMark = new Map<string, number>();
   private spanFrames: Map<string, number>[] = [];
   private lastMark: number | undefined;
-  /** Pixel extent of the mounted rows at the last commit. */
-  mountedTop = 0;
-  mountedBottom = 0;
+  /** Pixel extent of each run of mounted rows at the last commit. */
+  mounted: MountedSpan[] = [];
   private commitWaiters: ((now: number) => void)[] = [];
   readonly typing: TypingSample[] = [];
   private agentMarks: Partial<Record<AgentMark, number>> = {};
@@ -244,10 +246,9 @@ export class AcpmuxPerf {
   }
 
   /** A VirtualTranscript commit: render-start to commit took `ms`, `layoutMs` of it in geometry. */
-  commit(ms: number, layoutMs: number, mountedTop: number, mountedBottom: number, now: number): void {
+  commit(ms: number, layoutMs: number, mounted: MountedSpan[], now: number): void {
     this.reactSinceMark += Math.max(0, ms - layoutMs);
-    this.mountedTop = mountedTop;
-    this.mountedBottom = mountedBottom;
+    this.mounted = mounted;
     const waiters = this.commitWaiters;
     this.commitWaiters = [];
     for (const resolve of waiters) resolve(now);

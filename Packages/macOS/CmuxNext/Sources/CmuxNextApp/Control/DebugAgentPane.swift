@@ -1,6 +1,7 @@
 #if DEBUG
 import AppKit
 import CmuxNextAgentPane
+import CmuxNextResources
 import CmuxNextSettings
 import ObjectiveC
 import WebKit
@@ -29,7 +30,7 @@ import WebKit
 /// end): `chat_state`, `send_prompt` (`text`), `new_chat` (`harness`, `cwd`),
 /// `select_session` (`session`), `pick_folder` (`cwd`: the folder chip's pick), `answer_permission` (`option`, `allow`,
 /// `decision`), `open_changes` (the latest turn's changes view),
-/// `models` (the harness's models), `set_model` (`model`, `effort`),
+/// `models` (the harness's models), `set_model` (`model`, `effort`), `layout_watch` (`ms`, `tolerance`; layoutWatch.ts),
 /// `readiness` (page body, transcript and composer metrics), `click` (`selector`
 /// or `text`: a native click on that element, DebugAgentPaneClick), `pid` (the WebContent process, for profiling), or
 /// `full_rate` (`enabled` turns full-rate rendering on or off on the live
@@ -49,7 +50,7 @@ enum DebugAgentPane {
         "chat_state": "chatState", "send_prompt": "sendPrompt", "new_chat": "newChat",
         "select_session": "selectSession", "answer_permission": "answerPermission", "open_changes": "openChanges",
         "set_model": "setModel", "models": "models", "stream": "stream", "pick_folder": "pickFolder",
-        "load_seed": "loadSeed", "load_run": "loadRun",
+        "load_seed": "loadSeed", "load_run": "loadRun", "layout_watch": "layoutWatch",
     ]
 
     /// The chat verbs drive the chat as a person does, so each records a user gesture first (as
@@ -85,12 +86,17 @@ enum DebugAgentPane {
         keepRenderingWhenCovered(view.webView)
         actAsUser(action, gestures: view.model.transport.gestures)
         if action == "pid" {
-            let selector = NSSelectorFromString("_webProcessIdentifier")
-            guard view.webView.responds(to: selector),
-                  let pid = (view.webView.value(forKey: "_webProcessIdentifier") as? NSNumber)?.int32Value, pid > 0 else {
+            guard let pid = WebContentProcess.identifier(of: view.webView) else {
                 return .object(["pane": .string(pane), "error": .string("no WebContent process")])
             }
             return .object(["pane": .string(pane), "pid": .number(Double(pid))])
+        }
+        if action == "crash_notice" {
+            // The notice a page that keeps crashing shows; {"press": "reload"} presses its Reload first.
+            let pressed = params["press"]?.stringValue == "reload" && view.debugPressCrashNoticeReload()
+            let texts = view.debugCrashNoticeTexts
+            return .object(["pane": .string(pane), "shown": .bool(texts != nil), "texts": .array((texts ?? []).map(JSONValue.string)),
+                            "pressed": .bool(pressed)])
         }
         if action == "gesture_state" {
             // The relay's gesture record (no ticket value), for a live repro of a gesture refusal.
@@ -161,11 +167,14 @@ enum DebugAgentPane {
         if action == "click" {
             return await DebugAgentPaneClick.click(params, pane: pane, view: view, services: services)
         }
+        if action == "hover" {
+            return await DebugAgentPaneClick.hover(params, pane: pane, view: view)
+        }
         if action == "inspector" {
             return await toggleInspector(view, open: params["open"]?.boolValue, pane: pane)
         }
         guard let function = functions[action] else {
-            return .object(["error": .string("unknown action; use seed_rows, fling, fling_stats, perf_stats, typing_stats, reset_typing, close_menus, open_menu, acp_log, acp_log_export, chat_state, send_prompt, new_chat, select_session, pick_folder, answer_permission, open_changes, set_model, models, stream, readiness, click, pid, full_rate, gesture_state or inspector")])
+            return .object(["error": .string("unknown action; use seed_rows, fling, fling_stats, perf_stats, typing_stats, reset_typing, close_menus, open_menu, acp_log, acp_log_export, chat_state, send_prompt, new_chat, select_session, pick_folder, answer_permission, open_changes, set_model, models, stream, layout_watch, readiness, click, pid, full_rate, gesture_state or inspector")])
         }
         do {
             let result = try await view.webView.callAsyncJavaScript(
@@ -269,16 +278,16 @@ enum DebugAgentPane {
         case "stream":
             // R104: a scripted reply streamed into `rows` synthetic rows (streamDebug.ts).
             var options: [String: Any] = [:]
-            for key in ["rows", "seconds", "chunk_chars", "chunk_ms", "nominal_ms"] {
+            for key in ["rows", "seconds", "chunk_chars", "chunk_ms", "nominal_ms", "trace"] {
                 if let value = params[key]?.doubleValue { options[key] = value }
             }
             return [options]
         case "load_seed":
             return [params["turns"]?.intValue ?? 5000]
-        case "load_run":
-            // The chat under load (loadDebug.ts): a full-speed stream while the transcript scrolls.
+        case "load_run", "layout_watch":
+            // The chat under load (loadDebug.ts), or what moved after the page's first paint (layoutWatch.ts).
             var options: [String: Any] = [:]
-            for key in ["seconds", "chunk_chars", "chunk_ms", "tool_every", "scroll_speed", "scroll_depth"] {
+            for key in ["seconds", "chunk_chars", "chunk_ms", "tool_every", "scroll_speed", "scroll_depth", "ms", "tolerance"] {
                 if let value = params[key]?.doubleValue { options[key] = value }
             }
             return [options]

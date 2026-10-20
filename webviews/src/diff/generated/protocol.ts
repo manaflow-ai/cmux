@@ -4,7 +4,12 @@ export type BranchChangeRequest = { groupId: string, repoRoot: string, baseRef: 
 
 export type BranchListRequest = { repoRoot: string, capabilityToken: string, selectedBase: string | null, };
 
-export type BranchListResult = { groups: Array<BranchPickerGroup>, };
+export type BranchListResult = { groups: Array<BranchPickerGroup>, 
+/**
+ * Present and true when the repository has more branches than the
+ * picker lists.
+ */
+truncated?: boolean, };
 
 export type BranchPickerConfidence = "high" | "low";
 

@@ -41,8 +41,11 @@ public final class UpdaterService {
     }
     /// The R114 install gate over ``indicatorPhase``.
     public internal(set) var flow = UpdateFlow()
-    /// The found update whose notice the user dismissed ("" without a version).
-    public internal(set) var dismissedAvailableVersion: String?
+    /// UPDATE-CARD-CLOSE: the update version whose card the person closed and the end of a
+    /// "Remind Me Later" (``UpdateSnooze``, kept in `defaults`).
+    public internal(set) var updateSnooze = UpdateSnooze()
+    /// The pending reminder's end, on the injected clock (one-shot; re-armed at launch).
+    @ObservationIgnored let snoozeTimer: DemandTimer
     /// The notice whose timeout is pending, and its one-shot deadline on the
     /// injected clock (no `asyncAfter`).
     @ObservationIgnored var expiringCard: UpdateCard?
@@ -52,6 +55,9 @@ public final class UpdaterService {
     /// Opens the changelog page for the releases after `from` up to `to`
     /// (set by the App).
     @ObservationIgnored public var openChangelogSpan: ((_ from: String, _ to: String) -> Bool)?
+    /// Opens a web release notes page in a browser tab (set by the App;
+    /// "See all changes" when the staged build has no signed notes).
+    @ObservationIgnored public var openReleaseNotesURL: ((URL) -> Bool)?
     /// Runs an allow-listed action id (set by the App; an announcement's Try It).
     @ObservationIgnored public var runAllowListedAction: ((String) -> Void)?
     /// The announcement cards to show (filtered), newest feed order.
@@ -88,18 +94,25 @@ public final class UpdaterService {
     @ObservationIgnored var stagedBuild: () -> String? = { nil }
     /// `updates.downloadAutomatically` (the card's Automatic Updates box).
     public internal(set) var automaticUpdates = true
-    /// Writes `updates.downloadAutomatically` (set by the App).
-    @ObservationIgnored public var writeAutomaticUpdates: ((Bool) -> Void)?
+    /// Writes a setting the updater's cards change (set by the App).
+    @ObservationIgnored public var writeSetting: ((UpdaterSetting, Bool) -> Void)?
     /// BOTTOM-LEFT-CARDS K1: today's "Did you know" tip (nil: none, or
     /// `sidebar.cards.tips` off) and what the tips remember on this Mac.
     public internal(set) var tip: Tip?
     @ObservationIgnored var tipState = TipState()
-    /// `sidebar.cards.tips` (set by the App).
-    public var tipsEnabled = true { didSet { if oldValue != tipsEnabled { refreshTip() } } }
+    /// `sidebar.cards.tips` (set by the App once settings load; nil before,
+    /// and no tip shows until then); turning it on again ends a timed mute.
+    public var tipsEnabled: Bool? {
+        didSet {
+            guard oldValue != tipsEnabled else { return }
+            if oldValue == false, tipsEnabled == true { tipsTurnedOn() }
+            refreshTip()
+        }
+    }
     /// Runs a tip's action as the user's own (set by the App: the registry).
     @ObservationIgnored public var runTipAction: ((String) -> Void)?
-    /// Re-picks the tip when the app becomes active (set by the App).
-    @ObservationIgnored public var activationObservation: Task<Void, Never>?
+    /// Re-picks the tip when the app becomes active (``refreshTipOnActivation()``).
+    @ObservationIgnored var activationObservation: Task<Void, Never>?
     /// The test feed in use ("Use Test Update Feed"), or nil.
     public internal(set) var testFeedURL: String?
     /// The `updates.*` settings the gate reads (set by the App).
@@ -115,6 +128,10 @@ public final class UpdaterService {
     /// The App's observation of the `updates.*` settings.
     @ObservationIgnored public var settingsObservation: Task<Void, Never>?
     @ObservationIgnored let now: () -> Date
+    #if DEBUG
+    /// The card kind last written to the update harness's timeline.
+    @ObservationIgnored var markedCardKind: String?
+    #endif
 
     /// Asks the App to show the update sheet (set by the App): a failure's
     /// details only.
@@ -135,6 +152,8 @@ public final class UpdaterService {
     @ObservationIgnored private var probeTask: Task<String?, Never>?
     @ObservationIgnored private var switchTask: Task<String?, Never>?
     @ObservationIgnored private var started = false
+    /// A check the person asked for runs in Sparkle (cleared when the flow leaves checking).
+    @ObservationIgnored var userCheckRunning = false
     /// Whether ``start()`` ran (the managed policy checks only after it).
     var isStarted: Bool { started }
 
@@ -153,6 +172,7 @@ public final class UpdaterService {
                 clock: any Clock<Duration> = ContinuousClock()) {
         self.now = now
         cardTimer = DemandTimer(owner: "UpdaterService.card", clock: clock)
+        snoozeTimer = DemandTimer(owner: "UpdaterService.snooze", clock: clock)
         self.identity = identity
         self.policy = policy
         self.prober = prober
@@ -189,6 +209,7 @@ public final class UpdaterService {
         restorePinnedTestFeed()
         restoreRollbackSkip()
         tipState = TipState(defaults: defaults)
+        updateSnooze = UpdateSnooze(defaults: defaults)
     }
 
     /// Why Sparkle does not run right now, or nil.
@@ -207,6 +228,7 @@ public final class UpdaterService {
         observeFlowPhase()
         refreshAnnouncements()
         refreshTip()
+        refreshUpdateSnooze()
         guard let controller else {
             log.append("sparkle not started (\(disabledReason?.rawValue ?? "no driver"), track=\(identity.track.rawValue))")
             return
@@ -227,10 +249,20 @@ public final class UpdaterService {
     /// whose result the circle notes (never under a managed policy, which
     /// forbids touching the feed). The returned task finishes when a probe
     /// has its result (nil) or failed (the reason).
+    ///
+    /// The answer is on screen before this returns (Lawrence 2026-10-19: "I
+    /// can't tell if it's being checked for right now"): the gate takes the
+    /// new phase here, not one observation hop later, so the notice card
+    /// shows "Checking for Updates…" in the next frame. A request while the
+    /// person's check runs joins it: the same progress shows and nothing new
+    /// is fetched.
     @discardableResult
     public func checkForUpdates() -> Task<String?, Never>? {
         if needsSheet { presentUpdateUI?() }
+        // The person asked: a closed or snoozed update card shows again.
+        clearUpdateSnooze()
         send(.checkRequested)
+        defer { syncFlowPhase() }
         switch disabledReason {
         case .managedPolicy:
             log.append("check suppressed (managed policy)")
@@ -244,8 +276,14 @@ public final class UpdaterService {
                 log.append("check while an update waits: showing the staged update")
                 return nil
             }
+            if userCheckRunning, case .checking = flow.phase {
+                // Sparkle would queue a second check after this one, which only delays the answer.
+                log.append("check while the person's check runs: joined")
+                return nil
+            }
             controller.model.setOverrideState(nil)
             controller.checkForUpdates()
+            userCheckRunning = true
             return nil
         case .developmentBuild, .missingPublicKey:
             showsProbeResult = true
@@ -284,15 +322,19 @@ public final class UpdaterService {
         return task
     }
 
-    /// Installs and relaunches: the downloaded update at once, the one
-    /// downloading as soon as it is ready, else the newest after a fresh
-    /// check (the shared driver's attempt flow, so never a stale version).
+    /// Installs and relaunches the downloaded update at once, or the one
+    /// being checked for or downloaded as soon as it is staged. With
+    /// nothing found yet, it runs a fresh check (the shared driver's attempt
+    /// flow, so never a stale version) whose progress and result show on the
+    /// notice card; a found update downloads and waits as the staged update
+    /// card (Restart to Update).
     public func installAvailableUpdate() throws {
         guard let controller, disabledReason == nil else { throw UpdaterUnavailable(reason: disabledReason) }
         #if DEBUG
         UpdateHarness.mark("install_clicked")
         #endif
         if needsSheet { presentUpdateUI?() }
+        clearUpdateSnooze()
         controller.model.setOverrideState(nil)
         syncFlowPhase()
         switch flow.phase {
@@ -301,7 +343,10 @@ public final class UpdaterService {
             send(.installRequested)
         case .hidden, .installing, .note:
             // Nothing found yet: an explicit install runs Sparkle's attempt
-            // flow (a fresh check that installs the newest at once).
+            // flow (a fresh check that installs the newest at once). The
+            // user asked, so its progress and result show on the notice
+            // card (up to date, downloading, the failure), as for a check.
+            send(.checkRequested)
             controller.attemptUpdate()
         }
     }

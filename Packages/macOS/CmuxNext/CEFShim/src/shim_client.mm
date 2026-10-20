@@ -5,9 +5,11 @@
 
 #include "include/cef_devtools_message_observer.h"
 #include "include/cef_parser.h"
+#include "include/cef_resource_request_handler.h"
 #include "command_line_switches.h"
 #include "external_url.h"
 #include "local_file_handoff.h"
+#include "local_file_scope.h"
 #include "page_scheme_registration.h"
 #include "shim_internal.h"
 
@@ -50,6 +52,7 @@ class App : public CefApp, public CefBrowserProcessHandler {
     InstallForkObserver();
     InstallWindowRequestHandler();
     InstallExtensionUIHandlers();
+    InstallPasswordPromptHandler();
     InstallWebAuthnRefusedHandler();
     InstallPageSchemes();
     Emit(CMUX_SHIM_CONTEXT_INITIALIZED, 0);
@@ -71,6 +74,33 @@ class App : public CefApp, public CefBrowserProcessHandler {
   std::vector<std::string> switches_;
   IMPLEMENT_REFCOUNTING(App);
 };
+
+// A file: page's subresources and subframes outside its folder never load
+// (local_file_scope.h, cx-ary1f).
+class LocalFileRefusal : public CefResourceRequestHandler {
+ public:
+  cef_return_value_t OnBeforeResourceLoad(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame>, CefRefPtr<CefRequest>,
+                                          CefRefPtr<CefCallback>) override {
+    return RV_CANCEL;
+  }
+
+  IMPLEMENT_REFCOUNTING(LocalFileRefusal);
+};
+
+// The URL of the document a request loads into: a subframe's parent for a
+// subframe navigation, otherwise the frame itself. An about:blank or
+// about:srcdoc frame shares its parent's origin, so its parent decides; with
+// no such parent (a popup a page wrote into) the URL is "", which the policy
+// refuses.
+std::string RequestDocumentURL(CefRefPtr<CefFrame> frame, CefRefPtr<CefRequest> request) {
+  if (request->GetResourceType() == RT_SUB_FRAME) frame = frame->GetParent();
+  while (frame) {
+    std::string url = frame->GetURL().ToString();
+    if (!url.empty() && url.compare(0, 6, "about:") != 0) return url;
+    frame = frame->GetParent();
+  }
+  return std::string();
+}
 
 class Client : public CefClient,
                public CefDisplayHandler,
@@ -163,22 +193,32 @@ class Client : public CefClient,
     return true;
   }
 
-  // MARK: Chrome Web Store
+  // MARK: Chrome Web Store, local file scope
 
-  CefRefPtr<CefResourceRequestHandler> GetResourceRequestHandler(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame>,
+  CefRefPtr<CefResourceRequestHandler> GetResourceRequestHandler(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame> frame,
                                                                  CefRefPtr<CefRequest> request, bool, bool,
                                                                  const CefString&, bool&) override {
-    return WebStoreRequestHandler(request->GetURL().ToString());
+    const std::string url = request->GetURL().ToString();
+    // A request with no frame (a worker, a CefURLRequest) has no folder to
+    // judge it by: its file: loads are refused.
+    if (LocalFileSchemeURL(url) && request->GetResourceType() != RT_MAIN_FRAME &&
+        !LocalFileSubresourceAllowed(frame ? RequestDocumentURL(frame, request) : std::string(), url)) {
+      static CefRefPtr<CefResourceRequestHandler> refusal = new LocalFileRefusal();
+      return refusal;
+    }
+    return WebStoreRequestHandler(url);
   }
 
   // MARK: Certificate errors
 
-  // The host shows its own certificate warning page: a main-frame
-  // certificate error fails the load (the cert error code reaches
-  // OnLoadError) unless the host asked to proceed on this tab's host
-  // (cmux_shim_certificate_proceed): then Chromium continues, and remembers
-  // the choice in its profile, or decides itself with its own interstitial
-  // (named hosts, where only Chromium knows whether HSTS forbids it).
+  // A main-frame certificate error shows Chromium's own interstitial, as in
+  // Chrome (Lawrence 2026-10-13); the load error is marked
+  // chromium_interstitial so the host shows no page over it. In an
+  // agent-driven tab the load fails and the host shows its own warning
+  // instead; a Proceed a person pressed there (cmux_shim_certificate_proceed)
+  // continues, or leaves the decision to the interstitial (a named host,
+  // HSTS): an agent could then press the interstitial's Proceed too, which
+  // is accepted, since a person consented first.
   bool OnCertificateError(CefRefPtr<CefBrowser> browser, cef_errorcode_t cert_error, const CefString& request_url,
                           CefRefPtr<CefSSLInfo>, CefRefPtr<CefCallback> callback) override {
     CefURLParts parts;
@@ -191,9 +231,17 @@ class Client : public CefClient,
         NoteCertificateError(browser->GetIdentifier(), cert_error, true);
         return false;
       case CertificateProceed::kNone:
-        NoteCertificateError(browser->GetIdentifier(), cert_error, false);
-        callback->Cancel();
-        return true;
+        if (BrowserIsAgentDriven(browser->GetIdentifier())) {
+          // An agent could press Proceed in Chromium's interstitial (its
+          // page script): the host's warning, whose Proceed only a person
+          // can press, shows instead.
+          NoteCertificateError(browser->GetIdentifier(), cert_error, false);
+          callback->Cancel();
+          return true;
+        }
+        // Chromium's own interstitial, as in Chrome (Lawrence 2026-10-13).
+        NoteCertificateError(browser->GetIdentifier(), cert_error, true);
+        return false;
     }
     return false;
   }
@@ -292,6 +340,9 @@ class Client : public CefClient,
       item->SetString("label", model->GetLabelAt(i));
       item->SetBool("enabled", model->IsEnabledAt(i));
       item->SetBool("checked", model->IsCheckedAt(i));
+      // Chromium keeps hidden rows in the model (an extension item with
+      // visible: false); the host drops them as Chrome's menu does.
+      item->SetBool("visible", model->IsVisibleAt(i));
       switch (model->GetTypeAt(i)) {
         case MENUITEMTYPE_SEPARATOR: item->SetString("type", "separator"); break;
         case MENUITEMTYPE_CHECK: item->SetString("type", "check"); break;
@@ -416,7 +467,11 @@ class Client : public CefClient,
   void OnLoadStart(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, TransitionType) override {
     if (frame->IsMain()) {
       ForgetCertificateState(browser->GetIdentifier());
-      Emit(CMUX_SHIM_LOAD_START, browser->GetIdentifier(), 0, 0, 0, frame->GetURL().ToString());
+      // a = 1 when the committed entry came from a POST (a form; a 303 after
+      // it is a GET entry): such a page never hibernates (BR-R1).
+      CefRefPtr<CefNavigationEntry> entry = browser->GetHost()->GetVisibleNavigationEntry();
+      int64_t from_post = entry && entry->IsValid() && entry->HasPostData() ? 1 : 0;
+      Emit(CMUX_SHIM_LOAD_START, browser->GetIdentifier(), 0, from_post, 0, frame->GetURL().ToString());
     }
   }
 

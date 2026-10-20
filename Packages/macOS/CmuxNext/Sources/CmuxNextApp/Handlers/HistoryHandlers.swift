@@ -51,6 +51,7 @@ enum HistoryHandlers {
         for id: ActionID in ["history.show", "browserShowHistory"] {
             registry.bind(id, run: { _ in services.historyPage.open() })
         }
+        registry.bind("agentHistory.show", run: { invocation in context.paneController(invocation).map { AgentHistoryPage.open(in: $0) } })
         registry.bind("history.reopen", run: { invocation in
             HistoryRestorer(services: services).reopen(closedID: invocation["id"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 })
         })

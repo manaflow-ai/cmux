@@ -25,6 +25,7 @@ mod cancel;
 mod catalog;
 #[cfg(unix)]
 mod egress;
+pub(crate) mod envelope;
 #[cfg(unix)]
 mod grants;
 #[cfg(unix)]
@@ -33,6 +34,8 @@ mod host;
 mod host_ops;
 #[cfg(unix)]
 mod hosts;
+#[cfg(unix)]
+mod local_reload;
 #[cfg(unix)]
 mod mirror;
 #[cfg(unix)]
@@ -56,6 +59,10 @@ mod storage;
 #[cfg(unix)]
 mod store;
 #[cfg(unix)]
+mod store_panels;
+#[cfg(unix)]
+mod subscriptions;
+#[cfg(unix)]
 mod supervisor;
 #[cfg(all(test, unix))]
 mod supervisor_tests;
@@ -73,11 +80,13 @@ use std::sync::{Arc, OnceLock};
 #[cfg(unix)]
 pub(crate) use mirror::{HiddenAccess, Origin, SetOp};
 #[cfg(unix)]
-pub(crate) use provider::{ProviderClaim, admit_origin};
+pub(crate) use provider::{ProviderClaim, admit_origin, hosting_app_connection};
 #[cfg(unix)]
 pub(crate) use runs::{Caller, RunRequest};
 #[cfg(unix)]
 pub(crate) use store::store_op_mutates;
+#[cfg(unix)]
+pub(crate) use subscriptions::AGENT_INVENTORY_INVALIDATION_CAPABILITY;
 #[cfg(unix)]
 pub(crate) use supervisor::{ApiError, Supervisor};
 

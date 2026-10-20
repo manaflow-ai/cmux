@@ -78,6 +78,7 @@ nonisolated enum UpdaterStrings {
 
     static var restartToUpdate: String { text("updater.card.restartToUpdate", "Restart to Update") }
     static var automaticUpdates: String { text("updater.card.automaticUpdates", "Automatic Updates") }
+    static var seeAllChanges: String { text("updater.card.seeAllChanges", "See all changes") }
     static func downloadedHeadline(_ version: String) -> String {
         format("updater.card.downloaded", "Update %@ downloaded. Click to restart and install.", version)
     }

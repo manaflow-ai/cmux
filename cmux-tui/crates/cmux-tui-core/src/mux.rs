@@ -163,13 +163,17 @@ mod topology_edit;
 mod topology_ops;
 pub(crate) use browser_tab_create::{
     FRONTEND_BROWSER_ACTIVATE_CAPABILITY, FRONTEND_BROWSER_INSERT_AFTER_CAPABILITY,
-    FrontendTabPlacement, frontend_fields as frontend_browser_fields,
+    FrontendTabPlacement, TRANSACTION_FIELD as FRONTEND_BROWSER_TRANSACTION_FIELD,
+    effect_transaction as frontend_browser_transaction, frontend_fields as frontend_browser_fields,
 };
-pub(crate) use spawn_options::{CLIENT_PANE_ID_FIELD, CLIENT_TAB_ID_FIELD, terminal_identity};
+pub(crate) use spawn_options::{
+    CLIENT_PANE_ID_FIELD, CLIENT_SPLIT_ID_FIELD, CLIENT_TAB_ID_FIELD, terminal_identity,
+};
 pub use spawn_options::{PaneSurfaceCreation, TerminalSpawnOptions};
 mod agent_chat_columns;
 #[cfg(unix)]
 mod agent_chat_notices;
+pub(crate) mod agent_message_pump;
 pub(crate) mod app_terminals;
 mod cell_pixels;
 mod client_resize;
@@ -201,9 +205,12 @@ mod journal_retention;
 mod kitty_budget;
 mod kitty_reservation;
 mod launch_identity;
+mod ledger_maintenance;
+mod pinned_columns;
 mod workspace_name;
 use kitty_reservation::kitty_image_limits_exceed;
 mod agent_presence;
+mod agent_prompts;
 pub use agent_presence::{AgentActivity, AgentPresence};
 mod agent_types;
 pub use agent_types::{AgentRecord, AgentSource, AgentState};
@@ -224,7 +231,7 @@ pub use layout_types::{
     LayoutUndoResult, ViewportWidthError, ZoomMode, ZoomState,
 };
 mod layout_undo_commit;
-pub use events::{GraphicsStatus, MachineUsage, MuxEvent, TreeDelta, TreeDeltaKind};
+pub use events::{GraphicsStatus, LayoutDelta, MachineUsage, MuxEvent, TreeDelta, TreeDeltaKind};
 mod notification_types;
 mod notifications;
 pub use notification_types::{
@@ -258,6 +265,7 @@ pub(crate) mod screen_groups;
 mod signaled_mutex;
 pub(crate) use signaled_mutex::SignaledMutex;
 mod command_history;
+pub(crate) mod keybindings;
 mod new_terminal_cwd;
 mod session_paths;
 pub(crate) mod settings;
@@ -274,6 +282,7 @@ pub(crate) use time::now_ms;
 
 pub(crate) use crate::state::{PersonalChange, ScreenChange, WorkspaceStatusChange};
 pub(crate) use tab_strip::StripRequest;
+pub(crate) mod creating_input;
 mod loss_causes;
 mod orphan_hosts;
 mod pending_terminals;
@@ -301,10 +310,12 @@ mod terminal_sizing;
 mod terminal_work;
 mod topology_result;
 mod tree_close;
+mod workspace_close_guard;
 mod workspace_create;
 mod workspace_identity;
 mod workspace_move;
 mod workspace_rename;
+use workspace_rename::workspace_resource_upsert;
 
 use agent_hook_errors::{
     AGENT_HOOK_RETRY_ERROR, AgentHookTerminalGone, AgentHookTerminalUnavailable,
@@ -315,18 +326,27 @@ pub use agent_chat_columns::AGENT_CHAT_COLUMN_CODE;
 pub(crate) use agent_chat_columns::{
     agent_chat_columns, ensure_agent_chat_columns_unsplit, ensure_pane_column_not_agent_chat,
 };
+pub use dock_columns::PINNED_COLUMN_CODE;
 pub use dock_columns::{
     ColumnDockError, ColumnDockOutcome, PERMANENT_COLUMN_CODE, parse_column_dock,
 };
 pub(crate) use dock_columns::{ensure_permanent_columns_kept, permanent_columns};
 pub use idle_close::{IDLE_CLOSE_REAP_INTERVAL, IdleTerminalReaper, start_idle_terminal_reaper};
 pub use layout_ratio_error::LayoutRatioError;
+pub(crate) use pinned_columns::{
+    ensure_pane_takes_tabs, ensure_pinned_columns_kept, pinned_columns,
+};
 pub use presentation::{
     PendingTerminal, TabDirectory, TabNotificationAck, TabPinChange, TreeDecorations,
     WorkspaceGroupChange,
 };
 pub(crate) use resource_content::ResourceEffectProjection;
-pub(crate) use resource_topology::{BatchCloseOutcome, BatchCloseTarget, CloseReason};
+use resource_content::ensure_screen_split_public_ids;
+#[cfg(unix)]
+pub(crate) use resource_topology::AgentCLIJobBusy;
+pub(crate) use resource_topology::{
+    BatchCloseOutcome, BatchCloseTarget, CloseReason, PANE_BROWSER_URL_FIELD, RoomClose,
+};
 pub use rows::{RowHeightsOutcome, RowsError};
 pub(crate) use screen_groups::workspace_screen_groups;
 pub use screen_groups::{
@@ -340,6 +360,7 @@ pub use terminal_reap::{
     DEFAULT_TERMINAL_REAP_GRACE, MAX_TERMINAL_REAP_GRACE, TerminalReaper, start_terminal_reaper,
     validate_terminal_reap_grace,
 };
+pub(crate) use workspace_close_guard::workspace_not_empty_code;
 
 use public_projections::{RestoredPublicProjections, restore_public_projections};
 use registry_viewport::restore_registry_viewport;
@@ -437,29 +458,6 @@ const WORKSPACE_KEY_MAX_BYTES: usize = 256;
 const WORKSPACE_NAME_MAX_BYTES: usize = 1_024;
 const TERMINAL_HOST_CLOSE_WAIT: Duration = Duration::from_secs(4);
 const TERMINAL_READER_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(1);
-fn workspace_resource_upsert(
-    sequence: usize,
-    session_id: &str,
-    workspace_id: &WorkspacePublicId,
-    name: &str,
-    index: usize,
-    focused: bool,
-) -> Value {
-    serde_json::json!({
-        "kind":"upsert",
-        "sequence":sequence,
-        "resource":"workspace",
-        "id":workspace_id,
-        "value":{
-            "id":workspace_id,
-            "session_id":session_id,
-            "name":name,
-            "index":index,
-            "focused":focused,
-        },
-    })
-}
-
 pub(crate) fn clamp_terminal_size(cols: u16, rows: u16) -> (u16, u16) {
     (cols.clamp(1, TERMINAL_DIMENSION_MAX), rows.clamp(1, TERMINAL_DIMENSION_MAX))
 }
@@ -522,9 +520,11 @@ pub struct Mux {
     /// attached clients stay where they are.
     last_reported_focus: Mutex<Option<(PaneId, Option<usize>)>>,
     conversations: crate::conversation_store::ConversationHost,
-    /// The cloud conversations proxy (`cloud-conversations-v1`), installed by
-    /// a binary that has a cloud transport; absent otherwise.
-    cloud_conversations: OnceLock<crate::cloud_conversations::CloudConversations>,
+    /// The Chief registry (chief_registry.rs), opened on first use.
+    chiefs: crate::chief_registry::ChiefHost,
+    /// The cloud conversations proxy and the host replica publisher, installed
+    /// by a binary that has a cloud transport (mux/cloud_conversations.rs).
+    cloud: cloud_conversations::CloudServices,
     /// The history search index (`history-search-v1`), installed by the
     /// binary with its feeds; absent otherwise.
     history_search: OnceLock<crate::history_search::HistorySearch>,
@@ -532,6 +532,8 @@ pub struct Mux {
     client_resize_before_apply: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
     terminal_move_before_projection: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    #[cfg(test)]
+    tab_changed_after_decorations: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
     client_rollback_before_wait: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
@@ -603,11 +605,14 @@ pub struct Mux {
     journal_plugin: crate::journal_plugin::JournalPluginRuntime,
     machine_usage: Mutex<Option<MachineUsage>>,
     agent_records: Mutex<HashMap<TerminalPublicId, TerminalAgentRecord>>,
+    /// Each terminal agent's last prompt and reply, memory only (`agent_prompts.rs`).
+    agent_prompts: Mutex<agent_prompts::AgentTexts>,
     agent_hook_fences: Mutex<HashMap<TerminalPublicId, HookFence>>,
     /// Live, never-persisted presence per terminal (`agent_presence.rs`).
     agent_presence: Mutex<HashMap<TerminalPublicId, agent_presence::PresenceSlot>>,
     agent_roster: Mutex<AgentRosterHost>,
     agent_roster_fold: Mutex<()>,
+    agent_message_pump: agent_message_pump::AgentMessagePump,
     /// Nonterminal notifications remain placement-local. Terminal unread state is keyed by
     /// stable content identity so every view of one terminal shares the same attention marker.
     placement_notifications: Mutex<HashMap<SurfaceId, SurfaceNotification>>,
@@ -639,6 +644,9 @@ pub struct Mux {
     resource_machine_service: OnceLock<Arc<dyn crate::ResourceMachineService>>,
     journal_kernel: Arc<crate::journal_kernel::JournalKernel>,
     journal_ingress: crate::journal_ingress::JournalIngressSender,
+    /// Periodic checkpoint, segment sealing and incremental vacuum worker
+    /// (mux/journal_maintenance.rs); `None` for an in-memory session.
+    journal_maintenance: Mutex<Option<journal_maintenance::JournalMaintenance>>,
     journal_hook_dispatcher_started: AtomicBool,
     journal_hook_runtime: Arc<crate::journal_hooks::JournalHookRuntime>,
     /// Wake-only signal for durable journal subscribers. Consumers always
@@ -674,6 +682,8 @@ pub struct Mux {
     /// frontend bootstraps an otherwise empty session.
     initial_bootstrap: Mutex<()>,
     resource_creation_execution: Mutex<()>,
+    #[cfg(unix)]
+    agent_cli_job_execution: Mutex<()>,
     resource_creation_active: AtomicBool,
     terminal_adoptions: Mutex<HashSet<String>>,
     /// Terminals with a possibly live host and no runtime surface (R41),
@@ -704,6 +714,10 @@ pub struct Mux {
     /// Guarded chat moves (`agent-transfer-v1`, server/agent_transfer.rs).
     #[cfg(unix)]
     pub(crate) agent_transfers: crate::server::agent_transfer::AgentTransfers,
+    /// A Cloud machine's agents' requests for files of the person's Mac
+    /// (`access-request-v1`, server/agent_transfer/access_requests.rs).
+    #[cfg(unix)]
+    pub(crate) access_requests: crate::server::agent_transfer::access_requests::AccessRequests,
     /// VM activity facts for `subscribe-activity` (server/activity.rs).
     pub(crate) activity: crate::server::activity::ActivityStream,
     idle_close: Mutex<idle_close::IdleCloseTracker>,
@@ -713,14 +727,16 @@ pub struct Mux {
     terminal_host_closes: Arc<host_close::TerminalHostCloses>,
     /// Reap grace period for unplaced terminals, in milliseconds.
     terminal_reap_grace_ms: AtomicU64,
-    /// The running reaper's event receiver, so keep and grace changes can
-    /// wake it.
+    creating_inputs: creating_input::CreatingInputs,
+    /// The running reaper's event receiver, so keep and grace changes can wake it.
     terminal_reaper_events: Mutex<Option<MuxEventReceiver>>,
     /// The launch snapshot file while its writer runs (`launch-snapshot-v1`).
     launch_snapshot_path: Mutex<Option<std::path::PathBuf>>,
     /// The settings owner (the settings file), started on first use or at
     /// daemon start (mux/settings.rs).
     settings: settings::SettingsSlot,
+    /// The keybindings.json owner, beside the settings file (mux/keybindings.rs).
+    keybindings: keybindings::KeybindingsSlot,
     /// Parallel terminal host launches and reaps (`terminal_work`).
     terminal_work: terminal_work::TerminalWorkPool,
     /// Hosts launched ahead of their creation, by reserved terminal id.
@@ -967,6 +983,11 @@ fn sidebar_retry_delay(failures: u32) -> Duration {
 
 impl Drop for Mux {
     fn drop(&mut self) {
+        if let Some(maintenance) =
+            self.journal_maintenance.get_mut().unwrap_or_else(PoisonError::into_inner).take()
+        {
+            maintenance.stop();
+        }
         self.journal_plugin.shutdown();
         self.finalize_terminal_journal("mux drop", false);
         self.journal_kernel.shutdown();

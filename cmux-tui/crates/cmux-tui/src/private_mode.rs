@@ -21,6 +21,15 @@ pub(crate) fn run(args: &[String]) -> Option<i32> {
                 1
             }
         }),
+        // cmux NEXT's one-time adoption of its pre-isolation homes, run by the
+        // app before it starts acpmux or the Chief owner (build_adopt.rs).
+        #[cfg(unix)]
+        Some("__adopt-build-homes") => Some(crate::build_adopt::run(&args[1..])),
+        // The machine side of `cmux link machine update` (cx-rppd.13).
+        #[cfg(unix)]
+        Some(crate::link::machine_update::apply::MODE) => {
+            Some(crate::link::machine_update::apply::run(&args[1..]))
+        }
         _ => None,
     }
 }

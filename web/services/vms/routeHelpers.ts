@@ -30,9 +30,11 @@ import {
   isVmNotFoundError,
   isVmOperationUnsupportedError,
   vmWorkflowErrorCause,
+  type VmActiveLimitMachine,
   type VmCreateInProgressError,
   type VmResourcePoolExceededError,
   type VmModelPlaneError,
+  type VmOperationDeadlineError,
   type VmOperationUnsupportedError,
   type VmProviderOperationError,
   type VmSnapshotNotFoundError,
@@ -43,8 +45,10 @@ import {
   type VmWorkflowError,
 } from "./errors";
 import { recordSpanTiming } from "./timings";
+import { planIncludes } from "../billing/planTier";
 import { authProviderErrorResponse } from "./authErrors";
 import { goCapacityConstraint } from "./goUsage";
+import { isSyntheticAccountEmail, rememberSyntheticUser } from "../analytics/syntheticAccounts";
 import {
   captureVmRequestOutcome,
   isPolledVmOperation,
@@ -57,6 +61,7 @@ import {
   vmClientIdentityFromRequest,
   vmIdFromRequestPath,
   type VmRequestContext,
+  type VmRequestDbStats,
 } from "./requestContext";
 import {
   vmArtifactUnavailableCopy,
@@ -64,19 +69,28 @@ import {
   vmCreateCleanupPendingCopy,
   vmGuestInstallCopy,
   vmRecreateRequiredCopy,
+  vmProviderCapacityCopy,
+  vmStateConflictCopy,
+  vmProviderTimeoutCopy,
+  vmRouteDeadlineCopy,
+  vmGuestUnresponsiveCopy,
+  vmNetworkRuleCapacityCopy,
   vmRequestLocale,
   vmRequiresProCopy,
   vmMemoryErrorCopy,
   vmGoLimitCopy,
+  vmPlanBudgetCopy,
+  vmActiveLimitCountedCopy,
   vmResourcePoolCopy,
   vmUnsupportedCopy,
   vmUnsupportedOperationKey,
 } from "./vmErrorMessages";
 import { DISPLAY_NAME_MAX_LENGTH } from "./displayName";
-import { ProviderArtifactUnavailableError, ProviderMachineRecreateRequiredError, ProviderNetworkFullError } from "./drivers/types";
+import { ProviderArtifactUnavailableError, ProviderGuestUnresponsiveError, ProviderMachineRecreateRequiredError, ProviderNetworkFullError, ProviderReadDeadlineError, ProviderTlsRuleLimitError, providerConflictKind } from "./drivers/types";
 import { isProviderCreateCleanupError } from "./drivers/providerCreateCleanup";
 import { PROVIDER_CREATE_CLEANUP_PENDING_FAILURE_CODE } from "./repository";
 import type { Locale } from "../../i18n/routing";
+import { reportError } from "../observability/report";
 
 /** Bearer + refresh token pair the mac app stashes in keychain. */
 export type StackBearer = { accessToken: string; refreshToken: string };
@@ -92,6 +106,18 @@ export type AuthedVmRouteContext = {
   routeStartedAtMs: number;
   setResponseFinalizer: (finalizer: ((response: Response) => void) | null) => void;
 };
+
+/** Route span attributes for a request's database pool timing (db/queryTiming.ts). */
+export function vmDbSpanAttributes(stats: VmRequestDbStats | undefined): Record<string, number> {
+  if (!stats) return { "cmux.db.query_count": 0, "cmux.db.acquire_wait_ms": 0 };
+  return {
+    "cmux.db.query_count": stats.queries,
+    "cmux.db.acquire_wait_ms": Math.round(stats.acquireWaitMsMax),
+    "cmux.db.acquire_wait_ms_total": Math.round(stats.acquireWaitMsTotal),
+    "cmux.db.query_ms_total": Math.round(stats.queryMsTotal),
+    "cmux.db.query_failed": stats.failed,
+  };
+}
 
 export async function withAuthedVmApiRoute(
   request: Request,
@@ -138,6 +164,9 @@ export async function withAuthedVmApiRoute(
         // Every VM response, every route: outcome + latency to the span and
         // PostHog, then a bounded span flush so an error-heavy instance cannot
         // lose the trace the PostHog row points at.
+        // Pool timing of this request's queries: a stall that waited for a
+        // connection shows a large acquire wait here.
+        setSpanAttributes(span, vmDbSpanAttributes(requestContext.dbStats));
         try {
           captureVmRequestOutcome({
             context: requestContext,
@@ -169,6 +198,7 @@ export async function withAuthedVmApiRoute(
         recordSpanTiming(span, "auth", authDurationMs);
         if (!user) return finalize(unauthorized());
         requestContext.userId = user.id;
+        markSyntheticVmCaller(requestContext, user);
         requestContext.operationId = cloudOperationId(request.headers.get("x-cmux-operation-id"));
         if (requestContext.operationId && !isPolledVmOperation(operation)) {
           requestContext.progress = new CloudOperationProgress(user.id, requestContext.operationId);
@@ -208,6 +238,16 @@ export async function withAuthedVmApiRoute(
       }
     },
   ));
+}
+
+/**
+ * Tag a probe account's request so every PostHog row it produces carries
+ * `is_synthetic`, including ledger rows mirrored after the response.
+ */
+function markSyntheticVmCaller(context: VmRequestContext, user: AuthedUser): void {
+  if (!isSyntheticAccountEmail(user.primaryEmail)) return;
+  context.synthetic = true;
+  rememberSyntheticUser(user.id);
 }
 
 function scheduleTraceFlush(): void {
@@ -554,7 +594,7 @@ export async function invalidVmDisplayNameResponse(request: Request): Promise<Re
 
 /**
  * A machine size the ladder offers but the caller's plan does not include
- * (today: 16, 24, and 32 GB, sold by Max). This is a paywall, so the response
+ * (today: 24, 32, and 64 GB, sold by Max). This is a paywall, so the response
  * carries the same `upgradeRequired`/`upgradeUrl` fields as `vm_requires_pro`
  * plus the plan that unlocks the size, and it is never silently coerced.
  */
@@ -608,18 +648,24 @@ export async function vmActiveLimitExceededResponse(input: {
   readonly retryAction: string;
   readonly phase?: VmLifecyclePhase;
   readonly locale?: Locale;
+  /** The machines the limit counted; named in the message so a person can tell which ones hold the slots. */
+  readonly activeMachines?: readonly VmActiveLimitMachine[];
 }): Promise<Response> {
   const paid = isPaidVmPlan(input.planId);
   if (input.planId === "go") return goLimitResponse("active", input.locale ?? "en");
   const plural = input.limit === 1 ? "" : "s";
+  // Machine lists show paused machines beside the counted ones, so the
+  // message names the counted set rather than leaving a person to guess.
+  const counted = await vmActiveLimitCountedCopy(input.locale ?? "en", input.activeMachines ?? []);
+  const countedDetails = input.activeMachines?.length ? { activeMachines: input.activeMachines } : {};
   if (paid) {
     return vmErrorResponse({
       error: "vm_active_limit_exceeded",
       status: 402,
-      message: `This plan allows ${input.limit} active Cloud VM${plural} at a time.`,
+      message: `This plan allows ${input.limit} active Cloud VM${plural} at a time.${counted}`,
       action: input.retryAction,
       extra: { limit: input.limit },
-      details: { limit: input.limit },
+      details: { limit: input.limit, ...countedDetails },
       ...(input.phase ? { phase: input.phase } : {}),
     });
   }
@@ -639,11 +685,11 @@ export async function vmActiveLimitExceededResponse(input: {
   return vmErrorResponse({
     error: "vm_active_limit_exceeded",
     status: 402,
-    message: `The free plan includes ${input.limit} Cloud VM${plural}.`,
+    message: `The free plan includes ${input.limit} Cloud VM${plural}.${counted}`,
     action: `Upgrade to cmux Pro at ${VM_UPGRADE_URL} for more active machines, ` +
       "or free a slot with `cmux vm rm <id>`.",
     extra: { limit: input.limit, upgradeRequired: true, upgradeUrl: VM_UPGRADE_URL },
-    details: { limit: input.limit, upgradeRequired: true },
+    details: { limit: input.limit, upgradeRequired: true, ...countedDetails },
     ...(input.phase ? { phase: input.phase } : {}),
   });
 }
@@ -663,7 +709,7 @@ export async function vmResourcePoolExceededResponse(
   error: VmResourcePoolExceededError,
   locale: Locale,
 ): Promise<Response> {
-  const upgradePlanId = error.planId === "max" ? null : "max";
+  const upgradePlanId = planIncludes(error.planId, "max") ? null : "max";
   const memory = error.resource === "memoryMb";
   const copy = await vmResourcePoolCopy(locale, {
     resource: error.resource,
@@ -808,6 +854,7 @@ export function vmCreateLikeErrorResponders(input: {
       vmActiveLimitExceededResponse({
         locale: context.locale,
         limit: error.limit,
+        activeMachines: error.activeMachines,
         planId: input.planId,
         retryAction: input.retryAction,
       }),
@@ -909,8 +956,17 @@ export const vmWorkflowErrorResponders = {
     if (providerMachineRecreateRequired(error.cause)) {
       return vmRecreateRequiredResponse(error, context.locale);
     }
+    if (providerCauseIs(error.cause, ProviderGuestUnresponsiveError)) {
+      return vmGuestUnresponsiveResponse(error, context.locale);
+    }
+    if (providerCauseIs(error.cause, ProviderReadDeadlineError)) {
+      return vmProviderTimeoutResponse(error, context.locale);
+    }
     if (providerCauseIs(error.cause, ProviderNetworkFullError)) {
       return vmNetworkFullResponse(error);
+    }
+    if (providerCauseIs(error.cause, ProviderTlsRuleLimitError)) {
+      return vmNetworkRuleCapacityResponse(error, context.locale);
     }
     if (isProviderCreateCleanupError(error.cause)) {
       return vmCreateCleanupPendingResponse(context.locale);
@@ -919,7 +975,14 @@ export const vmWorkflowErrorResponders = {
     if (guestInstall) {
       return vmGuestInstallFailureResponse(error, context.locale, guestInstall);
     }
-    return vmProviderOperationErrorResponse(error);
+    // A provider 409 is a refusal with a reason, not an outage: no room for
+    // the machine, an unresponsive guest, or a machine in the wrong state.
+    switch (providerConflictKind(error.cause)) {
+      case "capacity": return vmProviderCapacityResponse(error, context.locale);
+      case "unresponsive": return vmGuestUnresponsiveResponse(error, context.locale);
+      case "state": return vmStateConflictResponse(error, context.locale);
+      default: return vmProviderOperationErrorResponse(error);
+    }
   },
   VmAccountDeletionInProgressError: (error) =>
     vmErrorResponse({
@@ -1125,6 +1188,30 @@ export const vmWorkflowErrorResponders = {
   VmResourcePoolExceededError: (error, context) => vmResourcePoolExceededResponse(error, context.locale),
   VmUsageLimitExceededError: (_error, context) => goLimitResponse("hours", context.locale),
   VmSavedLimitExceededError: (_error, context) => goLimitResponse("saved", context.locale),
+  VmPlanBudgetExceededError: async (error, context) => {
+    const copy = await vmPlanBudgetCopy(context.locale, error);
+    const upgrade = error.planId === "pro"
+      ? { upgradeRequired: true, upgradePlanId: "max", upgradeUrl: "https://cmux.com/api/billing/checkout?plan=max" }
+      : { upgradeRequired: false };
+    return vmErrorResponse({
+      error: error.resource === "compute" ? "vm_compute_budget_reached" : "vm_storage_budget_reached",
+      status: 402,
+      message: copy.message,
+      action: copy.action,
+      displayTitle: copy.title,
+      phase: "billing",
+      retryable: false,
+      extra: {
+        ...upgrade,
+        planId: error.planId,
+        budgetResource: error.resource,
+        budgetIncluded: error.included,
+        budgetUsed: error.used,
+        budgetRequested: error.requested,
+        budgetResetsAt: error.resetsAt.toISOString(),
+      },
+    });
+  },
   VmGoShapeError: async (_error, context) => {
     const copy = await vmGoLimitCopy("shape", context.locale);
     return vmErrorResponse({
@@ -1137,7 +1224,53 @@ export const vmWorkflowErrorResponders = {
   VmCreateCreditsInsufficientError: () => null,
   // Only account deletion raises this, and that route owns the answer.
   VmAccountDeletionIdentityRevocationError: () => null,
+  VmOperationDeadlineError: (error, context) => vmOperationDeadlineResponse(error, context.locale),
 } as const satisfies VmWorkflowErrorResponders;
+
+/**
+ * A provider read did not answer within the route's budget and was aborted
+ * (routeDeadline.ts): a retryable provider timeout, not the generic outage.
+ * Not an operator fault per request (observability.ts); its rate is read from
+ * the `cmux.vm.error_code` span attribute.
+ */
+async function vmProviderTimeoutResponse(error: VmProviderOperationError, locale: Locale): Promise<Response> {
+  const copy = await vmProviderTimeoutCopy(locale);
+  return vmErrorResponse({
+    error: "vm_provider_timeout",
+    status: 504,
+    message: copy.message,
+    action: copy.action,
+    phase: vmPhaseForOperation(error.operation),
+    retryable: true,
+    retryAfterSeconds: 5,
+    displayTitle: copy.title,
+    displayMessage: copy.message,
+    details: { operation: error.operation, retryable: true },
+    diagnostics: { provider: error.provider },
+  });
+}
+
+/**
+ * The route's answer deadline passed (routeDeadline.ts). A mutation may still
+ * complete at the provider, so the answer says it is in progress and asks for
+ * a status check before a retry; a read answers a retryable provider timeout.
+ * Neither is the generic retryable outage.
+ */
+async function vmOperationDeadlineResponse(error: VmOperationDeadlineError, locale: Locale): Promise<Response> {
+  const copy = await vmRouteDeadlineCopy(error.mutating ? "inProgress" : "providerTimeout", locale);
+  return vmErrorResponse({
+    error: error.mutating ? "vm_operation_in_progress" : "vm_provider_timeout",
+    status: error.mutating ? 503 : 504,
+    message: copy.message,
+    action: copy.action,
+    phase: vmPhaseForOperation(error.operation),
+    retryable: true,
+    retryAfterSeconds: error.mutating ? 15 : 5,
+    displayTitle: copy.title,
+    displayMessage: copy.message,
+    details: { operation: error.operation, retryable: true, inProgress: error.mutating, waitedMs: error.waitedMs },
+  });
+}
 
 /** Answer one typed workflow error: route overrides first, then the shared table. */
 export async function respondVmWorkflowError(
@@ -1292,6 +1425,76 @@ async function vmRecreateRequiredResponse(error: VmProviderOperationError, local
 }
 
 /**
+ * The provider has no room for the machine right now (Freestyle 409
+ * capacity / placement refusal). Nothing was created or changed, and the
+ * same request can succeed once capacity frees up: a retryable 503 with
+ * Retry-After. Not a per-request operator fault; its rate is alerted.
+ */
+async function vmProviderCapacityResponse(error: VmProviderOperationError, locale: Locale): Promise<Response> {
+  const copy = await vmProviderCapacityCopy(locale);
+  return vmErrorResponse({
+    error: "vm_provider_capacity",
+    status: 503,
+    message: copy.message,
+    action: copy.action,
+    phase: vmPhaseForOperation(error.operation),
+    retryable: true,
+    retryAfterSeconds: VM_PROVIDER_CAPACITY_RETRY_AFTER_SECONDS,
+    displayTitle: copy.title,
+    displayMessage: copy.message,
+    details: { operation: error.operation, retryable: true, providerCode: "provider_capacity" },
+    diagnostics: { provider: error.provider },
+  });
+}
+
+/**
+ * The machine is in a state the operation cannot run in: still starting or
+ * pausing, or not running. The caller's request is valid; it needs the
+ * machine to settle (or be resumed) first: a 409 with that action.
+ */
+async function vmStateConflictResponse(error: VmProviderOperationError, locale: Locale): Promise<Response> {
+  const copy = await vmStateConflictCopy(locale);
+  return vmErrorResponse({
+    error: "vm_state_conflict",
+    status: 409,
+    message: copy.message,
+    action: copy.action,
+    phase: vmPhaseForOperation(error.operation),
+    retryable: true,
+    retryAfterSeconds: 5,
+    displayTitle: copy.title,
+    displayMessage: copy.message,
+    details: { operation: error.operation, retryable: true, providerCode: "provider_state_conflict" },
+    diagnostics: { provider: error.provider },
+  });
+}
+
+/** Seconds a client waits before retrying a capacity refusal. */
+const VM_PROVIDER_CAPACITY_RETRY_AFTER_SECONDS = 30;
+
+/**
+ * The guest did not run or finish a command the operation needed, so the
+ * provider's exec channel to that machine is stuck. A retry usually meets the
+ * same stuck guest, so the answer is non-retryable and preserves the machine.
+ * Provider diagnostics stay in server traces; recovery is only advertised when
+ * a provider declares a verified hard-restart capability.
+ */
+async function vmGuestUnresponsiveResponse(error: VmProviderOperationError, locale: Locale): Promise<Response> {
+  const copy = await vmGuestUnresponsiveCopy(locale);
+  return vmErrorResponse({
+    error: "vm_guest_unresponsive",
+    status: 503,
+    message: copy.message,
+    action: copy.action,
+    phase: vmPhaseForOperation(error.operation),
+    retryable: false,
+    displayTitle: copy.title,
+    displayMessage: copy.message,
+    details: { operation: error.operation, retryable: false },
+  });
+}
+
+/**
  * The owner's private network has no free address. It stays full until the
  * owner deletes machines or revokes Macs, so this is a permanent refusal: no
  * retryAfter, and an action that frees addresses instead of "retry".
@@ -1311,6 +1514,39 @@ function vmNetworkFullResponse(error: VmProviderOperationError): Response {
     displayTitle: "Private network full",
     displayMessage: message,
     details: { operation: error.operation, retryable: false, providerCode: "provider_network_full" },
+  });
+}
+
+/**
+ * The provider account holds its maximum number of TLS rules. The cap is
+ * shared by every machine on the account, so the user cannot free it and an
+ * immediate retry cannot succeed: a non-retryable 503 with no retryAfter, and
+ * a deduplicated operator error. The vm-alerts cron pages on the same
+ * condition from the provider's own rule count.
+ */
+async function vmNetworkRuleCapacityResponse(error: VmProviderOperationError, locale: Locale): Promise<Response> {
+  reportError(
+    new Error("Cloud VM provider TLS rule limit reached"),
+    {
+      subsystem: "cloud_vm_alerts",
+      code: "provider_tls_rule_limit",
+      provider: error.provider,
+      operation: error.operation,
+      operatorFault: true,
+    },
+    { fingerprint: ["cmux-vm-provider-tls-rule-limit", error.provider] },
+  );
+  const copy = await vmNetworkRuleCapacityCopy(locale);
+  return vmErrorResponse({
+    error: "vm_network_rule_capacity",
+    status: 503,
+    message: copy.message,
+    action: copy.action,
+    phase: vmPhaseForOperation(error.operation),
+    retryable: false,
+    displayTitle: copy.title,
+    displayMessage: copy.message,
+    details: { operation: error.operation, retryable: false, providerCode: "provider_tls_rule_limit" },
   });
 }
 
@@ -1441,9 +1677,14 @@ function providerCauseSummary(cause: unknown): { code?: string; message?: string
     const record = current as {
       body?: { code?: unknown; message?: unknown };
       cause?: unknown;
+      code?: unknown;
       message?: unknown;
+      status?: unknown;
     };
-    const code = typeof record.body?.code === "string" ? record.body.code.trim() : "";
+    // An HTTP error from the provider SDK carries its code on itself
+    // (FreestyleApiError), not under `body`.
+    const directCode = typeof record.status === "number" && typeof record.code === "string" ? record.code.trim() : "";
+    const code = typeof record.body?.code === "string" ? record.body.code.trim() : directCode;
     const bodyMessage = typeof record.body?.message === "string" ? record.body.message.trim() : "";
     const message = typeof record.message === "string" ? record.message.trim() : "";
     const summaryMessage = bodyMessage || message;
@@ -1509,6 +1750,7 @@ function vmPhaseForOperation(operation: string): VmLifecyclePhase {
   if (operation.includes("restore")) return "restore";
   if (operation.includes("fork")) return "fork";
   if (operation.includes("snapshot")) return "snapshot";
+  if (operation.includes("restart")) return "resume";
   if (operation.includes("resume")) return "resume";
   if (operation.includes("resize")) return "resize";
   if (operation.includes("exec")) return "exec";

@@ -1,3 +1,4 @@
+import { applyDiffTints } from "./diffWeight";
 import { contrastBetween, mixColors, withMinimumContrast } from "./syntax-colors";
 import { pageSyntaxVariable, syntaxRoleColors, type SyntaxRoleName } from "./syntax-theme";
 
@@ -61,7 +62,24 @@ const defaultDarkTheme: DiffViewerTheme = {
 };
 
 type HostThemeWindow = Window & { cmuxTheme?: { current?: { terminal?: HostTerminalTheme } | null } };
-type HostTerminalTheme = { type?: string; background?: string; foreground?: string; palette?: Record<string, string> };
+type HostTerminalTheme = {
+  type?: string;
+  background?: string;
+  foreground?: string;
+  palette?: Record<string, string>;
+  fontFamily?: string | null;
+};
+
+/**
+ * The terminal's font family the host sends with its theme (WebTheme.swift `terminal.fontFamily`:
+ * cmux.json's `terminal.fontFamily`, else the Ghostty config's), or null when it names none. Code
+ * on the diff, markdown and editor pages draws in it, as in the terminal.
+ */
+export function hostTerminalFontFamily(): string | null {
+  if (typeof window === "undefined") return null;
+  const family = (window as HostThemeWindow).cmuxTheme?.current?.terminal?.fontFamily;
+  return typeof family === "string" && family.trim() !== "" ? family.trim() : null;
+}
 
 /** The terminal theme the host sends with every theme change (WebTheme.swift `terminal`), or null. */
 export function hostTerminalTheme(): DiffViewerTheme | null {
@@ -110,7 +128,7 @@ export function resolveDiffViewerAppearance(appearance?: DiffViewerAppearance): 
   );
   return {
     backgroundOpacity: normalizedOpacity(appearance?.backgroundOpacity),
-    fontFamily: appearance?.fontFamily ?? "Menlo",
+    fontFamily: appearance?.fontFamily ?? hostTerminalFontFamily() ?? "Menlo",
     fontSize: metric(appearance?.fontSize, 10),
     lineHeight: metric(appearance?.lineHeight, 20),
     theme: {
@@ -142,6 +160,7 @@ export function setDiffChangeColors(colors: DiffChangeColors | undefined) {
   const next = colors ?? "theme";
   if (next === changeColors) return;
   changeColors = next;
+  applyDiffTints(document.documentElement.style, changeColors);
   applyDiffViewerAppearance(appliedAppearance);
 }
 

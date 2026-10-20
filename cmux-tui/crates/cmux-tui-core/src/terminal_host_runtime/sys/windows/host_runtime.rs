@@ -189,7 +189,7 @@ pub(crate) mod adopt_launch {
             prepare_private_dir(parent)?;
         }
         let cell_pixels = (launch.cell_pixels.0.max(1), launch.cell_pixels.1.max(1));
-        let pty = cmux_pty::open(pty_size(launch.cols, launch.rows, cell_pixels)?)?;
+        let pty = cmux_pty::open(pty_size(launch.cols, launch.rows, cell_pixels))?;
         crate::debug_spans::mark("host.pty_opened");
         let program = launch
             .command
@@ -216,6 +216,7 @@ pub(crate) mod adopt_launch {
             Box::new(ClosableMaster(slot)),
             child,
             &launch.seed,
+            None,
         )?;
         Ok((shared, PtyOwnershipLock))
     }

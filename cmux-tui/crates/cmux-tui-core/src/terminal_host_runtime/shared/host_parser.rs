@@ -20,6 +20,9 @@ pub(crate) struct ParserSignals {
     pub(crate) pending_responses: Arc<Mutex<Vec<u8>>>,
     pub(crate) title_changed: Arc<AtomicBool>,
     pub(crate) bell: Arc<AtomicBool>,
+    /// The OSC 7501 records this host keeps, so a daemon that adopts it
+    /// after a restart gets them in the snapshot (cx-6so.36.6).
+    pub(crate) program_status: crate::program_status::SharedProgramStatus,
 }
 
 impl ParserSignals {
@@ -28,12 +31,13 @@ impl ParserSignals {
             pending_responses: Arc::new(Mutex::new(Vec::new())),
             title_changed: Arc::new(AtomicBool::new(false)),
             bell: Arc::new(AtomicBool::new(false)),
+            program_status: Default::default(),
         }
     }
 
-    /// The callbacks of the host's authoritative terminal. The host keeps no
-    /// program status records (the daemon's mirror keeps them), but it is
-    /// the only parser that may answer the `OSC 7501 ; ?` support query.
+    /// The callbacks of the host's authoritative terminal. It keeps the
+    /// program status records the snapshot carries, and it is the only
+    /// parser that may answer the `OSC 7501 ; ?` support query.
     pub(crate) fn callbacks(&self, clipboard: &ClipboardReads) -> Callbacks {
         Callbacks {
             on_pty_write: Some(Box::new({
@@ -49,7 +53,7 @@ impl ParserSignals {
                 move || bell.store(true, Ordering::Release)
             })),
             on_clipboard_read: Some(clipboard.callback()),
-            on_program_status: Some(crate::program_status::query_only_sink()),
+            on_program_status: Some(crate::program_status::sink(self.program_status.clone())),
         }
     }
 }
@@ -120,7 +124,7 @@ pub(crate) fn run_host_parser(
     initial_colors: TerminalColorOverrides,
     signals: ParserSignals,
 ) {
-    let ParserSignals { pending_responses, title_changed, bell } = signals;
+    let ParserSignals { pending_responses, title_changed, bell, program_status: _ } = signals;
     let mut last_colors = initial_colors;
     let mut last_pwd = None;
     let mut shell_marks = crate::prompt_mode_reset::ShellMarks::default();
@@ -148,7 +152,14 @@ pub(crate) fn run_host_parser(
                     let normalized =
                         crate::prompt_mode_reset::write_output(&mut term, &bytes, &mut shell_marks)
                             .into_owned();
-                    parser_host.terminal_metadata.lock().unwrap().observe_output(&bytes);
+                    {
+                        let mut metadata = parser_host.terminal_metadata.lock().unwrap();
+                        metadata.observe_output(&bytes);
+                        // Whether a running command took the terminal for
+                        // interaction, so an adopting daemon still reads it
+                        // `in_use` (cx-6so.59).
+                        metadata.observe_modes(|| crate::terminal_activity::terminal_modes(&term));
+                    }
                     let title = title_changed
                         .swap(false, Ordering::AcqRel)
                         .then(|| term.title().unwrap_or_default());

@@ -16,8 +16,13 @@ extension AgentTabStore {
         model.startFolders.resolve = { [weak self] proposed in
             guard let self, let workspace = workspace(holding: resolve(provisional)), let resource = workspace.resourceID else { return nil }
             guard var answer = await daemonForTab(resolve(provisional))?.agentStart(proposed, workspace: resource) else { return nil }
-            // The relay roots and makes agent-home: only this app's own folder for the workspace.
-            if answer.agentHome != Self.agentHomes?.path(for: workspace.id) { answer.agentHome = nil }
+            // The relay roots and makes agent-home: only this app's own agent-home folders, the
+            // workspace's, or the one a chat opened here already ran in (cx-djoj7: the store names
+            // it, so the adopt resumes there). Never a folder outside the base or deeper in it.
+            if let named = answer.agentHome, named != Self.agentHomes?.path(for: workspace.id),
+               Self.agentHomes?.path(for: (named as NSString).lastPathComponent) != named {
+                answer.agentHome = nil
+            }
             return answer
         }
         model.onChooseFolder = { [weak self] in

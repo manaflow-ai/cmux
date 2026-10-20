@@ -49,6 +49,16 @@ pub fn seed_path_from(env: impl Fn(&str) -> Option<OsString>) -> Option<PathBuf>
     env("HOME").map(|home| PathBuf::from(home).join(CLASSIC_FILE))
 }
 
+/// keybindings.json: beside the settings file, so `CMUX_NEXT_CONFIG_FILE`
+/// moves it too (a test launch never touches the user's keys).
+pub fn keybindings_path(config_path: &std::path::Path) -> PathBuf {
+    config_path
+        .parent()
+        .map_or_else(|| PathBuf::from(KEYBINDINGS_FILE), |dir| dir.join(KEYBINDINGS_FILE))
+}
+
+const KEYBINDINGS_FILE: &str = "keybindings.json";
+
 /// The cold-start cache file under the daemon's state directory.
 pub fn cache_path(state_dir: &std::path::Path) -> PathBuf {
     state_dir.join("settings").join("effective.json")

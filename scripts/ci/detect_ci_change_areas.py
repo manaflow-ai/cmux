@@ -92,6 +92,12 @@ def is_other_workflow_config(path: str) -> bool:
 
 
 CI_CONTROL_PLANE_ONLY = frozenset({
+    # The shared merge helper and its deployment-status classifier are used by
+    # GitHub/agents, not by any macOS product job. Keep policy-only changes out
+    # of native compile admission; their focused guard tests remain Linux-side.
+    "scripts/gh-merge-green",
+    "scripts/ci/vercel_merge_gate.py",
+    "scripts/tests/test_vercel_merge_gate.py",
     "scripts/ci/web_validation.py",
     # Operational helpers: janitors, census and reporting, registry validation,
     # R2 canaries, build diagnostics. No workflow runs any of them on a macOS
@@ -103,14 +109,22 @@ CI_CONTROL_PLANE_ONLY = frozenset({
     # test_execution_registry.py is deliberately NOT here: run_python_test_lane.py
     # imports it and ci-macos.yml runs that on a Mac, which is the same reason
     # cache_restore_receipt.py stays out.
+    "scripts/ci/actions_artifact_prune.py",
     "scripts/ci/build_graph_health.py",
     "scripts/ci/cleanup-stale-runs.py",
     "scripts/ci/cmux_workload_profile.py",
+    # The portable guard runner and its regression suite execute only in the
+    # Linux guard jobs. They are CI control-plane inputs, not native product
+    # inputs, so changing either must not admit macOS compile work.
+    "scripts/ci/run_ci_guards.py",
+    "tests/test_ci_run_guards.py",
     "scripts/ci/notify-indexnow.py",
     "scripts/ci/queue_janitor.py",
     "scripts/ci/r2-canary-cloudflare.py",
     "scripts/ci/r2_cache_census.py",
     "scripts/ci/r2_cache_prune.py",
+    "scripts/ci/cmux_binaries_prune.py",
+    "scripts/ci/r2_storage_census.py",
     "scripts/ci/swift_incremental_diagnostics.py",
     "scripts/ci/triage-radar.py",
     "scripts/ci/validate_test_execution_registry.py",
@@ -218,6 +232,14 @@ def is_unowned_ci_helper(path: str) -> bool:
         and path not in CI_MACOS_ADMISSION_CONTROL_INPUTS
         and path not in CI_MACOS_TEST_PRODUCT_INPUTS
     )
+
+
+# Script sources ci_helper_areas() can trace through the tree by name.
+_WALKABLE_SCRIPT_SUFFIXES = (".py", ".sh", ".bash", ".zsh", ".js", ".mjs", ".ts")
+
+
+def is_walkable_script(path: str) -> bool:
+    return path.startswith("scripts/") and path.endswith(_WALKABLE_SCRIPT_SUFFIXES)
 
 
 def forces_all_areas(path: str) -> bool:
@@ -800,6 +822,8 @@ SHARED_WEB_WORKFLOW_EXACT = frozenset({
 
 SHARED_WEB_WORKFLOW_PREFIXES = (
     "Native/DiffSidecar/",
+    # The diff sidecar links this crate by path.
+    "cmux-tui/crates/cmux-git/",
 )
 
 
@@ -1539,6 +1563,21 @@ def classify_files(paths: Iterable[str], *,
         if is_agent_session_web_change(path):
             agent_session_web = True
         if is_macos_change(path, macos_ios_packages):
+            # Any other script is placed by the same walk as the scripts/ci
+            # helpers above. Whatever the walk cannot place (an Xcode build
+            # phase, app source or native test names it, a Mac job runs it,
+            # nothing names it) keeps the macOS route below.
+            script_areas = (
+                ci_helper_areas(path, helper_root, test_references, base_root=Path("."))
+                if is_walkable_script(path) else None
+            )
+            if script_areas is not None:
+                print(f"{path} runs only in routed jobs gated by: {script_areas if script_areas != NO_AREAS else 'none'}")
+                macos = macos or script_areas.macos
+                web = web or script_areas.web
+                agent_session_web = agent_session_web or script_areas.agent_session_web
+                release_build = release_build or script_areas.release_build
+                continue
             macos = True
             if not is_release_build_neutral(path):
                 release_build = True

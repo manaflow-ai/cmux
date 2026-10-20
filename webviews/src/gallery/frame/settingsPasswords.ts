@@ -138,7 +138,8 @@ export async function mountSettingsPage(state: SettingsPageVariant, context: Sta
         const src = img.getAttribute("src") ?? "";
         const id = src.startsWith("museum/")
           ? decodeURIComponent(src)
-          : decodeURIComponent(src.split("backdrop/")[1] ?? "");
+          : // HostCards encodes a wallpaper id twice (the app decodes the path, then the segment).
+            decodeURIComponent(decodeURIComponent(src.split("backdrop/")[1] ?? ""));
         if (images[id]) img.src = images[id]!;
       }
     };
@@ -147,9 +148,12 @@ export async function mountSettingsPage(state: SettingsPageVariant, context: Sta
     window.addEventListener("pagehide", () => observer.disconnect(), { once: true });
   }
   const { sectionHref } = await import("../../pages/settings/router");
-  history.replaceState(null, "", `${location.pathname}${location.search}#${sectionHref(state.section, state.focus)}`);
+  history.replaceState(
+    null,
+    "",
+    `${location.pathname}${location.search}#${sectionHref(state.section, state.focus, state.workspace)}`,
+  );
   document.documentElement.dataset.cmuxPage = "settings";
-  if (state.look) document.documentElement.dataset.settingsLook = state.look;
   await import("../../pages/settings/main");
   if (!state.loading && !state.options?.failing && state.options?.connected !== false) {
     const { categoryOf, categoryRows } = await import("../../pages/settings/categories");

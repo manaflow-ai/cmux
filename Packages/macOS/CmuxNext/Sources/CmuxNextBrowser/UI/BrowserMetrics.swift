@@ -5,10 +5,11 @@ import CmuxNextDesign
 /// `Typography` so a density switch resizes every browser surface. Computed
 /// (not stored) because density can change at launch.
 enum BrowserMetrics {
-    /// Toolbar row: same height as a pane tab strip (28 pt compact).
-    static var toolbarHeight: CGFloat { Metrics.tabStripHeight }
-    /// Omnibox capsule and toolbar buttons: tab height (24 pt compact).
-    static var controlHeight: CGFloat { Metrics.tabHeight }
+    /// Toolbar row: a pane tab strip's height, but never tighter than a
+    /// control with a 2 pt margin (28 pt compact).
+    static var toolbarHeight: CGFloat { max(Metrics.tabStripHeight, Metrics.controlHeight + Metrics.space2) }
+    /// Omnibox capsule and toolbar buttons (24 pt compact).
+    static var controlHeight: CGFloat { Metrics.controlHeight }
     static var controlCornerRadius: CGFloat { Metrics.itemCornerRadius }
     /// SF Symbol point size inside controls.
     static var symbolPointSize: CGFloat { Metrics.smallIconSize }
@@ -20,7 +21,6 @@ enum BrowserMetrics {
     static var itemSpacing: CGFloat { Metrics.space3 }
     static var buttonSpacing: CGFloat { Metrics.space1 }
 
-    static var separatorThickness: CGFloat { Metrics.dividerThickness }
     static var progressThickness: CGFloat { Metrics.space1 }
     static var minimumAddressWidth: CGFloat { Metrics.tabMaxWidth / 2 }
 
@@ -28,7 +28,7 @@ enum BrowserMetrics {
     static var overlayInset: CGFloat { Metrics.panelInset }
     static var overlayCornerRadius: CGFloat { Metrics.panelCornerRadius }
     static var overlayPadding: CGFloat { Metrics.space4 }
-    static var findBarHeight: CGFloat { Metrics.tabStripHeight }
+    static var findBarHeight: CGFloat { toolbarHeight }
     static var findFieldWidth: CGFloat { Metrics.tabMaxWidth * 3 / 4 }
     static var findCountWidth: CGFloat { Metrics.tabMinWidth * 2 }
     static var promptMinWidth: CGFloat { Metrics.paletteWidth / 2 }
@@ -39,7 +39,7 @@ enum BrowserMetrics {
     static var emphasizedFont: NSFont { Typography.bodyEmphasized }
     static var captionFont: NSFont { Typography.caption }
     static var countFont: NSFont {
-        .monospacedDigitSystemFont(ofSize: Typography.caption.pointSize, weight: .regular)
+        Typography.system(.monospacedDigit, size: Typography.caption.pointSize, weight: .regular)
     }
     static var errorTitleFont: NSFont { Typography.header }
 }

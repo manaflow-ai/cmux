@@ -98,7 +98,7 @@ extension BookmarkService {
     func showBubble(for node: BookmarkNode, profile: String, isNew: Bool, anchor: NSView, tab key: String?) {
         let folders = BookmarkFolderChoice.all(in: tree(profile), barTitle: BookmarkStrings.barTitle, otherTitle: BookmarkStrings.otherBookmarks)
         let bubble = BookmarkEditBubble(
-            isNew: isNew, title: node.title, folder: node.parent, folders: folders,
+            isNew: isNew, title: node.title, folder: node.parent, folders: folders, pageTitle: { [weak self] in key.flatMap { self?.services.cache.existingBrowser($0)?.tab.state }.flatMap { $0.url?.host == node.url?.host ? $0.title : nil } },
             onSave: { [weak self] result in
                 guard let self, let current = tree(profile).node(node.id) else { return }
                 if result.title != current.title { try? apply(.update(id: node.id, title: result.title), profile: profile) }
@@ -142,6 +142,12 @@ final class BookmarkBarSourceAdapter: BookmarksBarSource {
 
     func favicon(for node: BookmarkNode) -> NSImage? {
         let side = Metrics.smallIconSize
+        if node.isFolder, let service {
+            // A folder's own icon (`bookmark-icon-v1`); the folder symbol while a stored one loads.
+            if let image = service.folderIconImage(of: node, side: side) { return image }
+            if service.awaitFolderIcon(of: node) { awaitsFavicons = true }
+            return NSImage.icon(.folder, size: side)
+        }
         if let image = service?.favicon(of: node, tabKey: tabKey) {
             return NSImage(cgImage: image.cgImage, size: NSSize(width: side, height: side))
         }
@@ -185,5 +191,6 @@ extension BookmarkService {
             }
         }
         followFavicons()
+        followFolderIcons()
     }
 }

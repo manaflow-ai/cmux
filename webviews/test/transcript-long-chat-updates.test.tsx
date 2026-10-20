@@ -100,17 +100,25 @@ const finishedTurn = (index: number) => [
   row(`t${index}-end`, "turnSummary", { status: "completed", durationMs: 1_000 }),
 ];
 
-/// The mounted rows, top to bottom: each must sit right below the one above, by that one's drawn height.
+/// The mounted rows, top to bottom: each must sit right below the row above it, by that one's drawn
+/// height. A fast scroll mounts separate runs of rows, so only rows next to each other are compared.
 function placement() {
   const rows = [...dom.window.document.querySelectorAll<HTMLElement>(".acpmux-row")].map((node) => ({
     id: node.dataset.rowId!,
+    index: Number(node.getAttribute("aria-posinset")),
     top: Number(/translateY\(([-\d.]+)px\)/.exec(node.style.transform)?.[1]),
   }));
-  rows.sort((a, b) => a.top - b.top);
-  return rows.slice(1).map((next, index) => ({
-    id: next.id,
-    gap: Math.round((next.top - rows[index]!.top - drawnHeight(rows[index]!.id)) * 100) / 100,
-  }));
+  rows.sort((a, b) => a.index - b.index);
+  const pairs = rows
+    .slice(1)
+    .flatMap((next, index) =>
+      next.index === rows[index]!.index + 1
+        ? [{ id: next.id, gap: Math.round((next.top - rows[index]!.top - drawnHeight(rows[index]!.id)) * 100) / 100 }]
+        : [],
+    );
+  // The view's rows are always mounted together, so an empty list means nothing was compared.
+  expect(pairs.length).toBeGreaterThan(0);
+  return pairs;
 }
 
 /// The same rows as new objects, so nothing is reused from an earlier look at them.

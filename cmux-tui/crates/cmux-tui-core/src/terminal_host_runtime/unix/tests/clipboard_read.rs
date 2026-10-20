@@ -135,6 +135,7 @@ impl Harness {
             pending_responses: pending,
             title_changed: Arc::new(AtomicBool::new(false)),
             bell: Arc::new(AtomicBool::new(false)),
+            program_status: Default::default(),
         };
         thread::spawn(move || run_host_parser(parser_host, receiver, initial_colors, signals));
         Self { host, clock, pty, cursor: 0 }
@@ -704,6 +705,8 @@ fn fake_owner_host(
         command: vec!["/bin/sh".into()],
         cwd: None,
         osc_progress: String::new(),
+        program_status: None,
+        shell_activity: None,
     };
     let mut frames = vec![
         Frame::new(MessageKind::Snapshot, encode_snapshot_for_version(&snapshot, version, false)?),

@@ -51,6 +51,14 @@ def write_catalog(root: Path, strings: dict) -> Path:
 
 
 class LocalizeChangesTests(unittest.TestCase):
+    def test_decode_swift_unicode_escapes(self):
+        self.assertEqual(
+            MODULE.decode_swift_escapes(r"Rename \u{201C}%@\u{201D}\u{2026}"),
+            "Rename “%@”…",
+        )
+        with self.assertRaisesRegex(ValueError, "invalid Swift Unicode scalar"):
+            MODULE.decode_swift_escapes(r"bad \u{D800}")
+
     def test_parse_swift_messages_can_report_the_keys_it_dropped_for_conflicts(self):
         text = (
             'String(localized: "same", defaultValue: "Open")\n'

@@ -24,7 +24,7 @@ public final class BrowserMediaRowView: NSView {
         self.onCommand = onCommand
         self.onReveal = onReveal
         super.init(frame: NSRect(x: 0, y: 0, width: Self.width, height: 96))
-        artwork.image = image ?? NSImage.icon(.mediaHub, size: 20)
+        artwork.image = image ?? NSImage.icon(.browserToolbarMedia, size: 20)
         artwork.imageScaling = .scaleProportionallyUpOrDown
         artwork.wantsLayer = true
         artwork.layer?.cornerRadius = 6
@@ -87,8 +87,8 @@ public final class BrowserMediaRowView: NSView {
     }
 
     private func update() {
-        playPause.setIcon(media.isPlaying ? .mediaPause : .mediaPlay, label: media.isPlaying ? Strings.mediaPause : Strings.mediaPlay)
-        mute.setIcon(media.isMuted ? .mediaMuted : .mediaAudio, label: media.isMuted ? Strings.mediaUnmute : Strings.mediaMute)
+        playPause.setIcon(media.isPlaying ? .browserTabPause : .browserTabPlay, label: media.isPlaying ? Strings.mediaPause : Strings.mediaPlay)
+        mute.setIcon(media.isMuted ? .browserTabMuted : .browserTabAudio, label: media.isMuted ? Strings.mediaUnmute : Strings.mediaMute)
     }
 
     private func button(_ command: BrowserMediaCommand) -> ChromeIconButton {
@@ -96,15 +96,15 @@ public final class BrowserMediaRowView: NSView {
         case .previousTrack: (.mediaPrevious, Strings.mediaPrevious)
         case .nextTrack: (.mediaNext, Strings.mediaNext)
         case .playPause, .play, .pause: (.mediaPlay, Strings.mediaPlay)
-        case .toggleMute, .muteTab: (.mediaAudio, Strings.mediaMute)
+        case .toggleMute, .muteTab, .seek: (.mediaAudio, Strings.mediaMute)
         }
         let view = ChromeIconButton(icon: icon, label: title, action: #selector(pressed(_:)), target: self, toolbar: true)
         view.tag = command == .previousTrack ? 0 : 1
         return view
     }
 
-    private func label(_ text: String, font: NSFont, color: NSColor) -> NSTextField {
-        let field = NSTextField(labelWithString: text)
+    private func label(_ text: String, font: NSFont, color: NSColor) -> ChromeLabel {
+        let field = ChromeLabel(labelWithString: text)
         field.font = font
         field.textColor = color
         field.lineBreakMode = .byTruncatingTail

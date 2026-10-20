@@ -22,12 +22,13 @@ public nonisolated enum SidebarSectionsSetting {
     public static let showSpacesPath = ["sidebar", "showSpaces"]
     public static let showProfileControlPath = ["sidebar", "showProfileControl"]
     public static let tipsPath = ["sidebar", "cards", "tips"]
+    public static let detailedStatusIconsPath = ["sidebar", "detailedStatusIcons"]
 
     static func tipsDescriptor(group: SettingText) -> SettingDescriptor {
         SettingDescriptor(tipsPath, section: .appearance, group: group,
                           title: SettingsText.keyed("settings.sidebar.cards.tips", "Show Tips"),
                           help: SettingsText.keyed("settings.sidebar.cards.tips.help",
-                                                   "A \"Did you know\" card above the account button shows one cmux feature a day that you have not used yet."),
+                                                   "A \"Did you know\" card above the account button shows one cmux feature a day that you have not used yet. Each tip shows only once."),
                           summary: SettingsText.keyed("settings.sidebar.cards.tips.summary", "A daily tip about a feature you haven't used"),
                           kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.showsTips),
                           keywords: ["sidebar", "tips", "did you know", "cards", "learn", "features"])
@@ -43,18 +44,29 @@ public nonisolated enum SidebarSectionsSetting {
                           keywords: ["sidebar", "minimal", "compact", "dense", "rows", "simple", "clean"])
     }
 
+    static func detailedStatusIconsDescriptor(group: SettingText) -> SettingDescriptor {
+        SettingDescriptor(detailedStatusIconsPath, section: .appearance, group: group,
+                          title: SettingsText.keyed("settings.sidebar.detailedStatusIcons", "Detailed Status Icons"),
+                          help: SettingsText.keyed("settings.sidebar.detailedStatusIcons.help",
+                                                   "Workspace rows show a separate icon for working, waiting for input, error and done. Off, a row shows a spinner while it works and a blue dot when it is ready for you."),
+                          kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.detailedStatusIcons),
+                          keywords: ["sidebar", "status", "icons", "badge", "working", "waiting", "input", "error", "done", "agent", "osc 7501"])
+    }
+
     static func densityDescriptor(group: SettingText) -> SettingDescriptor {
         SettingDescriptor(densityPath, section: .appearance, group: group,
                           title: SettingsText.keyed("settings.sidebar.density", "Sidebar Density"),
                           help: SettingsText.keyed("settings.sidebar.density.help",
-                                                   "Expanded rows show each workspace's status or folder under its name, how long ago it changed, and its pull request and computer."),
+                                                   "Comfortable rows keep one line on taller rows with more space around them. Expanded rows show each workspace's status or folder under its name, how long ago it changed, and its pull request and computer."),
                           kind: .choice(SidebarDensity.allCases.map { density in
-                              SettingChoice(density.rawValue, density == .compact
-                                  ? SettingsText.keyed("settings.choice.compact", "Compact")
-                                  : SettingsText.keyed("settings.choice.expanded", "Expanded"))
+                              switch density {
+                              case .compact: SettingChoice(density.rawValue, SettingsText.keyed("settings.choice.compact", "Compact"))
+                              case .comfortable: SettingChoice(density.rawValue, SettingsText.keyed("settings.choice.comfortable", "Comfortable"))
+                              case .expanded: SettingChoice(density.rawValue, SettingsText.keyed("settings.choice.expanded", "Expanded"))
+                              }
                           }),
                           default: .string(SidebarSectionsPreferences.defaults.density.rawValue),
-                          keywords: ["sidebar", "density", "expanded", "compact", "rows", "preview", "two lines", "t3", "codex"])
+                          keywords: ["sidebar", "density", "expanded", "compact", "comfortable", "rows", "preview", "two lines", "taller", "t3", "codex"])
     }
 
     static func minimalModeDescriptor(group: SettingText) -> SettingDescriptor {
@@ -178,6 +190,7 @@ public nonisolated enum SidebarSectionsSetting {
         result.showSpaces = flag(root, showSpacesPath, fallback: result.showSpaces, &diagnostics)
         result.showProfileControl = flag(root, showProfileControlPath, fallback: result.showProfileControl, &diagnostics)
         result.minimal = flag(root, minimalPath, fallback: result.minimal, &diagnostics)
+        result.detailedStatusIcons = flag(root, detailedStatusIconsPath, fallback: result.detailedStatusIcons, &diagnostics)
         if let value = root.value(at: groupByPath) {
             if let text = value.stringValue, let groupBy = SidebarGroupBy(rawValue: text) {
                 result.groupBy = groupBy

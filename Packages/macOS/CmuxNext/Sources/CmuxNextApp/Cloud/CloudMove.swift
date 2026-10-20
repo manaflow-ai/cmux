@@ -57,7 +57,12 @@ struct CloudMove {
     func start(_ invocation: ActionInvocation, context: AppActionContext) throws {
         guard let (tab, pane) = context.daemonTab(invocation) else { return }
         let retries = services.cloud.moveRetries
-        let left = retries[tab.id]
+        var left = retries[tab.id]
+        // Kept across launches: a pin to a machine that no longer exists would refuse every move of
+        // this tab, so it goes, and so does a retry kept for a tab that is no chat.
+        if case .move(let machineID) = left, services.cloud.hasLoadedMachines, services.machines.session(machineID) == nil { left = nil }
+        if tab.agentSession == nil { left = nil }
+        if left != retries[tab.id] { retries[tab.id] = left }
         if case .show(let shown) = left { return perform(tab: tab, invocation: invocation) { try await reshow(shown, tab: tab, invocation: invocation) } }
         guard let record = tab.agentSession else { throw ActionFailure(message: CloudMoveStrings.notAChat) }
         let tabs = services.agentTabs
@@ -69,7 +74,7 @@ struct CloudMove {
         guard let binary = services.cloud.move.cli else { throw ActionFailure(message: CloudStrings.noClient) }
         var invocation = invocation
         // An unresolved move finishes on the machine it started on.
-        if case .move(let machineID) = left, invocation["machine"] == nil { invocation.arguments["machine"] = .string(machineID) }
+        if let machineID = left?.machineID, invocation["machine"] == nil { invocation.arguments["machine"] = .string(machineID) }
         let cli = CloudMoveCLI(binary: binary, timeout: services.cloud.move.timeout)
         perform(tab: tab, invocation: invocation) { [invocation] in
             try await run(tab: tab, in: pane, record: record, session: session, cli: cli, invocation: invocation)
@@ -112,12 +117,16 @@ struct CloudMove {
         var retry: (@MainActor () -> Void)?
         if let next = failure.retry {
             var arguments = invocation.arguments
-            if case .move(let machineID) = next { arguments["machine"] = .string(machineID) }
+            arguments[CloudMachineUpdate.argument] = nil
+            if let machineID = next.machineID { arguments["machine"] = .string(machineID) }
+            if case .update = next { arguments[CloudMachineUpdate.argument] = .bool(true) }
             let registry = services.registry
             let again = ActionInvocation(target: ActionTargetRef(kind: .tab, id: tabID), arguments: arguments, origin: .user)
             retry = { _ = registry.perform(Self.action, invocation: again) }
         }
-        toast(toastID, failure.message, duration: .seconds(retry == nil ? 12 : 60), retry: retry)
+        var title = CloudMoveStrings.retry
+        if case .update = failure.retry { title = CloudMachineUpdateStrings.button }
+        Self.toast(services, toastID, failure.message, duration: .seconds(retry == nil ? 12 : 60), retry: retry, retryTitle: title)
         return ActionWorkFailure(failure.message)
     }
 
@@ -130,9 +139,18 @@ struct CloudMove {
         guard !folder.isTooBroad else { throw Failure(message: CloudMoveStrings.homeFolder) }
         let machine = try await self.machine(invocation)
         let name = machine.machine.title, again = CloudMoveRetries.Retry.move(machineID: machine.machineID)
+        // From here the chat may move to this machine: a quit or a crash before the move ends
+        // leaves Retry pinned to it, and the relaunched app finishes the move there.
+        services.cloud.moveRetries[tab.id] = again
         guard let machineSocket = await machine.daemon.connection?.endpoint?.socketPath,
               let localSocket = await services.daemon.connection?.endpoint?.socketPath else {
             throw Failure(message: CloudMoveStrings.notConnected(name), retry: again)
+        }
+        // Only the person's "Update Machine" updates the machine first.
+        if CloudMachineUpdate.requested(invocation) {
+            try await CloudMachineUpdate.run(services, name: name, socket: machineSocket, cli: cli, toast: "cloud-move-" + tab.id,
+                                             retry: .update(machineID: machine.machineID))
+            toast("cloud-move-" + tab.id, CloudMoveStrings.moving, duration: .seconds(600))
         }
         let remote = try await sync(folder, to: machineSocket, machine: name, cli: cli, retry: again)
         let moved: CloudMoveCLI.Answer
@@ -150,10 +168,13 @@ struct CloudMove {
             services.cloud.movedChats.record(CloudMovedChats.Entry(machineID: machine.machineID, host: host, session: movedSession, harness: record.harness,
                                                                    localRoot: folder.root, localChat: local, remoteFolder: remote.folder,
                                                                    remoteChat: remote.chat, name: workspace?.name))
+            services.cloud.accessAsks.start(services: services)
         }
         // The move committed: from here Retry only opens the chat's tab on the machine.
         let shown = CloudMoveRetries.Shown(session: movedSession, harness: record.harness, machineID: machine.machineID, folder: remote.chat,
                                            name: workspace?.name, key: moved.transferID ?? movedSession)
+        // A quit or a crash before the tab opens leaves the relaunched app only opening it.
+        services.cloud.moveRetries[tab.id] = .show(shown)
         try await finish(shown, on: machine, tab: tab)
         return name
     }
@@ -205,6 +226,7 @@ struct CloudMove {
             // Not this machine's home (an image without the work user): the next root.
             guard last.errorCode == "fs.permission_denied" else { break }
         }
+        if last.errorCode == CloudMoveStrings.outdatedCode { throw Failure(message: CloudMoveStrings.outdatedMachine(machine), retry: retry.updating) }
         throw Failure(message: CloudMoveStrings.syncFailed(machine, last.error ?? last.errorCode ?? ""), retry: retry)
     }
 
@@ -283,6 +305,9 @@ struct CloudMove {
         case "move_in_progress": Failure(message: CloudMoveStrings.inProgress, retry: retry)
         case "agent_session.team_vm_blocked": Failure(message: CloudMoveStrings.teamMachine(machine))
         case "agent_session.host_unverified": Failure(message: CloudMoveStrings.unknownMachine(machine))
+        // This Mac's own daemon (the source) is never the machine to update.
+        case CloudMoveStrings.outdatedCode where answer.side != "source":
+            Failure(message: CloudMoveStrings.outdatedMachine(machine), retry: retry.updating)
         case "source_unreachable", "target_unreachable": Failure(message: CloudMoveStrings.unreachable(machine), retry: retry)
         default: Failure(message: CloudMoveStrings.moveFailed(answer.error ?? answer.errorCode ?? ""))
         }

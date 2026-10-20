@@ -80,6 +80,13 @@ pub(super) fn pane_json(
             let pinned = state.resource_indexes.tab_ids.get(sid).is_some_and(|tab| {
                 notifications.presentation.pinned_tabs.contains(tab.as_str())
             });
+            // The page a pinned browser tab was pinned on (Back to Pinned Page).
+            let pinned_url = state
+                .resource_indexes
+                .tab_ids
+                .get(sid)
+                .filter(|_| pinned)
+                .and_then(|tab| notifications.presentation.pinned_urls.get(tab.as_str()));
             // `end-terminals-keep-layout-v1`: a kept tab whose terminal has
             // ended, to restart a shell in. After a restart it has no surface,
             // so its name and last title come from the record; a live
@@ -142,6 +149,7 @@ pub(super) fn pane_json(
                 "host_record_version": host_record_version,
                 "group": group_of(sid),
                 "pinned": pinned,
+                "pinned_url": pinned_url,
                 "relaunch": relaunch,
                 "cwd": directory.and_then(|directory| directory.cwd.as_deref()),
                 "git_branch": directory.and_then(|directory| directory.git_branch.as_deref()),
@@ -176,6 +184,10 @@ pub(super) fn pane_json(
                     json!({"cols": c, "rows": r})
                 }),
                 "dead": dead,
+                // OSC 7501: the status the tab shows (TUI tab indicator).
+                "program_status": surface
+                    .and_then(|surface| surface.shown_program_status())
+                    .map(|status| status.wire()),
                 // Why a dead terminal ended (R41, terminal-state-v1).
                 "end": end,
             });
@@ -243,6 +255,9 @@ fn workspace_json(
         "key": workspace.key,
         "short_id": short_ids.get(&workspace.id).cloned().unwrap_or_default(),
         "name": workspace.name,
+        // `workspace-name-source-v1`: the revision is a decimal string, as on tabs.
+        "name_source": workspace.name_source,
+        "name_revision": workspace.name_revision.to_string(),
         "group": presentation.and_then(|presentation| presentation.group.as_deref()),
         "color": presentation.and_then(|presentation| presentation.color.as_deref()),
         "icon": presentation.and_then(|presentation| presentation.icon.as_deref()),
@@ -274,6 +289,7 @@ fn screen_group_run_json(run: &crate::mux::WorkspaceScreenGroup) -> Value {
         "color": run.group.color,
         "collapsed": run.group.collapsed,
         "saved_id": run.group.saved_id,
+        "icon": run.group.icon,
         "start": run.start,
         "count": run.members.len(),
         "screens": run.members,

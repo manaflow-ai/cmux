@@ -52,6 +52,9 @@ public nonisolated enum SidebarIntent: Hashable, Sendable {
     case setColor([WorkspaceID], GroupColor?)
     case setIcon([WorkspaceID], WorkspaceIcon)
     case setPinned([WorkspaceID], Bool)
+    /// The row's speaker was clicked: mute the workspace's tabs that play
+    /// sound, or unmute its muted tabs (`SidebarWorkspaceAudio`). No local change.
+    case toggleWorkspaceAudio(WorkspaceID)
     /// New workspace on a machine (nil = the machine of the active workspace,
     /// else local), optionally inside a group.
     case newWorkspace(machine: MachineID?, group: GroupID?)
@@ -59,8 +62,6 @@ public nonisolated enum SidebarIntent: Hashable, Sendable {
     case switchProfile(ProfileKey)
     /// Create a profile (the bar's "+").
     case newProfile
-    /// Show agent history: every chat on this device (the bar's History dot, cx-zlnl).
-    case openHistory
     /// Move a profile to an insertion index (dot drag).
     case reorderProfile(ProfileKey, index: Int)
     /// Run an item of a pinned section (a built-in's action, a pinned
@@ -73,6 +74,9 @@ public nonisolated enum SidebarIntent: Hashable, Sendable {
     case setAutomaticUpdates(Bool)
     /// A link in the update card's popover (a pull request, the release notes).
     case openUpdateLink(URL)
+    /// The update card's "See all changes": the What's New page for the
+    /// staged update (cx-7rone).
+    case openUpdateChanges
     /// A notice card button (`SidebarModel.noticeCard`): the card's id and
     /// the action's id (a tip's Try It, an update's Update).
     case noticeAction(card: String, action: String)
@@ -80,10 +84,13 @@ public nonisolated enum SidebarIntent: Hashable, Sendable {
     case dismissNotice(String)
     /// The "cmux Updated!" card's "See What's New" row (`updates.whatsNew`).
     case openWhatsNew
-    /// The "cmux Updated!" card's "Share cmux" row (`app.shareCmux`).
-    case shareCmux
     /// The "cmux Updated!" card's x: this version is seen.
     case dismissUpdated
+    /// A Now Playing card control (cx-ouoxo), for the App's Now Playing source.
+    case nowPlaying(SidebarNowPlayingCommand)
+    /// The Now Playing card's x (u2437): the App runs `nowPlaying.hideCard`, which hides the card
+    /// until other media starts.
+    case hideNowPlayingCard
     /// Change the section layout; the App sends it to the workspace store.
     case layout(SidebarLayoutOp)
     /// Workspace rows dropped on a top section (the pinned tiles or the top

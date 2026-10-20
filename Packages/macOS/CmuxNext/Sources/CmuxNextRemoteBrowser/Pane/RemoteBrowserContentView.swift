@@ -19,7 +19,7 @@ public final class RemoteBrowserContentView: NSView {
     package let video = RemoteVideoView()
     public weak var eventTarget: (any RemoteBrowserEventTarget)?
 
-    public override var isFlipped: Bool { true }
+    nonisolated public override var isFlipped: Bool { true }
     public override var acceptsFirstResponder: Bool { true }
 
     /// The page's cursor (`rb.cursor`), shown over the whole page area.
@@ -126,6 +126,7 @@ public final class RemoteBrowserContentView: NSView {
         label.ink = .secondary
         label.font = .systemFont(ofSize: NSFont.systemFontSize)
         label.isSelectable = true
+        label.focusRingType = .none
         if failureLabel == nil {
             failureLabel = label
             addSubview(label)
@@ -137,7 +138,7 @@ public final class RemoteBrowserContentView: NSView {
         super.layout()
         guard let failureLabel else { return }
         let width = min(max(bounds.width - 48, 0), 480)
-        let height = failureLabel.sizeThatFits(NSSize(width: width, height: .greatestFiniteMagnitude)).height
+        let height = failureLabel.size(forWidth: width).height
         failureLabel.frame = NSRect(x: (bounds.width - width) / 2, y: max((bounds.height - height) / 2, 0), width: width, height: height)
     }
 

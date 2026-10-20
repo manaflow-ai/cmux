@@ -4,16 +4,22 @@
 //! embedded as the one validation source so transport handlers cannot drift.
 
 mod auxiliary;
+mod browser_engine;
+mod close_value;
 mod config;
 mod content;
 mod credential;
 mod effects;
 mod mouse;
+mod open_url;
 mod owner;
 mod revision_conflict;
 mod session;
 mod topology;
 
+pub(crate) use open_url::CAPABILITY as OPEN_URL_CAPABILITY;
+pub(crate) use open_url::is_web_url;
+pub(crate) use open_url::right_pane_beside_focused_dock;
 pub(crate) use owner::requires_connection_context;
 use owner::{OperationOwner, operation_owner};
 pub(crate) use revision_conflict::is_revision_conflict;
@@ -240,9 +246,13 @@ pub(crate) fn validate_resource_envelope(
 
 fn dispatch_resource_request(
     mux: &Arc<Mux>,
-    request: ParsedResourceRequest,
+    mut request: ParsedResourceRequest,
 ) -> Result<Value, ResourceError> {
     let operation = request.envelope.operation;
+    crate::debug_spans::mark("router.dispatch");
+    browser_engine::route_to_frontend(mux, &mut request)?;
+    browser_engine::refuse_without_provider(mux, &request)?;
+    crate::debug_spans::mark("router.provider_checked");
     match operation_owner(operation) {
         OperationOwner::Session => session::dispatch(mux, request),
         OperationOwner::Content => content::dispatch(mux, request),
@@ -251,8 +261,11 @@ fn dispatch_resource_request(
         OperationOwner::State => crate::state::router::dispatch(mux, request),
         OperationOwner::Git => crate::git_ops::dispatch(mux, request),
         OperationOwner::History => crate::history_ops::dispatch(mux, request),
+        OperationOwner::BrowserProfile => crate::browser_profile_ops::dispatch(mux, request),
         OperationOwner::Credential => credential::dispatch(mux, request),
         OperationOwner::Config => config::dispatch(mux, request),
+        OperationOwner::OpenUrl => open_url::dispatch(mux, request),
+        OperationOwner::Stash => crate::state::stash_router::dispatch(mux, request),
         OperationOwner::Machine => {
             mux.resource_machine_service().dispatch(&ResourceMachineRequest {
                 operation,
@@ -895,6 +908,8 @@ pub(super) fn validation_error(message: &str, details: Value) -> ResourceError {
     ResourceError::validation_invalid(field, message)
 }
 
+#[cfg(test)]
+mod browser_engine_tests;
 #[cfg(test)]
 mod closed_content_tests;
 #[cfg(test)]

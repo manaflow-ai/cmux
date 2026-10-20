@@ -46,14 +46,8 @@ struct BookmarkManagerList: View {
 
     private func row(_ node: BookmarkNode) -> some View {
         HStack(spacing: Metrics.space4) {
-            Group {
-                if let favicon = model.source?.favicon(for: node) {
-                    Image(decorative: favicon, scale: 1).resizable().interpolation(.high).frame(width: 13, height: 13)
-                } else {
-                    Icon(node.isFolder ? .folder : .browser, size: 13).foregroundStyle(colors.secondary)
-                }
-            }
-            .frame(width: Metrics.iconSize)
+            BookmarkNodeIcon(node: node, source: model.source, color: colors.secondary)
+                .frame(width: Metrics.iconSize)
             Text(node.displayTitle).lineLimit(1)
             if let url = node.url, !node.title.isEmpty {
                 Text(BookmarkURL.displayText(url))
@@ -92,6 +86,7 @@ struct BookmarkManagerList: View {
                     model.source?.openAll(in: node.id)
                 }
                 Button(BookmarkStrings.rename) { model.startEdit(node) }
+                BookmarkFolderIconMenuItems(node: node, source: model.source)
             } else {
                 Button(BookmarkStrings.open) { model.source?.open(node, disposition: .currentTab) }
                 Button(BookmarkStrings.openInNewTab) { model.source?.open(node, disposition: .newTab) }

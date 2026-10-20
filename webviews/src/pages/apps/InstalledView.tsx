@@ -1,10 +1,11 @@
-// Installed: every installed app with Enabled, Update, Permissions, Logs and Remove (Swift
-// AppInstalledView); first-party apps get Hide/Show in place of Remove (FIRST-PARTY-APPS). Logs follow the owner's stream while shown.
+// Installed: every installed app with Enabled, Update, Permissions, Logs, Hide/Show and Remove (Swift
+// AppInstalledView); first-party apps have no Remove (FIRST-PARTY-APPS). Logs show the owner's last lines.
 import type { Strings } from "../shared/i18n";
 import { GrantsPanel } from "./GrantsPanel";
 import { isRemovable } from "./model";
 import { AppIcon, Badge, Switch } from "./parts";
 import type { AppsSnapshot, AppsStore } from "./store";
+import { UpdatesView } from "./UpdatesView";
 
 export function InstalledView({ snap, store, strings }: { snap: AppsSnapshot; store: AppsStore; strings: Strings }) {
   const { t } = strings;
@@ -13,6 +14,7 @@ export function InstalledView({ snap, store, strings }: { snap: AppsSnapshot; st
   return (
     <div className="apps-scroll">
       <div className="apps-installed">
+        <UpdatesView snap={snap} store={store} strings={strings} />
         {snap.installed.map((app) => {
           const grants = snap.grants[app.id];
           const logs = snap.logs[app.id] ?? [];
@@ -56,17 +58,17 @@ export function InstalledView({ snap, store, strings }: { snap: AppsSnapshot; st
                   >
                     {t(snap.logsShown === app.id ? "store.action.hideLogs" : "store.action.logs")}
                   </button>
-                  {isRemovable(app) ? (
+                  {/* Every app hides and shows (Swift AppInstalledView); only a removable one also has Remove. */}
+                  <button
+                    type="button"
+                    className="apps-button"
+                    onClick={() => void store.setHidden(app.id, !app.hidden)}
+                  >
+                    {t(app.hidden ? "store.action.show" : "store.action.hide")}
+                  </button>
+                  {isRemovable(app) && (
                     <button type="button" className="apps-button" onClick={() => void store.uninstall(app.id)}>
                       {t("store.action.remove")}
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      className="apps-button"
-                      onClick={() => void store.setHidden(app.id, !app.hidden)}
-                    >
-                      {t(app.hidden ? "store.action.show" : "store.action.hide")}
                     </button>
                   )}
                 </div>
@@ -76,8 +78,11 @@ export function InstalledView({ snap, store, strings }: { snap: AppsSnapshot; st
                 <pre className="apps-logs selectable">
                   {logs.length === 0
                     ? t("store.detail.noLogs")
-                    : logs.map((line, index) => (
-                        <span key={index} className={line.level === "error" ? "apps-failure" : undefined}>
+                    : logs.map((line) => (
+                        <span
+                          key={`${line.at_ms}-${line.level}-${line.message}`}
+                          className={line.level === "error" ? "apps-failure" : undefined}
+                        >
                           {line.level.padEnd(5)} {line.message}
                           {"\n"}
                         </span>

@@ -7,7 +7,7 @@ import CmuxNextDesign
 /// (Open, with "Always allow" for the site).
 final class PromptBarView: NSView {
     private(set) var prompt: BrowserPrompt?
-    private let messageLabel = NSTextField(wrappingLabelWithString: "")
+    private let messageLabel = ChromeLabel(wrappingLabelWithString: "")
     private let inputField = ChromeTextField()
     /// HTTP authentication fields.
     let userField = ChromeTextField()
@@ -178,6 +178,20 @@ final class PromptBarView: NSView {
             alwaysCheck.isHidden = prompt.origin.isEmpty
             addButton(Strings.cancel, prominent: false, response: .cancel)
             addButton(Strings.externalAppOpen, prominent: true, response: nil)
+        case .savePassword(let username, let update):
+            let question = update ? Strings.passwordUpdatePrompt(prompt.origin) : Strings.passwordSavePrompt(prompt.origin)
+            messageLabel.stringValue = username.isEmpty ? question : "\(question)\n\(username)"
+            // An update is for a saved sign-in: Chromium's update bubble has no Never either.
+            if !update { addButton(Strings.passwordNever, prominent: false, response: .deny) }
+            addButton(Strings.passwordNotNow, prominent: false, response: .cancel)
+            addButton(update ? Strings.passwordUpdate : Strings.passwordSave, prominent: true, response: .accept)
+        case .verificationOffer(let offer):
+            // The code shows here, in chrome the page cannot read; Fill Code types it, never submits.
+            messageLabel.stringValue = offer.code.map { Strings.verificationCodeOffer(site: offer.senderSite, code: $0) }
+                ?? Strings.verificationLinkOffer(site: offer.senderSite)
+            addButton(Strings.verificationNotNow, prominent: false, response: .cancel)
+            if offer.link != nil { addButton(Strings.verificationOpenLink, prominent: offer.code == nil, response: .allowOnce) }
+            if offer.code != nil { addButton(Strings.verificationFillCode, prominent: true, response: .accept) }
         case .agentPasskeyRefused:
             messageLabel.stringValue = Strings.agentPasskeyRefused(prompt.origin)
             addButton(Strings.agentPasskeySignInYourself, prominent: true, response: .accept)
@@ -197,6 +211,9 @@ final class PromptBarView: NSView {
             prompt.respond(.credentials(user: userField.stringValue, password: passwordField.stringValue))
         } else if case .openExternalApp = prompt.kind {
             prompt.respond(alwaysCheck.state == .on ? .allow : .allowOnce)
+        } else if case .verificationOffer(let offer) = prompt.kind {
+            // Return answers the prominent button: Fill Code, or Open Link when there is no code.
+            prompt.respond(offer.code != nil ? .accept : .allowOnce)
         } else {
             prompt.respond(.text(inputField.stringValue))
         }

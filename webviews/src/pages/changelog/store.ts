@@ -96,6 +96,8 @@ export class ChangelogStore {
   private listed = false;
   /** The latest span the route named; applied once the list has loaded. */
   private latestSpan?: UpdateSpan;
+  /** ``start``'s load (the list, then the span's or the selected build's notes). */
+  private started: Promise<void> = Promise.resolve();
 
   constructor(private readonly client: PageClient | null) {
     this.snapshot = { builds: [], loading: client !== null, missing: false, inSpan: [], loaded: {}, unavailable: {} };
@@ -114,7 +116,24 @@ export class ChangelogStore {
   }
 
   /** Loads the list, then the span's newest notes, else the running build's (or the newest listed). */
-  async start(span?: UpdateSpan): Promise<void> {
+  start(span?: UpdateSpan): Promise<void> {
+    this.started = this.load(span);
+    return this.started;
+  }
+
+  /** Settles once the first screen's data has: the list, the selected build's notes and the notes
+      of every section in view (the journal asks for them as it renders), loaded or unavailable. */
+  async firstScreen(): Promise<void> {
+    await this.started;
+    // Each load renders the page again, and a section that moved into view asks for its builds then.
+    for (;;) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      if (this.pending.size === 0) return;
+      await Promise.allSettled(this.pending.values());
+    }
+  }
+
+  private async load(span?: UpdateSpan): Promise<void> {
     if (!this.client) return;
     this.latestSpan = span;
     try {
@@ -137,6 +156,8 @@ export class ChangelogStore {
     const inSpan = span ? this.snapshot.builds.filter((b) => within(b.shortVersion, span)) : [];
     const newest = [...inSpan].sort((a, b) => compareVersions(b.shortVersion, a.shortVersion))[0];
     this.set({ span, inSpan: inSpan.map((b) => b.build) });
+    // The update's section reads every build of the span at once (the index keeps at most 50).
+    for (const b of inSpan) void this.ensure(b.build);
     await this.select(newest?.build ?? (this.snapshot.current || this.snapshot.builds[0]?.build));
   }
 

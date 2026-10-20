@@ -3,7 +3,7 @@
 nonisolated enum TabActionCatalog: ActionCatalogGroup {
     static func descriptors() -> [ActionDescriptor] {
         [
-            // Cmd-T: the kind `tabs.newTabKind` names (the New Tab page by default). Was
+            // Cmd-T: the New Tab page, where the kind is picked (Leo 2026-10-12). Was
             // `newTab.sameKind`, which named a setting value, not what it does (legacyAliases).
             ActionDescriptor(
                 id: "newTab.default",
@@ -12,8 +12,8 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
                 category: .tab, symbol: "plus.square", surfaces: [.palette, .keyboard, .menu],
                 arguments: [CatalogArgument.cwdString.optional], targets: [.tab], cliName: "tab new", mainMenu: .file
             ),
-            // New <Kind> Tab (cmuxterm-hq#1829): the selected tab's kind, whatever
-            // `tabs.newTabKind` says. Option-click on the strip's +; the tab menu
+            // New <Kind> Tab (cmuxterm-hq#1829): the selected tab's kind, an explicit
+            // pick. Option-click on the strip's +; the tab menu
             // shows the kind ("New Browser Tab"). No default key: Opt-Cmd-T closes
             // other tabs.
             ActionDescriptor(
@@ -187,14 +187,14 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "nextSurface",
                 title: String(localized: "action.nextSurface.inPane", defaultValue: "Next Tab in Pane", bundle: .module),
-                keywords: ["tab", "switch", "pane"],
+                keywords: ["tab", "switch", "pane"], defaultShortcut: Shortcut("\t", modifiers: [.control]),
                 category: .tab, symbol: "chevron.right.square", surfaces: [.palette, .keyboard, .menu], targets: [.tab],
                 cliName: "tab next", mainMenu: .file
             ),
             ActionDescriptor(
                 id: "prevSurface",
                 title: String(localized: "action.prevSurface.inPane", defaultValue: "Previous Tab in Pane", bundle: .module),
-                keywords: ["tab", "switch", "pane"],
+                keywords: ["tab", "switch", "pane"], defaultShortcut: Shortcut("\t", modifiers: [.control, .shift]),
                 category: .tab, symbol: "chevron.left.square", surfaces: [.palette, .keyboard, .menu], targets: [.tab],
                 cliName: "tab previous", mainMenu: .file
             ),
@@ -292,7 +292,7 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "palette.toggleTabUnread",
-                title: String(localized: "action.palette.toggleTabUnread", defaultValue: "Mark Tab as Unread", bundle: .module),
+                title: String(localized: "action.palette.toggleTabUnread", defaultValue: "Mark Tab Unread", bundle: .module),
                 keywords: ["tab", "unread"], category: .tab, symbol: "circle.fill", surfaces: [.palette, .contextMenu],
                 targets: [.tab], cliName: "tab mark-as-unread"
             ),
@@ -319,6 +319,24 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.toggleTabAudioMute", defaultValue: "Mute/Unmute Tab", bundle: .module),
                 keywords: ["tab", "audio", "sound"], category: .tab, symbol: "speaker.slash", surfaces: [.contextMenu],
                 targets: [.tab], cliName: "tab mute-unmute"
+            ),
+            ActionDescriptor(
+                id: "tab.muteAudio",
+                title: String(localized: "action.tab.muteAudio", defaultValue: "Mute Tab", bundle: .module),
+                keywords: ["tab", "audio", "sound", "silence"], category: .tab, symbol: "speaker.slash",
+                surfaces: [.palette], targets: [.tab], cliName: "tab mute"
+            ),
+            ActionDescriptor(
+                id: "tab.unmuteAudio",
+                title: String(localized: "action.tab.unmuteAudio", defaultValue: "Unmute Tab", bundle: .module),
+                keywords: ["tab", "audio", "sound"], category: .tab, symbol: "speaker.wave.2",
+                surfaces: [.palette], targets: [.tab], cliName: "tab unmute"
+            ),
+            ActionDescriptor(
+                id: "tab.muteOtherAudio",
+                title: String(localized: "action.tab.muteOtherAudio", defaultValue: "Mute Other Tabs", bundle: .module),
+                keywords: ["tab", "audio", "sound", "silence", "others"], category: .tab, symbol: "speaker.slash",
+                surfaces: [.palette, .contextMenu], targets: [.tab], cliName: "tab mute-others"
             ),
             ActionDescriptor(
                 id: "disconnectRemoteTab",

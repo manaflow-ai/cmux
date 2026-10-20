@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextAgentPane
+import CmuxNextFloating
 import os
 
 /// Start Agent (`palette.quickAgentChat`, cx-hkat): one agent chat in a
@@ -52,7 +53,7 @@ final class QuickComposerController {
         startInBackground: @escaping @MainActor (AgentPaneQuickStart) async -> Bool,
         floating: @escaping () -> Bool = { QuickComposerTunables.floatingChat.value },
         pushState: @escaping (AgentPaneFloatingState, AgentPaneView) -> Void = { AgentPaneFloatingState.push($0, to: $1) },
-        context: @escaping @MainActor () async -> AgentPaneQuickContext? = { nil },
+        context: (@MainActor () async -> AgentPaneQuickContext?)? = nil,
         defaults: UserDefaults = .standard
     ) {
         self.makeChat = makeChat
@@ -61,7 +62,7 @@ final class QuickComposerController {
         self.startInBackground = startInBackground
         self.floating = floating
         self.pushState = pushState
-        self.context = context
+        self.context = context ?? { nil }
         self.defaults = defaults
     }
 

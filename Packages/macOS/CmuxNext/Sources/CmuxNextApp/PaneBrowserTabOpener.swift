@@ -56,7 +56,7 @@ struct PaneBrowserTabOpener {
         // chrome://history and chrome://bookmarks open cmux's pages; chrome://settings opens Settings
         // and no tab (false, so a New Tab page that asked stays in place).
         if child == nil, let typed = target {
-            guard let routed = services.routedChromiumPage(typed, focus: !background) else { return false }
+            guard let routed = ChromiumPageRouter.routed(typed, services: services, focus: !background) else { return false }
             target = routed
         }
         if child == nil, then == nil, let url = target, services.viewers.openMarkdownHandoff(url, in: controller, focus: !background) {
@@ -128,7 +128,7 @@ struct PaneBrowserTabOpener {
         if !controller.daemon.isLocal, !onMachine {
             browserTabs.setNotice(notice ?? RemoteStrings.browserRunsOnThisMac(browserTabs.machineName(controller.daemon)), forKey: local.id)
         }
-        controller.state?.localBrowserTabs[controller.paneKey, default: []].append(local)
+        controller.state?.localBrowserTabs[controller.paneKey].append(local)
         controller.apply(controller.snapshot())
         if background { return true }
         controller.select(StripTabID(local.id))

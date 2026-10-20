@@ -60,12 +60,18 @@ if (process.argv[1] && fileURLToPath(new URL(process.argv[1], "file://")) === sc
     const live = read<{ tag: string; results: Record<string, Array<{ id: string }> | { error: unknown }> }>(
       args[liveIndex + 1],
     );
-    // Live rows come from a fresh build: no usage, no overlay rows. Only cases without a profile
+    // Live rows come from a fresh build: no usage, no settings, no overlay rows. Only cases without a profile or settings
     // whose expected rows exist in that build are scored.
     const ids = new Set(read<EvalFixture>(join(root, "root-entries.json")).entries.map((row) => row.id));
     const liveCases: EvalCases = {
       cases: cases.cases.filter(
-        (c) => !c.profile && c.query !== "" && c.query in live.results && c.expect.some((id) => ids.has(id)),
+        (c) =>
+          !c.profile &&
+          !c.aliases &&
+          !c.pins &&
+          c.query !== "" &&
+          c.query in live.results &&
+          c.expect.some((id) => ids.has(id)),
       ),
     };
     report = scoreCases(liveCases, (query) => {

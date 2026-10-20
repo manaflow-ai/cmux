@@ -143,6 +143,11 @@ bool NavigationViolatesGuard(int browser_id, const std::string& url) {
   return store == 1 ? !loopback : loopback;
 }
 
+bool BrowserIsAgentDriven(int browser_id) {
+  auto it = guards().find(browser_id);
+  return it != guards().end() && (it->second & kAgentGuardBit) != 0;
+}
+
 bool NavigationRefusedForAgent(int browser_id, const std::string& url) {
   auto it = guards().find(browser_id);
   if (it == guards().end() || (it->second & kAgentGuardBit) == 0) return false;

@@ -9,6 +9,12 @@ extension CloudHandlers {
         let reason: @MainActor () -> String? = { services.machines.isFeatureDisabled(.cloud) ? RefusalStrings.turnedOffByOrganization : nil }
         // An agent's run asks the person in its chat instead (``CloudMoveAsks``); the card's Move runs this action as theirs.
         services.cloud.toolCards.view = { [weak services] tab, make in make ? services?.agentTabs.view(for: tab) : services?.agentTabs.existingView(tab) }
+        // A moved chat's file requests for this Mac ask in that chat (``CloudAccessAsks``).
+        services.cloud.accessAsks.start(services: services)
+        // A move a quit left unfinished says so in its chat, with Retry (``CloudMoveAsks``).
+        services.cloud.moveAsks.offerUnfinished(services: services)
+        // Files the person drops or pastes into a moved chat go to its machine (``CloudUploads``).
+        services.agentTabs.uploader = { [weak services] tab in services.flatMap { $0.cloud.uploads.uploader(tab: tab, services: $0) } }
         bind(CloudMove.action, registry, reason: reason) { invocation in
             if CloudMoveAsks.isAgent(invocation) { return try services.cloud.moveAsks.ask(invocation, services: services) }
             try CloudMove(services: services).start(invocation, context: context)

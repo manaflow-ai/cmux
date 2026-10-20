@@ -4,9 +4,10 @@ import CoreText
 
 /// The icon a user set on a tab (ICON-PICKER-ALL-EMOJI-AND-SF-SYMBOLS), as the
 /// strip draws it: an emoji becomes a full-color image (drawn as is, like a
-/// favicon), an SF Symbol stays a tinted symbol. Nil for no icon, an invalid
-/// wire string, or a symbol this Mac cannot draw (a newer system's name), so
-/// the tab keeps its kind icon.
+/// favicon), an SF Symbol stays a tinted symbol, a stored image or SVG asset is
+/// the image `asset` draws (the App reads it from the tab's daemon). Nil for no
+/// icon, an invalid wire string, a symbol this Mac cannot draw (a newer
+/// system's name), or an asset not read yet, so the tab keeps its kind icon.
 public struct TabUserIcon {
     public static let shared = TabUserIcon()
 
@@ -15,11 +16,12 @@ public struct TabUserIcon {
     /// Pixels of the side of a drawn emoji: the icon box at 3x, so it stays sharp at every scale.
     static let emojiPixels = 48
 
-    public func icon(_ wire: String?) -> TabIcon? {
+    public func icon(_ wire: String?, asset: (String) -> TabImage? = { _ in nil }) -> TabIcon? {
         switch IconValue(wire: wire) {
         case .emoji(let text)?: TabUserIconImages.shared.emoji(text).map { .image($0) }
         case .symbol(let name)?: TabUserIconImages.shared.draws(symbol: name) ? .symbol(name) : nil
-        case .image?, .svg?, nil: nil
+        case .image?, .svg?: wire.flatMap(asset).map { .image($0) }
+        case nil: nil
         }
     }
 }

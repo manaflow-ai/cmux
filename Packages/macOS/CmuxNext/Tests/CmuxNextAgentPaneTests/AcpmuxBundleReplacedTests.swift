@@ -41,8 +41,9 @@ struct AcpmuxBundleReplacedTests {
         defer { try? FileManager.default.removeItem(at: root) }
         try FileManager.default.copyItem(at: binary, to: bin.appendingPathComponent("acpmux"))
         func environment() throws -> AcpmuxEnvironment {
-            try #require(AcpmuxEnvironment.resolve(tag: nil, bundledBinDirectory: bin,
-                                                   environment: ["ACPMUX_HOME": home.path, "ACPMUX_SOCKET": socket]))
+            try #require(AcpmuxEnvironment.resolve(build: nil, bundledBinDirectory: bin,
+                                                   environment: ["ACPMUX_HOME": home.path, "ACPMUX_SOCKET": socket],
+                                                   executableOverride: nil))
         }
 
         // Each step is named, so a failure says whether the update or the setup broke.
@@ -69,15 +70,23 @@ struct AcpmuxBundleReplacedTests {
         }
         let log = (try? String(contentsOf: home.appendingPathComponent("daemon.log"), encoding: .utf8))
             .map { $0.split(separator: "\n").suffix(30).joined(separator: "\n") } ?? "no daemon.log"
+        // Read what the new daemon runs from while it still runs: after its shutdown the
+        // pid is gone and proc_pidpath returns 0.
+        var path = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))
+        var pathLength: Int32 = 0
+        if case .success(let (_, after?)) = pids { pathLength = proc_pidpath(after, &path, UInt32(path.count)) }
         // Whatever failed, every daemon this test started ends with it.
-        _ = try? await AcpmuxStatusClient.shutdown(socketPath: socket, deadline: .seconds(10))
+        _ = try? await AcpmuxStatusClient.shutdown(socketPath: socket, home: home, deadline: .seconds(10))
         guard case .success(let (before, after)) = pids, let pid = after else {
             Issue.record("\(step) failed: \(pids)\n--- daemon.log\n\(log)")
             return
         }
+        // The shut-down daemon is gone before the test ends.
+        let exitDeadline = ContinuousClock.now + .seconds(10)
+        while kill(pid, 0) == 0, ContinuousClock.now < exitDeadline { try await Task.sleep(for: .milliseconds(50)) }
+        #expect(kill(pid, 0) != 0, "the daemon outlived its shutdown")
         #expect(pid != before, "the old daemon still answers")
-        var path = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))
-        #expect(proc_pidpath(pid, &path, UInt32(path.count)) > 0)
+        #expect(pathLength > 0)
         let running = String(decoding: path.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
         #expect(URL(fileURLWithPath: running).resolvingSymlinksInPath().path
                 == bin.appendingPathComponent("acpmux").resolvingSymlinksInPath().path)

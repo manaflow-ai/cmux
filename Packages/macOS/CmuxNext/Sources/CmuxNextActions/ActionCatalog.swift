@@ -28,7 +28,7 @@ public nonisolated enum ActionCatalog {
         "diffViewerScrollHalfPageUp": "diffViewerHalfPageUp",
         "diffViewerScrollToBottom": "diffViewerGoToBottom",
         "diffViewerScrollToTop": "diffViewerGoToTop",
-        // Cmd-T's id named a setting value; it opens the tabs.newTabKind kind (cmuxterm-hq#1829).
+        // Cmd-T's id named a setting value; it opens the New Tab page (cmuxterm-hq#1829).
         "newTab.sameKind": "newTab.default",
         // New Workspace Like This keeps the directory and the group (cmuxterm-hq#1829).
         "workspace.newInGroup": "workspace.newLikeThis",
@@ -84,6 +84,14 @@ public nonisolated enum ActionCatalog {
         "workspaceGroup.moveToRoom": "workspaceGroup.moveToSpace",
     ]
 
+    /// Actions whose work makes a browser tab with the keyed
+    /// `new-frontend-browser-tab` (`ActionDescriptor.waitsForKeyedCreate`).
+    static let keyedCreateActionIDs: Set<ActionID> = [
+        "openBrowser", "openBrowser.webkit", "openBrowser.chromium", "newBrowserWorkspace",
+        "browser.link.openInNewTab", "browser.image.openInNewTab", "browser.link.openInSplit",
+        "browser.link.openInNewWorkspace", "browser.selection.search",
+    ]
+
     /// The catalog's domain groups, in inventory order. `all` concatenates
     /// their descriptors in this order, which menu ranks tie-break on.
     static let groups: [any ActionCatalogGroup.Type] = [
@@ -116,19 +124,26 @@ public nonisolated enum ActionCatalog {
         SidebarActionCatalog.self,
         NotificationActionCatalog.self,
         AgentActionCatalog.self,
+        AgentChatIdentifierActionCatalog.self,
         AgentHarnessActionCatalog.self,
         CloudActionCatalog.self,
         AccountActionCatalog.self,
         RemoteActionCatalog.self,
+        MachineIconActionCatalog.self,
         SettingsActionCatalog.self,
+        ChromeStyleActionCatalog.self,
         BackdropActionCatalog.self,
         HibernationActionCatalog.self,
         LayoutActionCatalog.self,
         HistoryActionCatalog.self,
+        MusicActionCatalog.self,
+        NowPlayingCardActionCatalog.self,
         BookmarkActionCatalog.self,
         SidebarSectionActionCatalog.self,
         AppStoreActionCatalog.self,
         TasksActionCatalog.self,
+        PhoneActionCatalog.self,
+        FilesPaneActionCatalog.self,
         LinkActionCatalog.self,
         ShareActionCatalog.self,
         ServerActionCatalog.self,
@@ -141,6 +156,7 @@ public nonisolated enum ActionCatalog {
         var all: [ActionDescriptor] = []
         for group in groups { all += group.descriptors() }
         for index in all.indices where focusActionIDs.contains(all[index].id) { all[index].focuses = true }
+        for index in all.indices where keyedCreateActionIDs.contains(all[index].id) { all[index].waitsForKeyedCreate = true }
         return ActionSurfaceCatalog.apply(to: all).withLeaderChords()
     }
 }

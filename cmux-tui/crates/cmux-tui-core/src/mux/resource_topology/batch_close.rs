@@ -43,14 +43,22 @@ pub(crate) struct BatchCloseRequest<'a> {
     pub record_closed: bool,
     /// The close is part of a space delete: its change and closed group.
     pub room: Option<RoomClose<'a>>,
+    /// The request's own result, stored for its replay (`layout.bulk`);
+    /// None: the closed surfaces and the ended terminals.
+    pub result: Option<Value>,
+    /// `close-workspace` `if_empty`: refuse (`workspace_not_empty`) when the
+    /// target workspace has a tab at commit time.
+    pub if_empty: bool,
 }
 
 /// The space delete a batch close is part of (SPACE-DELETE-CLOSES-ITS-
 /// WORKSPACES): `before_patch` deletes the space and announces the closed
 /// group in the close's transaction; `result` is the request's result.
+/// `bare` are the space's workspaces with no tab: they close in the same plan.
 pub(crate) struct RoomClose<'a> {
     pub before_patch: &'a dyn Fn(&rusqlite::Transaction<'_>) -> anyhow::Result<()>,
     pub result: Value,
+    pub bare: Vec<WorkspaceId>,
 }
 
 /// Why a client closes tabs (`close-reason-v1`, SDK type `CloseReason`).
@@ -168,17 +176,22 @@ impl Mux {
         let notifications = self.tree_decorations();
         let mut registry = self.workspace_registry.lock().unwrap();
         let mut state = self.lock_state_pinned(&registry).unwrap();
+        if let BatchCloseTarget::Workspace(workspace) = &request.target {
+            let index = state.workspace_index(*workspace).context("close target disappeared")?;
+            Self::require_empty_workspace_for_close(&state, index, request.if_empty)?;
+        }
 
         let mut tab_groups = None;
         let mut plan = match &request.target {
             BatchCloseTarget::Tabs(surfaces) => {
-                self.tabs_close_plan_locked(surfaces, &state, &registry, &notifications)?
+                let bare = request.room.as_ref().map_or(&[][..], |room| &room.bare[..]);
+                self.tabs_close_plan_locked(surfaces, bare, &state, &registry, &notifications)?
             }
             BatchCloseTarget::TabGroup(group) => {
                 let mut groups = self.presentation_snapshot().tab_groups.clone();
                 let members = tab_groups::take_tab_group(&state, &mut groups, group)?;
                 tab_groups = Some(groups);
-                self.tabs_close_plan_locked(&members, &state, &registry, &notifications)?
+                self.tabs_close_plan_locked(&members, &[], &state, &registry, &notifications)?
             }
             BatchCloseTarget::Pane(pane) => self.resource_close_plan_locked(
                 ResourceOperation::PaneClose,
@@ -220,6 +233,9 @@ impl Mux {
         });
         if let Some(room) = request.room.as_ref() {
             result = room.result.clone();
+        }
+        if let Some(own) = request.result.as_ref() {
+            result = own.clone();
         }
         // A cascaded close (an emptied workspace) keeps the request's result shape.
         if let Some(close) = plan.workspace_close.as_ref()
@@ -290,10 +306,12 @@ impl Mux {
 
     /// Remove `surfaces` from a clone of the live state. Every surface must
     /// be a placed tab; duplicates are ignored. A workspace left without a
-    /// tab closes in the same plan (LAST-TAB-CLOSES-WORKSPACE).
+    /// tab closes in the same plan (LAST-TAB-CLOSES-WORKSPACE), and so does
+    /// each of `bare`, workspaces that have no tab (a space delete's).
     fn tabs_close_plan_locked(
         &self,
         surfaces: &[SurfaceId],
+        bare: &[WorkspaceId],
         state: &State,
         registry: &WorkspaceRegistry,
         notifications: &TreeDecorations,
@@ -301,7 +319,10 @@ impl Mux {
         let mut unique = HashSet::with_capacity(surfaces.len());
         let surfaces =
             surfaces.iter().copied().filter(|surface| unique.insert(*surface)).collect::<Vec<_>>();
-        anyhow::ensure!(!surfaces.is_empty(), "close-tabs needs at least one surface");
+        anyhow::ensure!(
+            !surfaces.is_empty() || !bare.is_empty(),
+            "close-tabs needs at least one surface"
+        );
         for surface in &surfaces {
             anyhow::ensure!(
                 state.surfaces.contains_key(surface) && state.pane_of(*surface).is_some(),
@@ -330,11 +351,12 @@ impl Mux {
             Self::rebuild_split_screen_index(&mut projected);
         }
         let mut selection_resync = selection_before != active_tree_selection(&projected);
-        let emptied = self.close_emptied_workspaces_locked(
+        let emptied = self.close_emptied_workspaces_with_locked(
             registry,
             state,
             &mut projected,
             Some(notifications),
+            bare,
         )?;
         let (workspace_close, delta, changed_screens) = match emptied {
             Some(emptied) => {
@@ -451,21 +473,22 @@ impl Mux {
             authorize_workspace: false,
             record_closed: reason.is_none(),
             room: None,
+            result: None,
+            if_empty: false,
         })
     }
 
     /// The batch close of a space delete (SPACE-DELETE-CLOSES-ITS-
     /// WORKSPACES): these tabs, ending their terminals, recorded as one
-    /// closed group; `before_patch` deletes the space in the same
-    /// transaction and `result` is the request's result.
+    /// closed group, with `room` (the space's delete, its result and its
+    /// workspaces with no tab) in the same transaction.
     pub(crate) fn close_tabs_for_room_delete(
         &self,
         surfaces: Vec<SurfaceId>,
         operation: &str,
         fingerprint: &Value,
         mutation: &WorkspaceMutation,
-        before_patch: &dyn Fn(&rusqlite::Transaction<'_>) -> anyhow::Result<()>,
-        result: Value,
+        room: RoomClose<'_>,
     ) -> anyhow::Result<BatchCloseOutcome> {
         self.commit_batch_close(BatchCloseRequest {
             target: BatchCloseTarget::Tabs(surfaces),
@@ -477,7 +500,40 @@ impl Mux {
             expected_workspace_revision: None,
             authorize_workspace: true,
             record_closed: true,
-            room: Some(RoomClose { before_patch, result }),
+            room: Some(room),
+            result: None,
+            if_empty: false,
+        })
+    }
+
+    /// One `layout.bulk` close (cx-gzh.5): these tabs, from any panes,
+    /// screens and workspaces, in one commit and ONE closed group; the
+    /// containers they empty close in the same plan and join the group.
+    /// `result` is the request's result, stored for its replay.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn close_tabs_for_bulk(
+        &self,
+        surfaces: Vec<SurfaceId>,
+        end_terminals: bool,
+        operation: &str,
+        fingerprint: &Value,
+        mutation: &WorkspaceMutation,
+        authorize_workspace: bool,
+        result: Value,
+    ) -> anyhow::Result<BatchCloseOutcome> {
+        self.commit_batch_close(BatchCloseRequest {
+            target: BatchCloseTarget::Tabs(surfaces),
+            end_terminals,
+            operation,
+            fingerprint,
+            mutation,
+            expected_generation: None,
+            expected_workspace_revision: None,
+            authorize_workspace,
+            record_closed: true,
+            room: None,
+            result: Some(result),
+            if_empty: false,
         })
     }
 
@@ -513,6 +569,8 @@ impl Mux {
             authorize_workspace: false,
             record_closed: true,
             room: None,
+            result: None,
+            if_empty: false,
         })
     }
 
@@ -534,12 +592,14 @@ impl Mux {
             expected_revision,
             mutation,
             None,
+            false,
         )
     }
 
     /// Same, with an optional `reason` (`close-reason-v1`): a `session_end` close commits the
     /// same way but is not recorded in the closed history. The reason is part of the request a
     /// key names.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn close_workspace_ending_terminals_for(
         &self,
         target: Option<WorkspaceId>,
@@ -548,6 +608,7 @@ impl Mux {
         expected_revision: Option<u64>,
         mutation: &WorkspaceMutation,
         reason: Option<CloseReason>,
+        if_empty: bool,
     ) -> anyhow::Result<(WorkspaceMutationResult, BatchCloseOutcome)> {
         let mut fingerprint = json!({
             "op": "close-workspace",
@@ -594,6 +655,8 @@ impl Mux {
             authorize_workspace: true,
             record_closed: reason.is_none(),
             room: None,
+            result: None,
+            if_empty,
         })?;
         let revision = match outcome.workspace_revision {
             Some(revision) => revision,

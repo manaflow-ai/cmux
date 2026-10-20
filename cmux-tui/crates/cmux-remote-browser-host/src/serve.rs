@@ -3,7 +3,8 @@
 //!
 //! Threads: the CEF UI thread (the process main thread) owns the tab, the
 //! pump and the encoder, and runs every shim call. A network thread accepts
-//! one viewer at a time and does the rd handshake; a reader thread per
+//! callers and admits each on its own thread (`launch::accept_viewers`), then
+//! serves the admitted viewers one at a time; a reader thread per
 //! viewer posts its frames to the UI thread with `rb_shim_post`; a writer
 //! thread per viewer writes what the UI thread sends, so a slow socket never
 //! blocks the UI thread. Captured IOSurfaces are encoded on the UI thread
@@ -27,13 +28,14 @@ use cmux_rd_proto::{
     MAX_DATAGRAM_DEFAULT, SERVICE_REMOTE_BROWSER, STREAM_CONTROL, STREAM_DATAGRAM,
     encode_stream_frame,
 };
-use cmux_remote_browser::proto::{Control, ScreenInfo, ViewerCaps};
+use cmux_remote_browser::proto::{Control, InputEvent, PointerKind, ScreenInfo, ViewerCaps};
 
 use crate::ffi::{
     RbCallbacks, RbFrame, ShimPresentation, rb_shim_capture_refresh, rb_shim_context_menu_result,
     rb_shim_dialog_result, rb_shim_frame_release, rb_shim_popup_menu_result, rb_shim_post,
     rb_shim_post_delayed, rb_shim_quit, rb_shim_run, rb_shim_surface_close,
 };
+use crate::meter::Meter;
 use crate::pump::{FrameEncoder, Pump, PumpOut};
 use crate::shim_ui;
 use crate::tab::{DEFAULT_SCREEN, HostTab, PageChange, SurfaceOut, fork_surface_kind};
@@ -123,6 +125,10 @@ enum Net {
 struct Viewer {
     writer: Sender<Vec<u8>>,
     pump: Pump<Vt>,
+    /// Media numbers for the host log (`serve: stats`).
+    meter: Meter,
+    /// Pump encode counters the meter has seen (frames, IDR).
+    seen: (u64, u64),
 }
 
 struct Host {
@@ -192,9 +198,16 @@ impl Host {
     }
 
     fn apply(&mut self, out: PumpOut) {
+        self.apply_timed(out, None);
+    }
+
+    /// [`Self::apply`] for the output of a pump call that took `call_us`
+    /// (the encode time when it encoded a frame).
+    fn apply_timed(&mut self, out: PumpOut, call_us: Option<u64>) {
         for d in &out.datagrams {
             self.send_frame(STREAM_DATAGRAM, d);
         }
+        self.meter(&out, call_us);
         let mut p = ShimPresentation;
         // The input skipped a gap (a lost release may be in it): release
         // what the viewer holds before the events after the gap apply.
@@ -250,6 +263,27 @@ impl Host {
         }
     }
 
+    /// Counts what one pump call sent and logs a stats line once a window
+    /// is full.
+    fn meter(&mut self, out: &PumpOut, call_us: Option<u64>) {
+        let now = self.now();
+        let Some(v) = self.viewer.as_mut() else { return };
+        let bytes: usize = out.datagrams.iter().map(Vec::len).sum();
+        v.meter.sent(bytes);
+        let stats = v.pump.stats();
+        let frames = stats.encoded.saturating_sub(v.seen.0);
+        let idr = stats.idr.saturating_sub(v.seen.1);
+        v.seen = (stats.encoded, stats.idr);
+        v.meter.encoded(frames, idr, call_us.filter(|_| frames > 0), now);
+        if out.input.iter().any(draws) {
+            v.meter.input(now);
+        }
+        let kbps = v.pump.encoder().kbps();
+        if let Some(line) = v.meter.take(kbps, false, now) {
+            eprintln!("serve: stats {}", serde_json::to_string(&line).unwrap_or_default());
+        }
+    }
+
     /// Asks the capture for a full frame when the pump waits for one.
     fn refresh(&mut self) {
         if !self.refresh_wanted || !self.tab.capturing() {
@@ -265,7 +299,14 @@ impl Host {
 
     /// Posts a tick for the pump's next deadline (none while idle).
     fn arm(&mut self) {
-        let Some(due) = self.viewer.as_ref().and_then(|v| v.pump.next_deadline_us()) else {
+        // The pump's deadline, or the stats window's (so a page that went
+        // still logs its last window now, not at its next frame).
+        let Some(due) = self.viewer.as_ref().and_then(|v| {
+            match (v.pump.next_deadline_us(), v.meter.deadline_us()) {
+                (Some(a), Some(b)) => Some(a.min(b)),
+                (a, b) => a.or(b),
+            }
+        }) else {
             return;
         };
         if self.timer.is_some_and(|t| t <= due) {
@@ -291,7 +332,12 @@ impl Host {
         let cfg =
             EngineConfig { width, height, max_fps: FPS, max_datagram, ..EngineConfig::default() };
         let now = self.now();
-        self.viewer = Some(Viewer { writer, pump: Pump::new(cfg, encoder, now) });
+        self.viewer = Some(Viewer {
+            writer,
+            pump: Pump::new(cfg, encoder, now),
+            meter: Meter::default(),
+            seen: (0, 0),
+        });
         self.first_frame_seen = false;
         // The stream carrier's viewer opens the tab by joining (the rd
         // hello named the service); an explicit rb.open later only updates
@@ -320,6 +366,13 @@ impl Host {
     }
 
     fn left(&mut self) {
+        let now = self.now();
+        if let Some(v) = self.viewer.as_mut() {
+            let kbps = v.pump.encoder().kbps();
+            if let Some(line) = v.meter.take(kbps, true, now) {
+                eprintln!("serve: stats {}", serde_json::to_string(&line).unwrap_or_default());
+            }
+        }
         let replies = self.tab.control(VIEWER, &Control::Close, &mut ShimPresentation);
         drop(replies);
         // Dropping the pump gives its held lease back.
@@ -619,8 +672,10 @@ unsafe extern "C" fn on_frame(_: *mut c_void, _browser: c_int, f: *const RbFrame
         let now = h.now();
         let Some(v) = h.viewer.as_mut() else { return };
         h.refresh_wanted = false;
+        let call = Instant::now();
         let out = v.pump.frame(lease, damage, now, now);
-        h.apply(out);
+        let call_us = u64::try_from(call.elapsed().as_micros()).unwrap_or(u64::MAX);
+        h.apply_timed(out, Some(call_us));
         h.arm();
     });
 }
@@ -674,10 +729,22 @@ unsafe extern "C" fn on_surface_frame(_: *mut c_void, surface: c_int, f: *const 
         let Some(stream) = h.tab.surface_stream(surface) else { return };
         let now = h.now();
         let Some(v) = h.viewer.as_mut() else { return };
+        let call = Instant::now();
         let out = v.pump.frame_on(stream, lease, damage, now, now);
-        h.apply(out);
+        let call_us = u64::try_from(call.elapsed().as_micros()).unwrap_or(u64::MAX);
+        h.apply_timed(out, Some(call_us));
         h.arm();
     });
+}
+
+/// Input after which the page may draw (stats: input to frame).
+fn draws(event: &InputEvent) -> bool {
+    match event {
+        InputEvent::Key { down, .. } => *down,
+        InputEvent::Pointer { kind, .. } => *kind == PointerKind::Down,
+        InputEvent::Wheel { .. } => true,
+        _ => false,
+    }
 }
 
 /// The frame's update rect, or all of it.
@@ -702,25 +769,15 @@ fn listen(addr: SocketAddr) -> std::io::Result<()> {
     writeln!(stdout, "{}", crate::launch::listening_line(bound))?;
     stdout.flush()?;
     drop(stdout);
-    for conn in listener.incoming() {
-        // A failed accept or a peer that reset before setsockopt ends only
-        // that connection, never the listener.
-        let conn = match conn {
-            Ok(conn) => conn,
-            Err(e) => {
-                eprintln!("serve: accept failed: {e}");
-                continue;
-            }
-        };
-        if let Err(e) = conn.set_nodelay(true) {
-            eprintln!("serve: connection dropped: {e}");
-            continue;
-        }
-        match session(conn) {
+    // The viewer is admitted (its hello carries the secret) before the
+    // welcome: a refused viewer never opens the tab or sends input.
+    let secret = HOST.lock().ok().and_then(|g| g.as_ref().and_then(|h| h.opts.secret.clone()));
+    crate::launch::accept_viewers(listener, secret, crate::launch::HELLO_DEADLINE, |viewer| {
+        match session(viewer) {
             Ok(reason) => eprintln!("serve: session ended: {reason}"),
             Err(e) => eprintln!("serve: session failed: {e}"),
         }
-    }
+    });
     Ok(())
 }
 
@@ -729,15 +786,9 @@ fn write_rd(stream: &mut TcpStream, control: &RdControl) -> std::io::Result<()> 
 }
 
 /// One viewer: the rd handshake here, then frames to the UI thread until EOF.
-fn session(mut stream: TcpStream) -> std::io::Result<String> {
+fn session(viewer: crate::launch::Admitted) -> std::io::Result<String> {
+    let crate::launch::Admitted { mut stream, hello, mut deframer } = viewer;
     let mut buf = vec![0u8; 64 * 1024];
-    // The viewer is admitted (its hello carries the secret) before the
-    // welcome: a refused viewer never opens the tab or sends input.
-    let secret = HOST.lock().ok().and_then(|g| g.as_ref().and_then(|h| h.opts.secret.clone()));
-    let (hello, mut deframer) = match crate::launch::admit(&mut stream, secret.as_deref())? {
-        crate::launch::Admission::Admitted { hello, deframer } => (hello, deframer),
-        crate::launch::Admission::Refused(reason) => return Ok(reason),
-    };
     let RdControl::Hello { service, caps, max_datagram, .. } = hello else {
         return Ok("the first control message is not hello".into());
     };

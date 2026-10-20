@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Keep Sparkle from offering a build to a macOS it cannot run on.
 
-cmux-next requires macOS 26 while the legacy app ran on macOS 14. Sparkle
+cmux-next requires macOS 14 (26 before 2026-10-13), like the legacy app. Sparkle
 filters appcast items by `sparkle:minimumSystemVersion`, which
 generate_appcast copies from the bundle's `LSMinimumSystemVersion`. If either
 link is missing, macOS 14/15 users would download an update that cannot

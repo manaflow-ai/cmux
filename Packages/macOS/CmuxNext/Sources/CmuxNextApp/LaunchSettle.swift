@@ -53,7 +53,7 @@ final class LaunchSettle {
         unavailableWatch?.cancel()
         unavailableWatch = nil
         // The agent pages' warm-up page is done: their first page made its own process by now.
-        AgentPaneWarmup.finish()
+        AgentPaneView.finishWarmup()
         let waiting = waiters
         waiters.removeAll()
         // An agent page still loading behind its last frame paints first (LaunchImageHold).

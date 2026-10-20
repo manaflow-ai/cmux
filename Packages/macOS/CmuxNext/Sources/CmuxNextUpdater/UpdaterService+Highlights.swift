@@ -39,9 +39,12 @@ extension UpdaterService {
     }
 
     /// "See all changes": the changelog page for the releases after this
-    /// build up to the staged one.
+    /// build up to the staged one. Without signed notes for the staged build
+    /// (a feed that publishes none) the page would be empty: the appcast's
+    /// web release notes open instead, when it names them.
     @discardableResult
     public func openStagedChangelog() -> Bool {
+        if stagedNotes == nil, let url = stagedReleaseNotesURL, let open = openReleaseNotesURL { return open(url) }
         guard let span = stagedHighlights?.changelog else { return openChangelog?() ?? false }
         if let open = openChangelogSpan { return open(span.from, span.to) }
         return openChangelog?() ?? false

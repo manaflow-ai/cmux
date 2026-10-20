@@ -1,4 +1,5 @@
 import CmuxNextBridge
+import CmuxNextCompat
 import Foundation
 
 extension ProgramStatusNotification {
@@ -6,10 +7,9 @@ extension ProgramStatusNotification {
     /// daemon's English "<title, else app, else A program> <verb>" (program_status.rs
     /// `raise_alert`), which stays the title of a notification with no record.
     func title(localizations: [String]) -> String {
-        let languages = localizations.map(Locale.Language.init(identifier:))
         func text(_ key: String, _ english: String) -> String {
             Bundle.module.localizedString(forKey: "notifications.programAlert.\(key)", value: english, table: "NotificationsPanel",
-                                          localizations: languages)
+                                          preferredLocalizations: localizations)
         }
         let name = record.title ?? record.app ?? text("aProgram", "A program")
         let format = switch reason {

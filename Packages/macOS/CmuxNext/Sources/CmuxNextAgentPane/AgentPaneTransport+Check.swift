@@ -37,7 +37,7 @@ extension AgentPaneTransport {
 
     /// What the rules that need no main-actor state make of one frame: refused (a ticket in it, if
     /// any, is to be spent), or the checked frame and its facts. No socket and no request ids, so the
-    /// shared parity cases run it (cmux-agent-pane-policy `check_frame`, AgentPanePolicyParityTests).
+    /// shared parity cases run it (cmux-agent-pane-policy `check_frame`, tests/cases/check.json).
     nonisolated enum Checked: Sendable {
         case refuse(AcpmuxPaneMethods.Decision, spend: String?)
         case frame(Facts, FrameBox)
@@ -159,8 +159,9 @@ extension AgentPaneTransport {
     }
 
     /// A refused frame: answered when it is a request, the socket closed when it was the first.
-    /// `detail`: acpmux's own reason, for the page to show.
-    nonisolated static func refuse(_ decision: AcpmuxPaneMethods.Decision, socket: AcpmuxPaneSocket, detail: String? = nil) -> Step {
+    /// `detail`: acpmux's own reason, for the page to show; `reason`: why, as a code the page words.
+    nonisolated static func refuse(_ decision: AcpmuxPaneMethods.Decision, socket: AcpmuxPaneSocket, detail: String? = nil,
+                                   reason: String? = nil) -> Step {
         guard case .refuse(let error, let method, let requestID) = decision else { return .stop(.invalidFrame) }
         if error == .requestIdInFlight { return refuseInFlight() }
         Self.logger.error("agent pane transport refused frame error=\(error.rawValue, privacy: .public) method=\(method ?? "-", privacy: .public)")
@@ -169,7 +170,7 @@ extension AgentPaneTransport {
             return .stop(error)
         }
         if let requestID {
-            socket.inject(AcpmuxPaneMethods.refusal(requestID: requestID, error: error, method: method, detail: detail))
+            socket.inject(AcpmuxPaneMethods.refusal(requestID: requestID, error: error, method: method, detail: detail, reason: reason))
         }
         return .refused(error)
     }
@@ -199,7 +200,15 @@ extension AgentPaneTransport {
         guard AcpmuxPaneMethods.sessionScoped.contains(method) || AcpmuxPaneMethods.optionallySessionScoped.contains(method)
         else { return nil }
         let session = named as? String
-        guard let session, sessions.contains(session) else {
+        // Other params that name a session must name one of the pane's too (`_acpmux/side`'s chat).
+        let params = object["params"] as? [String: Any]
+        let othersHeld = AcpmuxPaneMethods.scopedSessionParams[method, default: []]
+            .allSatisfy { (params?[$0] as? String).map(sessions.contains) == true }
+        // Ones that may name a session (an accepted offer's child): none is fine, a named one
+        // (even `null`) must be the pane's.
+        let optionalHeld = AcpmuxPaneMethods.optionalScopedSessionParams[method, default: []]
+            .allSatisfy { params?[$0] == nil || (params?[$0] as? String).map(sessions.contains) == true }
+        guard let session, sessions.contains(session), othersHeld, optionalHeld else {
             return .refuse(.sessionNotInPane, method: method, requestID: object["id"].flatMap(AcpmuxPaneMethods.rawID))
         }
         return nil

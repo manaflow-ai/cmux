@@ -102,6 +102,16 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
+        case "harness.update":
+            // A harness id (profile file name), never a command.
+            if let id = params?["id"] as? String, !id.isEmpty, id.utf8.count <= 128,
+               id.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || "-_.".contains($0)) }) {
+                self = .harnessUpdate(id: id)
+            } else {
+                self = .unsupported(method)
+            }
+        case "harness.restart":
+            self = .harnessRestart
         case "shell.run":
             if let command = params?["command"] as? String,
                !command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
@@ -134,12 +144,32 @@ extension AgentPaneRequest {
             self = .touched
         case "newTab.context":
             self = .newTabContext
+        case "newTab.warm":
+            if let warm = params?["warm"] as? [String: Any], let data = try? JSONSerialization.data(withJSONObject: warm),
+               data.count <= AgentPaneNewTab.maximumWarmBytes, let text = String(data: data, encoding: .utf8) {
+                self = .newTabWarm(text)
+            } else {
+                self = .unsupported(method)
+            }
+        case "newTab.setTemplate":
+            if let template = params?["template"] as? String, !template.isEmpty, template.count <= 32 {
+                self = .setNewTabTemplate(template)
+            } else {
+                self = .unsupported(method)
+            }
+        case "nowPlaying.command":
+            if let command = AgentPaneNowPlaying.Command(params) { self = .nowPlaying(command) } else { self = .unsupported(method) }
         case "newTab.remember":
             // One input (R86): the agent pick, and the model picked on it in `folder`.
             if let agent = params?["agent"] as? String, !agent.isEmpty, agent.count <= 128 {
                 let model = (params?["model"] as? String).flatMap { !$0.isEmpty && $0.count <= 256 ? $0 : nil }
                 let folder = (params?["folder"] as? String).flatMap { !$0.isEmpty && $0.count <= 4096 ? $0 : nil }
                 self = .rememberNewTab(AgentPaneRememberedPick(agent: agent, model: model, folder: folder))
+            } else if params?["harnessHint"] as? String == "dismissed" {
+                // Integrate a harness dismissed for good (a page choice like the agent pick).
+                var pick = AgentPaneRememberedPick(agent: "")
+                pick.dismissesHarnessHint = true
+                self = .rememberNewTab(pick)
             } else {
                 self = .unsupported(method)
             }
@@ -147,18 +177,6 @@ extension AgentPaneRequest {
             if let target = (params?["target"] as? String).flatMap(AgentPaneJumpTarget.init(rawValue:)),
                let id = params?["id"] as? String, !id.isEmpty, id.count <= 256 {
                 self = .jump(target, id: id)
-            } else {
-                self = .unsupported(method)
-            }
-        case "tab.setDefaultKind":
-            if let kind = params?["kind"] as? String, !kind.isEmpty, kind.count <= 32 {
-                self = .setDefaultKind(kind)
-            } else {
-                self = .unsupported(method)
-            }
-        case "newTab.setTemplate":
-            if let template = params?["template"] as? String, !template.isEmpty, template.count <= 32 {
-                self = .setNewTabTemplate(template)
             } else {
                 self = .unsupported(method)
             }
@@ -173,16 +191,12 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
-        case "harness.health":
-            if let id = params?["id"] as? String, !id.isEmpty, id.count <= 128, !id.contains(where: \.isNewline) {
-                self = .harnessHealth(id, refresh: params?["refresh"] as? Bool == true,
-                                      rescan: params?["rescan"] as? Bool == true)
-            } else {
-                self = .unsupported(method)
-            }
         case "project.list":
             let query = (params?["query"] as? String).map { String($0.prefix(512)) }
             self = .listProjects(query)
+        case "project.icon":
+            if let cwd = params?["cwd"] as? String, cwd.hasPrefix("/"), cwd.utf8.count <= 4096 { self = .projectIcon(cwd) }
+            else { self = .unsupported(method) }
         case "chats.open":
             if let key = params?["key"] as? String, key.contains(":"), key.count <= 512 { self = .openChat(key) }
             else { self = .unsupported(method) }
@@ -203,17 +217,29 @@ extension AgentPaneRequest {
                 self = .unsupported(method)
             }
         case "pane.tabState": self = .tabState(refresh: params?["refresh"] as? Bool == true)
+        case "pane.tabRowTools":
+            if let width = (params?["width"] as? NSNumber)?.doubleValue, width.isFinite, (0...2000).contains(width) {
+                self = .tabRowTools(width: width)
+            } else {
+                self = .unsupported(method)
+            }
         case "pane.setQuickActions":
             if let list = AgentPaneQuickAction.list(params?["quickActions"]) { self = .setQuickActions(list) }
             else { self = .unsupported(method) }
         case "chat.sideChat":
             if let id = params?["sessionId"] as? String, !id.isEmpty, id.count <= 256 { self = .sideChat(id) } else { self = .unsupported(method) }
-        case "chat.archive":
-            if let archived = params?["archived"] as? Bool { self = .archive(archived) } else { self = .unsupported(method) }
-        case "chat.markUnread":
-            self = .markUnread
+        case "chat.subagentPane":
+            if let id = params?["subagent"] as? String, !id.isEmpty, id.count <= 256 {
+                self = .subagentPane(id, focus: params?["focus"] as? Bool == true)
+            } else { self = .unsupported(method) }
+        case "chat.newHere":
+            if let cwd = (params?["cwd"] as? String).flatMap(Self.headerFolder) { self = .newChatHere(cwd) } else { self = .unsupported(method) }
+        case "chat.openTab":
+            if let id = params?["sessionId"] as? String, !id.isEmpty, id.count <= 256 { self = .chatTab(id) } else { self = .unsupported(method) }
+        case "chat.upload":
+            if let files = AgentPaneUpload.files(params) { self = .upload(files) } else { self = .unsupported(method) }
         case "chat.toolCard.respond":
-            if let answer = AgentPaneToolCard.answer(params) { self = .toolCard(card: answer.card, action: answer.action) } else { self = .unsupported(method) }
+            if let answer = AgentPaneToolCard.answer(params) { self = .toolCard(card: answer.card, action: answer.action, value: answer.value) } else { self = .unsupported(method) }
         case "shortcut.edit":
             if let kind = (params?["kind"] as? String).flatMap(AgentPaneTabKind.init(rawValue:)) {
                 self = .editShortcut(kind)
@@ -291,6 +317,12 @@ extension AgentPaneRequest {
         case "dictation.start": self = .dictation(.start)
         case "dictation.stop": self = .dictation(.stop)
         case "dictation.cancel": self = .dictation(.cancel)
+        case "dictation.audio":
+            if let enabled = params?["enabled"] as? Bool {
+                self = .dictation(.recordAudio(enabled))
+            } else {
+                self = .unsupported(method)
+            }
         case "dictation.openSettings":
             if let raw = params?["permission"] as? String, let permission = DictationPermission(rawValue: raw) {
                 self = .dictation(.openSettings(permission))

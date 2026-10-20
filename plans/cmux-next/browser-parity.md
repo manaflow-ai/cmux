@@ -21,7 +21,7 @@ A user who makes cmux the default browser hits these in the first day.
 | --- | --- | --- | --- | --- |
 | Omnibar opens in new tab (Cmd-Return, modified row click) | fixed (P1) | fixed (P1) | app | was loading in the current tab |
 | Downloads UI (progress, list, reveal, open, cancel, retry) | missing | missing/UNSURE | app (UI), engine (C events) | S2: both engines feed one App list (`BrowserDownloadList`) with progress and end, a notice on finish/failure, one policy (`BrowserDownloadPolicy`: Downloads folder or chosen file, sanitized unique names, quarantine, never open). C through shim download events (`CEFDownloads`). DL2: both engines write a temporary sibling and move into place only on a complete end (`BrowserDownloadPlacement`: reserved names, exclusive rename, Save As replaced only by a complete download, 255-byte names keep the extension, lstat); shim download tokens are unique across profiles; download URLs only http/https/data/blob; an early cancel is held. Later P3 in the lane plan below. The list UI is still missing |
-| New tabs open next to the opener (Chrome order) | broken | broken | app + daemon (crate slot) | daemon appends to strip end |
+| New tabs open next to the opener (Chrome order) | works | works | app + daemon (crate slot) | `BrowserTabOpeners` places link tabs by Chromium's opener rules, and the daemon commits the slot (`frontend-browser-insert-after-v1`). Closing a link tab goes back to its opener family first (`FocusAfterClose.tab`, close-focus.md) |
 | Session restore with back/forward history | URL only | works | engine (W interactionState), app | W history lost on relaunch and Cmd-Shift-T |
 | Passwords: save prompt, fill, generator, manager page | missing | partial | pw | C fills from Chromium store; no save UI |
 | Passkeys (WebAuthn platform) | missing | missing | pw | passkeys.md K13/K14 |
@@ -32,7 +32,7 @@ A user who makes cmux the default browser hits these in the first day.
 | Certificate error interstitial with proceed | missing (generic error) | UNSURE | app (W), engine (C) | W has no server-trust delegate |
 | mailto: and other handlers from pages and other apps | missing | missing | app | Info.plist has http/https only |
 | Address and card autofill | missing | UNSURE | pw | C may work with no cmux UI |
-| Clear browsing data (history, cookies, cache, by time range) | partial | partial | app | per-site data only; no global sheet |
+| Clear browsing data (history, cookies, cache, by time range) | fixed (cx-d0d.23) | fixed (cx-d0d.23) | app (+hist) | one action `browserProfile.clearBrowsingData` per profile: palette, profile menu, CLI, MCP, inline in Settings > Browser > Profiles. C deletes cookies created in the range and clears the whole HTTP cache (Chromium has no ranged cache clear); C keeps site storage (localStorage, IndexedDB, service workers: no ranged clear), remote-localhost derived stores, and the cache of a profile used this launch with no open tab |
 | Zoom remembered per site | per tab | per tab | app | Chrome keys zoom by host |
 | Find in page with count | works | works | app | |
 | Default browser registration, open links from other apps | works | works | app | |

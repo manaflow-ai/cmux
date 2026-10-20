@@ -232,8 +232,22 @@ export type PickerInputs = {
   acpmux: AcpmuxCatalog;
   /** The attached session: its harness and live config options win for effort and fast mode. */
   session?: { harness?: string; configOptions?: ConfigOptions };
+  /** Profiles whose chats' last turn completed, the latest first (workedProfiles). */
+  worked?: string[];
   provisional?: boolean;
 };
+
+/** The profiles of the chats whose last turn completed, most recently updated first, each once. */
+export function workedProfiles(sessions: readonly { harness?: string; updatedAt?: number; worked?: boolean }[]) {
+  return [
+    ...new Set(
+      sessions
+        .filter((session) => session.worked && session.harness)
+        .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))
+        .map((session) => session.harness!),
+    ),
+  ];
+}
 
 /** Joins the catalog with what acpmux reports (CONTRACT section 3, join rules 1-6). */
 export function buildPickerCatalog({
@@ -241,13 +255,14 @@ export function buildPickerCatalog({
   user,
   acpmux,
   session,
+  worked = [],
   provisional = false,
 }: PickerInputs): PickerCatalog {
   // A chat folder's own profiles stay out of the join: the picker lists them on their own, and a
   // folder profile must never stand in for a catalog harness of its family.
   acpmux = acpmux.filter((entry) => !entry.folder);
   const layered = applyUserLayer(catalog, user);
-  const join: Join = { catalog: layered, session, overrides: userOverrides(user) };
+  const join: Join = { catalog: layered, session, worked, overrides: userOverrides(user) };
   const hidden = hiddenHarnesses(user);
   const covered = new Set<string>();
   const harnesses = layered.harnesses.map((harness) => {
@@ -268,6 +283,7 @@ export function buildPickerCatalog({
 type Join = {
   catalog: ModelCatalog;
   session: PickerInputs["session"];
+  worked: string[];
   overrides: Record<string, Record<string, unknown>>;
 };
 
@@ -309,8 +325,13 @@ function layeredModel(
 
 function catalogHarness(harness: CatalogHarness, members: AcpmuxHarness[], join: Join): PickerHarness {
   const { session } = join;
+  // The shown chat's profile, else the one this person's chats last finished a turn on (claude-sr
+  // where only the subrouter is signed in), never a bare harness its chats only failed on.
   const chosen =
     members.find((entry) => entry.id === session?.harness) ??
+    join.worked
+      .map((id) => members.find((entry) => entry.id === id && (!entry.unavailable || entry.probeFailed)))
+      .find((entry) => entry !== undefined) ??
     members.find((entry) => entry.id === harness.id) ??
     members[0];
   const probed = chosen?.models ?? [];
@@ -506,7 +527,11 @@ function withLiveOptions(model: PickerModel, options: ConfigOptions): PickerMode
   const narrowed =
     offered && model.efforts.length > 0 ? offered.filter((value) => model.efforts.includes(value)) : offered;
   const efforts = narrowed && narrowed.length > 0 ? narrowed : offered;
-  const fast = options.some((option) => option.id === "fast" || option.id === "fast_mode" || option.id === "fast-mode");
+  // An adapter can offer fast mode for every model too (Claude Code's, honored on a few): a model
+  // the catalog describes keeps its own.
+  const fast =
+    model.efforts.length === 0 &&
+    options.some((option) => option.id === "fast" || option.id === "fast_mode" || option.id === "fast-mode");
   return {
     ...model,
     ...(efforts && efforts.length > 0 ? { efforts } : {}),

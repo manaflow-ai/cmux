@@ -15,6 +15,7 @@ import { healthHandlers } from "./handlers/health.ts";
 import { vmsHandlers } from "./handlers/vms.ts";
 import type { TenantLimits } from "./limits/service.ts";
 import type { TenantPolicy } from "./policy.ts";
+import type { VmImages } from "./proofs/vm-image.ts";
 import type { Entitlements } from "./proofs/tenant-may-create.ts";
 import type { UpstreamClient } from "./upstream/client.ts";
 import { snapshotsHandlers } from "./handlers/snapshots.ts";
@@ -34,6 +35,7 @@ import type { WebhookDeliveryStore } from "./db/identity.ts";
 import { handleStackWebhook, STACK_WEBHOOK_PATH } from "./handlers/stack-webhook.ts";
 
 export type Services =
+  | VmImages
   | OwnershipStore
   | ApiKeyStore
   | ServiceKeys

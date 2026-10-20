@@ -4,7 +4,7 @@
 import type { AcpmuxSnapshot } from "../model";
 import { ageLabel, recentSessions } from "../NewTabPage";
 import { EMPTY_OMNIBAR, omnibarRows, type OmnibarContext, type OmnibarRow } from "../omnibar";
-import { sessionMark } from "../sessionList";
+import { listed, normalizedSessionEntry, sessionMark, type AcpmuxSessionEntry } from "../sessionList";
 import { classifyNewTabInput, TERMINAL_PREFIX } from "../newTabIntent";
 import { type Translate, translate } from "../i18n";
 import type { DeviceChat } from "./deviceChats";
@@ -20,17 +20,28 @@ export type ScreenRow =
   | { type: "search"; text: string }
   /// Load `url` (what `text` resolved to, or a top site that completes it).
   | { type: "open"; url: string; text: string }
-  | { type: "tab"; id: string; title: string; detail?: string; icon?: string }
+  /// An open tab; `url` is a browser tab's page as `canonicalAddress` gives it.
+  | { type: "tab"; id: string; title: string; detail?: string; icon?: string; url?: string }
   | { type: "workspace"; id: string; title: string; detail?: string }
   | { type: "history"; url: string; title?: string; icon?: string }
   /// The text as a prompt to `harness`, named `agent` (its `model` when known).
-  | { type: "ask"; text: string; harness: string; agent: string; model?: string };
+  | { type: "ask"; text: string; harness: string; agent: string; model?: string }
+  /// A create action (cx-ag5.7): New terminal, New browser tab or New chat, as under the field.
+  | { type: "create"; kind: CreateKind };
+
+/// What a create row opens, in the order the rows list them.
+export type CreateKind = "terminal" | "browser" | "chat";
+
+/// Which row a prompt's Return takes (Leo 2026-10-18, reversing R86): the agent's, or the web search.
+export type ScreenMode = "ask" | "search";
 
 /// The agent the Ask row names.
 export type ScreenAsk = { harness: string; agent: string; model?: string };
 
-/// Open tabs, workspaces and visited pages shown under the completions.
+/// Open tabs, workspaces and visited pages shown under Ask.
 export const MAX_MATCH_ROWS = 4;
+/// Every row, the web search and Ask included.
+export const MAX_SUGGESTIONS = 8;
 /// Addresses that complete the typed word ("reddit" to reddit.com).
 export const MAX_COMPLETIONS = 3;
 /// The shortest word an address completes: "go" or "no" stays a prompt, not google.com or notion.so.
@@ -51,33 +62,67 @@ export function defaultHarness(agents: readonly ScreenAgent[], lastAgent?: strin
   return orderedAgents(agents, lastAgent)[0]?.id;
 }
 
-/// The popover's rows. Empty text and `!`: none. An address: open it, the pages and matches after
-/// it, a web search (none for a local file) and Ask. A word that completes an address: the
-/// completions first, then the matches, a web search and Ask. Other text: Ask first, a web search,
-/// then the matching tabs, workspaces and pages.
+/// The popover's rows (Leo 10-13: Chrome's and Arc's order). Empty text and `!`: none. An address,
+/// or a word that completes one: the top hit (the address, else its best completion), then the
+/// matching open tabs, workspaces and visited pages, a web search (none for a local file) and Ask.
+/// Other text: Ask first, a web search (the other way round in Search mode), then the matches. One row per page: a page an open tab
+/// shows is that tab ("Switch to tab"), and addresses compare without their tracking parameters.
+/// The `create` actions end every list (Leo 2026-10-18), outside the cap.
 export function screenRows(
   text: string,
-  context: { omnibar: OmnibarContext; home?: string; ask?: ScreenAsk },
+  context: {
+    omnibar: OmnibarContext;
+    home?: string;
+    ask?: ScreenAsk;
+    mode?: ScreenMode;
+    create?: readonly CreateKind[];
+  },
+): ScreenRow[] {
+  const rows = navigationRows(text, context);
+  if (!rows.length) return rows;
+  return [...rows, ...(context.create ?? []).map((kind): ScreenRow => ({ type: "create", kind }))];
+}
+
+function navigationRows(
+  text: string,
+  context: { omnibar: OmnibarContext; home?: string; ask?: ScreenAsk; mode?: ScreenMode },
 ): ScreenRow[] {
   const intent = classifyNewTabInput(text, context.home ? { home: context.home } : {});
   if (intent.kind === "none" || intent.kind === "terminal") return [];
   const query = text.trim();
   const search: ScreenRow = { type: "search", text: query };
   const ask: ScreenRow[] = context.ask ? [{ type: "ask", text: query, ...context.ask }] : [];
-  if (intent.kind === "url") {
-    const open: ScreenRow = { type: "open", url: intent.url, text: query };
-    const rest = distinct([open, ...completions(query, context.omnibar), ...matches(query, context.omnibar)]);
-    return intent.url.startsWith("file:") ? rest : [...rest, search, ...ask];
-  }
+  const open: ScreenRow[] = intent.kind === "url" ? [{ type: "open", url: intent.url, text: query }] : [];
   const completed = completions(query, context.omnibar);
-  const found = distinct([...completed, ...matches(query, context.omnibar)]).slice(completed.length);
-  return completed.length ? [...completed, ...found, search, ...ask] : [...ask, search, ...found];
+  const found = suggestions([...open, ...completed, ...matches(query, context.omnibar)], context.omnibar);
+  if (open.length || completed.length) {
+    const tail = intent.kind === "url" && intent.url.startsWith("file:") ? [] : [search, ...ask];
+    const [top, ...rest] = found;
+    return [...(top ? [top] : []), ...ranked(rest).slice(0, MAX_SUGGESTIONS - 1 - tail.length), ...tail];
+  }
+  const lead = context.mode === "search" ? [search, ...ask] : [...ask, search];
+  return [...lead, ...ranked(found).slice(0, Math.min(MAX_MATCH_ROWS, MAX_SUGGESTIONS - 1 - ask.length))];
 }
 
 /// The row Return takes before Down or Ctrl-N: the top one, unless it is only a web search for a
-/// prompt (no agent to ask: Return says so instead of searching).
-export function defaultSelection(rows: readonly ScreenRow[]): number {
-  return rows[0] && rows[0].type !== "search" ? 0 : -1;
+/// prompt in Ask mode (no agent to ask: Return says so instead of searching). In Search mode the
+/// web search is what Return is for.
+export function defaultSelection(rows: readonly ScreenRow[], mode: ScreenMode = "ask"): number {
+  return rows[0] && (rows[0].type !== "search" || mode === "search") ? 0 : -1;
+}
+
+/// The inline address completion accepted by Right or End. Only a top row that is an address and
+/// extends the typed prefix qualifies: an open result (the typed address or a top site) or a visited
+/// page (history, as Chrome's omnibox completes it). Prompt, search, tab and workspace rows stay
+/// explicit picks. Accepting only fills the field; Enter or Send still opens it. Keeping this pure
+/// lets the New Tab field and its tests share the same safety rule.
+export function inlineCompletion(text: string, rows: readonly ScreenRow[]): string | undefined {
+  const query = text.trim();
+  const row = rows[0];
+  const completion = row?.type === "open" ? row.text : row?.type === "history" ? canonicalAddress(row.url) : undefined;
+  if (!query || !completion || completion.length <= query.length) return undefined;
+  if (!completion.toLocaleLowerCase().startsWith(query.toLocaleLowerCase())) return undefined;
+  return completion;
 }
 
 /// Whether Return on `text` with no row is an address (it never becomes a prompt).
@@ -102,9 +147,7 @@ function matches(query: string, omnibar: OmnibarContext): ScreenRow[] {
     workspaces: omnibar.workspaces,
     history: omnibar.history.filter((entry) => !blankPage(entry.url)),
   };
-  return omnibarRows(query, "browser", navigable)
-    .flatMap((row) => screenRow(row))
-    .slice(0, MAX_MATCH_ROWS);
+  return omnibarRows(query, "browser", navigable).flatMap((row) => screenRow(row, omnibar));
 }
 
 /// Visited pages, then top sites, whose address starts with the typed word.
@@ -112,19 +155,14 @@ function completions(query: string, omnibar: OmnibarContext): ScreenRow[] {
   if (query.length < MIN_COMPLETION_LENGTH || /\s/.test(query)) return [];
   const needle = bareAddress(query.toLowerCase());
   const visited = omnibar.history
-    .filter((entry) => /^https?:/i.test(entry.url) && bareAddress(entry.url.toLowerCase()).startsWith(needle))
-    .map((entry): ScreenRow => ({
-      type: "history",
-      url: entry.url,
-      ...(entry.title ? { title: entry.title } : {}),
-      ...(entry.icon ? { icon: entry.icon } : {}),
-    }));
+    .filter((entry) => /^https?:/i.test(entry.url) && canonicalAddress(entry.url).toLowerCase().startsWith(needle))
+    .map((entry) => historyRow(entry));
   const sites = TOP_SITES.filter((site) => site.startsWith(needle)).map((site): ScreenRow => ({
     type: "open",
     url: `https://${site}`,
     text: site,
   }));
-  return distinct([...visited, ...sites]).slice(0, MAX_COMPLETIONS);
+  return suggestions([...visited, ...sites], EMPTY_OMNIBAR).slice(0, MAX_COMPLETIONS);
 }
 
 /// `about:blank` and the other internal pages.
@@ -140,45 +178,138 @@ function bareAddress(url: string): string {
     .replace(/\/$/, "");
 }
 
-/// The rows without a second row for the same address, tab or workspace; the first one stays.
-function distinct(rows: ScreenRow[]): ScreenRow[] {
-  const seen = new Set<string>();
-  return rows.filter((row) => {
-    const key =
-      row.type === "open" || row.type === "history"
-        ? `url:${bareAddress(row.url.toLowerCase())}`
-        : row.type === "tab" || row.type === "workspace"
-          ? `${row.type}:${row.id}`
-          : row.type;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
+/// `reddit.com` for `https://www.reddit.com/?solution=<token>&utm_source=x#top`: what two pages
+/// compare by and what a row shows. The scheme, `www.`, the fragment, a trailing slash and the
+/// parameters that only track or carry a one-off token go; the ones that name the page stay.
+export function canonicalAddress(url: string): string {
+  const text = url.trim();
+  let parsed: URL;
+  try {
+    parsed = new URL(/^[a-z][a-z0-9+.-]*:/i.test(text) ? text : `https://${text}`);
+  } catch {
+    return bareAddress(text.toLowerCase());
+  }
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return text;
+  const parameters = [...parsed.searchParams];
+  const challenge = parameters.some(([name]) => /_challenge$|^__cf_chl_/i.test(name));
+  const kept = parameters.filter(
+    ([name]) => !NOISE_PARAMETER.test(name) && !(challenge && CHALLENGE_ANSWER.test(name)),
+  );
+  const query = new URLSearchParams(kept).toString();
+  const host = parsed.hostname.replace(/^www\./, "") + (parsed.port ? `:${parsed.port}` : "");
+  return `${host}${parsed.pathname.replace(/\/+$/, "")}${query ? `?${query}` : ""}`;
 }
 
-function screenRow(row: OmnibarRow): ScreenRow[] {
+/// Parameters that only track the click or carry a bot check's one-off answer (reddit's
+/// `?solution=…&js_challenge=1`). An id, a list, a query, a commit or a page token names the page:
+/// it stays.
+const NOISE_PARAMETER =
+  /^(utm_\w+|fbclid|gclid|dclid|gbraid|wbraid|msclkid|yclid|twclid|igshid|mc_[ce]id|_ga|_gl|_hsenc|_hsmi|mkt_tok|ref_src|ref_url|si|spm|\w*_challenge|__cf_chl_\w+)$/i;
+/// A bot check's answer, noise only beside the check's own parameter.
+const CHALLENGE_ANSWER = /^(solution|token)$/i;
+
+/// The host a row shows for a page: `reddit.com`.
+/// A page not on the web shows its path.
+export function shortHost(address: string): string {
+  if (/^file:/i.test(address.trim())) return address.trim().replace(/^file:\/\//i, "");
+  return canonicalAddress(address).split(/[/?]/)[0] ?? address;
+}
+
+const TITLE_SEPARATOR = /\s+[-|·—–]\s+/g;
+
+/// A page's title without its site's tagline on its front page ("Reddit - The heart of the
+/// internet" is "Reddit"; off it, "GitHub - owner/repo" names the page) or its trailing site name
+/// ("Borrowing in loops : r/rust - Reddit"): the row shows the host.
+export function cleanTitle(title: string, url: string): string {
+  const labels = shortHost(url).split(":")[0]!.split(".");
+  const site = labels.length > 1 ? labels[labels.length - 2] : labels[0];
+  const cuts = [...title.matchAll(TITLE_SEPARATOR)];
+  const first = cuts[0];
+  const last = cuts.at(-1);
+  if (!site || !first || !last) return title;
+  const word = (part: string) => part.toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
+  const head = title.slice(0, first.index).trim();
+  const front = !/[/?]/.test(canonicalAddress(url));
+  if (front && head && word(head) === site) return head;
+  const rest = title.slice(0, last.index).trim();
+  if (rest && word(title.slice(last.index + last[0].length)) === site) return rest;
+  return title;
+}
+
+/// One row per page and per tab or workspace, the first one staying, where a page an open browser
+/// tab shows is that tab.
+function suggestions(rows: ScreenRow[], omnibar: OmnibarContext): ScreenRow[] {
+  const tabs = new Map<string, ScreenRow>();
+  for (const tab of omnibar.tabs) {
+    const row = tabRow(tab);
+    if (row.url && !tabs.has(row.url)) tabs.set(row.url, row);
+  }
+  const seen = new Set<string>();
+  return rows
+    .map((row) => (row.type === "open" || row.type === "history" ? (tabs.get(canonicalAddress(row.url)) ?? row) : row))
+    .filter((row) => {
+      const keys = rowKeys(row);
+      if (keys.some((key) => seen.has(key))) return false;
+      for (const key of keys) seen.add(key);
+      return true;
+    });
+}
+
+function rowKeys(row: ScreenRow): string[] {
   switch (row.type) {
+    case "open":
+    case "history":
+      return [`url:${canonicalAddress(row.url)}`];
     case "tab":
-      return [
-        {
-          type: "tab",
-          id: row.id,
-          title: row.title,
-          ...(row.detail ? { detail: row.detail } : {}),
-          ...(row.icon ? { icon: row.icon } : {}),
-        },
-      ];
+      return [`tab:${row.id}`, ...(row.url ? [`url:${row.url}`] : [])];
+    case "workspace":
+      return [`workspace:${row.id}`];
+    default:
+      return [row.type];
+  }
+}
+
+/// Open tabs, then workspaces, then pages to open; the order inside each kind stays.
+function ranked(rows: ScreenRow[]): ScreenRow[] {
+  const rank = (row: ScreenRow) => (row.type === "tab" ? 0 : row.type === "workspace" ? 1 : 2);
+  return rows
+    .map((row, index) => ({ row, index }))
+    .sort((a, b) => rank(a.row) - rank(b.row) || a.index - b.index)
+    .map((entry) => entry.row);
+}
+
+/// A browser tab by its page (a clean title, the host); another tab by its workspace and detail.
+function tabRow(tab: OmnibarContext["tabs"][number]): Extract<ScreenRow, { type: "tab" }> {
+  const icon = tab.icon ? { icon: tab.icon } : {};
+  if (tab.kind === "browser") {
+    const address = tab.detail ?? tab.title;
+    const url = canonicalAddress(address);
+    const title = tab.title === address ? url : cleanTitle(tab.title, address);
+    return { type: "tab", id: tab.id, title, detail: shortHost(address), ...icon, url };
+  }
+  const detail = [tab.workspace, tab.detail].filter(Boolean).join(" · ");
+  return { type: "tab", id: tab.id, title: tab.title, ...(detail ? { detail } : {}), ...icon };
+}
+
+function historyRow(entry: OmnibarContext["history"][number]): ScreenRow {
+  return {
+    type: "history",
+    url: entry.url,
+    ...(entry.title ? { title: cleanTitle(entry.title, entry.url) } : {}),
+    ...(entry.icon ? { icon: entry.icon } : {}),
+  };
+}
+
+function screenRow(row: OmnibarRow, omnibar: OmnibarContext): ScreenRow[] {
+  switch (row.type) {
+    case "tab": {
+      const tab = omnibar.tabs.find((candidate) => candidate.id === row.id);
+      return tab ? [tabRow(tab)] : [];
+    }
     case "workspace":
       return [{ type: "workspace", id: row.id, title: row.title, ...(row.detail ? { detail: row.detail } : {}) }];
     case "history":
-      return [
-        {
-          type: "history",
-          url: row.url,
-          ...(row.title ? { title: row.title } : {}),
-          ...(row.icon ? { icon: row.icon } : {}),
-        },
-      ];
+      return [historyRow(row)];
     default:
       return [];
   }
@@ -202,47 +333,127 @@ export type ChatCard = {
   /// A device chat from the acpmux chat index (`harness:sessionId`): opens through the host's
   /// shared Open Chat path (`chats.open`), not as an acpmux session.
   chatKey?: string;
+  /// The harness chat's own id (a session's agent session id, a device chat key's `harness:` tail):
+  /// the same chat under either source, so a session replacing its device row is not a new row.
+  chatId?: string;
   title: string;
   harness?: string;
   age: string;
   message?: string;
-  state: "idle" | "input" | "running" | "error" | "unread";
+  /// `failed`: its last turn failed (the chat itself is fine); `error`: it lost its agent.
+  state: "idle" | "input" | "running" | "failed" | "error" | "unread";
+  /// The chats its agent started (acpmux `spawnedBy`, a device chat's `parent`), newest first:
+  /// listed under it, never on their own.
+  children?: ChatCard[];
 };
 
 /// The newest chats, the ones waiting on the user first; a dropped chat is an error card. acpmux's
-/// own sessions come first (they carry live state); the device chat index (the sidebar's All
-/// chats source) fills the rest, newest first, without a chat whose title a session card shows.
+/// own sessions come first (they carry live state, and the name the user gave); the device chat
+/// index (the sidebar's All chats source) fills the rest, newest first, without a chat a session
+/// card shows: the same harness chat (its `harness:id` key holds the session's agent session id,
+/// Leo 2026-10-13: each lane showed twice, once by name and once by its first prompt), or the
+/// same title. With `fold` (the list layout) a chat another chat's agent started lists under that
+/// chat's card (`children`); the card grid has no room for that, so there every chat has a card.
 export function recentChatCards(
   sessions: AcpmuxSnapshot["sessions"],
   now = Date.now(),
   t: Translate = translate,
   device: DeviceChat[] = [],
   count = CHAT_CARD_COUNT,
+  fold = true,
 ): ChatCard[] {
-  const live = liveChatCards(sessions, now, t, count);
+  const live = liveChatCards(sessions, now, t, count, fold);
   const shown = new Set(live.map((card) => card.title.trim().toLowerCase()));
+  // Every session's, an archived one's too: its transcript must not come back as a device chat.
+  const agents = new Set(
+    sessions.flatMap((session) => {
+      const id = normalizedSessionEntry(session as Parameters<typeof normalizedSessionEntry>[0]).agentSessionId;
+      return id ? [id] : [];
+    }),
+  );
   const fill = [...device]
-    .sort((a, b) => b.updatedAt - a.updatedAt)
+    .sort((a, b) => b.updatedAt - a.updatedAt || a.key.localeCompare(b.key))
+    .filter((chat) => !(fold && chat.parent) && !agents.has(chat.key.slice(chat.key.indexOf(":") + 1)))
     .filter((chat) => !shown.has((chat.title ?? "").trim().toLowerCase()))
     .slice(0, Math.max(0, count - live.length))
     .map((chat): ChatCard => ({
       sessionId: chat.key,
       chatKey: chat.key,
+      chatId: chat.key.slice(chat.key.indexOf(":") + 1),
       title: chat.title ?? t("sidebar.newChat"),
       harness: chat.harness,
       age: ageLabel(chat.updatedAt, now, t),
       state: "idle",
     }));
-  return [...live, ...fill];
+  const cards = [...live, ...fill];
+  if (!fold) return cards;
+  const children = indexChildren(sessions, device, now, t);
+  return cards.map((card) => withChildren(card, children));
 }
 
-function liveChatCards(sessions: AcpmuxSnapshot["sessions"], now: number, t: Translate, count: number): ChatCard[] {
-  return recentSessions(sessions, count).map((session) => ({
+function liveChatCards(
+  sessions: AcpmuxSnapshot["sessions"],
+  now: number,
+  t: Translate,
+  count: number,
+  fold: boolean,
+): ChatCard[] {
+  return recentSessions(sessions, count, fold).map((session) => sessionCard(session, now, t));
+}
+
+function sessionCard(session: AcpmuxSessionEntry, now: number, t: Translate): ChatCard {
+  return {
     sessionId: session.sessionId,
     title: session.displayTitle ?? session.sessionId,
+    ...(session.agentSessionId ? { chatId: session.agentSessionId } : {}),
     ...(session.harness ? { harness: session.harness } : {}),
     age: ageLabel(session.updatedAt, now, t),
     ...(session.preview ? { message: session.preview } : {}),
-    state: sessionMark(session, false) ?? "idle",
-  }));
+    state: session.indicator === "failed" ? "failed" : (sessionMark(session, false) ?? "idle"),
+  };
+}
+
+/// Child rows indexed once per snapshot, so each visible card does not rescan every session.
+type ChildCard = { parent: string; at: number; card: ChatCard };
+
+function indexChildren(
+  sessions: AcpmuxSnapshot["sessions"],
+  device: DeviceChat[],
+  now: number,
+  t: Translate,
+): Map<string, ChildCard[]> {
+  const indexed = new Map<string, ChildCard[]>();
+  for (const raw of sessions) {
+    const session = normalizedSessionEntry(raw as Parameters<typeof normalizedSessionEntry>[0]);
+    if (!session.spawnedBy || !listed(session) || sessionMark(session, false) === "input") continue;
+    const child = { parent: session.spawnedBy, at: session.updatedAt ?? 0, card: sessionCard(session, now, t) };
+    indexed.set(session.spawnedBy, [...(indexed.get(session.spawnedBy) ?? []), child]);
+  }
+  for (const chat of device) {
+    if (!chat.parent) continue;
+    const child = {
+      parent: chat.parent,
+      at: chat.updatedAt,
+      card: {
+        sessionId: chat.key,
+        chatKey: chat.key,
+        chatId: chat.key.slice(chat.key.indexOf(":") + 1),
+        title: chat.title ?? t("sidebar.newChat"),
+        harness: chat.harness,
+        age: ageLabel(chat.updatedAt, now, t),
+        state: "idle",
+      } satisfies ChatCard,
+    };
+    indexed.set(chat.parent, [...(indexed.get(chat.parent) ?? []), child]);
+  }
+  return indexed;
+}
+
+function withChildren(card: ChatCard, indexed: Map<string, ChildCard[]>): ChatCard {
+  const parents = [...new Set([card.sessionId, card.chatKey].filter((id): id is string => Boolean(id)))];
+  const children = parents
+    .flatMap((parent) => indexed.get(parent) ?? [])
+    .sort((a, b) => b.at - a.at || a.card.sessionId.localeCompare(b.card.sessionId))
+    .map((child) => child.card);
+  return children.length > 0 ? { ...card, children } : card;
 }

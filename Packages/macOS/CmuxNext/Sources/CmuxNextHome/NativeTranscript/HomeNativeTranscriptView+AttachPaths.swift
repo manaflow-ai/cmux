@@ -44,6 +44,7 @@ struct HomePasteboardValue: HomePasteboardContents {
 
     func hasType(_ types: [NSPasteboard.PasteboardType]) -> Bool { types.contains(.fileURL) && !fileURLs.isEmpty }
     func data(forType type: NSPasteboard.PasteboardType) -> Data? { nil }
+    func string(forType type: NSPasteboard.PasteboardType) -> String? { nil }
 }
 
 extension HomeNativeTranscriptView {
@@ -87,12 +88,31 @@ extension HomeNativeTranscriptView {
         debugTranscriptOffset = CGPoint(x: debugTranscriptOffset.x + dx, y: debugTranscriptOffset.y + dy)
         layoutSubtreeIfNeeded()
     }
+    /// Narrows the transcript to `trim` points under this view's width and lays it out now, in this
+    /// main-thread turn (no display frame passes between two calls in one socket request).
+    public func debugTrimWidth(_ trim: CGFloat) {
+        debugTranscriptWidthTrim = trim
+        layoutSubtreeIfNeeded()
+    }
+    /// MessagesLab's width pass counters (all panes): passes run, passes deferred to the next frame.
+    public var debugWidthPasses: (passes: Int, deferred: Int) { transcript.debugWidthPasses }
+    /// MessagesLab's width pass frame budget (s).
+    public var debugWidthPassBudget: Double { transcript.debugWidthPassBudget }
     /// The transcript host's origin in window points (bottom-left origin).
     public var debugHostOrigin: CGPoint { transcript.debugHostOrigin }
+    /// The transcript host's frame in window points (bottom-left origin).
+    public var debugHostFrame: CGRect { transcript.debugHostFrame }
     /// The typing bubble's body in window coordinates (bottom-left origin), nil when none shows.
     public func debugTypingBubbleFrame() -> CGRect? { transcript.debugTypingBubbleFrame() }
+    /// The visible rows as drawn (a part: its bubble body and drawn balloon; a preview or other row: its content box),
+    /// window coordinates (bottom-left origin), top to bottom.
+    public func debugRowFrames() -> [(kind: String, key: String, outgoing: Bool, frame: CGRect, balloon: CGRect)] { transcript.debugRowFrames() }
     /// The text of the newest `limit` messages this view shows, oldest first.
     public func debugMessageTexts(limit: Int = 10) -> [String] { transcript.debugMessageTexts(limit: limit) }
+    public var debugStatusLine: String? { transcript.debugStatusLine }
+    public var debugRebuilds: Int { transcript.debugRebuilds }
+    public var debugStreamTexts: [String] { transcript.debugStreamTexts }
+    public var debugLineCloseAfterHandOffFires: Int? { transcript.debugLineCloseAfterHandOffFires }
     /// Clicks the newest thread's "N Replies" or preview (the click's path); the open thread's root.
     public func debugOpenNewestThread() -> String? { transcript.debugOpenNewestThread() }
     /// The open thread's root (the transcript's id), nil when none is open.

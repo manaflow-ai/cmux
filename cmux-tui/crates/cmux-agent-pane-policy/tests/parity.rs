@@ -1,7 +1,6 @@
-//! The shared case files (`tests/cases/*.json`) against this crate. The Swift
-//! host runs the same files against AcpmuxPaneMethods.swift
-//! (CmuxNextAgentPaneTests/AgentPanePolicyParityTests.swift), so a case that
-//! passes here and fails there is a difference between the two hosts.
+//! The shared case files (`tests/cases/*.json`) against this crate, which
+//! mirrors AcpmuxPaneMethods.swift. The Swift test that ran the same files was
+//! deleted with the CmuxNext unit suites (36f2381bf1a6).
 
 use cmux_agent_pane_policy::check::{
     Checked, FrameState, PaneScope, check_frame as full_check, closes_connection,
@@ -115,7 +114,7 @@ fn facts_json(facts: &cmux_agent_pane_policy::Facts) -> Value {
 #[test]
 fn full_check_order() {
     let all = cases("check.json");
-    assert_eq!(all.as_array().unwrap().len(), 43, "check.json: the full order's 43 cases");
+    assert_eq!(all.as_array().unwrap().len(), 46, "check.json: the full order's 46 cases");
     for c in all.as_array().unwrap() {
         let s = &c["state"];
         let modes: Option<BTreeSet<String>> = s["mode_fields"]
@@ -403,8 +402,14 @@ fn environment_tokens_and_sockets() {
             .iter()
             .map(|p| PathBuf::from(p.as_str().unwrap()))
             .collect();
+        let build = r["bundle_id"].as_str().map(|bundle_id| {
+            cmux_agent_pane_policy::build_identity::BuildIdentity::new(
+                Some(bundle_id),
+                r["bundled_tag"].as_str(),
+            )
+        });
         let got = resolve(
-            r["tag"].as_str(),
+            build.as_ref(),
             r["bundled"].as_str().map(Path::new),
             &env,
             Path::new(r["user_home"].as_str().unwrap()),

@@ -8,7 +8,7 @@ extension AppControl {
     /// The feature `method` belongs to, or nil.
     nonisolated static func policyFeature(of method: String) -> ActionFeature? {
         switch method {
-        case "cloud.machines": return .cloud
+        case "cloud.machines", "debug.cloud.link_ensure": return .cloud
         case "remote.machines": return .remoteHosts
         default:
             // CodeRouter writes configure the Cloud model plane; its reads stay.

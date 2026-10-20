@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextActions
 import CmuxNextBookmarks
 import CmuxNextBridge
 import CmuxNextBrowser
@@ -94,7 +95,20 @@ final class BookmarkManagerSourceAdapter: BookmarkManagerSource {
 
     var managerTree: BookmarkTree { services.bookmarks.tree(profile) }
 
-    func favicon(for node: BookmarkNode) -> CGImage? { services.bookmarks.favicon(of: node, profile: profile, fetching: true)?.cgImage }
+    func favicon(for node: BookmarkNode) -> CGImage? {
+        if node.isFolder { return services.bookmarks.folderIconCGImage(of: node) }
+        return services.bookmarks.favicon(of: node, profile: profile, fetching: true)?.cgImage
+    }
+
+    var canSetFolderIcons: Bool { services.bookmarks.supportsFolderIcons }
+
+    /// Set Icon and Remove Icon on a folder row run the same actions as the bar's menu.
+    func setIcon(of node: BookmarkNode) { perform("bookmark.setIcon", on: node) }
+    func removeIcon(of node: BookmarkNode) { perform("bookmark.clearIcon", on: node) }
+
+    private func perform(_ id: ActionID, on node: BookmarkNode) {
+        services.registry.perform(id, invocation: ActionInvocation(target: ActionTargetRef(kind: .bookmark, id: node.id)))
+    }
 
     func apply(_ operation: BookmarkOperation) -> Bool {
         do {

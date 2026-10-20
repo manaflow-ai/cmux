@@ -29,6 +29,9 @@ use cmux_tui_core::terminal_host_runtime::{
 };
 use ghostty_vt::{Rgb, TerminalColorOverrides};
 
+#[path = "support/private_state.rs"]
+mod private_state;
+
 const KITTY_REPLAY_STATE_ENCODED_LEN: usize = 52;
 
 fn test_timeout(timeout: Duration) -> Duration {
@@ -54,6 +57,8 @@ struct RecoveryHarness {
     template_completion_failures: Option<u64>,
     adopt_template_terminal: bool,
     extra_args: Vec<String>,
+    /// Extra environment of the daemon (a test's own data folders).
+    extra_env: Vec<(String, String)>,
     /// `false` launches shells without Ghostty shell integration, so they
     /// emit no OSC 7 or OSC 133 reports that commit registry revisions.
     shell_integration: bool,
@@ -83,6 +88,7 @@ impl RecoveryHarness {
             template_completion_failures: None,
             adopt_template_terminal: false,
             extra_args: Vec::new(),
+            extra_env: Vec::new(),
             shell_integration: true,
             binary: None,
             respawn: true,
@@ -163,6 +169,7 @@ impl RecoveryHarness {
             template_completion_failures: None,
             adopt_template_terminal: false,
             extra_args: Vec::new(),
+            extra_env: Vec::new(),
             shell_integration: true,
             binary: None,
             respawn: true,
@@ -183,11 +190,20 @@ impl RecoveryHarness {
             None => Command::new(bin()),
         };
         command
+            // The build comes from the test, never from a cmux terminal the
+            // tests run in (an inherited NIGHTLY id would drop the debug
+            // daemon's orphan grace, cx-t2sqm).
+            .env_remove("CMUX_BUNDLE_ID")
+            .env_remove("CMUX_TAG")
             .args(["--headless", "--session", &self.session, "--socket"])
             .arg(&self.socket)
             .arg("--state")
             .arg(&self.state)
-            .args(&self.extra_args)
+            .args(&self.extra_args);
+        // Durable state and the shell integration scripts stay in the test
+        // folder, never below the host's HOME (support/private_state.rs).
+        private_state::use_private_state(&mut command, &self.dir)
+            .envs(self.extra_env.iter().map(|(key, value)| (key.as_str(), value.as_str())))
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             // Host copies stay in the test directory, not the user's home.
@@ -5272,6 +5288,18 @@ mod host_death;
 #[path = "terminal_host_recovery/upgrade.rs"]
 mod upgrade;
 
+#[path = "terminal_host_recovery/program_status_restart.rs"]
+mod program_status_restart;
+
+#[path = "terminal_host_recovery/shell_activity_restart.rs"]
+mod shell_activity_restart;
+
+#[path = "terminal_host_recovery/bell_notification.rs"]
+mod bell_notification;
+
+#[path = "terminal_host_recovery/command_activity.rs"]
+mod command_activity;
+
 #[path = "terminal_host_recovery/process_support.rs"]
 mod process_support;
 use process_support::*;
@@ -5293,3 +5321,7 @@ mod parallel_new_tabs;
 
 #[path = "terminal_host_recovery/host_scrollback.rs"]
 mod host_scrollback;
+
+#[cfg(target_os = "macos")]
+#[path = "terminal_host_recovery/slim_host.rs"]
+mod slim_host;

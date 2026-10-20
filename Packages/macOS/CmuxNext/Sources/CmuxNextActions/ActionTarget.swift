@@ -92,6 +92,9 @@ public nonisolated enum ActionMenuContext: String, CaseIterable, Sendable, Hasha
     case cloudMachine
     /// An SSH machine's sidebar section header.
     case sshMachine
+    /// What every machine's sidebar section header offers (its icon), shown
+    /// after that header's own menu (an SSH or Cloud machine's, else the sidebar's).
+    case machineSection
     /// A tab strip's new tab (+) button: which kind of tab to open.
     case newTab
     /// A room dot in the sidebar.
@@ -117,6 +120,8 @@ public nonisolated enum ActionMenuContext: String, CaseIterable, Sendable, Hasha
     case agentChat
     /// The window's own background where it shows: the gaps between panes and an empty workspace.
     case windowBackground
+    /// The sidebar's Now Playing card (u2437): Play/Pause and its hide rows.
+    case nowPlayingCard
 
     /// The object a right-click in this context targets, if any.
     public var targetKind: ActionTargetKind? {
@@ -131,12 +136,14 @@ public nonisolated enum ActionMenuContext: String, CaseIterable, Sendable, Hasha
         case .pane, .newTab: .pane
         case .workspaceRow: .workspace
         case .workspaceGroup: .workspaceGroup
-        case .sidebarBackground, .sidebarFooter: nil
-        case .cloudMachine, .sshMachine: .machine
+        case .sidebarBackground, .sidebarFooter, .nowPlayingCard: nil
+        case .cloudMachine, .sshMachine, .machineSection: .machine
         case .profile: .profile
         case .browserProfile: .browserProfile
         case .bookmark: .bookmark
-        case .bookmarksBar, .screenBar, .notification, .windowBackground: nil
+        case .bookmarksBar, .screenBar, .notification: nil
+        // The workspace whose background it is.
+        case .windowBackground: .workspace
         case .sidebarItem: .sidebarItem
         case .sidebarSection: .sidebarSection
         // The chat's tab (the App passes it).

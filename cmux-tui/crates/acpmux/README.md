@@ -80,6 +80,14 @@ tailnet name, for example) in `websocket.allowedHosts`, because any other `Host`
 
 ### Remote connections (`webRoots`, `webAskingModes`)
 
+Every connection is authenticated before it gets a session or any data. Each one carries the
+proof it presented (`ConnAuth`, `src/server/conn_auth.rs`), reported as `initialize`
+`_meta.acpmux.auth`: `localSocket` (the daemon socket, owner-only), `listenerToken` (the
+WebSocket token, checked at the upgrade; a missing or wrong token gets 401 and no connection),
+`localApp` (the token plus this launch's LocalApp token) or `peerToken` (the token plus this
+launch's peer token). A connection with no proof (`none`) gets error -32001 for its first
+request and is closed. The mode rule reads `ConnAuth::authenticated`, not the transport.
+
 A WebSocket connection other than the app's own pane (the dashboard, a paired or relayed
 device, a peer daemon) works only inside folders that are known projects (the cwds of local
 sessions) or listed in `webRoots`, and only in modes that ask before they act: the reviewed
@@ -87,6 +95,17 @@ per-harness table in `src/server/remote_guard.rs` plus what `webAskingModes` add
 `"webAskingModes": {"myharness": ["ask"]}`. Both live in `config.json` and are never written over
 a WebSocket. **Warning: a mode that you add to `webAskingModes` lets paired devices start that
 mode without a per-action prompt.** See `plans/cmux-next/acp-remote-guard.md`.
+
+A connection proven a peer (the peer token above) reads this daemon's session summaries with
+their text masked (`src/server/peer_text.rs`): a token pasted into a prompt shows as
+`[GitHub Personal Access Token]` in the title, the prompts (running and queued), the preview, the
+last message and the last turn's error, in an ACP `session/list` entry's title, and in a chat's
+title and preview; a field past 16384 characters is cut. Every peer is masked: the peer token is
+shared by all of them, so none can be told apart to trust. A peer may not rewrite a queued prompt
+that holds a secret (it may still move, send or remove it). The unix socket, the app and the dashboard keep the raw text, and so does a peer
+daemon served as Web (its peer token withheld over plain `ws://`). Only those summary fields are
+masked: a session's updates, events, history, chat transcripts and tool output still reach a peer
+raw.
 
 ## CLI
 
@@ -103,7 +122,7 @@ Five everyday commands, three groups for the rest:
 | `host setup HOST` / `host update [--all]` / `host add NAME URL` / `host ls` / `host rm NAME` | Remote daemons. `setup` installs over ssh; URL is `ssh://host`, `ws://…`, or `wss://…`. |
 | `session info\|cancel\|stop\|rename\|fork\|set\|allow\|deny\|export\|import\|tail NAME …` | Everything about one session. |
 | `daemon run\|status\|shutdown\|config\|harnesses\|reload\|models\|schema` | The daemon itself. |
-| `daemon shutdown [--keep-agents]` | Stop the daemon and every agent host it owns; exits 0 only when none is left, and names any host that survives SIGKILL. `--keep-agents` leaves the user sessions' hosts running for the next daemon. |
+| `daemon shutdown [--end-agents]` | Stop the daemon; the user sessions' hosted agents keep running for the next daemon (a restart or an update), as with SIGTERM. `--end-agents` also ends every agent host it owns, exits 0 only when none is left, and names any host that survives SIGKILL. `--keep-agents` is accepted and changes nothing (a plain stop of builds before 2026-10-15 ended the agents). |
 
 The older flat spellings (`acpmux kill NAME`, `acpmux peer add …`, `acpmux status`) still
 work but are hidden from help.
@@ -156,13 +175,27 @@ Agents spawned by acpmux get `ACPMUX_ENV=1`, `ACPMUX_SESSION_ID`, `ACPMUX_SESSIO
 `ACPMUX_SOCKET`, and `@` names that session (`acpmux last @`), so an agent can drive its own
 session and siblings. The event log carries `turn_started` and `turn_result`
 (`completed|cancelled|failed`); a daemon that restarts mid-turn writes
-`turn_result failed outcome_unknown` so nobody replays a prompt that may have run. A
+`turn_result failed outcome_unknown` so nobody replays a prompt that may have run. A turn a
+connection error cut off ("stream disconnected", a refused or reset connection, a 502/503/504)
+goes on by itself: after `autoResumeDelaysMs` (default 10 s, 1 min, 5 min, 20 min; `[]` turns it
+off) the chat gets one prompt telling the agent to check what finished and continue, with prompt
+id `<promptId>~resume-<n>` and `_meta.provenance.kind` `auto_resume`. Stop, closing the chat, or
+anything else run in it meanwhile cancels it, and a continuation that completes resumes the
+prompts the cut turn held (`hub/auto_resume.rs`). A
 `notifyCommand` in the config runs on a permission request and on a turn that ends
 unattended, with `ACPMUX_EVENT`, `ACPMUX_SESSION_NAME` and `ACPMUX_TEXT` set.
 `agentStartTimeoutMs` (default 90000) bounds a cold agent start (spawn, `initialize`,
 session load or new, config replay): past it the request fails with code -32000 and
 `data.reason` `deadline_exceeded` (`data.wait` `agent_start`), the agent is ended, the
 session stays open, and the log gets `agent_start_timed_out`.
+
+A chat whose harness never titles it (Claude Code's `-p` stream-json has no title
+event) gets a 3-6 word title once, after its first completed turn, logged as `titled`.
+`titles.command` (an argv reading the request on stdin and printing the title; env
+`ACPMUX_TITLE_COMMAND` wins) makes it; unset, the chat's own Claude Code profile runs
+`-p --model haiku` (`titles.model`) with no tools, MCP or session file. A harness title
+always wins, a chat titled before this (or adopted) keeps its title, and
+`titles.generate: false` turns it off.
 
 ## TUI
 
@@ -397,6 +430,24 @@ padding are never highlighted or copied. The composer grows to 12 rows before it
 Any harness can be added with one profile file (`~/.config/cmux/harnesses/<id>.toml`), checked
 with `acpmux harness doctor <id>` (also `cmux harness …`). Schema, secrets, terminal harnesses,
 folder profiles and the ACP adapter guide: [docs/add-your-harness.md](../../../docs/add-your-harness.md).
+
+Your own model endpoint is a harness too (a Chief can use it as its backend):
+
+```sh
+cmux harness add acme --example anthropic-endpoint --base-url https://llm.example.com --model acme-large
+cmux harness add local --example openai-endpoint --base-url http://127.0.0.1:11434/v1 --model qwen3
+cmux harness secret set acme ANTHROPIC_AUTH_TOKEN   # or CMUX_BYO_API_KEY; hidden prompt
+cmux harness doctor acme                            # one real hello turn; names the fix
+```
+
+`anthropic-endpoint` runs acpmux's own Claude Code adapter with `ANTHROPIC_BASE_URL`,
+`ANTHROPIC_MODEL` (also the small/fast model) and `ANTHROPIC_AUTH_TOKEN` from the Keychain; no other
+inherited `ANTHROPIC_*` or Claude provider switch reaches it. `openai-endpoint` runs `opencode acp`
+with an inline `OPENCODE_CONFIG_CONTENT` (provider `byo`, `@ai-sdk/openai-compatible`, model
+`byo/<model>`) and its key in `CMUX_BYO_API_KEY` from the Keychain. The daemon methods are
+`_acpmux/harness/add {example, id, displayName, baseUrl, model, keychainItem}`,
+`_acpmux/harness/secret/set {id, key, value}` (the value is never echoed) and
+`_acpmux/harness/doctor {id, prompt: true}`; all three take the unix socket only.
 
 ## Picking a harness and a model: `-m HARNESS[/MODEL]`, `-p PRESET`
 
@@ -737,12 +788,27 @@ picking one starts the session there. Peers reconnect with backoff, the tunnel i
 one is down its sessions show `unreachable`, and a purge on either side removes the session
 everywhere. Peers are saved in `config.json` under `peers`.
 
-A remote daemon needs a working harness. launchd starts the daemon with a bare environment, so
-the daemon reads the login shell's environment once at start (`zsh -lic env`) and fills in
-what launchd left out: PATH, `ANTHROPIC_*` proxies, tool settings. The same `claude` that works
-in an ssh shell then works under the daemon. `ACPMUX_LOGIN_ENV=0` in the plist turns this off,
-`=1` forces it for a daemon started by hand. Claude Code keeps its login in the macOS keychain,
-so on a headless Mac without an API proxy run `claude` once in a terminal and log in. A
+A daemon needs a working harness. launchd, the app, the Chief and a non-login ssh shell start the
+daemon with a bare environment, so every daemon reads the login shell's environment
+(`$SHELL -l -i -c env -0`, no terminal, at most 3 s) and passes on only an allow-list of what its
+own environment lacks. Every child: PATH (login PATH first), MISE_*, ASDF_*, NVM_*, VOLTA_*,
+BUN_INSTALL, HTTPS_PROXY, HTTP_PROXY, ALL_PROXY, NO_PROXY (both cases),
+NODE_EXTRA_CA_CERTS, SSL_CERT_FILE, SSL_CERT_DIR. Claude harnesses also: ANTHROPIC_*, CLAUDE_*,
+DISABLE_*, *_TELEMETRY; AWS_* only with the person's own CLAUDE_CODE_USE_BEDROCK (a profile's switch unlocks only AWS_PROFILE, AWS_REGION, AWS_DEFAULT_REGION, AWS_CONFIG_FILE, AWS_SHARED_CREDENTIALS_FILE); GOOGLE_*, CLOUDSDK_*, GCLOUD_*, CLOUD_ML_REGION, VERTEX_REGION_* (non-secret ones only from a profile's switch) only
+with CLAUDE_CODE_USE_VERTEX. Codex harnesses also: OPENAI_*, CODEX_*. Nothing else (GITHUB_TOKEN,
+GH_TOKEN, NPM_TOKEN, ...) unless `loginEnvAllow` in config.json names it (exact names or `PREFIX_*`;
+default empty). A daemon started inside a Claude Code session drops that session's `CLAUDE*` and
+`ANTHROPIC_*` keys from its agents and gives them the login shell's values instead, within the
+same allow-list. Precedence: profile, preset and session env, then the daemon's own environment,
+then the login shell's.
+`<ACPMUX_HOME>/login-env.json` (0600) caches the result by a fingerprint of the shell's startup
+files: non-secret values and the names of secret ones (their values stay in memory), so a start
+with a matching cache and no secret to fetch never runs the shell, and agent spawns wait for the
+shell (at most 3 s) only when Claude has no sign-in without it. `ACPMUX_LOGIN_ENV=0` turns this
+off. Claude Code keeps its login in the macOS keychain, so on a headless Mac without an API proxy
+run `claude` once in a terminal and log in. A Claude turn that fails because Claude is not signed
+in says what the agent had, how the terminal signs in (the Claude home, keys, settings files,
+keychain) and the fix, ending with Claude's own words. A
 discovered `claude-cr` or `claude-sr` launcher is checked at daemon start (`--version`) and
 dropped, with a log line, when the installed CLI cannot run it; `claude` then has no
 fallback instead of failing over into a launcher that dies at once. When a subrouter server is
@@ -867,7 +933,9 @@ Extensions:
 | `_acpmux/status`, `_acpmux/harnesses`, `_acpmux/sessions` | Daemon and fleet state; status also reports `ready`, `loginEnv` and `listen`. |
 | `_acpmux/attach {sessionId, afterSeq?, beforeSeq?, limit?, kinds?, eventStream?}` | Subscribe and get the session detail, a page of events, and `hasMore`. |
 | `_acpmux/detach`, `_acpmux/watch {enabled}` | Unsubscribe; or receive `_acpmux/session_changed` for every session. |
+| `_acpmux/harness/inventory/watch {enabled}` | Local socket only: [sanitized cached inventory snapshots](docs/inventory-watch.md), with monotonic per-run revisions and no health checks or CLI execution. Requires `harnessInventoryWatch`. |
 | `_acpmux/events {sessionId, afterSeq?, beforeSeq?, limit?, kinds?}` | Page through the log, forwards or backwards, with `hasMore`. |
+| `_acpmux/attachment {sessionId, id}` | An image a prompt of the session sent, as `{mimeType, data}` (base64). `user_message` names a prompt's images as `images: [{id, mimeType, name?}]`; the bytes are kept once by SHA-256 under `<ACPMUX_HOME>/attachments`. Only an id the session's own log names is read. |
 | `_acpmux/info`, `_acpmux/rename`, `_acpmux/kill {purge}`, `_acpmux/set_policy` | Session control. |
 | `_acpmux/queue_remove {promptId}` | Withdraw a queued prompt before its turn starts: `removed` is false once it started. Its `session/prompt` answers `cancelled` with `_meta.acpmux.withdrawn`, and the log records `queue_removed`. |
 | `_acpmux/permission_respond {sessionId, permissionId, optionId}` | Answer a request announced by `_acpmux/permission_pending`. Any client may deny or cancel; only the cmux app's connection (it presents the app's per-launch person key) may allow. Others get `permission.person_required` ("approve this on the Mac app") and the request stays pending. The same rule guards every grant that widens what runs without asking (policy, rules, modes, defaults). |
@@ -901,7 +969,7 @@ newMessageId}` before the redelivery. Other harnesses send no such signal.
 
 The daemon binds its socket and `--listen` address (`127.0.0.1:0` picks a free port) before it
 imports the login shell environment, so `_acpmux/status` answers at once; session creation waits
-for the import. `daemon run --ready-fd N` writes `{"ready":true,"pid","socket","listen","webUrl"}`
+for the import only when it must (see above), at most 3 s. `daemon run --ready-fd N` writes `{"ready":true,"pid","socket","listen","webUrl"}`
 to descriptor N when bound. SIGTERM (even when the launcher left it blocked) sends SIGTERM to every agent's process
 group, SIGKILL after 2 s, saves sessions and exits within 5 s.
 `acpmux daemon schema` prints the full RPC schema.

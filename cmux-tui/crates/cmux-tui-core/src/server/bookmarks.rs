@@ -20,6 +20,10 @@ use crate::workspace_registry::personal_bookmarks::{
 /// `bookmarks-changed` event (plans/cmux-next/bookmarks.md section 2.1).
 pub const BOOKMARKS_CAPABILITY: &str = "bookmarks-v1";
 
+/// A bookmark folder's `icon`: set or cleared by `update-bookmark`, shown by
+/// `list-bookmarks` (one emoji, an SF Symbol name or a stored asset).
+pub const BOOKMARK_ICON_CAPABILITY: &str = "bookmark-icon-v1";
+
 /// `list-bookmarks`.
 #[derive(Deserialize)]
 pub(super) struct ListParams {
@@ -60,7 +64,7 @@ pub(super) struct CreateParams {
 }
 
 /// `update-bookmark`. An absent field is unchanged; JSON null clears
-/// `favicon_key` or `last_used_ms`.
+/// `favicon_key`, `last_used_ms` or a folder's `icon`.
 #[derive(Deserialize)]
 pub(super) struct UpdateParams {
     #[serde(flatten)]
@@ -74,6 +78,8 @@ pub(super) struct UpdateParams {
     favicon_key: Option<Option<String>>,
     #[serde(default, deserialize_with = "super::present_nullable")]
     last_used_ms: Option<Option<u64>>,
+    #[serde(default, deserialize_with = "super::present_nullable")]
+    icon: Option<Option<String>>,
 }
 
 /// `move-bookmark`: a final index under a parent of the same profile.
@@ -142,6 +148,7 @@ pub(super) fn update(mux: &Mux, actor: &Actor, params: UpdateParams) -> anyhow::
         url: params.url,
         favicon_key: params.favicon_key,
         last_used_ms: params.last_used_ms,
+        icon: params.icon,
     };
     apply(mux, actor, params.key, BookmarkOp::Update { bookmark: params.bookmark, update })
 }

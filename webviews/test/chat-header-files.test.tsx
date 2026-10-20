@@ -37,8 +37,9 @@ test("Files is off until added from the right-click menu, then runs and lights l
   const { ChatHeaderTools, HEADER_ACTIONS } = await import("../src/agent-session/acpmux/header/ChatHeaderTools");
   const { applyHostEvent } = await import("../src/agent-session/acpmux/pageHost");
   const { configureQuickActions } = await import("../src/agent-session/acpmux/header/quickActions");
-  // The default buttons, and nothing open yet (other files in this run share the page's modules).
-  configureQuickActions({});
+  // Every quick action but Files shown, and nothing open yet (other files in this run share the page's
+  // modules).
+  configureQuickActions({ quickActions: ["terminal", "splitDown", "browser", "changes", "preview", "newTab"] });
   applyHostEvent({ kind: "headerState", value: { lit: [] } });
   const runs: string[] = [];
   const lists: string[] = [];
@@ -75,7 +76,7 @@ test("Files is off until added from the right-click menu, then runs and lights l
   const show = doc.querySelector<HTMLButtonElement>('.ui-context-menu [role="menuitem"][aria-label="Show Files"]');
   expect(show).not.toBeNull();
   act(() => show!.click());
-  expect(lists.at(-1)).toBe("terminal splitDown browser changes files preview newTab");
+  expect(lists.at(-1)).toBe("terminal splitDown browser changes preview files newTab");
 
   expect(files()?.getAttribute("aria-pressed")).toBe("false");
   act(() => files()!.click());

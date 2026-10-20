@@ -44,7 +44,9 @@ export const UsageRecord = Schema.Struct({
   automation: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(64))),
   step: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(256))),
   attempt: Schema.optionalKey(Schema.Int),
-  commit: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(64)))
+  commit: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(64))),
+  /** The member this cost counts against (an automation run's owner; cx-ds09i per-user monthly limit). */
+  user: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(64)))
 }).annotate({ identifier: "UsageRecord" })
 export type UsageRecord = typeof UsageRecord.Type
 
@@ -66,9 +68,11 @@ export const UsageSummary = Schema.Struct({
   meters: Schema.Array(UsageMeterLine),
   total_usd: Schema.Number,
   /** The cap in force: the team's own cap, never above the deployment ceiling. */
-  cap_usd: Schema.Number,
+  /** The cap in force; null = none (no team cap and no deployment ceiling). */
+  cap_usd: Schema.NullOr(Schema.Number),
   /** The deployment's ceiling per team per month (staff-set; 0 = automations off). */
-  ceiling_usd: Schema.Number,
+  /** The deployment's emergency ceiling; null = unset. */
+  ceiling_usd: Schema.NullOr(Schema.Number),
   /** The team's own lower cap, when set. */
   team_cap_usd: Schema.NullOr(Schema.Number),
   stopped: Schema.NullOr(UsageStopReason)

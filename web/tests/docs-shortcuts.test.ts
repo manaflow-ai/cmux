@@ -62,7 +62,8 @@ describe("keyboard shortcuts docs", () => {
   test("table aliases are extra keys on their action's row", () => {
     const rows = new Map(shortcutCategories.flatMap((category) => category.shortcuts).map((row) => [row.id, row]));
     expect(rows.get("resizePaneLeft")!.combos).toContainEqual(["⌃", "⌘", "←"]);
-    expect(rows.get("navigate.next")!.combos).toContainEqual(["⌃", "⇥"]);
+    // Chrome's tab keys select sidebar items (#19788); Ctrl-Tab left navigate.next then.
+    expect(rows.get("nextSidebarTab")!.combos).toContainEqual(["⌥", "⌘", "→"]);
   });
 
   test("titles are the app's own translations", () => {

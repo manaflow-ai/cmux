@@ -1,5 +1,6 @@
 //! Part of `Hub`; see `hub/mod.rs`.
 
+use super::exit_reason::explains_exit;
 use super::*;
 use std::sync::atomic::Ordering;
 
@@ -244,6 +245,10 @@ impl Hub {
             let opts = PromptOptions { prompt_id: Some(prompt_id), on_accepted: None, ..opts };
             return self.steer_turn(session, blocks, client, &turn_id, opts, &mut accept).await;
         }
+        // An automatic continuation runs only while its chat still ends on the cut turn: no await
+        // from here to `queue_slot`'s choice, so it never joins the queue (`auto_resume.rs`).
+        let after_turn = opts.after_turn.clone();
+        super::auto_resume::check_cut(session, after_turn.as_deref(), false)?;
         // Queued behind the running turn (and the queue) it waits for its turn (`queue.rs`).
         let slot = super::queue::Slot {
             text: &text,
@@ -253,12 +258,18 @@ impl Hub {
             control,
             trust_gate,
             interrupt: opts.interrupt,
+            provenance: opts.provenance.as_ref(),
         };
         let (turn_id, waiting, guard, run) = match self.queue_slot(session, slot, &mut accept).await
         {
             Ok(slot) => slot,
             Err(done) => return done,
         };
+        // A prompt that took the turn lock first (a person's) supersedes the continuation.
+        if let Err(e) = super::auto_resume::check_cut(session, after_turn.as_deref(), waiting) {
+            drop(guard);
+            return Err(e);
+        }
         // What its queue entry holds now (`queue_edit.rs` may edit a prompt that waited).
         let (mut blocks, control, trust_gate) = (run.blocks.clone(), run.control, run.trust_gate);
         let text = prompt_text(&blocks);
@@ -268,36 +279,25 @@ impl Hub {
             drop(guard);
             return Err(e);
         }
+        // A continuation Stop overtook since it fired is refused here (`auto_resume.rs`).
+        let turn = TurnInfo::prompted(client, &text, &turn_id, &prompt_id, control);
+        if let Err(e) = self.start_turn(session, after_turn.as_deref(), turn) {
+            drop(guard);
+            return Err(e);
+        }
         {
             let mut m = session.meta.lock().unwrap();
             m.last_prompt = Some(short_text(&text, 200));
             clear_sent_draft(&mut m, &text);
-            if m.title.is_none() {
-                let first = text.lines().find(|l| !l.trim().is_empty()).unwrap_or("").trim();
-                if !first.is_empty() {
-                    m.title = Some(short_text(first, 80));
-                }
-            }
+            super::titles::set_fallback_title(&mut m, &text);
             m.preview = Some(String::new());
             m.turn_count += 1;
         }
-        *session.turn.lock().unwrap() = Some(TurnInfo {
-            started_at: now_ms(),
-            client: client.to_owned(),
-            prompt_preview: short_text(&text, 200),
-            turn_id: turn_id.clone(),
-            prompt_id: prompt_id.clone(),
-            turn_seq: 0,
-            control,
-        });
         session.floor.last_turn_web.store(control == Control::Web, Ordering::SeqCst);
         self.reset_stream(session);
-        self.append(
-            session,
-            "mux",
-            "user_message",
-            json!({"text": text, "client": client, "promptId": prompt_id, "turnId": turn_id}),
-        );
+        let msg = json!({"text": text, "client": client, "promptId": prompt_id, "turnId": turn_id});
+        let msg = crate::prompt_provenance::marked(msg, run.provenance.as_ref());
+        self.append_prompt(session, msg, &blocks);
         if !waiting {
             accept(
                 json!({"sessionId": session.id, "promptId": prompt_id, "turnId": turn_id, "queued": false}),
@@ -439,8 +439,24 @@ impl Hub {
             }
         }
         let ids = json!({"promptId": prompt_id, "turnId": turn_id, "turnSeq": turn_seq});
+        // What the agent said, before `finish_turn` adds a dead process's last stderr line; a
+        // model switch (`detach_child`) that ended the turn is no connection error.
+        let agent_error = result.as_ref().err().map(|e| e.message.clone());
+        let detached = session.turn().is_none_or(|t| t.turn_id != turn_id);
         let mut result =
             self.finish_turn(session, &child, result, &prompt_id, &turn_id, turn_seq).await;
+        // A connection error cut the turn off: it goes on by itself (`auto_resume.rs`).
+        let cut = match (&result, detached) {
+            (Err(e), false) => Some(super::auto_resume::CutTurn {
+                prompt_id: &prompt_id,
+                turn_id: &turn_id,
+                control,
+                trust_gate,
+                error: agent_error.as_deref().unwrap_or(&e.message),
+            }),
+            _ => None,
+        };
+        self.schedule_auto_resume(session, &turn_id, cut);
         // The chat's route changed during the turn: move it before the next
         // one starts (route_switch.rs). A restart that fails leaves the
         // harness stopped; the next prompt's spawn reports why.
@@ -454,9 +470,8 @@ impl Hub {
         result
     }
 
-    /// Settle a turn once its `session/prompt` answered (or failed): record
-    /// `turn_end`/`turn_error` and `turn_result`, and the session status.
-    /// Also settles a turn recovered from an adopted agent host.
+    /// Settle a turn once its `session/prompt` answered (or failed), also one recovered from an
+    /// adopted agent host: `turn_end`/`turn_error`, `turn_result` and the session status.
     pub(super) async fn finish_turn(
         self: &Arc<Self>,
         session: &Arc<Session>,
@@ -467,12 +482,7 @@ impl Hub {
         turn_seq: u64,
     ) -> Result<Value, RpcError> {
         // A model switch (`detach_child`) ended this turn already: its failure is not the queue's.
-        let detached = session
-            .turn
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .take()
-            .is_none_or(|t| t.turn_id != turn_id);
+        let detached = self.take_turn(session, turn_id).is_none_or(|t| t.turn_id != turn_id);
         session.queue_moved.notify_waiters();
         // A turn Claude answered is in its store: a respawn resumes it.
         if result.is_ok() {
@@ -493,10 +503,8 @@ impl Hub {
             if bare {
                 let tail: Vec<String> =
                     session.stderr_tail.lock().unwrap().iter().cloned().collect();
-                // The last stderr line that is not a stack frame or a wrapper tag.
-                if let Some(last) = tail.iter().rev().map(|l| l.trim()).find(|l| {
-                    !l.is_empty() && !l.starts_with("at ") && !l.starts_with("[SYSTEM_ERROR]")
-                }) {
+                // The last stderr line that says why: not a stack frame, a wrapper tag or a wrapper exit line.
+                if let Some(last) = tail.iter().rev().map(|l| l.trim()).find(|l| explains_exit(l)) {
                     let agent = session.meta().harness;
                     e.message = format!("{} ({agent}): {last}", e.message);
                 }
@@ -528,6 +536,14 @@ impl Hub {
             Err(e) => self.route_failure(session, &e.message).await,
             Ok(_) => None,
         };
+        // A Claude agent that is not signed in: say what it had, how the
+        // person's terminal signs in, and the fix (`claude_auth.rs`).
+        if let Err(e) = &mut result
+            && let Some(text) = crate::claude_auth::explain(&session.id, &e.message)
+        {
+            tracing::warn!(session = %session.id, "Claude agent is not signed in");
+            e.message = text;
+        }
         if let (Err(e), Some(Value::Object(info))) = (&mut result, &route_info) {
             match &mut e.data {
                 Some(Value::Object(data)) => data.extend(info.clone()),
@@ -539,6 +555,7 @@ impl Hub {
         // preview) are applied before the turn settles, so every record below
         // and the chat activity it sends see them.
         Self::drain_inbound(session).await;
+        let git = super::turn_git::turn_git(session).await;
         match &result {
             Ok(v) => {
                 self.note_reply_refusal(session);
@@ -554,9 +571,13 @@ impl Hub {
                 let mut msg = json!({"status": status, "stopReason": stop, "turnSeq": turn_seq, "turnId": turn_id, "promptId": prompt_id});
                 if let Some(o) = msg.as_object_mut() {
                     o.extend(self.turn_error_fields(session, None));
+                    // acpmux ended a turn whose agent did not answer the cancel (`cancel`).
+                    if v.pointer("/_meta/acpmux/cancelForced") == Some(&Value::Bool(true)) {
+                        o.insert("cancelForced".into(), Value::Bool(true));
+                    }
+                    o.extend(super::turn_usage::turn_usage(session, v));
                 }
-                self.record_last_turn(session, &msg);
-                self.append(session, "mux", "turn_result", msg);
+                self.write_turn_result(session, msg, git);
             }
             Err(e) => {
                 self.append(
@@ -578,8 +599,7 @@ impl Hub {
                         o.extend(info.clone());
                     }
                 }
-                self.record_last_turn(session, &msg);
-                self.append(session, "mux", "turn_result", msg);
+                self.write_turn_result(session, msg, git);
             }
         }
         self.reset_stream(session);
@@ -589,19 +609,28 @@ impl Hub {
         }
         if session.status() != SessionStatus::Closed {
             let alive = child.is_alive().await;
+            // A subagent or background shell still waiting on the person
+            // keeps the chat waiting after its turn (cx-jo8yo). The lock is
+            // held across the write, so an answer in between cannot leave it
+            // waiting on nothing.
+            let state = session.permissions.lock().unwrap_or_else(|e| e.into_inner());
+            let asking = !state.pending.is_empty() || self.secrets.waiting_in(&session.id);
             self.set_status(
                 session,
-                if alive { SessionStatus::Ready } else { SessionStatus::Disconnected },
+                match (alive, asking) {
+                    (false, _) => SessionStatus::Disconnected,
+                    (true, true) => SessionStatus::Waiting,
+                    (true, false) => SessionStatus::Ready,
+                },
             );
+            drop(state);
         }
         self.save_meta(session);
+        self.send_offer_result(session);
         result
     }
 
-    /// A recorded prompt whose agent could not start: the turn ends failed, so every client
-    /// sees the prompt settle instead of a turn that never starts.
-    /// A turn refused after it was accepted (the dispatch check again, or
-    /// the remote floor): failed as an unstarted turn, the agent kept.
+    /// A turn refused after it was accepted (dispatch check, remote floor): failed unstarted.
     fn refuse_started_turn(
         &self,
         session: &Arc<Session>,
@@ -615,6 +644,8 @@ impl Hub {
         }
     }
 
+    /// A recorded prompt whose agent could not start: the turn ends failed, so every client
+    /// sees the prompt settle instead of a turn that never starts.
     fn fail_unstarted_turn(
         &self,
         session: &Arc<Session>,
@@ -643,7 +674,7 @@ impl Hub {
     /// Waits until the inbound loop handled every agent message queued before
     /// now. Bounded: a loop that is gone (closed channel) or stuck never holds
     /// a turn's settlement past the bound.
-    async fn drain_inbound(session: &Session) {
+    pub(super) async fn drain_inbound(session: &Session) {
         let (done, handled) = tokio::sync::oneshot::channel();
         let queued = tokio::time::timeout(
             std::time::Duration::from_secs(5),
@@ -655,11 +686,44 @@ impl Hub {
         }
     }
 
+    /// A bare "agent process closed" from a process that died while it
+    /// started (`initialize`, `session/new`): the same error with the last
+    /// stderr line that says why, once the inbound loop has taken what the
+    /// process printed. Any other error is returned as is.
+    pub(super) async fn explain_start_failure(session: &Session, mut e: RpcError) -> RpcError {
+        if e.message != "agent process closed" {
+            return e;
+        }
+        let last = || {
+            session
+                .stderr_tail
+                .lock()
+                .unwrap()
+                .iter()
+                .rev()
+                .map(|l| l.trim().to_owned())
+                .find(|l| explains_exit(l))
+        };
+        Self::drain_inbound(session).await;
+        let mut found = last();
+        if found.is_none() {
+            // The stderr reader can trail stdout's close by a moment: one
+            // bounded wait for its last lines, then the bare error.
+            tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+            Self::drain_inbound(session).await;
+            found = last();
+        }
+        if let Some(line) = found {
+            e.message = format!("agent process closed ({}): {line}", session.meta().harness);
+        }
+        e
+    }
+
     /// Keep the outcome of the last turn on the session (`lastTurn` in the
     /// summary), so `wait` can report a failed turn after it resolves.
-    fn record_last_turn(&self, session: &Session, turn_result: &Value) {
+    pub(super) fn record_last_turn(&self, session: &Session, turn_result: &Value) {
         let mut last = serde_json::Map::new();
-        for k in ["turnId", "promptId", "status", "stopReason", "errorText", "errorSource"] {
+        for k in super::views::LAST_TURN_KEYS {
             if let Some(v) = turn_result.get(k) {
                 last.insert(k.to_owned(), v.clone());
             }
@@ -677,68 +741,6 @@ impl Hub {
             return None;
         }
         Some(to)
-    }
-
-    /// Build a plain-text transcript from the log for rehydration.
-    pub(super) fn transcript(&self, session: &Session, max_chars: usize) -> Option<String> {
-        let events = self.store.events(&session.id, 0, 200_000).ok()?;
-        let mut lines: Vec<String> = Vec::new();
-        let mut agent_buf = String::new();
-        let flush = |agent_buf: &mut String, lines: &mut Vec<String>| {
-            if !agent_buf.trim().is_empty() {
-                lines.push(format!("assistant: {}", agent_buf.trim()));
-            }
-            agent_buf.clear();
-        };
-        for e in events {
-            match e.kind.as_str() {
-                "user_message" => {
-                    flush(&mut agent_buf, &mut lines);
-                    if let Some(t) = e.msg.get("text").and_then(Value::as_str) {
-                        lines.push(format!("user: {t}"));
-                    }
-                }
-                "agent_message_chunk" => {
-                    if let Some(t) =
-                        e.msg.pointer("/params/update/content/text").and_then(Value::as_str)
-                    {
-                        agent_buf.push_str(t);
-                    }
-                }
-                _ => {}
-            }
-        }
-        flush(&mut agent_buf, &mut lines);
-        if lines.is_empty() {
-            return None;
-        }
-        let mut text = lines.join("\n\n");
-        if text.chars().count() > max_chars {
-            let skip = text.chars().count() - max_chars;
-            text = format!(
-                "[… {skip} earlier characters omitted …]\n{}",
-                text.chars().skip(skip).collect::<String>()
-            );
-        }
-        Some(text)
-    }
-
-    pub async fn cancel(&self, session: &Arc<Session>) -> Result<(), RpcError> {
-        let child = session
-            .child
-            .lock()
-            .await
-            .clone()
-            .ok_or_else(|| RpcError::invalid_params("session has no live agent"))?;
-        let sid = session
-            .meta()
-            .agent_session_id
-            .ok_or_else(|| RpcError::internal("no agent session"))?;
-        self.cancel_pending_permissions(session);
-        child
-            .notify(method::SESSION_CANCEL, json!({"sessionId": sid}))
-            .await
-            .map_err(|e| RpcError::internal(e.to_string()))
     }
 
     /// Pass a session-scoped request to the child, rewriting the session id.
@@ -765,9 +767,9 @@ impl Hub {
                 if e.message == "agent process closed" {
                     let tail: Vec<String> =
                         session.stderr_tail.lock().unwrap().iter().cloned().collect();
-                    if let Some(last) = tail.iter().rev().map(|l| l.trim()).find(|l| {
-                        !l.is_empty() && !l.starts_with("at ") && !l.starts_with("[SYSTEM_ERROR]")
-                    }) {
+                    if let Some(last) =
+                        tail.iter().rev().map(|l| l.trim()).find(|l| explains_exit(l))
+                    {
                         e.message =
                             format!("agent process closed ({}): {last}", session.meta().harness);
                     }
@@ -828,6 +830,13 @@ impl Hub {
             )
             .await?;
         self.append(session, "mux", "config", json!({"configId": config_id, "value": value}));
+        {
+            let mut applied =
+                session.applied.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            if let Some(effort) = super::start_defaults::effort_of(config_id, &value) {
+                applied.effort = Some(effort.to_owned());
+            }
+        }
         Ok(r)
     }
 
@@ -862,6 +871,7 @@ impl Hub {
             self.save_meta(session);
             self.detach_child(session).await;
             self.append(session, "mux", "model", json!({"modelId": model_id, "atSpawn": true}));
+            super::start_defaults::model_applied(session, model_id);
             return Ok(json!({}));
         }
         // Prefer the config option named "model" when the agent exposes one.
@@ -884,11 +894,25 @@ impl Hub {
                 crate::model_catalog::resolve(option, model_id)
                     .map_err(RpcError::invalid_params)?,
             );
-            return self.set_config(session, "model", value).await;
+            let r = self.set_config(session, "model", value).await?;
+            super::start_defaults::model_applied(session, model_id);
+            return Ok(r);
         }
         let r =
             self.forward(session, method::SESSION_SET_MODEL, json!({"modelId": model_id})).await?;
         self.append(session, "mux", "model", json!({"modelId": model_id}));
+        super::start_defaults::model_applied(session, model_id);
+        // The harness runs this model now, also when its reply lists no models.
+        let reported = match session.meta.lock().unwrap().models.as_mut() {
+            Some(Value::Object(models)) => {
+                models.insert("currentModelId".into(), json!(model_id));
+                true
+            }
+            _ => false,
+        };
+        if reported {
+            self.save_meta(session);
+        }
         Ok(r)
     }
 
@@ -919,6 +943,7 @@ impl Hub {
 
     /// Stop the child. The log stays. `purge` also deletes the log.
     pub async fn kill(&self, session: &Arc<Session>, purge: bool) -> Result<(), RpcError> {
+        self.stop_auto_resume(session);
         self.revoke_permission_chat(session);
         self.cancel_pending_permissions(session);
         if let Some(child) = session.child.lock().await.take() {
@@ -977,45 +1002,4 @@ impl Hub {
             self.set_status(session, SessionStatus::Idle);
         }
     }
-}
-
-/// Add `fields` under `_meta.acpmux` of an object, keeping any `_meta` the
-/// agent sent.
-pub(crate) fn merge_mux_meta(v: &mut Value, fields: Value) {
-    let Some(obj) = v.as_object_mut() else { return };
-    let meta = obj.entry("_meta").or_insert_with(|| json!({}));
-    if !meta.is_object() {
-        *meta = json!({});
-    }
-    let mux = meta.as_object_mut().unwrap().entry("acpmux").or_insert_with(|| json!({}));
-    if !mux.is_object() {
-        *mux = json!({});
-    }
-    if let (Some(dst), Some(src)) = (mux.as_object_mut(), fields.as_object()) {
-        for (k, v) in src {
-            dst.insert(k.clone(), v.clone());
-        }
-    }
-}
-
-/// Does an agent error mean the account cannot serve, not that the prompt
-/// was wrong? Usage and rate limits, and missing or rejected credentials:
-/// all of them are solved by another account, which the fallback provides.
-pub fn is_limit_error(message: &str) -> bool {
-    let m = message.to_lowercase();
-    m.contains("not logged in")
-        || m.contains("/login")
-        || m.contains("unauthorized")
-        || m.contains("authentication")
-        || m.contains("invalid api key")
-        || m.contains("401")
-        || (m.contains("reached your") && m.contains("limit"))
-        || m.contains("usage limit")
-        || m.contains("rate limit")
-        || m.contains("rate_limit")
-        || m.contains("out of credits")
-        || m.contains("insufficient credits")
-        || m.contains("quota")
-        || m.contains("overloaded")
-        || m.contains("429")
 }

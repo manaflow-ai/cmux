@@ -3,10 +3,13 @@
 //! the spec's tools/derive_theme_tokens.py). Each one derived here must give
 //! the same `isDark`, every token, every composited color and the three pane
 //! ring levels, as the spec's hex (channels rounded half away from zero).
+//! A theme's `input.accent` (`appearance.accent`) and `input.cursor`
+//! (`cursor-color`) cover the hued accent (Swift `AppTheme`) and the caret;
+//! `input.accentColor` is the theme's own accent (wins over `accent`).
 
 use super::json::{self, Value};
 use super::*;
-use crate::{ThemeInput, ThemeTokens};
+use crate::{ThemeAccent, ThemeInput, ThemeTokens};
 
 fn hex(s: &str) -> Rgb {
     let v =
@@ -51,6 +54,7 @@ fn token(t: &ThemeTokens, name: &str) -> Option<Rgb> {
         "highlightText" => t.highlight_text,
         "accent" => t.accent,
         "onAccent" => t.on_accent,
+        "caret" => t.caret,
         _ => return None,
     })
 }
@@ -86,6 +90,11 @@ fn derive_matches_the_spec_reference_themes() {
             selection_foreground: None,
             background_opacity: 1.0,
             background_blur: 0,
+            cursor: input_of("cursor").and_then(Value::as_str).map(hex),
+            accent_color: input_of("accentColor").and_then(Value::as_str).map(hex),
+            accent: input_of("accent").and_then(Value::as_str).map_or(ThemeAccent::Neutral, |a| {
+                ThemeAccent::parse(a).unwrap_or_else(|| panic!("{name}.input.accent {a:?}"))
+            }),
         };
         let t = ThemeTokens::derive(&input);
         if theme.get("isDark").and_then(Value::as_bool) != Some(t.is_dark) {

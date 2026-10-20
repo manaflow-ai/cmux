@@ -88,3 +88,47 @@ fn a_group_icon_that_is_not_an_emoji_or_a_symbol_name_is_refused() {
     assert_eq!(group_icons(&mux), [json!(null)]);
     mux.shutdown();
 }
+
+/// A stored image or SVG (`icon-assets-v1`) is a group icon too (cx-qno.11.1): it sets when the
+/// daemon stores the asset, a missing one is refused, and the blob outlives the sweep while the
+/// group names it.
+#[test]
+fn a_group_icon_takes_a_stored_asset_and_keeps_it_from_the_sweep() {
+    use crate::workspace_registry::personal_store::blobs::{prepare_blob, sweep_blobs};
+    let session = Session::new("group-icon-asset");
+    let mux = session.open();
+    let group = mutate(&mux, "workspace_group.create", json!({"name": "Work"}), "create")["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let svg = br#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M0 0h16v16H0z"/></svg>"#;
+    let icon = mux
+        .with_icon_registry(|registry| registry.put_blob(prepare_blob("image/svg+xml", svg)?))
+        .unwrap()
+        .icon();
+
+    let set = mutate(
+        &mux,
+        "workspace_group.update",
+        json!({"workspace_group": group, "icon": icon}),
+        "icon-asset",
+    );
+    assert_eq!(set["icon"], json!(icon));
+    let missing = format!("svg:sha256-{}", "0".repeat(64));
+    assert_eq!(
+        error_code(send(
+            &mux,
+            "workspace_group.update",
+            json!({"workspace_group": group, "icon": missing}),
+            Some("icon-missing"),
+        )),
+        "validation.invalid"
+    );
+    assert_eq!(group_icons(&mux), [json!(icon)]);
+
+    // Long after the put, only the group's reference keeps the blob.
+    mux.with_icon_registry(|registry| sweep_blobs(&registry.connection.get(), u64::MAX / 2))
+        .unwrap();
+    mux.with_icon_registry(|registry| registry.get_blob(&icon)).unwrap();
+    mux.shutdown();
+}

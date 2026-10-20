@@ -21,7 +21,8 @@ the box, or the field's own border) show focus. This check refuses a new ring on
   swift CmuxNext sources: a SwiftUI TextField / SecureField whose modifier chain (the next 8
        lines) has no `.focusEffectDisabled()`, and an AppKit NSTextField / NSSearchField /
        NSSecureTextField / NSTokenField / NSComboBox built in a file that never sets
-       `focusRingType = .none` (labels excluded). AppKit's and SwiftUI's ring is a system-blue
+       `focusRingType = .none` (labels excluded), or a label made selectable (`isSelectable = true`)
+       without it. AppKit's and SwiftUI's ring is a system-blue
        rectangle around the field.
 
 A deliberate exception carries `text-focus-allow: <reason>` in a comment on the rule (CSS) or on
@@ -180,6 +181,8 @@ APPKIT_FIELD = re.compile(
     r"(?!\s*(?:labelWithString|wrappingLabelWithString|labelWithAttributedString)\b)"
 )
 
+SELECTABLE = re.compile(r"(?<![\w.])(\w+)\.isSelectable\s*=\s*true\b")
+
 
 def swift_hits(text: str):
     """SwiftUI fields without .focusEffectDisabled() in their own modifier chain (up to 8 lines, never
@@ -207,6 +210,16 @@ def swift_hits(text: str):
             if name is None and re.search(r"focusRingType\s*=\s*\.none", text):
                 continue  # an unbound field (an argument): the file-level setting is the best signal
             yield index + 1, f"an AppKit text field ({name or 'unbound'}) without focusRingType = .none"
+        # A selectable label takes the keyboard on a click and draws the same ring (cx-ncc.88);
+        # an NSTextView draws none.
+        selectable = SELECTABLE.search(code)
+        if selectable:
+            name = selectable.group(1)
+            if re.search(rf"\b{re.escape(name)}\s*(?::\s*NSTextView\b|=\s*NSTextView\s*\()", text):
+                continue
+            if re.search(rf"\b{re.escape(name)}\.focusRingType\s*=\s*\.none", text):
+                continue
+            yield index + 1, f"a selectable AppKit label ({name}) without focusRingType = .none"
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)

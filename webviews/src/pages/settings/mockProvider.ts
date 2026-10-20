@@ -29,6 +29,7 @@ import {
   type MutationResult,
   type SettingsClient,
   type SnapshotResult,
+  type WorkspaceBackground,
 } from "./ops";
 import { rowsByKey, schema } from "./schema";
 import { withEdits, type ThemeEditMap } from "../../theme/themeEdits";
@@ -53,6 +54,8 @@ export type MockOptions = {
   importable?: GhosttyTheme;
   /** What `cmux.settings.art.search` finds (Browse More Art). */
   museumArt?: MuseumArtResult[];
+  /** Workspaces with a background of their own, or following the app's (`value` null). */
+  workspaceBackgrounds?: WorkspaceBackground[];
 };
 
 export const mockDomains: Domains = {
@@ -97,6 +100,7 @@ export class MockSettingsProvider {
   private readonly usedKeys = new Map<string, string>();
   private connected: boolean;
   private museumArt: MuseumArtResult[];
+  readonly workspaceBackgrounds = new Map<string, WorkspaceBackground>();
 
   constructor(options: MockOptions = {}) {
     this.chatFolders = options.chatFolders;
@@ -115,6 +119,8 @@ export class MockSettingsProvider {
     if (options.settingsFile !== undefined) this.host = { ...this.host, settings_file: options.settingsFile };
     this.importable = options.importable ?? null;
     this.museumArt = options.museumArt ?? [];
+    for (const background of options.workspaceBackgrounds ?? [])
+      this.workspaceBackgrounds.set(background.workspace, background);
   }
 
   /** Registers every op and stream on `session` (the provider side). */
@@ -170,6 +176,39 @@ export class MockSettingsProvider {
           advanced: [{ id: "reloadConfiguration", title: "Reload Configuration", enabled: true }],
         })[String((params as { section: string }).section)] ?? [],
       "cmux.settings.backdrop.choose_image": () => ({ id: null }),
+      "cmux.settings.backdrop.wallpaper_settings": () => ({}),
+      "cmux.settings.backdrop.image.link": (params) => {
+        const url = String((params as { url: string }).url);
+        if (!url.startsWith("https://"))
+          throw new ProtocolError("cmux.settings.backdrop.not_https", "not an https link");
+        if (url.endsWith(".txt")) throw new ProtocolError("cmux.settings.backdrop.not_media", "not an image or movie");
+        const id = `file:/backgrounds/${url.split("/").pop()}`;
+        const title = url.split("/").pop() ?? id;
+        const own = { id, title, attribution: title, collection: "yours", collection_title: "Your images" };
+        this.host = { ...this.host, backdrops: [own, ...(this.host.backdrops ?? [])] };
+        this.values.set("appearance.background", id);
+        return { id };
+      },
+      "cmux.settings.backdrop.image.remove": (params) => {
+        const id = String((params as { id: string }).id);
+        this.host = { ...this.host, backdrops: (this.host.backdrops ?? []).filter((row) => row.id !== id) };
+        return { bytes: (this.host.backdrops ?? []).filter((row) => row.collection === "yours").length * 1_000_000 };
+      },
+      "cmux.settings.backdrop.image.reveal": () => ({}),
+      "cmux.settings.backdrop.image.usage": () => ({
+        bytes: (this.host.backdrops ?? []).filter((row) => row.collection === "yours").length * 1_000_000,
+      }),
+      "cmux.settings.backdrop.workspace": (params) => this.workspaceBackground(String(params.workspace)),
+      "cmux.settings.backdrop.workspace.set": (params) => {
+        const workspace = this.workspaceBackground(String(params.workspace));
+        const change =
+          "opacity" in params
+            ? { opacity: (params.opacity as number | null) ?? null }
+            : { value: (params.value as string | null) ?? null };
+        this.workspaceBackgrounds.set(workspace.workspace, { ...workspace, ...change });
+        return {};
+      },
+      "cmux.settings.backdrop.workspace.preview": () => ({}),
       "cmux.settings.art.search": () => ({ results: this.museumArt }),
       "cmux.settings.art.use": () => ({ id: "" }),
       "cmux.settings.folders.add": (params) => {
@@ -240,6 +279,14 @@ export class MockSettingsProvider {
       "cmux.settings.file.reveal",
       "cmux.settings.folders.add",
       "cmux.settings.backdrop.choose_image",
+      "cmux.settings.backdrop.wallpaper_settings",
+      "cmux.settings.backdrop.image.link",
+      "cmux.settings.backdrop.image.remove",
+      "cmux.settings.backdrop.image.reveal",
+      "cmux.settings.backdrop.image.usage",
+      "cmux.settings.backdrop.workspace",
+      "cmux.settings.backdrop.workspace.set",
+      "cmux.settings.backdrop.workspace.preview",
       "cmux.settings.art.search",
       "cmux.settings.art.use",
       "cmux.settings.section.actions",
@@ -341,7 +388,17 @@ export class MockSettingsProvider {
     ghostty_diagnostics: [],
     computer_use: { phase: "ready", accessibility: true, screen_recording: false, helper: "cmux Computer Use" },
     settings_file: "/Users/me/.config/cmux/cmux-next.json",
-    backdrops: [{ id: "starryNight", title: "The Starry Night", attribution: "Van Gogh, 1889" }],
+    backdrops: [
+      { id: "starryNight", title: "The Starry Night", attribution: "Van Gogh, 1889" },
+      {
+        id: "system:/System/Library/Desktop Pictures/.wallpapers/Sonoma/Sonoma Graphic Light Landscape.mov",
+        title: "Sonoma Graphic",
+        attribution: "macOS system wallpaper · Sonoma Graphic",
+        collection: "video",
+        collection_title: "Moving wallpapers",
+        video: true,
+      },
+    ],
   };
   private readonly hostChanged = new Set<EventSourceContext>();
   private readonly accountsChanged = new Set<EventSourceContext>();
@@ -514,6 +571,12 @@ export class MockSettingsProvider {
     ctx.signal.addEventListener("abort", () => set.delete(ctx));
   }
 
+  private workspaceBackground(workspace: string): WorkspaceBackground {
+    const background = this.workspaceBackgrounds.get(workspace);
+    if (!background) throw new ProtocolError(ProtocolErrorCode.invalidParams, `no workspace ${workspace}`);
+    return background;
+  }
+
   private list(section: string | undefined): ListRow[] {
     return schema.rows.filter((row) => !section || row.section === section).map((row) => this.row(row.key));
   }
@@ -521,7 +584,7 @@ export class MockSettingsProvider {
   private snapshot(): SnapshotResult {
     return {
       revision: this.revision,
-      schema_hash: schema.schema_hash,
+      schema_hash: "", // the owner hashes the rows it loads; the export commits no hash (#21946)
       effective: this.effective(),
       managed: Object.fromEntries(
         [...this.managed].map(([key, { source, reason, team }]) => [key, { source, reason, team: team ?? null }]),

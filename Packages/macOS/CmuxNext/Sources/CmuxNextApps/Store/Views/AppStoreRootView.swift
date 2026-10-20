@@ -21,7 +21,9 @@ public struct AppStoreRootView: View {
         VStack(spacing: 0) {
             toolbar
             Rectangle().fill(colors.separator).frame(height: Borders.width(1))
-            if let reason = model.client.unavailableReason { AppsDisconnectedBanner(reason: reason) }
+            if let reason = model.client.unavailableReason {
+                AppsDisconnectedBanner(reason: reason, recovery: reason.daemonUnreachable ? model.recovery?() : nil)
+            }
             switch model.tab {
             case .discover: AppDiscoverView(model: model)
             case .installed: AppInstalledView(model: model)
@@ -42,12 +44,9 @@ public struct AppStoreRootView: View {
             Spacer()
             HStack(spacing: Metrics.space2) {
                 Icon(.search, size: CGFloat.iconFloor).foregroundStyle(colors.tertiary)
-                TextField(AppsStrings.search, text: Binding(get: { model.query }, set: { model.query = $0 }))
-                    .textFieldStyle(.plain)
-                    .focusEffectDisabled()
-                    .font(Font(Typography.body))
+                ThemedField(text: Binding(get: { model.query }, set: { model.query = $0 }), placeholder: AppsStrings.search,
+                            height: 18, boxed: false, identifier: "appStore.search")
                     .frame(width: 200)
-                    .accessibilityIdentifier("appStore.search")
             }
             .padding(.horizontal, Metrics.space3)
             .frame(height: 26)

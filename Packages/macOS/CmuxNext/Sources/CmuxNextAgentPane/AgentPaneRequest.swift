@@ -32,6 +32,12 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `command` in `cwd` (``AgentPaneShell``); answers `{id}`. Only with a
     /// real gesture in the pane.
     case shellRun(command: String, cwd: String?)
+    /// `harness.update {id}`: the chat card's Update (cx-1mbnu): this Mac's acpmux runs that agent
+    /// CLI's own update now and answers `{ok, version?, error?}`. Only with a real gesture.
+    case harnessUpdate(id: String)
+    /// `harness.restart {}`: the card's Restart Chat: this chat's agent restarts on the installed
+    /// version and resumes (after its turn); answers `{restarted, after_turn}`. Only with a gesture.
+    case harnessRestart
     /// `shell.read {id, after}`: the run's output from byte `after`.
     case shellRead(id: String, after: Int)
     /// `shell.stop {id}`: interrupt the run's process group.
@@ -43,6 +49,11 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// The agent picked on the new tab screen, to remember for the next
     /// new tab (`newTab.remember`).
     case rememberNewTab(AgentPaneRememberedPick)
+    /// The new tab page's style switch (`newTab.setTemplate`): the template to
+    /// save as `tabs.newTabTemplate` (the App checks the value).
+    case setNewTabTemplate(String)
+    /// The New Tab page player's control (`nowPlaying.command {command, seconds}`).
+    case nowPlaying(AgentPaneNowPlaying.Command)
     /// The new tab page got its first user input (`newTab.touched`); a
     /// touched page is never recycled into the prewarm pool.
     case touched
@@ -52,16 +63,13 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case newTabContext
     /// The identified New Tab field mounted and took DOM focus.
     case newTabInputReady(String)
+    /// A local page's newest chats as JSON text (`newTab.warm {warm}`): the next New Tab page's
+    /// context carries it (``AgentPaneNewTab/warm``), so its first frame lists them.
+    case newTabWarm(String)
     /// The location bar picked an open tab or workspace: go there.
     case jump(AgentPaneJumpTarget, id: String)
     /// The new tab page asked to change a kind's New shortcut.
     case editShortcut(AgentPaneTabKind)
-    /// The new tab page's "default: X" toggle: what Cmd-T opens
-    /// (`tabs.newTabKind`; the App checks the value).
-    case setDefaultKind(String)
-    /// The new tab page's template dots (`newTab.setTemplate`): the
-    /// template to save as `tabs.newTabTemplate` (the App checks the value).
-    case setNewTabTemplate(String)
     /// The new tab page asked the app to run a user facing action.
     case runAction(String)
     /// The new-tab project picker asked for the explicit Browse… fallback.
@@ -77,10 +85,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case chooseChatFolder
     /// Returns bounded recent project paths for the new-tab picker.
     case listProjects(String?)
-    /// `harness.health {id, refresh?, rescan?}` (cx-ny85): this Mac's acpmux health row for the
-    /// chat's agent CLI; `refresh` checks again (after its Log In or Update); `rescan` has acpmux
-    /// look for harnesses first (cx-apoko: after an install from the Harnesses page).
-    case harnessHealth(String, refresh: Bool, rescan: Bool)
+    /// `project.icon {cwd}`: the project's own favicon for its picker badge, as a small data URL.
+    case projectIcon(String)
     /// `chats.open {key}`: a device chat card (`harness:sessionId`) the New Tab page shows,
     /// opened through the app's shared Open Chat path.
     case openChat(String)
@@ -106,12 +112,18 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// The chat tab's state the header's menu labels read: `{pinned}`; `refresh` (a turn ended)
     /// asks for the chat folder's pull request again.
     case tabState(refresh: Bool)
-    /// The "..." menu's Archive (`true`) or Unarchive (`false`) of the pane's chat.
-    case archive(Bool)
-    /// `chat.markUnread`: the chat menu's Mark as Unread asks acpmux to mark this pane's chat unread.
-    case markUnread
+    /// `pane.tabRowTools {width}`: the chat header's tools take `width` CSS pixels at the trailing
+    /// end of the pane's tab row (``AgentPaneTabRow``), 0 when the page draws none there.
+    case tabRowTools(width: Double)
     /// New side chat: open the fork `sessionId` the page just made beside this chat.
     case sideChat(String)
+    /// A chat this one made (a fork, a Continue in…), opened in a tab of its own.
+    case chatTab(String)
+    /// `chat.subagentPane {subagent, focus}`: this chat's subagent in an agent pane of its own,
+    /// right of the chat (``AgentSubagentPanes``); `focus` moves keyboard focus to it.
+    case subagentPane(String, focus: Bool)
+    /// A started chat's New Chat Here: a new chat in that folder, in a tab of its own.
+    case newChatHere(String)
     /// The page reports whether repository checkpoint actions are available so
     /// native palette actions can stay capability-gated with the pane.
     case checkpointAvailability(Bool)
@@ -119,7 +131,7 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// (once per document).
     case painted
     /// The composer's mic: `dictation.toggle`, `.start`, `.stop`, `.cancel`,
-    /// or `dictation.openSettings` with `{permission}`.
+    /// `dictation.openSettings` with `{permission}`, or `dictation.audio` with `{enabled}`.
     case dictation(AgentPaneDictationCommand)
     /// `file.open` with `{path, where}`: a changed file from the changes view,
     /// in a tab beside the agent or in the text editor.
@@ -200,8 +212,11 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// Context Usage, or the mic's Hide dictation button, which the host writes to cmux.json at `path`
     /// (`agentPane.showContextUsage`, `agentPane.showDictation`).
     case composerSetting(path: [String], show: Bool)
-    /// `chat.toolCard.respond {id, action}`: a click on a button of a tool card (``AgentPaneToolCard``).
-    case toolCard(card: String, action: String)
+    /// `chat.toolCard.respond {id, action, value?}`: a click on a button of a tool card (``AgentPaneToolCard``),
+    /// with what the person typed in its field.
+    case toolCard(card: String, action: String, value: AgentPaneToolCard.Entered?)
+    /// `chat.upload {files: [{name, data}]}`: files the person dropped or pasted, for the chat's Cloud machine (``AgentPaneUpload``).
+    case upload([AgentPaneUpload])
     case unsupported(String)
 
     /// Most frames in one `transport.send` (the page sends what one task wrote).
@@ -213,6 +228,18 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
         case .shellRun, .shellRead, .shellStop, .shellComplete: true
         default: false
         }
+    }
+
+    /// A tool card answer carrying what the person typed (a secret): never logged, even redacted.
+    public var carriesEntered: Bool {
+        if case .toolCard(_, _, .some) = self { return true }
+        return false
+    }
+
+    /// An upload: the person's files, never logged.
+    public var carriesFiles: Bool {
+        if case .upload = self { return true }
+        return false
     }
 
     /// A transport request: frequent and carrying chat content, so never logged with its values.

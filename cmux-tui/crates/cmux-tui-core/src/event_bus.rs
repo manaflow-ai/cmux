@@ -105,6 +105,7 @@ enum CoalescedEventKey {
     ConfigReload,
     Agent(SurfaceId),
     Title(SurfaceId),
+    ProgramStatus(SurfaceId),
     SurfaceOutput(SurfaceId),
     Scroll(SurfaceId),
 }
@@ -211,7 +212,7 @@ impl MuxEventFilter {
                 MuxEvent::TreeChanged
                     | MuxEvent::TreeDelta(_)
                     | MuxEvent::TerminalRegistryChanged { .. }
-                    | MuxEvent::SurfaceExited(_)
+                    | MuxEvent::SurfaceExited(..)
                     | MuxEvent::Empty
             ),
             Self::LaunchSnapshot => matches!(
@@ -219,7 +220,7 @@ impl MuxEventFilter {
                 MuxEvent::TreeChanged
                     | MuxEvent::TreeSelectionChanged
                     | MuxEvent::TreeDelta(_)
-                    | MuxEvent::LayoutChanged(_)
+                    | MuxEvent::LayoutChanged(..)
                     | MuxEvent::PersonalChanged { .. }
                     | MuxEvent::FrontendProjectionChanged { .. }
                     | MuxEvent::Empty
@@ -240,7 +241,8 @@ impl SurfaceSessionScope {
     fn accepts(&mut self, event: &MuxEvent) -> bool {
         match event {
             MuxEvent::SurfaceOutput(surface)
-            | MuxEvent::SurfaceExited(surface)
+            | MuxEvent::SurfaceExited(surface, _)
+            | MuxEvent::ProgramStatusChanged { surface, .. }
             | MuxEvent::Bell(surface) => *surface == self.surface,
             MuxEvent::SurfaceResized { surface, .. }
             | MuxEvent::SurfaceResizeFailed { surface, .. }
@@ -256,7 +258,7 @@ impl SurfaceSessionScope {
             // A surface-only client always renders its target across the full
             // host terminal. Screen layout churn therefore carries no useful
             // state and would only force repeated whole-tree refreshes.
-            MuxEvent::LayoutChanged(_) => false,
+            MuxEvent::LayoutChanged(..) => false,
             MuxEvent::ClientAttached { .. }
             | MuxEvent::ClientChanged { .. }
             | MuxEvent::ClientDetached(_)
@@ -272,6 +274,7 @@ impl SurfaceSessionScope {
             | MuxEvent::BookmarksChanged(_)
             | MuxEvent::HistoryChanged { .. }
             | MuxEvent::SettingsChanged(_)
+            | MuxEvent::KeybindingsChanged(_)
             | MuxEvent::Conversation(_)
             | MuxEvent::CloudConversation(_)
             | MuxEvent::TerminalRegistryChanged { .. }
@@ -339,6 +342,9 @@ impl MuxEventMailbox {
             event @ MuxEvent::TitleChanged { surface, .. } => {
                 state.push_coalesced(sequence, CoalescedEventKey::Title(surface), event)
             }
+            event @ MuxEvent::ProgramStatusChanged { surface, .. } => {
+                state.push_coalesced(sequence, CoalescedEventKey::ProgramStatus(surface), event)
+            }
             event @ MuxEvent::SurfaceOutput(surface) => {
                 state.push_coalesced(sequence, CoalescedEventKey::SurfaceOutput(surface), event)
             }
@@ -350,12 +356,12 @@ impl MuxEventMailbox {
                 CoalescedEventKey::ConfigReload,
                 MuxEvent::ConfigReloadRequested,
             ),
-            MuxEvent::SurfaceExited(surface) => {
+            event @ MuxEvent::SurfaceExited(surface, _) => {
                 state.discard_surface_state(surface);
                 if !state.reserve_pending_slot() {
                     false
                 } else {
-                    state.events.push_back((sequence, MuxEvent::SurfaceExited(surface)));
+                    state.events.push_back((sequence, event));
                     true
                 }
             }
@@ -364,7 +370,7 @@ impl MuxEventMailbox {
                     .events
                     .iter()
                     .filter(|(_, event)| {
-                        matches!(event, MuxEvent::SurfaceExited(_))
+                        matches!(event, MuxEvent::SurfaceExited(..))
                             || matches!(
                                 event,
                                 MuxEvent::TreeDelta(delta)
@@ -428,6 +434,7 @@ impl MuxEventMailboxState {
     fn discard_surface_state(&mut self, surface: SurfaceId) {
         self.discard_coalesced(CoalescedEventKey::Agent(surface));
         self.discard_coalesced(CoalescedEventKey::Title(surface));
+        self.discard_coalesced(CoalescedEventKey::ProgramStatus(surface));
         self.discard_coalesced(CoalescedEventKey::SurfaceOutput(surface));
         self.discard_coalesced(CoalescedEventKey::Scroll(surface));
     }

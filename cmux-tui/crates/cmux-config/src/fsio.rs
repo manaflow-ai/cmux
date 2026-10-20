@@ -12,7 +12,7 @@ pub fn read_source(path: &Path) -> FileRead {
     match fs::read(path) {
         Ok(bytes) => match String::from_utf8(bytes) {
             Ok(text) => FileRead::Text(text),
-            Err(_) => FileRead::Unreadable("cmux.json is not UTF-8".to_string()),
+            Err(_) => FileRead::Unreadable(format!("{} is not UTF-8", path.display())),
         },
         Err(error) if error.kind() == io::ErrorKind::NotFound => FileRead::Text(String::new()),
         Err(error) => FileRead::Unreadable(error.to_string()),

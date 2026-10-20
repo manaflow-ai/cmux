@@ -5,7 +5,7 @@
   "branch": "feat-cmux-next",
   "sha": "1824883286a321a607429054cfde0469f588c3fb",
   "sourceRefsSha": "82209ab8050ffe693991fc3c0beec0ed992930cd",
-  "note": "Images are from the tagged build of sha (1824883286a); they predate the sidebar tonal step and the ChromeHover pressed fills. Source refs are path:line (Type.member) at sourceRefsSha; the symbol is the stable anchor when lines drift. Colors are formulas over the terminal theme (theme.formulas sources re-read at sourceRefsSha on 2026-10-12, cx-jdb.2); the resolved tables under themes.* are computed by tools/derive_theme_tokens.py, a line-for-line port of ThemeTokens.derive."
+  "note": "Images are from the tagged build of sha (1824883286a); they predate the sidebar tonal step and the ChromeHover pressed fills. Source refs are path:line (Type.member) at sourceRefsSha; the symbol is the stable anchor when lines drift. Colors are formulas over the terminal theme (theme.formulas sources re-read at sourceRefsSha on 2026-10-12, cx-jdb.2); the resolved tables under themes.* are computed by tools/derive_theme_tokens.py, a line-for-line port of ThemeTokens.derive and AppTheme.derive (appearance.accent cases and the theme's own accentColor added 2026-10-12, cx-jdb.6)."
  },
  "conventions": {
   "units": "pt = macOS points (1 CSS px at devicePixelRatio 1; screenshots are 2x). Times in seconds.",
@@ -80,7 +80,7 @@
  },
  "theme": {
   "input": {
-   "description": "ThemeInput: background, foreground, ANSI palette 0-15, selection-background/foreground and cursor-color (only when the config names a color), background-opacity (0-1), background-blur (0 off, >0 radius, <0 macOS glass). Read from the Ghostty config; cmux appearance.theme overrides theme = after the config files. appearance.accent (ThemeAccent: neutral, theme, red, green, yellow, blue, magenta, cyan; default neutral) is a cmux setting, not a Ghostty key.",
+   "description": "ThemeInput: background, foreground, ANSI palette 0-15, selection-background/foreground and cursor-color (only when the config names a color), background-opacity (0-1), background-blur (0 off, >0 radius, <0 macOS glass). Read from the Ghostty config; cmux appearance.theme overrides theme = after the config files. appearance.accent (ThemeAccent: neutral, theme, red, green, yellow, blue, magenta, cyan; default neutral) is a cmux setting, not a Ghostty key. accentColor is the theme's own accent: its appearance.themeEdits <theme>/accent edit, else the theme file's '# cmux-accent = #rrggbb' line (a comment to Ghostty); it wins over appearance.accent for that theme (ThemeInput.accentColor).",
    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeInput.swift (ThemeInput); Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeAccent.swift (ThemeAccent)",
    "defaultTheme": {
     "value": "light:Apple System Colors Light,dark:Apple System Colors",
@@ -160,7 +160,7 @@
     "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:150 (ThemeTokens.derive)"
    },
    "secondarySelectionFill": {
-    "value": "alpha(fg, dark ? 0.07 : 0.055)",
+    "value": "alpha(fg, dark ? 0.07 : 0.055); with appearance.accent: alpha(accent, dark ? 0.18 : 0.11)",
     "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:196 (ThemeTokens.derive)"
    },
    "pressedFill": {
@@ -224,7 +224,7 @@
     "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:171-178,211 (ThemeTokens.derive)"
    },
    "accent": {
-    "value": "textPrimary (no hue) with appearance.accent = neutral; else the app accent (AppTheme accent: the ANSI slot of the named color, the brighter-chroma of normal and bright; theme = magenta, else blue, else cyan, the first with OKLCH chroma >= 0.05; fitted to 3:1 on every plain surface and 4.5:1 under onAccent). Selected and active marks: unread dots, the user's messages, Send in the agent pane. AppKit controls use Palette.accent = focusRing.",
+    "value": "textPrimary (no hue) with appearance.accent = neutral; else the app accent (AppTheme accent: the ANSI slot of the named color, the brighter-chroma of normal and bright; theme = magenta, else blue, else cyan, the first with OKLCH chroma >= 0.05; the theme's own accentColor, when set, replaces that starting color whatever appearance.accent says; fitted to 3:1 on every plain surface and 4.5:1 under onAccent). Selected and active marks: unread dots, the user's messages, Send in the agent pane. AppKit controls use Palette.accent = focusRing.",
     "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:146,212 (ThemeTokens.derive); Packages/Shared/CmuxTheme/Sources/CmuxTheme/AppTheme.swift (AppTheme.accentSeed, derive); Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Palette.swift:116 (Palette.accent)"
    },
    "onAccent": {
@@ -322,7 +322,8 @@
      "#BF5AF2",
      "#76D6FF",
      "#FFFFFF"
-    ]
+    ],
+    "cursor": "#98989D"
    },
    "tokens": {
     "windowBackground": "#1E1E1E",
@@ -353,7 +354,8 @@
     "highlight": "#0869CB",
     "highlightText": "#FFFFFF",
     "accent": "#FFFFFF",
-    "onAccent": "#1E1E1E"
+    "onAccent": "#1E1E1E",
+    "caret": "#98989D"
    },
    "composited": {
     "sidebarStep": "#272727",
@@ -421,7 +423,8 @@
      "#BF5AF2",
      "#69C9F2",
      "#FFFFFF"
-    ]
+    ],
+    "cursor": "#98989D"
    },
    "tokens": {
     "windowBackground": "#FEFFFF",
@@ -452,7 +455,8 @@
     "highlight": "#0869CB",
     "highlightText": "#FEFFFF",
     "accent": "#000000",
-    "onAccent": "#FEFFFF"
+    "onAccent": "#FEFFFF",
+    "caret": "#929297"
    },
    "composited": {
     "sidebarStep": "#F4F5F5",
@@ -551,7 +555,8 @@
     "highlight": "#81A2BE",
     "highlightText": "#282C34",
     "accent": "#FFFFFF",
-    "onAccent": "#282C34"
+    "onAccent": "#282C34",
+    "caret": "#FFFFFF"
    },
    "composited": {
     "sidebarStep": "#31343C",
@@ -650,7 +655,8 @@
     "highlight": "#FD971F",
     "highlightText": "#272822",
     "accent": "#FDFFF1",
-    "onAccent": "#272822"
+    "onAccent": "#272822",
+    "caret": "#FDFFF1"
    },
    "composited": {
     "sidebarStep": "#30312A",
@@ -749,7 +755,8 @@
     "highlight": "#0969DA",
     "highlightText": "#FFFFFF",
     "accent": "#1F2328",
-    "onAccent": "#FFFFFF"
+    "onAccent": "#FFFFFF",
+    "caret": "#1F2328"
    },
    "composited": {
     "sidebarStep": "#F6F6F6",
@@ -789,6 +796,914 @@
      "textSecondary": "#98999C",
      "textTertiary": "#98999C",
      "selectionFill": "#1F232800",
+     "hoverFill": "#1F23280D"
+    }
+   }
+  },
+  "appleSystemDarkRed": {
+   "name": "Apple System Colors (cmux default, dark appearance), appearance.accent = red",
+   "isDark": true,
+   "input": {
+    "background": "#1E1E1E",
+    "foreground": "#FFFFFF",
+    "selectionBackground": "#3F638B",
+    "palette": [
+     "#1A1A1A",
+     "#CC372E",
+     "#26A439",
+     "#CDAC08",
+     "#0869CB",
+     "#9647BF",
+     "#479EC2",
+     "#98989D",
+     "#464646",
+     "#FF453A",
+     "#32D74B",
+     "#FFD60A",
+     "#0A84FF",
+     "#BF5AF2",
+     "#76D6FF",
+     "#FFFFFF"
+    ],
+    "cursor": "#98989D",
+    "accent": "red"
+   },
+   "tokens": {
+    "windowBackground": "#1E1E1E",
+    "sidebarBackground": "#1E1E1E",
+    "contentBackground": "#1E1E1E",
+    "chromeBackground": "#292929",
+    "elevatedBackground": "#2E2E2E",
+    "stripBackground": "#1E1E1E",
+    "sidebarStep": "#FFFFFF0A",
+    "stripStep": "#00000038",
+    "textPrimary": "#FFFFFF",
+    "textSecondary": "#AAAAAA",
+    "textTertiary": "#888888",
+    "hoverFill": "#FFFFFF0F",
+    "selectionFill": "#FF453A42",
+    "secondarySelectionFill": "#FF453A2E",
+    "pressedFill": "#FFFFFF24",
+    "badgeFill": "#FFFFFF24",
+    "separator": "#FFFFFF14",
+    "paneBorder": "#FFFFFF12",
+    "focusRing": "#FF453A",
+    "glassTint": "#1E1E1E66",
+    "shadow": "#050505",
+    "textSelection": "#3F638B",
+    "attention": "#CDAC08",
+    "danger": "#CC372E",
+    "success": "#26A439",
+    "highlight": "#FF453A",
+    "highlightText": "#1E1E1E",
+    "accent": "#FF453A",
+    "onAccent": "#1E1E1E",
+    "caret": "#98989D"
+   },
+   "composited": {
+    "sidebarStep": "#272727",
+    "stripStep": "#171717",
+    "hoverFill": "#2C2C2C",
+    "selectionFill": "#592825",
+    "secondarySelectionFill": "#472523",
+    "pressedFill": "#3E3E3E",
+    "badgeFill": "#3E3E3E",
+    "separator": "#303030",
+    "paneBorder": "#2E2E2E",
+    "glassTint": "#1E1E1E"
+   },
+   "focusRing": {
+    "subtle": "#FF453A33",
+    "standard": "#FF453A8C",
+    "strong": "#FF453AD9"
+   },
+   "inactiveTabs": {
+    "fade": {
+     "textPrimary": "#B0B0B0",
+     "textSecondary": "#797979",
+     "textTertiary": "#636363",
+     "selectionFill": "#FF453A2B",
+     "hoverFill": "#FFFFFF0A"
+    },
+    "tonal": {
+     "textPrimary": "#AAAAAA",
+     "textSecondary": "#888888",
+     "textTertiary": "#757575",
+     "selectionFill": "#FFFFFF0D",
+     "hoverFill": "#FFFFFF0F"
+    },
+    "quiet": {
+     "textPrimary": "#AAAAAA",
+     "textSecondary": "#757575",
+     "textTertiary": "#757575",
+     "selectionFill": "#FF453A00",
+     "hoverFill": "#FFFFFF0F"
+    }
+   }
+  },
+  "appleSystemDarkGreen": {
+   "name": "Apple System Colors (cmux default, dark appearance), appearance.accent = green",
+   "isDark": true,
+   "input": {
+    "background": "#1E1E1E",
+    "foreground": "#FFFFFF",
+    "selectionBackground": "#3F638B",
+    "palette": [
+     "#1A1A1A",
+     "#CC372E",
+     "#26A439",
+     "#CDAC08",
+     "#0869CB",
+     "#9647BF",
+     "#479EC2",
+     "#98989D",
+     "#464646",
+     "#FF453A",
+     "#32D74B",
+     "#FFD60A",
+     "#0A84FF",
+     "#BF5AF2",
+     "#76D6FF",
+     "#FFFFFF"
+    ],
+    "cursor": "#98989D",
+    "accent": "green"
+   },
+   "tokens": {
+    "windowBackground": "#1E1E1E",
+    "sidebarBackground": "#1E1E1E",
+    "contentBackground": "#1E1E1E",
+    "chromeBackground": "#292929",
+    "elevatedBackground": "#2E2E2E",
+    "stripBackground": "#1E1E1E",
+    "sidebarStep": "#FFFFFF0A",
+    "stripStep": "#00000038",
+    "textPrimary": "#FFFFFF",
+    "textSecondary": "#B3B3B3",
+    "textTertiary": "#919191",
+    "hoverFill": "#FFFFFF0F",
+    "selectionFill": "#32D74B42",
+    "secondarySelectionFill": "#32D74B2E",
+    "pressedFill": "#FFFFFF24",
+    "badgeFill": "#FFFFFF24",
+    "separator": "#FFFFFF14",
+    "paneBorder": "#FFFFFF12",
+    "focusRing": "#32D74B",
+    "glassTint": "#1E1E1E66",
+    "shadow": "#050505",
+    "textSelection": "#3F638B",
+    "attention": "#CDAC08",
+    "danger": "#CC372E",
+    "success": "#26A439",
+    "highlight": "#32D74B",
+    "highlightText": "#1E1E1E",
+    "accent": "#32D74B",
+    "onAccent": "#1E1E1E",
+    "caret": "#98989D"
+   },
+   "composited": {
+    "sidebarStep": "#272727",
+    "stripStep": "#171717",
+    "hoverFill": "#2C2C2C",
+    "selectionFill": "#234E2A",
+    "secondarySelectionFill": "#223F26",
+    "pressedFill": "#3E3E3E",
+    "badgeFill": "#3E3E3E",
+    "separator": "#303030",
+    "paneBorder": "#2E2E2E",
+    "glassTint": "#1E1E1E"
+   },
+   "focusRing": {
+    "subtle": "#32D74B33",
+    "standard": "#32D74B8C",
+    "strong": "#32D74BD9"
+   },
+   "inactiveTabs": {
+    "fade": {
+     "textPrimary": "#B0B0B0",
+     "textSecondary": "#7F7F7F",
+     "textTertiary": "#696969",
+     "selectionFill": "#32D74B2B",
+     "hoverFill": "#FFFFFF0A"
+    },
+    "tonal": {
+     "textPrimary": "#B3B3B3",
+     "textSecondary": "#919191",
+     "textTertiary": "#7D7D7D",
+     "selectionFill": "#FFFFFF0D",
+     "hoverFill": "#FFFFFF0F"
+    },
+    "quiet": {
+     "textPrimary": "#B3B3B3",
+     "textSecondary": "#7D7D7D",
+     "textTertiary": "#7D7D7D",
+     "selectionFill": "#32D74B00",
+     "hoverFill": "#FFFFFF0F"
+    }
+   }
+  },
+  "appleSystemDarkBlue": {
+   "name": "Apple System Colors (cmux default, dark appearance), appearance.accent = blue",
+   "isDark": true,
+   "input": {
+    "background": "#1E1E1E",
+    "foreground": "#FFFFFF",
+    "selectionBackground": "#3F638B",
+    "palette": [
+     "#1A1A1A",
+     "#CC372E",
+     "#26A439",
+     "#CDAC08",
+     "#0869CB",
+     "#9647BF",
+     "#479EC2",
+     "#98989D",
+     "#464646",
+     "#FF453A",
+     "#32D74B",
+     "#FFD60A",
+     "#0A84FF",
+     "#BF5AF2",
+     "#76D6FF",
+     "#FFFFFF"
+    ],
+    "cursor": "#98989D",
+    "accent": "blue"
+   },
+   "tokens": {
+    "windowBackground": "#1E1E1E",
+    "sidebarBackground": "#1E1E1E",
+    "contentBackground": "#1E1E1E",
+    "chromeBackground": "#292929",
+    "elevatedBackground": "#2E2E2E",
+    "stripBackground": "#1E1E1E",
+    "sidebarStep": "#FFFFFF0A",
+    "stripStep": "#00000038",
+    "textPrimary": "#FFFFFF",
+    "textSecondary": "#AAAAAA",
+    "textTertiary": "#888888",
+    "hoverFill": "#FFFFFF0F",
+    "selectionFill": "#0A84FF42",
+    "secondarySelectionFill": "#0A84FF2E",
+    "pressedFill": "#FFFFFF24",
+    "badgeFill": "#FFFFFF24",
+    "separator": "#FFFFFF14",
+    "paneBorder": "#FFFFFF12",
+    "focusRing": "#0A84FF",
+    "glassTint": "#1E1E1E66",
+    "shadow": "#050505",
+    "textSelection": "#3F638B",
+    "attention": "#CDAC08",
+    "danger": "#CC372E",
+    "success": "#26A439",
+    "highlight": "#0A84FF",
+    "highlightText": "#1E1E1E",
+    "accent": "#0A84FF",
+    "onAccent": "#1E1E1E",
+    "caret": "#98989D"
+   },
+   "composited": {
+    "sidebarStep": "#272727",
+    "stripStep": "#171717",
+    "hoverFill": "#2C2C2C",
+    "selectionFill": "#193959",
+    "secondarySelectionFill": "#1A3047",
+    "pressedFill": "#3E3E3E",
+    "badgeFill": "#3E3E3E",
+    "separator": "#303030",
+    "paneBorder": "#2E2E2E",
+    "glassTint": "#1E1E1E"
+   },
+   "focusRing": {
+    "subtle": "#0A84FF33",
+    "standard": "#0A84FF8C",
+    "strong": "#0A84FFD9"
+   },
+   "inactiveTabs": {
+    "fade": {
+     "textPrimary": "#B0B0B0",
+     "textSecondary": "#797979",
+     "textTertiary": "#636363",
+     "selectionFill": "#0A84FF2B",
+     "hoverFill": "#FFFFFF0A"
+    },
+    "tonal": {
+     "textPrimary": "#AAAAAA",
+     "textSecondary": "#888888",
+     "textTertiary": "#757575",
+     "selectionFill": "#FFFFFF0D",
+     "hoverFill": "#FFFFFF0F"
+    },
+    "quiet": {
+     "textPrimary": "#AAAAAA",
+     "textSecondary": "#757575",
+     "textTertiary": "#757575",
+     "selectionFill": "#0A84FF00",
+     "hoverFill": "#FFFFFF0F"
+    }
+   }
+  },
+  "appleSystemLightRed": {
+   "name": "Apple System Colors Light (cmux default, light appearance), appearance.accent = red",
+   "isDark": false,
+   "input": {
+    "background": "#FEFFFF",
+    "foreground": "#000000",
+    "selectionBackground": "#ABD8FF",
+    "palette": [
+     "#1A1A1A",
+     "#CC372E",
+     "#26A439",
+     "#CDAC08",
+     "#0869CB",
+     "#9647BF",
+     "#479EC2",
+     "#98989D",
+     "#464646",
+     "#FF453A",
+     "#32D74B",
+     "#E5BC00",
+     "#0A84FF",
+     "#BF5AF2",
+     "#69C9F2",
+     "#FFFFFF"
+    ],
+    "cursor": "#98989D",
+    "accent": "red"
+   },
+   "tokens": {
+    "windowBackground": "#FEFFFF",
+    "sidebarBackground": "#FEFFFF",
+    "contentBackground": "#FEFFFF",
+    "chromeBackground": "#F5F6F6",
+    "elevatedBackground": "#F9FAFA",
+    "stripBackground": "#FEFFFF",
+    "sidebarStep": "#0000000A",
+    "stripStep": "#0000000D",
+    "textPrimary": "#000000",
+    "textSecondary": "#616161",
+    "textTertiary": "#7F8080",
+    "hoverFill": "#0000000D",
+    "selectionFill": "#E5272229",
+    "secondarySelectionFill": "#E527221C",
+    "pressedFill": "#0000001C",
+    "badgeFill": "#0000001A",
+    "separator": "#00000012",
+    "paneBorder": "#00000017",
+    "focusRing": "#E52722",
+    "glassTint": "#FEFFFF4D",
+    "shadow": "#262626",
+    "textSelection": "#ABD8FF",
+    "attention": "#AC9007",
+    "danger": "#CC372E",
+    "success": "#26A439",
+    "highlight": "#E52722",
+    "highlightText": "#000000",
+    "accent": "#E52722",
+    "onAccent": "#FFFFFF",
+    "caret": "#929297"
+   },
+   "composited": {
+    "sidebarStep": "#F4F5F5",
+    "stripStep": "#F1F2F2",
+    "hoverFill": "#F1F2F2",
+    "selectionFill": "#FADCDC",
+    "secondarySelectionFill": "#FBE7E7",
+    "pressedFill": "#E2E3E3",
+    "badgeFill": "#E5E6E6",
+    "separator": "#ECEDED",
+    "paneBorder": "#E7E8E8",
+    "glassTint": "#FEFFFF"
+   },
+   "focusRing": {
+    "subtle": "#E5272233",
+    "standard": "#E527228C",
+    "strong": "#E52722D9"
+   },
+   "inactiveTabs": {
+    "fade": {
+     "textPrimary": "#595959",
+     "textSecondary": "#989898",
+     "textTertiary": "#ABACAC",
+     "selectionFill": "#E527221B",
+     "hoverFill": "#00000008"
+    },
+    "tonal": {
+     "textPrimary": "#616161",
+     "textSecondary": "#7F8080",
+     "textTertiary": "#959696",
+     "selectionFill": "#0000000B",
+     "hoverFill": "#0000000D"
+    },
+    "quiet": {
+     "textPrimary": "#616161",
+     "textSecondary": "#959696",
+     "textTertiary": "#959696",
+     "selectionFill": "#E5272200",
+     "hoverFill": "#0000000D"
+    }
+   }
+  },
+  "appleSystemLightGreen": {
+   "name": "Apple System Colors Light (cmux default, light appearance), appearance.accent = green",
+   "isDark": false,
+   "input": {
+    "background": "#FEFFFF",
+    "foreground": "#000000",
+    "selectionBackground": "#ABD8FF",
+    "palette": [
+     "#1A1A1A",
+     "#CC372E",
+     "#26A439",
+     "#CDAC08",
+     "#0869CB",
+     "#9647BF",
+     "#479EC2",
+     "#98989D",
+     "#464646",
+     "#FF453A",
+     "#32D74B",
+     "#E5BC00",
+     "#0A84FF",
+     "#BF5AF2",
+     "#69C9F2",
+     "#FFFFFF"
+    ],
+    "cursor": "#98989D",
+    "accent": "green"
+   },
+   "tokens": {
+    "windowBackground": "#FEFFFF",
+    "sidebarBackground": "#FEFFFF",
+    "contentBackground": "#FEFFFF",
+    "chromeBackground": "#F5F6F6",
+    "elevatedBackground": "#F9FAFA",
+    "stripBackground": "#FEFFFF",
+    "sidebarStep": "#0000000A",
+    "stripStep": "#0000000D",
+    "textPrimary": "#000000",
+    "textSecondary": "#616161",
+    "textTertiary": "#7F8080",
+    "hoverFill": "#0000000D",
+    "selectionFill": "#008A2329",
+    "secondarySelectionFill": "#008A231C",
+    "pressedFill": "#0000001C",
+    "badgeFill": "#0000001A",
+    "separator": "#00000012",
+    "paneBorder": "#00000017",
+    "focusRing": "#008A23",
+    "glassTint": "#FEFFFF4D",
+    "shadow": "#262626",
+    "textSelection": "#ABD8FF",
+    "attention": "#AC9007",
+    "danger": "#CC372E",
+    "success": "#26A439",
+    "highlight": "#008A23",
+    "highlightText": "#000000",
+    "accent": "#008A23",
+    "onAccent": "#FFFFFF",
+    "caret": "#929297"
+   },
+   "composited": {
+    "sidebarStep": "#F4F5F5",
+    "stripStep": "#F1F2F2",
+    "hoverFill": "#F1F2F2",
+    "selectionFill": "#D5ECDC",
+    "secondarySelectionFill": "#E2F2E7",
+    "pressedFill": "#E2E3E3",
+    "badgeFill": "#E5E6E6",
+    "separator": "#ECEDED",
+    "paneBorder": "#E7E8E8",
+    "glassTint": "#FEFFFF"
+   },
+   "focusRing": {
+    "subtle": "#008A2333",
+    "standard": "#008A238C",
+    "strong": "#008A23D9"
+   },
+   "inactiveTabs": {
+    "fade": {
+     "textPrimary": "#595959",
+     "textSecondary": "#989898",
+     "textTertiary": "#ABACAC",
+     "selectionFill": "#008A231B",
+     "hoverFill": "#00000008"
+    },
+    "tonal": {
+     "textPrimary": "#616161",
+     "textSecondary": "#7F8080",
+     "textTertiary": "#959696",
+     "selectionFill": "#0000000B",
+     "hoverFill": "#0000000D"
+    },
+    "quiet": {
+     "textPrimary": "#616161",
+     "textSecondary": "#959696",
+     "textTertiary": "#959696",
+     "selectionFill": "#008A2300",
+     "hoverFill": "#0000000D"
+    }
+   }
+  },
+  "appleSystemLightBlue": {
+   "name": "Apple System Colors Light (cmux default, light appearance), appearance.accent = blue",
+   "isDark": false,
+   "input": {
+    "background": "#FEFFFF",
+    "foreground": "#000000",
+    "selectionBackground": "#ABD8FF",
+    "palette": [
+     "#1A1A1A",
+     "#CC372E",
+     "#26A439",
+     "#CDAC08",
+     "#0869CB",
+     "#9647BF",
+     "#479EC2",
+     "#98989D",
+     "#464646",
+     "#FF453A",
+     "#32D74B",
+     "#E5BC00",
+     "#0A84FF",
+     "#BF5AF2",
+     "#69C9F2",
+     "#FFFFFF"
+    ],
+    "cursor": "#98989D",
+    "accent": "blue"
+   },
+   "tokens": {
+    "windowBackground": "#FEFFFF",
+    "sidebarBackground": "#FEFFFF",
+    "contentBackground": "#FEFFFF",
+    "chromeBackground": "#F5F6F6",
+    "elevatedBackground": "#F9FAFA",
+    "stripBackground": "#FEFFFF",
+    "sidebarStep": "#0000000A",
+    "stripStep": "#0000000D",
+    "textPrimary": "#000000",
+    "textSecondary": "#616161",
+    "textTertiary": "#7F8080",
+    "hoverFill": "#0000000D",
+    "selectionFill": "#0074E529",
+    "secondarySelectionFill": "#0074E51C",
+    "pressedFill": "#0000001C",
+    "badgeFill": "#0000001A",
+    "separator": "#00000012",
+    "paneBorder": "#00000017",
+    "focusRing": "#0074E5",
+    "glassTint": "#FEFFFF4D",
+    "shadow": "#262626",
+    "textSelection": "#ABD8FF",
+    "attention": "#AC9007",
+    "danger": "#CC372E",
+    "success": "#26A439",
+    "highlight": "#0074E5",
+    "highlightText": "#000000",
+    "accent": "#0074E5",
+    "onAccent": "#FFFFFF",
+    "caret": "#929297"
+   },
+   "composited": {
+    "sidebarStep": "#F4F5F5",
+    "stripStep": "#F1F2F2",
+    "hoverFill": "#F1F2F2",
+    "selectionFill": "#D5E9FB",
+    "secondarySelectionFill": "#E2F0FC",
+    "pressedFill": "#E2E3E3",
+    "badgeFill": "#E5E6E6",
+    "separator": "#ECEDED",
+    "paneBorder": "#E7E8E8",
+    "glassTint": "#FEFFFF"
+   },
+   "focusRing": {
+    "subtle": "#0074E533",
+    "standard": "#0074E58C",
+    "strong": "#0074E5D9"
+   },
+   "inactiveTabs": {
+    "fade": {
+     "textPrimary": "#595959",
+     "textSecondary": "#989898",
+     "textTertiary": "#ABACAC",
+     "selectionFill": "#0074E51B",
+     "hoverFill": "#00000008"
+    },
+    "tonal": {
+     "textPrimary": "#616161",
+     "textSecondary": "#7F8080",
+     "textTertiary": "#959696",
+     "selectionFill": "#0000000B",
+     "hoverFill": "#0000000D"
+    },
+    "quiet": {
+     "textPrimary": "#616161",
+     "textSecondary": "#959696",
+     "textTertiary": "#959696",
+     "selectionFill": "#0074E500",
+     "hoverFill": "#0000000D"
+    }
+   }
+  },
+  "monokaiClassicTheme": {
+   "name": "Monokai Classic (test fixture), appearance.accent = theme",
+   "isDark": true,
+   "input": {
+    "background": "#272822",
+    "foreground": "#FDFFF1",
+    "selectionBackground": "#57584F",
+    "palette": [
+     "#272822",
+     "#F92672",
+     "#A6E22E",
+     "#E6DB74",
+     "#FD971F",
+     "#AE81FF",
+     "#66D9EF",
+     "#FDFFF1",
+     "#6E7066",
+     "#F92672",
+     "#A6E22E",
+     "#E6DB74",
+     "#FD971F",
+     "#AE81FF",
+     "#66D9EF",
+     "#FDFFF1"
+    ],
+    "accent": "theme"
+   },
+   "tokens": {
+    "windowBackground": "#272822",
+    "sidebarBackground": "#272822",
+    "contentBackground": "#272822",
+    "chromeBackground": "#32332C",
+    "elevatedBackground": "#363730",
+    "stripBackground": "#272822",
+    "sidebarStep": "#FDFFF10A",
+    "stripStep": "#00000038",
+    "textPrimary": "#FDFFF1",
+    "textSecondary": "#B2B4A9",
+    "textTertiary": "#92938A",
+    "hoverFill": "#FDFFF10F",
+    "selectionFill": "#AE81FF42",
+    "secondarySelectionFill": "#AE81FF2E",
+    "pressedFill": "#FDFFF124",
+    "badgeFill": "#FDFFF124",
+    "separator": "#FDFFF114",
+    "paneBorder": "#FDFFF112",
+    "focusRing": "#AE81FF",
+    "glassTint": "#27282266",
+    "shadow": "#060605",
+    "textSelection": "#57584F",
+    "attention": "#E6DB74",
+    "danger": "#F92672",
+    "success": "#A6E22E",
+    "highlight": "#AE81FF",
+    "highlightText": "#272822",
+    "accent": "#AE81FF",
+    "onAccent": "#272822",
+    "caret": "#FDFFF1"
+   },
+   "composited": {
+    "sidebarStep": "#30312A",
+    "stripStep": "#1E1F1B",
+    "hoverFill": "#34352E",
+    "selectionFill": "#4A3F5B",
+    "secondarySelectionFill": "#3F384A",
+    "pressedFill": "#45463F",
+    "badgeFill": "#45463F",
+    "separator": "#383933",
+    "paneBorder": "#363730",
+    "glassTint": "#272822"
+   },
+   "focusRing": {
+    "subtle": "#AE81FF33",
+    "standard": "#AE81FF8C",
+    "strong": "#AE81FFD9"
+   },
+   "inactiveTabs": {
+    "fade": {
+     "textPrimary": "#B2B4A9",
+     "textSecondary": "#818379",
+     "textTertiary": "#6D6E65",
+     "selectionFill": "#AE81FF2B",
+     "hoverFill": "#FDFFF10A"
+    },
+    "tonal": {
+     "textPrimary": "#B2B4A9",
+     "textSecondary": "#92938A",
+     "textTertiary": "#7F8177",
+     "selectionFill": "#FDFFF10D",
+     "hoverFill": "#FDFFF10F"
+    },
+    "quiet": {
+     "textPrimary": "#B2B4A9",
+     "textSecondary": "#7F8177",
+     "textTertiary": "#7F8177",
+     "selectionFill": "#AE81FF00",
+     "hoverFill": "#FDFFF10F"
+    }
+   }
+  },
+  "appleSystemDarkOwnAccent": {
+   "name": "Apple System Colors (cmux default, dark appearance), appearance.accent = blue, the theme's own accent #ff9f0a",
+   "isDark": true,
+   "input": {
+    "background": "#1E1E1E",
+    "foreground": "#FFFFFF",
+    "selectionBackground": "#3F638B",
+    "palette": [
+     "#1A1A1A",
+     "#CC372E",
+     "#26A439",
+     "#CDAC08",
+     "#0869CB",
+     "#9647BF",
+     "#479EC2",
+     "#98989D",
+     "#464646",
+     "#FF453A",
+     "#32D74B",
+     "#FFD60A",
+     "#0A84FF",
+     "#BF5AF2",
+     "#76D6FF",
+     "#FFFFFF"
+    ],
+    "cursor": "#98989D",
+    "accent": "blue",
+    "accentColor": "#FF9F0A"
+   },
+   "tokens": {
+    "windowBackground": "#1E1E1E",
+    "sidebarBackground": "#1E1E1E",
+    "contentBackground": "#1E1E1E",
+    "chromeBackground": "#292929",
+    "elevatedBackground": "#2E2E2E",
+    "stripBackground": "#1E1E1E",
+    "sidebarStep": "#FFFFFF0A",
+    "stripStep": "#00000038",
+    "textPrimary": "#FFFFFF",
+    "textSecondary": "#B0B0B0",
+    "textTertiary": "#919191",
+    "hoverFill": "#FFFFFF0F",
+    "selectionFill": "#FF9F0A42",
+    "secondarySelectionFill": "#FF9F0A2E",
+    "pressedFill": "#FFFFFF24",
+    "badgeFill": "#FFFFFF24",
+    "separator": "#FFFFFF14",
+    "paneBorder": "#FFFFFF12",
+    "focusRing": "#FF9F0A",
+    "glassTint": "#1E1E1E66",
+    "shadow": "#050505",
+    "textSelection": "#3F638B",
+    "attention": "#CDAC08",
+    "danger": "#CC372E",
+    "success": "#26A439",
+    "highlight": "#FF9F0A",
+    "highlightText": "#1E1E1E",
+    "accent": "#FF9F0A",
+    "onAccent": "#1E1E1E",
+    "caret": "#98989D"
+   },
+   "composited": {
+    "sidebarStep": "#272727",
+    "stripStep": "#171717",
+    "hoverFill": "#2C2C2C",
+    "selectionFill": "#594019",
+    "secondarySelectionFill": "#47351A",
+    "pressedFill": "#3E3E3E",
+    "badgeFill": "#3E3E3E",
+    "separator": "#303030",
+    "paneBorder": "#2E2E2E",
+    "glassTint": "#1E1E1E"
+   },
+   "focusRing": {
+    "subtle": "#FF9F0A33",
+    "standard": "#FF9F0A8C",
+    "strong": "#FF9F0AD9"
+   },
+   "inactiveTabs": {
+    "fade": {
+     "textPrimary": "#B0B0B0",
+     "textSecondary": "#7D7D7D",
+     "textTertiary": "#696969",
+     "selectionFill": "#FF9F0A2B",
+     "hoverFill": "#FFFFFF0A"
+    },
+    "tonal": {
+     "textPrimary": "#B0B0B0",
+     "textSecondary": "#919191",
+     "textTertiary": "#7D7D7D",
+     "selectionFill": "#FFFFFF0D",
+     "hoverFill": "#FFFFFF0F"
+    },
+    "quiet": {
+     "textPrimary": "#B0B0B0",
+     "textSecondary": "#7D7D7D",
+     "textTertiary": "#7D7D7D",
+     "selectionFill": "#FF9F0A00",
+     "hoverFill": "#FFFFFF0F"
+    }
+   }
+  },
+  "githubLightOwnAccent": {
+   "name": "GitHub Light Default (test fixture), the theme's own accent #bf3989",
+   "isDark": false,
+   "input": {
+    "background": "#FFFFFF",
+    "foreground": "#1F2328",
+    "selectionBackground": null,
+    "palette": [
+     "#24292F",
+     "#CF222E",
+     "#116329",
+     "#4D2D00",
+     "#0969DA",
+     "#8250DF",
+     "#1B7C83",
+     "#6E7781",
+     "#57606A",
+     "#A40E26",
+     "#1A7F37",
+     "#633C01",
+     "#218BFF",
+     "#A475F9",
+     "#3192AA",
+     "#8C959F"
+    ],
+    "accentColor": "#BF3989"
+   },
+   "tokens": {
+    "windowBackground": "#FFFFFF",
+    "sidebarBackground": "#FFFFFF",
+    "contentBackground": "#FFFFFF",
+    "chromeBackground": "#F7F7F7",
+    "elevatedBackground": "#FBFBFB",
+    "stripBackground": "#FFFFFF",
+    "sidebarStep": "#1F23280A",
+    "stripStep": "#0000000D",
+    "textPrimary": "#1F2328",
+    "textSecondary": "#626568",
+    "textTertiary": "#7F8284",
+    "hoverFill": "#1F23280D",
+    "selectionFill": "#BF398929",
+    "secondarySelectionFill": "#BF39891C",
+    "pressedFill": "#1F23281C",
+    "badgeFill": "#1F23281A",
+    "separator": "#1F232812",
+    "paneBorder": "#1F232817",
+    "focusRing": "#BF3989",
+    "glassTint": "#FFFFFF4D",
+    "shadow": "#262626",
+    "textSelection": "#CECFD0",
+    "attention": "#4D2D00",
+    "danger": "#CF222E",
+    "success": "#116329",
+    "highlight": "#BF3989",
+    "highlightText": "#FFFFFF",
+    "accent": "#BF3989",
+    "onAccent": "#FFFFFF",
+    "caret": "#1F2328"
+   },
+   "composited": {
+    "sidebarStep": "#F6F6F6",
+    "stripStep": "#F2F2F2",
+    "hoverFill": "#F4F4F4",
+    "selectionFill": "#F5DFEC",
+    "secondarySelectionFill": "#F8E9F2",
+    "pressedFill": "#E6E7E7",
+    "badgeFill": "#E9E9EA",
+    "separator": "#EFF0F0",
+    "paneBorder": "#EBEBEC",
+    "glassTint": "#FFFFFF"
+   },
+   "focusRing": {
+    "subtle": "#BF398933",
+    "standard": "#BF39898C",
+    "strong": "#BF3989D9"
+   },
+   "inactiveTabs": {
+    "fade": {
+     "textPrimary": "#6D7073",
+     "textSecondary": "#999B9D",
+     "textTertiary": "#ACADAF",
+     "selectionFill": "#BF39891B",
+     "hoverFill": "#1F232808"
+    },
+    "tonal": {
+     "textPrimary": "#626568",
+     "textSecondary": "#7F8284",
+     "textTertiary": "#96989A",
+     "selectionFill": "#1F23280B",
+     "hoverFill": "#1F23280D"
+    },
+    "quiet": {
+     "textPrimary": "#626568",
+     "textSecondary": "#96989A",
+     "textTertiary": "#96989A",
+     "selectionFill": "#BF398900",
      "hoverFill": "#1F23280D"
     }
    }
@@ -1125,7 +2040,7 @@
    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/OverlayMaterial.swift (ThemeTokens.opaqueOverlayFill); Packages/macOS/CmuxNext/Sources/CmuxNextDesign/OverlaySurface.swift (OverlaySurfaceView.applyTheme); Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Tunables/ChromeTunables.swift:40-42 (ChromeTunables.opaqueOverlayLift)"
   },
   "glassTintStrength": {
-   "value": 1,
+   "value": 1.25,
    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Tunables/ChromeTunables.swift:43-45 (ChromeTunables.glassOverlayTintStrength)",
    "appliesTo": "OverlaySurface surfaces (materials.overlay.appliesTo). Raw Glass.makePanel panels use token:glassTint unscaled."
   },
@@ -1165,28 +2080,29 @@
   "springs": {
    "move": {
     "value": {
-     "response": 0.2,
-     "dampingFraction": 0.9
+     "response": 0.15,
+     "dampingFraction": 1
     },
-    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift:11 (MotionTunables.springDefaults)",
+    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift (MotionTunables.springDefaults); cmux-tui/crates/cmux-motion reads this file at build time (build.rs)",
     "unit": "s",
-    "use": "Tab reflow and reorder, sidebar row moves, pane and divider frames"
+    "use": "Tab reflow and reorder, sidebar row moves, pane and divider frames",
+    "note": "Structural (motion.structural): critically damped unless motion.bounce is subtle. Response 0.15 s ends visibly (within 0.5%) at 0.177 s, under the 0.2 s budget (hq-1d D1)."
    },
    "appear": {
     "value": {
-     "response": 0.18,
-     "dampingFraction": 0.9
+     "response": 0.135,
+     "dampingFraction": 1
     },
-    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift:12 (MotionTunables.springDefaults)",
+    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift (MotionTunables.springDefaults); cmux-tui/crates/cmux-motion reads this file at build time (build.rs)",
     "unit": "s",
     "use": "Palette scale-in, tab grow-in, group expand, row insert, sidebar show"
    },
    "disappear": {
     "value": {
-     "response": 0.15,
-     "dampingFraction": 0.9
+     "response": 0.11,
+     "dampingFraction": 1
     },
-    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift:13 (MotionTunables.springDefaults)",
+    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift (MotionTunables.springDefaults); cmux-tui/crates/cmux-motion reads this file at build time (build.rs)",
     "unit": "s",
     "use": "Tab close, group collapse, row removal, sidebar hide"
    },
@@ -1243,11 +2159,155 @@
     "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift:19 (MotionTunables.springDefaults)",
     "unit": "s",
     "use": "Hover card slide"
+   },
+   "pinDrag": {
+    "value": {
+     "response": 0.3512407365520363,
+     "dampingFraction": 0.8385254915624211
+    },
+    "source": "cmux-tui/crates/cmux-motion (MotionSpring::PinDrag): MessagesLab SidebarPinDragging.spring, CASpringAnimation mass 1, stiffness 320, damping 30",
+    "unit": "s",
+    "use": "Home list pin drag: tiles making room, rows below the grid, a dropped tile landing"
+   },
+   "zoom": {
+    "value": {
+     "response": 0.30,
+     "dampingFraction": 1
+    },
+    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift (MotionTunables.springDefaults); cmux-tui/crates/cmux-motion reads this file at build time (build.rs)",
+    "unit": "s",
+    "use": "A pane zooming to fill its screen and back (Cmd-Shift-Enter): its content takes the full size once, the spring rect reveals it, and it covers the other panes, which do not fade (Leo 2026-10-13, Lawrence 2026-10-18)"
+   },
+   "exit": {
+    "value": {
+     "response": 0.24,
+     "dampingFraction": 1
+    },
+    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift (MotionTunables.springDefaults); cmux-tui/crates/cmux-motion reads this file at build time (build.rs)",
+    "unit": "s",
+    "use": "A pane closing: the neighbours that take its space grow over it with their dividers, one spring, critically damped (Lawrence 2026-10-18)"
+   },
+   "tabOpen": {
+    "value": {
+     "response": 0.1,
+     "dampingFraction": 1
+    },
+    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift (MotionTunables.springDefaults); cmux-tui/crates/cmux-motion reads this file at build time (build.rs)",
+    "unit": "s",
+    "use": "A new tab growing in at its final slot and the tabs right of it making room, on one spring (ui.animations.newTab, on by default; Lawrence 2026-10-14: the tab-open motion of 10-11, about 7 frames / 115 ms). Visible end 118 ms."
    }
   },
+  "tweens": {
+   "description": "Tab strip tweens (Chrome's model): a value goes from where it is on screen to its target over duration with the curve; a new target restarts the duration from the current value (no velocity carry), an unchanged target does not restart. easeOutQuad = 1-(1-t)^2 = cubic-bezier(1/3, 2/3, 2/3, 1) (gfx::Tween::EASE_OUT, Chromium ui/gfx/animation/tween.cc L72-73). Reduce Motion and speed off: 0 s; speed normal x1.5.",
+   "tabOpen": {
+    "value": {
+     "duration": 0.2,
+     "curve": "easeOutQuad"
+    },
+    "source": "Chromium main 6d3c98f4fe5 tab_container_impl.cc L1229-1256 (StartInsertTabAnimation), bounds_animator.h L205-207 (200 ms EASE_OUT); cmux-tui/crates/cmux-motion reads this file at build time (build.rs)",
+    "unit": "s",
+    "use": "A new tab starts at the previous tab's right edge minus the overlap (18 pt) with width 18 and tweens to its slot; the tabs right of it and the + button move on the same tween (ui.animations.newTab; Lawrence 2026-10-14: match Chrome)."
+   },
+   "tabClose": {
+    "value": {
+     "duration": 0.2,
+     "curve": "easeOutQuad"
+    },
+    "source": "Chromium main 6d3c98f4fe5 tab_container_impl.cc L1258-1306, L1348-1377 (StartRemoveTabAnimation)",
+    "unit": "s",
+    "use": "A closing tab shrinks to the overlap width (18 pt) with its left edge pinned while the others move to their slots (ui.animations.newTab); also the resize when mouse closing mode ends."
+   },
+   "tabMove": {
+    "value": {
+     "duration": 0.2,
+     "curve": "easeOutQuad"
+    },
+    "source": "Chromium main 6d3c98f4fe5 tab_container_impl.cc L1170-1175 (retarget), dragging_tabs_session.cc (reorder neighbours, release)",
+    "unit": "s",
+    "use": "Tabs moving to a new slot in a reorder, and a dragged tab settling into its slot on release. A gesture: not under ui.animations.newTab."
+   }
+  },
+  "tabStrip": {
+   "value": {
+    "compact": {
+     "maxWidth": 200,
+     "openStartWidth": 0,
+     "closeEndWidth": 0,
+     "minActiveWidth": 56,
+     "minInactiveWidth": 32,
+     "pinnedWidth": 64,
+     "reorderThreshold": 16,
+     "closingMode": {
+      "belowPad": 40,
+      "trailingPad": 60,
+      "exitDelay": 0.3
+     }
+    },
+    "comfortable": {
+     "maxWidth": 240,
+     "openStartWidth": 0,
+     "closeEndWidth": 0,
+     "minActiveWidth": 56,
+     "minInactiveWidth": 32,
+     "pinnedWidth": 64,
+     "reorderThreshold": 16,
+     "closingMode": {
+      "belowPad": 40,
+      "trailingPad": 60,
+      "exitDelay": 0.3
+     }
+    }
+   },
+   "unit": "pt (exitDelay s)",
+   "source": "Chromium main 6d3c98f4fe5 (hq-4e spec .cmux-scratch/chrome-tab-motion/SPEC.md): tab_container_impl.cc L1229-1306 (open from the previous right edge minus the 18 DIP overlap, close to the overlap width), L716-741 + L1418-1474 + mouse_watcher.cc L26 (closing mode), dragging_tabs_session.cc L89-94 (reorder threshold 16 DIP x width/256), tab_style.cc (min 56 active, 32 inactive, pinned 64). Lawrence 2026-10-14 \"keep 200\": max width stays 200 (threshold 16 x width/200). cmux-tui/crates/cmux-motion reads this at build time (TabStripGeometry); macOS reads it through cmux-app-ffi.",
+   "chromeOverlap": {
+    "value": 18,
+    "unit": "pt",
+    "use": "Chrome's tab overlap (TabStyle overlap, 18 DIP). Chrome opens a tab at width 18 at prev.right - 18 and closes it to that, which shows nothing because of the overlap. cmux tabs do not overlap, so openStartWidth and closeEndWidth are 0 (hq-4e 2026-10-15): open from prev.right at width 0, close to width 0 with the left edge pinned to prev.right."
+   },
+   "use": "Tab strip geometry for the Chrome motion. maxWidth is the default of appearance tabMaxWidth (metrics.tabMaxWidth; Lawrence 2026-10-14 \"keep 200\" = keep today's maxima, 200 compact and 240 comfortable, instead of Chrome's 256); a new tab starts openStartWidth wide at the previous tab's right edge minus openStartWidth; a closing tab ends closeEndWidth wide with its left edge pinned there; crowding shrinks every tab evenly from maxWidth to minActiveWidth, then the inactive ones to minInactiveWidth (then the strip scrolls); a dragged tab reorders once the pointer has moved reorderThreshold x (width of the tab at the target index) / the density's maxWidth (200 compact, 240 comfortable) since the last reorder; mouse closing mode ends belowPad under / trailingPad after the strip plus exitDelay. Min widths are Chrome's in both densities."
+  },
   "springModel": {
-   "value": "omega = 2*pi/response; stiffness = omega^2; damping = 2*dampingFraction*omega; semi-implicit Euler at 1/480 s (SwiftUI .spring(response:dampingFraction:) equivalent)",
-   "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/SpringParameters.swift:18-22,79-96 (SpringParameters.omega)"
+   "value": "omega = 2*pi/response; stiffness = omega^2; damping = 2*dampingFraction*omega (SwiftUI .spring(response:dampingFraction:), mass 1). Stepped in closed form from the current displacement AND velocity (exact damped harmonic oscillator, under-, critically or over-damped), so the path is identical at every frame rate; dt is capped at 0.1 s per frame. Retargeting keeps value and velocity. A spring rests (snaps to its target) once |value - target| < epsilon and |velocity| < epsilon * motion.settle.velocityFactor.",
+   "source": "cmux-tui/crates/cmux-motion/src/spring.rs (SpringValue::solve); Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/SpringParameters.swift (SpringValue.solve)"
+  },
+  "settle": {
+   "value": {
+    "geometry": 0.25,
+    "unit": 0.001,
+    "velocityFactor": 8
+   },
+   "source": "cmux-tui/crates/cmux-motion/src/spring.rs (GEOMETRY_EPSILON, UNIT_EPSILON, SpringValue::is_settled)",
+   "unit": "pt (geometry), fraction (unit)",
+   "use": "Rest rule: 0.25 pt is invisible after pixel snapping at 2x; 0..1 values (opacity) use 0.001"
+  },
+  "structural": {
+   "value": [
+    "move",
+    "appear",
+    "disappear",
+    "tabOpen"
+   ],
+   "source": "cmux-tui/crates/cmux-motion (MotionSpring::is_structural); Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionKinds.swift (MotionSpring.isStructural)",
+   "use": "Springs that take or give up room. They follow motion.bounce; release, scroll and overlay springs keep their own damping."
+  },
+  "bounce": {
+   "value": {
+    "none": 0,
+    "subtle": 0.15,
+    "default": "none"
+   },
+   "source": "ui.animations.bounce (cmux.json); cmux-tui/crates/cmux-motion (MotionBounce); Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift (MotionTunables.subtleBounce)",
+   "use": "SwiftUI bounce of the structural springs: none = critically damped (never passes the target), subtle = damping fraction 1 - 0.15 (overshoots about 1%)."
+  },
+  "kinds": {
+   "value": {
+    "paneAnimations": false,
+    "newTab": true,
+    "newWorkspace": false
+   },
+   "source": "ui.paneAnimations / ui.animations.newTab / ui.animations.newWorkspace (cmux.json); cmux-tui/crates/cmux-motion (AnimationSwitches, MotionKind::config_path)",
+   "use": "Per-kind switches under ui.animationSpeed, paneAnimations and newWorkspace off by default (Lawrence 2026-10-14: no big animations by default), newTab on (Lawrence 2026-10-14: keep the tab-open motion); off applies the change in one frame (no crossfade). paneAnimations: split grow-in, close, move, swap, zoom and unzoom, column reveal, screen switch, divider release. newTab: a tab growing into its slot. newWorkspace: a sidebar row opening."
   },
   "fades": {
    "hover": {
@@ -1255,6 +2315,12 @@
     "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift:31 (MotionTunables.fadeDefaults)",
     "unit": "s",
     "use": "Hover fills, hover-revealed buttons, divider hover"
+   },
+   "hoverOut": {
+    "value": 0,
+    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift (MotionTunables.fadeDefaults)",
+    "unit": "s",
+    "use": "Hover and pressed fills clearing: 0 is instant"
    },
    "focus": {
     "value": 0.1,
@@ -1303,24 +2369,70 @@
     "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift:39 (MotionTunables.fadeDefaults)",
     "unit": "s",
     "use": "Launch mark resolving on the glass of a window still connecting (Motion.revealLaunchMark); under 400 ms at normal speed"
+   },
+   "clickPulse": {
+    "value": 0.25,
+    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift (MotionTunables.fadeDefaults)",
+    "unit": "s",
+    "use": "Agent cursor click ripple grows and fades"
+   },
+   "cursorHide": {
+    "value": 0.3,
+    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift (MotionTunables.fadeDefaults)",
+    "unit": "s",
+    "use": "Agent cursor fades out once its agent goes idle"
+   },
+   "hibernateIcon": {
+    "value": 0.25,
+    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift (MotionTunables.fadeDefaults)",
+    "unit": "s",
+    "use": "Hibernated tab favicon shrinks into its dotted ring and grows back on wake (Chromium TabIcon, 250 ms ease-in)",
+    "curve": "easeIn"
+   },
+   "hibernateRing": {
+    "value": 1.0,
+    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift (MotionTunables.fadeDefaults)",
+    "unit": "s",
+    "use": "Hibernated tab dotted ring fades in (Chromium TabIcon discard animation, 1 s ease-in)",
+    "curve": "easeIn"
+   },
+   "pinLift": {
+    "value": 0.15,
+    "source": "cmux-tui/crates/cmux-motion (MotionFade): MessagesLab SidebarPinDragging.swift",
+    "unit": "s",
+    "use": "Home list pin drag: the tile lifting (linear)",
+    "curve": "linear"
+   },
+   "pinSettle": {
+    "value": 0.25,
+    "source": "cmux-tui/crates/cmux-motion (MotionFade): MessagesLab SidebarPinDragging.swift",
+    "unit": "s",
+    "use": "Home list pin drag: a dropped tile scaling back (linear)",
+    "curve": "linear"
+   },
+   "pinShrink": {
+    "value": 0.22,
+    "source": "cmux-tui/crates/cmux-motion (MotionFade): MessagesLab SidebarPinDragging.swift",
+    "unit": "s",
+    "use": "Home list pin drag: a ghost shrinking onto its row avatar"
    }
   },
   "loops": {
    "spinner": {
     "value": 0.9,
-    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift:49 (MotionTunables.loopDefaults)",
+    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift:76 (MotionTunables.loopDefaults)",
     "unit": "s",
     "use": "One spinner turn"
    },
    "pulse": {
     "value": 1.8,
-    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift:50 (MotionTunables.loopDefaults)",
+    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift:77 (MotionTunables.loopDefaults)",
     "unit": "s",
     "use": "Agent-waiting pulse cycle (easeInEaseOut)"
    },
    "flash": {
-    "value": 0.6,
-    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift:51 (MotionTunables.loopDefaults)",
+    "value": 1.0,
+    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift:78 (MotionTunables.loopDefaults)",
     "unit": "s",
     "use": "Pane attention flash, two blinks"
    }
@@ -1405,7 +2517,7 @@
    "value": {
     "retired": "every surface draws the one window background; the key is ignored"
    },
-   "source": "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+Retired.swift:9"
+   "source": "schemas/settings/retired-keys.json"
   },
   "appearance.accent": {
    "value": {
@@ -1497,7 +2609,7 @@
     "showOnSidebar": true
    },
    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/AttentionSettings.swift:17-35 (AttentionSettings); Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/Motion+Attention.swift:14-50 (Motion.attentionAnimation)",
-   "timing": "blink: blinkCount blinks over flash/2 x blinkCount (0.6 s for 2 at speed fast), then rests at 1 when persist. pulse: opacity 1 -> 0.3 (easeInEaseOut, period loop.pulse 1.8 s) for duration (3 s). steady: fadeIn. Reduce Motion: one fadeIn."
+   "timing": "blink: blinkCount blinks over flash/2 x blinkCount (1.0 s for 2 at speed fast), then rests at 1 when persist. pulse: opacity 1 -> 0.3 (easeInEaseOut, period loop.pulse 1.8 s) for duration (3 s). steady: fadeIn. Reduce Motion: one fadeIn."
   },
   "layout.paneBorder/paneBorderColor/paneBorderWidth/paneCornerRadius/panePadding": {
    "value": "pane chrome overrides",
@@ -2294,7 +3406,7 @@
     },
     "attention": {
      "ring": {
-      "value": "token:attention (or notification color), width 2; blink: 2 blinks over 0.6 s (loop.flash), then persists. See settings.notifications.attention.*.timing",
+      "value": "token:attention (or notification color), width 2; blink: 2 blinks over 1.0 s (loop.flash), then persists. See settings.notifications.attention.*.timing",
       "source": "Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Views/PaneOverlayView.swift:200-228 (PaneOverlayView.applyAttention); Packages/macOS/CmuxNext/Sources/CmuxNextDesign/AttentionSettings.swift:17-29 (AttentionSettings); Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/Motion+Attention.swift:32-40 (Motion.attentionAnimation)"
      }
     },

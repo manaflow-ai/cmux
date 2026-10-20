@@ -8,8 +8,8 @@
 
 use std::collections::{HashMap, HashSet};
 
-use cmux_tui_core::{BrowserStatus, Rect, SurfaceKind};
-use ghostty_vt::RenderState;
+use cmux_tui_core::{BrowserStatus, Rect, ShownProgramStatus, SurfaceKind};
+use ghostty_vt::{ProgramStatusState, RenderState};
 use ratatui::Frame;
 use ratatui::style::{Color, Modifier, Style};
 use unicode_width::UnicodeWidthStr;
@@ -38,6 +38,29 @@ fn border_style(app: &App, focused: bool) -> Style {
         app.chrome.border_fg
     };
     Style::default().fg(color)
+}
+
+/// The OSC 7501 mark after a tab's title: a working program's progress
+/// (`40%`, or `⋯` without one), `!` while it waits on the user, `✗` after it
+/// failed. A finished program shows nothing; its notification marks the tab.
+fn program_status_mark(status: ShownProgramStatus) -> Option<String> {
+    match status.state {
+        ProgramStatusState::Working => {
+            Some(status.progress.map_or_else(|| "⋯".to_owned(), |progress| format!("{progress}%")))
+        }
+        ProgramStatusState::Blocked => Some("!".to_owned()),
+        ProgramStatusState::Error => Some("✗".to_owned()),
+        _ => None,
+    }
+}
+
+/// Waiting and failed programs tint their tab like a warning or an error.
+fn program_status_color(theme: &Theme, status: ShownProgramStatus) -> Option<Color> {
+    match status.state {
+        ProgramStatusState::Blocked => Some(theme.notification_warning),
+        ProgramStatusState::Error => Some(theme.notification_error),
+        _ => None,
+    }
 }
 
 fn notification_color(theme: &Theme, notification: TabNotificationView) -> Color {
@@ -234,7 +257,7 @@ fn draw_tab_bar(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
     let Some(screen_view) = app.tree.active_screen() else { return };
     let Some(pane) = screen_view.pane(area.pane) else { return };
     let tab_cfg = app.config.tabs.clone();
-    let tabs: Vec<String> = pane
+    let tabs: Vec<(String, Option<String>)> = pane
         .tabs
         .iter()
         .enumerate()
@@ -243,7 +266,7 @@ fn draw_tab_bar(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
             if t.notification.is_some_and(|notification| notification.unread) {
                 label.push_str(" •");
             }
-            label
+            (label, t.program_status.and_then(program_status_mark))
         })
         .collect();
     let active_tab = pane.active_tab;
@@ -338,8 +361,12 @@ fn draw_tab_bar(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
     let min_w = tab_cfg.min_width as usize;
     let labels: Vec<String> = tabs
         .iter()
-        .map(|t| {
-            let label = format!(" {} ", truncate(t, 16));
+        .map(|(t, mark)| {
+            // The status mark follows the truncated title so it always shows.
+            let label = match mark {
+                Some(mark) => format!(" {} {mark} ", truncate(t, 16)),
+                None => format!(" {} ", truncate(t, 16)),
+            };
             // Pad to the configured minimum width, keeping the text centered-ish.
             let short = min_w.saturating_sub(label.width());
             format!("{}{}{}", " ".repeat(short / 2), label, " ".repeat(short - short / 2))
@@ -389,6 +416,10 @@ fn draw_tab_bar(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
             pane.tabs[i].notification.filter(|notification| notification.unread)
         {
             style = style.fg(notification_color(&theme, notification));
+        } else if let Some(color) =
+            pane.tabs[i].program_status.and_then(|status| program_status_color(&theme, status))
+        {
+            style = style.fg(color);
         }
         if tab_drag.is_some_and(|drag| pane.tabs[i].surface == drag.surface) {
             style = style.add_modifier(Modifier::DIM);

@@ -23,6 +23,16 @@ impl Mux {
         self.terminal_ends.lock().unwrap().clone()
     }
 
+    /// A terminal's typed end as its tab JSON shows it, with the cause of a
+    /// host loss: what its `surface-exited` events carry (cx-6so.19).
+    pub(super) fn exited_end_json(&self, public_id: &str, end: &TerminalEnd) -> Arc<Value> {
+        let causes = TreeDecorations {
+            terminal_loss_causes: self.terminal_loss_causes_snapshot(),
+            ..TreeDecorations::default()
+        };
+        Arc::new(causes.with_loss_cause(Some(public_id), end.wire_json()))
+    }
+
     /// Whether a terminal's host may run while it has no runtime here.
     pub(crate) fn terminal_is_pending(&self, terminal_id: &str) -> bool {
         self.pending_terminals.lock().unwrap().values().any(|(id, _)| id == terminal_id)

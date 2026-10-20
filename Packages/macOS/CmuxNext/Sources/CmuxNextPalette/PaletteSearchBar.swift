@@ -5,7 +5,7 @@ import CmuxNextDesign
 /// `PaletteScopeChipStyle`), the query field, the keyword hint ("Search
 /// Tabs ⇥") and a spinner while providers load.
 final class PaletteSearchBar: NSView, NSTextFieldDelegate {
-    let field = NSTextField()
+    let field = PaletteSearchField()
     var onQueryChange: ((String) -> Void)?
     /// Pops to level `index` (a click on a chip or the breadcrumb).
     var onPopTo: ((Int) -> Void)? {
@@ -36,7 +36,9 @@ final class PaletteSearchBar: NSView, NSTextFieldDelegate {
         field.cell?.isScrollable = true
         field.cell?.wraps = false
         field.delegate = self
+        // An AX client reads the field through its cell (`PaletteSearchFieldCell`), so both carry its name.
         field.setAccessibilityIdentifier("palette.search")
+        field.cell?.setAccessibilityIdentifier("palette.search")
         magnifier.image = PaletteText.symbol("magnifyingglass", size: Metrics.iconSize)
         breadcrumb.addSubview(breadcrumbLabel)
         breadcrumb.onClick = { [weak self] in
@@ -49,7 +51,7 @@ final class PaletteSearchBar: NSView, NSTextFieldDelegate {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
 
     /// `chips` are the levels above the root; `rootTitle` names the root
     /// in the breadcrumb.
@@ -73,7 +75,9 @@ final class PaletteSearchBar: NSView, NSTextFieldDelegate {
         breadcrumbLabel.stringValue = ([rootTitle] + scopeChips.map(\.title)).joined(separator: " › ")
         breadcrumb.themedToolTip = scopeChips.dropLast().last.map { PaletteStrings.backTo($0.title) } ?? PaletteStrings.backTo(rootTitle)
         keywordHint.update(title: hint)
-        field.setAccessibilityLabel(scopeChips.last.map { PaletteStrings.keywordHint($0.title) } ?? placeholder)
+        let name = scopeChips.last.map { PaletteStrings.keywordHint($0.title) } ?? placeholder
+        field.setAccessibilityLabel(name)
+        field.cell?.setAccessibilityLabel(name)
         field.font = Typography.search
         spinner.spin(isLoading)
         needsLayout = true

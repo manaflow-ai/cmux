@@ -3,11 +3,18 @@
 // It handles no Cmd or Ctrl chord: the host owns those (Cmd-A selects only inside the focused field,
 // Cmd-F is the page's find command, the native menu shows only Copy on a selection).
 import "./desktop.css";
+import { parseComputedColor } from "../../backdrop";
 import { installScrollers } from "../../scrollers";
 import { installTooltips } from "../../ui/titleTooltips";
+import { installImeKeyLayer } from "./imeKeys";
 
 /** The marker desktopLayer.test.ts and debug checks read: the layer ran in this document. */
 export const DESKTOP_LAYER_ATTRIBUTE = "data-cmux-desktop";
+
+/** On `<html>` while the page background (`--cmux-surface-background`, WebTheme.swift) is not
+ * opaque: the page sits on the window tint over the material and art (pageBase.css lifts the
+ * tertiary text tier there). */
+export const SEE_THROUGH_ATTRIBUTE = "data-cmux-see-through";
 
 /** The host call a drawn title bar's double-click makes (the window's title bar action). */
 export const TITLE_BAR_DOUBLE_CLICK = "cmux.app.window.title_bar_double_click";
@@ -42,6 +49,15 @@ export function installDesktopLayer(doc: Document = document): void {
   installTooltips(doc);
   const view = doc.defaultView;
   if (!view) return;
+  // IME-KEYS: keys an input method is using never reach page handlers (imeKeys.ts).
+  installImeKeyLayer(doc);
+  // HAIRLINE: rims and rings in whole device pixels at every scale and zoom (desktop.css).
+  updateHairline(doc);
+  // A page-zoom or uiScale change resizes the CSS viewport; it may not fire the resolution query.
+  view.addEventListener("resize", () => updateHairline(doc));
+  // SEE-THROUGH: follows the host's theme payload (window.cmuxTheme.apply fires `cmux-theme`).
+  updateSeeThrough(doc);
+  view.addEventListener("cmux-theme", () => updateSeeThrough(doc));
   // A drop never navigates the page: a page that takes drops handles them (and calls
   // preventDefault itself); everything else is refused here.
   view.addEventListener("dragover", (event) => {
@@ -52,6 +68,47 @@ export function installDesktopLayer(doc: Document = document): void {
   view.addEventListener("dblclick", (event) => {
     if (caller && isTitleBar(event.target)) void caller.call(TITLE_BAR_DOUBLE_CLICK, {}).catch(() => undefined);
   });
+}
+
+/** Per document: the ratio its hairline tokens were set for and the query watching for a change. */
+const hairlineWatches = new WeakMap<Document, { ratio: number; query?: MediaQueryList; listener: () => void }>();
+
+/** Sets `--cmux-hairline` (one device pixel) and `--cmux-hairline-ring` (the whole device pixels
+ * nearest one CSS pixel) on the root from devicePixelRatio, and again whenever it changes: a display
+ * move, the host's page zoom or uiScale. A rim thinner than a device pixel breaks at its rounded
+ * corners in macOS WebKit (desktop.css). */
+export function updateHairline(doc: Document = document): void {
+  const view = doc.defaultView;
+  if (!view) return;
+  const ratio = view.devicePixelRatio > 0 ? view.devicePixelRatio : 1;
+  const watch = hairlineWatches.get(doc);
+  if (watch?.ratio === ratio) return;
+  watch?.query?.removeEventListener("change", watch.listener);
+  const root = doc.documentElement.style;
+  root.setProperty("--cmux-hairline", `${1 / ratio}px`);
+  root.setProperty("--cmux-hairline-ring", `${Math.max(1, Math.round(ratio)) / ratio}px`);
+  const listener = () => updateHairline(doc);
+  const query = typeof view.matchMedia === "function" ? view.matchMedia(`(resolution: ${ratio}dppx)`) : undefined;
+  query?.addEventListener("change", listener);
+  hairlineWatches.set(doc, { ratio, query, listener });
+}
+
+/** Sets or clears ``SEE_THROUGH_ATTRIBUTE`` from the resolved page background. Without a host theme
+ * (the plain-browser dev loop) the page is on the browser's canvas, not art: the attribute stays off. */
+export function updateSeeThrough(doc: Document = document): void {
+  const root = doc.documentElement;
+  const view = doc.defaultView;
+  if (!view || view.getComputedStyle(root).getPropertyValue("--cmux-surface-background").trim() === "") {
+    root.removeAttribute(SEE_THROUGH_ATTRIBUTE);
+    return;
+  }
+  const probe = doc.createElement("span");
+  probe.style.cssText =
+    "position:absolute;width:0;height:0;visibility:hidden;pointer-events:none;background-color:var(--cmux-surface-background)";
+  root.append(probe);
+  const color = parseComputedColor(view.getComputedStyle(probe).backgroundColor);
+  probe.remove();
+  root.toggleAttribute(SEE_THROUGH_ATTRIBUTE, color !== null && color.a < 1);
 }
 
 if (typeof document !== "undefined") installDesktopLayer();

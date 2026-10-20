@@ -46,7 +46,43 @@ check_cla_guard_runner() {
   # needs the guard step that also admits Blacksmith scale-set VM names.
   local hosted_guard ephemeral_guard
   hosted_guard="        if: runner.environment != 'github-hosted'"
-  ephemeral_guard="        if: (runner.environment != 'github-hosted' && !startsWith(runner.name, 'blacksmith-2vcpu-ubuntu-2404-Runner-') && !startsWith(runner.name, 'blacksmith-4vcpu-ubuntu-2404-Runner-')) || contains(runner.name, 'glaeda')"
+  ephemeral_guard="        if: (runner.environment != 'github-hosted' && !startsWith(runner.name, 'blacksmith-2vcpu-ubuntu-2404-') && !startsWith(runner.name, 'blacksmith-4vcpu-ubuntu-2404-')) || contains(runner.name, 'glaeda')"
+
+  # Blacksmith names a VM '<label>-<id>' (blacksmith-4vcpu-ubuntu-2404-56ere4cqq7ryjqvc;
+  # before October 2026 '<label>-Runner-<hex>'). Read the prefixes and the
+  # owned-host marker back out of the guard and check that it admits those
+  # names and refuses owned glaeda hosts.
+  local prefixes marker case_line expected name admitted prefix
+  prefixes="$(grep -oE "startsWith\(runner\.name, '[^']+'\)" <<<"$ephemeral_guard" | sed -E "s/.*'([^']+)'.*/\1/")"
+  marker="$(sed -nE "s/.*contains\(runner\.name, '([^']+)'\).*/\1/p" <<<"$ephemeral_guard")"
+  if [[ -z "$prefixes" || -z "$marker" ]]; then
+    echo "FAIL: CLA runner guard must name Blacksmith prefixes and an owned-host marker"
+    exit 1
+  fi
+  for case_line in \
+    'admit blacksmith-4vcpu-ubuntu-2404-56ere4cqq7ryjqvc' \
+    'admit blacksmith-2vcpu-ubuntu-2404-56ere4cqq7ryjqvc' \
+    'admit blacksmith-4vcpu-ubuntu-2404-Runner-337101a82d' \
+    'refuse cmuxs-mac-mini-5-glaeda-1' \
+    'refuse blacksmith-4vcpu-ubuntu-2404-glaeda' \
+    'refuse blacksmith-8vcpu-ubuntu-2404-56ere4cqq7ryjqvc' \
+    'refuse blacksmith-4vcpu-ubuntu-2404'; do
+    expected="${case_line%% *}"
+    name="${case_line#* }"
+    admitted=refuse
+    while IFS= read -r prefix; do
+      if [[ "$name" == "$prefix"* ]]; then
+        admitted=admit
+      fi
+    done <<<"$prefixes"
+    if [[ "$name" == *"$marker"* ]]; then
+      admitted=refuse
+    fi
+    if [[ "$admitted" != "$expected" ]]; then
+      echo "FAIL: CLA runner guard must $expected self-hosted runner $name"
+      exit 1
+    fi
+  done
   if [[ "$runs_on" == "$hosted" ]] && ! grep -Fqx "$hosted_guard" "$CLA_GUARD_FILE" && ! grep -Fqx "$ephemeral_guard" "$CLA_GUARD_FILE"; then
     echo "FAIL: cla-policy-guard.yml must refuse a runner that is not GitHub-hosted"
     exit 1
@@ -283,16 +319,23 @@ check_signing_intermediate_imports() {
 
   for file in "$ROOT_DIR/.github/workflows/nightly.yml" "$ROOT_DIR/.github/workflows/release.yml"; do
     if ! awk '
-      /- name: Import signing cert/ { in_step=1; next }
+      /- name: Import signing cert$/ { in_step=1; next }
       in_step && /^[[:space:]]*- name:/ { in_step=0 }
-      in_step && /security import \/tmp\/cert\.p12/ { saw_cert_import=1 }
-      in_step && /\.\/scripts\/import-apple-developer-id-intermediates\.sh build\.keychain/ { saw_intermediates=1 }
-      END { exit !(saw_cert_import && saw_intermediates) }
+      in_step && /\.\/scripts\/ci\/signing-keychain\.sh create/ { saw_create=1 }
+      END { exit !saw_create }
     ' "$file"; then
-      echo "FAIL: $(basename "$file") must import Apple Developer ID intermediates into build.keychain after the signing certificate"
+      echo "FAIL: $(basename "$file") must import the signing certificate through scripts/ci/signing-keychain.sh create"
       exit 1
     fi
   done
+  if ! awk '
+    /"\$SECURITY_TOOL" import "\$certificate"/ { saw_cert_import=NR }
+    /import-apple-developer-id-intermediates\.sh" "\$name"/ { saw_intermediates=NR }
+    END { exit !(saw_cert_import && saw_intermediates && saw_cert_import < saw_intermediates) }
+  ' "$ROOT_DIR/scripts/ci/signing-keychain.sh"; then
+    echo "FAIL: scripts/ci/signing-keychain.sh must import Apple Developer ID intermediates after the signing certificate"
+    exit 1
+  fi
 
   echo "PASS: nightly and release signing import Apple Developer ID intermediates"
 }
@@ -570,11 +613,14 @@ check_dmg_signing_uses_build_keychain() {
   fi
   for needle in \
     'CODESIGN_TOOL="${CMUX_CODESIGN_TOOL:-/usr/bin/codesign}"' \
-    '"$CREATE_DMG_TOOL" --no-code-sign "$APP_PATH" "$DMG_TMP_DIR"' \
+    '"$CREATE_DMG_TOOL" --no-code-sign "$app" "$work"' \
     '"$CODESIGN_TOOL" --force --timestamp --keychain build.keychain' \
     '--sign "$APPLE_SIGNING_IDENTITY"' \
-    '"$CODESIGN_TOOL" --verify --verbose=2 "$DMG_RELEASE"' \
-    '"$XCRUN_TOOL" notarytool submit "$DMG_RELEASE"'; do
+    '"$CODESIGN_TOOL" --verify --verbose=2 "$out"' \
+    'package_signed_dmg "$APP_PATH" "$DMG_RELEASE" "$DMG_TMP_DIR"' \
+    'package_signed_dmg "$APP_PATH" "$FINAL_DMG" "$restaple_dir/work"' \
+    '"$XCRUN_TOOL" notarytool submit "$DMG_RELEASE"' \
+    '"$XCRUN_TOOL" notarytool submit "$FINAL_DMG"'; do
     if ! grep -Fq -- "$needle" "$nightly_helper"; then
       echo "FAIL: nightly notarization helper must sign the DMG through build.keychain before submission: $needle"
       exit 1
@@ -968,6 +1014,10 @@ EOF
 }
 
 check_no_github_hosted_runners() {
+  # Nightly workflows (*nightly*.yml, *notarization*.yml) may name these
+  # GitHub-hosted images: they never route to Blacksmith (user decision
+  # 2026-10-19, tests/test_ci_nightly_off_blacksmith.py).
+  local nightly_hosted="(^|[^A-Za-z0-9_-])'?(ubuntu-24[.]04(-arm)?|macos-(15|26)|windows-2025)'?([^A-Za-z0-9_.-]|$)"
   # A GitHub billing block or a GitHub-hosted outage must never stop CI, so no
   # job in manaflow-ai may select a GitHub-hosted runner (ubuntu-*, macos-*,
   # windows-*). Jobs run on Blacksmith labels, the CI_TRUSTED_RUNNER selector
@@ -995,12 +1045,22 @@ check_no_github_hosted_runners() {
     "tui-publish-npm.yml:    runs-on: ubuntu-latest # github-hosted-required: npm provenance needs a github-hosted runner"
     "cmux-tui-nightly.yml:    runs-on: ubuntu-latest # github-hosted-required: npm provenance needs a github-hosted runner"
     "relay-publish-npm.yml:    runs-on: ubuntu-latest # github-hosted-required: npm provenance needs a github-hosted runner"
+    "coderouter-publish-npm.yml:    runs-on: ubuntu-latest # github-hosted-required: npm provenance needs a GitHub-hosted runner"
+    # PyPI trusted publishing accepts only GitHub-hosted runners too.
+    "coderouter-publish-pypi.yml:    runs-on: ubuntu-latest # github-hosted-required: PyPI trusted publishing needs a GitHub-hosted runner"
     "cmux-tui-build-package.yml:    runs-on: ubuntu-latest # github-hosted-required: artifact attestations need GitHub OIDC"
+    # A 3-second advisory lint (a159); the free hosted runner, not Blacksmith.
+    "cmux-next-web.yml:    runs-on: ubuntu-24.04 # github-hosted-required: small advisory lint on the free hosted runner"
     # Detects a Blacksmith outage, so it must run where Blacksmith is not.
     "ci-cloud-overflow-probe.yml:    runs-on: ubuntu-24.04 # github-hosted-required: must run while Blacksmith starts nothing"
     # validate-cla-policy.rb pins these to ubuntu-24.04 until #17453 lands.
     "cla.yml:    runs-on: ubuntu-24.04 # github-hosted-required: write token on fork pull requests"
     "cla-policy-guard.yml:    runs-on: ubuntu-24.04"
+    # pull_request_target with a write token (test_ci_fork_runner_routing).
+    "cmux-next-pr-merge-tree.yml:    runs-on: ubuntu-24.04 # github-hosted-required: pull_request_target write token"
+    # Registry provenance and trusted publishing accept only GitHub-hosted runners.
+    "coderouter-publish-npm.yml:    runs-on: ubuntu-latest # github-hosted-required: npm provenance needs a GitHub-hosted runner"
+    "coderouter-publish-pypi.yml:    runs-on: ubuntu-latest # github-hosted-required: PyPI trusted publishing needs a GitHub-hosted runner"
     # Dispatch-only Intel compatibility leg; Blacksmith has no Intel macOS image.
     # GitHub retired macos-14, so it is no longer an exception (#17068).
     "ci-macos-compat.yml:          - os: macos-15-intel"
@@ -1035,6 +1095,12 @@ check_no_github_hosted_runners() {
     file="${line%%:*}"
     content="${line#*:*:}"
     [[ "$content" =~ ^[[:space:]]*# ]] && continue
+    # Nightly workflows never run on Blacksmith (user decision 2026-10-19,
+    # tests/test_ci_nightly_off_blacksmith.py): compiles stay on the trusted
+    # minis, everything else takes an ephemeral GitHub-hosted image.
+    if [[ "$(basename "$file")" == *nightly*.yml || "$(basename "$file")" == *notarization*.yml ]]; then
+      content="$(printf '%s\n' "$content" | sed -E "s/$nightly_hosted//g")"
+    fi
     # Fork-only matrix rows: read only through the fork branch above.
     [[ "$content" =~ (^|[^A-Za-z_])\"?hosted_runner\"?:[[:space:]] ]] && continue
     stripped="$(printf '%s\n' "$content" | sed -E "s/$fork_branch//g; s/$trusted_list//g")"
@@ -1066,6 +1132,10 @@ check_no_github_hosted_runners() {
 }
 
 check_no_self_hosted_fleet_runners() {
+  # Nightly workflows (*nightly*.yml, *notarization*.yml) may name these
+  # GitHub-hosted images: they never route to Blacksmith (user decision
+  # 2026-10-19, tests/test_ci_nightly_off_blacksmith.py).
+  local nightly_hosted="(^|[^A-Za-z0-9_-])'?(ubuntu-24[.]04(-arm)?|macos-(15|26)|windows-2025)'?([^A-Za-z0-9_.-]|$)"
   # Required jobs route through repository variables. Forbid hardcoded fleet
   # labels so paid-provider fallback remains a configuration change and a
   # physical host label cannot bypass the routing rules. tart-* labels (the
@@ -1158,6 +1228,19 @@ check_no_self_hosted_fleet_runners() {
     exit 1
   fi
 
+  # This capability label proves the opt-in NEXT hook wrapper was installed.
+  # Permit only its complete trusted-pool/runner tuple, only in nightly.yml;
+  # the bare capability, generic fleet labels and main selector stay guarded.
+  local next_trusted_selector="fromJSON(format('[\"{0}\", \"{1}\", \"glaeda-trusted-next-nightly\"]', vars.CI_NIGHTLY_NEXT_TRUSTED_POOL, vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER))"
+  local next_repository_guard="github.repository == 'manaflow-ai/cmux' && "
+  # cmux-next's GUI suites and its autofix bots keep the std GUI minis (#18589,
+  # #19587, #21658) behind CI_PR_POOL_OWNED, the owned-pool switch; with it off,
+  # or on a fork pull request (its branch comes first), they take Blacksmith.
+  # pr_runner_pool.py has no GUI pool, so only these exact selectors, in only
+  # these workflows, may name glaeda-gui-std-xcode-26.6.
+  local gui_owned_selector="vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('[\"pull_request\",\"push\",\"workflow_dispatch\"]'), github.event_name) && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && 'glaeda-gui-std-xcode-26.6'"
+  local gui_autofix_selector="vars.CI_PR_POOL_OWNED == '1' && 'glaeda-gui-std-xcode-26.6'"
+  local gui_fork_pr_branch="github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || "
   local hits="" line content content_without_allowed
   # Inspect runner-selection lines only: runs-on:, matrix `os:`, and scalar list
   # items (`  - <label>`, which covers dispatch runner dropdowns and multi-line
@@ -1167,6 +1250,24 @@ check_no_self_hosted_fleet_runners() {
   # never match the bare `cmux` label.
   while IFS= read -r line; do
     content="${line#*:*:}"
+    if [[ "$(basename "${line%%:*}")" == *nightly*.yml || "$(basename "${line%%:*}")" == *notarization*.yml ]]; then
+      content="$(printf '%s\n' "$content" | sed -E "s/$nightly_hosted//g")"
+    fi
+    if [[ "${line%%:*}" == "$ROOT_DIR/.github/workflows/nightly.yml" ]]; then
+      content="${content/"$next_trusted_selector"/}"
+      # Repository identity is a trust predicate, never a runner label.
+      content="${content/"$next_repository_guard"/}"
+    fi
+    # A pull request workflow keeps the exemption only while its fork pull
+    # request branch comes first on the line; base autofix runs on push only.
+    case "${line%%:*}" in
+      "$ROOT_DIR/.github/workflows/cmux-next.yml")
+        if [[ "${content%%"$gui_owned_selector"*}" == *"$gui_fork_pr_branch"* ]]; then content="${content//"$gui_owned_selector"/}"; fi ;;
+      "$ROOT_DIR/.github/workflows/cmux-next-pr-autofix.yml")
+        if [[ "${content%%"$gui_autofix_selector"*}" == *"$gui_fork_pr_branch"* ]]; then content="${content//"$gui_autofix_selector"/}"; fi ;;
+      "$ROOT_DIR/.github/workflows/cmux-next-base-autofix.yml")
+        content="${content//"$gui_autofix_selector"/}" ;;
+    esac
     content_without_allowed="$(printf '%s\n' "$content" | sed -E "s/$fork_branch//g; s/($allowed)//g")"
     # GitHub matches runner labels without regard to case, so a fleet label
     # is refused in any case; the bare self-hosted labels stay case-sensitive
@@ -1521,6 +1622,24 @@ CASES
         echo "FAIL: $(basename "$file") names pull_request in a form this guard cannot read; write on: as a block mapping, a list or a single event"
         failed=1
       fi
+      continue
+    fi
+    # cmux-next-batch.yml never cancels on purpose (a cancelled debounce reads
+    # red on every pull request); its macOS jobs (regen, build) start only from
+    # workflow_dispatch, so no pull request run holds a macOS runner. Exempt
+    # only while every macOS job there keeps that dispatch-only gate.
+    if [ "$(basename "$file")" = "cmux-next-batch.yml" ] && awk '
+      /^  [A-Za-z0-9_-]+:[[:space:]]*$/ { job=$1; next }
+      /^    if:/ { gate[job]=$0; next }
+      /^    runs-on:.*(macos|MACOS_RUNNER)/ { mac[job]=1 }
+      END {
+        for (j in mac) {
+          if (gate[j] !~ /^    if: \$\{\{ github\.event_name == .workflow_dispatch. && / || gate[j] ~ /\|\|/) exit 1
+          n++
+        }
+        exit n == 0
+      }
+    ' "$file"; then
       continue
     fi
     if ! pr_concurrency_cancels_superseded_runs "$file"; then

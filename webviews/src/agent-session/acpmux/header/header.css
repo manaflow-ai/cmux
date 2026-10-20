@@ -1,5 +1,7 @@
 /* The chat header's tools (header/ChatHeaderTools.tsx): 26px small-radius buttons on the summary button's hover, press and focus steps, and the "..." menu (src/ui Menu) on the menu surface. */
 .acpmux-header-tools{flex:none;display:flex;align-items:center;gap:2px}
+.acpmux-header-tool-group{display:flex;align-items:center;gap:2px;min-width:0}
+.acpmux-header-separator{flex:none;width:.5px;height:16px;margin:0 3px;border:0;background:var(--agent-border);}
 .acpmux-header-tool{flex:none;display:inline-flex;align-items:center;justify-content:center;height:26px;padding:0;border:0;border-radius:6px;background:none;color:inherit;font:inherit;cursor:default;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
 .acpmux-header-tool{width:26px}
 .acpmux-header-tool:disabled{color:var(--agent-muted)}
@@ -9,7 +11,7 @@
 /* On: a toggle whose panel is open (aria-pressed, cx-00n1), tinted like the composer's Plan toggle. */
 .acpmux-header-tool[aria-pressed=true]{background:color-mix(in srgb,var(--agent-accent,var(--agent-text)) 16%,transparent);color:var(--agent-accent,var(--agent-text))}
 .acpmux-header-tool[aria-pressed=true]:not(:disabled):hover{background:color-mix(in srgb,var(--agent-accent,var(--agent-text)) 22%,transparent)}
-.ui-popup.acpmux-chat-menu-popover{width:256px;max-height:min(540px,70vh);overflow:auto;padding:var(--ui-popup-padding);box-sizing:border-box;border:0;border-radius:var(--ui-popup-radius);background:var(--surface-popup);box-shadow:inset 0 0 0 .5px var(--acpmux-composer-edge),var(--ui-popup-shadow);transform-origin:var(--transform-origin);color:var(--agent-text);font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;font-size:var(--text-control);line-height:var(--text-control--line-height);-webkit-user-select:none;user-select:none;cursor:default;outline:none}
+.ui-popup.acpmux-chat-menu-popover{width:256px;max-height:var(--available-height,min(540px,70vh));overflow:auto;padding:var(--ui-popup-padding);box-sizing:border-box;border:0;border-radius:var(--ui-popup-radius);background:var(--surface-popup);box-shadow:var(--acpmux-popup-elevation);transform-origin:var(--transform-origin);color:var(--agent-text);font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;font-size:var(--text-control);line-height:var(--text-control--line-height);-webkit-user-select:none;user-select:none;cursor:default;outline:none}
 .ui-menu-item.acpmux-chat-menu-item{display:flex;align-items:center;gap:8px;width:100%;min-height:var(--ui-row-height);height:var(--ui-row-height);padding:0 var(--ui-row-padding-inline);box-sizing:border-box;border-radius:var(--ui-row-radius);color:inherit;cursor:default;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
 .acpmux-chat-menu-item>svg{flex:none;color:var(--agent-muted)}
 .ui-menu-item.acpmux-chat-menu-item[data-highlighted],.ui-menu-item.acpmux-chat-menu-item[data-popup-open]{background:var(--acpmux-menu-hover);outline:none}
@@ -68,7 +70,7 @@
 .acpmux-worktree-apply button.acpmux-worktree-remove-discard{color:var(--agent-danger)}
 /* The chip's status (cx-ncc.77.1): the title linking the pull request, its state and review, then each
    check with a dot by its outcome, failing first. Compact rows, the summary popover's surface. */
-.acpmux-pr-status{width:300px;max-height:min(480px,70vh);overflow:auto;padding:8px 6px 6px;box-sizing:border-box;border:0;border-radius:var(--ui-popup-radius);background:var(--surface-popup);box-shadow:inset 0 0 0 .5px var(--acpmux-composer-edge),var(--ui-popup-shadow);transform-origin:var(--transform-origin);color:var(--agent-text);font-size:var(--text-control);line-height:18px;outline:none}
+.acpmux-pr-status{width:300px;max-height:min(480px,70vh);overflow:auto;padding:8px 6px 6px;box-sizing:border-box;border:0;border-radius:var(--ui-popup-radius);background:var(--surface-popup);box-shadow:var(--acpmux-popup-elevation);transform-origin:var(--transform-origin);color:var(--agent-text);font-size:var(--text-control);line-height:18px;outline:none}
 @media (prefers-reduced-motion:no-preference){.acpmux-pr-status{animation:ui-popup-open var(--ui-popup-open) ease-out}}
 .acpmux-pr-title{display:block;padding:0 6px;color:var(--agent-text);font-weight:600;text-decoration:none;overflow-wrap:anywhere}
 .acpmux-pr-title:hover{text-decoration:underline}
@@ -99,3 +101,10 @@
 .acpmux-pr-merge output{color:var(--agent-muted)}
 .acpmux-pr-merge output[role=alert]{color:var(--agent-danger)}
 .acpmux-pr-merge[data-step=merged] output{color:var(--agent-ansi-5,#a371f7)}
+/* One row on top (header/tabRow.ts, the chrome.tabs.rowTools Debug setting): the App draws the pane's
+   tabs over the header's left part, so the header is the tab row's height, takes no clicks there and
+   shows only its tools, left of the pane's own "…"; the transcript fades out under the row. */
+.acpmux-header[data-tab-row]{position:relative;z-index:var(--layer-sticky);flex:0 0 var(--acpmux-tab-row-height);height:var(--acpmux-tab-row-height);padding:0 var(--acpmux-tab-row-inset) 0 0;background:transparent;pointer-events:none}
+.acpmux-header[data-tab-row] .acpmux-header-status-slot{visibility:hidden}
+.acpmux-header[data-tab-row] .acpmux-handoff-header-tools{pointer-events:auto}
+.acpmux-header[data-tab-row]::after{content:"";position:absolute;inset:100% 0 auto;height:12px;background:linear-gradient(var(--agent-page-bg),transparent);pointer-events:none}

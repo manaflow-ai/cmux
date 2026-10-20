@@ -13,6 +13,7 @@ use ghostty_vt::{
 };
 use serde::{Deserialize, Serialize};
 
+pub use crate::program_status::ProgramStatusSnapshot;
 use crate::surface::{
     CLEAR_HISTORY_FALLBACK_UNREPRESENTABLE_ERROR, CLEAR_HISTORY_FALLBACK_WRITE_TIMEOUT_ERROR,
     CLEAR_HISTORY_PRESERVATION_ERROR, CLEAR_HISTORY_STREAM_TIMEOUT_ERROR,
@@ -21,6 +22,7 @@ use crate::surface::{
     TerminalStreamProgress, apply_clear_history_transition, replace_ghostty_cursor_defaults,
     write_clear_history_fallback,
 };
+pub use crate::terminal_activity::ShellActivitySnapshot;
 use crate::terminal_host::{
     CapabilityRights, CapabilityStore, CapabilityToken, ClientHello, ClientRole, HostBootstrap,
     HostHello, HostIncarnation, HostReady, TerminalId,
@@ -29,13 +31,14 @@ use crate::terminal_host_protocol::{
     CLEAR_HISTORY_ACK_AMBIGUOUS, CLEAR_HISTORY_ACK_FALLBACK_UNREPRESENTABLE,
     CLEAR_HISTORY_ACK_FALLBACK_WRITE_TIMEOUT, CLEAR_HISTORY_ACK_KNOWN_NOT_DELIVERED,
     CLEAR_HISTORY_ACK_OK, CLEAR_HISTORY_ACK_PRESERVATION_FAILED, CLEAR_HISTORY_ACK_STREAM_TIMEOUT,
-    FLAG_COLORS_FOLLOW, FLAG_LAUNCH_ACTIVATION_REQUIRED, FLAG_PTY_CUSTODY, FLAG_SMART_RENDERER,
-    FLAG_TERMINAL_METADATA, FLAG_VIEWER_SIZE_ACKS, FLAG_VIEWER_SIZE_PRIORITY, Frame,
-    HostLaunchFailure, HostLaunchFailureKind, KITTY_IMAGE_ALIAS_COUNT_LEN,
-    KITTY_IMAGE_ALIAS_ENCODED_LEN, LAUNCH_ACTIVATION_PROTOCOL_VERSION, MAX_FRAME_PAYLOAD,
-    MAX_KITTY_IMAGE_ALIASES, MessageKind, PROTOCOL_VERSION, RESIZE_ACK_CANONICAL_CHANGED,
-    TerminalExit, decode_host_launch_failure, decode_terminal_exit, encode_host_launch_failure,
-    encode_terminal_exit, read_frame, wait_for_native_child_status_with_reap_result, write_frame,
+    FLAG_COLORS_FOLLOW, FLAG_LAUNCH_ACTIVATION_REQUIRED, FLAG_PROGRAM_STATUS, FLAG_PTY_CUSTODY,
+    FLAG_SHELL_ACTIVITY, FLAG_SMART_RENDERER, FLAG_TERMINAL_METADATA, FLAG_VIEWER_SIZE_ACKS,
+    FLAG_VIEWER_SIZE_PRIORITY, Frame, HostLaunchFailure, HostLaunchFailureKind,
+    KITTY_IMAGE_ALIAS_COUNT_LEN, KITTY_IMAGE_ALIAS_ENCODED_LEN, LAUNCH_ACTIVATION_PROTOCOL_VERSION,
+    MAX_FRAME_PAYLOAD, MAX_KITTY_IMAGE_ALIASES, MessageKind, PROTOCOL_VERSION,
+    RESIZE_ACK_CANONICAL_CHANGED, TerminalExit, decode_host_launch_failure, decode_terminal_exit,
+    encode_host_launch_failure, encode_terminal_exit, read_frame,
+    wait_for_native_child_status_with_reap_result, write_frame,
 };
 
 mod grant_failure;
@@ -183,6 +186,22 @@ pub struct TerminalHostRecord {
     /// belong to hosts that reject a ClientHello carrying `FLAG_PTY_CUSTODY`.
     #[serde(default)]
     pub supports_pty_custody: bool,
+    /// Additive handshake capability (cx-6so.36.6). Missing/false records
+    /// belong to hosts that keep no program status records and reject a
+    /// ClientHello carrying `FLAG_PROGRAM_STATUS`.
+    #[serde(default)]
+    pub supports_program_status: bool,
+    /// Additive handshake capability (cx-6so.59). Missing/false records
+    /// belong to hosts that hand over no OSC 133 shell state and reject a
+    /// ClientHello carrying `FLAG_SHELL_ACTIVITY`.
+    #[serde(default)]
+    pub supports_shell_activity: bool,
+    /// The orphan grace this host runs with, in seconds (cx-t2sqm D1): it
+    /// ends its terminal after this long with no client. `None` (normal
+    /// installs, and hosts from before this field): it never does; only a
+    /// close ends the terminal. Informational; no daemon decides on it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub orphan_grace_secs: Option<u64>,
 }
 
 impl std::fmt::Debug for TerminalHostRecord {
@@ -204,6 +223,9 @@ impl std::fmt::Debug for TerminalHostRecord {
             .field("supports_clipboard_read", &self.supports_clipboard_read)
             .field("supports_viewer_size_priority", &self.supports_viewer_size_priority)
             .field("supports_pty_custody", &self.supports_pty_custody)
+            .field("supports_program_status", &self.supports_program_status)
+            .field("supports_shell_activity", &self.supports_shell_activity)
+            .field("orphan_grace_secs", &self.orphan_grace_secs)
             .finish()
     }
 }
@@ -263,6 +285,12 @@ pub struct HostSnapshot {
     /// boundary. It is sent only when the client and host negotiate the
     /// `FLAG_TERMINAL_METADATA` capability.
     pub osc_progress: String,
+    /// The host's OSC 7501 records at the same boundary; `None` unless the
+    /// client and host negotiate `FLAG_PROGRAM_STATUS`.
+    pub program_status: Option<ProgramStatusSnapshot>,
+    /// The host's OSC 133 shell state at the same boundary; `None` unless
+    /// the client and host negotiate `FLAG_SHELL_ACTIVITY`.
+    pub shell_activity: Option<ShellActivitySnapshot>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -604,6 +632,7 @@ mod unix {
     #[cfg(test)]
     use super::shared::host_parser::{ParserSignals, run_guarded_host_parser, run_host_parser};
     use super::shared::host_start::start_host_runtime;
+    pub(crate) use adopt_launch::launch_terminal_host_adopting_with_program_status;
     pub use adopt_launch::{TerminalHostAdoption, launch_terminal_host_adopting};
     pub use host_session::enter_terminal_host_process;
     pub(crate) use host_session::{OWNER_FLAG, host_owner_args, host_session_env};
@@ -673,17 +702,23 @@ mod unix {
         bootstrapped: &crate::terminal_host::BootstrappedHost,
     ) -> anyhow::Result<Arc<HostShared>> {
         let cell_pixels = (launch.cell_pixels.0.max(1), launch.cell_pixels.1.max(1));
-        let initial_pty_size = pty_size(launch.cols, launch.rows, cell_pixels)?;
+        let initial_pty_size = pty_size(launch.cols, launch.rows, cell_pixels);
         let pty = cmux_pty::open(initial_pty_size)?;
         crate::debug_spans::mark("host.pty_opened");
-        let mut command = PtyCommand::new(&launch.command[0]);
-        command.args(launch.command[1..].iter().cloned());
+        // A frontend's shell starts through login(1) (`login_shell`); the
+        // recorded launch command stays the shell's.
+        let login = crate::login_shell::wrap(&launch.command, &launch.extra_env);
+        let argv = login.as_deref().unwrap_or(&launch.command);
+        let mut command = PtyCommand::new(&argv[0]);
+        command.args(argv[1..].iter().cloned());
         command.env("TERM", &launch.term);
         // Terminal-host children get the same truecolor guarantee as directly
         // spawned surfaces (see Surface spawn in surface.rs); extra_env wins.
         command.env("COLORTERM", "truecolor");
         for (key, value) in &launch.extra_env {
-            command.env(key, value);
+            if !crate::login_shell::is_marker(key) {
+                command.env(key, value);
+            }
         }
         if let Some(cwd) = launch.cwd.as_deref() {
             command.cwd(cwd);
@@ -692,7 +727,7 @@ mod unix {
         crate::debug_spans::mark("host.child_spawned");
         let process_group_leader = master.process_group_leader();
         let child = HostChild::Spawned(SpawnedPtyChild::new(child, process_group_leader));
-        start_host_runtime(launch, bootstrapped, master, child, &launch.seed)
+        start_host_runtime(launch, bootstrapped, master, child, &launch.seed, None)
     }
 
     #[cfg(test)]
@@ -726,6 +761,7 @@ pub use shared::codec::{decode_host_snapshot_payload, encode_host_snapshot_paylo
 pub(crate) use shared::control_responses::{ControlResponses, DeferredCellPixelResolution};
 #[cfg(any(unix, windows))]
 pub use shared::host_serve::{serve_terminal_host_process, serve_terminal_host_stdio};
+pub use shared::host_state::set_dev_host_orphan_grace;
 #[cfg(any(unix, windows))]
 pub(crate) use shared::records::live_successor_record;
 #[cfg(unix)]
@@ -753,6 +789,8 @@ pub(crate) use sys::{
 };
 #[cfg(all(unix, test))]
 pub(crate) use unix::input_ack_surface_fixture;
+#[cfg(unix)]
+pub(crate) use unix::launch_terminal_host_adopting_with_program_status;
 #[cfg(unix)]
 pub(crate) use unix::sweep_released_pty_locks;
 #[cfg(unix)]

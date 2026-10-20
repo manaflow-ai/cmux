@@ -14,6 +14,7 @@ fn browser_provider_clients_share_one_process_without_sharing_client_state() {
         endpoint: "ws://localhost:9222/devtools/browser/one".into(),
         authentication: "none".into(),
         bearer_token: None,
+        hosting: None,
         targets: vec![BrowserProviderTargetRequest {
             tab_id: tab_id.into(),
             target_id: target_id.into(),

@@ -16,6 +16,13 @@ impl ImagePasteRequest {
     #[cfg(unix)]
     pub(super) fn handle(self, mux: &Arc<Mux>, client: u64) -> anyhow::Result<Value> {
         let Self { surface: surface_id, terminal_id, lease, upload_id, .. } = self;
+        // Bytes queued for this terminal while it was being created go before the pasted path.
+        // Waited for here, before the sizing lock: a live terminal never gets a new queue.
+        if self.op == "commit"
+            && let Some(surface) = mux.surface(surface_id)
+        {
+            mux.wait_for_creating_input_flush(&surface);
+        }
         // This is the same authenticated mux client and lease used by the native
         // terminal attachment. Fence detach/replacement through the shared lifecycle.
         let _lifecycle = mux.lock_client_sizing_lifecycle();

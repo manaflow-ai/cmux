@@ -16,7 +16,10 @@ import { useSyncExternalStore } from "react";
 import { resolveLanguage, setDocumentLanguage } from "../../pages/shared/i18n";
 
 type Catalog = typeof import("./generated/strings.json");
-type CatalogKey = keyof Catalog["en"];
+/** A plural string's text per CLDR category is `key#<category>` in the table (gen-strings.mjs). */
+type PluralBase<Key> = Key extends `${infer Base}#${string}` ? Base : Key;
+/** A catalog string's key; a plural string's is its base, without `#<category>`. */
+export type CatalogKey = PluralBase<keyof Catalog["en"]>;
 /** A pane string's key (the new tab screen's keys are newtab/strings.ts's, under `newTab.`). */
 export type StringKey = Exclude<CatalogKey, `newTab.${string}`>;
 type Table = Partial<Record<CatalogKey, string>>;
@@ -64,9 +67,24 @@ export function subscribeLanguage(listener: () => void): () => void {
 
 globalThis.window?.addEventListener("languagechange", () => setPaneLanguage(paneLanguage()));
 
-/** A catalog string in `lang` (English when it has none), with `{name}` placeholders filled. */
+const pluralRules = new Map<PaneLanguage, Intl.PluralRules>();
+/** `key`, or for a plural string the form `lang`'s plural rules pick for `values.n`. */
+function formKey(key: string, values: StringValues, lang: PaneLanguage): string {
+  if (!(`${key}#other` in (tables().en ?? {}))) return key;
+  let rules = pluralRules.get(lang);
+  if (!rules) {
+    rules = new Intl.PluralRules(lang);
+    pluralRules.set(lang, rules);
+  }
+  return `${key}#${rules.select(Number(values.n ?? 0))}`;
+}
+
+/** A catalog string in `lang` (English when it has none), with `{name}` placeholders filled. A
+ *  plural string takes the form `lang`'s plural rules pick for `{n}`. */
 export function translateKey(key: CatalogKey, values: StringValues, lang: PaneLanguage): string {
-  const text = tables()[lang]?.[key] ?? tables().en?.[key] ?? key;
+  const table = tables()[lang] as Record<string, string> | undefined;
+  const english = tables().en as Record<string, string> | undefined;
+  const text = table?.[formKey(key, values, lang)] ?? english?.[formKey(key, values, "en")] ?? key;
   return text.replace(/\{(\w+)\}/g, (whole, name: string) => (name in values ? String(values[name]) : whole));
 }
 

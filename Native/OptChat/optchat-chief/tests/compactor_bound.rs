@@ -1,8 +1,10 @@
-//! Chief 2026-10-10: a user turn never waits more than 10 s on compaction.
+//! A user turn never waits more than 1 s on compaction (chief 2026-10-10:
+//! 10 s; hq-6d 2026-10-14, "the chief responds too slow": 1 s).
 //! The brain, its memory and its turn loop run end to end; only the
 //! compactor model is held. A turn whose view lines are still building
 //! starts after `SETTLE_BOUND` and reads them as the placeholder; the next
-//! turn reads their summaries.
+//! turn sends that frozen view again byte for byte (spec 5a.1: a fold alone
+//! does not change it; a re-render folds the summaries in).
 
 mod common;
 
@@ -18,7 +20,7 @@ use optchat_host::{
 use serde_json::Value;
 
 /// The chief's bound (brain `SETTLE_BOUND`).
-const SETTLE_BOUND: Duration = Duration::from_secs(10);
+const SETTLE_BOUND: Duration = Duration::from_secs(1);
 
 /// A compactor that builds normally, but only once it is let go.
 #[derive(Default)]
@@ -119,7 +121,7 @@ fn a_turn_waits_at_most_the_bound_for_lines_still_building_and_the_next_turn_rea
     let waited = until_prompt(&mut h, 1);
     assert!(waited >= SETTLE_BOUND, "it waited the bound: {waited:?}");
     assert!(
-        waited < SETTLE_BOUND + Duration::from_secs(5),
+        waited < SETTLE_BOUND + Duration::from_secs(2),
         "and not longer: {waited:?}"
     );
     assert!(
@@ -147,7 +149,8 @@ fn a_turn_waits_at_most_the_bound_for_lines_still_building_and_the_next_turn_rea
     );
     h.settle();
 
-    // The compactor finishes; turn 2 starts at once and reads the summaries.
+    // The compactor finishes; turn 2 starts at once and repeats turn 1's
+    // input (a fold alone does not change the frozen view, spec 5a.1).
     held.open();
     assert!(chat.wait_idle(None, Some(WAIT)));
     h.say("user_local", "and the unit?");
@@ -158,12 +161,8 @@ fn a_turn_waits_at_most_the_bound_for_lines_still_building_and_the_next_turn_rea
     );
     let second = prompt_text(&h, 1);
     assert!(
-        !second.contains(PLACEHOLDER),
-        "turn 2 reads no placeholder: {second}"
-    );
-    assert!(
-        second.contains("summary of"),
-        "turn 2 reads the summaries: {second}"
+        second.starts_with(&first[..first.find("where do releases go?").unwrap()]),
+        "turn 2 sends turn 1's view and delta again: {second}"
     );
     h.settle();
 }

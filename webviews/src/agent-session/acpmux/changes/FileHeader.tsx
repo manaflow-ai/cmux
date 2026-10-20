@@ -2,7 +2,8 @@
 // outside Pierre's diff so collapsing or marking a file keeps the focused button.
 import React from "react";
 import type { DiffEdit, DiffHunk, TurnFile } from "../diff";
-import { ChevronDown, Code, Eye, FileTypeIcon, OpenTab } from "../changeIcons";
+import { ChevronDown, Code, Eye, OpenTab } from "../changeIcons";
+import { FileTypeIcon } from "./FileTypeIcon";
 import { useT } from "../i18n";
 import { Counts } from "./Counts";
 import { FileMenu } from "./FileMenu";
@@ -52,7 +53,6 @@ export function FileHeader({
       <button
         type="button"
         className="acpmux-fh-name"
-        title={file.path}
         aria-expanded={!view.collapsed}
         onClick={() => on.toggleCollapsed(file.path)}
       >
@@ -63,11 +63,7 @@ export function FileHeader({
       {file.created && index === 0 && <span className="acpmux-fh-badge">{t("changes.badgeNew")}</span>}
       {file.deleted && <span className="acpmux-fh-badge">{t("changes.badgeDeleted")}</span>}
       {file.edits.length > 1 && <span className="acpmux-fh-badge">{`Edit ${index + 1} of ${file.edits.length}`}</span>}
-      {file.outside && (
-        <span className="acpmux-fh-badge acpmux-fh-outside" title={t("turn.outside.title")}>
-          {t("turn.outside")}
-        </span>
-      )}
+      {file.outside && <span className="acpmux-fh-badge acpmux-fh-outside">{t("turn.outside")}</span>}
       <span className="acpmux-fh-spacer" />
       <Counts additions={additions} deletions={deletions} />
       <button

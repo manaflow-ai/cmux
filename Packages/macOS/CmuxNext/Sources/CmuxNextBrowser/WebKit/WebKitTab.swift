@@ -42,6 +42,8 @@ public final class WebKitTab: NSObject, BrowserTab {
     /// This tab's downloads (`WebKitDownloads`).
     @ObservationIgnored private(set) lazy var downloads = WebKitDownloads(tab: self)
     @ObservationIgnored lazy var restored = WebKitRestoredSessionHost.session(for: self)
+    /// Restored or reloaded form submissions ask first (WebKitTab+FormResubmission).
+    @ObservationIgnored var formResubmission = WebKitFormResubmission()
     /// Chrome's automatic-downloads rule for this page (WebKitTab+AutomaticDownloads).
     @ObservationIgnored public private(set) lazy var automaticDownloads = makeAutomaticDownloadGate()
     /// The site of the page that started the current main-frame navigation.
@@ -54,6 +56,9 @@ public final class WebKitTab: NSObject, BrowserTab {
     @ObservationIgnored private(set) var isClosed = false
     /// The re-show that applies the last render-rate change, while it runs (WebKitEngine).
     @ObservationIgnored var rateReshow: Task<Void, Never>?
+    /// The daemon's resolved emulation (`WebKitTab+DeviceEmulation`) and the user agent to restore after it.
+    @ObservationIgnored public internal(set) var deviceEmulation: BrowserEmulation?
+    @ObservationIgnored var userAgentBeforeEmulation: String?
 
     init(configuration: BrowserTabConfiguration, webViewConfiguration: WKWebViewConfiguration, engine: WebKitEngine,
          openedByPage: Bool = false) {
@@ -83,6 +88,7 @@ public final class WebKitTab: NSObject, BrowserTab {
         controller.add(WeakScriptMessageHandler(self), name: PaneFullscreenScript.messageHandlerName)
         WebKitContextHit.install(self, into: controller)
         WebKitMediaHandler.install(on: self, into: controller)
+        WebKitVerificationHandler.install(on: self, into: controller)
         WebKitPasskeyInstaller.install(self, into: controller)
         WebKitNotificationBridge.install(on: self, into: controller)
         observeWebView()

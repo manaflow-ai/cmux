@@ -186,6 +186,8 @@ pub(crate) const RESOURCE_ERROR_CODES: &[&str] = &[
     "home.not_closable",
     "home.pinned_first",
     "idempotency.conflict",
+    "keybindings.invalid",
+    "keybindings.unreadable",
     "local.io",
     "mutation.indeterminate",
     "operation.failed",

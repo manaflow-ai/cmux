@@ -9,6 +9,7 @@ mod launch_codec;
 mod parser_failure;
 mod parser_order;
 mod smart_viewer_exit;
+mod terminal_queries;
 use super::super::shared::control_responses::ControlResponseWaiter;
 use super::super::shared::host_serve::*;
 use super::super::sys::process_definitely_gone as process_definitely_absent;
@@ -132,7 +133,7 @@ fn exited_host_fixture_with_parser_at(
         stream_progress: TerminalStreamProgress::default(),
         writer: Mutex::new(Box::new(std::io::sink())),
         master: Mutex::new(Box::new(TestHostMaster {
-            size: Mutex::new(pty_size(80, 24, DEFAULT_CELL_PIXELS).unwrap()),
+            size: Mutex::new(pty_size(80, 24, DEFAULT_CELL_PIXELS)),
         })),
         killer: Mutex::new(Box::new(TestHostKiller)),
         pid: None,
@@ -238,6 +239,9 @@ fn record_fixture(name: &str) -> (PathBuf, TerminalHostRecord, HostLivenessLease
         supports_clipboard_read: false,
         supports_viewer_size_priority: true,
         supports_pty_custody: false,
+        supports_program_status: false,
+        supports_shell_activity: false,
+        orphan_grace_secs: None,
     };
     let record_path = record.record_path(&root);
     let lease = HostLivenessLease::acquire(liveness_path(&record_path, &record)).unwrap();
@@ -267,6 +271,9 @@ pub(crate) fn input_ack_surface_fixture() -> (HostAttachment, UnixStream) {
         supports_clipboard_read: false,
         supports_viewer_size_priority: false,
         supports_pty_custody: false,
+        supports_program_status: false,
+        supports_shell_activity: false,
+        orphan_grace_secs: None,
     };
     let record_path = std::env::temp_dir().join(format!(
         "cmux-input-ack-surface-{}-{}.json",
@@ -291,6 +298,8 @@ pub(crate) fn input_ack_surface_fixture() -> (HostAttachment, UnixStream) {
             command: Vec::new(),
             cwd: None,
             osc_progress: String::new(),
+            program_status: None,
+            shell_activity: None,
         },
         protocol_version: PROTOCOL_VERSION,
         smart_renderer: false,

@@ -12,6 +12,11 @@
 //! - An OpenCode chat resumes through adopt too (ACP `session/load`), from
 //!   its `opencode.db`, not as a fresh chat in its folder (cx-6edj).
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+// This process runs stand-in agents (the fake agents under tests/).
+const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+
 use acpmux::adopt::HarnessHomes;
 use acpmux::chats::ChatSources;
 use acpmux::config::{Config, StoreMode};
@@ -71,8 +76,7 @@ fn write_rollout(codex_home: &Path, cwd: &Path) {
     // A person's chat has a user message (the index lists no chat without one).
     let prompt = json!({"type": "event_msg", "timestamp": "2026-10-02T09:00:01Z", "payload": {"type": "user_message", "message": "Fix the build"}});
     std::fs::write(&rollout, format!("{record}\n{prompt}\n")).unwrap();
-    // Written an hour ago: a transcript written in the last minutes is a
-    // chat live in another process, which adopt refuses (adopt_live.rs).
+    // Written an hour ago, like a person's earlier chat.
     let hour_ago = std::time::SystemTime::now() - Duration::from_secs(3600);
     std::fs::File::options().write(true).open(&rollout).unwrap().set_modified(hour_ago).unwrap();
 }
@@ -316,4 +320,104 @@ async fn an_opencode_chat_opens_by_adopting_it_over_acp() {
     let session = hub.resolve(created["result"]["sessionId"].as_str().unwrap()).unwrap();
     assert_eq!(session.meta().agent_session_id.as_deref(), Some(OPENCODE_ID));
     assert_eq!(session.meta().cwd, project);
+}
+
+const MUSE_ID: &str = "019a5b7e-1c2d-7e3f-8a9b-0c1d2e3f4a5b";
+
+/// Muse Code's `session-index.db` in `<data>/muse`, in the shape Muse 1.4
+/// writes: a person's chat, a subagent child of it and a worker that never
+/// got a prompt. Only the person's chat is listed.
+fn write_muse(h: &Path, cwd: &Path) {
+    let db = h.join(".local/share/muse/session-index.db");
+    let rows = json!([
+        [
+            MUSE_ID,
+            null,
+            null,
+            "Ship the parser\nwith tests",
+            cwd,
+            1_759_395_600_000_000_i64,
+            1_759_395_605_000_000_i64,
+            2,
+            null,
+            "root"
+        ],
+        [
+            "019a5b7e-0000-7000-8000-00000000c1d0",
+            null,
+            null,
+            "check the tests",
+            cwd,
+            1_759_395_601_000_000_i64,
+            1_759_395_602_000_000_i64,
+            1,
+            MUSE_ID,
+            "subagent"
+        ],
+        [
+            "019a5b7e-0000-7000-8000-0000000003b5",
+            null,
+            null,
+            null,
+            cwd,
+            1_759_395_601_000_000_i64,
+            1_759_395_602_000_000_i64,
+            0,
+            null,
+            "root"
+        ],
+    ]);
+    let script = format!(
+        "import json\nrows = json.loads({rows:?})\n\
+         db.execute('create table sessions (session_id text primary key, session_name text, title text, first_user_prompt text, workspace_root text, created_at_us integer, updated_at_us integer, prompt_count integer, msp_parent_session_id text, msp_kind text, git_branch text, search_text text)')\n\
+         db.executemany('insert into sessions values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, null, null)', rows)",
+        rows = rows.to_string(),
+    );
+    sqlite(&db, &script);
+}
+
+/// A Muse Code chat from All chats lists with its first prompt as the title and opens
+/// `muse resume <id>` in a terminal tab in its own folder (Muse resumes per workspace).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_muse_chat_lists_and_opens_muse_resume_in_its_folder() {
+    let h = home("muse");
+    let project = mkdir(&h.0.join("work/parser"));
+    write_muse(&h.0, &project);
+    let mut cfg = config(json!({"fake": {"argv": ["python3", FAKE]}}));
+    cfg.default_harness = Some("fake".into());
+    cfg.store.mode = StoreMode::Memory;
+    let store = acpmux::store::open(&cfg.store, Path::new("/nonexistent")).unwrap();
+    let hub = Hub::new(cfg, store);
+    hub.set_harness_homes(homes(&h.0));
+    let sources = ChatSources {
+        home: h.0.clone(),
+        acpmux_home: h.0.join(".acpmux"),
+        env: Arc::new(|_| None),
+        launch_roots: Vec::new(),
+        user_roots: Vec::new(),
+    };
+    hub.start_chats(sources).await.unwrap();
+
+    let (tx, in_rx) = mpsc::channel(64);
+    let (out_tx, mut rx) = mpsc::channel(4096);
+    tokio::spawn(serve_connection_with(hub.clone(), in_rx, out_tx, Origin::Local));
+    let init = json!({"protocolVersion": 1, "clientInfo": {"name": "t"}});
+    call(&tx, &mut rx, 1, method::INITIALIZE, init).await;
+
+    let listed = call(&tx, &mut rx, 2, "_acpmux/chats", json!({"harness": "muse"})).await;
+    let chats = listed["result"]["chats"].as_array().expect("chats").clone();
+    let key = format!("muse:{MUSE_ID}");
+    assert_eq!(
+        chats.iter().map(|chat| chat["key"].as_str().unwrap_or_default()).collect::<Vec<_>>(),
+        [key.as_str()],
+        "{listed}"
+    );
+    assert_eq!(chats[0]["title"], "Ship the parser", "{listed}");
+    assert_eq!(chats[0]["cwd"], json!(project), "{listed}");
+
+    let plan = call(&tx, &mut rx, 3, "_acpmux/chat_open", json!({"key": key})).await;
+    let plan = &plan["result"];
+    assert_eq!(plan["kind"], "terminal", "{plan}");
+    assert_eq!(plan["terminal"]["argv"], json!(["muse", "resume", MUSE_ID]), "{plan}");
+    assert_eq!(plan["cwd"], json!(project), "{plan}");
 }

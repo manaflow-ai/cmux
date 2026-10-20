@@ -8,18 +8,21 @@ extension TabStripView {
     func beginGroupDrag(_ press: TabStripGroupState.Press) {
         let group = press.groupID
         let chipID = TabID.groupChip(group)
-        guard let chip = motion[chipID], let first = displayed.firstIndex(where: { $0.groupID == group }) else { return }
+        guard var chip = placed[chipID], let first = displayed.firstIndex(where: { $0.groupID == group }) else { return }
+        // The block is lifted where its chip shows now (a move may be in flight).
+        if let shown = shownMaxX(chipID) { chip.x = shown - max(0, chip.width) }
+        placed[chipID] = chip
         groups.holdTask?.cancel()
         let members = displayed.filter { $0.groupID == group }.map(\.id)
         let local = convert(press.start, to: tabsClip)
-        let contentX = local.x + scroll.value
+        let contentX = scrollMapping.contentX(local.x, isPinned: false)
         groups.drag = TabStripGroupState.Drag(
             groupID: group,
             memberIDs: members,
-            grabOffset: contentX - chip.x.value,
+            grabOffset: contentX - chip.x,
             originalTabIndex: first,
             currentTabIndex: first,
-            blockX: chip.x.value,
+            blockX: chip.x,
             lastPoint: press.start,
             grabY: local.y
         )
@@ -29,8 +32,8 @@ extension TabStripView {
         setHovered(nil)
         setHoveredChip(nil)
         hoverCards.dismiss(.action)
-        installEscapeMonitor()
-        updateSeparators()
+        escapeMonitor.install()
+        TabSeparatorVisibility.apply(to: self)
     }
 
     func setLifted(_ group: TabGroupID, _ lifted: Bool) {
@@ -49,7 +52,7 @@ extension TabStripView {
         let block = region.filter { groups.isDragged($0.id) }
         guard let first = region.first, let last = region.last, !block.isEmpty else { return }
         let blockWidth = block.reduce(0) { $0 + $1.width }
-        let contentX = convert(point, to: tabsClip).x + scroll.value
+        let contentX = scrollMapping.contentX(convert(point, to: tabsClip).x, isPinned: false)
         let x = min(max(contentX - drag.grabOffset, first.x), max(first.x, last.maxX - blockWidth))
         let entries = region.filter { !groups.isDragged($0.id) }
         let resolution = TabGroupDropMath.resolveGroup(entries: entries, start: first.x, draggedMinX: x)
@@ -62,10 +65,9 @@ extension TabStripView {
             relayout(animated: !reduceMotion)
         } else {
             for slot in block {
-                if let target = groupDragX(for: slot) { motion[slot.id]?.x.snap(to: target) }
+                if let target = groupDragX(for: slot) { placed[slot.id]?.x = target }
             }
             applyFrames()
-            startAnimating()
         }
     }
 
@@ -79,7 +81,7 @@ extension TabStripView {
     func endGroupDrag() {
         guard let drag = groups.drag else { return }
         groups.drag = nil
-        removeEscapeMonitor()
+        escapeMonitor.remove()
         setLifted(drag.groupID, false)
         if drag.currentTabIndex != drag.originalTabIndex {
             var ids = displayed.map(\.id).filter { !drag.memberIDs.contains($0) }
@@ -123,7 +125,7 @@ extension TabStripView {
             snapshot: snapshot(of: layers, frame: frame)
         )
         groups.drag = nil
-        removeEscapeMonitor()
+        escapeMonitor.remove()
         setLifted(drag.groupID, false)
         groups.detachedGroupID = drag.groupID
         sync(fromModel: false)

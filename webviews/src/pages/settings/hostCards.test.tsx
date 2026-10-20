@@ -49,6 +49,200 @@ test("Change Background… shows the picker on Appearance: resting previews, lea
   page.unmount();
 });
 
+test("Apple Wallpapers: tiles show only their names; one not downloaded opens the Wallpaper pane", async () => {
+  const page = await renderPage({ path: "/settings/appearance" });
+  const apple = { collection: "apple", collection_title: "Apple Wallpapers" };
+  await act(async () =>
+    page.provider.setHost({
+      ...page.provider.host,
+      backdrops: [
+        ...(page.provider.host.backdrops ?? []),
+        {
+          id: "system:/S/Sonoma.heic",
+          title: "Sonoma",
+          attribution: "macOS system wallpaper · Sonoma",
+          ...apple,
+          downloaded: true,
+        },
+        { id: "system:/S/Grid Green.madesktop", title: "Grid Green", attribution: "", ...apple, downloaded: false },
+      ],
+    }),
+  );
+  await settle();
+  const group = page.container.querySelector<HTMLElement>('[data-collection="apple"]')!;
+  expect(group.querySelector(".backdrop-group-title")!.textContent).toBe("Apple Wallpapers");
+  const tiles = [...group.querySelectorAll<HTMLButtonElement>(".backdrop-grid > button")];
+  expect(tiles.map((tile) => tile.textContent)).toEqual(["Sonoma", "Grid Green"]);
+  const [sonoma, grid] = tiles;
+  expect(sonoma.title).toBe("");
+  expect(sonoma.querySelector("svg.backdrop-download")).toBeNull();
+  // Not downloaded: dimmed, a cloud in the corner, and the Wallpaper pane on click.
+  expect(grid.title).toBe("Download in System Settings");
+  expect(grid.classList.contains("backdrop-pending")).toBe(true);
+  expect(grid.querySelector("svg.backdrop-download")).not.toBeNull();
+  await act(async () => grid.click());
+  await settle();
+  expect(runs(page, "cmux.settings.backdrop.wallpaper_settings").length).toBe(1);
+  expect(runs(page, "cmux.settings.set").length).toBe(0);
+  // Downloaded in System Settings meanwhile (macOS sends nothing): back in cmux, the tile is ready.
+  page.provider.host = {
+    ...page.provider.host,
+    backdrops: page.provider.host.backdrops!.map((row) => ({ ...row, downloaded: true })),
+  };
+  await act(async () => window.dispatchEvent(new Event("focus")));
+  await settle();
+  expect(group.querySelector('[title="Download in System Settings"]')).toBeNull();
+  expect(group.querySelectorAll(".backdrop-pending").length).toBe(0);
+  await act(async () => sonoma.click());
+  await settle();
+  expect(runs(page, "cmux.settings.set").at(-1)).toMatchObject({
+    key: "appearance.background",
+    value: "system:/S/Sonoma.heic",
+  });
+  page.unmount();
+});
+
+test("a wallpaper whose id is a file path gets its thumbnail: the id reaches the app as one segment", async () => {
+  const page = await renderPage({ path: "/settings/appearance?focus=appearance.background" });
+  const id = "system:/System/Library/Desktop Pictures/.wallpapers/Sonoma/Sonoma Graphic Light Landscape.mov";
+  const tile = page.container.querySelector<HTMLButtonElement>('[aria-label="Sonoma Graphic"]')!;
+  const src = tile.querySelector("img")!.getAttribute("src")!;
+  // The app's page scheme reads the decoded URL path and splits it on "/" (PageSchemeHandler.route),
+  // then the thumbnail source decodes its one segment (SettingsBackdropThumbnails).
+  const segments = decodeURIComponent(new URL(src, "cmux-page://cmux.settings/").pathname).split("/").filter(Boolean);
+  expect(segments.length).toBe(2);
+  expect(segments[0]).toBe("backdrop");
+  expect(decodeURIComponent(segments[1]!)).toBe(id);
+});
+
+test("Shuffle Daily is a tile that keeps appearance.background daily", async () => {
+  const page = await renderPage({ path: "/settings/appearance" });
+  const tile = page.container.querySelector<HTMLButtonElement>('[data-card="backdrop"] [aria-label="Shuffle Daily"]')!;
+  expect(tile).not.toBeNull();
+  await act(async () => tile.click());
+  await settle();
+  expect(runs(page, "cmux.settings.set").at(-1)).toMatchObject({ key: "appearance.background", value: "daily" });
+  page.unmount();
+});
+
+test("Change Background… on a workspace chooses that workspace's own background", async () => {
+  const page = await renderPage({
+    path: "/settings/appearance?focus=appearance.background&workspace=ws-1",
+    mock: {
+      values: { "appearance.background": "starryNight" },
+      workspaceBackgrounds: [{ workspace: "ws-1", title: "Research", value: null }],
+    },
+  });
+  await settle();
+  const picker = page.container.querySelector<HTMLElement>('[data-card="backdrop"]')!;
+  // It opens on All Workspaces, so Change Background… still chooses for every window.
+  expect(picker.querySelector<HTMLInputElement>('[aria-label="All Workspaces"]')!.checked).toBe(true);
+  expect(picker.querySelector('[aria-label="Same as All Workspaces"]')).toBeNull();
+  const scope = picker.querySelector<HTMLInputElement>('[aria-label="This Workspace (Research)"]')!;
+  await act(async () => scope.click());
+  await settle();
+  expect(scope.checked).toBe(true);
+  // It follows All Workspaces until it has its own; the app-wide image tiles are left out.
+  const follow = picker.querySelector<HTMLButtonElement>('[aria-label="Same as All Workspaces"]')!;
+  expect(follow.getAttribute("aria-pressed")).toBe("true");
+  expect(picker.textContent).not.toContain("Choose Image");
+
+  const none = picker.querySelector<HTMLButtonElement>('[aria-label="No wallpaper"]')!;
+  const appPreviews = runs(page, "cmux.settings.preview").length;
+  await act(async () => {
+    none.dispatchEvent(new window.MouseEvent("pointerover", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  });
+  await settle();
+  expect(runs(page, "cmux.settings.backdrop.workspace.preview").at(-1)).toMatchObject({
+    workspace: "ws-1",
+    value: "none",
+  });
+  expect(runs(page, "cmux.settings.preview").length).toBe(appPreviews);
+  await act(async () => none.dispatchEvent(new window.MouseEvent("pointerout", { bubbles: true })));
+  await settle();
+  expect(runs(page, "cmux.settings.backdrop.workspace.preview").at(-1)).toMatchObject({ workspace: "ws-1", end: true });
+
+  await act(async () => none.click());
+  await settle();
+  expect(runs(page, "cmux.settings.backdrop.workspace.set").at(-1)).toMatchObject({ workspace: "ws-1", value: "none" });
+  expect(runs(page, "cmux.settings.set").length).toBe(0);
+  expect(none.getAttribute("aria-pressed")).toBe("true");
+  await act(async () => follow.click());
+  await settle();
+  expect(runs(page, "cmux.settings.backdrop.workspace.set").at(-1)).toMatchObject({ workspace: "ws-1", value: null });
+
+  // All Workspaces chooses appearance.background again.
+  const all = picker.querySelector<HTMLInputElement>('[aria-label="All Workspaces"]')!;
+  await act(async () => all.click());
+  await settle();
+  expect(picker.querySelector('[aria-label="Same as All Workspaces"]')).toBeNull();
+  await act(async () => picker.querySelector<HTMLButtonElement>('[aria-label="No wallpaper"]')!.click());
+  await settle();
+  expect(runs(page, "cmux.settings.set").at(-1)).toMatchObject({ key: "appearance.background", value: "none" });
+  page.unmount();
+});
+
+test("This Workspace's Opacity previews while the slider moves, saves on release, and clears", async () => {
+  const page = await renderPage({
+    path: "/settings/appearance?workspace=ws-1",
+    mock: { workspaceBackgrounds: [{ workspace: "ws-1", title: "Research", value: "starryNight", opacity: null }] },
+  });
+  await settle();
+  const picker = page.container.querySelector<HTMLElement>('[data-card="backdrop"]')!;
+  // All Workspaces shows the app's Opacity row; This Workspace its own tint over art instead.
+  expect(picker.querySelector('[data-row-key="appearance.backgroundOpacity"]')).not.toBeNull();
+  await act(async () => picker.querySelector<HTMLInputElement>('[aria-label="This Workspace (Research)"]')!.click());
+  await settle();
+  expect(picker.querySelector('[data-row-key="appearance.backgroundOpacity"]')).toBeNull();
+  const row = picker.querySelector<HTMLElement>("[data-workspace-opacity]")!;
+  expect(row.textContent).toContain("Follows the work's own tint");
+  const slider = row.querySelector<HTMLInputElement>('input[type="range"]')!;
+  await act(async () => {
+    slider.dispatchEvent(new window.MouseEvent("pointerdown", { bubbles: true }));
+    const set = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!;
+    set.call(slider, "0.8");
+    slider.dispatchEvent(new window.Event("input", { bubbles: true }));
+  });
+  await settle();
+  expect(runs(page, "cmux.settings.backdrop.workspace.preview").at(-1)).toMatchObject({
+    workspace: "ws-1",
+    opacity: 0.8,
+  });
+  expect(runs(page, "cmux.settings.backdrop.workspace.set").length).toBe(0);
+  await act(async () => slider.dispatchEvent(new window.MouseEvent("pointerup", { bubbles: true })));
+  await settle();
+  expect(runs(page, "cmux.settings.backdrop.workspace.set").at(-1)).toMatchObject({ workspace: "ws-1", opacity: 0.8 });
+  expect(runs(page, "cmux.settings.backdrop.workspace.preview").at(-1)).toMatchObject({ workspace: "ws-1", end: true });
+  expect(runs(page, "cmux.settings.set").length).toBe(0);
+
+  const reset = [...row.querySelectorAll("button")].find((button) => button.textContent === "Use the Work's Own")!;
+  await act(async () => reset.click());
+  await settle();
+  expect(runs(page, "cmux.settings.backdrop.workspace.set").at(-1)).toMatchObject({ workspace: "ws-1", opacity: null });
+  expect(row.textContent).toContain("Follows the work's own tint");
+  page.unmount();
+});
+
+test("Window Glass sets the Clear Glass material and turning it off returns the default", async () => {
+  const page = await renderPage({ path: "/settings/appearance" });
+  const row = page.container.querySelector<HTMLElement>('[data-card="backdrop"] [data-window-glass]')!;
+  const glass = row.querySelector<HTMLButtonElement>('[role="switch"]')!;
+  expect(glass.getAttribute("aria-checked")).toBe("false");
+  await act(async () => glass.click());
+  await settle();
+  expect(runs(page, "cmux.settings.set").at(-1)).toMatchObject({
+    key: "appearance.backgroundBlur",
+    value: "glass-clear",
+  });
+  expect(glass.getAttribute("aria-checked")).toBe("true");
+  await act(async () => glass.click());
+  await settle();
+  expect(runs(page, "cmux.settings.reset").at(-1)).toMatchObject({ key: "appearance.backgroundBlur" });
+  expect(glass.getAttribute("aria-checked")).toBe("false");
+  page.unmount();
+});
+
 test("sweeping the pointer across the picker previews nothing", async () => {
   const page = await renderPage({ path: "/settings/appearance" });
   const tile = page.container.querySelector<HTMLButtonElement>('[aria-label="The Starry Night"]')!;
@@ -98,5 +292,109 @@ test("Advanced names the loaded settings file and shows one Reload Configuration
   expect(buttons.filter((title) => title === "Reload Configuration").length).toBe(1);
   expect(text).toContain("Resets everything in cmux.json. Custom actions stay.");
   expect(text).not.toContain("cmux-next.json");
+  page.unmount();
+});
+
+test("Add from a Link downloads an image and sets it; a refused link says why; your images can be removed", async () => {
+  const page = await renderPage({ path: "/settings/appearance" });
+  const picker = () => page.container.querySelector<HTMLElement>('[data-card="backdrop"]')!;
+  const linkTile = [...picker().querySelectorAll<HTMLButtonElement>("button.backdrop-tile")].find((button) =>
+    button.textContent?.includes("Add from a Link"),
+  )!;
+  await act(async () => linkTile.click());
+  await settle();
+  const form = () => page.container.querySelector<HTMLElement>('[data-card="backdrop-link"]');
+  const field = form()!.querySelector<HTMLInputElement>('input[type="url"]')!;
+  const type = async (text: string) => {
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!;
+      setter.call(field, text);
+      field.dispatchEvent(new window.Event("input", { bubbles: true }));
+    });
+  };
+  const submit = async () => {
+    await act(async () => form()!.querySelector<HTMLButtonElement>('button[type="submit"]')!.click());
+    await settle();
+  };
+
+  await type("http://example.com/sea.jpg");
+  await submit();
+  expect(form()!.querySelector("output")!.textContent).toBe("Use a link that starts with https://.");
+  await type("https://example.com/notes.txt");
+  await submit();
+  expect(form()!.querySelector("output")!.textContent).toBe("That is not an image or a video this Mac can play.");
+
+  await type("https://example.com/sea.jpg");
+  await submit();
+  expect(runs(page, "cmux.settings.backdrop.image.link").at(-1)).toMatchObject({ url: "https://example.com/sea.jpg" });
+  // Used, the form closes and the image is listed under Your images, chosen.
+  expect(form()).toBeNull();
+  const own = picker().querySelector<HTMLElement>('[data-collection="yours"]')!;
+  expect(own.querySelector('[aria-label="sea.jpg"]')!.getAttribute("aria-pressed")).toBe("true");
+  expect(own.querySelector(".backdrop-own-bar")!.textContent).toContain("Your images use");
+  // The background in use cannot be removed; another of your images can.
+  const remove = own.querySelector<HTMLButtonElement>('[aria-label="Remove sea.jpg"]')!;
+  expect(remove.disabled).toBe(true);
+  await act(async () => linkTile.click());
+  await settle();
+  const again = form()!.querySelector<HTMLInputElement>('input[type="url"]')!;
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!.call(
+      again,
+      "https://example.com/hill.png",
+    );
+    again.dispatchEvent(new window.Event("input", { bubbles: true }));
+  });
+  await submit();
+  const sea = picker().querySelector<HTMLButtonElement>('[aria-label="Remove sea.jpg"]')!;
+  expect(sea.disabled).toBe(false);
+  await act(async () => sea.click());
+  await settle();
+  expect(runs(page, "cmux.settings.backdrop.image.remove").at(-1)).toMatchObject({ id: "file:/backgrounds/sea.jpg" });
+  expect(picker().querySelector('[aria-label="sea.jpg"]')).toBeNull();
+  // Show in Finder reveals the folder.
+  await act(async () => picker().querySelector<HTMLElement>(".backdrop-own-bar button")!.click());
+  expect(runs(page, "cmux.settings.backdrop.image.reveal").length).toBe(1);
+  page.unmount();
+});
+
+test("A wallpaper tile whose thumbnail fails shows an empty frame, not a broken image", async () => {
+  const page = await renderPage({
+    path: "/settings/appearance?focus=appearance.background",
+    mock: { values: { "appearance.background": "starryNight" } },
+  });
+  const picker = page.container.querySelector<HTMLElement>('[data-card="backdrop"]')!;
+  const tile = picker.querySelector<HTMLButtonElement>('[aria-label="The Starry Night"]')!;
+  await act(async () => tile.querySelector("img")!.dispatchEvent(new window.Event("error")));
+  await settle();
+  expect(tile.querySelector("img")).toBeNull();
+  expect(tile.querySelector("[data-thumb-missing]")).not.toBeNull();
+  // The tile still chooses its wallpaper.
+  await act(async () => tile.click());
+  await settle();
+  expect(runs(page, "cmux.settings.set").at(-1)).toMatchObject({ key: "appearance.background", value: "starryNight" });
+  page.unmount();
+});
+
+test("an art tile shows one title line; its full credit is the tooltip (macOS 15 tester: tile text overlapped)", async () => {
+  const page = await renderPage({ path: "/settings/appearance" });
+  const long = "The Starry Night · Vincent van Gogh · 1889 · Museum of Modern Art, New York · Public domain";
+  await act(async () =>
+    page.provider.setHost({
+      ...page.provider.host,
+      backdrops: [{ id: "starryNight", title: "The Starry Night", attribution: long }],
+    }),
+  );
+  await settle();
+  const tile = page.container.querySelector<HTMLButtonElement>('[aria-label="The Starry Night"]')!;
+  // One text line under the thumbnail: the title, truncated by CSS; no wrapping credit line.
+  expect([...tile.querySelectorAll("span")].filter((span) => span.textContent).map((span) => span.className)).toEqual([
+    "backdrop-title",
+  ]);
+  expect(tile.textContent).toBe("The Starry Night");
+  expect(tile.title).toBe(long);
+  // A tile whose help text is not its credit keeps both, title first.
+  const none = page.container.querySelector<HTMLButtonElement>(".backdrop-grid > button")!;
+  expect(none.querySelector(".row-help")).toBeNull();
   page.unmount();
 });

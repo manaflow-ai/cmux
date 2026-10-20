@@ -1,6 +1,7 @@
 import React from "react";
 import { projectName } from "./EmptyState";
 import { useT } from "./i18n";
+import { isAgentHome } from "./sessionList";
 import type { FolderTrustAsk } from "./useFolderTrustAsk";
 
 /// One quiet line among the chat's permission asks, above the composer: what the agent may do in
@@ -19,13 +20,22 @@ export function TrustAsk({
   onUndo(): void;
 }) {
   const t = useT();
+  // A workspace's new chat starts in its private folder under Application Support: named in words,
+  // never its path cut to "/User…". The path stays in the tooltip.
+  const owned = isAgentHome(ask.cwd);
   const folder = projectName(ask.cwd) ?? ask.cwd;
   return (
     <div className="acpmux-trust-ask" aria-live="polite">
       {ask.state === "decided" ? (
         <>
           <span className="acpmux-trust-ask-text">
-            {t(ask.level === "trusted" ? "trust.trusted" : "trust.untrusted", { folder })}
+            {ask.level === "trusted"
+              ? owned
+                ? t("trust.trustedPrivate")
+                : t("trust.trusted", { folder })
+              : owned
+                ? t("trust.untrustedPrivate")
+                : t("trust.untrusted", { folder })}
           </span>
           <button type="button" className="acpmux-trust-ask-action" onClick={onUndo}>
             {t("trust.undo")}
@@ -36,7 +46,11 @@ export function TrustAsk({
       ) : (
         <>
           <span className="acpmux-trust-ask-text">
-            {ask.state === "failed" ? t("trust.failed") : t("trust.ask", { agent, folder })}
+            {ask.state === "failed"
+              ? t("trust.failed")
+              : owned
+                ? t("trust.askPrivate", { agent })
+                : t("trust.ask", { agent, folder })}
           </span>
           <button type="button" className="acpmux-trust-ask-action" onClick={onTrust}>
             {t("trust.trust")}

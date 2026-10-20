@@ -93,8 +93,8 @@ public nonisolated struct ClassicSessionImporter: Sendable {
         return try Data(contentsOf: fileURL, options: [.mappedIfSafe])
     }
 
-    /// Decodes topology, names, directories, titles, pages, agent sessions
-    /// and where each workspace ran from a classic snapshot.
+    /// Decodes topology, names, directories, titles, pages, agent sessions,
+    /// scrollback and where each workspace ran from a classic snapshot.
     public func decode(_ data: Data) throws -> [ClassicSessionWorkspace] {
         let root = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
         let workspaces = ((root["windows"] as? [[String: Any]]) ?? []).flatMap { window in
@@ -116,17 +116,19 @@ public nonisolated struct ClassicSessionImporter: Sendable {
             guard let id = panel["id"] as? String else { return nil }
             return Self.tab(panel).map { (id, $0) }
         }
+        // Panels nothing here can show (markdown, file preview) stay in classic.
+        let leftOutPanels = panels.contains { !["terminal", "browser"].contains($0["type"] as? String ?? "terminal") }
         // A snapshot can name a panel twice; the first wins.
         let panelMap = Dictionary(panelEntries, uniquingKeysWith: { first, _ in first })
         guard let layoutValue = value["layout"] as? [String: Any] else {
             var seen = Set<String>()
             let tabs = panelEntries.filter { seen.insert($0.0).inserted }.map { $0.1 }
             return ClassicSessionWorkspace(name: name, workingDirectory: cwd, layout: .pane(ClassicSessionPane(tabs: tabs)),
-                                           remote: Self.remote(value), cloudVM: Self.cloudVM(value))
+                                           remote: Self.remote(value), cloudVM: Self.cloudVM(value), leftOutPanels: leftOutPanels)
         }
         let layout = Self.layout(layoutValue, panels: panelMap)
         return ClassicSessionWorkspace(name: name, workingDirectory: cwd, layout: layout,
-                                       remote: Self.remote(value), cloudVM: Self.cloudVM(value))
+                                       remote: Self.remote(value), cloudVM: Self.cloudVM(value), leftOutPanels: leftOutPanels)
     }
 
     /// A terminal or browser panel as a tab; nil for a panel nothing here can
@@ -139,7 +141,8 @@ public nonisolated struct ClassicSessionImporter: Sendable {
                 ?? panel["directory"] as? String ?? panel["working_directory"] as? String
             return ClassicSessionTab(workingDirectory: directory, title: panel["customTitle"] as? String ?? panel["title"] as? String,
                                      agent: Self.agent(terminal?["agent"] as? [String: Any], directory: directory)
-                                        ?? Self.endedAgent(terminal?["resumeBinding"] as? [String: Any], directory: directory))
+                                        ?? Self.endedAgent(terminal?["resumeBinding"] as? [String: Any], directory: directory),
+                                     scrollback: (terminal?["scrollback"] as? String).flatMap { $0.isEmpty ? nil : $0 })
         case "browser":
             let browser = panel["browser"] as? [String: Any]
             guard let url = browser?["urlString"] as? String ?? browser?["url_string"] as? String, !url.isEmpty else { return nil }

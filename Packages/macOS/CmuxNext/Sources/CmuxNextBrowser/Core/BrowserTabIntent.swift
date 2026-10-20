@@ -69,6 +69,10 @@ public enum BrowserTabIntent {
     /// (`chrome.windows.update` with bounds). A popup panel follows; a tab
     /// ignores it.
     case resizePopup(BrowserPopupRequest)
+    /// The top frame shows a page that waits for a verification email (its detector,
+    /// `VerificationPageScripts`, saw a one-time-code field or "we sent you a code" text).
+    /// The host's `VerificationAutofillCoordinator` may offer that site's code.
+    case verificationPageWaiting
     /// The person chose "Sign in yourself" after cmux refused an agent's
     /// passkey request (`BrowserPromptKind.agentPasskeyRefused`). The host
     /// ends the agent's control of the tab and reopens its page, which may

@@ -17,8 +17,6 @@
 //!
 //! Each mutation appends one `state` journal record with `advisory` replay.
 //! The materialized table is authoritative for restoration, so a restore
-//! preview never counts these records as unsupported required state.
-
 mod snapshot;
 use crate::state::conversation_tabs_store::{ConversationTabRecord, read_conversation_tabs};
 use crate::state::remote_terminal_tabs_store::{RemoteTerminalRecord, read_remote_terminals};
@@ -29,6 +27,7 @@ use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
+use super::personal_browser_profiles::resolve_browser_profile_id_in;
 use super::session_journal::{JournalAppend, append_journal_record};
 use super::{
     JournalClass, JournalProducer, JournalReplayPolicy, JournalSensitivity, JournalSubject,
@@ -40,10 +39,12 @@ pub(crate) use saved_tab_groups::{
 };
 
 mod frontend_browser_history;
+mod frontend_browser_profiles;
+pub(crate) use frontend_browser_profiles::clear_frontend_browser_profile;
 mod icon;
 pub use icon::{
     IconAssetKind, is_sha256_hex, parse_icon_asset, validate_icon_value,
-    validate_presentation_icon, validate_presentation_icon_asset,
+    validate_presentation_icon_asset,
 };
 pub(crate) mod svg_icon;
 
@@ -80,7 +81,8 @@ pub(crate) fn create_presentation_schema(transaction: &Transaction<'_>) -> anyho
            name TEXT NOT NULL DEFAULT '',
            color TEXT NOT NULL,
            collapsed INTEGER NOT NULL DEFAULT 0 CHECK(collapsed IN (0,1)),
-           saved_id TEXT
+           saved_id TEXT,
+           icon TEXT
          );
          CREATE TABLE IF NOT EXISTS tab_group_members (
            tab_id TEXT PRIMARY KEY NOT NULL,
@@ -110,6 +112,8 @@ pub(crate) fn create_presentation_schema(transaction: &Transaction<'_>) -> anyho
     migrate_frontend_browser_add_owner(transaction)?;
     migrate_workspace_presentation_add_pinned(transaction)?;
     migrate_workspace_presentation_add_marked_unread(transaction)?;
+    add_group_icon_column(transaction, "tab_groups")?;
+    crate::state::tab_state_store::add_tab_pinned_url_column(transaction)?;
     super::feed_local_store::create_feed_local_schema(transaction)?;
     frontend_browser_history::create_frontend_browser_history_schema(transaction)
 }
@@ -144,6 +148,25 @@ fn migrate_workspace_presentation_add_pinned(transaction: &Transaction<'_>) -> a
             "ALTER TABLE workspace_presentation ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0
                CHECK(pinned IN (0,1));",
         )?;
+    }
+    Ok(())
+}
+
+/// Additive: a tab or screen group table an older build created has no
+/// icon column (`tab-group-icon-v1`). Older builds name their columns, so
+/// they keep reading and writing the table.
+pub(crate) fn add_group_icon_column(
+    transaction: &Transaction<'_>,
+    table: &str,
+) -> anyhow::Result<()> {
+    let has_icon = transaction
+        .prepare(&format!("PRAGMA table_info({table})"))?
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<Result<Vec<_>, _>>()?
+        .iter()
+        .any(|column| column == "icon");
+    if !has_icon {
+        transaction.execute_batch(&format!("ALTER TABLE {table} ADD COLUMN icon TEXT;"))?;
     }
     Ok(())
 }
@@ -263,6 +286,8 @@ pub struct PresentationSnapshot {
     pub workspaces: HashMap<String, WorkspacePresentationRecord>,
     /// Public ids (`tab_...`) of pinned live tabs.
     pub pinned_tabs: HashSet<String>,
+    /// The page each pinned browser tab was pinned on, by public tab id.
+    pub pinned_urls: HashMap<String, String>,
     /// Frontend-rendered browser contents keyed by public browser id
     /// (`browser_...`). Rows exist before their browser commits, so a
     /// pending creation is already known when its surface spawns.
@@ -331,6 +356,10 @@ pub struct TabGroupRecord {
     pub collapsed: bool,
     /// The saved group this live group syncs with.
     pub saved_id: Option<String>,
+    /// The group's icon (`tab-group-icon-v1`): the shared icon string, one
+    /// emoji, an SF Symbol name or a stored image or SVG.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
 }
 
 /// All tab groups and their members. A tab belongs to a group only while
@@ -372,6 +401,9 @@ pub struct SavedTabGroupRecord {
     pub color: String,
     pub members: Vec<SavedTabMember>,
     pub updated_at_ms: u64,
+    /// The saved group's icon (`tab-group-icon-v1`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
 }
 
 pub fn new_tab_group_id() -> String {
@@ -391,20 +423,32 @@ pub(crate) fn write_tab_group_state(
         validate_workspace_group_id(&group.id)?;
         validate_tab_group_name(&group.name)?;
         validate_tab_group_color(&group.color)?;
+        if let Some(icon) = &group.icon {
+            validate_icon_value(icon)?;
+        }
+    }
+    // Every icon this write adds names a stored asset; icons the table
+    // already holds are not checked again (the whole table is rewritten).
+    let stored = super::screen_store::stored_icons(transaction, &["tab_groups"])?;
+    for icon in state.groups.values().filter_map(|group| group.icon.as_ref()) {
+        if !stored.contains(icon) {
+            super::personal_store::require_icon_asset(transaction, icon)?;
+        }
     }
     transaction.execute("DELETE FROM tab_groups", [])?;
     transaction.execute("DELETE FROM tab_group_members", [])?;
     for group in state.groups.values() {
         transaction.execute(
-            "INSERT INTO tab_groups(group_id, pane_id, name, color, collapsed, saved_id)
-             VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
+            "INSERT INTO tab_groups(group_id, pane_id, name, color, collapsed, saved_id, icon)
+             VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             params![
                 group.id,
                 group.pane_id,
                 group.name,
                 group.color,
                 i64::from(group.collapsed),
-                group.saved_id
+                group.saved_id,
+                group.icon
             ],
         )?;
     }
@@ -429,8 +473,9 @@ pub(crate) fn write_tab_group_state(
 
 fn read_tab_group_state(connection: &Connection) -> anyhow::Result<TabGroupState> {
     let mut state = TabGroupState::default();
-    let mut statement = connection
-        .prepare("SELECT group_id, pane_id, name, color, collapsed, saved_id FROM tab_groups")?;
+    let mut statement = connection.prepare(
+        "SELECT group_id, pane_id, name, color, collapsed, saved_id, icon FROM tab_groups",
+    )?;
     let rows = statement.query_map([], |row| {
         Ok(TabGroupRecord {
             id: row.get(0)?,
@@ -439,6 +484,7 @@ fn read_tab_group_state(connection: &Connection) -> anyhow::Result<TabGroupState
             color: row.get(3)?,
             collapsed: row.get::<_, i64>(4)? != 0,
             saved_id: row.get(5)?,
+            icon: row.get(6)?,
         })
     })?;
     for row in rows {
@@ -839,7 +885,12 @@ pub(crate) fn write_workspace_presentation(
             "pinned": record.pinned,
             "marked_unread": record.marked_unread,
         }),
-    )
+    )?;
+    if update.pinned.is_some() {
+        // sidebar-doc-v1: the old pin flag pins or unpins in the document.
+        crate::state::sidebar_doc_sync::sync_from_legacy(transaction)?;
+    }
+    Ok(())
 }
 
 impl WorkspaceRegistry {
@@ -1095,15 +1146,17 @@ impl WorkspaceRegistry {
         Ok(())
     }
 
-    /// Update a frontend browser's location and presentation. `None` leaves
-    /// a field unchanged; `favicon_url: Some(None)` clears the favicon. The
-    /// owner changes only on the state commit path (`Mux::commit_browser_owner`).
+    /// Update a frontend browser's location, presentation, or browser
+    /// profile. `None` leaves a field unchanged; `Some(None)` clears a
+    /// nullable field. The owner changes only on the state commit path
+    /// (`Mux::commit_browser_owner`).
     pub fn update_frontend_browser(
         &mut self,
         browser_id: &str,
         url: Option<&str>,
         title: Option<&str>,
         favicon_url: Option<Option<&str>>,
+        profile_id: Option<Option<&str>>,
     ) -> anyhow::Result<(FrontendBrowserRecord, bool)> {
         validate_browser_public_id(browser_id)?;
         let db = self.connection.get();
@@ -1120,15 +1173,20 @@ impl WorkspaceRegistry {
         if let Some(favicon_url) = favicon_url {
             record.favicon_url = favicon_url.map(str::to_string);
         }
+        if let Some(profile_id) = profile_id {
+            record.profile_id = profile_id
+                .map(|profile_id| resolve_browser_profile_id_in(&tx, profile_id))
+                .transpose()?;
+        }
         record.validate()?;
         if record == before {
             tx.commit()?;
             return Ok((record, false));
         }
         tx.execute(
-            "UPDATE frontend_browser_tabs SET url = ?2, title = ?3, favicon_url = ?4
+            "UPDATE frontend_browser_tabs SET url = ?2, title = ?3, favicon_url = ?4, profile_id = ?5
              WHERE browser_id = ?1",
-            params![browser_id, record.url, record.title, record.favicon_url],
+            params![browser_id, record.url, record.title, record.favicon_url, record.profile_id],
         )?;
         append_presentation_record(
             &tx,

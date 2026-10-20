@@ -53,6 +53,8 @@ public nonisolated struct AgentPaneRememberedPick: Sendable, Equatable {
     public var agent: String
     public var model: String?
     public var folder: String?
+    /// Integrate a harness was dismissed on the page, for every later page (`harnessHint: "dismissed"`).
+    public var dismissesHarnessHint = false
 
     public init(agent: String, model: String? = nil, folder: String? = nil) {
         self.agent = agent

@@ -11,13 +11,14 @@ public nonisolated enum SettingsSchema {
     /// Built once per run: each descriptor looks its texts up in the strings bundle, and launch
     /// reads it twice before the first window (about 20 ms in all on a cold launch, bd cx-z9kz0).
     public static let all: [SettingDescriptor] = {
-        let next = general + shortcutHints + UpdateSettingsSchema.descriptors + UpdateSettingsSchema.announcements
-            + ComputerUseSettingsSchema.descriptors + ColumnLayoutSettingsSchema.descriptors
+        let next = general + ShortcutHintsSettingsSchema.descriptors + UpdateSettingsSchema.descriptors + UpdateSettingsSchema.announcements
+            + ComputerUseSettingsSchema.descriptors + FreeModelSettingsSchema.descriptors + SessionSettingsSchema.descriptors + SessionSettingsSchema.phoneDescriptors + SubsessionSettingsSchema.descriptors + ColumnLayoutSettingsSchema.descriptors
             + PanePlacementSettingsSchema.descriptors + WorkspaceListSettingsSchema.descriptors + PaletteSettingsSchema.descriptors
-            + ChatSettingsSchema().descriptors + PickerSettingsSchema.descriptors + TaskSettingsSchema.descriptors + appearance + TerminalSettingsSchema.descriptors
-            + SidebarSectionSettingsSchema.descriptors + WorkspaceRowSetting.descriptors() + BrowserSettingsSchema.descriptors + HomeSettingsSchema.descriptors
+            + ChatSettingsSchema.descriptors + PickerSettingsSchema.descriptors + ScreenshotsSettingsSchema.descriptors + TaskSettingsSchema.descriptors + appearance + TerminalSettingsSchema.descriptors + EditorSettingsSchema.descriptors
+            + SidebarSectionSettingsSchema.descriptors + HoverCardSettingsSchema.descriptors + NowPlayingSettingsSchema.descriptors + ColorTransitionSettingsSchema.descriptors + WorkspaceRowSetting.descriptors() + BrowserSettingsSchema.descriptors + HomeSettingsSchema.descriptors
             + NotificationSettingsSchema.descriptors + LabsSettingsSchema.descriptors + FeedSettingsSchema.descriptors + AgentPaneSettingsSchema.descriptors
             + AgentPaneEditedFilesSettingsSchema.descriptors + AgentPaneComposerSettingsSchema.descriptors + AgentPaneZoomSettingsSchema.descriptors
+            + AgentDefaultsSettingsSchema.descriptors
         return next.map { sharedWithBrowser.contains($0.id) ? $0.consumed(by: [.cmuxNext, .cmuxBrowser]) : $0 }
             + BrowserAppSettingsSchema.descriptors
     }()
@@ -56,6 +57,7 @@ public nonisolated enum SettingsSchema {
         case .general: ["palette.makeDefaultTerminal", "palette.makeDefaultBrowser", "palette.checkForUpdates"]
         case .appearance: ["space.setTheme", "workspace.setTheme", "terminal.setTheme", "palette.openGhosttySettings"]
         case .terminal: ["palette.openGhosttySettings", "reloadConfiguration"]
+        case .editor: ["fileEditor.importEditorSettings"]
         case .browser: ["importFromBrowser", "browser.extensions.manage", "browser.extensions.webStore", "browser.extensions.loadUnpacked"]
         case .home: []
         case .keyboard: ["keybindings.open", "palette.searchShortcuts"]
@@ -113,14 +115,34 @@ public nonisolated enum SettingsSchema {
                 keywords: ["history", "back", "forward", "navigation", "workspace", "tab", "pane"]
             ),
             SettingDescriptor(
-                CommandRetentionSetting.configPath, section: .general, group: history,
+                CmuxConfigSnapshot.commandRetentionConfigPath, section: .general, group: history,
                 title: SettingsText.keyed("settings.history.commandRetentionDays", "Keep Terminal Commands For"),
                 help: SettingsText.keyed("settings.history.commandRetentionDays.help",
                                         "Each machine deletes recorded commands that are older."),
-                kind: .number(SettingNumber(Double(CommandRetentionSetting.range.lowerBound)...Double(CommandRetentionSetting.range.upperBound),
+                kind: .number(SettingNumber(Double(CmuxConfigSnapshot.commandRetentionRange.lowerBound)...Double(CmuxConfigSnapshot.commandRetentionRange.upperBound),
                                             step: 1, unit: .days)),
-                default: .number(Double(CommandRetentionSetting.fallback)),
+                default: .number(Double(CmuxConfigSnapshot.commandRetentionFallback)),
                 keywords: ["history", "commands", "retention", "delete", "privacy", "days"]
+            ),
+            SettingDescriptor(
+                ClosedHistoryRetentionSetting.maxGroupsPath, section: .general, group: history,
+                title: SettingsText.keyed("settings.history.closed.maxGroups", "Recently Closed Items to Keep"),
+                help: SettingsText.keyed("settings.history.closed.maxGroups.help",
+                                        "Each machine deletes its oldest closed tabs, screens, workspaces and windows past this many. 0 keeps them all."),
+                kind: .number(SettingNumber(Double(ClosedHistoryRetentionSetting.groupRange.lowerBound)...Double(ClosedHistoryRetentionSetting.groupRange.upperBound),
+                                            step: 1, unit: .count)),
+                default: .number(0),
+                keywords: ["history", "recently closed", "reopen", "retention", "delete", "privacy"]
+            ),
+            SettingDescriptor(
+                ClosedHistoryRetentionSetting.maxAgeDaysPath, section: .general, group: history,
+                title: SettingsText.keyed("settings.history.closed.maxAgeDays", "Keep Recently Closed Items For"),
+                help: SettingsText.keyed("settings.history.closed.maxAgeDays.help",
+                                        "Each machine deletes closed items that are older. 0 keeps them however old they are."),
+                kind: .number(SettingNumber(Double(ClosedHistoryRetentionSetting.dayRange.lowerBound)...Double(ClosedHistoryRetentionSetting.dayRange.upperBound),
+                                            step: 1, unit: .days)),
+                default: .number(0),
+                keywords: ["history", "recently closed", "reopen", "retention", "delete", "privacy", "days"]
             ),
             SettingDescriptor(
                 WindowTitlebarSetting.configPath, section: .general, group: window,
@@ -163,15 +185,14 @@ public nonisolated enum SettingsSchema {
                 default: .bool(CmuxConfigSnapshot.startAgentGlobalHotKeyFallback),
                 keywords: ["global", "hotkey", "hot key", "summon", "start agent", "agent", "quick", "chat", "launcher", "system-wide"]
             ),
-            TabSettingsSchema.newTabKind(group: tabs),
             TabSettingsSchema.newTabTemplate(group: tabs),
             TabSettingsSchema.newTabPosition(group: tabs),
             TabSettingsSchema.plusButton(group: tabs),
-        ] + TabBarSettingsSchema.descriptors(group: tabs) + [
+        ] + TabBarSettingsSchema.descriptors(group: tabs) + TabWidthSettingsSchema.descriptors(group: tabs) + [
             TabSettingsSchema.newTerminalOpensWorkspace(group: tabs),
             TabSettingsSchema.cmdWClosesPinnedTabs(group: tabs),
             TabSettingsSchema.swapCmdTAndCmdN(group: tabs),
-        ] + TabSettingsSchema.paneTabBars(group: tabs) + TabSettingsSchema.closeWarnings(group: tabs) + [
+        ] + TabSettingsSchema.closeWarnings(group: tabs) + [
             SettingDescriptor(
                 QuitBehaviorSetting.configPath, section: .general, group: quitting,
                 title: SettingsText.keyed("settings.app.quitBehavior", "When Quitting"),
@@ -235,7 +256,7 @@ public nonisolated enum SettingsSchema {
 
     static var appearance: [SettingDescriptor] {
         AppearanceSettingsSchema.descriptors + SurfaceSettingsSchema.descriptors + StatusIndicatorSettingsSchema.descriptors
-            + DiffViewerSettingsSchema.descriptors
+            + DiffViewerSettingsSchema.descriptors + MarkdownViewerSettingsSchema.descriptors
     }
 
     static func points(_ range: ClosedRange<CGFloat>, step: Double, placeholder: Double? = nil) -> SettingNumber {

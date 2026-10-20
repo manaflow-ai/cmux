@@ -1,6 +1,6 @@
 # Builds the app's ONE Rust static library, CCmuxAppFFI.xcframework
-# (cmux-tui/crates/cmux-app-ffi: the remote desktop core and the sidebar layout
-# reducer C ABIs over one Rust runtime, universal macOS arm64 + x86_64; see
+# (cmux-tui/crates/cmux-app-ffi: the remote desktop core, the sidebar layout
+# reducer and the cmux-motion C ABIs over one Rust runtime, universal macOS arm64 + x86_64; see
 # scripts/cmux-next/build-app-ffi.sh), and publishes it as a prerelease in this
 # repository, tagged cmux-app-ffi-<full commit sha>.
 # Packages/macOS/CmuxNext/Package.swift pins one release by URL and SwiftPM
@@ -18,8 +18,10 @@
 # (manaflow-cmux-ffi-release, used for nothing else). The publish job runs in
 # the `ffi-release` environment (deployment policy: feat-cmux-next only),
 # which holds the App's CMUX_FFI_RELEASE_APP_ID and CMUX_FFI_RELEASE_APP_KEY. It mints a token for this
-# repository only, with contents:write, plus workflows:write only when workflow
-# files changed since the last FFI tag, and only the release create uses it.
+# repository only, with contents:write, plus workflows:write only when the
+# tagged tree's .github/workflows differs from the default branch tip, their
+# merge-base or the last FFI tag (see the workflow-delta step), and only the
+# release create uses it.
 # Ruleset 24624527 keeps the tags immutable for everyone, the App included.
 #
 # FAIL-LOUD: the publish job never reports success without the release. When
@@ -38,8 +40,11 @@ on:
     branches: [feat-cmux-next]
     paths:
       - "cmux-tui/crates/cmux-app-ffi/**"
+      - "cmux-tui/crates/cmux-focus-core/**"
       - "cmux-tui/crates/cmux-layout-reducer/**"
       - "cmux-tui/crates/cmux-layout-reducer-ffi/**"
+      - "cmux-tui/crates/cmux-palette-ranker/**"
+      - "cmux-tui/crates/cmux-motion/**"
       - "cmux-tui/crates/cmux-rd-core/**"
       - "cmux-tui/crates/cmux-rd-proto/**"
       - "cmux-tui/crates/cmux-rd-ffi/**"
@@ -74,27 +79,47 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
 
-      # A tag whose commit range carries workflow-file changes needs a token
-      # with workflows:write. Measure the range from the last published FFI
-      # tag; the publish job asks the App for workflows:write only then.
-      - name: Workflow files changed since the last FFI release
+      # A new tag whose tree differs in .github/workflows from what GitHub
+      # compares a new ref with needs a token with workflows:write. GitHub
+      # compares a new ref with the default branch, not with the last FFI tag:
+      # runs 37551889292 (d7167cb) and 38682698310 (854febb) had the same
+      # workflow tree as the last FFI tag, minted contents:write only and got
+      # HTTP 403 on POST /releases; run 38686128246 (cc78cb6) minted
+      # workflows:write and published. So the token gets workflows:write when
+      # .github/workflows differs from the default branch tip, from the
+      # merge-base with it, or from the last FFI tag; a base that cannot be
+      # read counts as a difference. The publish job asks for it only then.
+      - name: Workflow files differ from what GitHub compares the new tag with
         id: workflow-delta
         shell: bash
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           set -euo pipefail
           git fetch --quiet --tags origin 'refs/tags/cmux-app-ffi-*:refs/tags/cmux-app-ffi-*' || true
-          last="$(git tag --list 'cmux-app-ffi-*' --merged HEAD --sort=-creatordate | head -n 1)"
-          if [[ -z "$last" ]]; then
-            echo "no earlier FFI tag on this history; treating workflow files as changed"
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-          elif git diff --quiet "$last" HEAD -- .github/workflows; then
-            echo "no workflow-file change since $last"
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "workflow files changed since $last:"
-            git diff --stat "$last" HEAD -- .github/workflows
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-          fi
+          git fetch --quiet origin "+refs/heads/${DEFAULT_BRANCH}:refs/remotes/origin/${DEFAULT_BRANCH}" || true
+          changed=false
+          differs() { # $1 = label, $2 = base commit or empty
+            if [[ -z "$2" ]] || ! git cat-file -e "$2^{commit}" 2>/dev/null; then
+              echo "$1: not available; treating workflow files as changed"
+              changed=true
+            elif git diff --quiet "$2" HEAD -- .github/workflows; then
+              echo "$1 ($2): no workflow-file difference"
+            else
+              echo "$1 ($2): workflow files differ:"
+              git diff --stat "$2" HEAD -- .github/workflows | tail -n 1
+              changed=true
+            fi
+          }
+          default_tip="$(git rev-parse --verify --quiet "refs/remotes/origin/${DEFAULT_BRANCH}" || true)"
+          differs "default branch ${DEFAULT_BRANCH} tip" "$default_tip"
+          merge_base=""
+          if [[ -n "$default_tip" ]]; then merge_base="$(git merge-base "$default_tip" HEAD || true)"; fi
+          differs "merge-base with ${DEFAULT_BRANCH}" "$merge_base"
+          last="$(git tag --list 'cmux-app-ffi-*' --merged HEAD --sort=-creatordate | sed -n 1p)"
+          differs "last FFI tag ${last:-<none>}" "$last"
+          echo "changed=$changed"
+          echo "changed=$changed" >> "$GITHUB_OUTPUT"
 
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
@@ -113,6 +138,10 @@ jobs:
       - name: Test the remote desktop FFI
         working-directory: cmux-tui/crates/cmux-rd-ffi
         run: cargo test --locked
+
+      - name: Test the palette ranker
+        working-directory: cmux-tui
+        run: cargo test -p cmux-palette-ranker --locked
 
       # From cmux-tui so rustup resolves the pinned toolchain (rust-toolchain.toml).
       - name: Build universal xcframework
@@ -146,14 +175,14 @@ jobs:
           smoke="$RUNNER_TEMP/smoke"
           mkdir -p "$smoke"
           {
-            printf '%s\n' '#include <CCmuxRdFFI/cmux_rd_ffi.h>' '#include <CCmuxLayoutReducerFFI/cmux_layout_reducer_ffi.h>' '#include <stdio.h>' 'int main(void) {'
-            for symbol in $(cat cmux-tui/crates/cmux-rd-ffi/include/cmux_rd_ffi.h cmux-tui/crates/cmux-layout-reducer-ffi/include/cmux_layout_reducer_ffi.h | grep -oE '\bcmux_[a-z0-9_]+\(' | tr -d '(' | sort -u); do
+            printf '%s\n' '#include <CCmuxRdFFI/cmux_rd_ffi.h>' '#include <CCmuxLayoutReducerFFI/cmux_layout_reducer_ffi.h>' '#include <CCmuxPaletteRankerFFI/cmux_palette_ranker.h>' '#include <stdio.h>' 'int main(void) {'
+            for symbol in $(cat cmux-tui/crates/cmux-rd-ffi/include/cmux_rd_ffi.h cmux-tui/crates/cmux-layout-reducer-ffi/include/cmux_layout_reducer_ffi.h cmux-tui/crates/cmux-palette-ranker/include/cmux_palette_ranker.h | grep -oE '\bcmux_[a-z0-9_]+\(' | tr -d '(' | sort -u); do
               printf '  printf("%%p %s\\n", (void *)&%s);\n' "$symbol" "$symbol"
             done
             printf '%s\n' '  printf("abi %u\n", cmux_layout_reducer_ffi_abi_version());' '  return 0;' '}'
           } > "$smoke/smoke.c"
           for arch in arm64 x86_64; do
-            xcrun clang -target "$arch-apple-macos26.0" -I "$headers" "$smoke/smoke.c" "$lib" -o "$smoke/smoke-$arch"
+            xcrun clang -target "$arch-apple-macos14.0" -I "$headers" "$smoke/smoke.c" "$lib" -o "$smoke/smoke-$arch"
           done
           "$smoke/smoke-arm64"
           dist="$RUNNER_TEMP/dist"
@@ -274,7 +303,7 @@ jobs:
           mac="$RUNNER_TEMP/macos-cross/mac/CCmuxAppFFI.xcframework/macos-arm64_x86_64"
           ./scripts/ci/macos-cross.sh parity-ffi "$mac/libcmux_app_ffi.a" > "$report" 2>&1 || status=1
           # The headers the app imports come straight from the crates.
-          for h in cmux-tui/crates/cmux-rd-ffi/include/cmux_rd_ffi.h:CCmuxRdFFI cmux-tui/crates/cmux-layout-reducer-ffi/include/cmux_layout_reducer_ffi.h:CCmuxLayoutReducerFFI; do
+          for h in cmux-tui/crates/cmux-rd-ffi/include/cmux_rd_ffi.h:CCmuxRdFFI cmux-tui/crates/cmux-layout-reducer-ffi/include/cmux_layout_reducer_ffi.h:CCmuxLayoutReducerFFI cmux-tui/crates/cmux-palette-ranker/include/cmux_palette_ranker.h:CCmuxPaletteRankerFFI; do
             if cmp -s "${h%%:*}" "$mac/Headers/${h##*:}/$(basename "${h%%:*}")"; then
               echo "PASS header ${h##*:}/$(basename "${h%%:*}")" >> "$report"
             else

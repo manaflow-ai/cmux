@@ -1,7 +1,7 @@
 public import AppKit
 public import CmuxTheme
 
-/// A workspace group's color (cx-25az): one of the theme palette tokens, or
+/// A workspace group's color (cx-25az): one of the group palette tokens, or
 /// a custom color a person picked. The wire form is the token's raw value
 /// or `#RRGGBB`, the two shapes the daemon stores for a group color.
 public nonisolated enum GroupTint: Hashable, Sendable {
@@ -37,8 +37,8 @@ public nonisolated enum GroupTint: Hashable, Sendable {
         if case let .palette(token) = self { token } else { .grey }
     }
 
-    /// The header bar's fill and the members' line: a custom color is kept
-    /// readable over the sidebar, as the palette colors are.
+    /// The members' line and the editors' swatches: a custom color is kept
+    /// readable over the sidebar.
     @MainActor public var headerFill: NSColor {
         switch self {
         case let .palette(token): token.headerFill
@@ -48,31 +48,26 @@ public nonisolated enum GroupTint: Hashable, Sendable {
 
     /// The solid group header chip (cx-qno.22): its rest color and the one
     /// ink every glyph on it takes (`ThemeTokens.chip`), in the active scope.
+    /// The ink is white or near-black, whichever reads better on the color
+    /// (cg-design-judge 2026-10-14: the theme's text color read grey on a dark
+    /// green header).
     @MainActor public var headerChip: (fill: ThemeRGB, ink: ThemeRGB) {
         let tokens = ThemeContext.active ?? ThemeScope.app.tokens
         let color = switch self {
         case let .palette(token): token.headerRGB(tokens)
         case let .custom(rgb): Self.readable(rgb)
         }
-        return tokens.chip(color)
+        return tokens.chip(color, inks: .onColor)
     }
 
-    /// A tab group chip's fill in the active scope (`GroupColor.themedChipFill`): the color washed
-    /// into the sidebar so the name stays primary text.
+    /// A tab group chip's fill in the active scope (`GroupColor.chipFill`); a custom color is
+    /// washed into the sidebar so the name stays primary text.
     @MainActor public var chipFill: NSColor {
         switch self {
-        case let .palette(token): return token.themedChipFill
+        case let .palette(token): return token.chipFill
         case let .custom(rgb):
             let tokens = ThemeContext.active ?? ThemeScope.app.tokens
             return tokens.sidebarBackground.withAlpha(1).mixed(toward: Self.readable(rgb), tokens.isDark ? 0.34 : 0.26).nsColor
-        }
-    }
-
-    /// Black or white text and glyphs on `headerFill`.
-    @MainActor public var headerInk: NSColor {
-        switch self {
-        case let .palette(token): token.headerInk
-        case let .custom(rgb): GroupColor.ink(on: Self.readable(rgb)).nsColor
         }
     }
 

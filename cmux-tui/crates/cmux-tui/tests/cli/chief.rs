@@ -6,8 +6,26 @@ use super::*;
 use serde_json::{Value, json};
 use std::os::fd::FromRawFd;
 
+#[path = "chief_adopt.rs"]
+mod adopt;
 #[path = "chief_autostart.rs"]
 mod autostart;
+#[cfg(unix)]
+#[path = "chief_brains.rs"]
+mod brains;
+#[path = "chief_build_homes.rs"]
+mod build_homes;
+#[cfg(unix)]
+#[path = "chief_chat_kind.rs"]
+mod chat_kind;
+#[path = "conversation_link_preview.rs"]
+mod link_preview;
+#[path = "participant_avatars.rs"]
+mod participant_avatars;
+#[path = "chief_registry.rs"]
+mod registry;
+#[path = "chief_registry_errors.rs"]
+mod registry_errors;
 
 /// A JSON-lines client of the daemon; events read while waiting for an
 /// answer are kept in `events`.
@@ -146,13 +164,38 @@ fn fake_brain_saying(
 }
 
 fn chief_cli(server: &HeadlessServer, args: &[&str], stdin: &str) -> Output {
-    let mut child = Command::new(bin())
+    chief_cli_as(server, args, stdin, &[])
+}
+
+/// `cmux chief ARGS` as a person (no agent caller marker in its env) plus
+/// `env`, so a test names the agent marker it means.
+fn chief_cli_as(
+    server: &HeadlessServer,
+    args: &[&str],
+    stdin: &str,
+    env: &[(&str, &str)],
+) -> Output {
+    let mut command = Command::new(bin());
+    command
         .arg("--socket")
         .arg(&server.socket)
         .arg("chief")
         .args(args)
         .env("LC_ALL", "C")
-        .env_remove("CMUX_TUI_SOCKET")
+        .env_remove("CMUX_TUI_SOCKET");
+    for key in [
+        "ACPMUX_ENV",
+        "ACPMUX_SESSION_ID",
+        "ACPMUX_SESSION_NAME",
+        "CMUX_CHIEF_OWNER_SOCKET",
+        "CMUX_AGENT_PRINCIPAL",
+        "CMUX_AGENT_CLASS",
+        "CMUX_AGENT_HARNESS",
+    ] {
+        command.env_remove(key);
+    }
+    command.envs(env.iter().copied());
+    let mut child = command
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -223,12 +266,19 @@ fn chief_without_a_chief_conversation_says_how_to_get_one() {
 
 /// The Chief's posted reply names its subagents as `[a1](cmux://chief/<home id>/session/<id>)`
 /// (optchat-chief `link_subagents`). Lawrence 2026-10-10: a Cmd-click in any terminal opens the
-/// subagent. On a terminal, `cmux chief -p` writes each one as an OSC 8 hyperlink on its label;
-/// on a pipe it writes the reply as it is, with no escape bytes.
+/// subagent. Lawrence 2026-10-14 ("make sure chief renders URLs when it makes sense to", cx-ebm.59.1):
+/// a Markdown web link and a bare web URL are links too. On a terminal, `cmux chief -p` writes each
+/// as an OSC 8 hyperlink (a Markdown link on its label, a bare URL on itself); on a pipe it writes
+/// the reply as it is, with no escape bytes.
 const SUBAGENT_LINK: &str = "cmux://chief/0a1b2c3d/session/01a12318-9c7f-7000-beab-7686172b0ca3";
 
+const BARE_URL: &str = "https://github.com/manaflow-ai/cmux/pull/20378";
+
 fn linked_reply(_: &str) -> String {
-    format!("a1 counts lines: [a1]({SUBAGENT_LINK}) and [docs](https://cmux.com/docs)")
+    format!(
+        "a1 counts lines: [a1]({SUBAGENT_LINK}) and [docs](https://cmux.com/docs). \
+         See {BARE_URL}. Not a link: [x](javascript:alert(1)) and `ftp://cmux.com/a`."
+    )
 }
 
 /// One `cmux chief -p hi` turn against a brain that replies with a subagent link; stdout is a
@@ -307,7 +357,7 @@ fn linked_turn(tty: bool, env: &[(&str, &str)]) -> Vec<u8> {
 }
 
 #[test]
-fn chief_pipe_writes_subagent_links_as_terminal_hyperlinks_on_a_tty_only() {
+fn chief_pipe_writes_subagent_and_web_links_as_terminal_hyperlinks_on_a_tty_only() {
     let osc8 = format!("\x1b]8;;{SUBAGENT_LINK}\x1b\\a1\x1b]8;;\x1b\\");
     let tty = String::from_utf8_lossy(&linked_turn(true, &[])).into_owned();
     assert!(tty.contains(&osc8), "no OSC 8 hyperlink on a tty: {tty:?}");
@@ -315,8 +365,17 @@ fn chief_pipe_writes_subagent_links_as_terminal_hyperlinks_on_a_tty_only() {
         !tty.contains(&format!("({SUBAGENT_LINK})")),
         "the Markdown link stays on a tty: {tty:?}"
     );
-    // Only this Chief's subagent form is a hyperlink; other links print as written.
-    assert!(tty.contains("[docs](https://cmux.com/docs)"), "{tty:?}");
+    // A Markdown web link is a hyperlink on its label, its target hidden.
+    let docs = "\x1b]8;;https://cmux.com/docs\x1b\\docs\x1b]8;;\x1b\\";
+    assert!(tty.contains(docs), "no OSC 8 hyperlink on a Markdown web link: {tty:?}");
+    assert!(!tty.contains("(https://cmux.com/docs)"), "the Markdown link stays on a tty: {tty:?}");
+    // A bare web URL is a hyperlink on itself; the sentence's full stop is not part of it.
+    let bare = format!("\x1b]8;;{BARE_URL}\x1b\\{BARE_URL}\x1b]8;;\x1b\\.");
+    assert!(tty.contains(&bare), "no OSC 8 hyperlink on a bare URL: {tty:?}");
+    // Other schemes are never links; they print as written.
+    assert!(tty.contains("[x](javascript:alert(1))"), "{tty:?}");
+    assert!(tty.contains("ftp://cmux.com/a"), "{tty:?}");
+    assert_eq!(tty.matches("\x1b]8;;\x1b\\").count(), 3, "exactly three hyperlinks: {tty:?}");
     // A pipe, NO_COLOR and TERM=dumb get the reply as it is, with no escape bytes.
     for (tty, env) in
         [(false, &[][..]), (true, &[("NO_COLOR", "1")][..]), (true, &[("TERM", "dumb")][..])]
@@ -324,6 +383,7 @@ fn chief_pipe_writes_subagent_links_as_terminal_hyperlinks_on_a_tty_only() {
         let out = String::from_utf8_lossy(&linked_turn(tty, env)).into_owned();
         assert!(!out.contains("\x1b]8;"), "escape bytes with tty={tty} {env:?}: {out:?}");
         assert!(out.contains(&format!("[a1]({SUBAGENT_LINK})")), "{out:?}");
+        assert!(out.contains("[docs](https://cmux.com/docs)") && out.contains(BARE_URL), "{out:?}");
     }
 }
 

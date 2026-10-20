@@ -11,7 +11,10 @@ classic's last saved session, with the same panes, splits, tabs and tab names.
 It never runs on its own. It shows a toast when it finishes, and running it
 again opens the workspaces again.
 
-- Terminals open in their folders. Launch commands and scrollback are left out.
+- Terminals open in their folders. A command that was running doesn't start
+  again. A terminal's saved scrollback prints once above its first prompt, as
+  plain output with its colors; titles, links and other terminal codes in it
+  are dropped. This needs cmux-next's shell integration (zsh, bash or fish).
 - Browser tabs open on their pages, in the same pane and order. A tab keeps a
   name you gave it; otherwise it shows the page's title.
 - A terminal that ran a Claude Code or Codex session opens as a chat that
@@ -25,10 +28,11 @@ again opens the workspaces again.
   the toast says so; the import doesn't try it again for its other workspaces,
   and a machine it added for that host is removed again. An agent session in an
   SSH workspace opens as a terminal, because adopted chats run on this Mac.
+  An SSH terminal opens without its old scrollback, and the toast says so.
 - Cloud VM workspaces stay in classic, and the toast says so: cmux-next
   can't attach a classic VM yet.
-- Markdown viewers and file previews are left out. A pane that held only those
-  closes up, and its neighbour takes its space.
+- Markdown viewers and file previews stay in classic, and the toast says so.
+  A pane that held only those closes up, and its neighbour takes its space.
 
 To choose what comes over, or to bring launch commands too, use
 [`scripts/cmux-next/classic-to-next.py`](../../scripts/cmux-next/classic-to-next.py)
@@ -42,8 +46,8 @@ cmux-next must be running. The script finds its control socket on its own
 
 | Build | Socket |
 | --- | --- |
-| Tagged dev build | `/tmp/cmux-debug-<tag>.sock` |
-| Nightly, RC, staging | `/tmp/cmux-<channel>[-<tag>].sock` |
+| Tagged dev build | `~/.local/state/cmux/cmux-debug-<tag>.sock` (symlink at `/tmp/cmux-debug-<tag>.sock`) |
+| Nightly, RC, staging | `~/.local/state/cmux/cmux-<channel>[-<tag>].sock` (symlink at `/tmp/cmux-<channel>[-<tag>].sock`) |
 | Release | `~/.local/state/cmux/cmux.sock` |
 
 ## 2. List what classic has

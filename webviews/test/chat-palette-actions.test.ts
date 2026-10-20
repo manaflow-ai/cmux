@@ -4,7 +4,9 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
+import { playFailures } from "./support/galleryPlay";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("chat-palette-actions.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -31,6 +33,7 @@ await requireBrowserLane("chat-palette-actions.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
+    await warmViteServer(vite, "/gallery/frame.html");
     browser = await chromium.launch({ headless: true });
     // Warm the gallery stage once before the test pages. The first load can trigger Vite's
     // dependency optimizer and reload its context while the real fixture is compiling; doing it
@@ -70,17 +73,16 @@ await requireBrowserLane("chat-palette-actions.test.ts", async () => {
 
   test("Copy Last Code Block hands the app the latest reply's last code block", async () => {
     const result = await play("copy-last-code-block");
-    expect(result.play, result.report).toBe("pass");
+    expect(playFailures(result.report)).toEqual([]);
   });
 
   test("Archive Chat archives through the chat menu's host call", async () => {
     const result = await play("archive-chat-key");
-    expect(result.play, result.report).toBe("pass");
+    expect(playFailures(result.report)).toEqual([]);
   });
 
   test("Mark as Unread asks the host to mark the chat unread", async () => {
     const result = await play("mark-unread-menu");
-    // "warn" reports frames over 16.7 ms while Chat actions opens; the variant's checks bound them (cx-ncc.87).
-    expect(["pass", "warn"], result.report).toContain(result.play ?? "");
+    expect(playFailures(result.report)).toEqual([]);
   });
 });

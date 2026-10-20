@@ -13,7 +13,11 @@ Cases:
 - few: a conversation with 2 messages, opened in Home for the first time (its
   transcript page loads after the view is made), then a live message.
 - thread: the thread proof's order (before, root, 2 replies), opened, a plain
-  message right away, then a live thread reply.
+  message right away, then a live thread reply (its root's text preview shows
+  above it). Then the transcript moves by half a device pixel: the text rows
+  under the preview rest on whole device pixels with no partial pixels on their
+  straight edges where the app draws them (MessagesLab c1457e5 row-snap, 2281879
+  balloon; home_pixels.check_rows).
 
 Reads and writes only through the debug socket; no system input. Runs on
 cmux-lawrence-2 (GUI host), never on the laptop. Ends with quitEndSessions and
@@ -23,6 +27,11 @@ Usage: home-hidden-messages.py --tag <tag> [--out DIR] [--no-launch]
 Exit 0 when every check passes, 1 otherwise.
 """
 import argparse, json, os, socket, subprocess, sys, time
+import re
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from home_pixels import SKIPPED, check_rows  # noqa: E402
+import home_classic  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -156,13 +165,16 @@ if not opts.no_launch:
     env = {"HOME": home, "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"), "SHELL": "/bin/zsh",
            "PATH": f"{home}/.local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1",
            "CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_DEV_BACKEND_MODE": "local",
-           "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1200,800"}
+           "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1200,800", **home_classic.ENV}
     process = subprocess.Popen([f"{app}/Contents/MacOS/cmux DEV"], env=env, cwd=opts.out, stdin=subprocess.DEVNULL,
                                stdout=open(os.path.join(opts.out, "app.log"), "a"), stderr=subprocess.STDOUT, start_new_session=True)
     pid = process.pid
     print(f"launched pid {pid}", flush=True)
 
 try:
+    # Classic Home or stop at once (cx-h0kds): these checks drive the native classic Home transcript.
+    if not home_classic.require(rpc):
+        sys.exit(2)
     inbox = poll(lambda: (r := api(call="inbox")) and "conversations" in r and r, timeout=180)
     if not check("the local owner answers inbox", bool(inbox), api(call="inbox")):
         sys.exit(1)
@@ -198,15 +210,43 @@ try:
         compare("thread, live reply", thread, ["Before the thread", ROOT, "I can take the schema part.",
                                                "I will do the backfill after it.", "After the thread", "Third reply, arriving live."],
                 "thread-live.png")
+        # The live reply's root preview (ROOT wraps to several lines: a 100.5 pt row on the pixel grid since
+        # MessagesLab c1457e5, measured at d5f924a; 100.65 pt of parts before) sits above the reply. With the transcript on half a device pixel
+        # (both axes), the text rows under the preview rest on whole device pixels with crisp straight edges.
+        rows = (rpc("debug.home.drive", {"action": "rows"}) or {}).get("rows") or []
+        kinds = [r["kind"] for r in rows]
+        has_preview = "preview" in kinds and "text" in kinds[kinds.index("preview") + 1:]
+        check("thread, live reply: a thread preview shows above a text row", has_preview, kinds)
+        rpc("debug.home.drive", {"action": "nudge", "dx": 0.25, "dy": 0.25})
+        # The pane's right edge on half a device pixel too (82ccac1: my rows, here the live reply, snap their right edge).
+        rpc("debug.home.drive", {"action": "resize", "trims": [0.5]})
+        time.sleep(0.2)  # test harness: one display frame for the move to show
+        half = rpc("debug.home.drive", {"action": "rows"}) or {}
+        half_shot = os.path.join(opts.out, "thread-half-pixel.png")
+        rpc("debug.window_snapshot", {"path": half_shot})
+        check("thread, half pixel: the transcript sits on half a device pixel (both axes)", bool(half.get("ok"))
+              and all(abs(((half.get(k, 0) * 2) % 1) - 0.5) < 0.01 for k in ("hostX", "hostY")),
+              {k: half.get(k) for k in ("hostX", "hostY", "error")})
+        check("thread, half pixel: the transcript's right edge sits on half a device pixel",
+              abs(((half.get("hostRight", 0) * 2) % 1) - 0.5) < 0.01, {k: half.get(k) for k in ("hostRight", "trim")})
+        if has_preview and half.get("ok") and os.path.exists(half_shot):
+            hk = [r["kind"] for r in half["rows"]]
+            below = {r["key"] for r in half["rows"][hk.index("preview") + 1:]} if "preview" in hk else set()
+            preview = next((r for r in half["rows"] if r["kind"] == "preview"), None)
+            if preview:
+                print(f"     thread preview row: {preview['height']} pt", flush=True)
+            check_rows(check, "thread, half pixel, under the preview", half, half_shot, keys=below, min_rows=1)
 finally:
     if pid:
         reply = rpc("debug.quit", {"fixture_quit": "end-sessions"}, timeout=10)
         if not (isinstance(reply, dict) and reply.get("quitting") == "end-sessions"):
             rpc("action.run", {"id": "quitEndSessions"}, timeout=10)
         poll(lambda: subprocess.run(["kill", "-0", str(pid)], capture_output=True).returncode != 0, timeout=25)
-        acp = f"{home}/.acpmux/tags/{opts.tag}"
-        subprocess.run([f"{app}/Contents/Resources/bin/acpmux", "daemon", "shutdown"], capture_output=True,
+        acp = "%s/.acpmux/builds/com.cmuxterm.app.debug.%s" % (home, re.sub(r"[^a-z0-9]+", ".", opts.tag.lower()).strip("."))
+        subprocess.run([f"{app}/Contents/Resources/bin/acpmux", "daemon", "shutdown", "--end-agents"], capture_output=True,
                        env=dict(os.environ, ACPMUX_HOME=acp, ACPMUX_SOCKET=f"{acp}/acpmux.sock"))
 
 print(f"{len(failures)} failed: {failures}" if failures else "all checks passed", flush=True)
+if SKIPPED:
+    print(f"{len(SKIPPED)} proof(s) skipped (not passed): {SKIPPED}", flush=True)
 sys.exit(1 if failures else 0)

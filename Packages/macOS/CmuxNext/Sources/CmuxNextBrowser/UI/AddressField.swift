@@ -74,6 +74,21 @@ final class AddressField: ChromeTextField, OmnibarFieldSurface {
         sink?.fieldEditorMouseUp()
     }
 
+    /// The I-beam over the text at rest and while editing (`OmnibarPointer`);
+    /// while editing the field editor adds its own I-beam over its text.
+    override func resetCursorRects() {
+        if isFieldEditorActive {
+            super.resetCursorRects()
+        } else {
+            addCursorRect(bounds, cursor: OmnibarPointer.cursor(.text).cursor)
+        }
+        installedCursor = OmnibarPointer.cursor(.text)
+    }
+
+    /// The cursor AppKit last asked this field to install over its text
+    /// (`debug.omnibar`): nil until AppKit built the field's cursor rects.
+    private(set) var installedCursor: OmnibarPointer.Cursor?
+
     // MARK: OmnibarFieldSurface
 
     var isFieldEditorActive: Bool { currentEditor() != nil }

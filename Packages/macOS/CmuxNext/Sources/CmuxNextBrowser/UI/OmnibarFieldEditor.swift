@@ -74,8 +74,13 @@ final class OmnibarFieldEditor: NSTextView {
         sink?.fieldEditorDidChange(kind: .insert)
     }
 
+    /// Commits a composition. With nothing marked (AppKit and input
+    /// methods also call it then) it commits nothing, so it reports no edit:
+    /// an edit report turns the shown address into typed text (cx-d0d.87).
     override func unmarkText() {
+        let composing = hasMarkedText()
         super.unmarkText()
+        guard composing else { return }
         isChangingText = false
         sink?.fieldEditorDidChange(kind: .insert)
     }
@@ -103,9 +108,11 @@ final class OmnibarFieldEditor: NSTextView {
 
     override func keyDown(with event: NSEvent) {
         // Return with modifiers never reaches doCommandBy as a plain newline.
-        if event.keyCode == 36 || event.keyCode == 76, !hasMarkedText(),
-           sink?.fieldEditorKey(.enter(.init(event.modifierFlags))) == true {
-            return
+        if event.keyCode == 36 || event.keyCode == 76, !hasMarkedText() {
+            let disposition = OmnibarInput.Disposition(event.modifierFlags)
+            // Control-Return adds www. and .com (Chromium's desired TLD).
+            let key: OmnibarInput.Key = event.modifierFlags.contains(.control) ? .enterAddingTLD(disposition) : .enter(disposition)
+            if sink?.fieldEditorKey(key) == true { return }
         }
         // Shift-Delete (forward delete) removes the highlighted history row
         // (Chromium `VKEY_DELETE` with Shift); otherwise it deletes forward.

@@ -3,6 +3,7 @@ import { verifyAttestation, type AttestedKey } from "../app-attest.ts"
 import { issuer, publicJwks, signer } from "../auth.ts"
 import type { Env } from "../env.ts"
 import { deviceCheckConfigured, markGranted, queryBits } from "./device-check.ts"
+import { utcMonth } from "./free-device-do.ts"
 import type { Caller } from "./route.ts"
 
 /**
@@ -146,13 +147,16 @@ export const handleFree = async (env: Env, path: string, request: Request): Prom
   }
   if ((await stub.grant(now)) !== "current") {
     // A new install, or a grant from an earlier month: one grant per device per month (DeviceCheck
-    // bit 0, stamped with the month). Grants end with their month, so a key never keeps one forever.
-    // Residual risk: two attestations from one device at the same moment can both read "no grant"
+    // bit 0) plus one replacement key (bit 1, for a lost keychain item or a reinstalled system), both
+    // stamped with the month of the last write. Grants end with their month, so a key never keeps one
+    // forever. Accepted gap (cx-ds09i): the replaced key keeps its grant to the month's end.
+    // Residual risk: two attestations from one device at the same moment can both read the same bits
     // (Apple has no compare-and-swap); the per-IP grant limit and the month expiry bound it.
     const bits = await queryBits(env, body.device_token)
     if (!bits.ok) return err(bits.reason === "devicecheck.bad_token" ? 403 : 503, "free.devicecheck", "this device could not be verified")
-    if (bits.bit0 && bits.month === new Date(now).toISOString().slice(0, 7)) return err(403, "free.device_used", "this device already used its free access this month; sign in to continue")
-    if (!(await markGranted(env, body.device_token))) return err(503, "free.devicecheck", "this device could not be verified")
+    const thisMonth = bits.month === utcMonth(now)
+    if (thisMonth && bits.bit0 && bits.bit1) return err(403, "free.device_used", "this device already used its free access this month; sign in to continue")
+    if (!(await markGranted(env, body.device_token, thisMonth && bits.bit0))) return err(503, "free.devicecheck", "this device could not be verified")
   }
   if (!(await stub.register(attested, body.platform, now))) return err(403, "free.attestation", "this device could not be verified")
   console.log(JSON.stringify({ msg: "inference.free.granted", platform: body.platform }))

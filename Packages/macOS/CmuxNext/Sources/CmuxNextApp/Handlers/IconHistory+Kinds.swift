@@ -45,6 +45,31 @@ extension IconHistory {
         }
     }
 
+    /// A screen group, on whichever machine owns it (`GroupOwnership`).
+    static func screenGroup(_ ctx: AppActionContext) -> Self {
+        inActiveWindow(ctx) { id, update in
+            guard let found = GroupOwnership.screenGroup(CmuxNextDaemon.ScreenGroupID(rawValue: id), machines: ctx.services.machines) else { return false }
+            guard found.daemon.supports(DaemonCapabilities.shared.screenGroupIcon) else {
+                throw ActionFailure(message: found.daemon.missingCapabilityMessage(DaemonCapabilities.shared.screenGroupIcon))
+            }
+            ScreenGroupCommands.update(found.group.id, icon: update, daemon: found.daemon)
+            return true
+        }
+    }
+
+    /// A tab group, in the pane that holds it on whichever machine owns it.
+    static func tabGroup(_ ctx: AppActionContext) -> Self {
+        inActiveWindow(ctx) { id, update in
+            let group = CmuxNextDaemon.TabGroupID(rawValue: id)
+            guard let (pane, daemon) = GroupOwnership.pane(holdingTabGroup: group, machines: ctx.services.machines) else { return false }
+            guard daemon.supports(DaemonCapabilities.shared.tabGroupIcon) else {
+                throw ActionFailure(message: daemon.missingCapabilityMessage(DaemonCapabilities.shared.tabGroupIcon))
+            }
+            GroupIconHandlers.send(update, toTabGroup: group, in: pane, daemon: daemon, ctx)
+            return true
+        }
+    }
+
     static func browserProfile(_ ctx: AppActionContext) -> Self {
         inActiveWindow(ctx) { id, update in
             guard ctx.services.browserProfiles.record(id) != nil else { return false }

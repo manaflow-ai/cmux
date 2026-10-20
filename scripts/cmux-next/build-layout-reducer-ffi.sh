@@ -33,7 +33,7 @@ export CARGO_TARGET_DIR="$out_root/cargo"
 # green and fails to link. Same rule as the cmux-terminal-client xcframework.
 export CARGO_PROFILE_RELEASE_LTO="${CARGO_PROFILE_RELEASE_LTO:-off}"
 export RUSTFLAGS="${RUSTFLAGS:+$RUSTFLAGS }-C embed-bitcode=no"
-export MACOSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-26.0}"
+export MACOSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-14.0}"
 for target in "${targets[@]}"; do
   (cd "$crate_dir" && cargo build --release --target "$target")
   lib="$out_root/cargo/$target/release/libcmux_layout_reducer_ffi.a"
@@ -41,7 +41,7 @@ for target in "${targets[@]}"; do
   obj="$out_root/slices/$target.o"; out="$out_root/slices/$target.a"
   exports="$out_root/slices/$target.exports"
   grep -oE '\bcmux_layout_reducer_[a-z0-9_]+\(' "$crate_dir/include/cmux_layout_reducer_ffi.h" | tr -d '(' | sort -u | sed 's/^/_/' > "$exports"
-  clang -target "$arch-apple-macos26.0" -r -nostdlib -Wl,-force_load,"$lib" -Wl,-exported_symbols_list,"$exports" -o "$obj"
+  clang -target "$arch-apple-macos$MACOSX_DEPLOYMENT_TARGET" -r -nostdlib -Wl,-force_load,"$lib" -Wl,-exported_symbols_list,"$exports" -o "$obj"
   libtool -static -o "$out" "$obj"; libs+=("$out")
 done
 if ((${#libs[@]} == 1)); then

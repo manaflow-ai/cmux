@@ -95,6 +95,19 @@ pub trait Driver: Send + Sync {
         false
     }
 
+    /// BR-R3 (cx-d0d.79): every connection of this session's tabs, the
+    /// WebSockets a request filter never sees included, goes through a
+    /// listener that refuses a host `policy` does not allow; `None` lets
+    /// every host through again. Engines without it (the app's CEF and
+    /// WebKit tabs: cx-d0d.78) keep this default.
+    fn set_connection_policy(
+        &self,
+        policy: Option<crate::policy_proxy::ConnectionPolicy>,
+    ) -> Result<(), DriverError> {
+        let _ = policy;
+        Ok(())
+    }
+
     /// Whether this session's after-the-fact checks (a response from a
     /// refused address stops the load) apply to `target_id`. A driver of its
     /// own browser answers true for every tab; a session on a shared source

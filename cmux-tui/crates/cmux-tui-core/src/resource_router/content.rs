@@ -413,6 +413,8 @@ fn execute_terminal_effect(
         );
     }
 
+    // Bytes queued for this terminal while it was being created go first.
+    mux.wait_for_creating_input_flush(&surface);
     let action = match prepared.operation.as_str() {
         "terminal.input.write" => terminal_write(&surface, &fields),
         "terminal.input.keys" => terminal_keys(&surface, &fields),
@@ -1052,7 +1054,7 @@ fn resolve_browser_surface(
     Ok((browser_id, surface))
 }
 
-fn browser_surface_for_id(
+pub(super) fn browser_surface_for_id(
     mux: &Mux,
     browser_id: &BrowserPublicId,
 ) -> Option<(crate::SurfaceId, Arc<Surface>)> {

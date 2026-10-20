@@ -48,6 +48,30 @@ extension ActionRegistry {
     public func assessShortcut(_ shortcut: Shortcut, for id: ActionID, environment: ShortcutEditEnvironment) -> ShortcutAssessment {
         let id = canonicalID(for: id)
         if descriptor(for: id)?.shortcutFamily != nil { return .refused(.editsNumberedFamily) }
+        return assessKey(shortcut, for: id, environment: environment)
+    }
+
+    /// The numbered family `id` (`⌘1…9`) on `modifiers`: each of its nine
+    /// keys assessed as ``assessKey(_:for:environment:)`` does; the first
+    /// that is not available decides, else the notes of all nine.
+    public func assessFamilyModifiers(_ modifiers: NSEvent.ModifierFlags, for id: ActionID,
+                                      environment: ShortcutEditEnvironment) -> ShortcutAssessment {
+        var notes: [ShortcutNote] = []
+        for digit in 1...9 {
+            switch assessKey(Shortcut(String(digit), modifiers: modifiers), for: id, environment: environment) {
+            case .available(let more): notes += more.filter { !notes.contains($0) }
+            case let other: return other
+            }
+        }
+        return .available(notes: notes)
+    }
+
+    /// ``assessShortcut(_:for:environment:)`` without refusing a numbered
+    /// family: `shortcut` as one key of `id`, for an edit of one digit or of
+    /// the family's modifiers. `id`'s own entries are not owners: a caller
+    /// editing one digit checks the family's other digits itself.
+    public func assessKey(_ shortcut: Shortcut, for id: ActionID, environment: ShortcutEditEnvironment) -> ShortcutAssessment {
+        let id = canonicalID(for: id)
         guard !shortcut.modifiers.isDisjoint(with: [.command, .control]) else { return .refused(.needsModifier) }
         if let name = SystemReservedShortcuts.shared.table[shortcut] { return .refused(.reservedByMacOS(name: name)) }
         let scope = WhenClause.requiring(descriptor(for: id)?.requires ?? [])

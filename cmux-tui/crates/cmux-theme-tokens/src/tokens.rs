@@ -1,13 +1,13 @@
 //! `ThemeTokens::derive`: every chrome color from the terminal theme, as
 //! cmux-next `ThemeTokens.swift` (CmuxTheme package on `feat-cmux-next`)
-//! derives them with the neutral accent (`appearance.accent` = neutral, the
-//! default). The plain color formulas and the contrast minimums come from the
-//! spec's `design-tokens.json` (`crate::spec`); the contrast searches
-//! (`readable`, `muted`) and the status, highlight and selection rules are
+//! derives them. The plain color formulas and the contrast minimums come
+//! from the spec's `design-tokens.json` (`crate::spec`); the contrast
+//! searches (`readable`, `muted`), the status, highlight and selection rules,
+//! the caret and the hued accent (`appearance.accent`, from `AppTheme`) are
 //! here, as the json writes them in prose.
 
-use crate::Rgb;
 use crate::spec::{Inputs, spec};
+use crate::{AppTheme, AppToken, Rgb, ThemeAccent};
 
 /// The colors of the terminal theme (port of `ThemeInput`).
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -26,6 +26,15 @@ pub struct ThemeInput {
     pub background_opacity: f64,
     /// `background-blur` as Ghostty encodes it (0 off, >0 radius, <0 macOS glass).
     pub background_blur: i32,
+    /// `cursor-color`; set only when the config names an explicit color.
+    pub cursor: Option<Rgb>,
+    /// Where the chrome's accent comes from (`appearance.accent` in
+    /// cmux.json, not the Ghostty config; `load` leaves it neutral).
+    pub accent: ThemeAccent,
+    /// The theme's own accent: its `<theme>/accent` edit in
+    /// `appearance.themeEdits` (set by the app), else the theme file's
+    /// `# cmux-accent = #rrggbb` line (set by `load`). Wins over `accent`.
+    pub accent_color: Option<Rgb>,
 }
 
 /// Ghostty's default ANSI 0...15.
@@ -58,7 +67,16 @@ impl ThemeInput {
         selection_foreground: None,
         background_opacity: 1.0,
         background_blur: 0,
+        cursor: None,
+        accent: ThemeAccent::Neutral,
+        accent_color: None,
     };
+
+    /// This theme with the chrome accent `accent` (`appearance.accent`).
+    pub fn with_accent(mut self, accent: ThemeAccent) -> Self {
+        self.accent = accent;
+        self
+    }
 }
 
 impl Default for ThemeInput {
@@ -99,8 +117,8 @@ impl BorderMode {
 }
 
 /// Every chrome color, derived from the terminal theme. Plain `Copy` and
-/// `#[repr(C)]` (a C caller reads it field by field). Field docs follow the
-/// Swift ones.
+/// `#[repr(C)]` (a C caller reads it field by field; new fields go at the
+/// end). Field docs follow the Swift ones.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ThemeTokens {
@@ -137,6 +155,8 @@ pub struct ThemeTokens {
 
     // Fills (translucent foreground over the surface)
     pub hover_fill: Rgb,
+    /// The foreground at low alpha; with `appearance.accent`, the app
+    /// accent at 0.26 (dark) or 0.16 (light).
     pub selection_fill: Rgb,
     pub secondary_selection_fill: Rgb,
     pub pressed_fill: Rgb,
@@ -145,7 +165,8 @@ pub struct ThemeTokens {
     pub separator: Rgb,
     /// The subtle hairline around each pane's content.
     pub pane_border: Rgb,
-    /// The keyboard focus outline.
+    /// The keyboard focus outline: the foreground at 0.40; with
+    /// `appearance.accent`, the opaque app accent.
     pub focus_ring: Rgb,
     /// Tint laid over glass so it takes the theme's cast.
     pub glass_tint: Rgb,
@@ -157,20 +178,26 @@ pub struct ThemeTokens {
     pub attention: Rgb,
     pub danger: Rgb,
     pub success: Rgb,
-    /// The one action color (ANSI blue, at least 3:1). Not used by chrome
-    /// fills: there is no accent.
+    /// The one action color (ANSI blue, at least 3:1); with
+    /// `appearance.accent`, the app accent.
     pub highlight: Rgb,
     pub highlight_text: Rgb,
     /// Selected and active marks (unread dots, the user's messages, Send in
-    /// the agent pane): the primary text (no hue) with the neutral accent.
+    /// the agent pane): the primary text (no hue) with the neutral accent,
+    /// else the app accent (`AppTheme`, the theme's own hue).
     pub accent: Rgb,
-    /// Glyphs and labels on `accent`: the opaque background.
+    /// Glyphs and labels on `accent`: the opaque background with the
+    /// neutral accent, else the app theme's `onAccent` (at least 4.5:1).
     pub on_accent: Rgb,
     /// ANSI 0...15.
     pub ansi: [Rgb; 16],
 
     pub background_opacity: f64,
     pub background_blur: i32,
+
+    /// Text carets: `cursor-color` when the config names one (pushed to 3:1
+    /// on the background), else the primary text.
+    pub caret: Rgb,
 }
 
 /// Minimum contrast for primary and secondary chrome text (the spec's
@@ -197,8 +224,23 @@ impl ThemeTokens {
         let color = |token: &str| spec.color(token, &inputs);
         let (text_minimum, mark_minimum) = (spec.minimum_text_contrast, spec.minimum_mark_contrast);
 
+        // The app accent when the setting or the theme names one; None
+        // keeps the neutral fills (the spec's formulas).
+        let app = (input.accent != ThemeAccent::Neutral || input.accent_color.is_some())
+            .then(|| AppTheme::derive(bg, fg, &input.palette, input.accent, input.accent_color));
+        let accent = app.map(|app| app.get(AppToken::Accent));
+
         let hover = color("hoverFill");
-        let selection = color("selectionFill");
+        // An accent selection is the app theme's (the accent over the background).
+        let selection = match accent {
+            Some(accent) => accent.with_alpha(if is_dark { 0.26 } else { 0.16 }),
+            None => color("selectionFill"),
+        };
+        // The other rows of a multi-selection: the selection's color at 0.7 of its weight.
+        let secondary_selection = match accent {
+            Some(accent) => accent.with_alpha(if is_dark { 0.18 } else { 0.11 }),
+            None => color("secondarySelectionFill"),
+        };
         let pressed = color("pressedFill");
         // Text must hold its contrast on the strongest fill it can sit on.
         let worst_surface = [pressed.composited(bg), selection.composited(bg)]
@@ -217,7 +259,7 @@ impl ThemeTokens {
         let palette = input.palette;
         let status = |i: usize| readable(palette[i], bg, mark_minimum);
 
-        let highlight = status(4);
+        let highlight = accent.unwrap_or_else(|| status(4));
         let best = |candidates: [Rgb; 2]| {
             if candidates[1].contrast(highlight) > candidates[0].contrast(highlight) {
                 candidates[1]
@@ -246,12 +288,12 @@ impl ThemeTokens {
             text_tertiary: tertiary,
             hover_fill: hover,
             selection_fill: selection,
-            secondary_selection_fill: color("secondarySelectionFill"),
+            secondary_selection_fill: secondary_selection,
             pressed_fill: pressed,
             badge_fill: color("badgeFill"),
             separator: color("separator"),
             pane_border: color("paneBorder"),
-            focus_ring: color("focusRing"),
+            focus_ring: accent.unwrap_or_else(|| color("focusRing")),
             glass_tint: color("glassTint"),
             shadow: color("shadow"),
             text_selection: config_selection.unwrap_or_else(|| bg.mixed(fg, 0.22)),
@@ -260,11 +302,12 @@ impl ThemeTokens {
             success: status(2),
             highlight,
             highlight_text,
-            accent: primary,
-            on_accent: bg.with_alpha(1.0),
+            accent: accent.unwrap_or(primary),
+            on_accent: app.map_or(bg.with_alpha(1.0), |app| app.get(AppToken::OnAccent)),
             ansi: palette,
             background_opacity: opacity,
             background_blur: input.background_blur,
+            caret: input.cursor.map_or(primary, |c| readable(c.with_alpha(1.0), bg, mark_minimum)),
         }
     }
 

@@ -2,7 +2,9 @@ import AppKit
 import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextBrowser
+import CmuxNextBrowserHistory
 import CmuxNextDaemon
+import CmuxNextNowPlaying
 import CmuxNextTabs
 
 /// Tabs a page asks for: a link opened in a new tab (Cmd-click, middle
@@ -20,6 +22,8 @@ final class BrowserPageRequests: BrowserTabDelegate {
     weak var services: AppServices? {
         didSet {
             nowPlaying.follow(services)
+            sidebarNowPlaying.follow(sessions: { [weak self] in self?.services.map { s in s.cache.pageRequests.media.sessions(in: s.cache).map { NowPlayingSession(tab: $0.entry.tab.id, media: $0.media) } } ?? [] },
+                                     tab: { [weak self] id in self?.services?.cache.browsers.values.first { $0.tab.id == id }?.tab })
             // A popup panel's page gets the same rows, acting for its opener's tab.
             services?.popups.hitItems = { [weak self] target, openerKey in self?.hitItems(for: target, tab: openerKey) ?? [] }
             // A reopened tab restores one history, not two (cx-d0d.11).
@@ -49,6 +53,15 @@ final class BrowserPageRequests: BrowserTabDelegate {
     let media = BrowserMediaHub()
     /// The playing tab in macOS Now Playing and on the media keys.
     let nowPlaying = BrowserNowPlaying()
+    /// The playing tab for the sidebar's Now Playing card (cx-ouoxo).
+    let sidebarNowPlaying = BrowserTabsNowPlaying()
+    /// cmux's own music player (cx-imt2i, a preview feature).
+    let music = MusicPlayer()
+    /// What the Now Playing card shows and drives: the player while it plays, else the playing tab,
+    /// else another app that plays (Spotify, Music: macOS Now Playing, cmux's own entries left out).
+    private(set) lazy var sidebarSources = NowPlayingSources(player: music, tabs: sidebarNowPlaying, system: SystemNowPlaying.bundled())
+    /// Whether the Now Playing card is put away (its x, Hide, Hide Until Relaunch; u2437), for every window's sidebar.
+    let nowPlayingCard = NowPlayingCardDismissal()
     /// Where a page's new tab goes next to its opener.
     let openers = BrowserTabOpeners()
     /// Background tabs whose title changed (the strip's unread dot).
@@ -108,6 +121,13 @@ final class BrowserPageRequests: BrowserTabDelegate {
             default: break
             }
         }
+        // Chromium's password manager asked for as a new tab (an omnibar
+        // modified commit) is cmux's Passwords page (ChromiumPageRoute). A tab
+        // Chromium makes itself (`.adoptTab`) has no URL yet here.
+        if case .openURL(let url, let disposition) = intent, ChromiumPageRoute(url) == .passwordsPage {
+            try? ChromiumPageRouter.showPasswords(services, focus: disposition != .backgroundTab)
+            return
+        }
         let engine = BrowserEngineResolver.tag(for: page.engineKind).rawValue
         // A page's new tabs stay in its browser profile (its cookies, and the
         // store an engine-made child page already uses).
@@ -166,6 +186,8 @@ final class BrowserPageRequests: BrowserTabDelegate {
             services.keyRouter.routePageKey(pageKey, from: page)
         case .webNotification(let notification):
             services.notifications.postWebNotification(notification, surface: openerTab.surface)
+        case .verificationPageWaiting:
+            services.verificationAutofill.pageWaiting(page)
         case .unhandledEscape, .resizePopup:
             break
         case .takeFocus:
@@ -252,8 +274,9 @@ final class BrowserPageRequests: BrowserTabDelegate {
         }
     }
 
-    /// A sized popup opens in a floating panel over the window that shows
-    /// its opener (else the active window); it is never a daemon tab.
+    /// A sized popup opens in a popup window of its own, placed from the
+    /// window that shows its opener (else the active window); it is never a
+    /// daemon tab.
     private func openPopup(_ child: any BrowserTab, request: BrowserPopupRequest, openerKey: String, pane: PaneModel) {
         guard let services else { child.close(); return }
         let owner = services.windows.controllers.first { $0.content?.pane(for: pane.handle) != nil }
@@ -261,7 +284,7 @@ final class BrowserPageRequests: BrowserTabDelegate {
             child.close()
             return
         }
-        services.popups.open(child, request: request, over: window, openerKey: openerKey)
+        services.popups.open(child, request: request, from: window, openerKey: openerKey)
     }
 
     private func open(url: URL?, adopting child: (any BrowserTab)?, engine: String, profile: String?, in pane: PaneModel,

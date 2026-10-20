@@ -10,6 +10,9 @@
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
+# Waits run on a virtual clock: `took` is the time the script would have waited, exactly.
+source "$ROOT/scripts/cmux-next/tests/lib/fake-clock.sh"
+fake_clock_install "$TMP/clock"
 git_q() { git -c user.name=t -c user.email=t@example.com -c init.defaultBranch=main "$@" >/dev/null 2>&1; }
 
 git_q init "$TMP/src"
@@ -88,7 +91,11 @@ newer=$(printf 'f%.0s' {1..40})
 # probe <event> -> sets out, status, took, state (tree_state), reason
 probe() {
   local event="$1" publisher=""
-  [[ "$event" == pull_request || "${CMUX_TUI_DEV_DAILY:-}" == 1 ]] || publisher="$sha"
+  if [[ "${CMUX_TUI_DEV_DAILY:-}" == 1 ]]; then
+    publisher="$DEV_DAILY_PUBLISHER_SHA"
+  elif [[ "$event" != pull_request ]]; then
+    publisher="$sha"
+  fi
   : > "$TMP/gh-output"
   local started; started=$(date +%s)
   status=0
@@ -207,9 +214,8 @@ unset REFUSE_REF_SHA CMUX_TUI_TREE_HEAD_SHA CMUX_TUI_TREE_DISPATCH
 : > "$TMP/posts.log"
 set_runs "$none"
 export CMUX_TUI_TREE_DISPATCH=1 REFUSE_WRITES=1 CMUX_TUI_TREE_PUBLISHER_WAIT_SECONDS=8 CMUX_TUI_TREE_PUBLISHER_POLL_SECONDS=1
-( sleep 2; set_runs "$active" ) &
+fake_clock_at 2 "printf '%s\\n' '$active' > '$runs_dir/runs'"
 probe pull_request
-wait
 [[ "$status" == 0 && "$state" == deferred ]] || fail "(d) a publish started from main must be waited for"
 grep -qF "active cmux-tui artifacts run" <<<"$reason" || fail "(d) reason: $reason"
 # No publish appears: the bounded wait ends and the check fails as before.
@@ -253,6 +259,8 @@ grep -qxF "tree_fetch_key=$published_key" "$TMP/gh-output" || fail "(d) the tree
 fetched=$(cd "$TMP/src" && CMUX_TUI_TREE_KEY="$published_key" bash scripts/cmux-next/pin-cmux-tui.sh path)
 [[ "$fetched" == *"/$published_key/"*cmux-tui ]] || fail "(d) CMUX_TUI_TREE_KEY must select the fetched tree: $fetched"
 mv "$TMP/cdn/cmux-tui/tree/$published_key" "$TMP/unpublished"
+# This probe searches the recent history for a published tree, keying each commit's tree:
+# compute, which the virtual clock does not count, so the usual bound holds.
 expect "pull request, no cmux-tui change, nothing published" pull_request skipped "changes no cmux-tui"
 mv "$TMP/unpublished" "$TMP/cdn/cmux-tui/tree/$published_key"
 unset CMUX_TUI_TREE_BASE_FALLBACK
@@ -263,10 +271,30 @@ sha=$(git -C "$TMP/src" rev-parse HEAD)
 set_head "$newer"
 set_runs "$none"
 : > "$TMP/posts.log"
-export CMUX_TUI_TREE_DISPATCH=1 CMUX_TUI_DEV_DAILY=1
+# Use each real workflow probe's environment, not a hand-wired dispatch flag:
+# a publisher SHA bypasses dispatch even when CMUX_TUI_TREE_DISPATCH is set.
+dev_probe_environment() {
+  python3 - "$ROOT/.github/workflows/cmux-next.yml" "$1" "$sha" <<'PYENV'
+import json, shlex, subprocess, sys, yaml
+workflow = yaml.safe_load(open(sys.argv[1], encoding="utf-8"))
+step = next(step for step in workflow["jobs"]["path_route"]["steps"] if step.get("id") == sys.argv[2])
+context = {"github": {"event_name": "workflow_dispatch", "sha": sys.argv[3],
+                       "ref": "refs/heads/feat-cmux-next", "repository": "o/r"},
+           "inputs": {"dev_daily": True}}
+for name in ("CMUX_TUI_TREE_PUBLISHER_SHA", "CMUX_TUI_TREE_DISPATCH"):
+    expression = step["env"][name].removeprefix("${{").removesuffix("}}").strip()
+    script = "const {github, inputs} = JSON.parse(process.argv[1]); process.stdout.write(String(eval(process.argv[2])));"
+    value = subprocess.check_output(["node", "-e", script, json.dumps(context), expression], text=True)
+    target = "DEV_DAILY_PUBLISHER_SHA" if name == "CMUX_TUI_TREE_PUBLISHER_SHA" else name
+    print("export " + target + "=" + shlex.quote(value))
+PYENV
+}
+export CMUX_TUI_DEV_DAILY=1
+eval "$(dev_probe_environment tree)"
 expect "scheduled dev, cold exact tree" workflow_dispatch deferred
 [[ "$(posts dispatches)" == 1 && "$(posts git/refs)" == 1 ]] || fail "dev snapshot needs exactly one publisher"
 grep -q "cmux-tui-pin-${sha:0:12}.*$sha" "$TMP/posts.log" || fail "dev publisher must pin the snapshot SHA"
+eval "$(dev_probe_environment tree-final)"
 expect "scheduled dev, second probe" workflow_dispatch deferred
 [[ "$(posts dispatches)" == 1 ]] || fail "dev second probe dispatched a duplicate"
 

@@ -32,21 +32,20 @@ extension SSHService {
                   let instance = status?["personInstance"] as? String else {
                 return .daemonTookNoKey(Self.lastLine(started.stderr))
             }
-            guard let nonce = AcpmuxSecretKey.newNonce() else { return .noRandomness }
             // The answer only a run that holds this key can give; whatever else answers on the
-            // socket path cannot (a `person_prove` reply alone would prove nothing).
-            let frames = #"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":1}}"# + "\n"
-                + #"{"jsonrpc":"2.0","id":2,"method":"_acpmux/person_holds","params":{"nonce":""# + nonce + #""}}"# + "\n"
-            let held = try await SSHProcessRunner.run(commandLine.command(host, "\(binary) acp stdio"),
-                                                      input: .data(Data(frames.utf8)), environment: environment,
-                                                      deadline: .seconds(30), label: "acpmux person_holds \(host.destination)")
-            let answer = held.stdout.split(separator: "\n").lazy
-                .compactMap { (try? JSONSerialization.jsonObject(with: Data($0.utf8))) as? [String: Any] }
-                .first { ($0["id"] as? Int) == 2 }
-            let result = answer?["result"] as? [String: Any]
-            guard let proof = result?["proof"] as? String, result?["instance"] as? String == instance,
-                  key.holds(proof: proof, instance: instance, nonce: nonce) else {
-                return .keyNotHeld
+            // socket path cannot (a `person_prove` reply alone would prove nothing). A dropped ssh
+            // call is asked once more, with a new nonce (cx-hd3rw): else the new run would hold a key
+            // this app never bound.
+            var proved = false
+            for attempt in 1...2 where !proved {
+                guard let nonce = AcpmuxSecretKey.newNonce() else { return .noRandomness }
+                let (reply, error) = await host.personHolds(nonce: nonce, environment: environment)
+                if Task.isCancelled { return .failed("cancelled") }
+                // No answer at all: the call itself failed; ask again once.
+                guard let reply else { if attempt == 2 { return .failed(error) }; continue }
+                guard let proof = reply.proof, reply.instance == instance,
+                      key.holds(proof: proof, instance: instance, nonce: nonce) else { return .keyNotHeld }
+                proved = true
             }
             AcpmuxRemotePersonKeys.shared.bind(machine: machine, instance: instance, key: key)
             logger.info("remote approvals on for \(host.destination.description, privacy: .public)")
@@ -54,6 +53,63 @@ extension SSHService {
         } catch {
             return .failed(error.localizedDescription)
         }
+    }
+
+    /// cx-oa6ah: the keyed restart before a new chat starts on `session`, only when nothing on
+    /// that machine's acpmux can be lost: none runs, or it is ready, keeps agent hosts across a
+    /// restart, and runs no live agent and no proxied peer session. That machine's cmux-tui
+    /// decides it (`.daemonSaidSafe`, cx-0w0jj); for an older cmux-tui the app reads the status
+    /// itself (`.checkStatus`), and anything else (live agents, an ssh error, a reply it cannot
+    /// read) leaves the daemon as it is (fail closed). Its Allow then shows the restart notice,
+    /// and only the person's click restarts it. One preparation per machine at a time. True once
+    /// this app's key is bound to the daemon that will run the chat.
+    func restartWithApprovalsIfIdle(_ session: SSHMachineSession, _ preparation: AgentPaneRemoteApprovals.Preparation) async -> Bool {
+        logger.info("keyed restart before a chat on \(session.host.destination.description, privacy: .public): \(String(describing: preparation), privacy: .public)")
+        switch preparation {
+        case .daemonSaidSafe:
+            return await RemoteApprovalPreparations.shared.run(machine: session.machineID, keepBusy: false) { [self] in
+                await restartWithApprovals(session) == nil
+            }
+        case .checkStatus:
+            if AcpmuxRemotePersonKeys.shared.instance(machine: session.machineID) != nil { return true }
+            return await RemoteApprovalPreparations.shared.run(machine: session.machineID, keepBusy: true) { [self] in
+                guard await idleAgentDaemon(session) else { return false }
+                return await restartWithApprovals(session) == nil
+            }
+        }
+    }
+
+    /// cx-brq9m: after an install the keyed restart hands the acpmux over to the new binary when
+    /// nothing is lost (``RemoteAgentDaemonStatus/handoffBlocker``); true when the new one runs.
+    @discardableResult
+    func handOffAgentDaemonAfterInstall(_ session: SSHMachineSession) async -> Bool {
+        let name = session.host.destination.description
+        guard let status = await RemoteAgentDaemonStatus.read(session.host, environment: await Self.environment()) else {
+            logger.info("agent daemon on \(name, privacy: .public) left as it is after the install: status unreadable")
+            return false
+        }
+        if !status.running { return true }
+        if let blocker = status.handoffBlocker {
+            logger.info("agent daemon on \(name, privacy: .public) left as it is after the install: \(blocker, privacy: .public)")
+            return false
+        }
+        let handed = await RemoteApprovalPreparations.shared.run(machine: session.machineID, keepBusy: false) { [self] in
+            await restartWithApprovals(session) == nil
+        }
+        logger.info("agent daemon on \(name, privacy: .public) handed over after the install: \(handed, privacy: .public)")
+        return handed
+    }
+
+    /// cx-3r9mt: whether an automatic update may run (``RemoteAgentDaemonStatus/idleForUpdate(ownInstance:)``).
+    func agentDaemonIdleForUpdate(_ session: SSHMachineSession) async -> Bool {
+        let ours = AcpmuxRemotePersonKeys.shared.instance(machine: session.machineID)
+        return await RemoteAgentDaemonStatus.read(session.host, environment: await Self.environment())?.idleForUpdate(ownInstance: ours) == true
+    }
+
+    /// The fallback for a cmux-tui without `agent-session-start-keyed-reason-v1` (remove with
+    /// `.checkStatus`; see ``restartWithApprovalsIfIdle``).
+    private func idleAgentDaemon(_ session: SSHMachineSession) async -> Bool {
+        await RemoteAgentDaemonStatus.read(session.host, environment: await Self.environment())?.idleForKeyedRestart == true
     }
 
     private static func lastLine(_ text: String) -> String? {

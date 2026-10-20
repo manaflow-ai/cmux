@@ -3,7 +3,7 @@
 
 use crate::types::{
     Change, ConversationHead, Message, Op, Part, Participant, ParticipantKind, Reaction,
-    ReactionKind, Summary,
+    ReactionKind, Summary, ThreadResolution, ThreadStatus,
 };
 use crate::{
     MAX_DISPLAY_NAME_CHARS, MAX_EMOJI_BYTES, MAX_PARTICIPANTS, MAX_PARTS, MAX_PREVIEW_BYTES,
@@ -68,13 +68,18 @@ pub enum Reject {
     /// The answer misses an item, names an unknown option, chooses too many,
     /// or types Other where the item does not allow it.
     InvalidAnswer,
-    /// `thread_root` names no message of this conversation, or a message
-    /// that is itself in a thread (a thread has one level).
+    /// `thread_root` names no message of this conversation, a message that
+    /// is itself in a thread (`thread_root` is always the top root), or a
+    /// root that is not the `reply_to` parent's own root.
     InvalidThreadRoot,
+    /// A `thread.update` sets none of `title`, `status` and `owner`.
+    InvalidThreadUpdate,
+    /// A `thread.update` `owner` is not a participant of the conversation.
+    InvalidThreadOwner,
 }
 
 impl Reject {
-    pub const ALL: [Self; 26] = [
+    pub const ALL: [Self; 28] = [
         Self::NotParticipant,
         Self::NotAuthor,
         Self::UnknownMessage,
@@ -101,6 +106,8 @@ impl Reject {
         Self::QuestionClosed,
         Self::InvalidAnswer,
         Self::InvalidThreadRoot,
+        Self::InvalidThreadUpdate,
+        Self::InvalidThreadOwner,
     ];
 
     pub fn code(self) -> &'static str {
@@ -131,6 +138,8 @@ impl Reject {
             Self::QuestionClosed => "question_closed",
             Self::InvalidAnswer => "invalid_answer",
             Self::InvalidThreadRoot => "invalid_thread_root",
+            Self::InvalidThreadUpdate => "invalid_thread_update",
+            Self::InvalidThreadOwner => "invalid_thread_owner",
         }
     }
 }
@@ -208,6 +217,7 @@ pub fn create(request: &CreateRequest<'_>) -> Result<ConversationHead, Reject> {
         read_cursors: Default::default(),
         agent_text_streak: 0,
         last_agent_text_at: None,
+        thread_agent_streaks: Default::default(),
     })
 }
 
@@ -264,6 +274,7 @@ pub fn apply(head: &ConversationHead, request: &OpRequest<'_>) -> Result<Commit,
             if parts.iter().any(bad_question) {
                 return Err(Reject::InvalidParts);
             }
+            let mut parent = None;
             if let Some(reply_to) = reply_to {
                 let replied = request
                     .reply_target
@@ -274,6 +285,7 @@ pub fn apply(head: &ConversationHead, request: &OpRequest<'_>) -> Result<Commit,
                 if reply_to.part_index as usize >= replied.parts.len() {
                     return Err(Reject::InvalidPartIndex);
                 }
+                parent = Some(replied);
             }
             if let Some(thread_root) = thread_root {
                 request
@@ -285,17 +297,29 @@ pub fn apply(head: &ConversationHead, request: &OpRequest<'_>) -> Result<Commit,
                     })
                     .ok_or(Reject::InvalidThreadRoot)?;
             }
+            // Threads nest without a limit (conversation-tree-v1): `reply_to`
+            // is the parent, `thread_root` the top root of the whole tree. A
+            // parent in a thread passes its root on, so a reply to any reply
+            // stays in that thread; a named root must be the parent's own.
+            let thread_root = match (thread_root.as_ref(), parent) {
+                (Some(root), Some(parent)) => {
+                    if parent.id != *root && parent.thread_root.as_deref() != Some(root.as_str()) {
+                        return Err(Reject::InvalidThreadRoot);
+                    }
+                    Some(root.clone())
+                }
+                (Some(root), None) => Some(root.clone()),
+                (None, Some(parent)) => parent.thread_root.clone(),
+                (None, None) => None,
+            };
             next.last_seq = head.last_seq + 1;
             next.updated_at = now.to_string();
             // The loop guard counts text only; a work card neither counts nor resets it.
+            // It counts in the thread the message joins (budget.rs).
             if parts.iter().any(Part::counts_as_turn) {
                 let author = head.participant(request.actor);
-                if author.is_some_and(|p| p.kind == ParticipantKind::Agent) {
-                    next.agent_text_streak = head.agent_text_streak.saturating_add(1);
-                    next.last_agent_text_at = Some(now.to_string());
-                } else {
-                    next.agent_text_streak = 0;
-                }
+                let agent = author.is_some_and(|p| p.kind == ParticipantKind::Agent);
+                crate::budget::with_turn(&mut next, thread_root.as_deref(), agent, now, None);
             }
             let message = Message {
                 id: request.new_message_id.to_string(),
@@ -307,7 +331,8 @@ pub fn apply(head: &ConversationHead, request: &OpRequest<'_>) -> Result<Commit,
                 reply_to: reply_to.clone(),
                 answers: answers.clone(),
                 answers_pending: answers_pending.clone(),
-                thread_root: thread_root.clone(),
+                thread_root,
+                thread: None,
                 created_at: now.to_string(),
                 edited_at: None,
                 retracted_at: None,
@@ -434,8 +459,50 @@ pub fn apply(head: &ConversationHead, request: &OpRequest<'_>) -> Result<Commit,
                 return Err(Reject::InvalidPartIndex);
             };
             crate::question::answer(question, answer, actor, now)?;
-            // A person's answer is a human turn: the agent may go on.
-            next.agent_text_streak = 0;
+            // A person's answer (human only) is a person's turn in the
+            // question's thread: agents may go on there.
+            let thread_root = message.thread_root.clone();
+            crate::budget::with_turn(&mut next, thread_root.as_deref(), false, now, None);
+            updated(message)
+        }
+        // A thread object lives on its root (conversation-thread-objects-v1).
+        // Like an edit it changes a message, not the list order, so
+        // `updated_at` stays; any participant may set it, a Chief too.
+        Op::ThreadUpdate { root, title, status, owner } => {
+            let mut message = target(head, request, root)?;
+            if message.thread_root.is_some() {
+                return Err(Reject::InvalidThreadRoot);
+            }
+            if title.is_none() && status.is_none() && owner.is_none() {
+                return Err(Reject::InvalidThreadUpdate);
+            }
+            let mut state = message.thread.take().unwrap_or_default();
+            if let Some(title) = title {
+                // An empty title clears it (readers show the root's first line).
+                let count = title.chars().count();
+                if count > MAX_TITLE_CHARS || title.chars().any(char::is_control) {
+                    return Err(Reject::InvalidTitle);
+                }
+                state.title = (count > 0).then(|| title.clone());
+            }
+            if let Some(owner) = owner {
+                if !owner.is_empty() && head.participant(owner).is_none() {
+                    return Err(Reject::InvalidThreadOwner);
+                }
+                state.owner = (!owner.is_empty()).then(|| owner.clone());
+            }
+            match status {
+                Some(ThreadStatus::Resolved) => {
+                    state.resolved = Some(ThreadResolution {
+                        by: request.actor.to_string(),
+                        at: now.to_string(),
+                        seq: head.last_seq,
+                    });
+                }
+                Some(ThreadStatus::Open) => state.resolved = None,
+                None => {}
+            }
+            message.thread = (!state.is_empty()).then_some(state);
             updated(message)
         }
         Op::TitleSet { title } => {
@@ -571,7 +638,9 @@ fn valid_short_text(value: &str, max_bytes: usize) -> bool {
     !value.is_empty() && value.len() <= max_bytes && !value.chars().any(char::is_control)
 }
 
-fn validate_parts(parts: &[Part]) -> Result<(), Reject> {
+/// The shape rules of a part list, as a send or an edit checks them (an
+/// import checks the same).
+pub fn validate_parts(parts: &[Part]) -> Result<(), Reject> {
     if parts.is_empty() || parts.len() > MAX_PARTS {
         return Err(Reject::InvalidParts);
     }
@@ -615,7 +684,13 @@ fn validate_parts(parts: &[Part]) -> Result<(), Reject> {
                     return Err(Reject::InvalidParts);
                 }
             }
+            Part::LinkPreview { .. } => {
+                if !crate::link_preview::valid_link_preview_part(part) {
+                    return Err(Reject::InvalidParts);
+                }
+            }
             Part::Question(question) => crate::question::validate(question)?,
+            Part::Unknown(_) => return Err(Reject::InvalidParts),
         }
     }
     Ok(())

@@ -12,7 +12,7 @@ final class PaletteKeycapsView: NSView {
         }
     }
 
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
 
     /// theme-scoped: read inside `performWithTheme` (draw) or for measuring.
     private var attributes: [NSAttributedString.Key: Any] {
@@ -66,6 +66,10 @@ final class PaletteTableRowView: NSTableRowView {
     var isPaletteSelected = false {
         didSet { if isPaletteSelected != oldValue { needsDisplay = true } }
     }
+
+    /// The table's selection only tells VoiceOver which row is selected (`syncTableSelection`);
+    /// the row's text keeps its own colors.
+    override var interiorBackgroundStyle: NSView.BackgroundStyle { .normal }
 
     var isHovered = false {
         didSet { if isHovered != oldValue { needsDisplay = true } }
@@ -188,7 +192,7 @@ final class PaletteRowCell: NSTableCellView {
         performWithTheme {
             icon.contentTintColor = isSelected ? Palette.textPrimary : Palette.textSecondary
             title.attributedStringValue = Self.highlighted(titleText, highlights)
-            swatch.colors = ball.map { [$0.color.ballRGB(marksContent: $0.marksContent)] } ?? swatches
+            swatch.colors = ball.map { [$0.color.ballRGB] } ?? swatches
         }
     }
 

@@ -72,6 +72,8 @@ struct ForkApi {
   void (*set_popup_windows_enabled)(int) = nullptr;
   int (*popup_window_bounds)(int, int*, int*, int*, int*) = nullptr;
   int (*popup_window_attach)(int, void*, int, int) = nullptr;
+  // API version 24: DevTools device mode bounds.
+  int (*devtools_inspected_bounds)(int, int*) = nullptr;
   // API version 13: the side panel header for the host.
   void (*side_panel_watch)(int) = nullptr;
   char* (*side_panel_state)(int) = nullptr;
@@ -86,6 +88,16 @@ struct ForkApi {
   int (*password_set_username)(const char*, const char*, const char*, void (*)(void*, int), void*) = nullptr;
   int (*password_reveal)(const char*, const char*, void (*)(void*, const char*, size_t), void*) = nullptr;
   int (*password_export)(const char*, const char*, void (*)(void*, int), void*) = nullptr;
+  // API version 20: import with the conflicting rows' indices, and Replace
+  // for them (the person's explicit choice; shim_password_import.mm).
+  int (*password_import_v2)(const char*, const cmux_shim_password_entry*, int,
+                            void (*)(void*, int, int, int, const int*, int), void*) = nullptr;
+  int (*password_import_replace)(const char*, const cmux_shim_password_entry*, int, void (*)(void*, int, int, int),
+                                 void*) = nullptr;
+  // API version 20: save and update prompts go to the host (shim_password_core.mm).
+  void (*set_password_prompt_handler)(void (*)(void*, const char*), void*) = nullptr;
+  int (*password_prompt_answer)(int, int, const char*) = nullptr;
+  int (*set_password_generation_enabled)(int) = nullptr;
   // API version 22: the chrome.bookmarks bridge (shim_bookmarks.mm).
   int (*bookmarks_observe)(const char*, void (*)(void*, const char*), void*) = nullptr;
   int (*bookmarks_sync)(const char*, const char*) = nullptr;
@@ -185,6 +197,8 @@ bool NavigationViolatesGuard(int browser_id, const std::string& url);
 // True when browser_id is agent-driven (guard bit 4) and url is a Chromium
 // page agents may not reach (AgentURLPolicy.swift).
 bool NavigationRefusedForAgent(int browser_id, const std::string& url);
+// True when browser_id is agent-driven (guard bit 4).
+bool BrowserIsAgentDriven(int browser_id);
 void ForgetNavigationGuard(int browser_id);
 // True when url is the sign-in callback of browser_id (cmux_shim_set_auth_callback).
 bool NavigationIsAuthCallback(int browser_id, const std::string& url);
@@ -219,6 +233,10 @@ void InstallWindowRequestHandler();
 // applies the New Tab page URL and native messaging folders stored before
 // CefInitialize (shim_extensions_ui.mm).
 void InstallExtensionUIHandlers();
+// Sends Chromium's password save and update prompts to the host (API 20),
+// so Chromium's bubble does not show (shim_password_core.mm).
+void InstallPasswordPromptHandler();
+void RemovePasswordPromptHandler();
 // WEBAUTHN_REFUSED events from the fork (API 23; shim_passkeys.mm).
 void InstallWebAuthnRefusedHandler();
 // The visible entry's virtual URL when it is chrome://newtab (the New Tab
@@ -232,6 +250,10 @@ std::string DisplayTitle(CefRefPtr<CefBrowser> browser, const std::string& title
 // the Chrome Web Store's origin, or null for any other URL (shim_webstore.mm).
 CefRefPtr<CefResourceRequestHandler> WebStoreRequestHandler(const std::string& url);
 bool IsWebStoreURL(const std::string& url);
+// The Web Store's CRX download URL (https://clients2.google.com/service/
+// update2/crx, any query): the URL Chromium's WebstoreInstaller downloads an
+// extension package from (extension_urls::IsWebstoreUpdateUrl).
+bool IsWebStoreCrxURL(const std::string& url);
 
 // Downloads (shim_downloads.mm, UI thread). The page clients' download
 // handler: every download waits for the host's path (DOWNLOAD_STARTED,

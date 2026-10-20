@@ -90,11 +90,14 @@
 #   cmux-tui-agent-screen-detection-<target> goes beside it as
 #   cmux-agent-screen-detection (cmux-agent-screen-detection.sha256), which the
 #   daemon runs by default; the pin carries no plugin fields yet (Release
-#   bundles none until its notices are mapped).
+#   bundles none until its notices are mapped). The slim terminal host rides
+#   the same way, tree mode only: cmux-tui-host-<target> goes beside it as
+#   cmux-tui-host (cmux-tui-host.sha256), which a macOS daemon runs every
+#   terminal host from; without it hosts re-exec the daemon's own binary.
 #
 # No mode needs GitHub credentials: downloads are public and sha256-checked.
 #
-# Usage: pin-cmux-tui.sh fetch [--tree|--pin] | path [--tree|--pin] | key [--version v1|v2] [--rev <rev>]
+# Usage: pin-cmux-tui.sh fetch [--tree|--pin] | fetch-acpmux | path [--tree|--pin] | key [--version v1|v2] [--rev <rev>]
 #        | app-host-path [--tree|--pin] (where fetch puts the app host)
 #        | cloud-server-path [--tree|--pin] (where fetch puts cmux-cloud)
 #        | browser-host-path [--tree|--pin] (where fetch puts cmux-browser-host)
@@ -108,6 +111,9 @@
 #          default 24; never waits; CMUX_TUI_TREE_SAME_PATHS, space-separated
 #          paths, skips a commit whose copy of any of them differs from the tip's)
 #        | wait (wait for the tree; superseded=true output for a superseded commit)
+#        | fallback-key (fleet suites: when HEAD has the tree of its base,
+#          CMUX_TUI_TREE_FALLBACK_BASE (default origin/feat-cmux-next), print the newest
+#          published tree's key, as CI's CMUX_TUI_TREE_BASE_FALLBACK; else exit 1)
 #        With CMUX_TUI_TREE_DISPATCH=1 (and GH_TOKEN or an authenticated gh), a tree that
 #        no active run publishes gets one cmux-tui-artifacts run on cmux-tui-pin-<sha12>.
 #        | probe (the cmux-next same-tree check: look once, never wait; writes tree_state=
@@ -181,9 +187,8 @@ download() {
 }
 
 # The tree key of <rev> (default HEAD) is derived from
-# cmux-tui-tree-inputs.txt. That one list is also the trusted workflow's PR
-# path filter, so changes such as the layout-reducer FFI build script cannot
-# silently reuse a stale publication.
+# cmux-tui-tree-inputs.txt, so changes such as the layout-reducer FFI build
+# script cannot silently reuse a stale publication.
 tree_key() {
   python3 "$repo_root/scripts/ci/cmux_tui_tree_key.py" --version v2 "${1:-HEAD}"
 }
@@ -316,8 +321,12 @@ refuse_dirty_source() {
 artifacts_runs_state() {
   local sha="$1" url body
   url="${GITHUB_API_URL:-https://api.github.com}/repos/${GITHUB_REPOSITORY:-manaflow-ai/cmux}/actions/workflows/cmux-tui-artifacts.yml/runs?head_sha=$sha&per_page=20"
-  body="$(curl -fsSL --connect-timeout 10 --max-time 30 \
-    -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+  # manaflow-ai/cmux is public: without GH_TOKEN (a fleet host) the read is unauthenticated,
+  # 60 an hour per address, and the wait checks at most every CMUX_TUI_TREE_RUN_CHECK_SECONDS.
+  local auth=()
+  [[ -n "${GH_TOKEN:-}" ]] && auth=(-H "Authorization: Bearer $GH_TOKEN")
+  body="$(curl -fsSL --connect-timeout 10 --max-time 30 ${auth[@]+"${auth[@]}"} \
+    -H "Accept: application/vnd.github+json" \
     -H "X-GitHub-Api-Version: 2022-11-28" "$url" 2>/dev/null)" || { echo unknown; return 0; }
   python3 -c '
 import json, sys
@@ -366,9 +375,11 @@ github_token() {
 
 # github_api <method> <repository path> [json body]: one REST call with GH_TOKEN.
 github_api() {
-  local method="$1" path="$2" body="${3:-}"
-  curl -fsSL --connect-timeout 10 --max-time 30 -X "$method" \
-    -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+  local method="$1" path="$2" body="${3:-}" auth=()
+  # A GET works without a token (public repository); a write needs GH_TOKEN.
+  [[ -n "${GH_TOKEN:-}" ]] && auth=(-H "Authorization: Bearer $GH_TOKEN")
+  curl -fsSL --connect-timeout 10 --max-time 30 -X "$method" ${auth[@]+"${auth[@]}"} \
+    -H "Accept: application/vnd.github+json" \
     -H "X-GitHub-Api-Version: 2022-11-28" ${body:+-d "$body"} \
     "${GITHUB_API_URL:-https://api.github.com}/repos/${GITHUB_REPOSITORY:-manaflow-ai/cmux}/$path"
 }
@@ -377,12 +388,15 @@ github_api() {
 # commit has tree <key>, or nothing. A commit missing locally is fetched once
 # (depth 1, best effort); one it cannot read does not count.
 active_publisher_for_key() {
-  local key="$1" body candidate
+  local key="$1" body candidate depth=()
   body="$(github_api GET "actions/workflows/cmux-tui-artifacts.yml/runs?per_page=50" 2>/dev/null)" || return 0
+  # Depth 1 only in a shallow checkout: in a full clone --depth writes
+  # .git/shallow and truncates history for every worktree sharing it.
+  [[ "$(git -C "$repo_root" rev-parse --is-shallow-repository)" == true ]] && depth=(--depth=1)
   while read -r candidate; do
     [[ "$candidate" =~ ^[0-9a-f]{40}$ ]] || continue
     git -C "$repo_root" cat-file -e "$candidate^{commit}" 2>/dev/null \
-      || git -C "$repo_root" fetch -q --no-tags --depth=1 origin "$candidate" 2>/dev/null || continue
+      || git -C "$repo_root" fetch -q --no-tags ${depth[@]+"${depth[@]}"} origin "$candidate" 2>/dev/null || continue
     if [[ "$(tree_key "$candidate" 2>/dev/null)" == "$key" ]]; then echo "$candidate"; return 0; fi
   done < <(python3 -c '
 import json, sys
@@ -462,11 +476,13 @@ ensure_tree_publisher() {
 # <sha>, or one with the same tree, and sets tree_publisher_sha to defer to it.
 await_outside_publisher() {
   local key="$1" sha="$2" current
-  local wait="${CMUX_TUI_TREE_PUBLISHER_WAIT_SECONDS:-90}" poll="${CMUX_TUI_TREE_PUBLISHER_POLL_SECONDS:-10}" started=$SECONDS
+  local wait="${CMUX_TUI_TREE_PUBLISHER_WAIT_SECONDS:-90}" poll="${CMUX_TUI_TREE_PUBLISHER_POLL_SECONDS:-10}" started
   # Only a pull request has that publisher; other callers have their own waits.
   [[ "${GITHUB_EVENT_NAME:-}" == pull_request ]] || return 0
   [[ "$wait" =~ ^[0-9]+$ && "$poll" =~ ^[0-9]+$ ]] || { echo "warning: CMUX_TUI_TREE_PUBLISHER_WAIT_SECONDS and _POLL_SECONDS must be whole seconds" >&2; return 0; }
   echo "cmux-tui tree $key: waiting up to ${wait}s for main's merge-tree publisher (cmux-next-pr-merge-tree.yml)" >&2
+  # `date +%s`, not $SECONDS: the tests run this wait on a virtual clock (tests/lib/fake-clock.sh).
+  started="$(date +%s)"
   while :; do
     if [[ "$(artifacts_runs_state "$sha")" == active ]]; then
       echo "cmux-tui tree $key: an artifacts run for $sha started; deferring to it" >&2
@@ -477,7 +493,7 @@ await_outside_publisher() {
       echo "cmux-tui tree $key: active artifacts run for $current has the same tree; deferring to it" >&2
       tree_publisher_sha="$current"; tree_publisher_action=active; return 0
     fi
-    (( SECONDS - started + poll <= wait )) || break
+    (( $(date +%s) - started + poll <= wait )) || break
     sleep "$poll"
   done
   echo "warning: no artifacts run for tree $key started within ${wait}s; tree $key has no publisher" >&2
@@ -547,7 +563,7 @@ report_tree_miss() {
 # key that was found and published to its sha256.
 wait_for_tree() {
   local key="$1" out="$2" legacy="${3:-}" sha_url legacy_url wait_seconds poll_seconds started elapsed
-  local publisher="${CMUX_TUI_TREE_PUBLISHER_SHA:-}" check_seconds next_check=0 ended_checks=0 state=""
+  local publisher="${CMUX_TUI_TREE_PUBLISHER_SHA:-}" check_seconds next_check=0 ended_checks=0 state="" active_cap extended=false
   sha_url="$BASE/tree/$key/$(tree_asset).sha256"
   legacy_url=""
   [[ -n "$legacy" && "$legacy" != "$key" ]] && legacy_url="$BASE/tree/$legacy/$(tree_asset).sha256"
@@ -555,11 +571,25 @@ wait_for_tree() {
   wait_seconds="${CMUX_TUI_TREE_WAIT_SECONDS:-2700}"
   poll_seconds="${CMUX_TUI_TREE_POLL_SECONDS:-30}"
   check_seconds="${CMUX_TUI_TREE_RUN_CHECK_SECONDS:-300}"
-  [[ "$wait_seconds" =~ ^[0-9]+$ && "$poll_seconds" =~ ^[1-9][0-9]*$ && "$check_seconds" =~ ^[1-9][0-9]*$ ]] || {
-    echo "error: CMUX_TUI_TREE_WAIT_SECONDS, CMUX_TUI_TREE_POLL_SECONDS and CMUX_TUI_TREE_RUN_CHECK_SECONDS must be whole seconds" >&2; exit 2; }
+  # While the publisher's own artifacts run (or another commit's run for the same tree) is still
+  # queued or running, the wait goes on past CMUX_TUI_TREE_WAIT_SECONDS up to this cap (2026-10-13: a side-branch run sat 70 min behind the
+  # branch's previous run in its concurrency group and a fleet build gave up at 45 min, 36 min
+  # before the tree was published).
+  # Default 7200 s off CI (the fleet); 0 in GitHub Actions, whose jobs keep their own bounded
+  # wait and timeout.
+  if [[ -n "${GITHUB_ACTIONS:-}" ]]; then active_cap="${CMUX_TUI_TREE_ACTIVE_WAIT_SECONDS:-0}"
+  else active_cap="${CMUX_TUI_TREE_ACTIVE_WAIT_SECONDS:-7200}"; fi
+  [[ "$wait_seconds" =~ ^[0-9]+$ && "$poll_seconds" =~ ^[1-9][0-9]*$ && "$check_seconds" =~ ^[1-9][0-9]*$ && "$active_cap" =~ ^[0-9]+$ ]] || {
+    echo "error: CMUX_TUI_TREE_WAIT_SECONDS, CMUX_TUI_TREE_POLL_SECONDS, CMUX_TUI_TREE_RUN_CHECK_SECONDS and CMUX_TUI_TREE_ACTIVE_WAIT_SECONDS must be whole seconds" >&2; exit 2; }
+  # The checkout itself is the publisher when it has this tree: its push run publishes the key, so
+  # its run state decides (fail fast when it ended without publishing, wait on while it is active).
+  # Not for a pull request: its merge commit has no runs of its own.
+  if [[ -z "$publisher" && "${GITHUB_EVENT_NAME:-}" != pull_request* && "$(tree_key HEAD 2>/dev/null)" == "$key" ]]; then
+    publisher="$(git -C "$repo_root" rev-parse HEAD 2>/dev/null || true)"
+  fi
   if [[ -n "$publisher" ]]; then
-    if [[ ! "$publisher" =~ ^[0-9a-f]{40}$ || -z "${GH_TOKEN:-}" ]]; then
-      echo "note: run check off (CMUX_TUI_TREE_PUBLISHER_SHA needs a 40-hex sha and GH_TOKEN)" >&2
+    if [[ ! "$publisher" =~ ^[0-9a-f]{40}$ ]]; then
+      echo "note: run check off (the publisher must be a 40-hex sha)" >&2
       publisher=""
     elif [[ "$(tree_key "$publisher" 2>/dev/null)" != "$key" ]]; then
       echo "note: run check off: $publisher does not have tree $key" >&2
@@ -603,7 +633,11 @@ wait_for_tree() {
       state="$(artifacts_runs_state "$publisher")"
       case "$state" in
         active|unknown) ended_checks=0 ;;
-        *) ended_checks=$(( ended_checks + 1 )) ;;
+        *)
+          # Another commit's active run for the same tree will publish it (a merge train tip, a
+          # same-key build): that counts as active, not as a run that ended without publishing.
+          if [[ -n "$(active_publisher_for_key "$key")" ]]; then state=active; ended_checks=0
+          else ended_checks=$(( ended_checks + 1 )); fi ;;
       esac
       echo "cmux-tui artifacts runs for $publisher: $state" >&2
       # Two checks in a row: a failed publish requeues its run, and a new
@@ -618,7 +652,12 @@ wait_for_tree() {
         fail_unpublishable_tree "$key" "$publisher" "$state" "$elapsed"
       fi
     fi
-    if (( elapsed >= wait_seconds )); then
+    if (( elapsed >= wait_seconds )) && [[ "$state" == active ]] && (( elapsed < active_cap )); then
+      if [[ "$extended" == false ]]; then
+        extended=true
+        echo "note: the cmux-tui artifacts run for ${publisher:0:12} is still queued or running; waiting on, up to ${active_cap}s in all" >&2
+      fi
+    elif (( elapsed >= wait_seconds )); then
       {
         echo "error: cmux-tui for this checkout's tree $key is not published after $((elapsed / 60)) min ($sha_url)."
         echo "  The cmux-tui artifacts workflow publishes a tree after its build and cmux_next_ daemon tests pass"
@@ -681,17 +720,27 @@ refuse_unpushed_source() {
 }
 
 # True when a branch head on origin now (git ls-remote, no fetch) contains
-# <commit>. Heads this clone lacks the objects for are skipped. When origin
-# cannot be reached the answer is false: the local refs decide, as before.
+# <commit>. Only commits this clone already has count, and no head is looked up
+# by id: in a partial clone each lookup of a commit the clone lacks starts a
+# lazy fetch, and origin has thousands of heads (a per-head `cat-file -e` loop
+# took 111 min). One local walk lists the descendants of <commit> reachable from
+# the local refs and HEAD; a head counts when it is one of them (or <commit>
+# itself). The publishing branches are checked first. When origin cannot be
+# reached or the walk fails the answer is false: the local refs decide, as before.
 on_origin_branch() {
-  local commit="$1" heads sha
+  local commit="$1" heads descendants branch sha
   heads="$(git -C "$repo_root" ls-remote --heads origin 2>/dev/null)" || return 1
-  while read -r sha _; do
-    [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || continue
-    git -C "$repo_root" cat-file -e "$sha^{commit}" 2>/dev/null || continue
-    git -C "$repo_root" merge-base --is-ancestor "$commit" "$sha" 2>/dev/null && return 0
-  done <<<"$heads"
-  return 1
+  descendants="$(git -C "$repo_root" rev-list --ancestry-path "^$commit" --all HEAD 2>/dev/null)" || return 1
+  descendants+=$'\n'"$commit"
+  for branch in feat-cmux-next feat-cmux-next-acpmux; do
+    sha="$(awk -v ref="refs/heads/$branch" '$2 == ref { print $1 }' <<<"$heads")"
+    [[ "$sha" =~ ^[0-9a-f]{40}$ ]] && grep -qxF "$sha" <<<"$descendants" && return 0
+  done
+  [[ -n "$heads" ]] || return 1
+  # Full SHAs only on both sides: an empty line must never match.
+  awk 'NR == FNR { if ($1 ~ /^[0-9a-f]{40}$/) local_desc[$1]; next }
+    $1 ~ /^[0-9a-f]{40}$/ && ($1 in local_desc) { found = 1; exit } END { exit !found }' \
+    <(printf '%s\n' "$descendants") <(printf '%s\n' "$heads")
 }
 
 # True when <binary> reports a build commit whose tree key is this
@@ -706,7 +755,8 @@ local_build_matches() {
 
 # Fetches a companion binary of tree <key> into <dir>: cmux-tui-<artifact>-<target>
 # (app-host -> cmux-app-host, cloud-server -> cmux-cloud, browser-host ->
-# cmux-browser-host, agent-screen-detection -> cmux-agent-screen-detection) that
+# cmux-browser-host, host -> cmux-tui-host, agent-screen-detection ->
+# cmux-agent-screen-detection) that
 # the commit named by
 # <dir>/source.json published in its attested commit-addressed manifest. Records its
 # sha256, or `none` when that build published none, in <dir>/<file>.sha256.
@@ -749,13 +799,58 @@ fetch_tree_companion() {
   echo "fetched same-tree $file $key to $dir/$file"
 }
 
+# Windows: the per-terminal host the daemon spawns beside itself (cx-1vlzr),
+# tree object cmux-tui-host-<target>.exe, fetched as cmux-tui-host.exe next to
+# cmux-tui.exe and checked against the tree's published .sha256 like the
+# daemon. A tree published before the host has none: the daemon then re-execs
+# itself as the host (slower terminal creation, still correct).
+fetch_tree_windows_host() {
+  local key="$1" dir="$2" file=cmux-tui-host.exe asset url want temp
+  asset="cmux-tui-host-$TARGET.exe"
+  url="$BASE/tree/$key/$asset"
+  if [[ -f "$dir/$file.sha256" ]]; then
+    want="$(cat "$dir/$file.sha256")"
+    if [[ "$want" == none ]] || [[ -f "$dir/$file" && "$(sha256_of "$dir/$file")" == "$want" ]]; then
+      return 0
+    fi
+  fi
+  temp="$(mktemp -d "$dir/.host.XXXXXX")"
+  if ! download "$url.sha256" "$temp/sha256" 2>/dev/null; then
+    rm -rf "$temp"
+    rm -f "$dir/$file"
+    printf 'none\n' > "$dir/$file.sha256"
+    echo "note: tree $key published no $file; terminals start through cmux-tui.exe (slower)"
+    return 0
+  fi
+  want="$(awk 'NR==1 {print $1}' "$temp/sha256")"
+  [[ "$want" =~ ^[0-9a-f]{64}$ ]] || { rm -rf "$temp"; echo "error: $url.sha256 is not a sha256 file" >&2; exit 1; }
+  download "$url" "$temp/$file" || { rm -rf "$temp"; echo "error: could not download $url" >&2; exit 1; }
+  [[ "$(sha256_of "$temp/$file")" == "$want" ]] || {
+    rm -rf "$temp"; echo "error: $url does not match $url.sha256" >&2; exit 1; }
+  chmod 755 "$temp/$file"
+  mv -f "$temp/$file" "$dir/$file"
+  rm -rf "$temp"
+  printf '%s\n' "$want" > "$dir/$file.sha256"
+  echo "fetched same-tree $file $key to $dir/$file"
+}
+
 fetch_tree_companions() {
-  # No Windows companions are built: the Windows daemon has no app, cloud or
-  # browser host.
-  [[ -z "$(exe_suffix)" ]] || return 0
+  local companions="${3:-all}"
+  # Windows has one companion, the terminal host; the Windows daemon has no
+  # app, cloud or browser host.
+  if [[ -n "$(exe_suffix)" ]]; then
+    [[ "$companions" == all ]] || { echo "error: acpmux-only fetch is only supported on macOS" >&2; exit 2; }
+    fetch_tree_windows_host "$1" "$2"
+    return 0
+  fi
+  if [[ "$companions" == acpmux ]]; then
+    fetch_tree_companion "$1" "$2" acpmux acpmux
+    return 0
+  fi
   fetch_tree_companion "$1" "$2" app-host cmux-app-host
   fetch_tree_companion "$1" "$2" cloud-server cmux-cloud
   fetch_tree_companion "$1" "$2" browser-host cmux-browser-host
+  fetch_tree_companion "$1" "$2" host cmux-tui-host
   fetch_tree_companion "$1" "$2" agent-screen-detection cmux-agent-screen-detection
   # The app bundles acpmux too; a tree published before its build carried
   # acpmux has none, and the app build compiles it (build-acpmux.sh).
@@ -819,6 +914,53 @@ fetch_tree() {
   echo "fetched same-tree cmux-tui $key to $binary"
   echo "fetched cmux-tui tree $(tree_source_label "$published_key" "$key")"
   fetch_tree_companions "$key" "$dir"
+}
+
+# Fetch only the attested acpmux companion for the resolved macOS tree. The
+# app build calls this before build-acpmux.sh and does not need the daemon or
+# the app/cloud/browser/plugin companions, which are fetched later by the
+# bundle job. Keep the tree publication and source manifest checks from the
+# full fetch so a companion can never be accepted from an unverified owner.
+fetch_tree_acpmux() {
+  local key dir temp_dir owner manifest_sha published_sha source_file
+  key="$(checkout_tree_key)"
+  TARGET="$GATE_TARGET"
+  refuse_dirty_source
+  dir="$(tree_dir "$key")"
+  mkdir -p "$dir"
+  temp_dir="$(mktemp -d "$dir/.acpmux-fetch.XXXXXX")"
+  # shellcheck disable=SC2064 # expand now: the trap must remove this temp dir
+  trap "rm -rf '$temp_dir'" EXIT
+  refuse_unpushed_source
+  require_target_in_tree "$key" "$(checkout_legacy_tree_key)"
+  wait_for_tree "$key" "$temp_dir/sha256" "$(checkout_legacy_tree_key)"
+  published_sha="$published"
+  source_file="$dir/source.json"
+  download "$BASE/tree/$published_key/source.json" "$temp_dir/source.json" 2>/dev/null || {
+    echo "error: could not download $BASE/tree/$published_key/source.json" >&2
+    exit 1
+  }
+  owner="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("commit") or "")' "$temp_dir/source.json" 2>/dev/null || true)"
+  [[ "$owner" =~ ^[0-9a-f]{40}$ ]] || {
+    echo "error: tree $key has no valid source commit in its attested source.json" >&2
+    exit 1
+  }
+  download "$BASE/$owner/manifest.json" "$temp_dir/manifest.json" 2>/dev/null || {
+    echo "error: could not download $BASE/$owner/manifest.json" >&2
+    exit 1
+  }
+  manifest_sha="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["binaries"].get(sys.argv[2]) or "")' "$temp_dir/manifest.json" "cmux-tui-$TARGET" 2>/dev/null || true)"
+  [[ "$manifest_sha" == "$published_sha" ]] || {
+    echo "error: $BASE/$owner/manifest.json does not attest cmux-tui-$TARGET for tree $key" >&2
+    exit 1
+  }
+  mv -f "$temp_dir/source.json" "$source_file"
+  fetch_tree_companions "$key" "$dir" acpmux
+  [[ -x "$dir/acpmux" && -f "$dir/acpmux.sha256" && "$(cat "$dir/acpmux.sha256")" != none ]] || {
+    echo "error: tree $key has no verified acpmux companion" >&2
+    exit 1
+  }
+  echo "using attested same-tree acpmux companion: $dir/acpmux"
 }
 
 # The cmux-next gate: waits for this checkout's tree like fetch, without
@@ -1289,6 +1431,10 @@ PY
     [[ "$mode" == tree ]] && TARGET="$(host_tree_target)"
     if [[ "$mode" == tree ]]; then fetch_tree; else fetch_pin; fi
     ;;
+  fetch-acpmux)
+    [[ $# -eq 0 ]] || { echo "error: fetch-acpmux does not accept pin mode" >&2; exit 2; }
+    fetch_tree_acpmux
+    ;;
   path)
     mode_from_args "$@"
     [[ "$mode" == tree ]] && TARGET="$(host_tree_target)"
@@ -1342,6 +1488,51 @@ PY
     ;;
   resolve-exact)
     resolve_exact_tree
+    ;;
+  fallback-key)
+    # A head that changes no tree input (its key equals its base's) tests the
+    # same cmux-tui as that base, so an older published tree stands in for an
+    # unpublished one. A commit on the base compares with its first parent.
+    # Fleet steps check out the ref at depth 1 with no branch refs: fetch the
+    # base and deepen both to CMUX_TUI_TREE_SEARCH_COMMITS so the merge base,
+    # the parent and the published tree's commit are in the history.
+    # The fleet worker's checkout is a git init fetched from the repository URL,
+    # with no origin remote: fetch from CMUX_TUI_TREE_FALLBACK_REMOTE then.
+    fallback_base="${CMUX_TUI_TREE_FALLBACK_BASE:-origin/feat-cmux-next}"
+    fallback_depth="${CMUX_TUI_TREE_SEARCH_COMMITS:-50}"
+    fallback_remote=origin
+    git -C "$repo_root" remote get-url origin >/dev/null 2>&1 \
+      || fallback_remote="${CMUX_TUI_TREE_FALLBACK_REMOTE:-https://github.com/manaflow-ai/cmux.git}"
+    fallback_refs=()
+    if [[ "$fallback_base" == origin/* ]] \
+        && ! git -C "$repo_root" rev-parse -q --verify "$fallback_base^{commit}" >/dev/null; then
+      fallback_refs+=("+refs/heads/${fallback_base#origin/}:refs/remotes/$fallback_base")
+    fi
+    if [[ "$(git -C "$repo_root" rev-parse --is-shallow-repository)" == true ]]; then
+      fallback_refs+=("$(git -C "$repo_root" rev-parse HEAD)")
+      [[ -z "$(git -C "$repo_root" rev-parse -q --verify "$fallback_base^{commit}")" ]] \
+        || fallback_refs+=("+refs/heads/${fallback_base#origin/}:refs/remotes/$fallback_base")
+      git -C "$repo_root" fetch -q --no-tags --depth="$fallback_depth" "$fallback_remote" "${fallback_refs[@]}" \
+        || echo "fallback-key: could not deepen the shallow checkout; using the history it has" >&2
+    elif (( ${#fallback_refs[@]} )); then
+      git -C "$repo_root" fetch -q --no-tags "$fallback_remote" "${fallback_refs[@]}" \
+        || echo "fallback-key: could not fetch $fallback_base" >&2
+    fi
+    if ! fallback_rev="$(git -C "$repo_root" merge-base HEAD "$fallback_base" 2>/dev/null)"; then
+      echo "fallback-key: no merge base of HEAD and $fallback_base in the last $fallback_depth commits" >&2
+      exit 1
+    fi
+    if [[ "$fallback_rev" == "$(git -C "$repo_root" rev-parse HEAD)" ]] \
+        && ! fallback_rev="$(git -C "$repo_root" rev-parse -q --verify HEAD^1)"; then
+      echo "fallback-key: HEAD is on $fallback_base and its parent is not in the checkout" >&2
+      exit 1
+    fi
+    if [[ "$(tree_key HEAD)" != "$(tree_key "$fallback_rev")" ]]; then
+      echo "fallback-key: HEAD changes a cmux-tui tree input since ${fallback_rev:0:12}; no fallback tree" >&2
+      exit 1
+    fi
+    resolved="$(CMUX_TUI_TREE_DISPATCH='' GITHUB_STEP_SUMMARY='' resolve_newest_published_tree)" || exit 1
+    awk -F= '$1 == "key" { print $2 }' <<<"$resolved" | grep .
     ;;
   wait)
     wait_for_checkout_tree

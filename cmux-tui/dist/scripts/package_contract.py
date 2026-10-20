@@ -110,7 +110,15 @@ def npm_executable_files(include_windows: bool = False) -> tuple[str, ...]:
         for target in targets
     )
     return (
-        tuple(path for target in targets for path in _target_binary_paths(target, ("cmux-tui", "cmux-tui-hook")))
+        tuple(
+            path
+            for target in targets
+            for path in _target_binary_paths(
+                target,
+                ("cmux-tui", "cmux-tui-hook")
+                + (("cmux-tui-host",) if target.os == "win32" else ()),
+            )
+        )
         + tuple(
             path
             for target in relay_targets
@@ -442,10 +450,15 @@ def validate_npm_tree(
 
     for target in targets:
         _validate_npm_notice(packages_dir / target.name, target, "cmux-tui", notices_dir)
+        # The Windows package also ships cmux-tui-host.exe, the small
+        # per-terminal host the daemon spawns instead of re-exec'ing the large
+        # cmux-tui.exe (cx-1vlzr). Windows only; macOS/Linux re-exec cmux-tui.
+        host_binaries = ("cmux-tui-host",) if target.os == "win32" else ()
+        host_files = {"bin/cmux-tui-host.exe"} if target.os == "win32" else set()
         _validate_package_files(
             packages_dir / target.name,
             target,
-            binary_names=("cmux-tui", "cmux-tui-hook"),
+            binary_names=("cmux-tui", "cmux-tui-hook", *host_binaries),
             expected_files=frozenset(
                 {
                     "package.json",
@@ -455,6 +468,7 @@ def validate_npm_tree(
                     NPM_SSH_MANIFEST,
                     NOTICE_FILE,
                 }
+                | host_files
             ),
             label=target.name,
             version=package_version,

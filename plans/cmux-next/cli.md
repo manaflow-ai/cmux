@@ -49,7 +49,7 @@ Discovery (`app_identity.rs`):
   `CFBundleIdentifier` and `LSEnvironment.CMUX_TAG`). The path table mirrors
   `ControlSocketPath`; the Rust tests pin it.
 - Daemon socket: `--socket`/`--session`, `CMUX_TUI_SOCKET`, then (macOS) the app's session
-  `cmux-app[-tag]` under the Darwin per-user temp directory the app starts it with, then
+  `cmux-app[-tag]` (`cmux-app-nightly`, `-rc`, `-staging` for an untagged channel build) under the Darwin per-user temp directory the app starts it with, then
   cmux-tui's `main`.
 - acpmux: `ACPMUX_HOME`, else `~/.acpmux/tags/<tag>` under `CMUX_TAG`, else `~/.acpmux`
   (shared with a standalone acpmux). The home is passed to the daemon it starts.
@@ -188,6 +188,12 @@ On `feat-cmux-next-mcp` (PR into `feat-cmux-next-acpmux`):
   app's CLI actions, over the CLI's own transport (mcp.md). Off unless cmux.json sets
   `mcp.enabled`.
 
+The curated CLI also offers `cmux machine list --json` and
+`cmux machine <selector> show --json` for the connected owner's machine catalog.
+Remote entries are read-only metadata from existing admitted app routes. These
+commands do not enroll, dial, open sessions or execute work; the full
+`cmux-tui machine ... session ...` plumbing remains outside the curated CLI.
+
 ## Numeric refs replacement
 
 The old CLI's refs and selector flags have no Rust equivalent; `cmux` takes the
@@ -290,8 +296,11 @@ On `feat-cmux-next-browser-storage` (browser group 3):
 ## Remaining
 
 1. App windows get typed ids (`win_<32 hex>`); today they are bare lowercase UUIDs.
-2. Nightly and release apps both use daemon session `cmux-app` when untagged
-   (`DaemonLauncher.sessionName`); give each channel its own session.
+2. Done: each untagged channel has its own daemon session and state
+   (`DaemonLauncher.daemonTag`): release keeps `cmux-app` and cmux-tui's default state
+   root; nightly, rc and staging use `cmux-app-<channel>` and
+   `~/Library/Application Support/cmux/tags/<channel>/tui`, like a tagged build. Existing
+   `cmux-app` state stays release's; nightly starts with its own (no copy, see cx-6so.41).
 3. acpmux CLI output is English only; the rest of `cmux` is English and Japanese.
 4. Browser downloads and the remaining input verbs have no new-CLI equivalent yet (the
    compat layer had partial ones). Waits, screenshots, tab verbs, cookies and storage
@@ -304,9 +313,11 @@ On `feat-cmux-next-browser-storage` (browser group 3):
 7. The daemon's `cmux.protocol/2` selectors take full ids only; unique prefixes work only
    for app action targets and `browser tab_…`. Add prefix resolution to the daemon
    selector (one snapshot, `selector.ambiguous` with candidates) so C7 holds everywhere.
-8. An app action whose target matches nothing still reports `ran: true` (for example
-   `workspace rename --target ws_zzz`). Handlers must fail with `not_found`; the
-   resolver passes unknown ids through so objects the snapshot has not seen yet work.
+8. Done for the kinds the topology lists (window, workspace, screen, pane, tab,
+   terminal, groups): once it is loaded, a target that matches nothing is `not_found`
+   before any handler runs (`PublicIDTargetResolver`, `ActionRunTargetTests`). Before
+   that, and for column, screen group, machine and room, the id passes through;
+   `ActionScope` refuses an unknown tab, pane or workspace as `not_found`.
 9. `current` means the session's focused object, not the caller's terminal; the caller's
    own terminal is `$CMUX_TUI_TERMINAL_ID`.
 10. `cmux agent message` (Leo Li's PR 16430 owns it) has no port yet: it needs a daemon v2 message operation, a Rust verb and hook
@@ -314,9 +325,8 @@ On `feat-cmux-next-browser-storage` (browser group 3):
 11. `send`/`read-screen` on a remote-terminal tab need the daemon side of
     `remote-terminal-tabs-v1`, which is not in cmux-tui yet.
 12. Done: session-qualified ids (`build-box:ws_…`) and `--all-sessions`.
-13. `action.run`'s `created` list is sometimes empty (`cmux tab new` under load): the
-    reply maps created handles through the control snapshot at settle time, which can
-    lag the store. Map from the store, or wait for the snapshot that contains them.
+13. Done: a settled `action.run` waits up to 2 s for a snapshot that shows every
+    object it created before it lists them in `created` (`ActionRunCreatedTests`).
 14. With an explicit `--app-socket` but a different app's `CMUX_*` environment, the daemon
     is found from the environment, not from the named app.
 15. v2 `session.identify` and `capabilities` on `client.metadata.update` (SDK clients

@@ -75,13 +75,16 @@ nonisolated public struct ReleaseNotes: Codable, Equatable, Sendable {
         public var media: [Media]
         /// "Try it": an action id from the allow-list.
         public var action: Action?
+        /// `new`, `improved`, `fixed` or `security` (the highlight file's `category:`); nil reads as new.
+        public var category: String?
 
-        public init(id: String, title: String, body: String, media: [Media], action: Action?) {
+        public init(id: String, title: String, body: String, media: [Media], action: Action?, category: String? = nil) {
             self.id = id
             self.title = title
             self.body = body
             self.media = media
             self.action = action
+            self.category = category
         }
     }
 

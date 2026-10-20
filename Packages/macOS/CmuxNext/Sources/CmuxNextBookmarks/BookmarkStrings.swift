@@ -39,6 +39,8 @@ public nonisolated enum BookmarkStrings {
     public static var delete: String { t("verb.delete", "Delete") }
     public static var copyURL: String { t("verb.copyURL", "Copy URL") }
     public static var showInFolder: String { t("verb.showInFolder", "Show in Folder") }
+    public static var setIcon: String { t("verb.setIcon", "Set Icon…") }
+    public static var removeIcon: String { t("verb.removeIcon", "Remove Icon") }
 
     public static func openAll(_ count: Int) -> String {
         String(format: t("verb.openAll", "Open All (%lld)"), count)

@@ -70,15 +70,26 @@ def wait(check, seconds, step=0.25):
     return None
 
 
-def record(surface, name, trigger, seconds=None):
+def record(surface, name, trigger, seconds=None, layout=False):
     if opts.only and name not in opts.only:
         return
     directory = os.path.join(opts.out, surface, name)
     os.makedirs(directory, exist_ok=True)
     seconds = seconds or opts.seconds
+    if layout:  # the scenario's own start layout (strip-scroll-check.py places columns from it)
+        with open(os.path.join(directory, "layout.json"), "w") as handle:
+            json.dump({"pane_chrome": rpc("debug.pane_chrome")}, handle)
+    t0 = time.monotonic()
     started = rpc("debug.window_record", {"dir": directory, "seconds": seconds})
+    t_started = time.monotonic() - t0
     time.sleep(0.15)  # test harness: a few still frames before the change
+    t_sent = time.monotonic() - t0
     reply = trigger()
+    t_replied = time.monotonic() - t0
+    # Host seconds since the record request: the first frame lands between record_reply and one
+    # frame later; the change ran between trigger_sent and trigger_reply.
+    with open(os.path.join(directory, "timing.json"), "w") as handle:
+        json.dump({"record_reply": t_started, "trigger_sent": t_sent, "trigger_reply": t_replied}, handle)
     time.sleep(seconds + 0.6)  # test harness: the recording stops by itself
     frames = len([f for f in os.listdir(directory) if f.endswith(".jpg")])
     print(f"{surface}/{name}: {frames} frames; record={json.dumps(started)[:100]} reply={json.dumps(reply)[:160]}", flush=True)
@@ -191,6 +202,36 @@ def focus():
     record("focus", "down", lambda: action("focusDown"))
 
 
+def strip():
+    # Focus moves left and right across a scrolling strip of columns, each with two tabs: the camera
+    # scrolls and every column's tab bar moves with it (Lawrence 2026-10-18: "tabbar when i move
+    # around left/right in niri is bad").
+    action("workspace.newAtBottom")
+    time.sleep(1.0)  # test harness: the workspace settles
+    for _ in range(3):
+        action("newColumn")
+        time.sleep(0.8)  # test harness: one column at a time
+    for _ in range(4):
+        action("newSurface")
+        time.sleep(0.4)  # test harness: one tab at a time
+        action("focusLeft")
+        time.sleep(0.4)  # test harness: the focus settles
+    for _ in range(3):
+        action("focusRight")
+        time.sleep(0.6)  # test harness: the camera settles
+    save_layout("strip")
+    record("strip", "left-1", lambda: action("focusLeft"), layout=True)
+    record("strip", "left-2", lambda: action("focusLeft"), layout=True)
+    record("strip", "right-1", lambda: action("focusRight"), layout=True)
+    record("strip", "right-2", lambda: action("focusRight"), layout=True)
+    # The sidebar hidden: the strip runs under the traffic lights, whose inset a column's tab bar keeps.
+    action("toggleSidebar", focus=True)
+    time.sleep(1.0)  # test harness: the sidebar hides
+    record("strip", "hidden-left-1", lambda: action("focusLeft"), layout=True)
+    record("strip", "hidden-right-1", lambda: action("focusRight"), layout=True)
+    action("toggleSidebar", focus=True)
+
+
 def groups():
     # A tab group of two tabs collapses into its chip and expands again.
     action("workspace.newAtBottom")
@@ -227,34 +268,6 @@ def drag():
     x, y = left + width / 2, top + height / 2
     record("drag", "reorder", lambda: paced_drag(x, y, x + width * 2.2, y), seconds=2.0)
     record("drag", "back", lambda: paced_drag(x + width * 2, y, x, y), seconds=2.0)
-
-
-def newtab():
-    # The New Tab page's template dots switch its layout in place. The dots
-    # show with newTab.templateSwitcher on, in a page warmed after it is set:
-    # the tunable stays on in this build tag's own slot store, so record on a
-    # second launch of the same tag (the first only sets it). Clicks land on
-    # the dots: 18 pt wide, 4 pt apart, centered at the pane's bottom
-    # (screen.css). A pick saves tabs.newTabTemplate to the host user's
-    # shared settings, so the run ends on "default", the value it had.
-    rpc("debug.tunables", {"action": "set", "key": "newTab.templateSwitcher", "value": True})
-    rpc("debug.motion", {"action": "speed", "value": "fast"})  # the tunable write reloads settings
-    action("newTabPage")
-    time.sleep(2.0)  # test harness: the page loads
-    save_layout("newtab")
-    panes = [pane for window in (rpc("debug.pane_chrome") or {}).get("windows") or [] for pane in window.get("panes") or []]
-    if not panes:
-        print("newtab: skipped, pane_chrome reports no pane", flush=True)
-        return
-    left, top, width, height = panes[0]["border"]
-    dots = ["default", "composer", "threads", "console", "classic", "terminal"]
-
-    def pick(template):
-        x = left + width / 2 - 55 + 22 * dots.index(template)
-        return rpc("debug.mouse", {"action": "click", "x": x, "y": top + height - 21})
-
-    for template in ("threads", "composer", "console", "default"):
-        record("newtab", template, lambda: pick(template))
 
 
 def key(name, *modifiers):
@@ -517,7 +530,7 @@ def hovercard():
 
 
 
-SURFACES = {"tabs": tabs, "panes": panes, "focus": focus, "toasts": toasts, "popups": popups, "hover": hover, "groups": groups, "drag": drag, "dock": dock, "newtab": newtab, "sidebar": sidebar, "palette": palette, "hovercard": hovercard, "panels": panels, "everyday": everyday, "switch": switch}
+SURFACES = {"strip": strip, "tabs": tabs, "panes": panes, "focus": focus, "toasts": toasts, "popups": popups, "hover": hover, "groups": groups, "drag": drag, "dock": dock, "sidebar": sidebar, "palette": palette, "hovercard": hovercard, "panels": panels, "everyday": everyday, "switch": switch}
 
 
 def main():

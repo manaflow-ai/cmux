@@ -16,6 +16,7 @@ pub(crate) mod host_shared;
 pub(crate) mod host_start;
 pub(crate) mod host_state;
 pub(crate) mod metric_commits;
+pub(crate) mod program_status_codec;
 pub(crate) mod records;
 pub(crate) mod renderer_grant;
 pub(crate) mod unadoptable;

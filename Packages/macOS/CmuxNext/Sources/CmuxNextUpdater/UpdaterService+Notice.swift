@@ -48,12 +48,12 @@ extension UpdaterService {
         }
     }
 
-    /// The notice's x: a found update hides until a newer one; a result
-    /// clears (as when it times out).
+    /// The notice's x without its menu: a found update hides until a newer
+    /// one (``closeUpdateCard(_:)``); a result clears (as when it times out).
     public func dismissCard() {
         switch card {
-        case .available(let version):
-            dismissedAvailableVersion = version ?? ""
+        case .available:
+            closeUpdateCard(.hideVersion)
         case .note:
             dismissIndicatorNote()
         case .checking, .downloading, nil:
@@ -66,6 +66,14 @@ extension UpdaterService {
     /// cancels it when the card changed to one that waits.
     func followCardExpiry() {
         let shown = card
+        #if DEBUG
+        // The update harness's timeline: what the user sees, as it changes.
+        let kind = shown?.kind ?? (readyCard == nil ? "none" : "ready")
+        if kind != markedCardKind {
+            markedCardKind = kind
+            UpdateHarness.mark("card." + kind)
+        }
+        #endif
         guard let after = shown?.presentation(version: identity.shortVersion, build: identity.build).dismissesAfter else {
             if expiringCard != nil {
                 expiringCard = nil

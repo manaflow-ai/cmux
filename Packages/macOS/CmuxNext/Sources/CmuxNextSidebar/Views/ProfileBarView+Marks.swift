@@ -19,6 +19,14 @@ extension ProfileBarView {
                                         width: diameter, height: diameter)).fill()
             return
         }
+        if let image = profile.image {
+            // A stored image or SVG keeps its own colors, at the symbol's size and the mark's opacity.
+            let side = min(Metrics.smallIconSize + Metrics.space1, rect.height - Metrics.space2)
+            NSImage(cgImage: image.image, size: NSSize(width: side, height: side))
+                .draw(in: NSRect(x: rect.midX - side / 2, y: rect.midY - side / 2, width: side, height: side),
+                      from: .zero, operation: .sourceOver, fraction: color.alphaComponent)
+            return
+        }
         if let icon = profile.icon, profile.iconIsEmoji {
             let font = NSFont.systemFont(ofSize: min(Metrics.smallIconSize + Metrics.space1, rect.height - Metrics.space2))
             let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: color]
@@ -89,19 +97,6 @@ extension ProfileBarView {
     }
 
     // theme-scoped: called only from drawMarks() inside performWithTheme
-    /// The History dot (cx-zlnl): a clock, dim like the "+" until hovered.
-    func drawHistory(in rect: NSRect) {
-        // A compact strip's narrow slot gets a smaller clock, so it never overlaps the dots beside it.
-        let config = NSImage.SymbolConfiguration(pointSize: min(Metrics.smallIconSize - Metrics.space1, rect.width - 4), weight: .regular)
-        guard let image = NSImage(systemSymbolName: "clock", accessibilityDescription: Strings.history)?.withSymbolConfiguration(config) else { return }
-        let color = Palette.textPrimary.withAlphaComponent(hovered == Self.historyIndex ? 0.6 : 0.35)
-        let tinted = image.tinted(color.withAlphaComponent(1))
-        let size = tinted.size
-        tinted.draw(in: NSRect(x: rect.midX - size.width / 2, y: rect.midY - size.height / 2, width: size.width, height: size.height),
-                    from: .zero, operation: .sourceOver, fraction: color.alphaComponent)
-    }
-
-    // theme-scoped: called only from drawMarks() inside performWithTheme
     func drawPlus(in rect: NSRect) {
         let image = NSImage.icon(.actionAdd, size: .iconRowSize(forLabelPointSize: Metrics.smallIconSize - Metrics.space3))
         image.accessibilityDescription = Strings.newProfile
@@ -155,7 +150,7 @@ final class ProfileBarLayerView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
     override func draw(_ dirtyRect: NSRect) { onDraw?(dirtyRect) }
 }

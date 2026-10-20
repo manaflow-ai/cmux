@@ -192,18 +192,29 @@ extension HomeStore {
     }
 
     /// The op with each attachment part's mime type, byte count and poster
-    /// taken from the owner's stored ref for its hash.
+    /// (and each link preview picture's mime type and byte count) taken from
+    /// the owner's stored ref for its hash.
     static func adopting(_ stored: [String: AttachmentRef], in op: HomeOp) -> HomeOp {
-        guard case .sendMessage(let conversation, let parts, let threadRoot) = op else { return op }
+        guard case .sendMessage(let conversation, let parts, let threadRoot, let parent) = op else { return op }
         let adopted = parts.map { part -> MessagePart in
-            guard case .attachment(var ref) = part, let record = stored[ref.hash] else { return part }
-            ref.mimeType = record.mimeType
-            ref.byteCount = record.byteCount
-            ref.poster = record.poster
-            ref.preview = record.preview
-            return .attachment(ref)
+            switch part {
+            case .attachment(var ref):
+                guard let record = stored[ref.hash] else { return part }
+                ref.mimeType = record.mimeType
+                ref.byteCount = record.byteCount
+                ref.poster = record.poster
+                ref.preview = record.preview
+                return .attachment(ref)
+            case .linkPreview(var link):
+                // A link preview's picture is checked against its record the same way.
+                guard let image = link.image, let record = stored[image.hash] else { return part }
+                link.image = AttachmentDerivedImage(hash: image.hash, mimeType: record.mimeType, byteCount: record.byteCount)
+                return .linkPreview(link)
+            default:
+                return part
+            }
         }
-        return .sendMessage(conversation: conversation, parts: adopted, threadRoot: threadRoot)
+        return .sendMessage(conversation: conversation, parts: adopted, threadRoot: threadRoot, parent: parent)
     }
 
     /// Uploads, at most `uploadConcurrency` at once, every attachment of the
@@ -225,7 +236,7 @@ extension HomeStore {
         let source = self.source
         let conversation = job.conversation
         var failure: HomeRejection?
-        await withTaskGroup(of: (String, Result<AttachmentRef, Error>).self) { group in
+        await withTaskGroup(of: AttachmentUploadOutcome.self) { group in
             var next = pending.makeIterator()
             func add(_ attachment: LocalAttachment) {
                 let hash = attachment.ref.hash
@@ -235,13 +246,20 @@ extension HomeStore {
                     Task { @MainActor [weak self] in self?.uploadProgressed(key, attempt: attempt, hash: hash, fraction) }
                 }
                 group.addTask {
-                    do { return (hash, .success(try await source.upload(upload))) } catch { return (hash, .failure(error)) }
+                    // One return after the do/catch, of a named struct: Swift 6.3 and 6.4 at -O
+                    // never write the first element of a tuple a child returns from both a `do`
+                    // and a `catch` (swiftlang/swift#92698). The hash was then garbage and its
+                    // copy into the waiting loop crashed the nightly (cx-21wc5).
+                    let result: Result<AttachmentRef, Error>
+                    do { result = .success(try await source.upload(upload)) } catch { result = .failure(error) }
+                    return AttachmentUploadOutcome(hash: hash, result: result)
                 }
             }
             for _ in 0..<Self.uploadConcurrency { if let attachment = next.next() { add(attachment) } }
-            for await (hash, result) in group {
+            for await outcome in group {
+                let hash = outcome.hash
                 guard uploads[key]?.attempt == attempt else { continue } // cancelled
-                switch result {
+                switch outcome.result {
                 case .success(let stored) where stored.hash == hash:
                     uploads[key]?.uploaded.insert(hash)
                     uploads[key]?.stored[hash] = stored
@@ -282,4 +300,11 @@ extension HomeStore {
         if error is CancellationError { return .indeterminate }
         return .invalid("attachment_upload_failed")
     }
+}
+
+/// What one upload child of `uploadMissing` hands back: a named struct, not a
+/// tuple (swiftlang/swift#92698, cx-21wc5).
+private struct AttachmentUploadOutcome: Sendable {
+    let hash: String
+    let result: Result<AttachmentRef, Error>
 }

@@ -1,0 +1,17 @@
+[package]
+name = "cmux-git"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "The git reads and checkpoint writes cmux runs: bounded git runs, a repository handle, parsers, diff scopes and branch refs. No terminal dependencies, so the diff sidecar links it too."
+
+[lints]
+workspace = true
+
+[dependencies]
+wait-timeout.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true

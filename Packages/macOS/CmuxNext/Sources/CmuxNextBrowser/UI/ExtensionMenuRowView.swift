@@ -2,9 +2,9 @@ import AppKit
 import CmuxNextDesign
 import CmuxNextIcons
 
-/// One Extensions menu row: icon and name (click runs the
-/// action), a pin toggle and a "more" button. Gray hover fill, no accent.
-final class ExtensionMenuRowView: NSView {
+/// One Extensions menu row, on the shared popup row (``PopupRowView``): icon and name (click runs
+/// the action), a pin toggle and a "more" button. Gray hover fill, no accent.
+final class ExtensionMenuRowView: PopupRowView {
     let extensionID: String
     var onRun: (() -> Void)?
     var onPin: (() -> Void)?
@@ -13,27 +13,36 @@ final class ExtensionMenuRowView: NSView {
     private(set) var isPinned: Bool
     private let pinButton: NSButton
     private let moreButton: NSButton
-    private var isHovering = false { didSet { needsDisplay = true } }
 
     init(info: BrowserExtensionInfo, icon: NSImage?, canPin: Bool) {
         extensionID = info.id
         isPinned = info.isPinned
-        pinButton = NSButton(image: NSImage(), target: nil, action: nil)
-        moreButton = NSButton(image: NSImage.icon(.actionMore, size: 14),
-                              target: nil, action: nil)
-        super.init(frame: NSRect(x: 0, y: 0, width: 280, height: 28))
+        let pinButton = NSButton(image: NSImage(), target: nil, action: nil)
+        let moreButton = NSButton(image: NSImage.icon(.browserToolbarMore, size: 16), target: nil, action: nil)
+        self.pinButton = pinButton
+        self.moreButton = moreButton
+        let iconView = NSImageView(image: icon ?? NSImage())
+        iconView.imageScaling = .scaleProportionallyDown
+        iconView.alphaValue = info.isEnabled ? 1 : 0.45
+        let buttons = NSStackView(views: [pinButton, moreButton])
+        buttons.spacing = 2
+        var layout = Layout()
+        layout.leading = 14
+        layout.leadingColumn = 16
+        layout.gap = 8
+        layout.trailing = 10
+        layout.trailingGap = 6
+        layout.fillInset = NSSize(width: 5, height: 1)
+        super.init(leading: iconView, title: info.name, trailing: buttons, layout: layout)
+        frame = NSRect(x: 0, y: 0, width: 280, height: layout.minHeight)
+        translatesAutoresizingMaskIntoConstraints = true
+        // A system menu: the system menu font and label colors.
+        titleLabel.font = .menuFont(ofSize: 0)
+        titleLabel.themeColor = { info.isEnabled ? .labelColor : .secondaryLabelColor }
         setAccessibilityIdentifier(ExtensionsMenu.rowIdentifier(info.id))
         setAccessibilityRole(.menuItem)
         setAccessibilityLabel(info.name)
-
-        let iconView = NSImageView(image: icon ?? NSImage())
-        iconView.imageScaling = .scaleProportionallyDown
-        let name = NSTextField(labelWithString: info.name)
-        name.font = .menuFont(ofSize: 0)
-        name.lineBreakMode = .byTruncatingTail
-        name.textColor = info.isEnabled ? .labelColor : .secondaryLabelColor
-        name.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        iconView.alphaValue = info.isEnabled ? 1 : 0.45
+        onActivate = { [weak self] in self?.onRun?() }
 
         for button in [pinButton, moreButton] {
             button.isBordered = false
@@ -41,7 +50,13 @@ final class ExtensionMenuRowView: NSView {
             button.imagePosition = .imageOnly
             button.contentTintColor = .secondaryLabelColor
             button.target = self
+            button.translatesAutoresizingMaskIntoConstraints = false
+            NSLayoutConstraint.activate([
+                button.widthAnchor.constraint(equalToConstant: 22),
+                button.heightAnchor.constraint(equalToConstant: 22),
+            ])
         }
+        NSLayoutConstraint.activate([iconView.widthAnchor.constraint(equalToConstant: 16), iconView.heightAnchor.constraint(equalToConstant: 16)])
         pinButton.action = #selector(pin)
         pinButton.isHidden = !canPin
         pinButton.setAccessibilityIdentifier(ExtensionsMenu.pinIdentifier(info.id))
@@ -49,32 +64,7 @@ final class ExtensionMenuRowView: NSView {
         moreButton.setAccessibilityIdentifier(ExtensionsMenu.moreIdentifier(info.id))
         moreButton.setAccessibilityLabel(String(format: Strings.extensionMoreFormat, info.name))
         updatePin()
-
-        for view in [iconView, name, pinButton, moreButton] as [NSView] {
-            view.translatesAutoresizingMaskIntoConstraints = false
-            addSubview(view)
-        }
-        NSLayoutConstraint.activate([
-            iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
-            iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
-            iconView.widthAnchor.constraint(equalToConstant: 16),
-            iconView.heightAnchor.constraint(equalToConstant: 16),
-            name.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 8),
-            name.centerYAnchor.constraint(equalTo: centerYAnchor),
-            name.trailingAnchor.constraint(lessThanOrEqualTo: pinButton.leadingAnchor, constant: -6),
-            pinButton.trailingAnchor.constraint(equalTo: moreButton.leadingAnchor, constant: -2),
-            pinButton.centerYAnchor.constraint(equalTo: centerYAnchor),
-            pinButton.widthAnchor.constraint(equalToConstant: 22),
-            pinButton.heightAnchor.constraint(equalToConstant: 22),
-            moreButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
-            moreButton.centerYAnchor.constraint(equalTo: centerYAnchor),
-            moreButton.widthAnchor.constraint(equalToConstant: 22),
-            moreButton.heightAnchor.constraint(equalToConstant: 22),
-        ])
     }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     // MARK: Actions (also driven by `debug.extensions.menu`)
 
@@ -89,39 +79,12 @@ final class ExtensionMenuRowView: NSView {
     @objc func more() { onMore?() }
 
     private func updatePin() {
-        pinButton.image = NSImage.icon(isPinned ? .statePinned : .actionPin, size: 14)
+        pinButton.image = NSImage.icon(isPinned ? .browserToolbarUnpin : .browserToolbarPin, size: 16)
         pinButton.setAccessibilityLabel(isPinned ? Strings.extensionMenuTitle(.unpin) : Strings.extensionMenuTitle(.pin))
         pinButton.themedToolTip = pinButton.accessibilityLabel()
         pinButton.contentTintColor = isPinned ? .labelColor : .secondaryLabelColor
     }
 
-    // MARK: Mouse and drawing
-
-    override func mouseUp(with event: NSEvent) {
-        let point = convert(event.locationInWindow, from: nil)
-        guard bounds.contains(point) else { return }
-        run()
-    }
-
-    override func accessibilityPerformPress() -> Bool {
-        run()
-        return true
-    }
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        for area in trackingAreas { removeTrackingArea(area) }
-        addTrackingArea(NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
-    }
-
-    override func mouseEntered(with event: NSEvent) { isHovering = true }
-    override func mouseExited(with event: NSEvent) { isHovering = false }
-
-    override func draw(_ dirtyRect: NSRect) {
-        guard isHovering || enclosingMenuItem?.isHighlighted == true else { return }
-        performWithTheme {
-            Palette.hoverFill.setFill()
-            NSBezierPath(roundedRect: bounds.insetBy(dx: 5, dy: 1), xRadius: 5, yRadius: 5).fill()
-        }
-    }
+    /// The menu's keyboard highlight draws like the pointer's.
+    override var drawsHighlight: Bool { super.drawsHighlight || enclosingMenuItem?.isHighlighted == true }
 }

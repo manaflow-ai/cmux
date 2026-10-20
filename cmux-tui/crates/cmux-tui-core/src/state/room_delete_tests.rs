@@ -6,7 +6,7 @@
 
 use serde_json::json;
 
-use super::tests::{mutate, read, terminal_tabs};
+use super::tests::{empty_workspace, mutate, read, terminal_tabs};
 use crate::mux::*;
 use crate::state::prelude::*;
 use crate::surface::SurfaceOptions;
@@ -121,4 +121,58 @@ fn deleting_a_space_moving_to_another_keeps_the_workspaces_open() {
     assert!(live_workspaces(&mux).contains(&workspace), "an explicit move keeps it open");
     let target = rooms(&mux).into_iter().find(|room| room["id"] == target["id"]).unwrap();
     assert_eq!(pinned_workspaces(&target), vec![workspace]);
+}
+
+/// cx-ncc.44: History lists a deleted space by the space's name, not its first workspace's.
+#[test]
+fn a_deleted_space_is_listed_in_history_by_its_name() {
+    let mux = Mux::new_for_test("room-delete-name", SurfaceOptions::default());
+    workspace_of(&mux, terminal_tabs(&mux, 1)[0]);
+    let workspace = workspace_of(&mux, mux.new_workspace(Some("api".into()), None).unwrap().id);
+    let room = mutate(&mux, "room.create", json!({"name": "Side"}), "room");
+    mutate(&mux, "room.pin", json!({"room": room["id"], "workspace": workspace}), "pin");
+
+    mutate(&mux, "room.delete", json!({"room": room["id"]}), "delete");
+    let closed = read(&mux, "closed.list", json!({}));
+    assert_eq!(closed[0]["member_count"], 1, "{closed}");
+    assert_eq!(closed[0]["name"], "Side", "the row names the space: {closed}");
+}
+
+/// cx-ncc.44: a workspace of the space with no tab closes with the others.
+#[test]
+fn deleting_a_space_closes_its_workspace_with_no_tab() {
+    let mux = Mux::new_for_test("room-delete-no-tab", SurfaceOptions::default());
+    let kept = workspace_of(&mux, terminal_tabs(&mux, 1)[0]);
+    let with_tab = workspace_of(&mux, terminal_tabs(&mux, 1)[0]);
+    let empty = empty_workspace(&mux, "spare");
+    let room = mutate(&mux, "room.create", json!({"name": "Side"}), "room");
+    mutate(&mux, "room.pin", json!({"room": room["id"], "workspace": with_tab}), "pin-tab");
+    mutate(&mux, "room.pin", json!({"room": room["id"], "workspace": empty}), "pin-empty");
+
+    mutate(&mux, "room.delete", json!({"room": room["id"]}), "delete");
+    let after = live_workspaces(&mux);
+    assert!(after.contains(&kept), "a workspace of another space stays open");
+    assert!(!after.contains(&with_tab), "the workspace with a tab closes: {after:?}");
+    assert!(!after.contains(&empty), "the workspace with no tab closes too: {after:?}");
+    let closed = read(&mux, "closed.list", json!({}));
+    assert_eq!(closed[0]["member_count"], 2, "both are in the space's group: {closed}");
+
+    mutate(&mux, "closed.reopen", json!({}), "reopen");
+    assert_eq!(live_workspaces(&mux).len(), 3, "Reopen brings both back");
+}
+
+/// cx-ncc.44: a space whose only workspace has no tab still closes it.
+#[test]
+fn deleting_a_space_whose_only_workspace_has_no_tab_closes_it() {
+    let mux = Mux::new_for_test("room-delete-only-empty", SurfaceOptions::default());
+    let kept = workspace_of(&mux, terminal_tabs(&mux, 1)[0]);
+    let empty = empty_workspace(&mux, "spare");
+    let room = mutate(&mux, "room.create", json!({"name": "Side"}), "room");
+    mutate(&mux, "room.pin", json!({"room": room["id"], "workspace": empty}), "pin-empty");
+
+    mutate(&mux, "room.delete", json!({"room": room["id"]}), "delete");
+    let after = live_workspaces(&mux);
+    assert!(after.contains(&kept));
+    assert!(!after.contains(&empty), "the workspace with no tab closes: {after:?}");
+    assert_eq!(read(&mux, "closed.list", json!({}))[0]["name"], "Side");
 }

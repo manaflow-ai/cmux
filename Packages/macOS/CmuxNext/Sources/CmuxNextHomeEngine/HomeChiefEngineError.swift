@@ -1,0 +1,45 @@
+public import CmuxNextDaemon
+import Foundation
+
+/// Why the Chief Settings panel could not read or set the engine, as the
+/// panel says it.
+public nonisolated enum HomeChiefEngineError: Error, Equatable, Sendable {
+    case unreachable
+    /// This Mac's Chief (owner daemon or brain host) is not running.
+    case localUnreachable
+    /// This Mac's brain was not running and has just been started.
+    case localStarting
+    case forbidden
+    case notConfigured
+    case unsupported
+    /// Agents are off in this build session (`agent_launch_disabled`).
+    case agentsDisabled
+    case refused(reason: String, message: String)
+    case other(String)
+
+    public init(_ error: ChiefControlError) {
+        switch error {
+        case .unreachable: self = .unreachable
+        case .forbidden: self = .forbidden
+        case .notConfigured: self = .notConfigured
+        case .unsupported: self = .unsupported
+        // cx-tgf4h: the daemon's typed refusal while agents are off.
+        case .refused(let reason, _) where reason == "agent_launch_disabled": self = .agentsDisabled
+        case .refused(let reason, let message): self = .refused(reason: reason, message: message)
+        case .other(let text): self = .other(text)
+        }
+    }
+
+    var text: String {
+        switch self {
+        case .unreachable: HomeEngineStrings.errorUnreachable
+        case .localUnreachable: HomeEngineStrings.errorLocalUnreachable
+        case .localStarting: HomeEngineStrings.errorLocalStarting
+        case .forbidden: HomeEngineStrings.errorForbidden
+        case .notConfigured: HomeEngineStrings.errorNotConfigured
+        case .unsupported: HomeEngineStrings.errorUnsupported
+        case .agentsDisabled: HomeStrings.chiefAgentsDisabled
+        case .refused(_, let message), .other(let message): String(format: HomeEngineStrings.errorRefusedFormat, message)
+        }
+    }
+}

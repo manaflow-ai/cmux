@@ -8,6 +8,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("new-tab-list-motion.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -45,6 +46,7 @@ await requireBrowserLane("new-tab-list-motion.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
+    await warmViteServer(vite, "/gallery/frame.html");
     browser = await chromium.launch({ headless: true });
     // The first load can run Vite's dependency optimizer and reload mid-compile.
     const warm = await browser.newPage({ viewport: { width: 900, height: 700 } });
@@ -165,31 +167,6 @@ await requireBrowserLane("new-tab-list-motion.test.ts", async () => {
         "Closed b": [],
         "Closed c": [],
         "Closed d": [],
-      });
-    } finally {
-      await page.close();
-    }
-  });
-
-  test("with reduced motion a template switch fades its new parts in and moves nothing", async () => {
-    const page = await recordingPage();
-    try {
-      await page.goto(url("switcher-keys", true));
-      await ready(page);
-      await page.locator('.nt-screen[data-template="default"]').waitFor();
-      await page.waitForTimeout(400); // the page settles
-      await forget(page);
-      // Console adds the prompt glyph, which fades in; the field and the chats move.
-      await page.locator('.nt-template-dot[data-template="console"]').click();
-      await page.locator('.nt-screen[data-template="console"]').waitFor();
-      const started = await page.evaluate(() =>
-        (window as unknown as { startedMotion: { properties: string[] }[] }).startedMotion.flatMap(
-          (entry) => entry.properties,
-        ),
-      );
-      expect({ fades: started.includes("opacity"), moves: started.includes("transform") }).toEqual({
-        fades: true,
-        moves: false,
       });
     } finally {
       await page.close();

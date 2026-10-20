@@ -19,9 +19,11 @@ import QuartzCore
     /// The space a release switched to, until the model shows it.
     private(set) var pendingTarget: ProfileKey?
     private var snapshot: NSView?
-    /// The bounce now running; a newer one replaces an older one's end.
-    private var bumpGeneration = 0
     var snapshotView: NSView? { snapshot }
+    /// The last page, kept off screen for the next switch or swipe: its list keeps its row views
+    /// (pool), so a page makes no new row views once warm (space-switch-fast: a new list per
+    /// switch built every row view, its buttons and their constraints, from scratch).
+    private var sparePage: SpacePageView?
 
     init(host: SidebarView) { self.host = host }
 
@@ -98,14 +100,21 @@ import QuartzCore
     /// The model shows the space a release switched to: the real list takes
     /// the page's place at once (no reload animation, no second slide).
     func modelDidSwitch(to profile: ProfileKey?) -> Bool {
-        guard let pendingTarget, pendingTarget == profile else { return false }
+        guard let pendingTarget else { return false }
+        // A direct selection can supersede an in-flight swipe before its
+        // original switch callback arrives. Drop the old lock and transition
+        // state so later swipes and wheel paging remain available.
+        guard pendingTarget == profile else {
+            endPaging()
+            return false
+        }
         endPaging()
         return true
     }
 
     private func endPaging() {
         pendingTarget = nil
-        neighbor?.view.removeFromSuperview()
+        if let view = neighbor?.view { retire(view) }
         neighbor = nil
         translate(page, 0, animated: nil)
         host.clipsToBounds = false
@@ -113,7 +122,7 @@ import QuartzCore
 
     private func showNeighbor(_ index: Int?) {
         guard neighbor?.index != index else { return }
-        neighbor?.view.removeFromSuperview()
+        if let view = neighbor?.view { retire(view) }
         neighbor = nil
         guard let index else { return }
         let container = makePage(host.model.spaceSections?(profiles[index]) ?? [])
@@ -159,75 +168,23 @@ import QuartzCore
             layer.setValue(x, forKeyPath: keyPath)
         }
         guard let spring, Motion.animatesMovement, start != x else {
-            if x != 0 { layer.add(Self.hold(keyPath, at: x), forKey: Self.slideKey) }
+            if x != 0 { layer.add(Motion.hold(keyPath, at: x), forKey: Self.slideKey) }
             return
         }
-        let parameters = Motion.spring(spring)
-        let animation = CASpringAnimation(keyPath: keyPath)
-        animation.mass = 1
-        animation.stiffness = parameters.stiffness
-        animation.damping = parameters.damping
-        animation.duration = parameters.settlingTime(within: 0.002)
-        animation.fromValue = start
-        animation.toValue = x
+        let animation = Motion.springAnimation(spring, keyPath, from: start, to: x)
         animation.fillMode = .forwards
         animation.isRemovedOnCompletion = false
         layer.add(animation, forKey: Self.slideKey)
-    }
-
-    /// A constant animation that keeps `keyPath` at `value` on screen until
-    /// it is replaced or removed, whatever AppKit writes to the model.
-    private static func hold(_ keyPath: String, at value: CGFloat) -> CABasicAnimation {
-        let animation = CABasicAnimation(keyPath: keyPath)
-        animation.fromValue = value
-        animation.toValue = value
-        animation.fillMode = .forwards
-        animation.isRemovedOnCompletion = false
-        return animation
     }
 
     // MARK: Mouse wheel
 
-    /// How far a wheel past the first or last space nudges the list, in pages.
-    static let bumpDistance: CGFloat = 0.06
-
     /// One mouse wheel page (`SpaceWheelPager`): the space beside slides in
-    /// like a switch by dot. Past the first or last space the list nudges
-    /// toward the wheel and eases back, a paged scroll view's edge.
+    /// like a switch by dot. Past the first or last space nothing moves
+    /// (POLISH: no bouncy transforms).
     func page(by step: Int) {
         guard pager == nil, pendingTarget == nil, step != 0 else { return }
-        if host.model.stepProfile(by: step) { return }
-        bump(step)
-    }
-
-    /// The list moves out toward the wheel and eases back, by layer
-    /// translation only like a swipe; reduced motion shows nothing, and one
-    /// space has no edge to show (no bounce on every notch).
-    private func bump(_ step: Int) {
-        guard snapshot == nil, Motion.animatesMovement, host.model.profiles.count > 1 else { return }
-        page.wantsLayer = true
-        guard let layer = page.layer else { return }
-        host.clipsToBounds = true
-        let keyPath = "transform.translation.x"
-        translate(page, 0, animated: nil)
-        let animation = CAKeyframeAnimation(keyPath: keyPath)
-        animation.values = [0, -CGFloat(step) * Self.bumpDistance * width, 0]
-        animation.keyTimes = [0, 0.35, 1]
-        animation.timingFunctions = [CAMediaTimingFunction(name: .easeOut), CAMediaTimingFunction(name: .easeInEaseOut)]
-        animation.duration = Self.bumpDuration
-        CATransaction.begin()
-        bumpGeneration += 1
-        let generation = bumpGeneration
-        CATransaction.setCompletionBlock { MainActor.assumeIsolated { [weak self] in self?.endBump(generation) } } // main-proof: CATransaction.h: the completion block is called on the main thread
-        layer.add(animation, forKey: Self.slideKey)
-        CATransaction.commit()
-    }
-
-    private static let bumpDuration: CFTimeInterval = 0.3
-
-    private func endBump(_ generation: Int) {
-        guard generation == bumpGeneration, pager == nil, pendingTarget == nil, snapshot == nil else { return }
-        host.clipsToBounds = false
+        _ = host.model.stepProfile(by: step)
     }
 
     // MARK: Switch by dot, key or a new space
@@ -237,24 +194,48 @@ import QuartzCore
     func prepareSlide(oldSections: [SidebarSection]) {
         finishSlide()
         guard pendingTarget == nil, pager == nil else { return }
-        snapshot = makePage(oldSections)
+        snapshot = makePage(oldSections, offset: host.scrollView.contentView.bounds.minY)
     }
 
-    private func makePage(_ sections: [SidebarSection]) -> SpacePageView {
-        let model = SidebarModel(sections: sections)
+    /// A page of `sections` scrolled to `offset`, as the list showed them: it makes views for the
+    /// rows in the page's frame only (`SidebarListView.pageViewport`), so a switch or a swipe costs
+    /// the rows on screen, never every workspace of the space (space-switch-fast).
+    private func makePage(_ sections: [SidebarSection], offset: CGFloat = 0) -> SpacePageView {
+        let container = sparePage ?? SpacePageView(frame: page.frame)
+        sparePage = nil
+        let list = container.list ?? SidebarListView(model: SidebarModel())
+        let model = list.model
+        model.sections = sections
+        model.collapsedSections = Set(sections.filter(\.isCollapsed).map(\.id)) // as `SidebarModel(sections:)` sets them
         model.showWorkspaceTabs = host.model.showWorkspaceTabs
         model.collapsedWorkspaces = host.model.collapsedWorkspaces
-        model.workspaceRow = host.model.workspaceRow
+        (model.workspaceRow, model.rowBadgeStyle) = (host.model.workspaceRow, host.model.rowBadgeStyle)
         (model.minimal, model.expanded) = (host.model.minimal, host.model.expanded)
+        model.detailedStatus = host.model.detailedStatus
         model.activeWorkspaceID = host.model.activeWorkspaceID
-        let list = SidebarListView(model: model)
-        let container = SpacePageView(frame: page.frame)
+        container.frame = page.frame
         container.wantsLayer = true
-        list.frame = container.bounds
+        container.layer?.masksToBounds = true
+        list.frame = NSRect(x: 0, y: -offset, width: container.bounds.width, height: container.bounds.height)
+        list.pageViewport = NSRect(x: 0, y: offset, width: container.bounds.width, height: container.bounds.height)
         list.autoresizingMask = [.width]
-        container.addSubview(list)
+        if list.superview !== container { container.addSubview(list) }
         container.list = list
         return container
+    }
+
+    /// A page leaves the screen and waits as the spare, at rest (no shift, no fade).
+    private func retire(_ view: NSView) {
+        view.removeFromSuperview()
+        guard let page = view as? SpacePageView else { return }
+        if let layer = page.layer {
+            layer.removeAllAnimations()
+            Motion.transaction(nil) {
+                (layer as? SpacePageLayer)?.shiftX = 0
+                layer.opacity = 1
+            }
+        }
+        sparePage = page
     }
 
     /// Slides the kept page out and the reloaded list in from `direction`
@@ -279,7 +260,7 @@ import QuartzCore
 
     private func finishSlide() {
         guard let snapshot else { return }
-        snapshot.removeFromSuperview()
+        retire(snapshot)
         self.snapshot = nil
         if pager == nil, pendingTarget == nil {
             translate(page, 0, animated: nil)
@@ -292,7 +273,7 @@ import QuartzCore
 /// gesture and clicks stay on the list).
 final class SpacePageView: NSView {
     var list: SidebarListView?
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
     override func makeBackingLayer() -> CALayer { SpacePageLayer() }
 }

@@ -16,12 +16,20 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     method::MUX_WEB_MODES,
     method::MUX_WEB_TOKEN_ROTATE,
     method::MUX_HARNESSES,
+    method::MUX_COMPLETE,
     method::MUX_RELOAD_CONFIG,
     method::MUX_WATCH,
+    method::MUX_HARNESS_INVENTORY_WATCH,
+    method::MUX_HARNESS_INVENTORY_REFRESH,
+    method::MUX_HARNESS_UPDATE_PLAN,
+    method::MUX_HARNESS_UPDATE_PREPARE,
     method::MUX_WARM,
     method::MUX_PREWARM,
+    method::MUX_START_MODE,
     method::MUX_IMPORT,
     method::MUX_SHUTDOWN,
+    // An agent message is taken back on this daemon only (`hub/withdraw.rs`).
+    method::MUX_PROMPT_WITHDRAW,
     method::MUX_HANDOFF_PREPARE,
     method::MUX_HANDOFF_GET,
     method::MUX_HANDOFF_DRAFT,
@@ -66,7 +74,7 @@ async fn forward_inner(
         if let Some(object) = forwarded.as_object_mut() {
             object.insert("sessionId".into(), Value::String(id));
         }
-        super::remote_guard::mark_forwarded(conn.origin, params, &mut forwarded);
+        super::remote_guard::mark_forwarded(conn.origin, conn.auth, params, &mut forwarded);
         let mut result = peer.request(m, forwarded).await?;
         if let Some(object) = result.as_object_mut() {
             object.insert("peer".into(), Value::String(peer.name.clone()));
@@ -88,7 +96,7 @@ async fn forward_inner(
             obj.remove("name");
             obj.insert("sessionId".into(), Value::String(id.clone()));
         }
-        super::remote_guard::mark_forwarded(conn.origin, params, &mut p);
+        super::remote_guard::mark_forwarded(conn.origin, conn.auth, params, &mut p);
         if m == method::MUX_PERMISSION_RESPOND {
             count_hop(&mut p)?;
         }

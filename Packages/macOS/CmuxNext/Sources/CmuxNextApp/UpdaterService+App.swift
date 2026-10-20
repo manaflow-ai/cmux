@@ -21,10 +21,22 @@ extension UpdaterService {
         willInstallStaged = { _ = handoff.hide() }
         installAbandoned = { handoff.restore() }
         isSheetPresented = { sheet.isPresented }
+        // The check's progress and result show on the sidebar's notice card; with the
+        // active window's sidebar hidden (or no window) nothing would show, so the sheet
+        // answers instead (never a check with no visible feedback).
+        showsIndicator = { [weak services] in
+            guard let window = services?.windows.active else { return false }
+            return !window.state.sidebarHidden
+        }
         openChangelog = { [weak services] in services.map { ChangelogPageTab.open($0) } ?? false }
         // "See What's New" on the Updated card: the React changelog page
         // for the releases this update crossed (`#/?from=&to=`).
         openChangelogSpan = { [weak services] from, to in services.map { ChangelogPageTab.open($0, from: from, to: to) } ?? false }
+        openReleaseNotesURL = { [weak services] url in
+            guard let services, url.scheme == "https" else { return false }
+            SidebarCardFeed.openUpdateLink(url, services: services)
+            return true
+        }
         // What's New after an update: bundled documents and this feed's digests.
         whatsNew.load()
         runAllowListedAction = { [weak services] id in
@@ -49,30 +61,24 @@ extension UpdaterService {
             guard invocation.origin == .user else { return }
             self?.markTipActionUsed(id.rawValue)
         }
-        activationObservation?.cancel()
-        activationObservation = Task { [weak self] in
-            for await _ in NotificationCenter.default.notifications(named: NSApplication.didBecomeActiveNotification) {
-                self?.refreshTip()
-            }
-        }
+        refreshTipOnActivation()
     }
 
     /// Follows `updates.*` in cmux.json (R114): the gate's preferences and
     /// Sparkle's schedule and download behavior.
     func follow(_ settings: SettingsController) {
         settingsObservation?.cancel()
-        // The update card's Automatic Updates box writes the same setting
-        // as Settings > General (UPDATE-CARD); the change returns through
-        // the observation below.
-        writeAutomaticUpdates = { [weak self, weak settings] on in
+        // The update card's Automatic Updates box and the tip card's Never Show Tips write the
+        // same settings as Settings (UPDATE-CARD); the change returns through the observation below.
+        writeSetting = { [weak self, weak settings] setting, on in
             guard let settings else { return }
-            let log = self?.log
+            let log = self?.log, path = setting == .tips ? SidebarSectionsSetting.tipsPath : UpdatesSettings.downloadAutomaticallyPath
             // task-owner: one settings write that ends by itself; nothing to cancel.
             Task { @MainActor in
                 do {
-                    try await settings.setSetting(at: UpdatesSettings.downloadAutomaticallyPath, to: .bool(on), by: .user)
+                    try await settings.setSetting(at: path, to: .bool(on), by: .user)
                 } catch {
-                    log?.append("automatic updates not written: \(error)")
+                    log?.append("\(path.joined(separator: ".")) not written: \(error)")
                 }
             }
         }

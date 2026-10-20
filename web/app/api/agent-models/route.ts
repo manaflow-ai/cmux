@@ -1,21 +1,40 @@
 import { createHash } from "node:crypto";
 
-import {
-  agentModelCatalog,
-  type AgentModel,
-  type AgentModelCatalog,
-  type AgentModelChoice,
-  type AgentModelProvider,
-  type AgentModelServiceTier,
+import type {
+  AgentModel,
+  AgentModelCatalog,
+  AgentModelChoice,
+  AgentModelProvider,
+  AgentModelServiceTier,
 } from "../../../data/agent-models";
+import { agentModelsFromCatalog } from "../../../services/model-catalog/agentModels";
+import { catalogStore } from "../../../services/model-catalog/store";
 
+// The classic agent-chat sidecar's model list: the model catalog's Claude and Codex models
+// (the newest published version, as /api/models/v1 serves), projected to agent-chat's schema.
 
 const CACHE_CONTROL = "public, s-maxage=300, stale-while-revalidate=86400";
 const ALLOW_METHODS = "GET, OPTIONS";
 const ALLOW_HEADERS = "If-None-Match, Content-Type";
 const REQUIRED_PROVIDERS = ["claude", "codex", "gemini", "opencode"] as const;
-const PAYLOAD = JSON.stringify(validateAndDeduplicateCatalog(agentModelCatalog));
-const ETAG = `"${createHash("sha256").update(PAYLOAD).digest("base64url")}"`;
+
+interface Served {
+  /** The catalog version's ETag it was built from. */
+  source: string;
+  payload: string;
+  etag: string;
+}
+let served: Served | undefined;
+
+/** The payload for the catalog in use, built once per catalog version. */
+async function current(): Promise<Served> {
+  const built = await catalogStore().current();
+  if (served?.source !== built.etag) {
+    const payload = JSON.stringify(validateAndDeduplicateCatalog(agentModelsFromCatalog(built.catalog)));
+    served = { source: built.etag, payload, etag: `"${createHash("sha256").update(payload).digest("base64url")}"` };
+  }
+  return served;
+}
 
 /**
  * Validates the versioned backend payload before it can be served and removes
@@ -195,17 +214,19 @@ function optionalBoolean(input: unknown, path: string): void {
 }
 
 export async function GET(request: Request): Promise<Response> {
-  if (matchesETag(request.headers.get("if-none-match"))) {
+  const { payload, etag } = await current();
+  if (matchesETag(request.headers.get("if-none-match"), etag)) {
     return new Response(null, {
       status: 304,
-      headers: commonHeaders(),
+      headers: { ...commonHeaders(), ETag: etag },
     });
   }
 
-  return new Response(PAYLOAD, {
+  return new Response(payload, {
     status: 200,
     headers: {
       ...commonHeaders(),
+      ETag: etag,
       "Content-Type": "application/json; charset=utf-8",
     },
   });
@@ -221,17 +242,16 @@ export function OPTIONS(): Response {
 function commonHeaders(): Record<string, string> {
   return {
     "Cache-Control": CACHE_CONTROL,
-    ETag: ETAG,
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Methods": ALLOW_METHODS,
     "Access-Control-Allow-Headers": ALLOW_HEADERS,
   };
 }
 
-function matchesETag(header: string | null): boolean {
+function matchesETag(header: string | null, etag: string): boolean {
   if (!header) return false;
   return header.split(",").some((value) => {
     const candidate = value.trim();
-    return candidate === ETAG || candidate === "*";
+    return candidate === etag || candidate === "*";
   });
 }

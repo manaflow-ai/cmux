@@ -53,6 +53,8 @@ pub fn validate_terminal_host_record(
             || record.supports_clipboard_read
             || record.supports_viewer_size_priority
             || record.supports_pty_custody
+            || record.supports_program_status
+            || record.supports_shell_activity
         {
             anyhow::bail!("legacy terminal-host record has unexpected liveness fields");
         }
@@ -75,6 +77,12 @@ pub fn validate_terminal_host_record(
             && (record.supports_clipboard_read || record.supports_pty_custody)
         {
             anyhow::bail!("pre-v4 terminal-host record advertises clipboard reads or custody");
+        }
+        if record.record_version < HOST_RECORD_VERSION && record.supports_program_status {
+            anyhow::bail!("pre-v4 terminal-host record advertises program status");
+        }
+        if record.record_version < HOST_RECORD_VERSION && record.supports_shell_activity {
+            anyhow::bail!("pre-v4 terminal-host record advertises shell activity");
         }
         let nonce = decode_lower_hex_array::<HOST_START_NONCE_LEN>(
             &record.host_start_nonce,
@@ -99,8 +107,8 @@ pub fn validate_terminal_host_record(
         anyhow::bail!("terminal-host record filename is not canonical");
     }
     let uid = sys::file_owner(parent)?;
-    let expected_endpoint = sys::canonical_endpoint(uid, &record.terminal_id);
-    if Path::new(&record.endpoint) != expected_endpoint {
+    let expected = sys::canonical_endpoints(uid, parent, &record.terminal_id);
+    if !expected.iter().any(|endpoint| Path::new(&record.endpoint) == endpoint) {
         anyhow::bail!("terminal-host endpoint is not canonical");
     }
     if let Ok(metadata) = fs::symlink_metadata(record_path)

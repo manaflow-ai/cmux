@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextHome
+import CmuxNextHomeEngine
 
 extension InternalPageID {
     /// The native Home as a pane tab (`home.tab`). Its own id: the Home top

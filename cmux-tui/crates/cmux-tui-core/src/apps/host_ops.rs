@@ -10,8 +10,10 @@
 //! - `cmux.host.link.get {}` -> `{binary, hub_socket, state_dir,
 //!   socket_dir, device_name}` from the daemon's own values (see
 //!   [`Supervisor::host_link`]; `hub_socket` is the live link
-//!   registration's socket, else `null`); event `cmux.host.link.changed`
-//!   with the same value. `socket_dir` is checked on every answer
+//!   registration's socket, `null` only when no live registration exists;
+//!   a probe that does not finish answers `host.error`
+//!   `apps.link_probe_timeout`, retryable); event `cmux.host.link.changed`
+//!   with the same value, sent on `apps-link-changed` (verified app only). `socket_dir` is checked on every answer
 //!   (server_tmp.rs): a folder that is no longer the user's private folder
 //!   answers `host.error` `apps.socket_dir_unsafe`. Needs server scope `op:cmux.host.link.get` and a
 //!   first-party app, else `host.error` `apps.scope_missing`.
@@ -27,6 +29,15 @@ use super::mirror::Tier;
 use super::servers::line;
 use super::supervisor::{Inner, Supervisor};
 
+/// Why the link details could not be given.
+pub(super) enum HostLinkError {
+    /// The server's socket folder failed its check (cx-wmd8x): stop it.
+    UnsafeFolder(String),
+    /// The link registration exists but its liveness probe did not finish
+    /// in time: nothing is known, so no `null` hub is reported.
+    ProbeTimeout,
+}
+
 impl Supervisor {
     /// `cmux.host.link.get` for `app`: the daemon executable, the WireGuard
     /// hub socket, a link state directory in the app's data directory, the
@@ -40,14 +51,15 @@ impl Supervisor {
     /// environment.
     /// The socket folder is checked on every answer (cx-wmd8x, server_tmp.rs):
     /// one that is no longer this user's private folder refuses.
-    pub(super) fn host_link(&self, app: &str) -> Result<Value, String> {
-        let (data, tmp) = self.server_dirs(app)?;
-        super::server_tmp::check_server_tmp(&tmp)?;
+    pub(super) fn host_link(&self, app: &str) -> Result<Value, HostLinkError> {
+        let (data, tmp) = self.server_dirs(app).map_err(HostLinkError::UnsafeFolder)?;
+        super::server_tmp::check_server_tmp(&tmp).map_err(HostLinkError::UnsafeFolder)?;
         let state_dir = data.join("link");
         let _ = std::fs::create_dir_all(&state_dir);
+        let hub = hub_socket().ok_or(HostLinkError::ProbeTimeout)?;
         Ok(json!({
             "binary": std::env::current_exe().ok(),
-            "hub_socket": hub_socket(),
+            "hub_socket": hub,
             "state_dir": state_dir,
             "socket_dir": tmp,
             "device_name": device_name(),
@@ -93,9 +105,13 @@ impl Supervisor {
                 }
                 match self.host_link(app) {
                     Ok(value) => (json!({ "t": "host.result", "id": id, "value": value }), None),
-                    Err(message) => {
+                    Err(HostLinkError::UnsafeFolder(message)) => {
                         (error("apps.socket_dir_unsafe", &message, false), Some(message))
                     }
+                    Err(HostLinkError::ProbeTimeout) => (
+                        error("apps.link_probe_timeout", "the link did not answer its probe", true),
+                        None,
+                    ),
                 }
             }
             "cmux.credential.relay" => {
@@ -121,13 +137,48 @@ impl Supervisor {
     }
 
     /// Sends `cmux.host.link.changed` to every running server that may read
-    /// the link. No watch on the link registration calls it yet (a watch
-    /// needs a file-notify dependency in this crate); until then a server
-    /// asks `cmux.host.link.get` again, which reads the registration live.
+    /// the link. The app calls it (`apps-link-changed`) after `cmux link
+    /// ensure` or `stop` changed the link registration; no file watch calls
+    /// it (that needs a file-notify dependency in this crate), and a server
+    /// that saw no hub asks `cmux.host.link.get` again on its next connect.
     /// The servers are read under the lock; the folder checks run after it is
     /// released, and a server whose folder fails is stopped (cx-wmd8x).
-    #[cfg_attr(not(test), allow(dead_code))]
-    pub(super) fn host_link_changed(&self) {
+    /// Returns how many servers it told.
+    ///
+    /// Calls coalesce: while one runs, another call only marks that a new
+    /// round is due and returns 0; the running call then runs one more round,
+    /// so the last registration change always reaches the servers.
+    pub(crate) fn host_link_changed(&self) -> usize {
+        {
+            let mut state =
+                self.link_changed.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            if state.0 {
+                state.1 = true;
+                return 0;
+            }
+            *state = (true, false);
+        }
+        // Clears the running flag however this call ends (a panic too), so
+        // a later call always runs.
+        struct Running<'a>(&'a std::sync::Mutex<(bool, bool)>);
+        impl Drop for Running<'_> {
+            fn drop(&mut self) {
+                *self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = (false, false);
+            }
+        }
+        let _running = Running(&self.link_changed);
+        loop {
+            let told = self.host_link_changed_round();
+            let mut state =
+                self.link_changed.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            if !state.1 {
+                return told;
+            }
+            state.1 = false;
+        }
+    }
+
+    fn host_link_changed_round(&self) -> usize {
         let servers: Vec<(String, std::sync::Arc<super::servers::ServerProcess>)> = {
             let inner = self.inner.lock().unwrap();
             inner
@@ -139,14 +190,23 @@ impl Supervisor {
                 .map(|(app, server)| (app.clone(), server.process.clone()))
                 .collect()
         };
+        let mut told = 0;
         for (app, process) in servers {
             match self.host_link(&app) {
-                Ok(data) => process.send(line(&json!({
-                    "t": "host.event", "op": "cmux.host.link.changed", "data": data,
-                }))),
-                Err(reason) => self.stop_for_unsafe_folder(&app, &reason),
+                Ok(data) => {
+                    process.send(line(&json!({
+                        "t": "host.event", "op": "cmux.host.link.changed", "data": data,
+                    })));
+                    told += 1;
+                }
+                Err(HostLinkError::UnsafeFolder(reason)) => {
+                    self.stop_for_unsafe_folder(&app, &reason);
+                }
+                // Nothing known: no event (a server keeps its last details).
+                Err(HostLinkError::ProbeTimeout) => {}
             }
         }
+        told
     }
 }
 
@@ -155,12 +215,13 @@ impl Supervisor {
 /// would block a plain connect.
 const LINK_PROBE: std::time::Duration = std::time::Duration::from_millis(500);
 
-/// The live link registration's socket, if a link runs: `link.json` in the
-/// daemon state directory, the directory the link agent registers in (the
-/// parent of its own `link` directory). A probe that does not finish within
-/// [`LINK_PROBE`] counts as no link.
-fn hub_socket() -> Option<std::path::PathBuf> {
-    let dir = crate::platform::workspace_state_dir()?;
+/// The live link registration's socket: `Some(Some(socket))` while a link
+/// runs, `Some(None)` when no live registration exists (no file, or its
+/// process is gone), `None` when the probe did not finish within
+/// [`LINK_PROBE`] (unknown: never reported as "no link"). `link.json` is in
+/// the daemon state directory, the parent of the link's own `link` folder.
+fn hub_socket() -> Option<Option<std::path::PathBuf>> {
+    let Some(dir) = crate::platform::workspace_state_dir() else { return Some(None) };
     let (sender, receiver) = std::sync::mpsc::sync_channel(1);
     std::thread::Builder::new()
         .name("cmux-apps-link-probe".into())
@@ -169,7 +230,7 @@ fn hub_socket() -> Option<std::path::PathBuf> {
             let _ = sender.send(live);
         })
         .ok()?;
-    receiver.recv_timeout(LINK_PROBE).ok().flatten()
+    receiver.recv_timeout(LINK_PROBE).ok()
 }
 
 /// This machine's name, or `cmux`.

@@ -5,7 +5,7 @@ import CmuxNextIcons
 /// One extension action: Chromium's icon, which already carries the badge
 /// and the disabled look laid out on the whole button, with gray hover
 /// and press fills.
-final class ExtensionActionButton: NSButton {
+final class ExtensionActionButton: NSButton, PointerHoverReporting {
     let actionID: String
     var onRun: (() -> Void)?
     var onMenu: ((CGPoint) -> Void)?
@@ -16,8 +16,10 @@ final class ExtensionActionButton: NSButton {
     var onDragEnded: ((CGFloat) -> Void)?
 
     private let density = DensityBinding()
-    private var isHovering = false { didSet { if isHovering != oldValue { updateFill(animated: true) } } }
-    private var tracking: NSTrackingArea?
+    /// Where the pointer is now (`OmnibarPointer`).
+    private var hover: PointerHover?
+    private var isHovering: Bool { hover?.isHovering ?? false }
+    var isPointerHovering: Bool { isHovering }
 
     init(actionID: String) {
         self.actionID = actionID
@@ -42,6 +44,7 @@ final class ExtensionActionButton: NSButton {
             needsLayout = true
         }
         density.start()
+        hover = PointerHover(self) { [weak self] _ in self?.updateFill(animated: true) }
     }
 
     @available(*, unavailable)
@@ -53,7 +56,7 @@ final class ExtensionActionButton: NSButton {
             icon.size = NSSize(width: size, height: size)
             image = icon
         } else {
-            let icon = NSImage.icon(.extension, size: .iconRowSize(forLabelPointSize: OmnibarStyle.buttonSymbolSize))
+            let icon = NSImage.icon(.browserToolbarExtensions, size: OmnibarStyle.toolbarIconSize)
             icon.accessibilityDescription = action.name
             image = icon
         }
@@ -100,16 +103,20 @@ final class ExtensionActionButton: NSButton {
 
     override var isHighlighted: Bool { didSet { updateFill() } }
 
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let tracking { removeTrackingArea(tracking) }
-        let area = NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect], owner: self)
-        addTrackingArea(area)
-        tracking = area
+    override func viewDidHide() {
+        super.viewDidHide()
+        hover?.refresh()
     }
 
-    override func mouseEntered(with event: NSEvent) { isHovering = true }
-    override func mouseExited(with event: NSEvent) { isHovering = false }
+    override func viewDidUnhide() {
+        super.viewDidUnhide()
+        hover?.refresh()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        hover?.refresh()
+    }
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()

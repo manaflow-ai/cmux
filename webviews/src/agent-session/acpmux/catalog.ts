@@ -1,5 +1,5 @@
-import { keepPreviousData, QueryClient, useQuery } from "@tanstack/react-query";
-import { useMemo } from "react";
+import { keepPreviousData, QueryClient, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMemo, useSyncExternalStore } from "react";
 import type { AcpmuxSnapshot } from "./model";
 
 // TanStack Query holds acpmux server state the pane reads on request: today the
@@ -150,5 +150,20 @@ export function useHarnessCatalog(
         ? catalog.filter((entry) => !entry.folder || profileCovers(entry.folder.folder, cwd))
         : catalog,
     [catalog, cwd],
+  );
+}
+
+/// True once a harness fetch of this pane landed (acpmux answered). A cached catalog from an earlier
+/// launch, or no answer yet, is not a listing: an empty catalog then says nothing about what is
+/// installed (the composer's Add harness chip waits for this).
+export function useHarnessesListed(): boolean {
+  const client = useQueryClient();
+  return useSyncExternalStore(
+    (listener) => client.getQueryCache().subscribe(listener),
+    () =>
+      client
+        .getQueryCache()
+        .findAll({ queryKey: ["acpmux", "harnesses"] })
+        .some((query) => query.state.status === "success" && query.state.dataUpdatedAt > 0),
   );
 }

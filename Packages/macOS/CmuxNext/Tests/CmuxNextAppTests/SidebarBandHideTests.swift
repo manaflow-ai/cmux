@@ -88,6 +88,7 @@ import Testing
             SidebarContextMenus.menu(for: target, model: model, services: services, scope: ThemeScope(level: .room))
         }
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 240, height: 600), styleMask: [.borderless], backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false // ARC owns it; close() would release it once more
         window.contentView = sidebar
         sidebar.frame = NSRect(x: 0, y: 0, width: 240, height: 600)
         let harness = Harness(services: services, model: model, sidebar: sidebar, window: window, url: url)

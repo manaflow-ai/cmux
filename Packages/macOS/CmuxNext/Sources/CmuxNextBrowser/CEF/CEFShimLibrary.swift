@@ -32,6 +32,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let forkAPIVersion: @convention(c) () -> Int32
     let prepareApplication: @convention(c) () -> Int32
     let setExtensionDeveloperMode: @convention(c) (Int32) -> Void
+    /// Chromium's default search provider in every profile (`CEFDefaultSearch`).
+    let setDefaultSearch: @convention(c) (UnsafePointer<CChar>?) -> Void
     let setBackgroundColor: @convention(c) (UInt32) -> Void
     let browserSetBackgroundColor: @convention(c) (Int32, UInt32) -> Int32
     let initialize: @convention(c) (
@@ -134,11 +136,16 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let downloadFavicon: @convention(c) (Int32, Int32, UnsafePointer<CChar>?, Int32) -> Int32
     /// Browser import: cookies into a profile's request context.
     let importCookies: @convention(c) (UnsafePointer<CChar>?, Int32, UnsafePointer<CChar>?) -> Int32
+    let clearCookies: @convention(c) (UnsafePointer<CChar>?, Int32, Int64) -> Int32
     /// Browser import: saved passwords into a profile's password store
     /// (entries as raw `cmux_shim_password_entry` rows, see CEFRuntime+PasswordImport).
     let importPasswords: @convention(c) (UnsafePointer<CChar>?, Int32, UnsafeRawPointer?, Int32) -> Int32
     let passwordEntrySize: @convention(c) () -> Int32
     let passwordImportAvailable: @convention(c) () -> Int32
+    let replacePasswords: @convention(c) (UnsafePointer<CChar>?, Int32, UnsafeRawPointer?, Int32) -> Int32
+    let passwordReplaceAvailable: @convention(c) () -> Int32
+    let passwordPromptAnswer: @convention(c) (Int32, Int32, UnsafePointer<CChar>?) -> Int32
+    let setPasswordGenerationEnabled: @convention(c) (Int32) -> Int32
     /// Password filling on or off in one tab (off while an agent drives it).
     let setPasswordFill: @convention(c) (Int32, Int32) -> Int32
     /// WebAuthn refused in one tab (an agent drives it; fork API 23).
@@ -201,6 +208,9 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let popupWindowBounds: @convention(c) (Int32, UnsafeMutablePointer<Int32>?, UnsafeMutablePointer<Int32>?,
                                            UnsafeMutablePointer<Int32>?, UnsafeMutablePointer<Int32>?) -> Int32
     let popupWindowAttach: @convention(c) (Int32, UnsafeMutableRawPointer?, Int32, Int32) -> Int32
+    // DevTools device mode (fork API 24).
+    let devToolsInspectedBounds: @convention(c) (Int32, UnsafeMutablePointer<Int32>?, UnsafeMutablePointer<Int32>?,
+                                                 UnsafeMutablePointer<Int32>?, UnsafeMutablePointer<Int32>?) -> Int32
     // Side panel header (fork API 13).
     let sidePanelState: @convention(c) (Int32) -> UnsafeMutablePointer<CChar>?
     let sidePanelPress: @convention(c) (Int32, UnsafePointer<CChar>?) -> Int32
@@ -246,6 +256,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         forkAPIVersion = try r("cmux_shim_fork_api_version")
         prepareApplication = try r("cmux_shim_prepare_application")
         setExtensionDeveloperMode = try r("cmux_shim_set_extension_developer_mode")
+        setDefaultSearch = try r("cmux_shim_set_default_search")
         setBackgroundColor = try r("cmux_shim_set_background_color")
         browserSetBackgroundColor = try r("cmux_shim_browser_set_background_color")
         initialize = try r("cmux_shim_initialize")
@@ -314,9 +325,14 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         deleteCookies = try r("cmux_shim_delete_cookies")
         downloadFavicon = try r("cmux_shim_download_favicon")
         importCookies = try r("cmux_shim_import_cookies")
+        clearCookies = try r("cmux_shim_clear_cookies")
         importPasswords = try r("cmux_shim_import_passwords")
         passwordEntrySize = try r("cmux_shim_password_entry_size")
         passwordImportAvailable = try r("cmux_shim_password_import_available")
+        replacePasswords = try r("cmux_shim_replace_passwords")
+        passwordReplaceAvailable = try r("cmux_shim_password_replace_available")
+        passwordPromptAnswer = try r("cmux_shim_password_prompt_answer")
+        setPasswordGenerationEnabled = try r("cmux_shim_set_password_generation_enabled")
         setPasswordFill = try r("cmux_shim_set_password_fill")
         setWebAuthnMode = try r("cmux_shim_set_webauthn_mode")
         passkeysAvailable = try r("cmux_shim_passkeys_available")
@@ -353,6 +369,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         setPopupWindowsEnabled = try r("cmux_shim_set_popup_windows_enabled")
         popupWindowBounds = try r("cmux_shim_popup_window_bounds")
         popupWindowAttach = try r("cmux_shim_popup_window_attach")
+        devToolsInspectedBounds = try r("cmux_shim_devtools_inspected_bounds")
         sidePanelState = try r("cmux_shim_side_panel_state")
         sidePanelPress = try r("cmux_shim_side_panel_press")
     }

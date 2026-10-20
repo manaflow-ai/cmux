@@ -183,7 +183,7 @@ PATHS = [
     ("New Workspace in the palette", lambda anchor: action("newTab", focus=True)),
     ("cmux workspace new (no window, no focus)", lambda anchor: action("newTab")),
     # New Terminal Tab as a person presses it (Ctrl-`): a script's run (`action.run`) opens a tab even
-    # with the setting on, and Cmd-T opens the New Tab page under the default `tabs.newTabKind`.
+    # with the setting on, and Cmd-T opens the New Tab page.
     ("New Terminal Tab (Ctrl-`) with newTerminal.opensWorkspace", lambda anchor: rpc("debug.key", {"key": "`", "modifiers": ["control"]})),
     ("a link opened in a new workspace", lambda anchor: action("browser.link.openInNewWorkspace", {"url": "about:blank"}, focus=True)),
     ("an agent-opened workspace (agent.openSessionWorkspace)",

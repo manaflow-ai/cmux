@@ -22,7 +22,8 @@ final class DividerHandleView: NSView {
 
     let kind: Kind
     private(set) var axis: SplitAxis
-    var lineThickness: CGFloat = 1 { didSet { needsLayout = true } }
+    /// The screen sets it on every sync (a focus move too): only a new thickness moves the line.
+    var lineThickness: CGFloat = 1 { didSet { if lineThickness != oldValue { needsLayout = true } } }
     /// Draws the split line at rest. Off while panes have a border (the
     /// borders separate them); hover and drag still show the line.
     var showsIdleLine = true {
@@ -66,7 +67,7 @@ final class DividerHandleView: NSView {
         fatalError("init(coder:) is not supported")
     }
 
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
 
     func setAxis(_ axis: SplitAxis) {
         guard self.axis != axis else { return }
@@ -75,26 +76,37 @@ final class DividerHandleView: NSView {
         needsLayout = true
     }
 
+    /// Layout calls since the handle was made (tests: a focus move lays out no handle, cx-3j8y.2).
+    private(set) var layoutCount = 0
+
     override func layout() {
         super.layout()
+        layoutCount += 1
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         line.frame = lineFrame
         CATransaction.commit()
     }
 
-    /// A column edge or a row edge: it sits in a gap and draws only while
-    /// hovered or dragged.
+    /// A column edge sits in a gap and draws only while hovered or dragged.
     private var isColumnEdge: Bool {
         switch kind {
-        case .columnEdge, .rowEdge: true
-        case .split: false
+        case .columnEdge: true
+        case .split, .rowEdge: false
         }
     }
 
+    private var isRowEdge: Bool {
+        if case .rowEdge = kind { return true }
+        return false
+    }
+
+    private var isEdgeHandle: Bool { isColumnEdge || isRowEdge }
+
     override func setFrameSize(_ newSize: NSSize) {
+        let old = frame.size
         super.setFrameSize(newSize)
-        needsLayout = true
+        if newSize != old { needsLayout = true }
     }
 
     override func resetCursorRects() {
@@ -121,7 +133,7 @@ final class DividerHandleView: NSView {
     }
 
     private var lineFrame: CGRect {
-        let t = isColumnEdge ? max(lineThickness, 2) : lineThickness
+        let t = isColumnEdge ? LayoutStyle.columnEdgeLineThickness(dividerThickness: lineThickness) : lineThickness
         return switch axis {
         case .horizontal: CGRect(x: (bounds.width - t) / 2, y: 0, width: t, height: bounds.height)
         case .vertical: CGRect(x: 0, y: (bounds.height - t) / 2, width: bounds.width, height: t)
@@ -130,6 +142,16 @@ final class DividerHandleView: NSView {
 
     /// The line's color as drawn now.
     var lineColor: CGColor? { line.backgroundColor }
+
+    /// Whether the native line currently contributes pixels. Edge handles use
+    /// a transparent line at rest and only draw while hovered or dragged; the
+    /// overlay must not reserve a Chromium occlusion hole for that clear state.
+    var isLineVisible: Bool {
+        // Use the presentation color while the hover fade is running. The
+        // page must remain covered until the last visible native pixel fades.
+        guard let color = (line.presentation() ?? line).backgroundColor else { return false }
+        return color.alpha > 0.001 && line.opacity > 0.001
+    }
 
     /// Set only by the owning screen's hover pass.
     func setHovered(_ hovered: Bool) { isHovered = hovered }
@@ -148,6 +170,10 @@ final class DividerHandleView: NSView {
     }
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    /// A press here drags the divider, also where the handle reaches into the titlebar band:
+    /// it never moves the window (`TitlebarDragPolicy`), and its double-click stays its own.
+    override var mouseDownCanMoveWindow: Bool { false }
 
     override func mouseDown(with event: NSEvent) {
         if event.clickCount == 2 {
@@ -175,12 +201,18 @@ final class DividerHandleView: NSView {
     }
 
     private func applyColors() {
-        let isEdge = isColumnEdge
+        let isEdge = isEdgeHandle
         performWithTheme {
             let active = (isHovered || isDragging) && showsActiveLine
             let color: NSColor
             if isEdge {
-                color = active ? Palette.focusRing.withAlphaComponent(0.45) : .clear
+                if active {
+                    color = Palette.focusRing.withAlphaComponent(isRowEdge ? 0.6 : 0.45)
+                } else if isRowEdge, showsIdleLine {
+                    color = Palette.separator.withAlphaComponent(0.32)
+                } else {
+                    color = .clear
+                }
             } else {
                 color = active ? Palette.focusRing.withAlphaComponent(0.6) : ((showsIdleLine || Palette.surfaceOverride(.splitDivider) != nil) ? (Palette.surfaceOverride(.splitDivider) ?? Palette.separator) : .clear)
             }
@@ -188,17 +220,6 @@ final class DividerHandleView: NSView {
                 line.backgroundColor = color.cgColor
                 line.cornerRadius = isEdge ? 1 : 0
             }
-        }
-    }
-}
-
-extension DividerHandleView.Kind {
-    /// Id of this divider's `LayoutMouseArea`.
-    var mouseAreaID: String {
-        switch self {
-        case .split(let id): "split:\(id.rawValue)"
-        case .columnEdge(let id): "column:\(id.rawValue)"
-        case .rowEdge(_, let row): "row:\(row.rawValue)"
         }
     }
 }

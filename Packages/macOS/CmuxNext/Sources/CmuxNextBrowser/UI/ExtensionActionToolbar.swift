@@ -4,8 +4,9 @@ import CmuxNextIcons
 
 /// Fills `BrowserChromeView.extensionSlot` with the pinned extension
 /// actions of the bound tab in Chromium's order (icon plus native
-/// badge), then the Extensions (puzzle) button, which is always there for a
-/// tab with extensions. Pinned actions beyond `visibleLimit` (the pane's
+/// badge), then the Extensions (puzzle) button, which every Chromium tab
+/// shows, as Chrome does (Lawrence 2026-10-18: "show extensions there by
+/// default"; it replaced cx-d0d.81's puzzle-only-while-pinned rule). Pinned actions beyond `visibleLimit` (the pane's
 /// room, `BrowserToolbarLayout`) are reached through that menu. Click runs
 /// the action (popup or `onClicked`), anchored to its button or, when it is
 /// not shown, to the Extensions button; right click shows the extension's
@@ -26,7 +27,7 @@ final class ExtensionActionToolbar {
     private var observation: ObservationLoop?
     private var buttons: [String: ExtensionActionButton] = [:]
     private(set) lazy var puzzle: ChromeIconButton = {
-        let button = ChromeIconButton(icon: .extension, label: Strings.extensions,
+        let button = ChromeIconButton(icon: .browserToolbarExtensions, label: Strings.extensions,
                                       action: #selector(MenuTrampoline.fire), target: trampoline, toolbar: true)
         button.setAccessibilityIdentifier(Identifier.menuButton)
         return button
@@ -78,10 +79,19 @@ final class ExtensionActionToolbar {
         host.extensionActionAnchor = { [weak self] id in self?.anchorRect(for: id) }
         observation = ObservationLoop { [weak self] in
             guard let self, let host = self.host else { return }
-            self.render(host.extensionActions, showsPuzzle: host.showsExtensionToolbar)
+            let actions = host.extensionActions
+            self.render(actions, showsPuzzle: Self.showsPuzzle(host: host))
             self.crashIndicator.update(store: host.showsExtensionToolbar ? host.extensionStore : nil,
                                        in: self.slot, before: self.puzzle)
         }
+    }
+
+    /// Whether a tab bound to `host` shows the Extensions button: every
+    /// tab whose engine has the extension toolbar (Chromium), extensions
+    /// installed or not, so Chrome's puzzle, its menu (Manage Extensions,
+    /// Chrome Web Store) and the pinned icons are always one click away.
+    static func showsPuzzle(host: (any BrowserExtensionActionHosting)?) -> Bool {
+        host?.showsExtensionToolbar ?? false
     }
 
     /// The visible actions: pinned, in Chromium's order, capped.
@@ -135,7 +145,8 @@ final class ExtensionActionToolbar {
     /// opened from the menu).
     func anchorRect(for id: String) -> CGRect? {
         guard let anchor = anchorView else { return nil }
-        let source: NSView = buttons[id] ?? puzzle
+        // No button and no puzzle (nothing pinned): More, where the menu opened.
+        let source: NSView = buttons[id] ?? (puzzle.window == nil ? menuAnchor?() : nil) ?? puzzle
         guard source.window != nil, source.window === anchor.window else {
             return CGRect(x: anchor.bounds.maxX - OmnibarStyle.buttonSize, y: 0, width: OmnibarStyle.buttonSize, height: 1)
         }
@@ -190,8 +201,12 @@ final class ExtensionActionToolbar {
         popUp(menu, at: buttons[id])
     }
 
+    /// Where the Extensions menu opens while the puzzle is hidden (More).
+    var menuAnchor: (() -> NSView?)?
+
     private func popUp(_ menu: NSMenu, at source: NSView? = nil) {
-        let view: NSView = source ?? (puzzle.window == nil ? (anchorView ?? puzzle) : puzzle)
+        let fallback = menuAnchor?().flatMap { $0.window == nil ? nil : $0 } ?? anchorView ?? puzzle
+        let view: NSView = source ?? (puzzle.window == nil ? fallback : puzzle)
         // AppKit raises for a menu anchored in no window.
         guard view.window != nil else { return }
         let previous = presentedMenu

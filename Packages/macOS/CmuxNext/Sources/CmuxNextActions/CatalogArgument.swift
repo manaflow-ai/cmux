@@ -260,4 +260,26 @@ nonisolated enum CatalogArgument {
         default: value
         }
     }
+
+    /// A fit for `browserFit`: an aspect ratio W:H ("16:10") or a layout width in CSS px ("1440"),
+    /// or `off`. The pinned values are the fit bar's; any other value goes to the daemon as typed.
+    static var fitChoice: ActionArgument {
+        let pinned = ["16:9", "16:10", "4:3", "21:9"].map { ActionEnumCase(value: $0, title: $0) }
+            + [1280, 1440, 1920].map { ActionEnumCase(value: String($0), title: String(localized: "argument.value.fitWidth", defaultValue: "\($0) px", bundle: .module)) }
+            + [ActionEnumCase(value: "off", title: String(localized: "argument.value.fitOff", defaultValue: "Turn Off", bundle: .module))]
+        return ActionArgument(name: "fit", title: String(localized: "argument.fit", defaultValue: "Aspect Ratio or Width", bundle: .module), kind: .string,
+                              suggestions: ActionSuggestions(source: "browserFit", pinned: pinned))
+    }
+
+    /// A device title from the daemon's list, or none (`browserDevice`).
+    static var deviceString: ActionArgument {
+        ActionArgument(name: "device", title: String(localized: "argument.device", defaultValue: "Device", bundle: .module), kind: .string,
+                       isRequired: false)
+    }
+
+    /// portrait, landscape, unfolded-portrait or unfolded-landscape (`browserDevice`).
+    static var orientationString: ActionArgument {
+        ActionArgument(name: "orientation", title: String(localized: "argument.orientation", defaultValue: "Orientation", bundle: .module),
+                       kind: .string, isRequired: false)
+    }
 }

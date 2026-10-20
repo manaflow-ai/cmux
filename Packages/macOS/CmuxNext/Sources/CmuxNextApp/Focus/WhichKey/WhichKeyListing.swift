@@ -1,14 +1,5 @@
 import CmuxNextActions
 
-/// One row of the which-key overlay: the key after the leader and the
-/// action it runs.
-struct WhichKeyRow: Equatable {
-    var key: String
-    var title: String
-    /// False when the action cannot run in this focus (drawn dimmed).
-    var isEnabled: Bool
-}
-
 /// The which-key overlay's rows: one per key under an armed prefix
 /// (`KeyBindingTable.nextKeys`), ordered by key. Where several actions share
 /// a key, the one that key would run now is listed, else the first; a key
@@ -38,21 +29,5 @@ enum WhichKeyListing {
         let context = KeyContext(bits: registry.context)
         return rows(after: [prefix], table: bindings.table, context: context,
                     isRunnable: { bindings.canPerform($0, in: context.bits) }, registry: registry)
-    }
-}
-
-/// The overlay's own text (WhichKey.xcstrings).
-enum WhichKeyStrings {
-    static var cancelHint: String {
-        String(localized: "whichKey.cancelHint", defaultValue: "esc to cancel", table: "WhichKey", bundle: .module)
-    }
-
-    /// A key that leads to longer chords.
-    static var moreKeys: String {
-        String(localized: "whichKey.moreKeys", defaultValue: "more keys…", table: "WhichKey", bundle: .module)
-    }
-
-    static var accessibilityLabel: String {
-        String(localized: "whichKey.accessibilityLabel", defaultValue: "Leader keys", table: "WhichKey", bundle: .module)
     }
 }

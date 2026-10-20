@@ -9,15 +9,16 @@ import CmuxNextDesign
 enum DebugPagePopup {
     static func list() -> JSONValue {
         .object(["popups": .array(NSApp.windows.compactMap { window -> JSONValue? in
-            guard let panel = window as? WebPopupPanel, panel.isVisible else { return nil }
+            guard let panel = window as? WebPopupPanel, panel.isVisible, !panel.isClosing else { return nil }
             let screen = panel.screen?.visibleFrame ?? .zero
+            let card = panel.cardFrame
             return .object([
-                "frame": rect(panel.frame),
+                "frame": rect(card),
                 "window": panel.parent.map { rect($0.frame) } ?? .null,
                 "rows": JSONValue(panel.rowCount),
                 "content_height": .number(panel.contentHeight),
-                "clipped": .bool(panel.frame.height + 0.5 < panel.contentHeight),
-                "on_screen": .bool(screen.insetBy(dx: -0.5, dy: -0.5).contains(panel.frame)),
+                "clipped": .bool(card.height + 0.5 < panel.contentHeight),
+                "on_screen": .bool(screen.insetBy(dx: -0.5, dy: -0.5).contains(card)),
             ])
         })])
     }

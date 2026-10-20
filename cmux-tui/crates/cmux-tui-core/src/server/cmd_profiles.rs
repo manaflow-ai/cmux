@@ -3,7 +3,7 @@
 //! personal groups, and personal workspace/terminal placement. Each function
 //! is one `Command` arm of `handle_command_with_cancellation`.
 
-use super::personal;
+use super::{Command, personal};
 use crate::Mux;
 use serde_json::Value;
 use std::sync::Arc;
@@ -175,26 +175,27 @@ pub(super) fn move_personal_group(
     personal::move_group(mux, &group, index)
 }
 
-pub(super) fn set_personal_workspace(
-    mux: &Arc<Mux>,
-    session_id: String,
-    workspace_key: String,
-    index: Option<usize>,
-    group: Option<Option<String>>,
-    browser_profile_id: Option<Option<String>>,
-    theme: Option<Option<String>>,
-) -> anyhow::Result<Value> {
-    personal::set_workspace(
-        mux,
-        &session_id,
-        &workspace_key,
-        crate::workspace_registry::PersonalWorkspaceUpdate {
-            index,
-            group,
-            browser_profile_id,
-            theme,
-        },
-    )
+pub(super) fn set_personal_workspace(mux: &Arc<Mux>, command: Command) -> anyhow::Result<Value> {
+    let Command::SetPersonalWorkspace {
+        session_id,
+        workspace_key,
+        index,
+        group,
+        browser_profile_id,
+        theme,
+        remote_localhost,
+    } = command
+    else {
+        anyhow::bail!("set_personal_workspace takes set-personal-workspace");
+    };
+    let update = crate::workspace_registry::PersonalWorkspaceUpdate {
+        index,
+        group,
+        browser_profile_id,
+        theme,
+        remote_localhost,
+    };
+    personal::set_workspace(mux, &session_id, &workspace_key, update)
 }
 
 pub(super) fn set_personal_terminal(

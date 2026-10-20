@@ -39,31 +39,32 @@ const media = () =>
   );
 
 const openGallery = async (ctx: PlayContext) => {
-  await ctx.click({ role: "button", name: "Chat summary" });
-  await ctx.click({ role: "button", name: "Gallery 5" });
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-summary-gallery"));
+  await ctx.click({ selector: ".acpmux-summary-gallery" });
 };
 
 export default agentPaneEntry({
   id: "agent-pane.chat-gallery",
   title: "Chat gallery",
   area: "Agent pane",
-  covers: ["agent-session/acpmux/summary/GalleryDialog.tsx", "agent-session/acpmux/summary/SummaryPopover.tsx"],
+  covers: ["agent-session/acpmux/summary/GalleryDialog.tsx", "agent-session/acpmux/summary/SummaryBody.tsx"],
   // The gallery opens over the pane; nothing under it moves.
-  anchors: [{ selector: ".acpmux-composer" }, { selector: ".acpmux-header" }],
+  // Opening the summary may intentionally reserve the inline column in a wide pane. Keep the
+  // shell as the stable anchor while the chat column moves inward.
+  anchors: [{ selector: ".acpmux-shell" }],
   checks: {
     layoutShiftMax: {
       value: 0.1,
       reason:
-        "A kind filter changes the gallery's grid on purpose: the kept tiles move up into the filtered ones' places. The pane under the gallery stays put (anchors).",
+        "A kind filter changes the gallery's grid on purpose, and opening the summary may move the chat inward to reserve its inline column. The shell remains stable.",
     },
   },
   variants: {
     outputs: {
-      note: "Play: open the chat summary; Outputs offers the gallery with its five items.",
+      note: "The wide pane keeps the summary inline; Outputs offers the gallery with its five items.",
       snapshot: media(),
       play: async (ctx) => {
-        await ctx.click({ role: "button", name: "Chat summary" });
-        await ctx.waitFor(() => ctx.find({ role: "button", name: "Gallery 5" }));
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-summary-gallery"));
       },
     },
     open: {

@@ -17,6 +17,7 @@ import {
   type Shift,
   type StepReport,
 } from "../play";
+import { createMotionController } from "../motionEvidence";
 
 /** What the matrix runner installs for trusted input (Playwright's mouse and keyboard). */
 export type GalleryInputAction = {
@@ -287,6 +288,9 @@ function describeElement(element: Element): string {
  */
 function measurePopups(): PopupMeasure[] {
   const found = [...document.querySelectorAll(POPUP_SELECTOR)].filter((element) => {
+    // A closing popup fades out under data-ending-style (Base UI keeps it mounted for the fade); it
+    // is no longer the top layer, so what it fades over is not covering it (cx-xxga3).
+    if (element.closest("[data-ending-style]")) return false;
     const rect = element.getBoundingClientRect();
     return rect.width > 0 && rect.height > 0 && getComputedStyle(element).visibility !== "hidden";
   });
@@ -435,6 +439,7 @@ export async function runPlay(
   const anchors = (options.anchors ?? []).map((target) => ({ label: describeTarget(target), target }));
   const checks = options.checks ?? {};
   const steps: StepReport[] = [];
+  const motion = createMotionController();
   // Each step is recorded once it has settled; the matrix runner then takes that step's still.
   const record = async (step: StepReport) => {
     steps.push(step);
@@ -468,6 +473,7 @@ export async function runPlay(
   };
   const ctx: PlayContext = {
     document,
+    motion,
     find,
     click: (target) => input("click", target),
     contextMenu: (target) => input("contextmenu", target),
@@ -552,8 +558,14 @@ export async function runPlay(
   };
   try {
     await play(ctx);
-    return { status: overall(steps), steps };
+    const evidence = motion.stop();
+    return { status: evidence?.status === "fail" ? "fail" : overall(steps), steps, motion: evidence };
   } catch (error) {
-    return { status: "fail", steps, error: error instanceof Error ? error.message : String(error) };
+    return {
+      status: "fail",
+      steps,
+      motion: motion.stop(),
+      error: error instanceof Error ? error.message : String(error),
+    };
   }
 }

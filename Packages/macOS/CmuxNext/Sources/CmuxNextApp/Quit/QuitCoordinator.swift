@@ -1,6 +1,8 @@
 import AppKit
+import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextHomeEngine
 import CmuxNextSettings
 import os
 
@@ -24,6 +26,16 @@ final class QuitCoordinator {
     private unowned let services: AppServices
     /// The quit hook's participants (`QuitUnsavedRegistry.shared` in the app).
     var unsaved: QuitUnsavedRegistry = .shared
+    /// The app's main-thread watchdog (AppDelegate): a quit that is ending
+    /// stops its debug hang assertion.
+    weak var watchdog: MainThreadWatchdog?
+    /// Ends the process if the engine stop never returns (cx-ccjnn).
+    let deadline = QuitDeadline()
+    #if DEBUG
+    /// `debug.quit {wedge_engine_stop: true}`: the next quit's engine stop
+    /// blocks the main thread for good, as a wedged CefShutdown did (cx-ccjnn).
+    var wedgesEngineStop = false
+    #endif
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.quit")
 
     init(services: AppServices) {
@@ -164,13 +176,25 @@ final class QuitCoordinator {
             endLocalSessions: { await services.daemon.endSessionsAndStop($0) },
             confirmFailures: { [weak self] failures in await self?.confirm(failures) ?? .quitAnyway },
             endLocalAgents: { [attempts = QuitAttempts()] in
-                // The Chief home's host ends with the sessions (home-state-ownership.md section 3).
+                // The Chief home's host ends with the sessions (home-state-ownership.md section 3),
+                // and Home does not start it again.
+                await services.home.brain.stop()
                 await ChiefHostStop.endChiefSessions(home: services.home.chief.home,
                                                      bundledBin: Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true))
                 await services.home.chief.shutdownForEndSessions()
                 return await QuitAgents.end(QuitAgents.environment(services), waitForShutdown: attempts.isRetry())
             },
-            stopBrowserEngines: { await services.cache.cef.shutdown() }
+            stopBrowserEngines: { [weak self, deadline = self.deadline] in
+                // CefShutdown runs on the main thread and can block it for
+                // good: from here the quit ends by a deadline whatever it
+                // does, and a debug build reports that hang, never asserts it.
+                deadline.arm(after: QuitDeadline.engineStopLimit)
+                self?.watchdog?.endHangAssertions()
+                #if DEBUG
+                if self?.wedgesEngineStop == true { deadline.wedgeMainThread(self?.watchdog) }
+                #endif
+                await services.cache.cef.shutdown()
+            }
         ))
         sender.reply(toApplicationShouldTerminate: true)
     }

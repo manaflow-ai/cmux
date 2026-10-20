@@ -17,6 +17,8 @@ export interface ListboxProps<T> {
   autoFocus?: boolean;
   className?: string;
   rowClassName?: string;
+  /** The row highlighted when it mounts (the chosen one); default the first. */
+  initialIndex?: number;
 }
 
 const TYPEAHEAD_RESET_MS = 700;
@@ -32,8 +34,9 @@ export function Listbox<T>({
   autoFocus = true,
   className,
   rowClassName,
+  initialIndex = 0,
 }: ListboxProps<T>) {
-  const [highlight, setHighlight] = useState(0);
+  const [highlight, setHighlight] = useState(Math.max(0, initialIndex));
   const focused = useRef(false);
   const typed = useRef({ text: "", at: 0 });
   const id = useId();

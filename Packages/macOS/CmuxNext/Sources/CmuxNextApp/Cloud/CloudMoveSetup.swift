@@ -16,4 +16,8 @@ struct CloudMoveSetup {
     /// Where the moved chats are kept for Bring Back Local (``CloudMovedChats``): the app's own
     /// defaults; nil keeps them in memory.
     var ledger: UserDefaults?
+    /// How often a moved chat's file requests are triaged (``CloudAccessAsks``), one run at a time.
+    var accessPoll: Duration = .seconds(3)
+    /// How often a machine's granted folders are copied again (`cmux link access sync`).
+    var accessSync: Duration = .seconds(60)
 }

@@ -4,7 +4,9 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
+import { playFailures } from "./support/galleryPlay";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("instructions-notice.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -28,6 +30,7 @@ await requireBrowserLane("instructions-notice.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
+    await warmViteServer(vite, "/gallery/frame.html");
     browser = await chromium.launch({ headless: true });
   });
   afterAll(async () => {
@@ -55,17 +58,16 @@ await requireBrowserLane("instructions-notice.test.ts", async () => {
     await page.goto(
       `http://127.0.0.1:${port}/gallery/frame.html?entry=agent-pane.instructions-notice&variant=outside-folder`,
     );
-    await page.waitForFunction(() => Boolean(document.documentElement.dataset.galleryPlay));
+    // The first page waits on a cold Vite compiling the gallery, past 30 s on a busy runner.
+    await page.waitForFunction(() => Boolean(document.documentElement.dataset.galleryPlay), undefined, {
+      timeout: 90_000,
+    });
     const report = await page.evaluate(() =>
       JSON.stringify((window as unknown as { cmuxGalleryPlayReport?: unknown }).cmuxGalleryPlayReport),
     );
     await page.close();
-    // The play checks the behavior (the alert says why, Retry asks the host again, Dismiss clears
-    // it) and reports a failed one as `error`. Its status also grades frame timing, which on a busy
-    // runner measures the runner: the gallery matrix gates frames, not this test.
-    const play = JSON.parse(report ?? "{}") as { status?: string; steps?: unknown[]; error?: string };
-    expect(play.error, report).toBeUndefined();
-    expect(play.status, report).not.toBe("none");
-    expect(play.steps?.length, report).toBe(4);
+    // The play checks the behavior: the alert says why, Retry asks the host again, Dismiss clears it.
+    expect(playFailures(report)).toEqual([]);
+    expect((JSON.parse(report ?? "{}") as { steps?: unknown[] }).steps?.length, report).toBe(4);
   });
 });

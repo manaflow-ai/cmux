@@ -250,6 +250,11 @@ controls. The remote side can never open a stream toward this Mac.
 ports, counters, the last 32 proxy outcomes and the store plan of each
 remote tab.
 
+Deleting a browser profile deletes its derived stores with its own store
+(`BrowserProfileStorageCleanup`, `DeleteProfileDerivedStoresTests`): at
+once when Chromium has not opened any of them in this process, else at the
+next launch.
+
 Verification harness: `RemoteLocalhostLiveTests` (skipped unless
 `CMUX_RL_LIVE_SOCKET` names a cmux-tui socket) runs a node script through the
 proxy: HTTP, SSE, WebSocket over CONNECT, 4 MiB down, 8 MiB up, 48 parallel
@@ -272,7 +277,6 @@ Open items:
   machine listener. Only Chromium and WebKit helpers are app children today.
 - WebKit cannot forward on current macOS (section 7); the probe script
   shows when that changes.
-- Deleting a browser profile must also delete its derived stores.
 - Cloud machines get `loopback-forward-v1` only after their image's cmux-tui is
   upgraded (plans/cmux-next/cloud-ios.md, remote compatibility).
 - A palette action and CLI verb for the per-workspace override are not built;

@@ -67,19 +67,53 @@ public nonisolated struct ChromiumPasswordWriteResult: Sendable, Equatable {
     public var duplicate: Int
     public var conflict: Int
     public var rejected: Int
+    /// The rows saved with another password, indices into the rows written;
+    /// empty when the fork does not list them (before API 20).
+    public var conflictIndices: [Int]
 
-    public init(added: Int, duplicate: Int, conflict: Int, rejected: Int) {
+    public init(added: Int, duplicate: Int, conflict: Int, rejected: Int, conflictIndices: [Int] = []) {
         self.added = added
         self.duplicate = duplicate
         self.conflict = conflict
         self.rejected = rejected
+        self.conflictIndices = conflictIndices
     }
 
-    /// Parses the shim's reply `{"added","duplicate","conflict","rejected"}`.
+    /// The store failed the write: the fork answers that with -1 counts
+    /// (API 20), which are never counts to show.
+    public var storeFailed: Bool { min(added, duplicate, conflict, rejected) < 0 }
+
+    /// Parses the shim's reply `{"added","duplicate","conflict","rejected","conflicts"?}`.
     static func parse(_ json: String) -> ChromiumPasswordWriteResult? {
         guard let object = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any],
               let added = object["added"] as? Int, let duplicate = object["duplicate"] as? Int,
               let conflict = object["conflict"] as? Int, let rejected = object["rejected"] as? Int else { return nil }
-        return ChromiumPasswordWriteResult(added: added, duplicate: duplicate, conflict: conflict, rejected: rejected)
+        return ChromiumPasswordWriteResult(added: added, duplicate: duplicate, conflict: conflict, rejected: rejected,
+                                           conflictIndices: object["conflicts"] as? [Int] ?? [])
+    }
+}
+
+/// The counts of a Replace: `updated` saved over a conflicting sign-in,
+/// `missing` no longer saved (removed meanwhile), `rejected` not a sign-in.
+public nonisolated struct ChromiumPasswordReplaceResult: Sendable, Equatable {
+    public var updated: Int
+    public var missing: Int
+    public var rejected: Int
+
+    public init(updated: Int, missing: Int, rejected: Int) {
+        self.updated = updated
+        self.missing = missing
+        self.rejected = rejected
+    }
+
+    /// The store failed the write (-1 counts from the fork).
+    public var storeFailed: Bool { min(updated, missing, rejected) < 0 }
+
+    /// Parses the shim's reply `{"updated","missing","rejected"}`.
+    static func parse(_ json: String) -> ChromiumPasswordReplaceResult? {
+        guard let object = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any],
+              let updated = object["updated"] as? Int, let missing = object["missing"] as? Int,
+              let rejected = object["rejected"] as? Int else { return nil }
+        return ChromiumPasswordReplaceResult(updated: updated, missing: missing, rejected: rejected)
     }
 }

@@ -20,16 +20,19 @@ nonisolated enum AcpmuxPaneMethods {
     public static let requests: Set<String> = [
         // Sessions (direct.ts).
         "session/new", "session/prompt", "session/set_model", "session/set_mode", "session/set_config_option",
-        // acpmux extensions (direct.ts).
-        "_acpmux/watch", "_acpmux/events", "_acpmux/attach", "_acpmux/detach", "_acpmux/view", "_acpmux/warm",
+        // acpmux extensions (direct.ts). `_acpmux/attachment` reads a sent prompt's image by content hash.
+        "_acpmux/watch", "_acpmux/events", "_acpmux/attachment", "_acpmux/attach", "_acpmux/detach", "_acpmux/view", "_acpmux/warm",
+        // The session list's later pages (sessionPages.ts, cx-2lv1k): the same summaries watch answers,
+        // read by cursor after watch's first page.
+        "_acpmux/sessions",
         "_acpmux/kill", "_acpmux/prewarm", "_acpmux/harnesses", "_acpmux/models", "_acpmux/permission_respond",
         // Read-only, and its reply is filtered to ``replyShapes`` (ad349).
         "_acpmux/status", "_acpmux/draft_get",
         // Session-scoped draft writes are kept separate from the filtered replies above.
         "_acpmux/draft_set",
-        // A side question about a chat in the pane's scope (direct.ts ask, `/btw`): acpmux answers
-        // it in a throwaway fork under deny-all, so it runs an agent turn like a prompt (cx-ef2m).
-        "_acpmux/ask",
+        // The thread minimap's prompt bookmarks of a chat in the pane's scope (direct.ts
+        // readBookmarks, setBookmark): a seq and a flag, kept in acpmux's session meta.
+        "_acpmux/bookmark_get", "_acpmux/bookmark_set",
         // Withdraw or change a queued prompt of a session in the pane's scope (direct.ts
         // removeQueued, editQueued).
         "_acpmux/queue_remove", "_acpmux/queue_edit",
@@ -43,6 +46,38 @@ nonisolated enum AcpmuxPaneMethods {
         // Enable a folder harness (direct.ts harnessEnable): the relay asks the user on its own
         // native sheet and adds the confirmed sha256 itself (``AgentPaneHarnessEnablePrompt``).
         "_acpmux/harness_enable",
+        // The private secret card's answer to an agent's request_secret (SecretCard.tsx, cx-ncc.42):
+        // the value goes to acpmux, which keeps it in memory and gives the agent a one-use ref. The
+        // transport never logs a frame, so the value stays out of the host's logs.
+        "_acpmux/secret_submit",
+        // The chat menu's Archive / Unarchive and Mark as Unread of a session in the pane's scope
+        // (direct.ts archive, markUnread; cx-jlzsf). `_acpmux/archive` sets or removes only the
+        // `archived` tag: never `_acpmux/tag`, which may set any tag (the handoff target among
+        // them). The app's tab close stays a host call (`pane.action closeTab`).
+        "_acpmux/archive", "_acpmux/markUnread",
+        // This Mac's agent CLI health for the chat notice and the Harnesses page (direct.ts
+        // harnessHealth, cx-jlzsf): `refresh` runs the configured harnesses' version and sign-in
+        // checks (and the auto-updates the person opted into), as acpmux does every few hours;
+        // `rescan` has acpmux look on PATH and in its profiles again first (after an install from
+        // the page); never `checkLatest` or `autoUpdate` (that choice turns updates on).
+        "_acpmux/harness/health",
+        // New side chat (direct.ts markSide, cx-jlzsf): tags the fork the pane made (in its scope)
+        // `side` with its chat; only that tag, never `_acpmux/tag`.
+        "_acpmux/side",
+        // `/btw` (direct.ts btw): a read-only `side` session beside a chat in scope whose first prompt is the
+        // question, so it runs a turn; its reply's session becomes the pane's (``AcpmuxPaneSessions/starting``).
+        "_acpmux/btw",
+        // Dismiss or Start on a chat's session offer chip (direct.ts dismissOffer, startOffer;
+        // cx-807da): acpmux records the answer; Start names the child chat the pane just made.
+        "_acpmux/offer_respond",
+        // The mode acpmux would start a new chat on a harness in (direct.ts startMode, cx-wx93i),
+        // which a pending chat's access chip names. Read only.
+        "_acpmux/start_mode",
+        // Stop a running Claude subagent or workflow of a chat in the pane's scope (direct.ts
+        // stopSubagent, cx-liswe): acpmux sends Claude's stop_task for the task it already holds
+        // for that child (claude_stdio/workflows.rs). It stops work like `_acpmux/kill`, so no
+        // gesture; caller params never reach Claude.
+        "_acpmux/subagent_stop",
     ]
 
     /// The shape of a reply the relay filters itself, without relying on the daemon's redaction.
@@ -50,12 +85,21 @@ nonisolated enum AcpmuxPaneMethods {
         case string
         case object([String: ReplyShape])
         case list(ReplyShape)
+        /// Only the scheme of the URL in the sibling field `source` (`ssh`, `ws`, `wss`), so the
+        /// page learns a peer's transport without its URL (which can carry a user or a token).
+        case scheme(from: String)
     }
 
+    /// The URL schemes a `.scheme` field may report; any other scheme is dropped.
+    static let reportedSchemes: Set<String> = ["ssh", "ws", "wss"]
+
     /// Replies filtered to the fields the pane renders; everything else is dropped, at every depth.
-    /// `_acpmux/status`: the pane reads only `peers[].name` (direct.ts, after initialize).
+    /// `_acpmux/status`: the pane reads only `peers[].name` and each peer's `transport`, the
+    /// scheme of its `url` (direct.ts, after initialize; environments.ts peerKindsFromStatus).
     public static let replyShapes: [String: ReplyShape] = [
-        "_acpmux/status": .object(["peers": .list(.object(["name": .string]))]),
+        "_acpmux/status": .object([
+            "peers": .list(.object(["name": .string, "transport": .scheme(from: "url")])),
+        ]),
     ]
 
     /// `value` cut to `shape`: nil when it does not fit (a list keeps only the items that fit).
@@ -63,11 +107,19 @@ nonisolated enum AcpmuxPaneMethods {
         switch shape {
         case .string:
             return value as? String
+        case .scheme:
+            guard let scheme = (value as? String).flatMap({ URLComponents(string: $0)?.scheme?.lowercased() }),
+                  reportedSchemes.contains(scheme) else { return nil }
+            return scheme
         case .list(let item):
             return (value as? [Any])?.compactMap { filtered($0, to: item) }
         case .object(let fields):
             guard let object = value as? [String: Any] else { return nil }
-            let kept = fields.compactMap { key, field in object[key].flatMap { filtered($0, to: field) }.map { (key, $0) } }
+            let kept = fields.compactMap { key, field -> (String, Any)? in
+                let source: String
+                if case .scheme(let from) = field { source = from } else { source = key }
+                return object[source].flatMap { filtered($0, to: field) }.map { (key, $0) }
+            }
             // An object with none of its fields is dropped (a peer with no name renders nothing).
             return kept.isEmpty ? nil : Dictionary(uniqueKeysWithValues: kept)
         }
@@ -89,6 +141,9 @@ nonisolated enum AcpmuxPaneMethods {
 
     /// Notifications (no `id`).
     public static let notifications: Set<String> = ["session/cancel"]
+
+    /// The top-level keys of a page frame (direct.ts sends no others).
+    static let frameKeys: Set<String> = ["jsonrpc", "id", "method", "params"]
 
     /// Longest frame the page may send (a prompt with attachments is the largest).
     public static let maximumFrameBytes = 32 << 20
@@ -140,6 +195,9 @@ nonisolated enum AcpmuxPaneMethods {
         guard let object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any],
               object["jsonrpc"] as? String == "2.0" else { return refuse(.invalidFrame, nil, nil) }
         let id = object["id"].flatMap(rawID)
+        // Only the keys the pane sends (cx-6o0): a `result` or `error` would make a request read as
+        // a response, and the daemon might act on any other key it knows.
+        guard Set(object.keys).isSubset(of: frameKeys) else { return refuse(.invalidFrame, object["method"] as? String, id) }
         guard let method = object["method"] as? String else { return refuse(.methodRefused, nil, nil) }
         // C1: no page frame may make the harness spawn a command.
         if let params = object["params"], carriesServers(params) { return refuse(.mcpServersRefused, method, id) }
@@ -172,8 +230,19 @@ nonisolated enum AcpmuxPaneMethods {
     /// one click) is a read-only view, and the pane never sends anything to it.
     public static let sessionScoped: Set<String> = [
         "session/prompt", "session/set_mode", "session/set_config_option", "session/set_model", "session/cancel",
-        "_acpmux/kill", "_acpmux/draft_get", "_acpmux/draft_set", "_acpmux/ask", "_acpmux/queue_remove", "_acpmux/queue_edit", "_acpmux/permission_respond", "_acpmux/permission_group_respond", "_acpmux/permission_chat_revoke",
+        "_acpmux/kill", "_acpmux/draft_get", "_acpmux/draft_set", "_acpmux/bookmark_get", "_acpmux/bookmark_set", "_acpmux/queue_remove", "_acpmux/queue_edit", "_acpmux/permission_respond", "_acpmux/permission_group_respond", "_acpmux/permission_chat_revoke",
+        "_acpmux/secret_submit", "_acpmux/archive", "_acpmux/markUnread", "_acpmux/side", "_acpmux/btw",
+        "_acpmux/offer_respond", "_acpmux/subagent_stop",
     ]
+
+    /// Params beside `sessionId` that name a session, which must be in the pane's scope too: New
+    /// side chat names the chat it is beside (cx-jlzsf).
+    public static let scopedSessionParams: [String: Set<String>] = ["_acpmux/side": ["chat"]]
+
+    /// Params beside `sessionId` that may name a session: none is fine, a named one (even `null`)
+    /// must be a string in the pane's scope. Only an accepted offer names its child chat (the one
+    /// the pane just started); a dismissed one names none. `_acpmux/side` always names its chat.
+    public static let optionalScopedSessionParams: [String: Set<String>] = ["_acpmux/offer_respond": ["childSessionId"]]
 
     /// The folder trust question may name its chat (`sessionId`, so acpmux asks the chat's peer):
     /// a named session must be in the pane's scope (``sessionScoped``'s rule); none is fine.
@@ -195,12 +264,13 @@ nonisolated enum AcpmuxPaneMethods {
     /// The error frame that answers a refused request, as the daemon would answer an unknown one.
     /// `rootRequested` stays in the frame the Rust policy shares; this host no longer offers to add
     /// a refused folder as a root, so it never sets it. `detail`: acpmux's own reason (a refused
-    /// Enable harness prompt), shown by the page.
+    /// Enable harness prompt), shown by the page; `reason`: why, as a code the page words.
     public static func refusal(requestID: String, error: AgentPaneTransportError, method: String?, rootRequested: Bool = false,
-                               detail: String? = nil) -> String {
+                               detail: String? = nil, reason: String? = nil) -> String {
         var data: [String: Any] = ["code": error.rawValue, "origin": "native"]
         if let method { data["method"] = method }
         if let detail, !detail.isEmpty { data["detail"] = String(detail.prefix(1000)) }
+        if let reason { data["reason"] = reason }
         if rootRequested { data["rootRequested"] = true }
         let body: [String: Any] = ["code": -32601, "message": "Refused by the cmux host", "data": data]
         let encoded = (try? JSONSerialization.data(withJSONObject: body)).map { String(decoding: $0, as: UTF8.self) } ?? "{}"
@@ -222,8 +292,8 @@ nonisolated enum AcpmuxPaneMethods {
 
     public static let gestureRules: [String: GestureRule] = [
         "session/prompt": .always,
-        // A side question runs an agent turn too (in a throwaway fork of the chat).
-        "_acpmux/ask": .always,
+        // A side session's question is its first prompt.
+        "_acpmux/btw": .always,
         // Every value until the host has a list of the permissive ones (bypass, auto-approve, yolo).
         "session/set_mode": .always,
         "session/set_config_option": .always,
@@ -232,8 +302,19 @@ nonisolated enum AcpmuxPaneMethods {
         "_acpmux/harness_enable": .always,
         "_acpmux/permission_respond": .whenOptionAllows,
         "_acpmux/permission_group_respond": .whenDecisionAllows,
+        // The card's Provide hands over a secret (its Decline is a click too).
+        "_acpmux/secret_submit": .always,
         // _acpmux/permission_chat_revoke revokes: no gesture.
+        // _acpmux/offer_respond declines, or links the page's own new chat: no gesture (the work
+        // Start begins is its session/prompt, which has one).
     ]
+
+    /// Whether a granting frame of `method` may use the current gesture: a permission allow needs
+    /// the person's fresh click or permission shortcut, never a typing gesture (cx-ocdz).
+    @MainActor static func answerAllowed(_ method: String?, _ gestures: AgentPaneUserGestures) -> Bool {
+        let answers = method == "_acpmux/permission_respond" || method == "_acpmux/permission_group_respond"
+        return !answers || gestures.hasFreshAnswerGesture
+    }
 
     /// Whether `text` (a page frame the allowlist passed) grants and needs a gesture.
     /// Parsed every time: a substring test would miss an escaped method name.

@@ -51,3 +51,52 @@ public extension NSWindow {
         layer.sublayerTransform = CATransform3DIdentity
     }
 }
+
+/// One popup window's open and close (`openPopup` / `closePopup`) for an
+/// owner that shows and hides it: a close that ends after a reopen leaves
+/// the popup up, and a close ends even when its owner is gone by then.
+@MainActor
+public final class PopupFade {
+    /// A close is fading the popup out; it counts as closed.
+    public private(set) var isClosing = false
+    private var generation = 0
+
+    public init() {}
+
+    /// Shows `window` (already placed) over `parent`, growing out of
+    /// `anchor` (screen coordinates); a reopen during the close continues
+    /// from what is on screen.
+    public func open(_ window: NSWindow, over parent: NSWindow, toward anchor: CGRect) {
+        generation += 1
+        let opening = !window.isVisible || isClosing
+        isClosing = false
+        window.ignoresMouseEvents = false
+        if !window.isVisible { window.alphaValue = 0 }
+        if window.parent !== parent {
+            window.parent?.removeChildWindow(window)
+            parent.addChildWindow(window, ordered: .above)
+        }
+        window.orderFront(nil)
+        if opening { window.openPopup(pivot: window.popupPivot(toward: anchor)) }
+    }
+
+    /// Fades `window` out toward `anchor`, then takes it off its window.
+    /// Keys and clicks go back to the window under it now, not when the
+    /// fade ends (like `SidebarGroupEditor.dismiss`).
+    public func close(_ window: NSWindow, toward anchor: CGRect) {
+        guard window.isVisible, !isClosing else { return }
+        window.ignoresMouseEvents = true
+        window.makeFirstResponder(nil)
+        if window.isKeyWindow, let parent = window.parent, parent.isVisible { parent.makeKey() }
+        generation += 1
+        isClosing = true
+        let closing = generation
+        window.closePopup(pivot: window.popupPivot(toward: anchor)) { [self, window] in
+            guard generation == closing else { return }
+            isClosing = false
+            window.parent?.removeChildWindow(window)
+            window.orderOut(nil)
+            window.resetPopupScale()
+        }
+    }
+}

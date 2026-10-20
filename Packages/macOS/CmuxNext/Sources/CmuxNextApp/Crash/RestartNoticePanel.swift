@@ -37,7 +37,7 @@ final class RestartNoticePanel {
     private func makeContent(text: String) -> NSView {
         // One line: a wrapping label reported one line of height in the
         // panel's fitting size and clipped the second.
-        let label = NSTextField(labelWithString: text)
+        let label = ChromeLabel(labelWithString: text)
         let content = body
         content.onThemeChange = { [weak label, weak content] in
             guard let label, let content else { return }
@@ -48,13 +48,13 @@ final class RestartNoticePanel {
         label.setContentCompressionResistancePriority(.required, for: .horizontal)
         var views: [NSView] = [label]
         if onReport != nil {
-            let report = NSButton(title: CrashStrings.report, target: self, action: #selector(report))
-            report.bezelStyle = .accessoryBarAction
+            let report = ThemedBezelButton(title: CrashStrings.report, target: self, action: #selector(report))
+            report.controlSize = .small
             views.append(report)
         }
         if onShowLog != nil {
-            let show = NSButton(title: CrashStrings.showLog, target: self, action: #selector(showLog))
-            show.bezelStyle = .accessoryBarAction
+            let show = ThemedBezelButton(title: CrashStrings.showLog, target: self, action: #selector(showLog))
+            show.controlSize = .small
             views.append(show)
         }
         let close = NSButton(image: NSImage.icon(.actionClose, size: .iconFloor), target: self, action: #selector(dismiss))

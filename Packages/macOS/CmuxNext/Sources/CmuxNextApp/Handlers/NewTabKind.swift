@@ -1,4 +1,5 @@
 import CmuxNextActions
+import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextSettings
 
@@ -38,51 +39,5 @@ nonisolated enum NewTabKind: Equatable, Sendable {
         let agent = services.agentTabs.isAgentTab(id)
         if agent, services.agentTabs.isNewTabPage(id) { return .page }
         return resolve(selectedKind: tab?.kind, engine: tab?.browserEngine, isLocalBrowser: id.hasPrefix(LocalBrowserTab.prefix), isAgent: agent)
-    }
-
-    /// `tabs.newTabKind` over the same-kind rule. Auto takes the kind last
-    /// opened in the focused tab's folder (else anywhere), and the same
-    /// kind before anything was opened.
-    /// The Terminal template (`tabs.newTabTemplate`) no longer turns the page into a terminal:
-    /// Cmd-T always opens the New Tab page unless `tabs.newTabKind` names another kind
-    /// (Lawrence 2026-10-10, cx-n0i9).
-    static func resolve(_ setting: NewTabDefaultKind, template: NewTabTemplate? = nil, sameKind: NewTabKind,
-                        recent: NewTabKind?) -> NewTabKind {
-        resolveKind(setting, sameKind: sameKind, recent: recent)
-    }
-
-    private static func resolveKind(_ setting: NewTabDefaultKind, sameKind: NewTabKind, recent: NewTabKind?) -> NewTabKind {
-        switch setting {
-        case .sameKind: sameKind
-        case .terminal: .terminal
-        case .browser: .browser(engine: nil)
-        case .agent: .agent
-        case .page: .page
-        case .auto: recent ?? sameKind
-        }
-    }
-}
-
-/// What Auto remembers: the kind last opened on purpose (Cmd-T, a New
-/// action, a new tab page choice) in each folder and overall. The new tab
-/// page itself is a chooser, not a kind. Bounded to the most recent folders.
-nonisolated struct NewTabKindMemory: Sendable {
-    static let maximumFolders = 64
-    private(set) var last: NewTabKind?
-    private var byFolder: [String: NewTabKind] = [:]
-    private var folders: [String] = []
-
-    mutating func record(_ kind: NewTabKind, folder: String?) {
-        guard kind != .page else { return }
-        last = kind
-        guard let folder else { return }
-        byFolder[folder] = kind
-        folders.removeAll { $0 == folder }
-        folders.append(folder)
-        if folders.count > Self.maximumFolders { byFolder[folders.removeFirst()] = nil }
-    }
-
-    func recent(in folder: String?) -> NewTabKind? {
-        folder.flatMap { byFolder[$0] } ?? last
     }
 }

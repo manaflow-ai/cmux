@@ -6,7 +6,21 @@ import { useSettingsState, useStore } from "../context";
 import type { BrowserProfile, HostListRow, HostLists } from "../ops";
 import { t } from "../strings";
 
-function ListRows({ rows, empty }: { rows: HostListRow[]; empty: string }) {
+const ASSET_ICON = /^(image|svg):sha256-[0-9a-f]{64}$/;
+
+/**
+ * A mark's content: a stored image or SVG as the host's PNG of it (`icon/<ref>`, cx-qno.2.3), an
+ * emoji as itself, else the name's initial (an SF Symbol name is not drawable here).
+ */
+function IconMark({ icon, name }: { icon: string | null | undefined; name: string }) {
+  if (icon && ASSET_ICON.test(icon)) {
+    return <img className="host-avatar-image" alt="" src={`icon/${encodeURIComponent(icon)}`} />;
+  }
+  if (icon && !/^[a-z0-9.]+$/.test(icon)) return <>{icon}</>;
+  return <>{name.slice(0, 1).toUpperCase() || "?"}</>;
+}
+
+function ListRows({ rows, empty, marks = false }: { rows: HostListRow[]; empty: string; marks?: boolean }) {
   if (rows.length === 0) {
     return (
       <div className="row">
@@ -17,13 +31,14 @@ function ListRows({ rows, empty }: { rows: HostListRow[]; empty: string }) {
   return rows.map((row) => (
     <div className="row" key={row.id} data-host-row={row.id}>
       <div className="row-main">
+        {marks && (
+          <span className="host-avatar" aria-hidden="true">
+            <IconMark icon={row.icon} name={row.title} />
+          </span>
+        )}
         <div className="row-label">
           <div className="row-title">{row.title}</div>
-          {row.subtitle && (
-            <div className="row-help" title={row.subtitle}>
-              {row.subtitle}
-            </div>
-          )}
+          {row.subtitle && <div className="row-help">{row.subtitle}</div>}
         </div>
         {row.active && <span className="host-active" aria-hidden="true" />}
       </div>
@@ -40,7 +55,7 @@ export function SpacesSection() {
       <h3 className="group-title">{t("settingsPage.group.spaces")}</h3>
       <div className="rows">
         {host.rooms ? (
-          <ListRows rows={host.rooms} empty={t("settingsWindow.roomsEmpty")} />
+          <ListRows rows={host.rooms} empty={t("settingsWindow.roomsEmpty")} marks />
         ) : (
           <div className="row">
             <div className="empty">{t("settingsWindow.roomsUnavailable")}</div>
@@ -64,7 +79,7 @@ export function MachinesSection({ title }: { title: string }) {
     <section className="group" data-card="machines">
       <h3 className="group-title">{title}</h3>
       <div className="rows">
-        <ListRows rows={host.machines} empty={t("settingsWindow.machinesEmpty")} />
+        <ListRows rows={host.machines} empty={t("settingsWindow.machinesEmpty")} marks />
       </div>
     </section>
   );
@@ -101,12 +116,6 @@ function BrowserProfilesSection({ host }: { host: HostLists }) {
   );
 }
 
-function avatarText(profile: BrowserProfile): string {
-  // An SF Symbol name is not drawable here; an emoji is.
-  if (profile.icon && !/^[a-z0-9.]+$/.test(profile.icon)) return profile.icon;
-  return profile.name.slice(0, 1).toUpperCase() || "?";
-}
-
 function ProfileRow({
   profile,
   colors,
@@ -120,7 +129,9 @@ function ProfileRow({
 }) {
   const store = useStore();
   const target = `browser-profile:${profile.id}`;
-  const fill = colors.find((color) => color.name === profile.color)?.fill;
+  // The color fills the mark's disc; a stored image draws with none.
+  const asset = profile.icon != null && ASSET_ICON.test(profile.icon);
+  const fill = asset ? undefined : colors.find((color) => color.name === profile.color)?.fill;
   // Drafts reset to the profile's values whenever it changes (keyed by the profile's state).
   const [draft, setDraft] = useState({
     for: `${profile.name}\u0000${profile.icon ?? ""}`,
@@ -136,7 +147,7 @@ function ProfileRow({
     <div className="row" data-profile={profile.id}>
       <button type="button" className="row-main host-toggle" aria-expanded={expanded} onClick={onToggle}>
         <span className="host-avatar" style={fill ? { background: fill } : undefined}>
-          {avatarText(profile)}
+          <IconMark icon={profile.icon} name={profile.name} />
         </span>
         <span className="row-label">
           <span className="row-title">{profile.name}</span>
@@ -193,6 +204,7 @@ function ProfileRow({
               }}
             />
           </label>
+          <ClearBrowsingData target={target} />
           <div className="host-actions">
             <button type="button" className="button" onClick={() => run("browserProfile.manageExtensions")}>
               {t("action.browserProfile.manageExtensions").replace(/…$/, "")}
@@ -210,6 +222,87 @@ function ProfileRow({
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+const CLEAR_RANGES = ["hour", "today", "week", "month", "all"] as const;
+const CLEAR_KINDS = ["history", "cookies", "cache"] as const;
+
+/**
+ * A profile's Clear Browsing Data (cx-d0d.23, Chrome's): a time range (the last hour first) and
+ * the kinds to clear, inline in the profile's row, never a sheet. Runs the profile's
+ * `browserProfile.clearBrowsingData`, the action the palette, the CLI and MCP run.
+ */
+function ClearBrowsingData({ target }: { target: string }) {
+  const store = useStore();
+  const [range, setRange] = useState<(typeof CLEAR_RANGES)[number]>("hour");
+  const [kinds, setKinds] = useState<Record<(typeof CLEAR_KINDS)[number], boolean>>({
+    history: true,
+    cookies: true,
+    cache: true,
+  });
+  const [cleared, setCleared] = useState(false);
+  const title = t("action.browserProfile.clearBrowsingData").replace(/…$/, "");
+  // "Cleared" once the app took the run; a refused run shows nothing.
+  const clear = async () => {
+    setCleared(false);
+    try {
+      await store.runAction("browserProfile.clearBrowsingData", { range, ...kinds }, target);
+      setCleared(true);
+    } catch {
+      setCleared(false);
+    }
+  };
+  return (
+    <div className="host-field" data-clear-browsing-data="">
+      <span className="row-help">{title}</span>
+      <select
+        className="field"
+        aria-label={title}
+        value={range}
+        onChange={(event) => {
+          setCleared(false);
+          setRange(event.target.value as (typeof CLEAR_RANGES)[number]);
+        }}
+      >
+        {CLEAR_RANGES.map((value) => (
+          <option key={value} value={value}>
+            {t(`argument.history.range.${value}`)}
+          </option>
+        ))}
+      </select>
+      {CLEAR_KINDS.map((kind) => (
+        <label key={kind} className="row-help">
+          <input
+            type="checkbox"
+            name={kind}
+            aria-label={t(`argument.browsingData.${kind}`)}
+            checked={kinds[kind]}
+            onChange={(event) => {
+              setCleared(false);
+              setKinds({ ...kinds, [kind]: event.currentTarget.checked });
+            }}
+          />{" "}
+          {t(`argument.browsingData.${kind}`)}
+        </label>
+      ))}
+      <span className="host-actions">
+        <button
+          type="button"
+          className="button danger"
+          data-clear=""
+          disabled={!CLEAR_KINDS.some((kind) => kinds[kind])}
+          onClick={() => void clear()}
+        >
+          {title}
+        </button>
+        {cleared && (
+          <output className="row-help" data-cleared="">
+            {t("settingsWindow.browsingDataCleared")}
+          </output>
+        )}
+      </span>
     </div>
   );
 }

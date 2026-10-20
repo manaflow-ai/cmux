@@ -3,8 +3,10 @@ import CmuxNextDesign
 import CmuxNextIcons
 
 /// The "vim" pill in the terminal's top-right corner while copy mode is on
-/// (the old app's copy-mode indicator). Clicks go to the terminal below.
-final class TerminalCopyModeBadge: NSVisualEffectView {
+/// (the old app's copy-mode indicator). The theme's raised surface and a
+/// hairline, like the status pill, never macOS's HUD material. Clicks go to
+/// the terminal below.
+final class TerminalCopyModeBadge: NSView {
     static var text: String {
         String(localized: "terminal.copyMode.indicator", defaultValue: "vim", bundle: .module)
     }
@@ -12,9 +14,6 @@ final class TerminalCopyModeBadge: NSVisualEffectView {
     init() {
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
-        material = .hudWindow
-        blendingMode = .withinWindow
-        state = .active
         wantsLayer = true
         layer?.cornerRadius = 14
         layer?.masksToBounds = true
@@ -50,16 +49,19 @@ final class TerminalCopyModeBadge: NSVisualEffectView {
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
-        applyThemeEdge()
+        applyThemeColors()
     }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        applyThemeEdge()
+        applyThemeColors()
     }
 
-    private func applyThemeEdge() {
-        layer?.borderColor = performWithTheme { Palette.separator.cgColor }
+    private func applyThemeColors() {
+        performWithTheme {
+            layer?.backgroundColor = Palette.elevatedBackground.cgColor
+            layer?.borderColor = Palette.separator.cgColor
+        }
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? { nil }

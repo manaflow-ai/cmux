@@ -145,7 +145,9 @@ impl Hub {
         Ok((path, cfg.profile_sources.clone()))
     }
 
-    pub(crate) async fn reload_and_announce(self: &Arc<Self>) {
+    /// Reloads the catalog and sends it to the watchers; false when the
+    /// reload failed.
+    pub(crate) async fn reload_and_announce(self: &Arc<Self>) -> bool {
         match self.reload_catalog().await {
             Ok(reply) => {
                 let diagnostics = self.config.read().await.profile_diagnostics.clone();
@@ -153,8 +155,12 @@ impl Hub {
                     .harness_watch
                     .changes
                     .send(json!({"harnesses": reply["harnesses"], "diagnostics": diagnostics}));
+                true
             }
-            Err(e) => tracing::warn!("harness profiles changed, reload failed: {}", e.message),
+            Err(e) => {
+                tracing::warn!("catalog reload failed: {}", e.message);
+                false
+            }
         }
     }
 }

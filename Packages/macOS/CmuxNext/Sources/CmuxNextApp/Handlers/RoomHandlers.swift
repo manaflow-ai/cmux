@@ -65,7 +65,9 @@ enum RoomHandlers {
             if let icon = invocation["icon"]?.stringValue?.trimmingCharacters(in: .whitespaces), !icon.isEmpty {
                 try history.change(id, from: room.icon, to: icon, origin: invocation.origin)
             } else if let anchor = context.services.iconPicker.activeWindowAnchor() {
-                context.services.iconPicker.pick(current: room.icon, target: "space:\(id)", at: anchor) { result in
+                // Spaces live in the local daemon, which stores their image and SVG icons.
+                let assets = IconAssetStore.owner(context.services.machines.local)
+                context.services.iconPicker.pick(current: room.icon, target: "space:\(id)", at: anchor, assets: assets) { result in
                     switch result {
                     case .set(let icon): try? history.change(id, from: room.icon, to: icon, origin: .user)
                     case .clear: try? history.change(id, from: room.icon, to: nil, origin: .user)

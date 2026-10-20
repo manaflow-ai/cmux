@@ -28,6 +28,16 @@ public nonisolated enum BrowserPromptKind: Hashable, Sendable {
     /// the app named `app`? Answered `.allowOnce` (Open), `.allow` (Open,
     /// always for the site) or `.cancel`.
     case openExternalApp(app: String, scheme: String)
+    /// Chromium's password manager asks to save (or, with `update`, to
+    /// replace) the sign-in a person submitted (fork API 20). Answered
+    /// `.accept` (Save / Update), `.deny` (never for the site) or `.cancel`
+    /// (Not Now). The password itself never leaves Chromium.
+    case savePassword(username: String, update: Bool)
+    /// Email verification AutoFill (plans/cmux-next/email-verification-autofill/DESIGN.md):
+    /// the code or link of a verification email from the page's own site, shown in native
+    /// chrome the page cannot read. Answered `.accept` (Fill Code), `.allowOnce` (Open Link)
+    /// or `.cancel` (Not Now). Never answered for an agent, never submits the form.
+    case verificationOffer(VerificationOffer)
     /// cmux refused a passkey request of a page an agent drives
     /// (plans/cmux-next/passkeys.md 3.5): only the person signs in with a
     /// passkey. One action, "Sign in yourself" (`.accept`), ends the agent's

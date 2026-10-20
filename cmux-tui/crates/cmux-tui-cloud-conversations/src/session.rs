@@ -58,6 +58,11 @@ pub(crate) struct CloudSession {
     /// request field. Read without verifying the signature; the Worker
     /// verifies the token and MuxDO refuses any other chief.
     pub(crate) agent: Option<String>,
+    /// The Stack project (JWT `aud`) of a person's session token, read
+    /// without verifying the signature: with `account` it names the
+    /// person's Worker user id (`cloud-session-status` `participant`), a
+    /// label for the person's own clients, never an authorization.
+    pub(crate) audience: Option<String>,
 }
 
 impl fmt::Debug for CloudSession {
@@ -158,7 +163,7 @@ pub(crate) fn token_agent(token: &str) -> Option<String> {
     token_claim(token, "agt").filter(|agent| super::contract::valid_agent_id(agent))
 }
 
-fn token_claim(token: &str, name: &str) -> Option<String> {
+pub(crate) fn token_claim(token: &str, name: &str) -> Option<String> {
     use base64::Engine;
     let mut parts = token.split('.');
     let (_header, payload, _signature) = (parts.next()?, parts.next()?, parts.next()?);
@@ -209,6 +214,8 @@ impl CloudSession {
         }
         let account = token_account(&token);
         let agent = token_agent(&token);
+        let audience = token_claim(&token, "aud")
+            .filter(|aud| !aud.is_empty() && aud.len() <= MAX_ACCOUNT_CHARS && visible_ascii(aud));
         Ok(Self {
             origin,
             token,
@@ -217,6 +224,7 @@ impl CloudSession {
             generation,
             account,
             agent,
+            audience,
         })
     }
 

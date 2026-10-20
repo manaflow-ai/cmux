@@ -2,11 +2,12 @@ import AppKit
 @testable import CmuxNextApp
 import CmuxNextDesign
 @testable import CmuxNextHome
+@testable import CmuxNextHomeEngine
 import Testing
 
 /// Theme sweep 3, batch B: Home's sheets (New Message, Invite, New Chief) sat on the sheet
 /// window's system background, and their fields, the New Message search field and the Chief
-/// settings' name and avatar fields drew AppKit's bezel, text and gray placeholder. Under a
+/// settings' name field drew AppKit's bezel, text and gray placeholder. Under a
 /// purple room theme the sheets paint the theme's popup surface and every field draws the theme.
 @MainActor @Suite(.serialized) struct HomeSheetThemeTests {
     @Test func homeSheetsPaintThePopupSurface() throws {
@@ -30,7 +31,7 @@ import Testing
         let scope = try ThemedOverlayColorsTests.purpleRoom()
         let roots: [NSView] = [
             HomeComposeSheet(contacts: []).view, HomeInviteSheet(pending: []).view, HomeNewChiefSheet().view,
-            HomeChiefSidebar(muxHome: FileManager.default.temporaryDirectory, source: OfflineEngine()),
+            HomeChiefSettingsView(muxHome: FileManager.default.temporaryDirectory, source: OfflineEngine()),
         ]
         let ink = scope.perform { Palette.textPrimary }
         let hint = scope.perform { Palette.textTertiary }
@@ -39,8 +40,8 @@ import Testing
             scope.root(root)
             fields += Self.editableFields(in: root)
         }
-        // Compose: search and group name; Invite: email; New Chief: name; Chief settings: name and avatar.
-        #expect(fields.count >= 6)
+        // Compose: search and group name; Invite: email; New Chief: name; Chief settings: name.
+        #expect(fields.count >= 5)
         for field in fields {
             let name = field.accessibilityLabel() ?? "\(type(of: field))"
             #expect(!field.isBezeled && !field.drawsBackground, "\(name): AppKit's bezel and fill are gone")

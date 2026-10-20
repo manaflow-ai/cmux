@@ -282,8 +282,13 @@ fn server_stats_report_lock_writer_and_connection_metrics() {
     let mux = test_mux();
     let unix_client = mux.control_clients.register(ClientTransport::Unix, test_writer());
     let websocket_client = mux.control_clients.register(ClientTransport::WebSocket, test_writer());
-    let identity =
-        handle_command(&mux, mux.local_test_client(0), Command::Identify, &test_writer()).unwrap();
+    let identity = handle_command(
+        &mux,
+        mux.local_test_client(0),
+        Command::Identify { machine_metadata: false, revisions: false },
+        &test_writer(),
+    )
+    .unwrap();
     assert!(
         identity["capabilities"].as_array().unwrap().iter().any(|c| c == SERVER_STATS_CAPABILITY)
     );
@@ -543,12 +548,14 @@ fn blocking_wait_cannot_overtake_input_queued_behind_a_clear_barrier() {
     for (id, cmd) in [
         (
             1,
-            Command::Send {
-                surface: 1,
+            Command::Send(cmd_terminal_io::SendParams {
+                surface: Some(1),
+                terminal_id: None,
                 text: Some("input".to_string()),
                 bytes: None,
                 paste: false,
-            },
+                expect_foreground: None,
+            }),
         ),
         (2, Command::WaitFor { surface: 2, pattern: "never".to_string(), timeout_ms: 60_000 }),
     ] {

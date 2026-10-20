@@ -16,7 +16,9 @@
 //!   with the canonical path (symlinks resolved, no `..`).
 //! - A session method acpmux does not handle itself is not passed to the
 //!   harness (`requests.rs` catch-all), so no harness extension method can
-//!   take caller params that spawn or read.
+//!   take caller params that spawn or read. LocalApp may pass
+//!   `_acpmux/subagent_stop`, which only stops a task the agent already runs
+//!   (`forwards`).
 //!
 //! - Web only (ACP-REMOTE-GUARD), allow lists: only the `ask` and `deny-all`
 //!   policies, rules that cannot auto-approve, the cited asking modes
@@ -31,6 +33,14 @@
 //! - Web only: no `acp.trust.set` (`trust.remote`); the folder-trust
 //!   question is the user's, and the trust gate (`trust_gate.rs`) holds Web
 //!   prompts until the user answers it in the app or the CLI.
+//! - Web and Peer: no `_acpmux/process/*` (a process's command line and
+//!   its kill are local), refused in `processes.rs`, which runs first.
+//! - Web only: no `_acpmux/set_tools` (`tools.remote`). Turning an MCP
+//!   server on makes the harness start the stdio command the user's config
+//!   names on this machine; unlike a mode, no asking table makes that safe.
+//! - Web and Peer: no `_acpmux/btw` (`btw.remote`). A side session is a new
+//!   session on this machine, in the chat's harness and folder, with a policy
+//!   that approves reads: the app and the unix socket only.
 //! - Web and LocalApp: no `_acpmux/peer_add` or `_acpmux/peer_remove` (they
 //!   change which machines this daemon reaches with the user's ssh keys and
 //!   tokens); `peer_reconnect` only retries a configured peer.
@@ -41,10 +51,27 @@ use crate::rpc::{RpcError, method};
 use serde_json::Value;
 use std::path::Path;
 
+/// Whether a session method acpmux does not handle itself goes on to the
+/// harness from `origin`: anything from the unix socket, and from the app only
+/// the stop of a running background subagent (no params that spawn or read).
+pub(super) fn forwards(origin: super::Origin, m: &str) -> bool {
+    use super::Origin::{Local, LocalApp};
+    origin == Local || (origin == LocalApp && m == method::MUX_SUBAGENT_STOP)
+}
+
 /// The rules a control request from `origin` runs under. A proven peer
 /// forwarding for its own Web client marks it `_meta.acpmux.via = "web"`.
-pub(super) fn control_of(origin: super::Origin, params: &Value) -> crate::hub::Control {
+/// `auth` is the proof the connection presented: an unauthenticated one is
+/// held to the Web's rules whatever its origin (and `check` refuses it).
+pub(super) fn control_of(
+    origin: super::Origin,
+    auth: super::ConnAuth,
+    params: &Value,
+) -> crate::hub::Control {
     use crate::hub::Control;
+    if !auth.authenticated() {
+        return Control::Web;
+    }
     match origin {
         super::Origin::Local | super::Origin::LocalApp => Control::Local,
         super::Origin::Web => Control::Web,
@@ -61,8 +88,18 @@ pub(super) fn control_of(origin: super::Origin, params: &Value) -> crate::hub::C
 /// this daemon holds to the Web's rules says so, and the peer applies them.
 /// One from the app's pane says `via: app`, so the peer's folder-trust gate
 /// (`trust_gate.rs`) holds it as it holds its own pane's.
-pub(super) fn mark_forwarded(origin: super::Origin, params: &Value, forwarded: &mut Value) {
-    if control_of(origin, params) == crate::hub::Control::Web {
+pub(super) fn mark_forwarded(
+    origin: super::Origin,
+    auth: super::ConnAuth,
+    params: &Value,
+    forwarded: &mut Value,
+) {
+    // A peer takes a prompt's provenance from its own unix socket only (prompt_provenance.rs):
+    // the prompt goes there without it.
+    if let Some(mux) = forwarded.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut) {
+        mux.remove("provenance");
+    }
+    if control_of(origin, auth, params) == crate::hub::Control::Web {
         crate::hub::merge_mux_meta(forwarded, serde_json::json!({"via": "web"}));
     } else if origin == super::Origin::LocalApp {
         crate::hub::merge_mux_meta(forwarded, serde_json::json!({"via": "app"}));
@@ -80,15 +117,47 @@ fn refused(what: &str) -> RpcError {
 pub(super) async fn check(
     hub: &std::sync::Arc<crate::hub::Hub>,
     origin: super::Origin,
+    auth: super::ConnAuth,
     m: &str,
     params: &mut Value,
 ) -> Result<(), RpcError> {
+    // The mode rules below give an authenticated connection more (any mode
+    // of the Codex bridge, `Hub::any_mode_for_web`): none without a proof.
+    if !auth.authenticated() {
+        return Err(super::conn_auth::refused());
+    }
     let web = origin.web_class();
+    if m == method::SESSION_CANCEL && web {
+        check_cancel_ownership(hub, params)?;
+    }
     // A per-session env is set over the unix socket only (session_env.rs).
     if matches!(m, method::SESSION_NEW | method::SESSION_FORK)
         && crate::session_env::present(params.pointer("/_meta/acpmux"))
     {
         return Err(crate::session_env::origin_refused());
+    }
+    // So is a chat's route: it decides where the harness sends its model traffic.
+    if m == method::SESSION_NEW
+        && params
+            .pointer("/_meta/acpmux/route")
+            .or_else(|| params.get("route"))
+            .is_some_and(|v| !v.is_null())
+    {
+        return Err(RpcError::new(
+            -32602,
+            "a session route is accepted only over the local unix socket",
+        )
+        .with_data(serde_json::json!({"reason": "route.origin_refused"})));
+    }
+    // So is a prompt's provenance (prompt_provenance.rs): no remote text passes as an agent's.
+    if m == method::SESSION_PROMPT
+        && crate::prompt_provenance::present(params.pointer("/_meta/acpmux"))
+    {
+        return Err(crate::prompt_provenance::origin_refused());
+    }
+    // And so is taking an agent message back (`hub/withdraw.rs`).
+    if m == method::MUX_PROMPT_WITHDRAW {
+        return Err(crate::prompt_provenance::withdraw_origin_refused());
     }
     // Which machines this daemon reaches with the user's ssh keys and
     // tokens changes over the unix socket only (LocalApp included).
@@ -103,6 +172,14 @@ pub(super) async fn check(
     // The listener's own credential changes over the unix socket only.
     if m == method::MUX_WEB_TOKEN_ROTATE {
         return Err(refused("rotating the web token"));
+    }
+    // A side session starts a new local session that approves reads (`hub/btw.rs`):
+    // never for a Web connection or a peer, whatever the chat.
+    if m == method::MUX_BTW && origin.web_class() {
+        return Err(RpcError::invalid_params(
+            "btw.remote: a side session is opened only in the app or over the local unix socket",
+        )
+        .with_data(serde_json::json!({"reason": "btw.remote"})));
     }
     if non_empty(params.get("mcpServers")) || non_empty(params.pointer("/_meta/acpmux/mcpServers"))
     {
@@ -185,17 +262,49 @@ pub(super) async fn check(
     // The folder-trust question is the user's: a remote browser cannot answer
     // it for itself (`trust_gate.rs`). After the folder checks, so a bad path
     // is still refused as one.
-    if m == method::ACP_TRUST_SET && control_of(origin, params) == crate::hub::Control::Web {
+    if m == method::ACP_TRUST_SET && control_of(origin, auth, params) == crate::hub::Control::Web {
         return Err(RpcError::invalid_params(
             "trust.remote: the folder's trust is answered only in the app or over the local unix socket",
         )
         .with_data(serde_json::json!({"reason": "trust.remote"})));
     }
+    // An MCP server turned on runs its configured command here: the app and
+    // the unix socket only (a peer forwarding for its own Web client too).
+    if m == method::MUX_SET_TOOLS && control_of(origin, auth, params) == crate::hub::Control::Web {
+        return Err(RpcError::invalid_params(
+            "tools.remote: a chat's tools are turned on or off only in the app or over the local unix socket",
+        )
+        .with_data(serde_json::json!({"reason": "tools.remote"})));
+    }
     // After the folder checks: what the request starts from, and its mode.
     if web {
-        web_starts_asking(hub, control_of(origin, params), m, params).await?;
+        web_starts_asking(hub, control_of(origin, auth, params), m, params).await?;
     }
     Ok(())
+}
+
+/// A remote connection may stop only a session that was created by a remote
+/// origin. Local-origin sessions belong to the person at this daemon, even
+/// when a Web/Peer caller can resolve their id.
+fn check_cancel_ownership(
+    hub: &std::sync::Arc<crate::hub::Hub>,
+    params: &Value,
+) -> Result<(), RpcError> {
+    let key = super::session_key(params)?;
+    match hub.resolve(key) {
+        Ok(session) if session.meta().remote_origin => Ok(()),
+        Ok(_) => Err(
+            RpcError::invalid_params(
+                "session/cancel is refused for a local-origin session; only its local owner may cancel it",
+            )
+            .with_data(serde_json::json!({"reason": "remote.session_cancel_ownership"})),
+        ),
+        Err(_) if hub.resolve_remote(key).is_some() => Ok(()),
+        Err(e) => Err(RpcError::invalid_params(format!(
+            "session/cancel from a remote WebSocket connection is refused: the session cannot be resolved ({})",
+            e.message
+        ))),
+    }
 }
 
 /// The asking modes for `family`: the merged table (`web_modes.rs`).
@@ -209,7 +318,7 @@ fn family_of(m: &crate::store::SessionMeta) -> String {
 
 /// Whether a session's mode asks: none reported, or listed for its family.
 async fn mode_asks(hub: &std::sync::Arc<crate::hub::Hub>, m: &crate::store::SessionMeta) -> bool {
-    hub.web_modes().session_asks(m)
+    hub.any_mode_for_web(m) || hub.web_modes().session_asks(m)
 }
 
 /// After a request ran: every reply to a non-unix connection is redacted
@@ -386,6 +495,7 @@ async fn web_starts_asking(
     let controls = matches!(
         m,
         method::SESSION_PROMPT
+            | method::SESSION_CANCEL
             | method::MUX_QUEUE_EDIT
             | method::MUX_PERMISSION_RESPOND
             | method::MUX_PERMISSION_GROUP_RESPOND
@@ -478,7 +588,9 @@ async fn web_starts_asking(
             let id = params.get("configId").and_then(Value::as_str);
             (Some(id.unwrap_or_default()), params.get("value").and_then(Value::as_str))
         };
-        return if hub.web_modes().config_value_asks(&family_of(&meta), id, value) {
+        return if hub.any_mode_for_web(&meta)
+            || hub.web_modes().config_value_asks(&family_of(&meta), id, value)
+        {
             Ok(())
         } else {
             Err(RpcError::invalid_params(format!(

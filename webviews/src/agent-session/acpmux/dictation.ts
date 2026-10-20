@@ -22,7 +22,12 @@ export function deliverDictation(update: DictationUpdate): void {
 
 let autoSend = false;
 /// `layout.json` `{"dictation": {"autoSend": true}}` sends the prompt when a session ends with
-/// words. Off by default: dictated text waits for the user.
+/// words. Off by default: dictated text waits for the user. The host gates it, not this page:
+/// every session/prompt needs a real key or click in the pane within 30 s (AgentPaneUserGestures),
+/// which page script cannot make. A session the user stops in the pane (the mic, or its shortcut
+/// while the pane has focus) sends. One that ends by itself (sleep, the engine, a push-to-talk hold
+/// past 30 s) or from the palette, a menu or the CLI is refused, and its prompt stays in the
+/// composer with "Not sent. Send it again." (cx-w2p8r).
 export function configureDictation(layout: Record<string, unknown> | undefined): void {
   const dictation = layout?.dictation as { autoSend?: unknown } | undefined;
   autoSend = dictation?.autoSend === true;
@@ -66,8 +71,23 @@ export type DictationField = Pick<MarkdownFieldHandle, "focus" | "text" | "write
   submit?(): void;
 };
 
+/// Voice input for a harness that takes it. While `accepts` (the chat's ACP
+/// `promptCapabilities.audio`), the host keeps each session's audio (`dictation.audio`), and the
+/// session's last update hands it to `attach` before its words land, so the recording goes with
+/// the prompt the transcript is in, or tells `omitted` why it was left out. Otherwise the session
+/// is dictation alone.
+export type DictationAudio = {
+  accepts: boolean;
+  attach(audio: { mimeType: string; data: string }): void;
+  omitted(reason: NonNullable<DictationUpdate["audioOmitted"]>): void;
+};
+
 /// Dictation into the composer's prompt, which `prompt` holds once the composer mounts.
-export function useDictation(prompt: React.RefObject<DictationField | null>, call: Call): Dictation {
+export function useDictation(
+  prompt: React.RefObject<DictationField | null>,
+  call: Call,
+  audio?: DictationAudio,
+): Dictation {
   const t = useT();
   const [state, setState] = useState<DictationState>("idle");
   const [notice, setNotice] = useState<DictationUpdate | null>(null);
@@ -77,6 +97,19 @@ export function useDictation(prompt: React.RefObject<DictationField | null>, cal
   const pending = useRef<DictationUpdate[]>([]);
   /// A toggle went to the host and no update came back yet.
   const requested = useRef(false);
+  const attachAudio = useRef(audio?.attach);
+  attachAudio.current = audio?.attach;
+  const omitAudio = useRef(audio?.omitted);
+  omitAudio.current = audio?.omitted;
+  const acceptsAudio = audio?.accepts === true;
+  /// A session that ends after the chat moved to a harness without audio keeps its words only.
+  const acceptsAudioNow = useRef(acceptsAudio);
+  acceptsAudioNow.current = acceptsAudio;
+
+  // The host decides for every start (the mic, its shortcut, the palette), so it hears each change.
+  useEffect(() => {
+    void call("dictation.audio", { enabled: acceptsAudio }).catch(() => {});
+  }, [acceptsAudio, call]);
 
   useEffect(() => {
     let composing = false;
@@ -98,6 +131,11 @@ export function useDictation(prompt: React.RefObject<DictationField | null>, cal
       }
       if (applied && applied.state === update.state && applied.text === update.text && !update.cancelled) return;
       applied = isActive(update.state) ? update : null;
+      // The recording joins the composer before the words do, so an auto-send takes both.
+      if (update.state === "idle" && !update.cancelled && acceptsAudioNow.current) {
+        if (update.audio) attachAudio.current?.(update.audio);
+        else if (update.audioOmitted) omitAudio.current?.(update.audioOmitted);
+      }
       // A session the shortcut started writes where the user will type, as undoable edits.
       if (update.state === "starting" && document.hasFocus() && !field.focused()) field.focus();
       const splice = applyDictation(field.text(), anchor.current, update);

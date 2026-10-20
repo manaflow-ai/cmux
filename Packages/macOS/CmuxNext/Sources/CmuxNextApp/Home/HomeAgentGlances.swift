@@ -26,7 +26,8 @@ struct HomeAgentGlances {
                 guard isChat ? !RestoredNewTabPages.shows(tab, in: agentTabs) : tab.agent != nil && !tab.dead else { continue }
                 let item = TabItemMapping.shared.item(tab, fallbackTitle: isChat ? AgentChatTabTitle.untitled(tab.agentSession) : Strings.untitledTerminal)
                 glances.append(HomeAgentGlance(id: tab.id, title: item.title, icon: isChat ? .agentChat : .terminal,
-                                               status: glanceStatus(item.status, working: StatusMapping.shared.isWorking(tabs: [tab]))))
+                                               status: glanceStatus(item.status, working: StatusMapping.shared.isWorking(tabs: [tab])),
+                                               indicator: item.indicator, indicatorStyle: item.busyStyle))
             }
         }
         return glances

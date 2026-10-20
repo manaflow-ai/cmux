@@ -1,8 +1,8 @@
 //! Fidelity corpus (plans/cmux-next/ghostty-next.md section 12).
 //!
 //! For each case in `schemas/terminal-corpus/manifest.json`, feed its bytes to
-//! a libghostty-vt terminal of the manifest size with the session host's
-//! default scrollback, the frontend's default colors and the cross check's
+//! a libghostty-vt terminal of the manifest size with the corpus's fixed
+//! scrollback budget, the frontend's default colors and the cross check's
 //! cell size, encode the READY and COMPLETE GHOSTSNP snapshots, and check
 //! their per-record digests against
 //! `schemas/terminal-corpus/host-snapshots-<os>-<arch>.txt`.
@@ -24,8 +24,10 @@ use ghostty_vt::{
     snapshot_ready_len, snapshot_records, snapshot_tag, snapshot_version,
 };
 
-/// The session host's default scrollback budget (cmux-tui-core
-/// `DEFAULT_SCROLLBACK_LIMIT_BYTES`).
+/// The scrollback budget the corpus snapshots were recorded with: the
+/// TERMINAL record encodes it, so every digest depends on it. It was
+/// cmux-tui-core's `DEFAULT_SCROLLBACK_LIMIT_BYTES` until that went to 10 MB;
+/// no case comes near either, and the cross check (crosscheck/run.sh) uses the same.
 const HOST_SCROLLBACK_BYTES: usize = 50_000_000;
 /// Default colors the frontend sends the session host (`set-default-colors`)
 /// for Ghostty's default theme. The cross check configures the surface with

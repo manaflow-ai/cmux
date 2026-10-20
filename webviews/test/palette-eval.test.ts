@@ -29,9 +29,19 @@ describe("palette ranking eval", () => {
     expect(pushedOut).toEqual([]);
   });
 
+  // The user's own settings (cmux.json palette.aliases and palette.pins): every case holds, always.
+  test("every alias and pin case ranks as expected", () => {
+    const report = evaluate(fixture, { ...cases, cases: cases.cases.filter((c) => c.aliases || c.pins) });
+    const failed = report.results
+      .filter((r) => r.rank !== 1)
+      .map((r) => `${JSON.stringify(r.query)}: ${r.top.join(", ")}`);
+    expect(report.cases).toBeGreaterThanOrEqual(12);
+    expect(failed).toEqual([]);
+  });
+
   // The Raycast bar (palette-ranking.md 5.2): every learning case holds, always.
   test("every learning (replay) case ranks as expected", () => {
-    const report = evaluate(fixture, { ...cases, cases: cases.cases.filter((c) => c.replay) });
+    const report = evaluate(fixture, { ...cases, cases: cases.cases.filter((c) => c.replay && !c.aliases && !c.pins) });
     const failed = report.results.filter((r) => r.rank !== 1).map((r) => `${r.query}: ${r.top.join(", ")}`);
     expect(report.cases).toBeGreaterThanOrEqual(17);
     expect(failed).toEqual([]);
@@ -41,7 +51,10 @@ describe("palette ranking eval", () => {
     "ranking quality stays at or above the recorded floors",
     () => {
       // The static floors measure text matching; learning cases have their own 100% floor above.
-      const report = evaluate(fixture, { ...cases, cases: cases.cases.filter((c) => !c.replay) });
+      const report = evaluate(fixture, {
+        ...cases,
+        cases: cases.cases.filter((c) => !c.replay && !c.aliases && !c.pins),
+      });
       console.log(formatReport(report));
       expect(report.top1).toBeGreaterThanOrEqual(floors.top1);
       expect(report.top3).toBeGreaterThanOrEqual(floors.top3);

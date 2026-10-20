@@ -5,6 +5,10 @@ import CmuxHomeRender
 /// projection store is a mirror of HomeStore (the single writer), so a send
 /// or a tapback is an intent, never a local transcript edit.
 protocol ChatIntents: AnyObject {
+    /// The user opened, drilled or closed a thread view (a permalink waiting for its message stops waiting).
+    func threadMovedByUser()
+    /// The message's permalink (`<scheme>://conversation/<c>/message/<m>`), nil when it has none yet.
+    func messageLink(_ id: ID) -> String?
     /// Return in the field: send the draft (the adapter dispatches `.send` on
     /// the projection at once, so the morph starts, and gives the draft to
     /// HomeStore, which delivers it or queues it while offline).
@@ -27,6 +31,9 @@ protocol ChatIntents: AnyObject {
     func takeAttachments(from pasteboard: NSPasteboard) -> Bool
     /// While dragging: whether a drop would be taken (types only).
     func acceptsAttachments(from pasteboard: NSPasteboard) -> Bool
+    /// A click on the status line (the Chief's "working on" line): `rect` is its text in `view`'s
+    /// coordinates, where the turn's details open.
+    func statusLineClicked(_ rect: CGRect, in view: NSView)
     /// The field's text changed (the host clears its notice).
     func draftChanged()
     /// A link card was clicked (it opens too): a domain-only card may fetch its preview now.
@@ -42,6 +49,10 @@ protocol ChatIntents: AnyObject {
     func videoState(_ ref: PartRef) -> HomeVideoState
     /// The transcript moved (user scroll, pin): paging and read cursor.
     func scrolled()
+    /// The rows read a new window place (RowCell.windowPlace: the pane moved by a fraction of a point or
+    /// resized) and may have moved their content onto other device pixels (RowCell.snapRow, MessagesLab
+    /// c1457e5): what the host draws over a row follows it.
+    func rowsPlaced()
 }
 
 /// One-shot wake-ups for the controller's engine clock (scheduled actions,

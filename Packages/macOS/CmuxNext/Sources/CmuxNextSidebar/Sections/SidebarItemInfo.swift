@@ -28,12 +28,21 @@ public nonisolated struct SidebarItemInfo: Hashable, Sendable {
     public var brand: String?
     /// One emoji the item draws as its glyph (a workspace's emoji icon), before `brand` and `icon`.
     public var emoji: String?
+    /// A workspace's favicon (its page's or the user's stored image), drawn untinted before `emoji`.
+    public var favicon: SidebarFavicon?
+    /// A workspace with no icon of its own and no favicon (WORKSPACE-ROWS-NO-DEFAULT-ICON): a look
+    /// with a title draws no glyph; an icon-only look and a tile draw the title's first letter.
+    public var textOnly = false
     /// An unread dot instead of a count, in every look (What's New after an update).
     public var unreadDot = false
     /// The current profile's avatar (SIDEBAR-FOOTER-AND-SPACE-MENU
     /// amendment 2): an icon-only item with an avatar draws its initial in
-    /// a circle with a small chevron, and a click opens the profile menu.
+    /// a circle, and a click opens the profile menu.
     public var avatar: SidebarAvatar?
+    /// A workspace item's merged status (its row's `activity`), drawn by the shared indicator.
+    public var activity: StatusIndicatorState = .idle
+    /// The winning report's style hint; nil uses `appearance.statusIndicator.style`.
+    public var activityStyle: StatusIndicatorStyle?
 
     public init(title: String, symbol: String, icon: IconName? = nil, color: GroupColor? = nil, badge: Int? = nil, isActive: Bool = false,
                 isMissing: Bool = false, isHidden: Bool = false, caption: String? = nil, shortcut: String? = nil, brand: String? = nil,

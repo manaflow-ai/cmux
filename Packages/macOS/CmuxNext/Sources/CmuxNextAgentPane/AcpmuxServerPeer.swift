@@ -14,8 +14,8 @@ import CmuxNextWakeups
 /// - when this app is Team-signed (Release, NIGHTLY, RC), the peer's code, named by its audit
 ///   token (`LOCAL_PEERTOKEN`, not its pid), is Apple-anchored and signed by the same team.
 ///
-/// Another install of cmux (lead decision 2026-10-10): NIGHTLY and Release share `~/.acpmux`, so
-/// the daemon there may be the other app's. A Team-signed build accepts such a daemon only when
+/// Another install of cmux (lead decision 2026-10-10): NIGHTLY shares `~/.acpmux` with older builds and
+/// other copies of NIGHTLY (per-build homes since cx-is1kf.3), so the daemon there may be another app's. A Team-signed build accepts such a daemon only when
 /// all of these hold, and in DEV (ad hoc) the path check alone decides:
 /// 1. the peer's code satisfies `identifier "<the code-signing identifier of this app's own
 ///    acpmux binary>" and anchor apple generic and certificate leaf[subject.OU] = "<team>"`
@@ -42,6 +42,7 @@ nonisolated enum AcpmuxServerPeer {
     enum Refusal: Error, Equatable, CustomStringConvertible {
         case unreachable(String)
         case noPeer
+        case otherUser(uid_t)
         case otherExecutable(String)
         case notTeamSigned
         case closed
@@ -52,6 +53,7 @@ nonisolated enum AcpmuxServerPeer {
             switch self {
             case .unreachable(let why): "nothing answers on the socket (\(why))"
             case .noPeer: "the socket's peer process is unknown"
+            case .otherUser(let uid): "the socket's peer runs as uid \(uid), not this user"
             case .otherExecutable(let path): "the socket's peer is \(path), not the acpmux this app runs"
             case .notTeamSigned: "the socket's peer is not signed by this app's team"
             case .closed: "the daemon closed the connection"
@@ -242,9 +244,11 @@ nonisolated enum AcpmuxServerPeer {
     }
 
     /// The check on a connected unix socket.
-    static func check(descriptor: Int32, executable: URL, allowForeign: Bool = false) -> Result<Match, Refusal> {
+    static func check(descriptor: Int32, executable: URL, allowForeign: Bool = false,
+                      expectedUID: uid_t = getuid()) -> Result<Match, Refusal> {
         // The peer's facts on this very descriptor (UnixSocketPeer, shared with the CUA client).
         guard let peer = UnixSocketPeer(descriptor: descriptor) else { return .failure(.noPeer) }
+        guard peer.uid == expectedUID else { return .failure(.otherUser(peer.uid)) }
         let own = peer.runs(executable)
         // DEV (ad hoc): the path alone decides; another install is never accepted.
         guard let team = ownTeam else { return own ? .success(.own) : .failure(.otherExecutable(peer.executablePath)) }
@@ -254,6 +258,13 @@ nonisolated enum AcpmuxServerPeer {
         if !own, identifier == nil { return .failure(.notTeamSigned) }
         guard peer.signed(team: team, identifier: identifier) else { return .failure(.notTeamSigned) }
         return .success(own ? .own : .foreign)
+    }
+
+    /// The cmux app whose bundled acpmux runs at `path` (`cmux DEV nxdog98-v1`), else the path.
+    static func holderName(executablePath path: String) -> String {
+        let parts = URL(fileURLWithPath: path).pathComponents
+        guard let app = parts.last(where: { $0.hasSuffix(".app") }) else { return path }
+        return String(app.dropLast(".app".count))
     }
 
     /// This app's team when it is Team-signed; nil for an ad-hoc DEV build.

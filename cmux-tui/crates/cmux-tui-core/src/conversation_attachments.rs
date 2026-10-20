@@ -31,6 +31,11 @@ use sha2::{Digest, Sha256};
 
 use super::{ConversationStore, load_head, rejected};
 
+#[path = "conversation_attachment_cloud.rs"]
+pub(crate) mod cloud;
+#[path = "conversation_attachment_links.rs"]
+pub(crate) mod links;
+
 /// The capability of the `conversation-attachment-*` commands.
 pub(crate) const LOCAL_ATTACHMENTS_CAPABILITY: &str = "local-attachments-v1";
 /// The bytes directory inside the session state directory.
@@ -200,6 +205,9 @@ struct Upload {
     record: StoredAttachment,
     pieces: Vec<PendingPiece>,
     deadline: Instant,
+    /// A cloud conversation's upload (cloud.rs): the owner's upload plan.
+    /// Its bytes leave for the cloud at commit and are never stored here.
+    cloud: Option<serde_json::Value>,
 }
 
 /// Bytes and uploads in flight, owned by the conversation store.
@@ -209,6 +217,10 @@ pub(crate) struct Attachments {
     uploads: HashMap<String, Upload>,
     /// Total bytes the store may hold (`DEFAULT_STORAGE_CAP`).
     storage_cap: u64,
+    /// Download links by token (`ws-attachments-v1`, links.rs).
+    links: HashMap<String, links::Link>,
+    /// Signed cloud download URLs by conversation, hash and variant (cloud.rs).
+    cloud_urls: HashMap<String, (String, Instant)>,
 }
 
 impl Attachments {
@@ -230,7 +242,13 @@ impl Attachments {
             }
             None => Blobs::Memory(HashMap::new()),
         };
-        Ok(Self { blobs, uploads: HashMap::new(), storage_cap: DEFAULT_STORAGE_CAP })
+        Ok(Self {
+            blobs,
+            uploads: HashMap::new(),
+            storage_cap: DEFAULT_STORAGE_CAP,
+            links: HashMap::new(),
+            cloud_urls: HashMap::new(),
+        })
     }
 
     fn has_blob(&self, hash: &str) -> bool {
@@ -471,24 +489,31 @@ fn usable_record(
 
 /// The owner's check of a part list for `actor` (the cloud `checkAttachments`):
 /// each attachment's hash is usable by the author, and its type, size and
-/// claimed poster or preview equal the record's.
+/// claimed poster or preview equal the record's. A link preview's image is
+/// an ordinary record of its own and is checked the same way (type and size).
 pub(crate) fn check_parts(
     transaction: &Transaction<'_>,
     conversation: &str,
     actor: &str,
     parts: &[Part],
 ) -> anyhow::Result<()> {
+    let derived_matches = |claimed: &Option<DerivedImage>, kept: &Option<DerivedImage>| {
+        claimed.as_ref().is_none_or(|claimed| kept.as_ref() == Some(claimed))
+    };
     for part in parts {
-        let Part::Attachment { hash, mime_type, byte_count, poster, preview, .. } = part else {
-            continue;
+        let (hash, mime_type, byte_count, poster, preview) = match part {
+            Part::Attachment { hash, mime_type, byte_count, poster, preview, .. } => {
+                (hash, mime_type, *byte_count, poster, preview)
+            }
+            Part::LinkPreview { image: Some(image), .. } => {
+                (&image.hash, &image.mime_type, image.byte_count, &None, &None)
+            }
+            _ => continue,
         };
         let record = usable_record(transaction, conversation, hash, actor)?
             .ok_or_else(|| rejected(Reject::UnknownAttachment))?;
-        let derived_matches = |claimed: &Option<DerivedImage>, kept: &Option<DerivedImage>| {
-            claimed.as_ref().is_none_or(|claimed| kept.as_ref() == Some(claimed))
-        };
         if &record.mime_type != mime_type
-            || record.byte_count != *byte_count
+            || record.byte_count != byte_count
             || !derived_matches(poster, &record.poster)
             || !derived_matches(preview, &record.preview)
         {
@@ -496,6 +521,16 @@ pub(crate) fn check_parts(
         }
     }
     Ok(())
+}
+
+/// The record hash a part references: an attachment's bytes or a link
+/// preview's image (a poster or preview belongs to its attachment's record).
+fn referenced_hash(part: &Part) -> Option<&str> {
+    match part {
+        Part::Attachment { hash, .. } => Some(hash),
+        Part::LinkPreview { image: Some(image), .. } => Some(&image.hash),
+        _ => None,
+    }
 }
 
 /// Reference rows for a committed message (send, edit) of `parts`, in the
@@ -510,16 +545,67 @@ pub(crate) fn write_refs(
         "DELETE FROM attachment_ref WHERE conversation = ?1 AND message_id = ?2",
         params![conversation, message_id],
     )?;
-    for part in parts {
-        if let Part::Attachment { hash, .. } = part {
-            transaction.execute(
-                "INSERT OR IGNORE INTO attachment_ref(conversation, hash, message_id)
-                 VALUES(?1, ?2, ?3)",
-                params![conversation, hash, message_id],
-            )?;
-        }
+    for hash in parts.iter().filter_map(referenced_hash) {
+        transaction.execute(
+            "INSERT OR IGNORE INTO attachment_ref(conversation, hash, message_id)
+             VALUES(?1, ?2, ?3)",
+            params![conversation, hash, message_id],
+        )?;
     }
     Ok(())
+}
+
+/// The pieces an upload declares: each with its hash and size.
+pub(crate) type DeclaredPieces = Vec<(Piece, String, u64)>;
+
+/// The record and the pieces an upload declares, by the attachment rules
+/// (the cloud owner's `validateAttachmentMeta` and derived image rules).
+pub(crate) fn declared_record(
+    declaration: &UploadDeclaration,
+) -> anyhow::Result<(StoredAttachment, DeclaredPieces)> {
+    let mime_type = declaration.mime_type.to_lowercase();
+    let class = validate_attachment_meta(
+        &declaration.sha256,
+        &mime_type,
+        declaration.byte_count,
+        &declaration.name,
+        declaration.width,
+        declaration.height,
+        declaration.duration_ms,
+    )
+    .map_err(refused_meta)?;
+    let mut derived = None;
+    for (declared, variant) in [
+        (&declaration.poster, DerivedVariant::Poster),
+        (&declaration.preview, DerivedVariant::Preview),
+    ] {
+        if let Some(declared) = declared {
+            let mut image = declared.image();
+            image.mime_type = image.mime_type.to_lowercase();
+            validate_derived(&image, class, variant).map_err(refused_meta)?;
+            derived = Some((variant, image));
+        }
+    }
+    let mut record = StoredAttachment {
+        hash: declaration.sha256.clone(),
+        mime_type,
+        byte_count: declaration.byte_count,
+        poster: None,
+        preview: None,
+    };
+    let mut pieces = vec![(Piece::Original, declaration.sha256.clone(), declaration.byte_count)];
+    if let Some((variant, image)) = derived {
+        let piece = match variant {
+            DerivedVariant::Poster => Piece::Poster,
+            DerivedVariant::Preview => Piece::Preview,
+        };
+        pieces.push((piece, image.hash.clone(), image.byte_count));
+        match variant {
+            DerivedVariant::Poster => record.poster = Some(image),
+            DerivedVariant::Preview => record.preview = Some(image),
+        }
+    }
+    Ok((record, pieces))
 }
 
 fn require_participant(
@@ -557,29 +643,7 @@ impl ConversationStore {
         declaration: &UploadDeclaration,
     ) -> anyhow::Result<BeginReply> {
         require_participant(&self.connection, conversation, actor)?;
-        let mime_type = declaration.mime_type.to_lowercase();
-        let class = validate_attachment_meta(
-            &declaration.sha256,
-            &mime_type,
-            declaration.byte_count,
-            &declaration.name,
-            declaration.width,
-            declaration.height,
-            declaration.duration_ms,
-        )
-        .map_err(refused_meta)?;
-        let mut derived = None;
-        for (declared, variant) in [
-            (&declaration.poster, DerivedVariant::Poster),
-            (&declaration.preview, DerivedVariant::Preview),
-        ] {
-            if let Some(declared) = declared {
-                let mut image = declared.image();
-                image.mime_type = image.mime_type.to_lowercase();
-                validate_derived(&image, class, variant).map_err(refused_meta)?;
-                derived = Some((variant, image));
-            }
-        }
+        let (record, pieces) = declared_record(declaration)?;
         let now = Instant::now();
         self.attachments.expire_uploads(now);
         self.sweep_unreferenced()?;
@@ -590,32 +654,26 @@ impl ConversationStore {
         if self.attachments.uploads.len() >= MAX_UPLOADS {
             return Err(refused("too_many_uploads"));
         }
-        let needed = declaration.byte_count
-            + derived
-                .as_ref()
-                .map_or(0, |(_, image): &(DerivedVariant, DerivedImage)| image.byte_count);
+        let needed = pieces.iter().map(|(_, _, byte_count)| byte_count).sum();
         self.make_room(needed)?;
+        let id = self.open_upload(client, actor, conversation, record, pieces, None)?;
+        let needs = self.attachments.uploads[&id].pieces.iter().map(|piece| piece.piece).collect();
+        Ok(BeginReply { upload: Some(id), needs, stored: None })
+    }
+
+    /// Opens one upload with a sink per piece (the local owner's, or with
+    /// `cloud` a cloud conversation's).
+    fn open_upload(
+        &mut self,
+        client: u64,
+        actor: &str,
+        conversation: &str,
+        record: StoredAttachment,
+        pieces: DeclaredPieces,
+        cloud: Option<serde_json::Value>,
+    ) -> anyhow::Result<String> {
+        let now = Instant::now();
         let id = new_upload_id()?;
-        let mut record = StoredAttachment {
-            hash: declaration.sha256.clone(),
-            mime_type,
-            byte_count: declaration.byte_count,
-            poster: None,
-            preview: None,
-        };
-        let mut pieces =
-            vec![(Piece::Original, declaration.sha256.clone(), declaration.byte_count)];
-        if let Some((variant, image)) = derived {
-            let piece = match variant {
-                DerivedVariant::Poster => Piece::Poster,
-                DerivedVariant::Preview => Piece::Preview,
-            };
-            pieces.push((piece, image.hash.clone(), image.byte_count));
-            match variant {
-                DerivedVariant::Poster => record.poster = Some(image),
-                DerivedVariant::Preview => record.preview = Some(image),
-            }
-        }
         let mut pending = Vec::with_capacity(pieces.len());
         for (piece, hash, byte_count) in pieces {
             let sink = self.attachments.new_sink(&id, piece)?;
@@ -628,7 +686,6 @@ impl ConversationStore {
                 sink,
             });
         }
-        let needs = pending.iter().map(|piece| piece.piece).collect();
         self.attachments.uploads.insert(
             id.clone(),
             Upload {
@@ -638,9 +695,10 @@ impl ConversationStore {
                 record,
                 pieces: pending,
                 deadline: now + UPLOAD_TTL,
+                cloud,
             },
         );
-        Ok(BeginReply { upload: Some(id), needs, stored: None })
+        Ok(id)
     }
 
     /// `chunk`: the next bytes of one piece, at exactly the received offset.
@@ -691,7 +749,7 @@ impl ConversationStore {
         upload: &str,
     ) -> anyhow::Result<StoredAttachment> {
         let upload = match self.attachments.uploads.remove(upload) {
-            Some(found) if found.client == client => found,
+            Some(found) if found.client == client && found.cloud.is_none() => found,
             Some(other) => {
                 // Another connection's upload stays where it was.
                 self.attachments.uploads.insert(upload.to_string(), other);
@@ -884,6 +942,8 @@ impl ConversationStore {
             .attachments
             .uploads
             .values()
+            // A cloud upload's bytes leave at its commit; they never take local room.
+            .filter(|upload| upload.cloud.is_none())
             .flat_map(|upload| upload.pieces.iter().map(|piece| piece.byte_count))
             .sum();
         Ok(u64::try_from(stored).unwrap_or(0) + in_flight)

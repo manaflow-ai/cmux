@@ -25,7 +25,8 @@ use crate::resource::TerminalPublicId;
 impl PtyTerminalRuntime {
     /// Enqueue the gap like terminal output: a non-blocking send under the
     /// capture gate (so a shutdown's final barrier follows it, or it is not
-    /// sent), and a wait for queue space with the gate released.
+    /// sent), and a wait for queue space with the gate released, bounded by
+    /// the durable deadline; past it this terminal's capture is disabled.
     pub(super) fn journal_host_reconnect_gap(&self, mux: &Arc<Mux>) {
         self.journal_output_gap(mux, "host_reconnect");
     }
@@ -36,11 +37,16 @@ impl PtyTerminalRuntime {
         }
         let Some(terminal_id) = self.terminal_public_id.clone() else { return };
         let occurred_at_ms = crate::workspace_registry::unix_epoch_ms().unwrap_or(0);
+        // A stalled writer must not hold the hosted reader past the durable
+        // deadline (the same bound as terminal output capture).
+        let deadline = mux.terminal_journal_durable_deadline();
         loop {
             let space_epoch = {
                 let _gate =
                     self.journal_capture_gate.lock().unwrap_or_else(PoisonError::into_inner);
-                if !self.journal_capture_open.load(Ordering::Acquire) {
+                if !self.journal_capture_open.load(Ordering::Acquire)
+                    || self.journal_capture_disabled.load(Ordering::Acquire)
+                {
                     return;
                 }
                 let gap = JournalIngressEvent::TerminalOutputGap {
@@ -55,7 +61,8 @@ impl PtyTerminalRuntime {
                     Err(JournalIngressTrySendError::Failed { .. }) => return,
                 }
             };
-            if mux.wait_for_terminal_journal_space(space_epoch).is_err() {
+            if let Err(error) = mux.wait_for_terminal_journal_space_until(space_epoch, deadline) {
+                self.stop_journal_capture(mux, terminal_id, reason, Some(deadline), &error);
                 return;
             }
         }

@@ -1,6 +1,6 @@
 [package]
 name = "acpmux"
-version = "0.1.0"
+version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 description = "tmux for ACP agents: a session multiplexer daemon with CLI and TUI"
@@ -43,17 +43,39 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 uuid = { version = "1.20", features = ["v7"] }
 libc = "0.2"
 notify.workspace = true
+# Session tokens and secrets (the OS generator on every platform).
+getrandom.workspace = true
 base64 = "0.22"
 unicode-width = "0.2"
 wait-timeout.workspace = true
 zeroize.workspace = true
 regex = "1"
+# The typed protocol registry (src/protocol): JSON Schema for spec/acpmux-protocol.json.
+schemars = "1"
 # The model catalog fetch (src/catalog/fetch.rs): HTTPS only, through the
 # workspace's reqwest and ring rustls provider.
 reqwest.workspace = true
 rustls.workspace = true
 pulldown-cmark = { version = "0.13", default-features = false }
 syntect = { version = "5.3", default-features = false, features = ["default-fancy"] }
+# Codex over `codex app-server` as an ACP agent, in process
+# (src/codex_app_server.rs). Pinned to an exact commit.
+cmux-codex-acp = { git = "https://github.com/manaflow-ai/cmux-codex-acp", rev = "882b976332ea3dd89df18b401ab13e14a5dc78cc", default-features = false }
+
+# Windows: the daemon socket is `cmux::local_socket` (AF_UNIX with its
+# same-user checks); the detached start (CreateProcess with a handle list),
+# owner-only ACLs and agent job objects use windows-sys.
+[target.'cfg(windows)'.dependencies]
+cmux-sdk = { path = "../../bindings/rust", default-features = false, features = ["local-socket"] }
+windows-sys = { workspace = true, features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_Storage_FileSystem",
+    "Win32_System_JobObjects",
+    "Win32_System_Pipes",
+    "Win32_System_Threading",
+] }
 
 [dev-dependencies]
 cmux-unix-socket = { workspace = true, features = ["test-support"] }

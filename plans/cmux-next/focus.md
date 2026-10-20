@@ -146,6 +146,15 @@ workspace and browser focus mode; `WindowState.focusedPane` is gone. A pure stat
 owns focus. AppKit, Ghostty, WebKit, CEF, `LayoutModel` and the
 registry context become outputs. Nothing else writes focus.
 
+The state machine's rules (the reducer, what the state resolves to, the close-focus
+successor, the type-ahead queue and the child-window key rule) live in the Rust crate
+`cmux-focus-core` (`cmux-tui/crates/cmux-focus-core`), so every platform shell runs the same
+rules. The macOS app links it in-process through cmux-app-ffi (`cmux_layout_reducer_json`
+operations `focus_*`) and calls it synchronously, once per event, with no daemon round trip;
+Swift keeps value mirrors of the state, events and effects and applies the effects. The
+conformance corpus recorded from the former Swift reducer (`cmux-layout-reducer-ffi`
+`tests/focus/corpus.json`) is replayed through the C ABI.
+
 State (`FocusState`, value type, never persisted, never sent to the daemon):
 - `windowKey`, `appActive`
 - `topology`: shown workspace, panes in layout order, each with its tabs (id, surface,
@@ -237,7 +246,7 @@ recently focused one wins. Every focus source updates the history (a click, the 
 palette, a directional move, a script). A pane position breaks a tie.
 
 - History: `FocusState.history[workspace]`, newest first, at most 64 panes per workspace, per
-  window, in memory, never persisted. `FocusReducer.finish` records the focused pane after
+  window, in memory, never persisted. The reducer's `finish` step (`cmux-focus-core`) records the focused pane after
   every reduction, whatever the source (mouse, keyboard, CLI, palette, a responder report, a
   landed expectation, app-driven repair); a `focusPane` or `selectTab` for a workspace the
   window does not show records into that workspace. A topology for the shown workspace drops
@@ -499,6 +508,22 @@ Enter), `hover`, `source` (keyboard or mouse), `pointer` (last pointer location 
 - A search engine switch re-queries and keeps an arrowed row.
 - Enter with modifiers reports `.open(url, disposition)`, and the page stays. The chrome calls
   `onOpenURL` (the App must wire it; until then, the current tab loads the URL).
+- Every commit (Enter with or without modifiers, a row click, Paste and Go, an extension
+  keyword) hands the keyboard back to the page once (`onReturnFocusToPage`); the omnibar
+  never keeps focus after Enter (Lawrence 2026-10-19, u2573).
+- Control-Enter adds `www.` and `.com` to a typed host without a dot (`example`,
+  `google/maps`); other text commits as Enter does (Chromium's desired TLD).
+- A leading `?` forces a search for the rest of the text.
+- Scheme-less private and intranet addresses load over `http`, never `https`: private,
+  CGNAT/tailnet and link-local IPv4, unique-local IPv6, `.local`, `.internal`, `.lan`,
+  `.home.arpa` and other non-unique names, and a single label with a port or path
+  (`devbox:8080`, `router/`). A single word alone still searches.
+- The card's rows change their text in place while the user types (Chromium
+  `OmniboxResultView::SetMatch`); typing never rebuilds the card's views.
+- Dragging the page-info chip drags the page out as a link (URL, text, title as
+  `public.url-name`) while the field is not focused.
+
+Chrome comparison, behavior by behavior: plans/cmux-next/omnibar-parity/PARITY.md.
 
 ### Selection and focus
 

@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextCookieImport
 import CmuxNextDesign
 import CmuxNextOnboarding
 
@@ -19,6 +20,31 @@ enum OnboardingHandlers {
         registry.bind("browser.importFromFiles", run: { invocation in
             BrowserFileImport(services: services).run(profile: BookmarkResolver(services: services).profile(invocation))
         })
+        // Cookies of one browser profile, for the CLI and agents: an agent's run asks the person first.
+        let cef = services.cache.cef
+        let cookieImports = CookieImportService(host: CookieImportHost(
+            requester: { invocation in
+                let agentTabs = services.agentTabs
+                let tabs = services.daemon.store.workspaces.flatMap { workspace in
+                    workspace.screens.flatMap(\.panes).flatMap(\.tabs).map { tab in
+                        CookieImportCandidate(tabID: tab.id, title: tab.displayTitle, workspace: workspace.displayName,
+                                              agentSession: agentTabs.sessions[agentTabs.resolve(tab.id)] ?? tab.agentSession?.session,
+                                              terminalIDs: [tab.terminalID?.rawValue, tab.terminalResourceID?.rawValue].compactMap(\.self))
+                    }
+                }
+                return CookieImportRequester(invocation, among: tabs) { session in
+                    services.chatsFeed?.chats.first { $0.sessionID == session }.map { ($0.title, $0.preview) }
+                }
+            },
+            target: { invocation in
+                let id = BookmarkResolver(services: services).profile(invocation)
+                return (id, services.browserProfiles.record(id)?.name ?? id)
+            },
+            window: { services.windows.active?.window ?? NSApp.mainWindow ?? NSApp.windows.first(where: \.isVisible) },
+            reveal: { tab in _ = registry.perform("tab.focus", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab), origin: .user)) },
+            track: { registry.track($0) },
+            destination: ChromiumCookieDestination { writes, profile in try await cef.importCookies(writes, into: profile) }))
+        registry.bind("browser.importCookies", run: { invocation in try cookieImports.run(invocation) })
         // A toast, never a sheet: the person can keep working while it runs.
         registry.bind("workspace.importClassic", run: { _ in
             let window = NSApp.keyWindow ?? NSApp.mainWindow
@@ -80,10 +106,19 @@ enum ClassicImportStrings {
         String(localized: "classicImport.toast.sshStays",
                defaultValue: "SSH workspaces whose host didn’t connect stay in classic cmux.", bundle: .module)
     }
+    static var sshScrollbackStays: String {
+        String(localized: "classicImport.toast.sshScrollbackStays",
+               defaultValue: "SSH terminals open without their old scrollback.", bundle: .module)
+    }
+    static var tabsStay: String {
+        String(localized: "classicImport.toast.tabsStay",
+               defaultValue: "Markdown and file preview tabs stay in classic cmux.", bundle: .module)
+    }
 
     /// What opened, then what stayed in classic and why.
     static func notice(_ summary: ClassicImportSummary) -> String {
         let stayed = (summary.leftCloudVMs ? [cloudVMsStay] : []) + (summary.leftSSH ? [sshStays] : [])
+            + (summary.leftSSHScrollback ? [sshScrollbackStays] : []) + (summary.leftTabs ? [tabsStay] : [])
         let opened = summary.opened > 0 ? [imported] : stayed.isEmpty ? [nothingSaved] : []
         return (opened + stayed).joined(separator: " ")
     }

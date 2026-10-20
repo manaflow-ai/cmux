@@ -12,6 +12,16 @@
 # The user's .zprofile, .zshrc and .zlogin run after this file and may prepend
 # directories that hold another `cmux`, so a one-shot precmd hook moves the
 # bundled bin dir back to the front before the first prompt.
+#
+# A terminal started with saved output (the classic session import) names its
+# replay file in CMUX_RESTORE_SCROLLBACK_FILE: another one-shot precmd hook
+# prints it once above the first prompt and removes it. Only a file in the
+# app's private cmux-next-scrollback folder is printed or removed.
+
+if [[ -n "${CMUX_RESTORE_SCROLLBACK_FILE-}" ]]; then
+    'builtin' 'typeset' -g _cmux_replay_file="$CMUX_RESTORE_SCROLLBACK_FILE"
+    'builtin' 'unset' 'CMUX_RESTORE_SCROLLBACK_FILE'
+fi
 
 if [[ -n "${CMUX_CLI_ZSH_ZDOTDIR+X}" ]]; then
     'builtin' 'export' ZDOTDIR="$CMUX_CLI_ZSH_ZDOTDIR"
@@ -37,5 +47,52 @@ fi
         }
         'builtin' 'typeset' -ag precmd_functions
         precmd_functions=(_cmux_cli_path_first "${(@)precmd_functions}")
+    fi
+    # cmux-tui's agent shim directory (`codex` and `claude` that add this
+    # terminal's hooks) goes back to the front before each command line:
+    # startup files and prompt hooks often prepend the directory of the real
+    # agent, and Codex runs its hooks in a shared daemon that cannot see this
+    # terminal's environment, so only the shim can route them. The daemon's
+    # own integration (cmux-tui shell_integration/agent-shims.zsh) carries the
+    # same functions; registering twice leaves one hook.
+    if [[ -o 'interactive' && -n "${CMUX_TUI_AGENT_SHIMS-}" ]]; then
+        _cmux_tui_agent_shims_first() {
+            'builtin' 'local' '-i' ret=$?
+            'builtin' 'emulate' '-L' 'zsh' '-o' 'no_warn_create_global' '-o' 'no_aliases'
+            'builtin' 'local' dir=${CMUX_TUI_AGENT_SHIMS-}
+            if [[ -n $dir && -d $dir && ${path[1]-} != "$dir" ]]; then
+                path=("$dir" "${(@)path:#${~${(b)dir}}}")
+            fi
+            'builtin' 'return' ret
+        }
+        # Registered from the first precmd, after .zshrc: a framework that
+        # resets preexec_functions there would otherwise drop the hook.
+        _cmux_tui_agent_shims_install() {
+            'builtin' 'local' '-i' ret=$?
+            'builtin' 'emulate' '-L' 'zsh' '-o' 'no_warn_create_global' '-o' 'no_aliases'
+            'builtin' 'typeset' -ag precmd_functions preexec_functions
+            precmd_functions=("${(@)precmd_functions:#_cmux_tui_agent_shims_install}")
+            preexec_functions=("${(@)preexec_functions:#_cmux_tui_agent_shims_first}" _cmux_tui_agent_shims_first)
+            'builtin' 'unfunction' '_cmux_tui_agent_shims_install'
+            'builtin' 'return' ret
+        }
+        'builtin' 'typeset' -ag precmd_functions
+        precmd_functions+=(_cmux_tui_agent_shims_install)
+    fi
+    if [[ -o 'interactive' && -n "${_cmux_replay_file-}" ]]; then
+        _cmux_replay_first() {
+            'builtin' 'local' file="${_cmux_replay_file-}"
+            'builtin' 'unset' '_cmux_replay_file'
+            if [[ "${file:h:t}" == 'cmux-next-scrollback' && -f "$file" ]]; then
+                /bin/cat -- "$file" 2>/dev/null
+                /bin/rm -f -- "$file" 2>/dev/null
+            fi
+            precmd_functions=("${(@)precmd_functions:#_cmux_replay_first}")
+            'builtin' 'unfunction' '_cmux_replay_first'
+        }
+        'builtin' 'typeset' -ag precmd_functions
+        precmd_functions=(_cmux_replay_first "${(@)precmd_functions}")
+    else
+        'builtin' 'unset' '_cmux_replay_file'
     fi
 }

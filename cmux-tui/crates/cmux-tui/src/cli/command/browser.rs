@@ -15,6 +15,50 @@ pub(super) fn parse_browser(
 ) -> Result<CommandPlan, UsageError> {
     match strs(words).as_slice() {
         ["list"] => request(ResourceOperation::BrowserList, selectors, flags, Map::new()),
+        // browser-devices-v1: Chrome's device toolbar list and custom devices.
+        ["devices", "list"] => {
+            request(ResourceOperation::BrowserDevicesList, selectors, flags, Map::new())
+        }
+        ["devices", "add"] => {
+            let device = super::parse_json_flag(flags, "device-json")?;
+            request(
+                ResourceOperation::BrowserDevicesAddCustom,
+                selectors,
+                flags,
+                map_with("device", device),
+            )
+        }
+        ["devices", "remove"] => {
+            let title = flags.required("title")?;
+            request(
+                ResourceOperation::BrowserDevicesRemoveCustom,
+                selectors,
+                flags,
+                map_with("title", Value::String(title)),
+            )
+        }
+        // browser.profile.* (cx-2kl68): the records, never their stores.
+        ["profile", "list"] => {
+            request(ResourceOperation::BrowserProfileList, selectors, flags, Map::new())
+        }
+        ["profile", "create"] => {
+            let mut params = map_with("name", Value::String(flags.required("name")?));
+            insert_optional_string(&mut params, flags, "color", "color");
+            insert_optional_string(&mut params, flags, "icon", "icon");
+            if let Some(index) = flags.take("index") {
+                insert_u32(&mut params, "index", "--index", index)?;
+            }
+            request(ResourceOperation::BrowserProfileCreate, selectors, flags, params)
+        }
+        ["profile", "open", ..] => parse_browser_profile_open(words, selectors, flags),
+        ["profile", action] => parse_browser_profile(action, flags),
+        // browser-profile-agent-v1: move a tab to another browser profile in
+        // place (the app re-makes the page in that profile's store).
+        ["tab", selector, "set-profile"] => {
+            selectors.insert("tab", "tab", selector)?;
+            let params = map_with("profile", Value::String(flags.required("profile")?));
+            request(ResourceOperation::BrowserTabSetProfile, selectors, flags, params)
+        }
         ["open"] | ["open", _] => parse_browser_open(words, selectors, flags),
         [selector, "show"] => {
             selectors.insert("browser", "browser", selector)?;
@@ -137,6 +181,67 @@ pub(super) fn parse_browser(
         }
         _ => usage("browser action"),
     }
+}
+
+fn private_browser_command(command: &str, mut params: Map<String, Value>) -> CommandPlan {
+    params.insert("id".into(), Value::from(1));
+    params.insert("cmd".into(), Value::String(command.to_owned()));
+    CommandPlan::RawCommand(super::super::raw::RawCommandPlan {
+        request: Value::Object(params),
+        stream: false,
+    })
+}
+
+fn parse_browser_profile(action: &str, flags: &mut Flags) -> Result<CommandPlan, UsageError> {
+    match action {
+        "move" => {
+            let mut params = Map::new();
+            params.insert("browser_profile".into(), Value::String(flags.required("profile")?));
+            insert_u32(&mut params, "index", "--index", flags.required("index")?)?;
+            Ok(private_browser_command("move-browser-profile", params))
+        }
+        // Only a person deletes a browser profile, in the app (the daemon refuses every other caller).
+        "delete" => Err(UsageError::new(
+            "browser profile delete: only a person deletes a browser profile, in the cmux app (Settings, the palette or the menu)",
+        )),
+        _ => usage("browser profile action"),
+    }
+}
+
+fn parse_browser_profile_open(
+    words: &[String],
+    selectors: &mut Selectors,
+    flags: &mut Flags,
+) -> Result<CommandPlan, UsageError> {
+    if words.len() > 3 {
+        return Err(UsageError::new("browser profile open accepts one positional URL"));
+    }
+    let positional_url = words.get(2).cloned();
+    let flagged_url = flags.take("url");
+    let url = match (positional_url, flagged_url) {
+        (Some(_), Some(_)) => {
+            return Err(UsageError::new(
+                "browser profile open accepts either a URL or --url, not both",
+            ));
+        }
+        (Some(url), None) | (None, Some(url)) if !url.is_empty() => url,
+        _ => return Err(UsageError::new("browser profile open needs a URL or --url")),
+    };
+    let mut params = map_with("url", Value::String(url));
+    params.insert("profile".into(), Value::String(flags.required("profile")?));
+    if let Some(engine) = flags.take("engine") {
+        validate_one_of("--engine", &engine, &["webkit", "cef"])?;
+        params.insert("engine".into(), Value::String(engine));
+    }
+    insert_optional_string(&mut params, flags, "title", "title");
+    if let Some(background) = flags.take("background") {
+        validate_one_of("--background", &background, &["true", "false"])?;
+        if background == "true" {
+            params.insert("activate".into(), Value::Bool(false));
+        }
+    }
+    add_optional_parent_selectors(selectors, flags, &["workspace", "screen", "pane"])?;
+    request(ResourceOperation::BrowserProfileOpen, selectors, flags, params)
 }
 
 fn parse_browser_open(

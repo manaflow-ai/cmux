@@ -1,5 +1,6 @@
 import CmuxNextAccounts
 import CmuxNextActions
+import CmuxNextApps
 import CmuxNextDesign
 import CmuxNextPages
 import CmuxNextSettings
@@ -31,12 +32,16 @@ struct PageFactory {
     /// ``AppsPageConfirmations``; the sheet reads the listing first so it can name the scopes.
     func appsWebPage(route: String?) -> PageWebView? {
         guard PageTunables.appStore.value == .web else { return nil }
-        let relay = DaemonPageRelay(services: services)
+        // The organization's DisabledFeatures `apps` turns the store off for this page too (the
+        // native store reads the same transport state), checked on every call.
+        let relay = PolicyGatedPageProvider(inner: DaemonPageRelay(services: services)) { [weak apps = services.apps] in
+            apps?.transport.turnedOff
+        }
         let confirming = ConfirmingPageProvider(inner: relay, presenter: DialogPageConfirmationPresenter()) { op, params in
-            guard AppsPageConfirmations.needsDetail(op), let app = params["app"]?.stringValue else { return nil }
+            guard AppsPageConfirmations().needsDetail(op), let app = params["app"]?.stringValue else { return nil }
             let detail = try? await relay.call("cmux.apps.catalog.get", params: ["app": .string(app)],
                                                context: PageCallContext(page: PageDescriptor.apps.id))
-            return AppsPageConfirmations.confirmation(op: op, params: params, detail: detail)
+            return AppsPageConfirmations().confirmation(op: op, params: params, detail: detail)
         }
         let native = AppPageNativeProvider(services: services, page: .apps)
         let routes = [PageRoute(prefix: "cmux.apps.", provider: confirming), PageRoute(prefix: "cmux.app.", provider: native)]
@@ -73,11 +78,14 @@ struct PageFactory {
     }
 
     /// The Cloud app page (cmux.cloud) with the machine list layout from Debug Settings. Its
-    /// namespace answers "not available yet" until the app supervisor (apps-v1) runs the Cloud app
-    /// server; then the route goes to the supervisor relay.
+    /// namespace runs on the Cloud app server through the local daemon (``CloudPageProvider``);
+    /// sign-in and sign-out run the app's own account flow after the native sheet.
     func cloudWebPage() -> PageWebView? {
         let native = AppPageNativeProvider(services: services, page: .cloud)
-        let cloud = UnavailablePageProvider(code: "cmux.cloud.unsupported")
+        let account = services.cloud
+        let cloud = CloudPageProvider(op: account.appOps,
+                                      signIn: { [weak account] in await account?.auth.signIn() ?? false },
+                                      signOut: { [weak account] in await account?.signOut() })
         native.forward = { op, params, context in try await cloud.call(op, params: params, context: context) }
         let routes = [PageRoute(prefix: "cmux.cloud.", provider: cloud), PageRoute(prefix: "cmux.app.", provider: native)]
         let attributes = ["cloud-machines-layout": PageTunables.cloudMachinesLayout.value.rawValue]
@@ -117,7 +125,7 @@ struct PageFactory {
             }
         )
         provider.harnessesState = { harnesses.state }
-        provider.harnessesRun = { params in try await harnesses.run(params) }
+        provider.harnessesRun = { params, context in try await harnesses.run(params, context: context) }
         provider.setTheme = { [weak services] level, spec in try services?.settingsWindow.setPageTheme(level: level, spec: spec) }
         provider.acceptsTheme = { [weak services] text in services?.settingsWindow.acceptsTheme(text) ?? false }
         provider.themeColors = { [weak services] in
@@ -150,26 +158,43 @@ struct PageFactory {
             pickFile: { [weak services] in await services?.viewers.picker.open(.init(choose: .files))?.first })
         provider.backdropImages = SettingsWindowService.userImages.map { images in
             SettingsBackdropImages(images: images) { [weak services] in
-                await services?.viewers.picker.open(.init(choose: .files, types: [.image]))?.first
+                await services?.viewers.picker.open(.init(choose: .files, types: [.image, .movie]))?.first
             }
         }
         let museumArt = MuseumArtSession()
         provider.museumArt = museumArt
+        provider.workspaceBackgrounds = SettingsWorkspaceBackgrounds(
+            title: { [weak services] id in services?.workspace(id: id)?.displayName },
+            value: { [weak services] id in services?.themes.workspaceBackground(id) },
+            set: { [weak services] value, id in services?.themes.setWorkspaceBackground(value, for: id) },
+            preview: { [weak services] value, id in services?.themes.previewWorkspaceBackground(value, for: id) },
+            opacity: SettingsWorkspaceOpacity(
+                value: { [weak services] id in services?.themes.workspaceOpacity(id) },
+                set: { [weak services] value, id in services?.themes.setWorkspaceOpacity(value, for: id) },
+                preview: { [weak services] value, id in services?.themes.previewWorkspaceOpacity(value, for: id) }))
         let native = AppPageNativeProvider(services: services, page: .settings)
+        // Your own backgrounds from a link, removed or revealed (BackdropImagesPageProvider).
+        let images = provider.backdropImages.map { images in
+            BackdropImagesPageProvider(images: images.images, use: { [weak provider] in try await provider?.useBackdropImage($0) ?? "" },
+                                       inUse: { [weak services] in services?.settings?.snapshot.backdropSelection })
+        }
         let routes = [PageRoute(prefix: "cmux.settings.", provider: provider), PageRoute(prefix: "cmux.app.", provider: native)]
+            + (images.map { [PageRoute(prefix: BackdropImagesPageProvider.prefix, provider: $0)] } ?? [])
         // `appearance.surfaces.settings` colors the page, as it colored the Swift Settings view.
         let dynamicResources = SettingsBackdropThumbnails(choices: SettingsWindowService.backdrops.choices,
-                                                          userImages: SettingsWindowService.userImages, museum: museumArt)
+                                                          currentChoices: { SettingsWindowService.backdrops.choices },
+                                                          userImages: SettingsWindowService.userImages, museum: museumArt,
+                                                          iconPNG: { [weak services] icon in
+                                                              await SettingsIconAssets.png(icon, owner: services?.machines.local)
+                                                          })
         let page = services.pageHostPool.claim(.settings, routes: routes, route: route, surface: .settings,
                                                dynamicResources: dynamicResources,
                                                window: services.windows.active?.window, focus: false)
             ?? PageWebView(descriptor: .settings, routes: routes, route: route, surface: .settings,
                            dynamicResources: dynamicResources)
         native.anchor = { [weak page] in page }
-        // An image dropped on Settings becomes the background (cx-t2x.8), while the picker shows.
-        page?.fileDrop = PageFileDrop(accepts: { [weak services] url in
-            services?.settings?.snapshot.experimentalAppearance == true && BackdropUserImages.isImage(url)
-        }) { [weak provider] url in
+        // An image or movie dropped on Settings becomes the background (cx-t2x.8).
+        page?.fileDrop = PageFileDrop(accepts: { url in BackdropUserImages.isImage(url) }) { [weak provider] url in
             // task-owner: one short copy and settings write per drop; a failed one changes nothing
             Task { try? await provider?.useBackdropImage(url) }
         }

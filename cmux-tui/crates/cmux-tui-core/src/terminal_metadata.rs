@@ -493,7 +493,7 @@ pub(crate) struct TerminalMetadata {
     /// replaced mirror terminal (resize, reconnect) keeps feeding them.
     program_status: crate::program_status::SharedProgramStatus,
     /// The running shell command (`terminal-activity-v1`).
-    activity: crate::terminal_activity::ShellActivity,
+    pub(crate) activity: crate::terminal_activity::ShellActivity,
 }
 
 impl TerminalMetadata {
@@ -573,6 +573,17 @@ impl TerminalMetadata {
         Self { program_status, ..Self::default() }
     }
 
+    /// Replaces the OSC 7501 records with a terminal host's.
+    pub(crate) fn restore_program_status(
+        &self,
+        snapshot: crate::program_status::ProgramStatusSnapshot,
+    ) {
+        self.program_status
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .restore(snapshot);
+    }
+
     /// The OSC 7501 records this metadata publishes.
     pub(crate) fn program_status(&self) -> crate::program_status::SharedProgramStatus {
         self.program_status.clone()
@@ -635,12 +646,26 @@ impl TerminalMetadata {
         })
     }
 
-    /// When the running shell command started, if one runs.
-    pub(crate) fn busy_since_ms(&self) -> Option<u64> {
-        self.activity.busy_since_ms()
+    /// The running shell command's state and start time, if one runs.
+    pub(crate) fn command_activity(
+        &self,
+    ) -> Option<(crate::terminal_activity::CommandActivity, u64)> {
+        self.activity.command()
     }
 
-    /// Whether the busy fact changed since the last call (marks it taken).
+    /// Applies the terminal modes after an output chunk (`modes` reads
+    /// them) to the running command; reads them only while the command
+    /// still counts as non-interactive.
+    pub(crate) fn observe_modes(
+        &mut self,
+        modes: impl FnOnce() -> crate::terminal_activity::TerminalModes,
+    ) {
+        if self.activity.wants_interactive_check() {
+            self.activity.note_modes(modes());
+        }
+    }
+
+    /// Whether the command fact changed since the last call (marks it taken).
     pub(crate) fn take_busy_change(&mut self) -> bool {
         self.activity.take_change()
     }

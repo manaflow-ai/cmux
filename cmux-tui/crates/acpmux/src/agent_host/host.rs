@@ -102,8 +102,7 @@ async fn start(spec: &SpawnSpec) -> Result<Started> {
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&spec.socket, std::fs::Permissions::from_mode(0o600))?;
     }
-    let mut child =
-        cmd.spawn().with_context(|| format!("spawn {} {}", spec.program, spec.args.join(" ")))?;
+    let mut child = cmd.spawn().context("spawn harness process")?;
     let record = HostRecord {
         record_version: RECORD_VERSION,
         session_id: spec.session_id.clone(),
@@ -209,6 +208,8 @@ struct State {
     /// waits here is bounded by the controller, which waits for answers.
     stdin_tx: mpsc::UnboundedSender<String>,
     translator: Option<Arc<Translator>>,
+    /// `codex app-server` bridged in process (`codex_app_server.rs`).
+    codex: Option<Arc<crate::codex_app_server::Translator>>,
     pgid: Option<i32>,
     /// The harness leader has not been reaped: its group id is still ours.
     leader_alive: Arc<std::sync::atomic::AtomicBool>,
@@ -222,6 +223,25 @@ struct State {
     /// The connection of the last controller that said `Hello`, also when
     /// a failed send already dropped it as the controller.
     last_owner: Option<u64>,
+    /// Never answer `Hello` (debug builds' test seam, [`claim_hello_stall`]).
+    stall_hello: bool,
+}
+
+/// Debug builds only: `ACPMUX_TEST_HOST_HELLO_STALL_DIR` names a directory of
+/// `stall-*` marker files. A host that removes one never answers `Hello`, as
+/// a wedged host does, so the daemon's integration tests can drive that
+/// path; each marker stalls one host. Release builds have no seam.
+fn claim_hello_stall() -> bool {
+    #[cfg(debug_assertions)]
+    if let Some(dir) = std::env::var_os("ACPMUX_TEST_HOST_HELLO_STALL_DIR")
+        && let Ok(entries) = std::fs::read_dir(dir)
+    {
+        return entries.flatten().any(|e| {
+            e.file_name().to_string_lossy().starts_with("stall-")
+                && std::fs::remove_file(e.path()).is_ok()
+        });
+    }
+    false
 }
 
 impl Started {
@@ -335,6 +355,8 @@ impl Started {
             }
             tr
         });
+        let codex = (spec.translator.is_none() && spec.codex_bridge)
+            .then(crate::codex_app_server::translator);
         let mut state = State {
             record,
             spec,
@@ -351,13 +373,19 @@ impl Started {
             controller: None,
             stdin_tx,
             translator,
+            codex,
             pgid,
             leader_alive,
             stderr_dropped: 0,
             unadoptable: false,
             under: Vec::new(),
             last_owner: None,
+            stall_hello: claim_hello_stall(),
         };
+        // The app-server's initialize goes out at spawn, before the hub's.
+        if let Some(cx) = state.codex.clone() {
+            state.codex_out(cx.start());
+        }
         let mut next_conn = 0u64;
         let mut permit_out = pace_tx.try_send(()).is_ok();
         // The leader exited and its exit is not pushed yet.
@@ -381,6 +409,7 @@ impl Started {
                     permit_out = false;
                     if state.exit_h.is_none() {
                         state.end_background_shells().await;
+                        state.codex_closed();
                     }
                     state.stdout_done = true;
                     state.maybe_push_exit();
@@ -409,6 +438,7 @@ impl Started {
                             "harness output stays open after its exit; reporting the exit"
                         );
                         state.end_background_shells().await;
+                        state.codex_closed();
                         state.stdout_done = true;
                         state.stderr_done = true;
                         state.maybe_push_exit();
@@ -600,7 +630,16 @@ impl State {
                 .ok()
                 .and_then(|v| v.get("type").and_then(Value::as_str).map(str::to_owned))
                 .is_some_and(|t| t == "result" || t == "control_response");
-            if let Some(tr) = self.translator.clone() {
+            if let Some(cx) = self.codex.clone() {
+                // An answer to one of the translator's requests: it gets an
+                // error in its place, so what waits on it is answered.
+                if let Ok(v) = serde_json::from_str::<Value>(&line)
+                    && let Some(id) = v.get("id").filter(|_| v.get("method").is_none())
+                {
+                    let err = serde_json::json!({"jsonrpc": "2.0", "id": id, "error": {"code": -32603, "message": "codex app-server answer was over the size limit"}});
+                    self.codex_out(cx.from_server(&err));
+                }
+            } else if let Some(tr) = self.translator.clone() {
                 if claude_answer {
                     for m in tr.fail_pending("agent answer was over the size limit").await {
                         self.push(Entry::In { msg: m.to_value() });
@@ -612,6 +651,23 @@ impl State {
                 let err = crate::rpc::RpcError::internal("agent answer was over the size limit");
                 self.push(Entry::In { msg: Message::err(id.clone(), err).to_value() });
             }
+            return;
+        }
+        if let Some(cx) = self.codex.clone() {
+            let raw: Value = match serde_json::from_str(&line) {
+                Ok(v) => v,
+                Err(_) => {
+                    self.push(Entry::Err { line: format!("[non-json stdout] {line}") });
+                    return;
+                }
+            };
+            if let Some(kind) = crate::codex_app_server::tap_kind(&raw) {
+                self.push(Entry::Tap {
+                    dir: TapDir::In,
+                    msg: Message::notification(&kind, raw.clone()).to_value(),
+                });
+            }
+            self.codex_out(cx.from_server(&raw));
             return;
         }
         let Some(tr) = self.translator.clone() else {
@@ -647,6 +703,35 @@ impl State {
         }
     }
 
+    /// What the Codex translator produced: lines for the app-server, ACP
+    /// messages for the controller.
+    fn codex_out(&mut self, outs: Vec<cmux_codex_acp::Out>) {
+        let split = crate::codex_app_server::split(outs);
+        for l in split.server {
+            self.write_codex_line(l);
+        }
+        for m in split.hub {
+            self.push(Entry::In { msg: m.to_value() });
+        }
+    }
+
+    /// The app-server's output ended: the translator answers what waits on
+    /// it, before the exit entry.
+    fn codex_closed(&mut self) {
+        if let Some(cx) = self.codex.clone() {
+            self.codex_out(cx.server_closed("it exited"));
+        }
+    }
+
+    fn write_codex_line(&mut self, line: Value) {
+        self.push(Entry::Tap {
+            dir: TapDir::Out,
+            msg: Message::notification(crate::codex_app_server::STDIN_KIND, line.clone())
+                .to_value(),
+        });
+        let _ = self.stdin_tx.send(crate::codex_app_server::line(&line));
+    }
+
     fn write_claude_line(&mut self, line: Value) {
         self.push(Entry::Tap {
             dir: TapDir::Out,
@@ -663,6 +748,13 @@ impl State {
             && let Some(n) = id.as_i64()
         {
             self.max_out_id = self.max_out_id.max(n);
+        }
+        if let Some(cx) = self.codex.clone() {
+            self.push(Entry::Tap { dir: TapDir::Out, msg: message.to_value() });
+            // Answers and updates the translator gives itself go out as if
+            // Codex sent them.
+            self.codex_out(cx.from_client(&message.to_value()));
+            return;
         }
         let Some(tr) = self.translator.clone() else {
             self.push(Entry::Tap { dir: TapDir::Out, msg: message.to_value() });
@@ -698,6 +790,9 @@ impl State {
             return;
         };
         if let ControllerFrame::Hello { min, max, token, .. } = &frame {
+            if self.stall_hello {
+                return;
+            }
             let Some(pos) = self.pending_conns.iter().position(|(pid, _)| *pid == id) else {
                 return;
             };
@@ -858,46 +953,40 @@ fn record_present(spec: &SpawnSpec, nonce: &str) -> bool {
             .is_some_and(|hosts| names_this_host(&record_path(hosts, &spec.session_id), nonce))
 }
 
-/// Watches the directories that hold this host's record (FSEvents or
-/// inotify; no polling). When the record is gone (the daemon's home was
-/// deleted, or a daemon removed the record), no daemon can ever adopt this
-/// host: it ends like SIGTERM. Every event only triggers a stat; a record
-/// rewritten in place (write, then rename) is still present.
+/// Watches the directories that hold this host's record (kqueue on macOS,
+/// inotify on Linux; `record_watch.rs`; no polling). When the record is gone
+/// (the daemon's home was deleted, or a daemon removed the record), no daemon
+/// can ever adopt this host: it ends like SIGTERM. Every event only triggers a
+/// stat; a record rewritten in place (write, then rename) is still present.
 fn watch_record(
     spec: &SpawnSpec,
     nonce: &str,
     tx: mpsc::Sender<Event>,
-) -> Option<notify::RecommendedWatcher> {
-    use notify::Watcher as _;
+) -> Option<super::record_watch::DirWatch> {
     let watched = spec.clone();
     let own = nonce.to_owned();
     let term = tx.clone();
-    let mut watcher = notify::recommended_watcher(move |_event: notify::Result<notify::Event>| {
-        // The notify thread is not a runtime thread: a blocking send never
-        // drops the end when the event queue is full.
-        if !record_present(&watched, &own) {
-            let _ = term.blocking_send(Event::Term);
-        }
-    })
-    .map_err(|e| tracing::warn!("the host cannot watch its record: {e}"))
-    .ok()?;
     let mut dirs = vec![spec.hosts_dir.clone()];
     if spec.hosts_dir.file_name().and_then(|n| n.to_str()) == Some(POOL_DIR_NAME)
         && let Some(hosts) = spec.hosts_dir.parent()
     {
         dirs.push(hosts.to_path_buf());
     }
-    for dir in &dirs {
-        if let Err(e) = watcher.watch(dir, notify::RecursiveMode::NonRecursive) {
-            tracing::warn!("the host cannot watch {}: {e}", dir.display());
+    let watch = super::record_watch::DirWatch::start(&dirs, move || {
+        if record_present(&watched, &own) {
+            return false;
         }
-    }
+        // The watch thread is not a runtime thread: a blocking send never
+        // drops the end when the event queue is full.
+        let _ = term.blocking_send(Event::Term);
+        true
+    });
     // The record may have gone before the watch began (the home deleted
     // right after the start): check once now.
     if !record_present(spec, nonce) {
         let _ = tx.try_send(Event::Term);
     }
-    Some(watcher)
+    watch
 }
 
 #[cfg(test)]

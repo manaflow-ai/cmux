@@ -24,7 +24,7 @@ extension CEFTab {
                 machine.apply(.finished(navigation))
             }
             if !loading { clearTitleBeforeCommit() }
-        case .loadStart(_, let url):
+        case .loadStart(_, let url, let fromPost):
             if navigation == nil || !state.isLoading {
                 let id = makeNavigationID()
                 navigation = id
@@ -32,6 +32,7 @@ extension CEFTab {
             }
             if let navigation { machine.apply(.committed(navigation, url: URL(string: url))) }
             restored.navigationCommitted(url: URL(string: url))
+            restored.documentCommitted(url: URL(string: url), formPost: fromPost)
             if let title = titleBeforeCommit { machine.apply(.titleChanged(title)) }
             clearTitleBeforeCommit()
             committedURL = URL(string: url)
@@ -94,7 +95,7 @@ extension CEFTab {
             rendererTerminated(.cef(status: status, code: code))
         case .renderUnresponsive: machine.apply(.unresponsiveChanged(true))
         case .renderResponsive: machine.apply(.unresponsiveChanged(false))
-        case .permissionPrompt, .permissionDismissed, .webAuthnRefused: CEFPermissionPrompts(tab: self).handle(event)
+        case .permissionPrompt, .permissionDismissed, .passwordPrompt, .webAuthnRefused: CEFPermissionPrompts(tab: self).handle(event)
         case .devToolsMessage(_, let json):
             agentRelay.deliver(json)
         default:
@@ -104,15 +105,26 @@ extension CEFTab {
 
     /// Chromium net error codes; -3 (ERR_ABORTED) is a cancelled load (Stop,
     /// a replacing navigation, a download, a rerouted URL). Every other
-    /// main-frame failure shows cmux's error page or certificate warning
-    /// (`ChromiumNetError`), over the error page Chromium commits under it,
-    /// unless `chromiumInterstitial` (Chromium's own certificate page shows).
+    /// main-frame failure shows Chromium's own page, as in Chrome (Lawrence
+    /// 2026-10-13): its net error page or certificate interstitial, which it
+    /// commits right after OnLoadError; cmux shows no page over it. cmux's
+    /// page shows for a failure whose Chromium page is empty, and for a
+    /// certificate error Chromium shows no interstitial for (the shim
+    /// cancels it in an agent-driven tab, so only a person can Proceed).
     static func loadError(code: Int, text: String, url: String, chromiumInterstitial: Bool = false) -> BrowserLoadError {
         if code == -3 {
             return BrowserLoadError(domain: NSURLErrorDomain, code: NSURLErrorCancelled, message: text, failingURL: URL(string: url))
         }
-        return ChromiumNetError(code: code, text: text).loadError(failingURL: URL(string: url), engineShowsPage: chromiumInterstitial)
+        let cmuxPage = ChromiumNetError.certificateCodes.contains(code) || chromiumDrawsEmptyPage.contains(code)
+        let chromiumPage = chromiumInterstitial || !cmuxPage
+        return ChromiumNetError(code: code, text: text).loadError(failingURL: URL(string: url), engineShowsPage: chromiumPage)
     }
+
+    /// Net errors whose Chromium error page is empty (seen live, cx-zjcq):
+    /// cmux's error page shows for them, not a blank tab.
+    static let chromiumDrawsEmptyPage: Set<Int> = [
+        -338, // ERR_INVALID_AUTH_CREDENTIALS
+    ]
 
     private func loadFavicon(_ url: URL?) {
         faviconTask?.cancel()

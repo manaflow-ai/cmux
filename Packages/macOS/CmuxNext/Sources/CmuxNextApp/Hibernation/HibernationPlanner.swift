@@ -13,10 +13,11 @@ struct HibernationPlanner {
         var host: String?
         var isPinned = false
         var hasDevTools = false
-        /// Camera or microphone in use (Page Info).
+        /// Camera or microphone in use (Page Info); the probe finds the rest (`PageProbe.capturing`).
         var isCapturing = false
         /// The engine can save and restore its history.
         var canRestore = true
+        var showsFormSubmission = false  // the shown document came from a POST (BR-R1)
     }
 
     /// Why a page does not hibernate (reported by `debug.surfaces`).
@@ -24,6 +25,15 @@ struct HibernationPlanner {
         case disabled, excluded, pinned, devTools = "devtools", capturing, unsupported
         /// Found by the probe right before hibernating.
         case audio, formInput = "form_input"
+        /// A running Web Audio context; not under critical memory pressure.
+        case webAudio = "web_audio"
+        /// An agent chat whose agent works or waits on the person (AgentPageHibernation).
+        case agentBusy = "agent_busy"
+        /// The acpmux turn watch is down, so no chat's turn is known: every chat counts as busy.
+        case agentTurnsUnknown = "agent_turns_unknown"
+        case formSubmission = "form_submission"  // the page shows a form result (BR-R1)
+        /// An agent called the page within `BrowserHibernation.agentGrace` (`cmux browser`, MCP, the REPL).
+        case agentDriving = "agent_driving"
     }
 
     struct Plan: Equatable {
@@ -47,6 +57,7 @@ struct HibernationPlanner {
     static func exemption(_ candidate: Candidate, setting: BrowserHibernationSetting) -> Exemption? {
         if !setting.isEnabled { return .disabled }
         if !candidate.canRestore { return .unsupported }
+        if candidate.showsFormSubmission { return .formSubmission }
         if candidate.hasDevTools { return .devTools }
         if candidate.isCapturing { return .capturing }
         if candidate.isPinned, !setting.includesPinnedTabs { return .pinned }

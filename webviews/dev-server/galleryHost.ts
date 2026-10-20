@@ -3,7 +3,7 @@
 //   /gallery/frame.html  one stage: one state of one entry under the controls (the shell's iframes,
 //                        the matrix runner's screenshots)
 // Virtual modules, for `bun run dev` and the static build (vite.config.gallery.ts) alike:
-//   virtual:cmux-gallery/themes            every Ghostty theme the app ships (Resources/ghostty/themes)
+//   virtual:cmux-gallery/themes            every theme the app ships (Resources/ghostty/themes, Resources/cmux-themes)
 //   virtual:cmux-gallery/web-theme         WebTheme.bootstrapScript, the script the app injects at
 //                                          document start in every cmux web view (WebTheme.swift)
 //   virtual:cmux-gallery/agent-pane.css    the agent pane's shipped stylesheet, the files and the
@@ -27,6 +27,8 @@ import { parseGhosttyTheme, type GhosttyTheme } from "../src/gallery/theme/ghost
 const webviewsRoot = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
 const repoRoot = path.join(webviewsRoot, "..");
 export const THEMES_DIR = path.join(repoRoot, "Resources/ghostty/themes");
+/** cmux's own themes, which the app's bundle phase adds to Ghostty's themes folder. */
+export const CMUX_THEMES_DIR = path.join(repoRoot, "Resources/cmux-themes");
 const WEB_THEME_SWIFT = path.join(repoRoot, "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Windows/WebTheme.swift");
 const PANE_BUILD_SCRIPT = path.join(repoRoot, "scripts/cmux-next/build-agent-pane-web.sh");
 const SESSION = path.join(webviewsRoot, "src/agent-session");
@@ -46,13 +48,18 @@ const PANE_CSS_ID = "virtual:cmux-gallery/agent-pane.css";
 // The CSS id is a path under the gallery (no file there), so Vite's CSS pipeline takes it.
 const PANE_CSS_PATH = path.join(galleryDir, "agent-pane.virtual.css");
 
-/** Every shipped theme, sorted by name; files that name no colors are skipped. */
-export function readShippedThemes(dir = THEMES_DIR): GhosttyTheme[] {
-  return fs
-    .readdirSync(dir)
-    .filter((name) => !name.startsWith("."))
-    .sort((a, b) => a.localeCompare(b, "en"))
-    .map((name) => parseGhosttyTheme(name, fs.readFileSync(path.join(dir, name), "utf8")))
+/** Every shipped theme (Ghostty's and cmux's own), sorted by name; files that name no colors are skipped. */
+export function readShippedThemes(dirs = [THEMES_DIR, CMUX_THEMES_DIR]): GhosttyTheme[] {
+  return dirs
+    .filter((dir) => fs.existsSync(dir))
+    .flatMap((dir) =>
+      fs
+        .readdirSync(dir)
+        .filter((name) => !name.startsWith("."))
+        .map((name) => ({ name, file: path.join(dir, name) })),
+    )
+    .sort((a, b) => a.name.localeCompare(b.name, "en"))
+    .map(({ name, file }) => parseGhosttyTheme(name, fs.readFileSync(file, "utf8")))
     .filter((theme): theme is GhosttyTheme => theme !== null);
 }
 
@@ -102,9 +109,11 @@ export function readWebThemeBootstrap(file = WEB_THEME_SWIFT): string {
     .split("\n")
     .map((line) => (line.startsWith(indent) ? line.slice(indent.length) : line.trimStart()))
     .join("\n");
-  // The gallery runs it as is; a Swift interpolation or escape would make it differ from the app's.
-  if (/\\\(|\\[nt"\\]/.test(script)) throw new Error("gallery: bootstrapScript has Swift escapes; extend the reader");
-  return script;
+  // The gallery runs what the app runs: a Swift `\\` is one backslash (a regular expression's, as in
+  // the color transition's rgba parser); any other escape or an interpolation would differ.
+  if (/\\[nt"(]/.test(script.replace(/\\\\/g, "")))
+    throw new Error("gallery: bootstrapScript has Swift escapes; extend the reader");
+  return script.replace(/\\\\/g, "\\");
 }
 
 /**
@@ -223,14 +232,22 @@ export function galleryModules(): Plugin {
       // The sources live partly outside webviews/ (the themes, WebTheme.swift, the build script),
       // where Vite does not watch: watch them, and reload the module built from a changed one.
       const roots = fixtureRoots().map((root) => path.join(repoRoot, root));
-      server.watcher.add([THEMES_DIR, WEB_THEME_SWIFT, PANE_BUILD_SCRIPT, FIXTURE_INDEX, METRICS_SWIFT, ...roots]);
+      server.watcher.add([
+        THEMES_DIR,
+        CMUX_THEMES_DIR,
+        WEB_THEME_SWIFT,
+        PANE_BUILD_SCRIPT,
+        FIXTURE_INDEX,
+        METRICS_SWIFT,
+        ...roots,
+      ]);
       server.watcher.on("all", (_event, file) => {
         const fixture = file === FIXTURE_INDEX || roots.some((root) => file.startsWith(`${root}/`));
         const id = fixture
           ? `\0${FIXTURES_ID}`
           : file === METRICS_SWIFT
             ? `\0${METRICS_ID}`
-            : file.startsWith(`${THEMES_DIR}/`)
+            : file.startsWith(`${THEMES_DIR}/`) || file.startsWith(`${CMUX_THEMES_DIR}/`)
               ? `\0${THEMES_ID}`
               : file === WEB_THEME_SWIFT
                 ? `\0${WEB_THEME_ID}`

@@ -1,5 +1,6 @@
 import CmuxNextAgentPane
 import CmuxNextDaemon
+import CmuxNextHomeEngine
 import Foundation
 
 /// Which acpmux an agent tab's pane attaches to.
@@ -36,7 +37,7 @@ struct ChiefHomeAcpmux {
     init(home: ChiefHome) {
         host = Self.host(muxHome: home.muxHome)
         let bin = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true)
-        let environment = AcpmuxEnvironment.resolve(tag: nil, bundledBinDirectory: bin,
+        let environment = AcpmuxEnvironment.resolve(build: nil, bundledBinDirectory: bin,
                                                     environment: ["ACPMUX_HOME": home.acpmuxHome.path])
         // The Chief host owns this daemon (it starts it, with the Chief's env): a
         // tab only attaches, never hands it off or starts one (cx-ebm.54).

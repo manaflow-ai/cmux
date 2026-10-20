@@ -202,6 +202,12 @@ pub trait AgentPort: Send + Sync {
         Ok(())
     }
 
+    /// The models acpmux offers for `harness` (`_acpmux/models`), each
+    /// `{"id", "name"}`, in its order: what an engine set may pick.
+    fn offered_models(&self, _harness: &str) -> Result<Vec<Value>, String> {
+        Ok(Vec::new())
+    }
+
     /// The daemon's `_acpmux/harnesses` answer: every profile with its kind,
     /// command and family (`harness_gate::admit` reads it before each Chief
     /// session). A port without one refuses every Chief session.
@@ -809,12 +815,33 @@ pub fn new_session(
     if !spec.env.is_empty() {
         meta["env"] = json!(spec.env);
     }
-    let result = client
-        .request(
+    let request = |meta: &Value| {
+        client.request(
             "session/new",
             json!({"cwd": spec.cwd, "mcpServers": [], "_meta": {"acpmux": meta}}),
         )
-        .map_err(|e| format!("session/new: {e}"))?;
+    };
+    let result = match request(&meta) {
+        // An acpmux from before the turn seal refuses that key: the turn
+        // runs without it (its `chiefs` tool then answers that it is not
+        // this Chief's turn), never not at all.
+        Err(e)
+            if e.to_string().contains(&format!(
+                "env key {} is not one a session may set",
+                crate::chief_profile::TURN_KEY_ENV
+            )) =>
+        {
+            if let Some(env) = meta.get_mut("env").and_then(Value::as_object_mut) {
+                env.remove(crate::chief_profile::TURN_KEY_ENV);
+                if env.is_empty() {
+                    meta.as_object_mut().map(|m| m.remove("env"));
+                }
+            }
+            request(&meta)
+        }
+        other => other,
+    }
+    .map_err(|e| format!("session/new: {e}"))?;
     let id = result
         .get("sessionId")
         .and_then(Value::as_str)
@@ -955,6 +982,27 @@ impl AgentPort for Acpmux {
             .request("_acpmux/models", json!({"probe": [harness]}))
             .map(|_| ())
             .map_err(|e| format!("models probe: {e}"))
+    }
+
+    fn offered_models(&self, harness: &str) -> Result<Vec<Value>, String> {
+        let catalog = self
+            .client()?
+            .request("_acpmux/models", json!({}))
+            .map_err(|e| format!("models: {e}"))?;
+        Ok(catalog["harnesses"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|h| h["harness"] == harness)
+            .and_then(|h| h["models"].as_array())
+            .into_iter()
+            .flatten()
+            .filter_map(|m| {
+                let id = m["id"].as_str()?;
+                let name = m["name"].as_str().unwrap_or(id);
+                Some(json!({"id": id, "name": name}))
+            })
+            .collect())
     }
 
     fn harness_catalog(&self) -> Result<Value, String> {

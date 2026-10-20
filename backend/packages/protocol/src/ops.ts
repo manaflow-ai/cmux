@@ -29,6 +29,7 @@ import { homeOps } from "./ops-home.ts"
 import { networkOps } from "./network-ops.ts"
 import { serverOps } from "./server-ops.ts"
 import { usageOps } from "./usage.ts"
+import { teamAiLimitOps } from "./team-ai-limit-ops.ts"
 import { UserTeamsList } from "./team-member-ops.ts"
 import { teamVmOps } from "./team-vm-ops.ts"
 import { teamMemberOps } from "./team-member-ops.ts"
@@ -222,6 +223,21 @@ export const HostRemove = def({
   mcp: { expose: "never", group: "team" }
 })
 
+export const HostReplicaPurge = def({
+  name: "host.replica.purge",
+  owner: "cloud:TeamDO",
+  class: "mutation",
+  risk: "destructive",
+  target: "host",
+  principals: ["session", "install"],
+  params: Schema.Struct({ host: HostId }),
+  result: Schema.Struct({ host: HostId }),
+  errors: [...mutationErrors, "selector.not_found"],
+  docs: "Delete the cloud copy of a host's read replica (its owner only), also while the host is off. The host stays enrolled; it publishes again only while its own app keeps the replica on.",
+  cli: { path: "host replica purge", visible: true },
+  mcp: { expose: "never", group: "team" }
+})
+
 export const cloudOps = [
   UserEnsure,
   InstallRegister,
@@ -235,6 +251,7 @@ export const cloudOps = [
   TeamHostsList,
   HostEnroll,
   HostRemove,
+  HostReplicaPurge,
   ...automationOps,
   ...usageOps,
   ...integrationOps,
@@ -249,6 +266,7 @@ export const cloudOps = [
   ...serverOps,
   ...teamVmOps,
   ...teamMemberOps,
+  ...teamAiLimitOps,
   ...teamSshOps,
   ...cloudMachineOps,
   ...cloudVmOps,

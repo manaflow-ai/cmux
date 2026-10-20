@@ -7,12 +7,27 @@ answers, MockHomeSource.scheduleReplies), sends a message through the field's se
 (debug.home.drive type + send) and takes window snapshots at 2.0 s and 2.6 s, while the Chief types: the typing bubble (RowCell.typingBody, Fixture.typingFill) in the app's own theme.
 Passes when the send goes and the bubble is in the image: its box (debug.home.drive typing) is
 read from the app and the mean colour inside it must differ from the background beside it; its flat
-edges have no partial pixels, also after the transcript moves by half a device pixel in its pane (b6760b6). Socket only, no system input. Runs on
+edges have no partial pixels, also after the transcript moves by half a device pixel in its pane (b6760b6); in that
+snapshot every text row's anchored side (incoming left, outgoing right) and top lie on whole device pixels, its
+balloon's edges are where the app draws them (an outgoing text balloon a little inside its frame, 2281879), and an
+incoming balloon's straight edges have no partial pixels (c1457e5 row-snap; home_pixels.check_rows). Then two width
+changes of the transcript in one main-thread turn: the rows follow the second at once (f11642b resize-pace;
+a first pass over the 2 ms frame budget defers it as intended: SKIP of that proof, and the rows must follow a frame
+later). The half-pixel snapshot also has the pane's right edge on half a device pixel: my (outgoing) rows' right
+edges are snapped (82ccac1). Socket only, no system input. Runs on
 cmux-lawrence-2; ends with the DEBUG quit fixture and the tag's `acpmux daemon shutdown`.
 
 Usage: home-typing-still.py --tag <tag> [--out DIR]
 """
 import argparse, json, os, socket, subprocess, sys, time
+import re
+
+# The pane width trim (pt) that puts the transcript's right edge on half a device pixel (with the 0.25 pt move, 2x).
+FRACTION_TRIM = 0.5
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from home_pixels import SKIPPED, check_rows, mean_rgb, read_png  # noqa: E402
+import home_classic  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -65,39 +80,6 @@ def poll(predicate, timeout=20):
 
 
 
-def read_png(path):
-    """8-bit RGB or RGBA, non-interlaced PNG (window snapshots): (width, height, rows of bytes, 3 or 4 per pixel)."""
-    import struct, zlib
-    data = open(path, "rb").read()
-    pos, idat, w = 8, b"", 0
-    while pos < len(data):
-        n, kind = struct.unpack(">I4s", data[pos:pos + 8])
-        body = data[pos + 8:pos + 8 + n]
-        if kind == b"IHDR":
-            w, h, depth, ctype, _, _, interlace = struct.unpack(">IIBBBBB", body)
-            if depth != 8 or ctype not in (2, 6) or interlace:
-                raise ValueError(f"unsupported PNG depth {depth} colour type {ctype} interlace {interlace}")
-            bpp = 4 if ctype == 6 else 3
-        elif kind == b"IDAT":
-            idat += body
-        pos += 12 + n
-    raw, stride, rows, prev = zlib.decompress(idat), w * bpp, [], bytearray(w * bpp)
-    for y in range(h):
-        f, line = raw[y * (stride + 1)], bytearray(raw[y * (stride + 1) + 1:(y + 1) * (stride + 1)])
-        for i in range(stride):
-            a = line[i - bpp] if i >= bpp else 0
-            b = prev[i]
-            c = prev[i - bpp] if i >= bpp else 0
-            if f == 1: line[i] = (line[i] + a) & 255
-            elif f == 2: line[i] = (line[i] + b) & 255
-            elif f == 3: line[i] = (line[i] + (a + b) // 2) & 255
-            elif f == 4:
-                p = a + b - c; pa, pb, pc = abs(p - a), abs(p - b), abs(p - c)
-                line[i] = (line[i] + (a if pa <= pb and pa <= pc else b if pb <= pc else c)) & 255
-        rows.append(line); prev = line
-    return w, h, (rows, bpp)
-
-
 def edge_partials(px, w, h, box, scale, fill, bg, tol=12):
     """Pixels on the bubble's flat top and bottom edges (the middle 40 % of its width) that are neither
     the fill nor the background (a partial pixel: the edge is not on a whole device pixel)."""
@@ -115,32 +97,24 @@ def edge_partials(px, w, h, box, scale, fill, bg, tol=12):
     return count
 
 
-def mean_rgb(px, w, h, x0, y0, x1, y1):
-    rows, bpp = px
-    xs = range(max(0, int(x0)), min(w, int(x1))); ys = range(max(0, int(y0)), min(h, int(y1)))
-    n = max(1, len(xs) * len(ys)); sums = [0, 0, 0]
-    for y in ys:
-        r = rows[y]
-        for x in xs:
-            for k in range(3): sums[k] += r[x * bpp + k]
-    return [round(v / n, 1) for v in sums]
-
-
 if os.path.exists(sock):
     os.unlink(sock)
 env = {"HOME": home, "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"), "SHELL": "/bin/zsh",
        "PATH": f"{home}/.local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1",
        "CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_DEV_BACKEND_MODE": "local",
-       "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1200,800"}
+       "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1200,800", **home_classic.ENV}
 process = subprocess.Popen([f"{app}/Contents/MacOS/cmux DEV"], env=env, cwd=opts.out, stdin=subprocess.DEVNULL,
                            stdout=open(os.path.join(opts.out, "app.log"), "a"), stderr=subprocess.STDOUT, start_new_session=True)
 pid = process.pid
 print(f"launched pid {pid}", flush=True)
 try:
+    # Classic Home or stop at once (cx-h0kds): these checks drive the native classic Home transcript.
+    if not home_classic.require(rpc):
+        sys.exit(2)
     inbox = poll(lambda: (r := api(call="inbox")) and "conversations" in r and r, timeout=180)
     if not check("the local owner answers inbox", bool(inbox), api(call="inbox")):
         sys.exit(1)
-    opened = rpc("debug.home_native_fixture.open") or {}
+    opened = rpc("debug.home_native_fixture.open", {"new": True}) or {}
     check("the Home fixture opens", bool(opened.get("ok")), opened)
     texts = poll(lambda: (t := (rpc("debug.home.drive", {"action": "texts"}) or {}).get("texts")) and t, timeout=60)
     check("the fixture's transcript shows messages", bool(texts), rpc("debug.home.drive", {"action": "texts"}))
@@ -157,10 +131,17 @@ try:
     # MessagesLab b6760b6: the transcript moves by half a device pixel in its pane (no size change); the bubble
     # must still land on whole device pixels (RowCell.windowPlace, refreshed by Home's host). The backing
     # scale comes from the window (2x on the GUI host); 0.25 pt at 2x (0.5 pt would stay on the pixel grid).
+    # MessagesLab c1457e5 (row-snap): every message row rests on whole device pixels too, so the move is on both
+    # axes (a vertical move puts the rows' top and bottom edges on half a pixel without the snap).
     k0 = 2.0
-    rpc("debug.home.drive", {"action": "nudge", "dx": 0.5 / k0})
+    # MessagesLab 82ccac1 (snap-followup): my rows snap their right edge, so the pane's right edge goes onto a
+    # fraction of a device pixel too: the transcript narrows by 0.5 pt (with the 0.25 pt move, its right edge is half a
+    # device pixel off the grid, as a pane split to a fractional width).
+    rpc("debug.home.drive", {"action": "nudge", "dx": 0.5 / k0, "dy": 0.5 / k0})
+    rpc("debug.home.drive", {"action": "resize", "trims": [FRACTION_TRIM]})
     time.sleep(0.2)  # test harness: one display frame for the move to show
     half = rpc("debug.home.drive", {"action": "typing"}) or {}
+    half_rows = rpc("debug.home.drive", {"action": "rows"}) or {}
     half_shot = os.path.join(opts.out, "typing-half-pixel.png")
     rpc("debug.window_snapshot", {"path": half_shot})
     check("snapshots of the typing indicator", os.path.exists(shot) and os.path.exists(half_shot), [shot, half_shot])
@@ -191,21 +172,74 @@ try:
         return abs(v - round(v)) < 0.01
     # snapTyping places the group's top-left on a device pixel (its size is whole pixels too): the left and
     # top edges (window y from the bottom: y + height).
-    check("the transcript sits on half a device pixel", bool(half.get("ok")) and abs(((half.get("hostX", 0) * k0) % 1) - 0.5) < 0.01, half)
+    check("the transcript sits on half a device pixel (both axes)", bool(half.get("ok"))
+          and all(abs(((half.get(k, 0) * k0) % 1) - 0.5) < 0.01 for k in ("hostX", "hostY")), half)
+    check("the transcript's right edge sits on half a device pixel", abs(((half_rows.get("hostRight", 0) * k0) % 1) - 0.5) < 0.01,
+          {k: half_rows.get(k) for k in ("hostRight", "trim", "scale")})
     if half.get("ok") and os.path.exists(half_shot):
         scale, _, inner, bg, diff, partial = measure(half, half_shot)
         px_edges = [half["x"] * scale, (half["y"] + half["height"]) * scale]
         print(f"     half pixel: host x {half['hostX']}, bubble left/top in device px {[round(e, 3) for e in px_edges]},"
               f" mean diff {diff:.1f}, partial pixels on the flat edges (information) {partial}", flush=True)
         check("moved by half a device pixel, the bubble's edges are on whole device pixels", all(whole(e) for e in px_edges), px_edges)
+    # The message rows (c1457e5 RowCell.snapRow), in the same half-pixel snapshot: every text bubble's
+    # top-left on whole device pixels, and no partial pixels along its straight edges.
+    check("the app reports the message rows", bool(half_rows.get("ok")), half_rows)
+    if half_rows.get("ok") and os.path.exists(half_shot):
+        check_rows(check, "half pixel", half_rows, half_shot)
+
+    # MessagesLab f11642b (resize-pace): a second width change in the same display frame runs its layout at once
+    # when that frame's passes cost under 2 ms (it waited for the next frame's tick before: one frame with the
+    # new width and the old rows). The transcript narrows by 40 pt twice in one main-thread turn (one socket
+    # request: no display frame between), as a divider drag or a live resize can. After the second change the
+    # outgoing rows must already end 80 pt further left, and no width pass may be deferred.
+    base = rpc("debug.home.drive", {"action": "rows"}) or {}
+    paced = rpc("debug.home.drive", {"action": "resize", "trims": [FRACTION_TRIM + 40, FRACTION_TRIM + 80]}) or {}
+    steps = paced.get("steps") or []
+    check("resize pace: two width changes in one turn", bool(paced.get("ok")) and len(steps) == 2 and bool(base.get("ok")), paced)
+    if len(steps) == 2 and base.get("ok"):
+        def outgoing_right(rows):
+            return {r["key"]: r.get("maxX", r["x"] + r.get("width", 0)) for r in rows if r["kind"] == "text" and r["outgoing"]}
+        b0 = {r["key"]: r["balloon"]["x"] + r["balloon"]["width"] for r in base["rows"] if r["kind"] == "text" and r["outgoing"]}
+        s1, s2 = outgoing_right(steps[0]["rows"]), outgoing_right(steps[1]["rows"])
+        keys = sorted(set(b0) & set(s1) & set(s2))
+        moved = {k: [round(b0[k] - s1[k], 2), round(b0[k] - s2[k], 2)] for k in keys}
+        deferred = steps[1]["deferred"] - steps[0]["deferred"]
+        print(f"     resize pace: passes {steps[0]['passes']} -> {steps[1]['passes']}, deferred in the second change {deferred};"
+              f" outgoing right edges moved left by (first, second) {moved}", flush=True)
+        check("resize pace: outgoing rows to compare", bool(keys), {"base": list(b0), "after": list(s2)})
+        # The frame budget (2 ms): a first pass that cost more defers the second change to the next frame, as the
+        # pin intends (a slow Debug pass is no failure). Then the rows must follow by the next request, and the
+        # proof of the same-frame layout is not made (said in the output, not passed silently).
+        budget = paced.get("budgetMs", 2.0); first_ms = steps[0].get("ms", 0)
+        over = first_ms >= budget
+        print(f"     resize pace: first step {first_ms:.2f} ms, second {steps[1].get('ms', 0):.2f} ms, frame budget {budget:.2f} ms", flush=True)
+        if deferred and over:
+            print(f"SKIP resize pace same-frame proof: the first pass took {first_ms:.2f} ms (budget {budget:.2f} ms), so the"
+                  " deferral is the intended one", flush=True)
+            SKIPPED.append("resize pace same-frame")
+            # Rows read until they follow (a display frame must pass first; at most 2 s).
+            follows = lambda r: bool(keys) and all(k in r and abs(b0[k] - r[k] - 80) <= 0.6 for k in keys)
+            later = poll(lambda: (r := outgoing_right((rpc("debug.home.drive", {"action": "rows"}) or {}).get("rows") or []))
+                         and follows(r) and r, timeout=2) or {}
+            check("resize pace: after the deferral the rows follow the new width a frame later (outgoing right edges 80 pt left)",
+                  bool(keys) and all(k in later and abs(b0[k] - later[k] - 80) <= 0.6 for k in keys),
+                  {k: round(b0[k] - later[k], 2) for k in keys if k in later})
+        else:
+            check("resize pace: the second width change in the frame ran its pass at once (none deferred)", deferred == 0, steps)
+            check("resize pace: after the second change the rows are laid out for the new width (outgoing right edges 80 pt left)",
+                  bool(keys) and all(abs(v[0] - 40) <= 0.6 and abs(v[1] - 80) <= 0.6 for v in moved.values()), moved)
+    rpc("debug.home.drive", {"action": "resize", "trims": [0]})
 finally:
     reply = rpc("debug.quit", {"fixture_quit": "end-sessions"}, timeout=10)
     if not (isinstance(reply, dict) and reply.get("quitting") == "end-sessions"):
         rpc("action.run", {"id": "quitEndSessions"}, timeout=10)
     poll(lambda: subprocess.run(["kill", "-0", str(pid)], capture_output=True).returncode != 0, timeout=25)
-    acp = f"{home}/.acpmux/tags/{opts.tag}"
-    subprocess.run([f"{app}/Contents/Resources/bin/acpmux", "daemon", "shutdown"], capture_output=True,
+    acp = "%s/.acpmux/builds/com.cmuxterm.app.debug.%s" % (home, re.sub(r"[^a-z0-9]+", ".", opts.tag.lower()).strip("."))
+    subprocess.run([f"{app}/Contents/Resources/bin/acpmux", "daemon", "shutdown", "--end-agents"], capture_output=True,
                    env=dict(os.environ, ACPMUX_HOME=acp, ACPMUX_SOCKET=f"{acp}/acpmux.sock"))
 
 print(f"{len(failures)} failed: {failures}" if failures else "all checks passed", flush=True)
+if SKIPPED:
+    print(f"{len(SKIPPED)} proof(s) skipped (not passed): {SKIPPED}", flush=True)
 sys.exit(1 if failures else 0)

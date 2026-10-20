@@ -148,7 +148,7 @@ describe("gallery shell keyboard emulation", () => {
 describe("gallery play settle budget", () => {
   // Headless WebKit on the CPU-only CI VM has no Long Animation Frames: the stage times frames by
   // rAF, and one software-painted frame there takes 200-450 ms where Chromium's data shows no frame
-  // over 16.7 ms for the same step (new-tab switcher-keys, typed-address). Settling waits on those
+  // over 16.7 ms for the same step (new-tab typed-address). Settling waits on those
   // frames, so its latency measures the VM there as the frame timing does.
   const slowFocus = async (frameSource: "long-animation-frame" | "raf") => {
     const root = document.getElementById("root")!;

@@ -11,6 +11,7 @@ public final class AgentPageRedraw {
     /// The size the page last laid out at in a window.
     private var drawnSize: CGSize?
     private var waiters: [() -> Void] = []
+    private var frameWaiters: [() -> Void] = []
     private var probing = false
     private var generation: UInt64 = 0
 
@@ -18,9 +19,15 @@ public final class AgentPageRedraw {
         self.webView = webView
     }
 
-    /// The page drew before and `pane` is out of the window: shown again, it draws once more first.
+    /// The page drew before and shows again at another size than it drew at: out of the window, or
+    /// parked hidden in its pane (it stays sized with the pane meanwhile, but draws nothing hidden),
+    /// at a size that changed or is about to (the pane has a layout pending: the strip hides with
+    /// this switch, cx-f6i7). Shown again at the size it drew at, it shows at once (perf-tabs).
     public func awaits(_ pane: NSView) -> Bool {
-        pane.window == nil && drawnSize != nil
+        guard let drawnSize else { return false }
+        if pane.window == nil { return true }
+        guard pane.isHidden, let host = pane.superview else { return false }
+        return host.bounds.size != drawnSize || host.superview?.needsLayout == true || host.needsLayout
     }
 
     /// Runs `body` once the page drew at the size `pane` shows it at: at the pane's next layout when
@@ -32,7 +39,8 @@ public final class AgentPageRedraw {
 
     /// From the pane's `layout()`: notes the size the page draws at, and answers ``when(_:_:)``.
     func laidOut(_ pane: NSView) {
-        guard pane.window != nil, !pane.bounds.isEmpty else { return }
+        // A hidden page follows the pane's size but draws nothing: its drawn size stays.
+        guard pane.window != nil, !pane.bounds.isEmpty, !pane.isHiddenOrHasHiddenAncestor else { return }
         let size = pane.bounds.size
         guard size != drawnSize else {
             // Drawn at this size, or the frame that draws it is on the way.
@@ -53,6 +61,69 @@ public final class AgentPageRedraw {
             self.probing = false
             self.finish()
         }
+    }
+
+    /// Runs `body` once the page's next frame is on screen: one animation frame and a task in the
+    /// page, then WebKit's next presentation update (the layer tree the window shows), so a page
+    /// moved into another view has drawn there (cx-21zkz: the page's task ran a few frames before).
+    /// Now when it has no web view.
+    public func afterNextFrame(_ body: @escaping () -> Void) {
+        guard let webView else { return body() }
+        frameWaiters.append(body)
+        guard frameWaiters.count == 1 else { return }
+        webView.callAsyncJavaScript(
+            "await new Promise((done) => requestAnimationFrame(() => setTimeout(done, 0)));",
+            arguments: [:], in: nil, in: .defaultClient
+        ) { [weak self] _ in
+            guard let self else { return }
+            afterPresentationUpdate { [weak self] in self?.finishFrame() }
+        }
+    }
+
+    /// A capture for the app's New Tab frame is on the way (one per page at a time).
+    public var givesNewTabFrame = false
+
+    /// The page as it drew out of sight (a parked New Tab spare), at its size and appearance.
+    private var remembered: (image: NSImage, size: CGSize, appearance: NSAppearance.Name?, generation: UInt64)?
+
+    /// Snapshots the page as WebKit draws it now in `pane` (a parked New Tab spare), kept when `pane`
+    /// is still where and as large as it was when the snapshot is ready: the image its move into a
+    /// pane shows until it draws there is then this page at that size.
+    public func rememberFrame(of pane: NSView, appearance: NSAppearance.Name?) {
+        // Only a page that draws today's chats and model (`AgentPaneNewTabFrame`).
+        guard let model = (pane as? AgentPaneView)?.model, AgentPaneNewTabFrame.shared.shows(model).0 else { return }
+        let (size, place, generation) = (pane.frame.size, pane.superview, AgentPaneNewTabFrame.shared.generation)
+        // task-owner: one snapshot; dropped when the page moved or resized meanwhile
+        Task { @MainActor [weak self, weak webView, weak pane, weak place] in
+            guard let image = try? await webView?.takeSnapshot(configuration: nil), image.size == size,
+                  let pane, pane.superview === place, pane.frame.size == size else { return }
+            self?.remembered = (image, size, appearance, generation)
+        }
+    }
+
+    /// The remembered frame, once, when it was drawn at `size` and `appearance` and its chats and model
+    /// are still today's (`AgentPaneNewTabFrame`).
+    public func takeRememberedFrame(size: CGSize, appearance: NSAppearance.Name?) -> NSImage? {
+        defer { remembered = nil }
+        guard let remembered, remembered.size == size, remembered.appearance == appearance,
+              remembered.generation == AgentPaneNewTabFrame.shared.generation else { return nil }
+        return remembered.image
+    }
+
+    private func afterPresentationUpdate(_ body: @escaping () -> Void) {
+        // crash-allow: WebKit private selector, used only after responds(to:) confirms it exists (no unknown-selector exception).
+        let selector = NSSelectorFromString("_doAfterNextPresentationUpdate:")
+        guard let webView, webView.responds(to: selector) else { return body() }
+        typealias Action = @convention(block) () -> Void
+        // WebKit keeps the block until the update: it must be an escaping one.
+        let action: Action = { body() }
+        webView.perform(selector, with: action)
+    }
+
+    private func finishFrame() {
+        let waiting = frameWaiters
+        frameWaiters = []
+        waiting.forEach { $0() }
     }
 
     private func finish() {

@@ -16,8 +16,8 @@
 //! exactly this operation, these params and this relay connection
 //! (`origin.confirmation.issue`). Gate A2: `apps.install`, `apps.uninstall`,
 //! `apps.enable`, `workspace.agent_folder.set`, `history.backups.purge`,
-//! `history.visit.record`, `history.visit.title` and
-//! `history.visit.import` need origin `user`.
+//! `history.visit.record`, `history.visit.title`, `history.visit.import`
+//! and `history.trail.record` need origin `user`.
 
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
@@ -29,6 +29,8 @@ use sha2::{Digest, Sha256};
 use crate::resource::{ResourceError, ResourceOperation};
 
 mod page_access;
+pub(crate) mod page_router_table;
+pub(crate) use page_access::page_forbidden;
 
 /// Advertised by `identify` once client-hello step 1, the envelope `origin`
 /// field and `origin.confirmation.issue` exist.
@@ -44,8 +46,9 @@ pub(crate) const CONFIRMATION_TTL_MS: u64 = 60_000;
 /// ends (RECOVERABLE-BY-DEFAULT). Page visits, their titles and the app's
 /// older visit logs come from the hosting app, the verified app
 /// connection: an agent cannot add a visit the person never made, nor
-/// make the daemon read a file by path.
-pub(crate) const USER_ONLY_OPERATIONS: [&str; 8] = [
+/// make the daemon read a file by path. The same holds for a step of the
+/// location trail.
+pub(crate) const USER_ONLY_OPERATIONS: [&str; 9] = [
     "apps.install",
     "apps.uninstall",
     "apps.enable",
@@ -54,6 +57,7 @@ pub(crate) const USER_ONLY_OPERATIONS: [&str; 8] = [
     crate::history_ops::RECORD_OPERATION,
     crate::history_ops::TITLE_OPERATION,
     crate::history_ops::IMPORT_OPERATION,
+    crate::history_ops::TRAIL_RECORD_OPERATION,
 ];
 /// Unconsumed tokens one relay connection may hold; the oldest goes first.
 const MAX_CONFIRMATIONS_PER_RELAY: usize = 16;
@@ -129,13 +133,23 @@ pub(crate) struct ConnectionOrigin {
     pub(crate) verified_app: bool,
     /// The install id the install-key proof (prover B) proved, if any.
     pub(crate) install_id: Option<String>,
+    /// The page this connection serves (`page-router-v1`): set once by a
+    /// page relay's `client-hello {page}`, or from a WebSocket handshake's
+    /// page Origin (`cmux-page://cmux.<page>`). Its allow list decides its
+    /// v2 operations (page_access.rs).
+    pub(crate) page: Option<String>,
+    /// Admitted with a page-bound credential (`page-credential {page}`): its
+    /// `subscribe` hears only its page's conversation events.
+    pub(crate) scoped_page: bool,
     /// Tokens issued for this connection as a relay (page relays only).
     confirmations: Vec<Confirmation>,
 }
 
 struct Confirmation {
     token: String,
-    operation: ResourceOperation,
+    /// The operation's wire name: a catalog operation, or a routed one
+    /// (page-router-v1 namespaces).
+    operation: String,
     params_sha256: String,
     /// Monotonic deadline ([`OriginClock::monotonic_ms`]).
     deadline_ms: u64,
@@ -164,10 +178,25 @@ impl ConnectionOrigin {
 
     /// Stores a token minted for this relay connection. `deadline_ms` and
     /// `now_ms` are monotonic readings.
+    #[cfg(test)]
     pub(crate) fn store_confirmation(
         &mut self,
         token: String,
         operation: ResourceOperation,
+        params_sha256: String,
+        deadline_ms: u64,
+        now_ms: u64,
+    ) {
+        let operation = operation.wire_name().to_owned();
+        self.store_named_confirmation(token, operation, params_sha256, deadline_ms, now_ms);
+    }
+
+    /// [`Self::store_confirmation`] for an operation by wire name (catalog
+    /// or routed).
+    pub(crate) fn store_named_confirmation(
+        &mut self,
+        token: String,
+        operation: String,
         params_sha256: String,
         deadline_ms: u64,
         now_ms: u64,
@@ -184,7 +213,7 @@ impl ConnectionOrigin {
     fn consume_confirmation(
         &mut self,
         token: &str,
-        operation: ResourceOperation,
+        operation: &str,
         params: &Value,
         now_ms: u64,
     ) -> bool {
@@ -208,6 +237,48 @@ impl ConnectionOrigin {
     pub(crate) fn request_origin(
         &mut self,
         operation: ResourceOperation,
+        params: &Value,
+        claim: Option<&OriginClaim>,
+        now_ms: u64,
+    ) -> Result<RequestOrigin, ResourceError> {
+        let origin = self.narrow(operation.wire_name(), params, claim, now_ms)?;
+        if self.role == HelloRole::PageRelay
+            && operation == ResourceOperation::OriginConfirmationIssue
+        {
+            return Err(forbidden(
+                "a page relay connection cannot issue confirmations",
+                json!({"derived": RequestOrigin::Page.wire_name()}),
+            ));
+        }
+        // Default deny for pages (page_access.rs), whatever a page relay
+        // claims: a confirmed-user result still reaches page JS. A page
+        // connection gets its own page's allow list, whatever its role.
+        let refusal = match self.page.as_deref() {
+            Some(page) => page_access::page_refusal(page, operation, params, origin),
+            None if self.role == HelloRole::PageRelay || origin == RequestOrigin::Page => {
+                page_access::refusal(operation, params)
+            }
+            None => None,
+        };
+        if let Some(refusal) = refusal {
+            return Err(refusal);
+        }
+        // The token makes a later page call the user's, so the request
+        // that mints one must itself be the user's after narrowing: a claim
+        // the verified app adds (agent, app) is obeyed here.
+        if operation == ResourceOperation::OriginConfirmationIssue && origin != RequestOrigin::User
+        {
+            return Err(needs_user(origin));
+        }
+        require_origin(operation.wire_name(), origin)?;
+        Ok(origin)
+    }
+
+    /// The derived origin narrowed by `claim` (a page relay's confirmed
+    /// `user` claim consumes its token for `operation`, by wire name).
+    fn narrow(
+        &mut self,
+        operation: &str,
         params: &Value,
         claim: Option<&OriginClaim>,
         now_ms: u64,
@@ -242,29 +313,42 @@ impl ConnectionOrigin {
                 ));
             }
         };
-        if self.role == HelloRole::PageRelay
-            && operation == ResourceOperation::OriginConfirmationIssue
-        {
+        Ok(origin)
+    }
+
+    /// The origin of one routed v2 request (a page-router-v1 namespace
+    /// operation, not a catalog one): the claim rules of
+    /// [`Self::request_origin`], then the page's allow list for a page
+    /// connection, default deny for a page relay without a page, and origin
+    /// `user` for a mutation (Gate A2).
+    pub(crate) fn routed_origin(
+        &mut self,
+        operation: &str,
+        mutation: bool,
+        params: &Value,
+        claim: Option<&OriginClaim>,
+        now_ms: u64,
+    ) -> Result<RequestOrigin, ResourceError> {
+        use page_router_table::PageGrant;
+        let origin = self.narrow(operation, params, claim, now_ms)?;
+        if let Some(page) = self.page.as_deref() {
+            let grant = page_router_table::grant(page, operation);
+            let confirmed = matches!(grant, PageGrant::Gesture | PageGrant::Confirm)
+                && origin == RequestOrigin::User;
+            if let Some(reason) = page_router_table::missing_confirmation_reason(grant)
+                && !confirmed
+            {
+                return Err(page_forbidden(page, operation, reason, origin));
+            }
+        } else if self.role == HelloRole::PageRelay || origin == RequestOrigin::Page {
             return Err(forbidden(
-                "a page relay connection cannot issue confirmations",
-                json!({"derived": RequestOrigin::Page.wire_name()}),
+                "a page may call only allow-listed operations",
+                json!({"required": RequestOrigin::Agent.wire_name(), "derived": origin.wire_name()}),
             ));
         }
-        // Default deny for pages (page_access.rs), whatever a page relay
-        // claims: a confirmed-user result still reaches page JS.
-        if (self.role == HelloRole::PageRelay || origin == RequestOrigin::Page)
-            && let Some(refusal) = page_access::refusal(operation, params)
-        {
-            return Err(refusal);
-        }
-        // The token makes a later page call the user's, so the request
-        // that mints one must itself be the user's after narrowing: a claim
-        // the verified app adds (agent, app) is obeyed here.
-        if operation == ResourceOperation::OriginConfirmationIssue && origin != RequestOrigin::User
-        {
+        if mutation && origin != RequestOrigin::User {
             return Err(needs_user(origin));
         }
-        require_origin(operation.wire_name(), origin)?;
         Ok(origin)
     }
 }

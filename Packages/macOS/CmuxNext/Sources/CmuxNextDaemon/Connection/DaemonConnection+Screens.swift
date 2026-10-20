@@ -37,8 +37,8 @@ extension DaemonConnection {
 
     @discardableResult
     public func updateScreenGroup(_ group: ScreenGroupID, name: String? = nil, color: String? = nil,
-                                  collapsed: Bool? = nil) async throws -> ScreenGroupResult {
-        try await requestNew(UpdateScreenGroupRequest(group: group, name: name, color: color, collapsed: collapsed))
+                                  collapsed: Bool? = nil, icon: FieldUpdate<String> = .unchanged) async throws -> ScreenGroupResult {
+        try await requestNew(UpdateScreenGroupRequest(group: group, name: name, color: color, collapsed: collapsed, icon: icon))
     }
 
     @discardableResult

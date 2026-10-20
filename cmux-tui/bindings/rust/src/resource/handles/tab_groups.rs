@@ -42,6 +42,11 @@ pub struct TabGroupSnapshot {
     pub tab_ids: Vec<TabId>,
     /// The saved group this live group syncs with.
     pub saved_tab_group_id: Option<String>,
+    /// The group's icon (`tab-group-icon-v1`): one emoji, an SF Symbol name,
+    /// or a stored `image:`/`svg:` asset; `None` is no icon. Older daemons
+    /// omit it.
+    #[serde(default)]
+    pub icon: Option<String>,
     #[serde(flatten)]
     pub additional: BTreeMap<String, Value>,
 }
@@ -81,6 +86,9 @@ pub struct TabGroupUpdateOptions {
     /// A group color (see [`TabGroupSnapshot::color`]).
     pub color: Option<String>,
     pub collapsed: Option<bool>,
+    /// The group's icon (`tab-group-icon-v1`): one emoji, an SF Symbol name,
+    /// or a stored `image:`/`svg:` asset; `Clear` removes it.
+    pub icon: Update<String>,
 }
 
 /// Fields of `tab_group.move`.
@@ -138,8 +146,8 @@ impl Session {
         mutation_snapshot(self.client.mutate(ops::TAB_GROUP_CREATE, params, mutation)?, "tab group")
     }
 
-    /// Renames, recolors, collapses, or expands a group with a fresh
-    /// idempotency key. A linked saved group follows.
+    /// Renames, recolors, collapses, expands, or sets or clears the icon of
+    /// a group with a fresh idempotency key. A linked saved group follows.
     pub fn update_tab_group(
         &self,
         group: impl Into<String>,
@@ -154,10 +162,14 @@ impl Session {
         options: TabGroupUpdateOptions,
         mutation: MutationOptions,
     ) -> Result<MutationResult<TabGroupSnapshot>> {
-        let TabGroupUpdateOptions { name, color, collapsed } = options;
-        if name.is_none() && color.is_none() && collapsed.is_none() {
+        let TabGroupUpdateOptions { name, color, collapsed, icon } = options;
+        if name.is_none()
+            && color.is_none()
+            && collapsed.is_none()
+            && matches!(icon, Update::Unchanged)
+        {
             return Err(Error::InvalidArgument(
-                "tab group update must change name, color, or collapsed".to_string(),
+                "tab group update must change name, color, collapsed, or icon".to_string(),
             ));
         }
         let params = self
@@ -165,6 +177,11 @@ impl Session {
             .optional_string(field::NAME, name)
             .optional_string("color", color)
             .optional_bool("collapsed", collapsed);
+        let params = match icon {
+            Update::Unchanged => params,
+            Update::Clear => params.value("icon", Value::Null),
+            Update::Set(icon) => params.string("icon", icon),
+        };
         mutation_snapshot(self.client.mutate(ops::TAB_GROUP_UPDATE, params, mutation)?, "tab group")
     }
 

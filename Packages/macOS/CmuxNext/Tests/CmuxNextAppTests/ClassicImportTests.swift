@@ -34,6 +34,9 @@ struct ClassicImportTests {
         var shapes: [String: [String]] = [:]
         var sshDestinations: [String] = []
         var notice: String?
+        /// Screen text of each probed terminal (`<workspace>/<tab>`) after
+        /// it printed its replay file.
+        var probes: [String: String] = [:]
     }
 
     /// A tab as text: a terminal's name, `browser:<url>`, `chat:<harness>`.
@@ -50,7 +53,7 @@ struct ClassicImportTests {
         switch node {
         case .leaf(let id):
             return (panes.first { $0.id == id }?.tabs ?? []).map(label).joined(separator: ",")
-        case .split(_, let direction, _, let a, let b):
+        case .split(_, _, let direction, _, let a, let b):
             return "\(direction.rawValue)(\(shape(a, panes))|\(shape(b, panes)))"
         default:
             return "?"
@@ -153,6 +156,48 @@ struct ClassicImportTests {
         #expect(imported.notice?.contains("Cloud VM") == true, "\(imported.notice ?? "no toast")")
     }
 
+    /// Classic saved each terminal's scrollback (cx-gzh.1). A local terminal
+    /// starts with it as a read-only replay file (`CMUX_RESTORE_SCROLLBACK_FILE`,
+    /// printed above the first prompt by the shell layer); an SSH terminal's
+    /// shell runs on its host, where this Mac's file is not, so its scrollback
+    /// stays behind and the toast says so. The SSH workspace still opens.
+    @Test func scrollbackComesBackAboveTheFirstPromptAndTheToastNamesWhatStayed() async throws {
+        let imported = try await importClassic(Self.everything, probe: true) { session in
+            let app = #""terminal":{"isRemoteTerminal":false,"workingDirectory":"/Users/cmux/p4rt-full/proj/app"}"#
+            let ssh = #""terminal":{"isRemoteTerminal":true,"#
+            #expect(session.contains(app) && session.contains(ssh), "the fixture's terminals changed")
+            return session
+                .replacingOccurrences(of: app, with: #""terminal":{"isRemoteTerminal":false,"scrollback":"$ make test\n\u001b[32mall 12 passed\u001b[0m\n","workingDirectory":"/Users/cmux/p4rt-full/proj/app"}"#)
+                .replacingOccurrences(of: ssh, with: #""terminal":{"isRemoteTerminal":true,"scrollback":"remote build log\n","#)
+        }
+        #expect(imported.shapes["ssh box"] != nil, "\(imported.shapes.keys.sorted())")
+        #expect(imported.probes["full/app"]?.contains("all 12 passed") == true, "\(imported.probes)")
+        let remote = imported.probes.filter { $0.key.hasPrefix("ssh box/") }.values
+        #expect(!remote.isEmpty && remote.allSatisfy { $0.contains("probe-42") && !$0.contains("remote build log") }, "\(imported.probes)")
+        #expect(imported.notice?.contains("scrollback") == true, "\(imported.notice ?? "no toast")")
+    }
+
+    /// Every terminal of a split workspace gets its own scrollback: a later
+    /// tab of a pane (`logs`) and each split's new pane (`web`, `db`), not
+    /// only the workspace's first terminal.
+    @Test func eachSplitTerminalGetsItsOwnScrollback() async throws {
+        let imported = try await importClassic(Self.splits, probe: true) { session in
+            var session = session
+            for name in ["api/logs", "web", "db"] {
+                let terminal = #""workingDirectory":"/Users/cmux/p4rt-classic/proj/"# + name + #""}"#
+                #expect(session.contains(terminal), "the fixture's \(name) terminal changed")
+                session = session.replacingOccurrences(
+                    of: terminal, with: #""scrollback":"saved in "# + name + #"\n","workingDirectory":"/Users/cmux/p4rt-classic/proj/"# + name + #""}"#)
+            }
+            return session
+        }
+        for (tab, name) in [("logs", "api/logs"), ("web", "web"), ("db", "db")] {
+            let screen = imported.probes["split api/\(tab)"] ?? ""
+            #expect(screen.contains("saved in \(name)"), "\(tab): \(screen)")
+            #expect(screen.components(separatedBy: "saved in ").count == 2, "\(tab) printed another terminal's scrollback: \(screen)")
+        }
+    }
+
     /// A session acpmux cannot resume as a chat (its plan is the harness's
     /// own terminal) stays a terminal in its folder, never a broken chat.
     @Test func anAgentSessionAcpmuxCannotResumeStaysATerminal() async throws {
@@ -171,7 +216,7 @@ struct ClassicImportTests {
     /// Runs the action on `fixture` (after `edit`), with SSH workspaces
     /// reaching this test's daemon and acpmux answering `plan`, and returns
     /// what it opened.
-    private func importClassic(_ fixture: URL, _ edit: (String) -> String = { $0 },
+    private func importClassic(_ fixture: URL, probe: Bool = false, _ edit: (String) -> String = { $0 },
                                plan: @escaping (AgentPaneAdopt, String?) -> [String: Any] = ClassicImportTests.adoptPlan) async throws -> Imported {
         let binary = try #require(SameTreeDaemonBinary.url)
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("cn-classic-\(UUID().uuidString.prefix(8))")
@@ -214,7 +259,7 @@ struct ClassicImportTests {
         }
         // The daemon ends with its terminals on every path, a failed expectation included.
         let result: Result<Imported, any Error>
-        do { result = .success(try await Self.importAndRead(services)) } catch { result = .failure(error) }
+        do { result = .success(try await Self.importAndRead(services, probe: probe)) } catch { result = .failure(error) }
         // Stop the app's connection first: on the daemon's EOF it would start a
         // fresh daemon that outlives the test. The shutdown uses its own socket.
         if let connection = services.daemon.connection {
@@ -228,8 +273,9 @@ struct ClassicImportTests {
     }
 
     /// Waits for the launch, runs the action and reads every workspace's
-    /// pane trees and the toast.
-    private static func importAndRead(_ services: AppServices) async throws -> Imported {
+    /// pane trees and the toast; with `probe`, each terminal prints its
+    /// replay file.
+    private static func importAndRead(_ services: AppServices, probe: Bool) async throws -> Imported {
         let deadline = ContinuousClock.now + .seconds(90)
         // The launch is ready once restore has made its first terminal.
         func ready() -> Bool { services.daemon.store.workspaces.contains { $0.screens.contains { !$0.panes.isEmpty } } }
@@ -249,7 +295,25 @@ struct ClassicImportTests {
             guard let screen = workspace.screens.first else { continue }
             let trees = [screen.layout] + screen.columns.flatMap { [$0.layout] + $0.rows.map(\.layout) }
             imported.shapes[workspace.name, default: []] += trees.map { shape($0, screen.panes) }
+            guard probe else { continue }
+            for tab in screen.panes.flatMap(\.tabs) where tab.kind != .browser && tab.kind != .conversation {
+                imported.probes["\(workspace.name)/\(label(tab))"] = try await printReplay(tab.surface, connection)
+            }
         }
         return imported
+    }
+
+    /// The test shell (`/bin/sh`) has no replay hook: print the replay file
+    /// by hand and read the screen once the shell is done with it.
+    private static func printReplay(_ surface: SurfaceID, _ connection: DaemonConnection) async throws -> String {
+        try await connection.send(surface, text: "cat \"${CMUX_RESTORE_SCROLLBACK_FILE:-/dev/null}\"; echo probe-$((40+2))\r")
+        let deadline = ContinuousClock.now + .seconds(10)
+        var text = ""
+        while ContinuousClock.now < deadline {
+            text = try await connection.request(ReadScreenRequest(surface: surface), timeout: .seconds(5)).text
+            if text.contains("probe-42") { break }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        return text
     }
 }

@@ -105,20 +105,25 @@ import Testing
         let target = ActionTargetRef(kind: .tabGroup, id: "g1")
         let menu = registry.makeContextMenu(for: .tabGroup, target: target)
 
-        let titles = menu.items.map(\.title)
-        #expect(titles.contains(try #require(registry.title(for: "tabGroup.close"))))
-        let colorItem = try #require(menu.items.first { $0.submenu != nil })
+        // The group's own menu titles its rows without the noun (Close Group), so find them by action.
+        func item(_ id: ActionID) -> NSMenuItem? { menu.items.first { ActionRegistry.menuRun(of: $0)?.id == id } }
+        #expect(item("tabGroup.close") != nil)
+        // Color sits in the Appearance submenu beside Set Icon, so find it at any depth.
+        func submenuItems(_ items: [NSMenuItem]) -> [NSMenuItem] {
+            items.flatMap { item in item.submenu.map { [item] + submenuItems($0.items) } ?? [] }
+        }
+        let colorItem = try #require(submenuItems(menu.items).first { $0.submenu?.items.allSatisfy { $0.submenu == nil } ?? false })
         #expect(colorItem.submenu?.items.count == 9)
         #expect(!(menu.items.first?.isSeparatorItem ?? true))
         #expect(!(menu.items.last?.isSeparatorItem ?? true))
 
-        let close = try #require(menu.items.first { $0.title == registry.title(for: "tabGroup.close") })
+        let close = try #require(item("tabGroup.close"))
         #expect((close.target as? any NSMenuItemValidation)?.validateMenuItem(close) == true)
-        let ungroup = try #require(menu.items.first { $0.title == registry.title(for: "tabGroup.ungroup") })
+        let ungroup = try #require(item("tabGroup.ungroup"))
         #expect((ungroup.target as? any NSMenuItemValidation)?.validateMenuItem(ungroup) == false)
 
         // Rename needs a name: with no collector the handler still gets the target.
-        let rename = try #require(menu.items.first { $0.title == registry.title(for: "tabGroup.rename") })
+        let rename = try #require(item("tabGroup.rename"))
         _ = (rename.target as? NSObject)?.perform(rename.action, with: rename)
         #expect(renamed.first?.target == target)
     }

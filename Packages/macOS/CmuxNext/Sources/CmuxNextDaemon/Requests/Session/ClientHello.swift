@@ -9,7 +9,7 @@ public enum DaemonClientRole: String, Sendable, Codable {
     case pageRelay = "page_relay"
 }
 
-/// `client-hello` step 1 `{role, install_id?}`. An older daemon answers unknown command and the
+/// `client-hello` step 1 `{role, install_id?, page?}`. An older daemon answers unknown command and the
 /// connection stays a legacy client. `install_id` only on the app's `main` connection (P8,
 /// plans/cmux-next/identity.md), never on `page_relay`; with it the daemon returns a nonce and
 /// expects `ClientHelloProofRequest` as the very next line.
@@ -22,26 +22,47 @@ public struct ClientHelloRequest: DaemonRequest {
         /// (the verified app, not bound to an agent). Nil from an older
         /// daemon, which counts as false.
         public var userOriginAllowed: Bool?
+        /// The page's allow list (`page-router-v1`), on a page relay's hello that named a page.
+        public var pageOperations: PageOperations?
+        /// The subscribe events the page hears (`page-events-v1`), on a page relay's hello that
+        /// named a page; nil from an older daemon (no event stream).
+        public var pageEvents: [String]?
 
         enum CodingKeys: String, CodingKey {
             case connectionId = "connection_id"
             case nonce
             case userOriginAllowed = "user_origin_allowed"
+            case pageOperations = "page_operations"
+            case pageEvents = "page_events"
         }
+    }
+
+    /// What a page may call (cmux-tui/spec/page-router.json): `gesture` operations need one real
+    /// key or pointer event, `confirm` operations a native sheet; the host proves either with a
+    /// confirmation token for exactly that request.
+    public struct PageOperations: Decodable, Sendable, Equatable {
+        public var read: [String]
+        public var gesture: [String]
+        public var confirm: [String]?
     }
 
     public static let command = "client-hello"
     public var role: DaemonClientRole
     public var installID: String?
+    /// The page a `page_relay` connection serves (`history`, `apps`; `page-router-v1`). The host
+    /// names it, never the page; the daemon applies that page's allow list.
+    public var page: String?
 
-    public init(role: DaemonClientRole, installID: String? = nil) {
+    public init(role: DaemonClientRole, installID: String? = nil, page: String? = nil) {
         self.role = role
         self.installID = role == .main ? installID : nil
+        self.page = role == .pageRelay ? page : nil
     }
 
     enum CodingKeys: String, CodingKey {
         case role
         case installID = "install_id"
+        case page
     }
 }
 
@@ -77,4 +98,6 @@ public struct ClientHelloProofRequest: DaemonRequest {
 extension DaemonClientRole {
     /// The daemon capability for `client-hello`, the `page_relay` role and origin claims.
     public static let originClaimCapability = "origin-claim-v1"
+    /// The daemon capability for page ids on page relays and the per-page allow list.
+    public static let pageRouterCapability = "page-router-v1"
 }

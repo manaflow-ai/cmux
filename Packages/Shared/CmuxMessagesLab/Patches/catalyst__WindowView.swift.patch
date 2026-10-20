@@ -1,8 +1,27 @@
 --- a/Sources/MessagesLabHome/Vendor/catalyst/WindowView.swift
 +++ b/Sources/MessagesLabHome/Vendor/catalyst/WindowView.swift
-@@ -822,6 +822,7 @@
-             if let m = msgs.last, let r = m.replyTo, let i = index(r.messageId) { idx.append(i); idx.append(max(0, i - 1)) }
-         case .typing: idx.append(max(0, msgs.count - 1))
+@@ -890,6 +890,18 @@
+         if case let .status(id, st) = action, st != .sending, st != .sent, crispSends.values.contains(id) {
+             releaseCrisp { $0 == id }
+         }
++        // cmux: also every crisp send whose message is past sent in the new state (delivered, read or failed), whatever
++        // the action: Home sends one status per update (HomeDiff.keepNewestStatus: two sends delivered together give
++        // only the newer one a status) and a rebuild's replaceWindow carries statuses with no status action. Sends are
++        // recent: only the newest 256 messages are read.
++        if !crispSends.isEmpty {
++            let ids = Set(crispSends.values)
++            var past = Set<ID>()
++            for m in state.conversation.messages.suffix(256) where ids.contains(m.id) {
++                switch m.status { case .delivered?, .read?, .failed?: past.insert(m.id); default: break }
++            }
++            if !past.isEmpty { releaseCrisp { past.contains($0) } }
++        }
+         // this view's width (several Home tabs), not the process-wide `Metrics.current`.
+         if case let .setDraft(text) = action { MorphBubble.prepare(draft: text, width: bounds.width, scale: renderScale) }
+         // Rows configured in this transaction draw now (RowCell.transitionDepth).
+@@ -1147,6 +1159,7 @@
+         // A stream's rows follow the newest loaded message (which may lose its tail to it); a final message is new.
+         case .streamBegin, .streamSet, .streamAppend, .streamEnd: idx.append(max(0, old.conversation.messages.count - 1))
          case let .status(id, _): if let i = index(id) { idx.append(i) }
 +        case let .cmuxSetAttachment(id, _): if let i = index(id) { idx.append(i) }  // cmux
          case let .react(ref, _, _):

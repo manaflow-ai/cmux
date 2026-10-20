@@ -1,4 +1,5 @@
 import { cleanAttachmentPart } from "./attachments.ts"
+import { cleanLinkPreviewPart } from "./link-preview.ts"
 import { validAddressId, validParticipantId } from "./ids.ts"
 import { validateQuestion } from "./question.ts"
 import { fail } from "./reject.ts"
@@ -39,6 +40,12 @@ export const validateTitle = (title: unknown): void => {
   if (!isString(title)) return fail("invalid_title")
   const count = charCount(title)
   if (count === 0 || count > MAX_TITLE_CHARS || CONTROL.test(title)) fail("invalid_title")
+}
+
+/** A thread title: 0-200 characters (empty clears it), no control characters. */
+export const validateThreadTitle = (title: unknown): string => {
+  if (!isString(title) || charCount(title) > MAX_TITLE_CHARS || CONTROL.test(title)) return fail("invalid_title")
+  return title
 }
 
 const validDisplayName = (name: unknown): boolean => {
@@ -121,7 +128,7 @@ const validShortText = (value: unknown, maxBytes: number): boolean =>
  * Validates parts and returns them with only the known fields, as a serde
  * round trip in the Rust crate would.
  */
-export const validateParts = (parts: unknown, allowAttachments = false): ReadonlyArray<Part> => {
+export const validateParts = (parts: unknown, cloud = false, allowAttachments = cloud): ReadonlyArray<Part> => {
   if (!Array.isArray(parts) || parts.length === 0 || parts.length > MAX_PARTS) return fail("invalid_parts")
   let textBytes = 0
   const out: Array<Part> = []
@@ -140,10 +147,9 @@ export const validateParts = (parts: unknown, allowAttachments = false): Readonl
       const cleanRuns: Array<TextRun> = []
       for (const run of runs as Array<unknown>) {
         if (!isObject(run) || !isU32(run.start) || !isU32(run.length)) return fail("invalid_parts")
-        // A cloud head has no paired devices, so a `remote_` mention is refused there
-        // (`allowAttachments` is the cloud flag of apply()).
+        // A cloud head has no paired devices, so a `remote_` mention is refused there.
         const mentionOk =
-          run.mention === undefined || (isString(run.mention) && validParticipantId(run.mention) && !(allowAttachments && run.mention.startsWith("remote_")))
+          run.mention === undefined || (isString(run.mention) && validParticipantId(run.mention) && !(cloud && run.mention.startsWith("remote_")))
         const linkOk = run.link === undefined || validShortText(run.link, 2048)
         if (run.length === 0 || run.start + run.length > text.length || !mentionOk || !linkOk) fail("invalid_parts")
         cleanRuns.push({
@@ -171,8 +177,14 @@ export const validateParts = (parts: unknown, allowAttachments = false): Readonl
       })
     } else if (part.type === "question") {
       out.push(validateQuestion(part))
+    } else if (part.type === "link_preview") {
+      // Local and cloud heads alike (the Rust crate takes it); a cloud owner also checks the image's record.
+      const clean = cleanLinkPreviewPart(part)
+      if (!clean) return fail("invalid_parts")
+      out.push(clean)
     } else if (part.type === "attachment" && allowAttachments) {
-      // Cloud heads only: a local head (the Rust crate) has no attachment parts.
+      // Both owners on a send or an edit (the Rust crate's `valid_attachment_part`); each owner
+      // also checks the part against its own record of the hash. Imports take none.
       const clean = cleanAttachmentPart(part)
       if (!clean) return fail("invalid_parts")
       out.push(clean)
@@ -196,8 +208,12 @@ export const currentParticipant = (head: ConversationHead, id: string): Particip
 export const currentParticipants = (head: ConversationHead): ReadonlyArray<Participant> =>
   head.participants.filter((participant) => participant.left_at === undefined)
 
-/** Whether a message is a counted turn for the loop guard: text, or a question (an agent asking is a turn). */
-export const hasText = (parts: ReadonlyArray<Part>): boolean => parts.some((part) => part.type === "text" || part.type === "question")
+/**
+ * Whether a message is a counted turn for the loop guard: text, a question (an agent asking is a
+ * turn) or a link preview (a link-only message is a reply). Rust `Part::counts_as_turn`.
+ */
+export const hasText = (parts: ReadonlyArray<Part>): boolean =>
+  parts.some((part) => part.type === "text" || part.type === "question" || part.type === "link_preview")
 
 /**
  * A display name from an outside source (Stack, the caller): control

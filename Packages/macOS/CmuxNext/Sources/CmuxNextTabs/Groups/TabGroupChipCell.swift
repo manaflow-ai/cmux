@@ -2,9 +2,9 @@ import AppKit
 import CmuxNextDesign
 import QuartzCore
 
-/// A group chip drawn with CALayers: a muted color pill with the group name
-/// (or a dot when unnamed) and, when collapsed, the member count. Used by
-/// the strip and the saved groups bar.
+/// A group chip drawn with CALayers: a muted color pill with the group's
+/// icon and name (or a dot with neither) and, when collapsed, the member
+/// count. Used by the strip and the saved groups bar.
 final class TabGroupChipCell {
     let layer = CALayer()
     let accessibility = TabAccessibilityElement()
@@ -19,9 +19,10 @@ final class TabGroupChipCell {
         didSet {
             guard oldValue != isLifted else { return }
             themeScope.perform { pill.shadowColor = Palette.shadow.cgColor }
-            pill.shadowRadius = PopupStyle.standard.shadowBlur
-            pill.shadowOffset = CGSize(width: 0, height: PopupStyle.standard.shadowOffset)
-            pill.shadowOpacity = isLifted ? Float(PopupStyle.standard.shadowAlpha) : 0
+            let elevation = PopupStyle.elevation2
+            pill.shadowRadius = elevation.layerRadius
+            pill.shadowOffset = elevation.layerOffset(flipped: true)
+            pill.shadowOpacity = isLifted ? Float(elevation.alpha) : 0
             layer.zPosition = isLifted ? 11 : 1
         }
     }
@@ -35,6 +36,8 @@ final class TabGroupChipCell {
             guard oldValue != scale else { return }
             nameLayer.contentsScale = scale
             countLayer.contentsScale = scale
+            iconLayer.contentsScale = scale
+            updateColors(animated: false)
         }
     }
 
@@ -42,6 +45,8 @@ final class TabGroupChipCell {
     private let nameLayer = ChromeTextLayer()
     private let nameMask = CAGradientLayer()
     private let countLayer = ChromeTextLayer()
+    /// The group icon before the name, at the tab icon size (`TabStripMetrics.groupChipIconSize`).
+    private let iconLayer = CALayer()
     private var measured: (name: String, count: String, font: NSFont, content: TabGroupChipLayout.Content)?
     /// The count an expanding chip still draws while its pill shrinks over
     /// it (cx-f6i7), and that count's width.
@@ -50,11 +55,14 @@ final class TabGroupChipCell {
     init(group: TabGroupItem, memberCount: Int) {
         self.group = group
         self.memberCount = memberCount
+        // Anchored at the leading edge, as a tab cell (a strip move of the width never moves its x).
+        layer.anchorPoint = .zero
         let none: [String: any CAAction] = [
             "bounds": NSNull(), "position": NSNull(), "contents": NSNull(), "opacity": NSNull(),
             "string": NSNull(), "foregroundColor": NSNull(), "mask": NSNull(), "zPosition": NSNull(),
         ]
-        for sublayer in [layer, pill, nameLayer, countLayer, nameMask] { sublayer.actions = none }
+        for sublayer in [layer, pill, nameLayer, countLayer, nameMask, iconLayer] { sublayer.actions = none }
+        iconLayer.contentsGravity = .resizeAspect
         pill.actions = ["backgroundColor": Self.fade, "bounds": NSNull(), "position": NSNull(), "cornerRadius": NSNull(), "shadowOpacity": Self.fade]
         pill.cornerCurve = .continuous
         nameMask.startPoint = CGPoint(x: 0, y: 0.5)
@@ -62,6 +70,7 @@ final class TabGroupChipCell {
         nameMask.colors = [NSColor.black.cgColor, NSColor.black.cgColor, NSColor.clear.cgColor]
         layer.zPosition = 1
         layer.addSublayer(pill)
+        pill.addSublayer(iconLayer)
         pill.addSublayer(nameLayer)
         pill.addSublayer(countLayer)
         accessibility.setAccessibilityRole(.disclosureTriangle)
@@ -91,8 +100,15 @@ final class TabGroupChipCell {
     private var showsCount: Bool { group.isCollapsed || alwaysShowsCount }
     private var countText: String { showsCount ? String(memberCount) : "" }
 
-    /// Measured content; drives the chip's slot width.
+    /// Measured content; drives the chip's slot width. No icon adds no width.
     var content: TabGroupChipLayout.Content {
+        var content = textContent
+        content.iconWidth = group.icon == nil ? 0 : metrics.groupChipIconSize
+        return content
+    }
+
+    /// The measured name and count.
+    private var textContent: TabGroupChipLayout.Content {
         if let measured, measured.name == group.name, measured.count == countText, measured.font == font {
             return measured.content
         }
@@ -110,10 +126,11 @@ final class TabGroupChipCell {
     var pillFrame: CGRect { pill.frame }
 
     private func contentChanged() {
-        // An unnamed group's chip turns into a dot on expand: no count to cover.
+        // An unnamed group without an icon turns into a dot on expand: no count to cover.
         let shown = countLayer.string
         countLayer.font = font
-        leavingCount = countText.isEmpty && !shown.isEmpty && !group.name.isEmpty ? (shown, countLayer.textWidth) : nil
+        let keepsPill = !group.name.isEmpty || group.icon != nil
+        leavingCount = countText.isEmpty && !shown.isEmpty && keepsPill ? (shown, countLayer.textWidth) : nil
         nameLayer.string = group.name
         nameLayer.font = font
         countLayer.string = leavingCount?.text ?? countText
@@ -137,7 +154,7 @@ final class TabGroupChipCell {
         }
         if let leavingCount { content.countWidth = leavingCount.width }
         let height = min(m.groupChipHeight, bounds.height)
-        let isDot = content.nameWidth == 0 && content.countWidth == nil
+        let isDot = content.isDot
         let side = isDot ? m.groupChipDotSize : height
         let width = min(TabGroupChipLayout.pillWidth(content, metrics: m), max(0, bounds.width - 2 * m.groupChipOuterInset))
         pill.frame = pixel(CGRect(x: m.groupChipOuterInset, y: (bounds.height - side) / 2, width: width, height: side))
@@ -147,11 +164,15 @@ final class TabGroupChipCell {
         let lineHeight = ceil(font.ascender - font.descender + font.leading)
         let textY = pixel((side - lineHeight) / 2)
         var x = m.groupChipPadding
+        let iconSide = content.iconWidth, iconAdvance = TabGroupChipLayout.iconAdvance(content, metrics: m)
+        iconLayer.frame = pixel(CGRect(x: x, y: (side - iconSide) / 2, width: iconSide, height: iconSide))
+        iconLayer.opacity = iconSide > 0 && width >= m.groupChipPadding + iconSide ? 1 : 0
+        x += iconAdvance
         // The pill is narrower than its content only while its width springs
         // (collapse, expand): the name keeps its width and the pill's edge
         // reveals or covers the count, so the name never clips (cx-f6i7).
         let fullName = min(content.nameWidth, m.groupChipMaxNameWidth)
-        let nameWidth = min(fullName, max(0, width - 2 * m.groupChipPadding))
+        let nameWidth = min(fullName, max(0, width - 2 * m.groupChipPadding - iconAdvance))
         nameLayer.frame = CGRect(x: pixel(x), y: textY, width: nameWidth, height: lineHeight)
         nameLayer.opacity = nameWidth > 0 ? 1 : 0
         if content.nameWidth > nameWidth, nameWidth > 0 {
@@ -185,6 +206,7 @@ final class TabGroupChipCell {
             pill.backgroundColor = fill.cgColor
             nameLayer.foregroundColor = Palette.textPrimary.cgColor
             countLayer.foregroundColor = Palette.textSecondary.cgColor
+            iconLayer.contents = group.icon?.groupChipImage(tint: Palette.textPrimary, size: metrics.groupChipIconSize, scale: scale)
         }
     }
 

@@ -21,6 +21,9 @@ export type MuseumArtResult = {
   page: string;
 };
 
+/** A workspace's own background: its name and value (null follows appearance.background). */
+export type WorkspaceBackground = { workspace: string; title: string; value: string | null; opacity?: number | null };
+
 export type ManagedInfo = { source: string; reason: string; team?: string | null };
 
 /** One `cmux.settings.list` row: the schema row plus what applies now. */
@@ -62,7 +65,8 @@ export type GhosttyDiagnostic = {
 };
 
 /** One space or machine row (`cmux.settings.host.lists`). */
-export type HostListRow = { id: string; title: string; subtitle: string | null; active: boolean };
+/** `icon` is the row's wire icon (a space's; a machine's symbol): an emoji, a symbol or a stored asset. */
+export type HostListRow = { id: string; title: string; subtitle: string | null; icon?: string | null; active: boolean };
 
 /** One browser profile row. */
 export type BrowserProfile = {
@@ -98,10 +102,20 @@ export type HostLists = {
   /** Computer Use Setup (Agents): the helper's grants; null while unknown (off, starting). */
   computer_use?: ComputerUseState | null;
   /**
-   * Wallpaper choices; thumbnails at `backdrop/<id>` on the page's own origin. Art carries its
-   * picker collection (`darkArt`, `museumIcons`, `calm`, `dore`) and its localized title.
+   * Wallpaper choices; thumbnails at `backdrop/<id>` on the page's own origin. Each carries its
+   * picker collection (`darkArt`, `museumIcons`, `calm`, `dore`, `yours`, `apple`, `video`) and
+   * its localized title. `video: true` marks a moving wallpaper; a macOS still (`apple`) says
+   * whether macOS has downloaded the full picture.
    */
-  backdrops?: Array<{ id: string; title: string; attribution: string; collection?: string; collection_title?: string }>;
+  backdrops?: Array<{
+    id: string;
+    title: string;
+    attribution: string;
+    collection?: string;
+    collection_title?: string;
+    video?: boolean;
+    downloaded?: boolean;
+  }>;
   /** Where an unset number row's slider sits when the app resolves it (the theme's window opacity). */
   derived?: Record<string, number>;
 };
@@ -309,6 +323,29 @@ export type SettingsOps = {
   "cmux.settings.folders.add": [{ key: string }, { added: string[] }];
   /** The cmux picker for an image; the host copies it to the backgrounds folder and sets it. */
   "cmux.settings.backdrop.choose_image": [Record<string, never>, { id: string | null }];
+  /** Native: download an https image or movie and set it as a picked file is; errors carry the
+   * cmux.settings.backdrop.* refusal codes the picker words. */
+  "cmux.settings.backdrop.image.link": [{ url: string }, { id: string }];
+  /** Native: delete one of the person's own background images; the bytes the rest take. */
+  "cmux.settings.backdrop.image.remove": [{ id: string }, { bytes: number }];
+  /** Native: show one of the person's images, or the backgrounds folder, in Finder. */
+  "cmux.settings.backdrop.image.reveal": [{ id?: string }, Record<string, never>];
+  /** Native: the bytes the person's own background images take. */
+  "cmux.settings.backdrop.image.usage": [Record<string, never>, { bytes: number }];
+  /** Native: opens the Wallpaper pane of System Settings, where macOS downloads its wallpapers. */
+  "cmux.settings.backdrop.wallpaper_settings": [Record<string, never>, Record<string, never>];
+  /** Native: a workspace's own background (cx-t2x.5); `value` null follows appearance.background. */
+  "cmux.settings.backdrop.workspace": [{ workspace: string }, WorkspaceBackground];
+  /** Native: save a workspace's own background; null follows appearance.background again. */
+  "cmux.settings.backdrop.workspace.set": [
+    { workspace: string; value?: string | null; opacity?: number | null },
+    unknown,
+  ];
+  /** Native: show `value` in that workspace's windows without saving it; `end` drops the preview. */
+  "cmux.settings.backdrop.workspace.preview": [
+    { workspace: string; value?: string | null; opacity?: number | null; end?: boolean },
+    unknown,
+  ];
   /** Browse More Art: public-domain works in open museum collections matching `query`. */
   "cmux.settings.art.search": [{ query: string }, { results: MuseumArtResult[] }];
   /** Downloads the work `key` into the backgrounds folder and sets it as the background. */
@@ -409,6 +446,7 @@ export const settingsPageActions = [
   "browserProfile.clearIcon",
   "browserProfile.manageExtensions",
   "browserProfile.delete",
+  "browserProfile.clearBrowsingData",
   "reloadConfiguration",
   "palette.computerUse.setup",
   "palette.computerUse.accessibility",

@@ -6,7 +6,8 @@
 //   /markdown?file=   the markdown editor (markdown-page.html, src/pages/markdown) on a repo file
 //   /markdown/viewer?file=  the classic markdown viewer shell (Resources/markdown-viewer/shell.html)
 //   /editor?file=     the code editor (editor-page.html, src/pages/editor) on any file in the home folder
-//   /agent-pane/      the agent pane (src/agent-session/acpmux/index.html; prototype.html beside it)
+//   /agent-pane/      the agent pane (src/agent-session/acpmux/index.html; prototype.html beside it);
+//                     POST /__dev-host/read answers its git and file-search reads (agentGitHost.ts)
 //   /history/ /apps/ /settings/ ...  React pages (src/pages/<page>/index.html, DEV_PAGES); `?mock` uses the page's in-memory provider
 //   /gallery/         every component and page in named fixture states (src/gallery, galleryHost.ts)
 // scripts/agent-pane/dev-slot.sh runs one per slot next to a standalone acpmux daemon.
@@ -37,6 +38,7 @@ import {
   resolveResource,
   rpcRequestStatus,
 } from "./diffHost";
+import { AgentReadError, agentRead, slotFolder } from "./agentGitHost";
 import { diffLanguagesDirectory, readDiffLanguagePack } from "./diffLanguages";
 import {
   ListingRefused,
@@ -149,6 +151,8 @@ const indexPage = `<!doctype html>
 </ul>
 </body></html>`;
 
+// The gallery pages too: its registry globs every *.gallery file, so a stage (and the browser tests
+// that load one first, text-field-focus) never waits on a late re-optimize (cx-c332z).
 const devEntries = [
   "src/diff/dev.ts",
   "src/diff-worker.ts",
@@ -160,6 +164,8 @@ const devEntries = [
   "src/pages/editor/devBridge.ts",
   "src/pages/editor/main.tsx",
   "src/pages/editor/view.ts",
+  "src/gallery/index.html",
+  "src/gallery/frame.html",
 ];
 
 /// The index page, dev React and the dependency cache.
@@ -245,6 +251,35 @@ function agentPaneHost(): Plugin {
       return paneModule ? [...modules, paneModule] : undefined;
     },
     configureServer(server) {
+      // The pane's repository reads (dev-host/host.ts): git.status, git.diff, git.checkpoint.diff
+      // and file.search, read only and confined to the slot's folder (agentGitHost.ts).
+      server.middlewares.use(async (request, response, next) => {
+        if (request.url !== "/__dev-host/read") return next();
+        const refused = rpcRequestStatus(request, server.config.server.port ?? DEV_SERVER_PORT);
+        if (refused) return send(response, refused, "text/plain", "");
+        let reply: unknown;
+        try {
+          const { method, params } = JSON.parse((await readBody(request)).toString("utf8")) as {
+            method?: unknown;
+            params?: Record<string, unknown>;
+          };
+          reply = { ok: true, value: await agentRead(String(method ?? ""), params ?? {}, slotFolder()) };
+        } catch (error) {
+          const failure = error instanceof AgentReadError ? error : undefined;
+          const message = error instanceof Error ? error.message : String(error);
+          reply = {
+            ok: false,
+            error: {
+              code: failure?.code ?? "operation.failed",
+              message,
+              userMessage: message,
+              ...(failure?.details ? { details: failure.details } : {}),
+              origin: "session_host",
+            },
+          };
+        }
+        send(response, 200, "application/json", JSON.stringify(reply));
+      });
       server.middlewares.use(async (request, response, next) => {
         const url = new URL(request.url ?? "/", "http://localhost");
         if (url.pathname === "/agent-pane") return redirect(response, `/agent-pane/${url.search}`);
@@ -285,6 +320,9 @@ const DEV_PAGES = [
   "settings",
   "passwords",
   "changelog",
+  "files",
+  "stats",
+  "mobile-pairing",
 ];
 
 function pagesHost(): Plugin {

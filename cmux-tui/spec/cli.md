@@ -18,6 +18,10 @@ cmux relay [ROUTING OPTIONS]
 cmux machine-agent [OPTIONS]
 cmux wg hub --config <wg-quick file> --socket <unix socket>
 cmux link dial --host <install or host id> [--service daemon|ssh] [--socket <absolute path>]
+cmux link ensure --state-dir <dir> [--install ID] [--port PORT] [--session-socket PATH] [--server-config PATH] [--handoff]
+cmux link stop --state-dir <dir>
+cmux link status --state-dir <dir>
+cmux link archive --state-dir <dir>
 cmux apps run <app> <op> [--args JSON] [--idempotency-key KEY]
 cmux script run (FILE | -e CODE | -) [KEY=VALUE ...] [--args JSON] [--timeout MS]
 cmux script repl [--timeout MS]
@@ -55,6 +59,64 @@ Key order is not part of the contract. Exit codes:
 | 5 | `unreachable` | no path answered |
 | 6 | `link_unavailable` | no `cmux link` runs, or it did not answer the dial |
 | 64 | `bad_request` | bad arguments or a malformed dial |
+
+`link ensure`, `link stop` and `link status` let an app run the per-user
+link on demand, as it ensures the session daemon (`server ensure`). One link
+runs per state directory: `serve` holds `<state dir>/link.lock` for its life
+(taken before the UDP bind; a second `serve` exits with "a cmux link already
+runs"), and `ensure` and `stop` hold `<state dir>/link.ensure.lock` while
+they run. The registration is `link.json` in the state directory's parent;
+the socket is `link-<12 hex>.sock` in the runtime directory, named from the
+state directory, in a folder that must be this user's private folder (a real
+folder, owned by this user, mode `0700`; also the `/tmp/cmux-tui-<uid>`
+fallback). `stop`, `status` and `ensure` use a registration only when its
+socket is their state directory's own socket (its `link-<12 hex>.sock`
+name; the folder depends on the `TMPDIR` of the process that started the
+link, so a CLI caller with another `TMPDIR` still finds the app's link, and
+that folder must be this user's private folder), so a link of another state
+folder, or a socket in an open or foreign folder, is never reported or
+stopped.
+
+`ensure` runs `init` first when the state directory has no config (then
+`--install` is required; `--port 0` binds any free UDP port). When a link of
+this state directory runs, `ensure` keeps it and prints
+`{"status":"running","pid","socket","build","udp"}`. Otherwise it starts
+`cmux link serve` in its own session (the link outlives the caller; output
+goes to `<state dir>/link.log`), waits for its ready line on a private pipe,
+and prints `{"status":"started","pid","socket","udp","build"}`. Without
+`--handoff`, `ensure` refuses a different `--install` or `--port` than the
+config has (`install_mismatch`, `port_mismatch`) and a running link that
+serves another `--session-socket` or `server.json` (`config_mismatch`; the
+`server.json` is compared by path and SHA-256), and keeps a running link of
+another build.
+
+`--handoff` is for the app that owns its link only (not in the help text).
+With it, `ensure` restarts a running link of another build or of another
+session socket or `server.json` (`"status":"restarted"`), and a different
+`--install` or `--port` replaces the config: the running link stops, the old
+install's WireGuard key and paired peers are kept under its name
+(`private.key.<install>`, `peers.<install>.json`), and the new install gets
+its own kept pair back, or a new key and no paired peers. Nothing is
+deleted; a new install may be another signed-in person, so another install's
+paired machines never carry over. Same-user access is the trust boundary of
+the state directory.
+
+`stop` signals only the pid that a fresh connection proved serves the
+registered socket, waits for that connection to end (the link removes its
+registration first) and then for the process to exit (an exit event), all
+within 10 s; a link that does not end is an error (`stop_timeout`) and is
+not reported stopped. It prints `{"ok":true,"stopped":true|false}`.
+`archive` is for the app after a sign-out: with the link of this state
+directory stopped (else `link_running`), it moves the install's WireGuard key
+and paired peers into the install's archive (`private.key.<install>`,
+`peers.<install>.json`) and removes the config, so no `ensure` without
+`--install` starts the link as that install again. It prints
+`{"ok":true,"archived":true|false,"install"?}`. An `ensure --install ID` on a
+state directory with no config gets `ID`'s archived key and peers back.
+`status` prints `{"running":false}` or the link's own `link.status` answer
+with `"running":true` (`pid`, `socket`, `state_dir`, `install`, `port`,
+`udp`, `build`, `session_socket`, `server_config: {path, sha256}`). The
+link's local socket also answers `{"op":"link.status"}` with that line.
 
 `apps run` runs one catalog op of an installed app through the session
 daemon (`apps-run`; the CLI sends no `origin`, so gesture-required and
@@ -151,6 +213,13 @@ served by the normal protocol handler. `identify` then reports
 fast while this field is `false` and can be retried after the owner is ready. `server ensure` waits for a restoring
 owner (up to 2 minutes, then `server.restore_timeout`) instead of starting
 another.
+`server ensure --ws-loopback [--ws-allow-origin <origin>[,<origin>...]]` (private app
+contract, cx-hnmbt.2) starts an owner it spawns with `--ws 127.0.0.1:0` (and the
+extra page origins, a comma-separated list: the app passes every first-party page origin
+`cmux-page://cmux.<page>`, cx-hnmbt.10; one malformed member refuses the list): that owner mints its WebSocket credential and writes it
+to `<socket>.websocket.json` (transports.md "App listener and page files"). A
+running owner keeps the listener it was started with. The owner serves the page
+bundle from `CMUX_TUI_PAGES_DIR`, else `<binary dir>/../share/cmux-tui/pages`.
 `daemon stop` first reads the process identity, then sends the existing PID and
 generation-fenced graceful shutdown operation. An absent server is success,
 and stopping never deletes the durable topology. `session <name>|current stop`
@@ -399,9 +468,12 @@ session <selector> config reload
 session <selector> window title set|clear
 session <selector> terminal defaults set
 
-agent list
+agent list [--needs-me] [--state <state>] [--terminal <id>] [--sort needs-me|recent|none] [--limit <n>] [--counts]
+agent <agent_id|term_id> focus
 agent message <agent> [--from <name>] [--thread <id>] [--] <text...|->
 agent message --reply-to <message-id> [--from <name>] [--] <text...|->
+agent message release <message-id> --recipient <agent> --approve|--decline
+agent message unsend <message-id> [--recipient <agent>]
 agent inbox [<agent>] [--state <state>] [--limit <n>] [--ack]
 agent report --terminal <selector> --state <state> --source <source>
 agent hook emit --source <provider> --event <native-event> [--terminal <id>]
@@ -416,6 +488,7 @@ client <selector> cell pixels set
 workspace list|create
 workspace <selector> show|rename|move|focus|close|run
 workspace <selector> layout apply
+workspace [<selector>] open-url --url <url>
 workspace <selector> screen ...
 
 screen list|create
@@ -449,6 +522,10 @@ terminal <selector> viewport scroll
 
 browser open <url> | --url <url> [OPTIONS]
 browser list
+browser profile list
+browser profile create --name <name> [--color <value>] [--icon <value>] [--index <n>]
+browser profile move --profile <id-or-name> --index <n>
+browser profile open <url> | --url <url> --profile <id-or-name> [--engine webkit|cef] [--pane <selector>] [--title <value>] [--background true|false]
 browser <selector> show|navigate|back|forward|reload|activate
 browser <selector> key|text|attach|close
 browser <selector> mouse|wheel --pointer-frame-seq <decimal>
@@ -460,6 +537,7 @@ notification ack --client <id> <notification-id>...
 git status [--path <path>|--workspace|--screen|--pane|--tab|--terminal <selector>]
 git diff [TARGET] [--scope uncommitted|unstaged|staged|committed|branch] [--patch]
   [--max-patch-bytes <n>] [--max-files <n>] [--context-lines <n>] [<path>...]
+git branches [TARGET] [--limit <n>]
 git files [TARGET] [--limit <n>] <query>...
 git list [TARGET] [--limit <n>]
 git checkpoint create [TARGET] [--untracked eligible | <untracked-path>...] [--exclude <path,...>]
@@ -483,7 +561,8 @@ conversation search <words>... [--limit <1..100>]
 conversation <conv_id> send --text <text> | --parts-json <json> [--reply-to <msg_id> [--reply-part <n>]]
 conversation <conv_id> events [--tail <0..500>] [--cursor-rev <rev>]
 chief [-p <text>] [--timeout <seconds>] [--history <n>]   (also `cmux chief`)
-chief engine [--harness <h>] [--model <m>] [--effort <e>] [--speed <s>] [--compactor-speed <s>] | chief stop [<subagent>]
+chief engine [--harness <h>] [--model <m>] [--effort <e>] [--speed <s>] [--compactor-speed <s>] [--compactor-harness <h>] [--compactor-model <m>] | chief stop [<subagent>]
+chief list | chief new --name <name> [<profile>] | chief edit <chief> [<profile>] [--clear-avatar] | chief delete <chief>
 agent list|message|inbox|report
 agent plugin list|install|use|update|remove
 pairing request list
@@ -492,6 +571,8 @@ projection <selector> show|put
 
 sidebar view show|ensure|attach|input|resize|reload
 sidebar plugin list|install|use|update|remove
+sidebar section-scroll <section> fixed|flow   (sidebar.section.update {scroll})
+sidebar section-max-rows <section> <1-50>|none   (sidebar.section.update {max_rows}; none grows without limit)
 
 provider authority install
 
@@ -542,6 +623,13 @@ Workspace creation starts with one terminal unless `--empty` is present.
 `--pane`, and `--index` values and creates an unfocused tab placement. Tab,
 pane, screen, and workspace closes detach PTY views; only `terminal close`
 ends the session-owned process and removes all of its placements.
+`tab`, `pane`, `screen` and `workspace <selector> close` with `--others`,
+`--to-right`, `--to-left` or `--all` (panes: `--others` or `--all`) send one
+`layout.bulk` close: the selected object's siblings in its pane, screen,
+workspace or session close in one commit as one closed-history group, which
+`closed reopen` restores whole. Pinned tabs, screens and workspaces stay unless
+`--include-pinned`; the home workspace never closes; `--end-terminals` ends
+the terminals the close leaves without a view.
 `client <selector> metadata set` leaves an omitted field unchanged and clears
 one passed as null. A non-null name or kind preserves its exact value, contains
 at most 64 Unicode scalars, and contains no Unicode `Cc` control scalar.
@@ -561,8 +649,8 @@ long-lived attachment connection. SDK attachment objects manage those
 connection controls; one-shot CLI paths do not advertise them. `raw operation`
 remains available for transport testing.
 
-`git status` and `git diff` are read-only git reads (`git.status`, `git.diff`)
-of the repository a path is in, or the working directory of the terminal a
+`git status`, `git diff` and `git branches` are read-only git reads (`git.status`,
+`git.diff`, `git.branches`) of the repository a path is in, or the working directory of the terminal a
 selector names (a workspace, screen, pane or tab names its current terminal). Without
 a target the CLI sends the current directory. The session host runs git with
 no ambient `GIT_*` environment, no fsmonitor, external diff or textconv,
@@ -577,6 +665,14 @@ one `git worktree create` recorded for the current branch
 (`branch.<branch>.cmuxBase`) while it still names a commit, else origin's
 default branch, else `origin/main`, `origin/master`, `main` or `master`. In a
 linked worktree `git status` adds `worktree.main_root`, its main checkout.
+`git branches` (`git.branches`, capability `git-branches-v1`) lists at most
+`--limit` (200, up to 1000) branches: local ones, then remote-tracking ones,
+each by newest tip commit. Each carries its full ref, commit and whether HEAD
+is on it; a local branch also carries its upstream and its ahead and behind
+counts. `suggested_bases` lists the bases a branch diff may compare with,
+best first: the base branch above (the recorded base, then the default
+branch), then the upstream of HEAD's branch when it is a different ref.
+`truncated` says more branches exist.
 `git files` (`git.files.search`) lists the files under the target folder whose
 path holds the query's characters in order, case-insensitively and ignoring
 spaces, best first: tracked files still in the working tree and untracked
@@ -615,7 +711,17 @@ the input stay at the bottom; Enter sends, Alt+Enter or Ctrl+J adds a line,
 Ctrl+D quits, Ctrl+C stops the Chief's turn (`chief.stop`), `/model` and
 `/effort` read or set the engine (`chief.engine.get|set`), `/help` lists the
 commands. `chief engine` and `chief stop` make one such call without the
-chat. It refuses a socket under
+chat. `chief list`, `chief new`, `chief edit` and `chief delete` make the
+person's Chiefs with the Chief registry (`chief.profile.list`, `chief.profile.create`,
+`chief.profile.update`, `chief.profile.delete`, `chief.profile.avatar.set`): `<chief>` is an id or one
+Chief's display name; `<profile>` is `--name`, `--role`, `--personality`,
+`--instructions` or `--instructions-file`, `--avatar <png|jpeg|gif|webp file>`,
+`--tools`, `--harnesses`, `--self-edit` (comma lists) and `--harness`,
+`--model`, `--effort`. `chief adopt <agent> [<profile>]` (`chief.profile.adopt`)
+makes an agent already in the person's conversations a Chief under its own
+id; its conversations and history stay. Every write (new, adopt, edit,
+delete) is refused for an agent caller (`origin.forbidden`, reason
+`agent_caller`). `--json` prints the record. It refuses a socket under
 `~/.cmux/brains/` (a Chief brain's own session, where a client acts as the
 Chief) and `--machine`. Exit codes: 0, 1 refused, 2 usage, 3 transport, 124
 timeout.
@@ -734,21 +840,57 @@ started; once the folder is gone, a request naming it finds no repository.
 never open a protocol connection or send a plugin ID to a session. Optional
 plugin names are slugs matching `[a-z0-9-_]+`.
 
+## Agent list
+
+`agent list` is one `agent.list` read; the CLI ranks, limits and counts its
+rows, so the wire value is unchanged. `--state` and `--terminal` are the
+read's own filters. `--needs-me` lists the blocked agents (`state: blocked`)
+and is refused with any other `--state`.
+
+`--sort needs-me`, the default, puts blocked agents first, then working, then
+idle and done together, then unknown; `recent` ignores state; `none` keeps the
+daemon's order. Within a group the most recently updated agent comes first,
+and equal times fall back to the agent id. `--limit <n>` (at least 1) keeps
+the first `n` ranked rows.
+
+The command also reads `terminal.list` on the same connection, so each row
+can show its terminal's title and folder. A refused or failed terminal read
+leaves those out. AGE is the time since the agent's `updated_at_ms`, its
+last report.
+
+Human output starts with the counts by state over every listed agent, before
+`--limit` (`2 blocked · 1 working · 3 idle · 0 done`, plus `unknown` when
+there is one, and `(showing n of m)` when the limit hid rows), then one row per
+agent: STATE, AGE, AGENT (`extra.agent`), TITLE, FOLDER (with `~` for the
+home folder) and TERMINAL, with SESSION first under `--all-sessions`. With no
+agents it prints `No agents.`
+
+`--json` prints the ranked agents as a bare array, as it always has; only the
+default order changed (it was the daemon's order). Each agent is the
+`AgentSnapshot` plus `age_ms` and, when its terminal was listed, its `title`
+and `cwd`. `--json --counts` prints `{"agents": [...], "counts": {...}}`
+instead: `counts` has `blocked`, `working`, `idle`, `done`, `unknown` and
+`total`, counted before `--limit`. `--jsonl` prints one agent per line with
+or without `--counts`.
+
 ## Agent messages
 
 `agent message` stores a message with `agent.message.send` and then delivers
 it. `<agent>` is a terminal agent (`term_...`), an agent (`agent_...`, sent to
 its terminal), or an acpmux session by name or id (`acp:` optional). The
-sender is the caller's acpmux session (`ACPMUX_SESSION_ID`), else its terminal
-(`CMUX_TUI_TERMINAL_ID`), else `cli`; `--from` adds an untrusted display name.
+daemon sets the sender from the caller's launch credential (the CLI sends it to
+its own terminal's session): the agent's terminal or ACP session, else `cli`
+(the person); `--from` adds an untrusted display name. A recipient in another
+workspace, or one whose workspace is unknown, may be held for the person
+(`agent.message.send` in resource-api-v2.md).
 A lone `-` reads the body from standard input. `--reply-to` answers a message:
 the reply goes to its sender and stays in its thread.
 
-For an acpmux recipient the command then prompts the session with the message,
-using the message id as the acpmux prompt id, and marks the receipt
-`delivered` (or `failed`, with the error). It first sends that recipient's
-older queued messages, oldest first; the prompt id keeps any of them from
-running twice. A `failed` message is not retried. It never starts the acpmux
+For an acpmux recipient the daemon's delivery pump prompts the session with
+the message, using the message id as the acpmux prompt id, and marks the
+receipt `delivered` (or `failed`, with acpmux's error); the command waits up
+to 15 seconds for it and reports a delivery still `queued` (acpmux is down or
+the session has not started; the pump retries). Neither starts the acpmux
 daemon. For a Codex terminal agent whose thread the shared Codex app-server
 daemon has loaded, it hands the agent's queued messages to Codex as one input
 (`turn/start` when the thread is idle, `turn/steer` when a turn is running)
@@ -756,9 +898,34 @@ and marks them `delivered`. Any other terminal agent's message, or one Codex
 cannot take now, stays `queued` until the agent's hooks take it. The command exits 1 when this message's own delivery failed; the message is
 stored either way, and problems with older messages are reported on stderr.
 
+`agent message release` is the person's decision on a held delivery of
+`<message-id>` to `--recipient`: `--approve` queues it, `--decline` declines
+it (one `agent.message.release`). Only the verified cmux app may decide, so
+from a terminal the command is refused with reason `release_needs_app`; the
+app's Approve and Decline controls make the same request.
+
+`agent message unsend` takes `<message-id>` back, from every recipient or
+only `--recipient` (one `agent.message.unsend`), and prints each delivery's
+outcome: `unsent` (it never reached the agent), `retracted` (acpmux told the
+agent in its turn that it was withdrawn), `too_late` (its turn ended, or the
+delivery path cannot take it back) or `failed` (acpmux refused, did not
+answer or may still take it; try again). `failed` exits 1, after the result
+is printed. Only the message's sender, from its own terminal or ACP session
+(its launch credential), or the person in the cmux app may take it back;
+there is no time limit. From a plain terminal the command is refused
+with reason `unsend_needs_app`.
+
+The daemon delivers messages to acpmux recipients (its delivery pump), and
+retries while acpmux is down or the session has not started, so a message that
+waited for acpmux, or for the person's approval, goes out without another
+`agent message`. `agent message` waits for the pump's hand-over to each acpmux
+recipient and reports one that failed or still waits.
+
 `agent inbox` lists messages newest first for `<agent>`, or for the caller's
-own address when it has one, else every message. `--ack` marks the listed
-messages acknowledged for that recipient.
+own address when it has one, else every message. `--state` is any delivery
+state: held, queued, delivered, acknowledged, failed, unsent, retracted or
+declined. `--ack` marks the listed queued, delivered or failed messages
+acknowledged for that recipient.
 
 ## Local agent plugins
 
@@ -780,6 +947,7 @@ not a transported resource operation or cross-machine discovery API.
 ```text
 cmux tab group list|create|remove ...
 cmux tab group <group> update|add|move|split|column|new-workspace|ungroup|close|save|unsave ...
+cmux screen group <group> update [--icon <icon>|--clear-icon] ...
 cmux tab group saved list | saved <saved> delete|reopen --pane <id>
 cmux workspace group list [--room <room>]
 cmux workspace group create --name <name> [--color <c>] [--room <room>] [--index <n>] [--collapse]
@@ -792,6 +960,10 @@ Tab groups and saved tab groups are private protocol-v12 commands
 exactly one such request and send it like `raw command`, so they work against
 a headless daemon with no app running. Tab and pane arguments take the
 private protocol's ids or public `tab_...` and `pane_...` ids.
+`tab group <group> update --icon <icon>` and `screen group <group> update
+--icon <icon>` set the group's icon (the same icon string as a workspace
+group's) through `tab_group.update` and `screen_group.update`, and
+`--clear-icon` removes it (`tab-group-icon-v1`, `screen-group-icon-v1`).
 
 Workspace groups are personal state of the home session. `workspace group`
 uses the `workspace_group.*` resource operations, and `add`/`remove` use
@@ -800,13 +972,15 @@ workspace group commands are no longer used by the CLI. `workspace group <group>
 puts a group right before the personal workspace at placement index `<n>`;
 `--clear-top-index` puts it after every loose workspace
 (`personal-mixed-order-v1`). `workspace group <group> update --icon <icon>`
-sets the group's icon (one emoji or an SF Symbol name) and `--clear-icon`
+sets the group's icon (one emoji, an SF Symbol name, or a stored
+`image:sha256-<hex>` or `svg:sha256-<hex>` asset) and `--clear-icon`
 removes it (`workspace-group-icon-v1`); `--pinned true|false` pins (saves)
 or unpins it (`workspace-group-pin-v1`). `workspace list --order personal` lists the
-workspaces in the sidebar order. `workspace list` without `--order` (or with
-`--order session`) lists the session's workspace order, the same order as
-`topology.workspaces`: creation order unless a workspace was moved, not the
-sidebar order. The app's `snapshot.get` `windows[].workspaces` lists the order
+workspaces in the sidebar order. With the sidebar document (`sidebar-doc-v1`),
+`workspace list` without `--order` also lists the sidebar order (one order
+with the sidebar). `--order session` (and, without the
+document, no `--order`) lists the session's workspace order, the same order as
+`topology.workspaces`: creation order unless a workspace was moved. The app's `snapshot.get` `windows[].workspaces` lists the order
 each window shows.
 
 ## Raw access

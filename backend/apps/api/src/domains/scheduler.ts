@@ -14,7 +14,7 @@ import {
 import { nextFire } from "../cron.ts"
 import { admit, decodeParams, reject, requirePersonalTeamAdmin } from "./common.ts"
 import { automationTrigger, isAutomationPrincipal } from "./scheduler-chain.ts"
-import { automationOutbox, countDeploy, invalidBody, reduceDeploy } from "./scheduler-code.ts"
+import { automationOutbox, chargeTo, countDeploy, invalidBody, reduceDeploy } from "./scheduler-code.ts"
 import type { RunBucket } from "./scheduler-limits.ts"
 import { reduceRowsMigrate } from "./scheduler-migrate.ts"
 import { reduceRunPolicy, runPolicyRefusal, type RunPolicy } from "./scheduler-policy.ts"
@@ -46,7 +46,13 @@ export interface RunRecord extends Run {
   readonly deadline_at?: number
   /** The wall-clock budget of the automation version that fired (seconds), like `body`. */
   readonly wall_clock_seconds?: number
+  /** The member this run's AI cost counts against (cx-ds09i): who started it, else who last deployed or enabled the automation. */
+  readonly charged_user?: string
 }
+
+/** A change that alters what runs or when (not the name or description): its editor pays for the automation's runs. */
+const effective = (a: Automation, b: Automation) =>
+  (["triggers", "enabled", "budget", "target", "concurrency", "body"] as const).some((k) => canonicalJson(k === "triggers" ? a.triggers.map((t) => t.spec) : a[k]) !== canonicalJson(k === "triggers" ? b.triggers.map((t) => t.spec) : b[k]))
 
 export interface SchedulerState {
   readonly owner: string | null
@@ -62,6 +68,8 @@ export interface SchedulerState {
   readonly automation_trees?: Readonly<Record<string, number>>
   /** TeamDO's push of the run class of agents.allowedClasses (scheduler-policy.ts); absent = not synced, no runs. */
   readonly run_policy?: RunPolicy
+  /** Per automation, the member who last created, deployed or enabled it: scheduled and delivered runs are charged to them (cx-ds09i). */
+  readonly charged_to?: Readonly<Record<string, string>>
   /** Automation rows (at most MAX_AUTOMATIONS). */
   readonly automation_count?: number
   /** Ids of the open (not terminal) runs, oldest first (at most MAX_OPEN_RUNS_PER_TEAM). */
@@ -133,7 +141,7 @@ export const schedulerDomain: Domain<SchedulerState> = {
           next_run_at: null
         })
         st.putAutomation(a)
-        return { ok: true, state: st.head({ ...state, owner, ...(counted.deploys ? { deploys: counted.deploys } : {}) }), value: a, outbox: [automationOutbox(a)], writes: st.writes() }
+        return { ok: true, state: st.head({ ...chargeTo(state, a.id, p.user), owner, ...(counted.deploys ? { deploys: counted.deploys } : {}) }), value: a, outbox: [automationOutbox(a)], writes: st.writes() }
       }
 
       case "automation.update": {
@@ -180,7 +188,8 @@ export const schedulerDomain: Domain<SchedulerState> = {
         const stopped = !enabled && a.enabled ? cancelQueued(st, a.id, ctx.now, "the automation was disabled") : []
         return {
           ok: true,
-          state: st.head({ ...state, ...(counted.deploys ? { deploys: counted.deploys } : {}) }),
+          // Any effective change (triggers, enabled, budget, target, concurrency, body) makes the editor the member scheduled runs are charged to (review P2).
+          state: st.head({ ...(p.user && effective(a, draft) ? chargeTo(state, a.id, p.user) : state), ...(counted.deploys ? { deploys: counted.deploys } : {}) }),
           value: next,
           outbox: [automationOutbox(next), ...stopped],
           writes: st.writes()
@@ -196,9 +205,10 @@ export const schedulerDomain: Domain<SchedulerState> = {
         for (const t of a.triggers) delete chains[t.id]
         const stopped = cancelQueued(st, a.id, ctx.now, "the automation was deleted")
         st.deleteAutomation(a.id)
+        const { [a.id]: _charged, ...charged_to } = state.charged_to ?? {}
         return {
           ok: true,
-          state: st.head({ ...state, chains }),
+          state: st.head({ ...state, chains, charged_to }),
           value: { automation: a.id },
           outbox: [{ kind: "automation.delete", entity: a.id, payload: { id: a.id } }, ...stopped],
           writes: st.writes()
@@ -215,7 +225,8 @@ export const schedulerDomain: Domain<SchedulerState> = {
         if (!a) return reject("selector.not_found", "automation not found")
         const chained = isAutomationPrincipal(p) ? automationTrigger(state, st.rows, p, a) : undefined
         if (chained && "ok" in chained) return chained
-        const r = startRun(st, chained ? { ...state, automation_trees: chained.trees } : state, a, chained?.trigger ?? { id: a.triggers.find((t) => t.spec.type === "manual")?.id ?? null, type: "manual" }, ctx)
+        // A person's (or their install's) manual run is charged to them; an automation-started run to its automation's member.
+        const r = startRun(st, chained ? { ...state, automation_trees: chained.trees } : state, a, chained?.trigger ?? { id: a.triggers.find((t) => t.spec.type === "manual")?.id ?? null, type: "manual" }, ctx, chained ? chained.charged_user : p.user)
         if ("rejected" in r) return r.rejected
         return { ok: true, state: st.head(r.state), value: publicRun(r.run), outbox: r.outbox, writes: st.writes() }
       }

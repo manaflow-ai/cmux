@@ -182,7 +182,7 @@ fn read_team_policy(state_dir: &Path, schema: &Schema) -> Option<TeamPolicyLayer
 /// An exclusive advisory lock on `.<name>.lock` beside the configured file.
 /// `None` when the lock file cannot be opened (a read-only directory): the
 /// write then goes ahead like before, and the publish reports any error.
-fn lock_config(config_path: &Path) -> Option<std::fs::File> {
+pub(crate) fn lock_config(config_path: &Path) -> Option<std::fs::File> {
     // Beside the configured path, not a symlink's target: a dotfiles repo
     // never gets a lock file.
     let directory = config_path.parent().filter(|dir| !dir.as_os_str().is_empty())?;

@@ -28,15 +28,30 @@ use super::host_parser::{self, ParserSignals, run_guarded_host_parser, run_host_
 use super::host_shared::HostShared;
 use super::host_state::*;
 
+/// The host's authoritative terminal for `launch`, configured to answer
+/// terminal queries as Ghostty does for the TERM its child runs with.
+pub(crate) fn new_host_terminal(
+    launch: &HostLaunch,
+    callbacks: ghostty_vt::Callbacks,
+) -> anyhow::Result<Terminal> {
+    let mut term = Terminal::new(launch.cols, launch.rows, launch.scrollback, callbacks)?;
+    // A TERM libghostty refuses (over 128 bytes) leaves XTGETTCAP "TN"
+    // unanswered, as Ghostty does for a name it does not know.
+    let _ = term.set_terminfo_name(launch.child_term());
+    Ok(term)
+}
+
 /// Start the host runtime on `master` and `child`. `seed` is VT replay of
 /// an adopted session's screen, applied to the parser before any PTY byte;
-/// it is empty for a spawned child.
+/// it is empty for a spawned child. `program_status` is the OSC 7501
+/// records its owner kept, likewise in place before any PTY byte.
 pub(crate) fn start_host_runtime(
     launch: &HostLaunch,
     bootstrapped: &crate::terminal_host::BootstrappedHost,
     master: Box<dyn MasterPty + Send>,
     mut child: HostChild,
     seed: &[u8],
+    program_status: Option<ProgramStatusSnapshot>,
 ) -> anyhow::Result<Arc<HostShared>> {
     let cell_pixels = (launch.cell_pixels.0.max(1), launch.cell_pixels.1.max(1));
     let pid = child.process_id();
@@ -49,7 +64,7 @@ pub(crate) fn start_host_runtime(
     let clipboard = ClipboardReads::new(Arc::new(SystemClock));
     let signals = ParserSignals::new();
     let callbacks = signals.callbacks(&clipboard);
-    let mut term = Terminal::new(launch.cols, launch.rows, launch.scrollback, callbacks)?;
+    let mut term = new_host_terminal(launch, callbacks)?;
     term.resize(launch.cols, launch.rows, u32::from(cell_pixels.0), u32::from(cell_pixels.1))?;
     term.set_kitty_graphics_limits(launch.kitty_graphics_limits)?;
     term.replace_default_colors(
@@ -67,9 +82,16 @@ pub(crate) fn start_host_runtime(
         signals.pending_responses.lock().unwrap_or_else(PoisonError::into_inner).clear();
         signals.bell.store(false, Ordering::Release);
     }
+    if let Some(snapshot) = program_status {
+        // `restore` re-applies the record rules and keeps `updated_seq`, so
+        // a daemon that later adopts this host shows what the owner showed.
+        signals.program_status.lock().unwrap_or_else(PoisonError::into_inner).restore(snapshot);
+    }
     // The seed's OSC 9;4 progress (the owner appends its last value) reaches
     // this host's metadata too, so later snapshots keep it.
-    let mut terminal_metadata = crate::terminal_metadata::TerminalMetadata::default();
+    let mut terminal_metadata = crate::terminal_metadata::TerminalMetadata::with_program_status(
+        signals.program_status.clone(),
+    );
     if !seed.is_empty() {
         terminal_metadata.observe_output(seed);
         let _ = terminal_metadata.take_notifications();

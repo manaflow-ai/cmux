@@ -15,6 +15,7 @@ mod goose;
 mod grok;
 mod grok_cli;
 mod kimi;
+mod muse;
 mod opencode;
 pub use opencode::find_session as find_opencode_session;
 mod openhands;
@@ -65,7 +66,8 @@ pub(crate) fn list_files(kind: AdapterKind, root: &Path) -> io::Result<Vec<PathB
         | AdapterKind::RooCode
         | AdapterKind::KiloCode
         | AdapterKind::Crush
-        | AdapterKind::Continue => Ok(Vec::new()),
+        | AdapterKind::Continue
+        | AdapterKind::Muse => Ok(Vec::new()),
     }
 }
 
@@ -98,7 +100,8 @@ pub(crate) fn read_file(
         | AdapterKind::RooCode
         | AdapterKind::KiloCode
         | AdapterKind::Crush
-        | AdapterKind::Continue => {
+        | AdapterKind::Continue
+        | AdapterKind::Muse => {
             Err(io::Error::new(io::ErrorKind::InvalidInput, "a database or index store"))
         }
     }
@@ -118,6 +121,7 @@ pub(crate) fn read_store(kind: AdapterKind, root: &Path) -> io::Result<Option<Ve
         }
         AdapterKind::Crush => crush::read_store(root)?,
         AdapterKind::Continue => continue_dev::read_store(root)?,
+        AdapterKind::Muse => muse::read_store(root)?,
         _ => return Ok(None),
     };
     Ok(Some(entries))
@@ -197,6 +201,7 @@ pub fn classify_path(kind: AdapterKind, root: &Path, path: &Path) -> PathRole {
         AdapterKind::Auggie => auggie::classify(&parts),
         AdapterKind::Continue => continue_dev::classify(&parts),
         AdapterKind::OpenHands => openhands::classify(&parts),
+        AdapterKind::Muse => muse::classify(&parts),
     }
 }
 

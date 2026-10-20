@@ -28,7 +28,7 @@ public final class AddressBarView: NSView {
         didSet { controller.send(.searchEngineChanged) }
     }
 
-    private let pill = OmnibarPillView()
+    let pill = OmnibarPillView()
     private let backdrop = OmnibarCardTopView()
     private let chip = PageInfoChipButton()
     let field = AddressField()
@@ -44,6 +44,12 @@ public final class AddressBarView: NSView {
     let density = DensityBinding()
 
     private var reportedURL: URL?
+    /// Whether the field's cursor rects were last built for editing.
+    private var cursorRectsEditing = false
+    /// The text area the bar's cursor rects were last built for.
+    private var cursorTextArea = NSRect.zero
+    /// The page's title, for a drag of the address out of the bar.
+    public var pageTitle: (() -> String?)?
     /// The page's URL changed (the host refreshes the bookmark star).
     public var onPageURLChange: ((URL?) -> Void)?
     /// Set by `focus()` for the responder change it causes.
@@ -100,6 +106,12 @@ public final class AddressBarView: NSView {
         controller.onEffect = { [weak self] effect in self?.perform(effect) }
         controller.onStep = { [weak self] in self?.updateChrome() }
 
+        // The page drags out of the location icon while the field shows it.
+        chip.dragItem = { [weak self] in
+            guard let self, !controller.state.hasFocus, let url = controller.state.pageURL,
+                  !BrowserNewTabPage.isNewTabPage(url) else { return nil }
+            return BrowserURLDragItem(url: url, title: pageTitle?())
+        }
         field.setPlaceholder(Strings.omnibarPlaceholder)
         field.delegate = self
         field.sink = self
@@ -298,11 +310,12 @@ public final class AddressBarView: NSView {
         controller.send(.focusGained(pendingFocusSource ?? (isMouseDownInField(NSApp.currentEvent) ? .mouse : .programmatic)))
     }
 
-    /// A press in the field itself focused it (not a click elsewhere, such
-    /// as a new-tab button, that moved focus here).
+    /// A press in the bar focused it (not a click elsewhere, such as a
+    /// new-tab button, that moved focus here). The bar around the text
+    /// forwards its presses to the field (`mouseDown(with:)`).
     private func isMouseDownInField(_ event: NSEvent?) -> Bool {
         guard let event, [.leftMouseDown, .rightMouseDown].contains(event.type), event.window === window else { return false }
-        return field.bounds.contains(field.convert(event.locationInWindow, from: nil))
+        return bounds.contains(convert(event.locationInWindow, from: nil))
     }
 
     /// Reports what the field editor holds now. The applier's own writes
@@ -358,10 +371,85 @@ public final class AddressBarView: NSView {
         controller.send(.pasteAndGo(text))
     }
 
+    // MARK: The bar around the text
+
+    /// One rectangle, in bar coordinates, for the I-beam and for the press
+    /// that focuses the field (`OmnibarPointer`): from the page-info chip to
+    /// the first shown trailing badge (or the bar's end), the bar's full
+    /// height. The chip, badges and star keep the arrow and their presses.
+    var textArea: NSRect {
+        let leading = chip.isHidden ? bounds.minX : chip.frame.maxX
+        let trailing = badges.arrangedSubviews.contains { !$0.isHidden } ? badges.frame.minX : bounds.maxX
+        return NSRect(x: leading, y: bounds.minY, width: max(0, trailing - leading), height: bounds.height)
+    }
+
+    /// A press in the text area around the text (above and below the line,
+    /// past its end) is a press in the field, as in every browser: the first
+    /// one focuses and selects the whole address, a later one places the
+    /// caret at the nearest character.
+    public override func mouseDown(with event: NSEvent) {
+        guard isBarHit(event) else { return super.mouseDown(with: event) }
+        // While editing the field editor tracks the press (it reports it to
+        // the state machine itself).
+        if controller.state.hasFocus, let editor = field.editor { return editor.mouseDown(with: event) }
+        // At rest the bar focuses the field itself, as the first click on the
+        // text does: forwarding a press outside the field's frame to
+        // NSTextField left focus and selection to AppKit's text tracking,
+        // which sometimes ended with a caret and no select-all (nxdog96 N4).
+        controller.send(.fieldMouseDown(clickCount: event.clickCount, button: .left, word: nil))
+        if let editor = field.editor, window?.firstResponder === editor {
+            // The field still edits (the state machine had let go): focus it
+            // in place, as `focus()` does, without an end-editing round trip.
+            controller.send(.focusGained(.mouse))
+        } else {
+            pendingFocusSource = .mouse
+            window?.makeFirstResponder(field)
+            pendingFocusSource = nil
+        }
+        controller.send(.fieldMouseUp)
+    }
+
+    public override func rightMouseDown(with event: NSEvent) {
+        guard isBarHit(event) else { return super.rightMouseDown(with: event) }
+        field.rightMouseDown(with: event)
+    }
+
+    /// The press landed on the bar itself inside the text area, not on a
+    /// chip, badge or star that passed it up the responder chain.
+    private func isBarHit(_ event: NSEvent) -> Bool {
+        guard let superview, hitTest(superview.convert(event.locationInWindow, from: nil)) === self else { return false }
+        return textArea.contains(convert(event.locationInWindow, from: nil))
+    }
+
+    public override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        field.acceptsFirstMouse(for: event)
+    }
+
+    /// The I-beam over the text area, the arrow beside the chip and the
+    /// badges (`OmnibarPointer`); the rects follow the text area.
+    public override func resetCursorRects() {
+        let text = textArea
+        cursorTextArea = text
+        addCursorRect(text, cursor: OmnibarPointer.cursor(.bar).cursor)
+        let edge = OmnibarPointer.cursor(.barEdge).cursor
+        if text.minX > bounds.minX { addCursorRect(NSRect(x: bounds.minX, y: bounds.minY, width: text.minX - bounds.minX, height: bounds.height), cursor: edge) }
+        if text.maxX < bounds.maxX { addCursorRect(NSRect(x: text.maxX, y: bounds.minY, width: bounds.maxX - text.maxX, height: bounds.height), cursor: edge) }
+    }
+
+    public override func layout() {
+        super.layout()
+        if textArea != cursorTextArea { window?.invalidateCursorRects(for: self) }
+    }
+
     // MARK: Appearance
 
     private func updateChrome() {
         let state = controller.state
+        if state.hasFocus != cursorRectsEditing {
+            // The field's cursor follows editing (`AddressField.resetCursorRects`).
+            cursorRectsEditing = state.hasFocus
+            window?.invalidateCursorRects(for: field)
+        }
         pill.state = state.isPopupOpen ? .card : (state.hasFocus ? .editing : .idle)
         backdrop.isHidden = !state.isPopupOpen
         let site = PageInfoSite(url: state.pageURL, security: security)

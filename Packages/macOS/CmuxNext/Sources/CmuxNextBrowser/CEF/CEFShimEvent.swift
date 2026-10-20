@@ -15,7 +15,8 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
     case title(browser: Int32, title: String)
     case favicon(browser: Int32, url: String)
     case loadingState(browser: Int32, loading: Bool, canGoBack: Bool, canGoForward: Bool)
-    case loadStart(browser: Int32, url: String)
+    /// `fromPost`: the committed entry came from a form submission (BR-R1).
+    case loadStart(browser: Int32, url: String, fromPost: Bool)
     case loadEnd(browser: Int32, httpStatus: Int)
     /// `chromiumInterstitial`: Chromium shows its own certificate page for
     /// it (`cmux_shim_certificate_proceed` left the decision to it).
@@ -61,6 +62,10 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
     /// (`permissionDismissed`).
     case permissionPrompt(browser: Int32, token: Int32, permissions: Int64, origin: String)
     case permissionDismissed(browser: Int32, token: Int32)
+    /// Chromium's password manager asks to save or update a sign-in, or its
+    /// prompt is gone (PASSWORD_PROMPT, fork API 20), answered with
+    /// `cmux_shim_password_prompt_answer(promptID, …)`.
+    case passwordPrompt(browser: Int32, promptID: Int32, json: String)
     /// The fork refused a WebAuthn request of a tab an agent drives, before
     /// any system UI (WEBAUTHN_REFUSED, fork API 23).
     case webAuthnRefused(browser: Int32)
@@ -96,7 +101,7 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
         case 5: self = .title(browser: browser, title: s1)
         case 6: self = .favicon(browser: browser, url: s1)
         case 7: self = .loadingState(browser: browser, loading: a & 1 != 0, canGoBack: a & 2 != 0, canGoForward: a & 4 != 0)
-        case 8: self = .loadStart(browser: browser, url: s1)
+        case 8: self = .loadStart(browser: browser, url: s1, fromPost: a == 1)
         case 9: self = .loadEnd(browser: browser, httpStatus: Int(a))
         case 10: self = .loadError(browser: browser, code: Int(a), text: s1, url: s2, chromiumInterstitial: b != 0)
         case 11: self = .progress(browser: browser, value: min(max(Double(a) / 1000, 0), 1))
@@ -137,7 +142,8 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
         case 40: self = .externalURL(browser: browser, url: s1, userGesture: a != 0)
         case 41: self = .permissionPrompt(browser: browser, token: request, permissions: a, origin: s1)
         case 42: self = .permissionDismissed(browser: browser, token: request)
-        case 43: self = .webAuthnRefused(browser: browser)
+        case 43: self = .passwordPrompt(browser: browser, promptID: request, json: s1)
+        case 44: self = .webAuthnRefused(browser: browser)
         default: self = .unknown(kind: kind)
         }
     }
@@ -170,6 +176,10 @@ nonisolated enum CEFForkTabEvent: Int32, Sendable {
     /// The window's side panel was shown, hidden, resized or changed
     /// (fork API 13); value = 1 when visible.
     case sidePanelChanged = 12
+    /// The tab's DevTools turned device mode on (value 1) or off (0), or
+    /// moved the device's screen area (fork API 24,
+    /// `cmux_devtools_inspected_bounds`).
+    case devToolsDeviceMode = 13
     case unknown = -1
 }
 

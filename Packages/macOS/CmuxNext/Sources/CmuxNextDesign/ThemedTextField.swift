@@ -60,7 +60,9 @@ public final class ThemedTextField: NSTextField, ThemedTextInput {
 
     public override func textDidEndEditing(_ notification: Notification) {
         super.textDidEndEditing(notification)
-        onEditingChange?(false)
+        // Return on a field with an action can select the text again inside `super` (editing goes
+        // on): report the state after it, not a bare false.
+        onEditingChange?(currentEditor() != nil)
     }
 
     public func applyThemeColors() {
@@ -127,7 +129,9 @@ public final class ThemedSecureTextField: NSSecureTextField, ThemedTextInput {
 
     public override func textDidEndEditing(_ notification: Notification) {
         super.textDidEndEditing(notification)
-        onEditingChange?(false)
+        // Return on a field with an action can select the text again inside `super` (editing goes
+        // on): report the state after it, not a bare false.
+        onEditingChange?(currentEditor() != nil)
     }
 
     public func applyThemeColors() {

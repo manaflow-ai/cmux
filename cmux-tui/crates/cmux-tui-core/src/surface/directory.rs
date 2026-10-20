@@ -26,13 +26,27 @@ impl Surface {
         self.as_pty()?.terminal_metadata.lock().unwrap().progress()
     }
 
-    /// When the terminal's running shell command started (`terminal-activity-v1`).
-    pub(crate) fn terminal_busy_since_ms(&self) -> Option<u64> {
+    /// The terminal's running shell command: how it uses the terminal and
+    /// when it started (`terminal-activity-v1`).
+    pub(crate) fn terminal_command_activity(
+        &self,
+    ) -> Option<(crate::terminal_activity::CommandActivity, u64)> {
         self.as_pty()?
             .terminal_metadata
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .busy_since_ms()
+            .command_activity()
+    }
+
+    /// When the terminal's shell drew the prompt it sits at (OSC 133 A, until
+    /// the next command starts): `extra.prompt` (`terminal-activity-v1`).
+    pub(crate) fn terminal_prompt_since(&self) -> Option<u64> {
+        self.as_pty()?
+            .terminal_metadata
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .activity
+            .prompt_since()
     }
 
     /// The terminal's OSC 7501 program status records as the public value
@@ -42,6 +56,13 @@ impl Surface {
         let records = self.as_pty()?.program_status_records();
         let records = records.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         records.to_json(running)
+    }
+
+    /// The status this terminal's tab shows (`ShownProgramStatus`).
+    pub fn shown_program_status(&self) -> Option<crate::program_status::ShownProgramStatus> {
+        let records = self.as_pty()?.program_status_records();
+        let records = records.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        records.shown(!self.is_dead())
     }
 
     /// Publish a changed OSC 9;4 progress, shell busy state, or OSC 7501
@@ -56,17 +77,26 @@ impl Surface {
             let progress = metadata.take_progress_change().is_some();
             (metadata.take_busy_change() || progress, metadata.program_status())
         };
-        let (status_changed, alerts) = {
+        let (status_changed, shown_changed, alerts) = {
             let mut records = records.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            (records.take_change(), records.take_alerts())
+            let shown = records.take_shown_change(!self.is_dead());
+            (records.take_change(), shown, records.take_alerts())
         };
-        if !progress_changed && !status_changed {
+        // A publish after the terminal died (reconnect) can hide its
+        // running records with no new report: send that shown change too.
+        if !progress_changed && !status_changed && shown_changed.is_none() {
             return;
         }
         let Some(mux) = pty.mux.upgrade() else { return };
         let mutation = if status_changed { "terminal.program_status" } else { "terminal.progress" };
-        if let Err(error) = mux.publish_terminal_progress(self, mutation) {
+        if (progress_changed || status_changed)
+            && let Err(error) = mux.publish_terminal_progress(self, mutation)
+        {
             eprintln!("cmux-tui: terminal {mutation} publication failed: {error}");
+        }
+        // The tab indicator (TUI) changes only with the shown status.
+        if let Some(status) = shown_changed {
+            mux.emit_terminal_program_status(self.id, status);
         }
         if !alerts.is_empty() {
             let notifications = pty

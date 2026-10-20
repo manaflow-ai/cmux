@@ -14,7 +14,9 @@ extension BookmarkService {
     func observeHome() {
         // task-owner: lives as long as the service; event-driven (Observation)
         homeObservation = Task { [weak self] in
-            for await serves in ObservationStream({ [weak self] in self?.usesDaemon ?? false }) {
+            // A trigger: a daemon restart that still serves bookmarks resets and fetches again.
+            for await serves in ObservationStream({ [weak self] in ObservationTrigger(self?.usesDaemon ?? false) }) {
+                let serves = serves.value
                 guard let self else { return }
                 fetched.removeAll()
                 loadedFromDaemon.removeAll()
@@ -95,10 +97,10 @@ extension BookmarkService {
                     bookmark: node.id, lastUsedMs: .set(BookmarkTime.ms(lastUsed)),
                     mutation: MutationIdentity(origin: DaemonConnection.origin, mutationID: mutationID + ".used")))
             }
-        case .update(let id, let title, let url, let favicon, let lastUsed):
+        case .update(let id, let title, let url, let favicon, let lastUsed, let icon):
             try await connection.updateBookmark(UpdateBookmarkRequest(
                 bookmark: id, title: title, url: url?.absoluteString, faviconKey: fieldUpdate(favicon) { $0 },
-                lastUsedMs: fieldUpdate(lastUsed) { BookmarkTime.ms($0) }, mutation: key))
+                lastUsedMs: fieldUpdate(lastUsed) { BookmarkTime.ms($0) }, icon: fieldUpdate(icon) { $0 }, mutation: key))
         case .move(let id, let parent, let index):
             try await connection.moveBookmark(id, parent: parent, index: index, mutation: key)
         case .delete(let id):
@@ -127,7 +129,8 @@ extension BookmarkService {
     nonisolated static func node(from record: BookmarkRecord) -> BookmarkNode {
         BookmarkNode(id: record.id, parent: record.parent, kind: BookmarkNode.Kind(rawValue: record.kind) ?? .url, title: record.title,
                      url: record.url.flatMap(URL.init(string:)), faviconKey: record.faviconKey, sourceKey: record.sourceKey,
-                     created: BookmarkTime.date(ms: record.createdMs), lastUsed: record.lastUsedMs.map(BookmarkTime.date(ms:)))
+                     created: BookmarkTime.date(ms: record.createdMs), lastUsed: record.lastUsedMs.map(BookmarkTime.date(ms:)),
+                     icon: record.icon)
     }
 
     /// Copies this Mac's file into the daemon, node by node in tree order

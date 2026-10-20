@@ -1,6 +1,8 @@
 import AppKit
+import CmuxNextAgentActivity
 @testable import CmuxNextApp
 @testable import CmuxNextApps
+@testable import CmuxNextBrowser
 @testable import CmuxNextDesign
 @testable import CmuxNextFeed
 @testable import CmuxNextRemoteView
@@ -85,5 +87,18 @@ import Testing
         let unknown = view.responds(to: NSSelectorFromString("unknownSwatchColor")) ? view.value(forKey: "unknownSwatchColor") as? NSColor : nil
         let swatch = try #require(unknown, "an unreadable color draws in the scope's ink")
         #expect(ThemedOverlayColorsTests.same(swatch, scope.perform { Palette.textTertiary }), "\(swatch)")
+    }
+
+    /// The cookie card's quiet link starts in the theme's tertiary ink before its card's first theme
+    /// pass, never macOS's secondary label gray (theme sweep 3, batch G).
+    @Test func theCookieCardsLinkStartsInTheAppTheme() {
+        Self.expect(CookieCardLinkButton().color, Self.app.textTertiary, "link")
+    }
+
+    /// A session color the CUA host sent unreadably draws the theme's tertiary ink, not the system
+    /// gray (theme sweep 3, batch G).
+    @Test func anUnreadableSessionColorIsTheAppThemesInk() {
+        Self.expect(AgentActivityColor.nsColor(hex: "not-a-color"), Self.app.textTertiary, "fallback")
+        Self.expect(AgentActivityColor.nsColor(hex: "#336699"), ThemeRGB(hex: 0x336699), "a readable color is kept")
     }
 }

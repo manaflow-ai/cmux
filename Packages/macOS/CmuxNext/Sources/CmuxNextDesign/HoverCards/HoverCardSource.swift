@@ -25,6 +25,12 @@ public struct HoverCardBody {
     }
 }
 
+/// A card body that can say what it shows, for `debug.hover_cards` (GUI proofs read it).
+@MainActor
+public protocol HoverCardTextReporting {
+    var reportedLines: [String] { get }
+}
+
 /// A view with hover card targets (a tab strip, a sidebar list).
 public protocol HoverCardSource: AnyObject {
     /// The window the targets are in.
@@ -40,4 +46,11 @@ public protocol HoverCardSource: AnyObject {
     func hoverCardActivated(_ id: HoverTargetID)
     /// `id`'s card is no longer pending or shown.
     func hoverCardDeactivated(_ id: HoverTargetID)
+    /// Whether `screenPoint`, on none of the source's targets, is between them
+    /// (a gap in a tab strip): a card that hides on leave then waits for the next.
+    func hoverCardBridges(at screenPoint: CGPoint) -> Bool
+}
+
+public extension HoverCardSource {
+    func hoverCardBridges(at screenPoint: CGPoint) -> Bool { false }
 }

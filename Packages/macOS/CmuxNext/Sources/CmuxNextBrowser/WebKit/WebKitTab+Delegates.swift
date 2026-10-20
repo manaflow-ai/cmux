@@ -44,6 +44,7 @@ extension WebKitTab: WKNavigationDelegate {
         }
         // A local Markdown file shows in cmux's markdown page, not as text (LocalFileHandoff).
         if navigationAction.targetFrame?.isMainFrame ?? true, url.isHandedOff(by: .webkit) { emit(.openLocalFile(url)); return decisionHandler(.cancel, preferences) }
+        if cancelsFormResubmission(navigationAction, decisionHandler: { decisionHandler(.cancel, preferences) }) { return }
         applySiteSettings(to: preferences, for: navigationAction)
         guard navigationAction.targetFrame?.isMainFrame ?? true, let engine else { return decisionHandler(.allow, preferences) }
         navigationSourceSite = pageSite
@@ -88,6 +89,7 @@ extension WebKitTab: WKNavigationDelegate {
 
     public func webView(_ webView: WKWebView, didCommit navigation: WKNavigation?) {
         restored.navigationCommitted(url: webView.url)
+        formResubmissionCommitted()
         guard let id = navigationID(for: navigation, creating: false) else { return }
         apply(.committed(id, url: webView.url))
         pageInfoActivity.documentCommitted(origin: webView.url.flatMap(PageInfoSite.origin(of:)))
@@ -116,6 +118,7 @@ extension WebKitTab: WKNavigationDelegate {
 
     public func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation?, withError error: any Error) {
         restored.navigationCommitted(url: nil)  // a saved entry that failed to load is no longer loading
+        formResubmissionFailed()
         guard let id = navigationID(for: navigation, creating: false) else { return }
         forgetNavigation(navigation)
         apply(.failed(id, BrowserLoadError(error)))

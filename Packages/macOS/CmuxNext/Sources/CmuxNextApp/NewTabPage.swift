@@ -24,29 +24,17 @@ struct NewTabPageHandler {
     var typeAhead: (String, String) -> Void = { _, _ in }
     /// The agent the screen picked, and the model picked on it, remembered on this Mac.
     var remember: (AgentPaneRememberedPick) -> Void = { _ in }
+    /// The page's style switch picked a template, saved as `tabs.newTabTemplate`.
+    var setTemplate: (String) -> Void = { _ in }
     /// The location bar picked an open tab or workspace.
     var jump: (AgentPaneJumpTarget, String) -> Void
     var editShortcut: (AgentPaneTabKind) -> Void
-    /// The page's "default: X" toggle wrote `tabs.newTabKind`.
-    var setDefaultKind: (String) -> Void
-    /// The page's template dots picked a template, saved as `tabs.newTabTemplate`.
-    var setTemplate: (String) -> Void = { _ in }
-    /// The page started a chat in place (Agent, Ask, or a recent session).
-    var becameChat: () -> Void = {}
     /// The project picker fallback, resolved only when the user chooses Browse….
     var browseProject: () async -> String? = { nil }
     /// Returns recent projects, optionally filtered by the picker's query.
     var listProjects: (String?) async -> [String] = { _ in [] }
     /// Runs a host-owned action advertised by the omnibar.
     var action: (String) -> Void = { _ in }
-
-    /// The page's setting writes (`AgentPaneModel.onNewTabSetting`).
-    func write(_ setting: AgentPaneNewTabSetting) {
-        switch setting {
-        case .defaultKind(let kind): setDefaultKind(kind)
-        case .template(let template): setTemplate(template)
-        }
-    }
 }
 
 enum NewTabPage {
@@ -203,14 +191,11 @@ enum NewTabPage {
             hotkeys: hotkeys, cwd: machine.cwd,
             omnibar: bar,
             projects: machine.remoteFolders ?? projects(services),
-            defaultKind: (services.settings?.snapshot.newTabKind ?? NewTabDefaultKind.fallback).rawValue,
             layout: NewTabTunables.layout.value.pageLayout,
             lastAgent: services.newTabChoices.agent, lastPicks: services.newTabChoices.picks,
             home: machine.home,
-            template: (services.newTabChoices.template(in: (window.flatMap { services.windows.owner(of: $0) } ?? services.windows.active)?.window)
-                ?? services.settings?.snapshot.newTabTemplate)?.rawValue,
-            templateSwitcher: NewTabTunables.templateSwitcher.value ? true : nil
-        )
+            template: services.settings?.snapshot.newTabTemplate?.rawValue
+        ).dismissingHarnessHint(services.newTabChoices.harnessHintDismissed).warmedOnThisMac(machine.remoteFolders == nil)
     }
 
     /// What a prewarmed spare page loads with before Cmd-T adopts it
@@ -220,14 +205,12 @@ enum NewTabPage {
             kind: .agent, hotkeys: newActions.compactMapValues { services.registry.shortcutDisplay(for: $0) },
             layout: NewTabTunables.layout.value.pageLayout, lastAgent: services.newTabChoices.agent,
             lastPicks: services.newTabChoices.picks, home: NSHomeDirectory(),
-            template: services.settings?.snapshot.newTabTemplate?.rawValue,
-            templateSwitcher: NewTabTunables.templateSwitcher.value ? true : nil
-        )
+            template: services.settings?.snapshot.newTabTemplate?.rawValue
+        ).dismissingHarnessHint(services.newTabChoices.harnessHintDismissed).warmedOnThisMac()
     }
 
-    /// Projects discovered off the main actor during app startup. The current
-    /// session cwd still arrives immediately from the pane handshake.
-    static func projects(_ services: AppServices) -> [String] { services.onboarding.projectFolders }
+    /// Startup folders only without `project-list-v1`; else the page asks `project.list` (removals win, cx-m0p7).
+    static func projects(_ services: AppServices) -> [String] { services.machines.local.projectStore == nil ? services.onboarding.projectFolders : [] }
 
     /// The page's handler: `open` is the pane's (it replaces the page with
     /// a tab); the location bar's jumps, the shortcut and default-kind edits
@@ -238,17 +221,19 @@ enum NewTabPage {
             open: open,
             typeAhead: { [weak services] key, text in services?.newTabTypeAhead.update(key, text: text) },
             remember: { [weak services] pick in services?.newTabChoices.remember(pick) },
+            setTemplate: { [weak services] template in
+                guard let settings = services?.settings else { return }
+                Task { await saveTemplate(template, settings: settings) }
+            },
             jump: { [weak services] target, id in if let services { jump(target, id: id, services: services) } },
             editShortcut: { [weak services] kind in if let services { editShortcut(kind, services: services) } },
-            setDefaultKind: { [weak services] kind in if let services { setDefaultKind(kind, services: services) } },
-            setTemplate: { [weak services] template in if let services { setTemplate(template, services: services) } },
-            becameChat: { [weak services] in services?.newTabKinds.record(.agent, folder: cwd) },
             browseProject: { [weak services] in
-                guard let services else { return nil }
-                return await NewTabPage.chooseFolder(in: services.windows.active?.window)?.path
+                guard let services, let path = await NewTabPage.chooseFolder(in: services.windows.active?.window)?.path else { return nil }
+                return await services.machines.local.projectStore?.picked(path) ?? path
             },
             listProjects: { [weak services] query in
                 guard let services else { return [] }
+                if let paths = await services.machines.local.projectStore?.pickerPaths(query: query, limit: AgentPaneOmnibar.maximumEntries) { return paths }
                 let hints = services.history.agents.sessions.compactMap(\.cwd) + services.daemon.store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).compactMap(\.cwd)
                 return await Task.detached {
                     RecentProjectScan.live().complete(query: query ?? "", hints: hints, limit: AgentPaneOmnibar.maximumEntries)
@@ -274,31 +259,14 @@ enum NewTabPage {
         }
     }
 
-    /// Through the schema, as the Settings window writes it; an unknown
-    /// value from the page is ignored.
-    static func setDefaultKind(_ value: String, services: AppServices) {
-        guard let kind = NewTabDefaultKind(rawValue: value), let settings = services.settings,
-              let descriptor = SettingsSchema.descriptor(for: NewTabDefaultKind.configPath) else { return }
-        Task {
-            do { try await settings.setSetting(descriptor, to: .string(kind.rawValue), by: .caller("page")) } catch {
-                Logger(subsystem: "com.cmuxterm.app.next", category: "newtab")
-                    .error("new tab kind write failed: \(String(describing: error), privacy: .public)")
-            }
-        }
-    }
-
-    /// The template dots: remembered for the window they were picked in (the active one), and
-    /// saved through the schema, as the Settings window writes it, for windows that picked none.
-    /// An unknown value from the page is ignored.
-    static func setTemplate(_ value: String, services: AppServices) {
-        guard let template = NewTabTemplate(rawValue: value) else { return }
-        services.newTabChoices.remember(template: template, in: services.windows.active?.window)
-        guard let settings = services.settings, let descriptor = SettingsSchema.descriptor(for: NewTabTemplate.configPath) else { return }
-        Task {
-            do { try await settings.setSetting(descriptor, to: .string(template.rawValue), by: .caller("page")) } catch {
-                Logger(subsystem: "com.cmuxterm.app.next", category: "newtab")
-                    .error("new tab template write failed: \(String(describing: error), privacy: .public)")
-            }
+    /// The style switch's pick, through the schema as the Settings window writes it. Terminal and
+    /// unknown values are ignored: New Tab never opens a terminal by itself.
+    static func saveTemplate(_ value: String, settings: SettingsController) async {
+        guard let template = NewTabTemplate(rawValue: value), template != .terminal,
+              let descriptor = SettingsSchema.descriptor(for: NewTabTemplate.configPath) else { return }
+        do { try await settings.setSetting(descriptor, to: .string(template.rawValue), by: .caller("page")) } catch {
+            Logger(subsystem: "com.cmuxterm.app.next", category: "newtab")
+                .error("new tab template write failed: \(String(describing: error), privacy: .public)")
         }
     }
 
@@ -331,5 +299,14 @@ extension PaneController {
         // `open` focuses the field of a New Tab page already showing, else opens one. In a pane
         // of another machine it is the same page; nothing starts there before a send (cx-k21v).
         NewTabPage.open(in: self, seed: nil, reusingShown: true)
+    }
+}
+
+extension AgentPaneNewTab {
+    /// The page with Integrate a harness off when it was dismissed for good.
+    func dismissingHarnessHint(_ dismissed: Bool) -> AgentPaneNewTab {
+        var page = self
+        page.harnessHintDismissed = dismissed ? true : nil
+        return page
     }
 }

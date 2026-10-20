@@ -10,6 +10,7 @@ use base64::Engine;
 
 use super::ConnectionCancellation;
 use super::DeliveryClassifiedError;
+use super::MessageWriter;
 use super::ProtocolKeyInput;
 use super::get_surface;
 use super::image_paste;
@@ -64,16 +65,73 @@ pub(super) fn paste_image(
     .handle(mux, client)
 }
 
+/// `send-expect-foreground-v1`: `send` takes `expect_foreground`.
+pub(super) const SEND_EXPECT_FOREGROUND_CAPABILITY: &str = "send-expect-foreground-v1";
+
+/// The params of `send`.
+#[derive(serde::Deserialize)]
+pub(super) struct SendParams {
+    /// The terminal surface; or `terminal_id` (exactly one).
+    #[serde(default)]
+    pub(super) surface: Option<SurfaceId>,
+    /// `terminal-input-while-creating-v1`: the host terminal id, also of a terminal still
+    /// being created (the input is queued for it, `mux::creating_input`).
+    #[serde(default)]
+    pub(super) terminal_id: Option<String>,
+    #[serde(default)]
+    pub(super) text: Option<String>,
+    /// Base64-encoded raw bytes, written verbatim to the pty.
+    #[serde(default)]
+    pub(super) bytes: Option<String>,
+    #[serde(default)]
+    pub(super) paste: bool,
+    /// `send-expect-foreground-v1`: write only while the terminal's foreground executable is
+    /// still this one (`process-info`'s `foreground_executable`), checked just before the write.
+    #[serde(default)]
+    pub(super) expect_foreground: Option<String>,
+}
+
 pub(super) fn send(
     mux: &Arc<Mux>,
     client: u64,
-    surface: SurfaceId,
-    text: Option<String>,
-    bytes: Option<String>,
-    paste: bool,
+    writer: &MessageWriter,
+    params: SendParams,
 ) -> anyhow::Result<Value> {
+    let SendParams { surface, terminal_id, text, bytes, paste, expect_foreground } = params;
+    let surface = match (surface, terminal_id) {
+        (Some(surface), None) => surface,
+        (None, Some(_)) if expect_foreground.is_some() => {
+            return Err(DeliveryClassifiedError::known_not_delivered(anyhow::anyhow!(
+                "bad request: expect_foreground needs surface, not terminal_id"
+            )));
+        }
+        (None, Some(terminal_id)) => {
+            return super::creating_input::send_to_terminal(
+                mux,
+                client,
+                writer,
+                &terminal_id,
+                text,
+                bytes,
+                paste,
+            );
+        }
+        _ => anyhow::bail!("bad request: send takes exactly one of surface and terminal_id"),
+    };
     let surface = get_surface(mux, surface)?;
     require_pty(&surface)?;
+    // Bytes queued for this terminal while it was being created go first.
+    mux.wait_for_creating_input_flush(&surface);
+    // A reply meant for the program that asked must not reach the shell that took the foreground
+    // back after it exited: checked here, right before the write, not a round trip earlier.
+    if let Some(expected) = expect_foreground {
+        let found = surface.process_id().and_then(platform::foreground_process_name);
+        if found.as_deref() != Some(expected.as_str()) {
+            return Err(DeliveryClassifiedError::known_not_delivered(anyhow::anyhow!(
+                "foreground changed: the expected program no longer runs in the foreground"
+            )));
+        }
+    }
     if paste {
         let mut payload = text.unwrap_or_default().into_bytes();
         if let Some(b64) = bytes {
@@ -112,6 +170,8 @@ pub(super) fn clear_history(
         .map(KeyInput::try_from)
         .transpose()
         .map_err(DeliveryClassifiedError::known_not_delivered)?;
+    // Bytes queued for this terminal while it was being created go before the clear or its key.
+    mux.wait_for_creating_input_flush(&surface);
     surface
         .clear_history_or_encode_key_classified(fallback_key.as_ref())
         .map_err(DeliveryClassifiedError::from)?;
@@ -304,6 +364,7 @@ pub(super) fn send_key(
         }
         Ok::<(), anyhow::Error>(())
     })??;
+    mux.wait_for_creating_input_flush(&surface);
     surface.write_bytes(&encoded)?;
     mux.note_terminal_input(surface.id, client);
     Ok(json!({}))

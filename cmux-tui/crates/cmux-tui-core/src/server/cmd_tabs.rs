@@ -131,12 +131,14 @@ pub(super) fn move_tab_to_split(
     edge: String,
     ratio: Option<f32>,
     respawn: Option<SplitRespawnRequest>,
+    keep_focus: bool,
     transaction: Option<String>,
 ) -> anyhow::Result<Value> {
     validate_client_transaction(transaction.as_deref())?;
     get_surface(mux, surface)?;
     let edge = crate::TabDropEdge::parse(&edge)?;
-    let outcome = split_tab(mux, client, surface, pane, edge, ratio, respawn, transaction)?;
+    let outcome =
+        split_tab(mux, client, surface, pane, edge, ratio, respawn, keep_focus, transaction)?;
     Ok(tab_drag_outcome_json(&outcome))
 }
 
@@ -239,8 +241,11 @@ pub(super) fn update_tab_group(
     name: Option<String>,
     color: Option<String>,
     collapsed: Option<bool>,
+    icon: Option<Option<String>>,
 ) -> anyhow::Result<Value> {
-    Ok(tab_group_outcome_json(&mux.update_tab_group_as(&actor, &group, name, color, collapsed)?))
+    Ok(tab_group_outcome_json(
+        &mux.update_tab_group_as(&actor, &group, name, color, collapsed, icon)?,
+    ))
 }
 
 pub(super) fn add_tabs_to_tab_group(

@@ -4,8 +4,9 @@ import CmuxNextLayout
 
 /// Where a person's new tab goes when it is opened from an agent chat
 /// (lawrence-call-1006 D, two columns like the Codex app). The chat dock is
-/// the left dock column with the agent chat role: it never gets tabs of
-/// its own, so tools opened from it are tabs in the scrolling strip.
+/// the left dock column with the agent chat role: tools opened from it are
+/// tabs in the scrolling strip. It shows its tab bar like every pane
+/// (cx-v4dmy).
 enum ChatColumnPlacement: Equatable {
     /// A tab in the pane it was opened from.
     case here
@@ -63,23 +64,23 @@ extension ChatColumnPlacement {
     }
 
     /// Whether `tab` is an agent chat. The New Tab page is an agent tab too, but not a chat.
+    /// Reads `tab` itself: finding it again by id walks every workspace's tabs, once per
+    /// tab of a pane whose tab bar is drawn (cx-6so.21).
     @MainActor static func isChat(_ tab: TabModel, services: AppServices) -> Bool {
-        services.agentTabs.isAgentTab(tab.id) && !services.agentTabs.isNewTabPage(tab.id)
+        tab.agentSession != nil && !services.agentTabs.isNewTabPage(tab.id)
     }
 
     /// Where a person's new tab from `controller`'s pane opens: the pane
     /// to open it in (`controller` itself, or the strip pane, focused), or
     /// nil when it is already open. A lone chat moves into a new left dock
     /// with the agent chat role, leaving `respawn` in its pane, in one daemon
-    /// commit. Without `respawn` (a New Tab page, which is not a daemon tab)
-    /// it stays in `controller`, and so does a lone chat that shows its tab bar.
+    /// commit, whether or not it shows its tab bar (cx-v4dmy: every chat shows
+    /// it by default). Without `respawn` (a New Tab page, which is not a daemon
+    /// tab) it stays in `controller`.
     @MainActor static func route(from controller: PaneController, respawn: SplitRespawn?,
                                  services: AppServices) -> PaneController? {
         guard let content = controller.workspace else { return controller }
         let placement = resolve(from: controller, services: services)
-        // A lone chat that shows its tab bar (its own choice or `tabs.tabBar.agent`, cx-soza) keeps
-        // the new tab beside it instead of docking; the chat dock still sends tabs to the strip.
-        if case .dockChat = placement, !controller.view.hidesStrip { return controller }
         switch placement {
         case .here:
             return controller
@@ -93,8 +94,13 @@ extension ChatColumnPlacement {
             // The new tab left in the pane takes focus, not the docked chat.
             let pane = controller.layoutPaneID
             TabMoves.toNewDockColumn(chat, anchor: controller.pane, edge: .left, role: .agentChat,
-                                     respawn: respawn, services: services) { [weak content] moved in
+                                     respawn: respawn, services: services) { [weak content, weak controller] moved in
                 if moved, let content { PaneHandlers.focus(pane, in: content) }
+                // A hidden tab bar was the chat's choice: the tab left in the pane shows its tab bar again.
+                if moved, let controller, services.paneTabBars.choice(for: controller.paneKey) == false {
+                    services.paneTabBars.set(nil, for: controller.paneKey)
+                    controller.apply(controller.snapshot())
+                }
             }
             return nil
         }

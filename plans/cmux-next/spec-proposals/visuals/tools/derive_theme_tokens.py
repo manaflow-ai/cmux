@@ -1,7 +1,11 @@
-"""Python port of CmuxTheme ThemeTokens.derive (ThemeTokens.swift) and ChromeEmphasis.emphasized.
+"""Python port of CmuxTheme ThemeTokens.derive (ThemeTokens.swift), AppTheme.derive (AppTheme.swift,
+for the hued accent of appearance.accent) and ChromeEmphasis.emphasized.
 
-The neutral accent only (appearance.accent = neutral, the default): an accent comes from AppTheme,
-which this port does not compute. The reference themes name no cursor-color, so caret = textPrimary.
+A reference theme's 'accent' is appearance.accent (default neutral); 'accentColor' is the theme's own
+accent (appearance.themeEdits <theme>/accent, else the theme file's '# cmux-accent = #rrggbb'), which
+wins over 'accent'; 'cursor' is cursor-color (caret).
+The AppTheme port reproduces schemas/theme/app-theme-vectors.json (the web module's output):
+  derive_theme_tokens.py --check-app-vectors app-theme-vectors.json
 
 Hex output rounds each channel half away from zero, as Swift's .rounded() does in
 ThemeRGB.description (0.30 * 255 = 76.5 -> 77 = 0x4D). Do not use Python round(),
@@ -46,16 +50,108 @@ def muted(c,target,limit,surf,m):
         if cand.contrast(surf)>=m: return cand
         f-=MUTED_STEP
     return c
+# AppTheme.swift AppColor (the web color.ts): 8-bit quantizing, WCAG contrast, OKLCH lightness fits.
+def q(c): return C(ch(c.r)/255,ch(c.g)/255,ch(c.b)/255)
+def lin(c): return c/12.92 if c<=0.04045 else ((c+0.055)/1.055)**2.4
+def gam(c): return c*12.92 if c<=0.0031308 else 1.055*c**(1/2.4)-0.055
+def cbrt(v): return math.copysign(abs(v)**(1/3),v)
+def oklch(c):
+    r,g,b=lin(c.r),lin(c.g),lin(c.b)
+    l=cbrt(0.4122214708*r+0.5363325363*g+0.0514459929*b); m=cbrt(0.2119034982*r+0.6806995451*g+0.1073969566*b); s=cbrt(0.0883024619*r+0.2817188376*g+0.6299787005*b)
+    L=0.2104542553*l+0.793617785*m-0.0040720468*s; a=1.9779984951*l-2.428592205*m+0.4505937099*s; bb=0.0259040371*l+0.7827717662*m-0.808675766*s
+    h=math.degrees(math.atan2(bb,a)); return (L,math.hypot(a,bb),h+360 if h<0 else h)
+def to_lin(L,c,h):
+    a,b=c*math.cos(math.radians(h)),c*math.sin(math.radians(h))
+    l=(L+0.3963377774*a+0.2158037573*b)**3; m=(L-0.1055613458*a-0.0638541728*b)**3; s=(L-0.0894841775*a-1.291485548*b)**3
+    return (4.0767416621*l-3.3077115913*m+0.2309699292*s,-1.2684380046*l+2.6097574011*m-0.3413193965*s,-0.0041960863*l-0.7034186147*m+1.707614701*s)
+def gamut(rgb): return all(-1e-4<=v<=1+1e-4 for v in rgb)
+def from_oklch(L,c,h):
+    L=clamp(L); lo,hi=0.0,max(c,0.0)
+    if not gamut(to_lin(L,hi,h)):
+        for _ in range(24):
+            mid=(lo+hi)/2
+            if gamut(to_lin(L,mid,h)): lo=mid
+            else: hi=mid
+        hi=lo
+    r,g,b=to_lin(L,hi,h); f=lambda v: clamp(gam(clamp(v)))
+    return C(f(r),f(g),f(b))
+def meets(c,cons): return all(c.contrast(on)>=m for on,m in cons)
+def fit(color,cons,prefer):
+    start=q(color)
+    if meets(start,cons): return start
+    L,c,h=oklch(start)
+    avg=sum(on.lum() for on,_ in cons)/max(len(cons),1)
+    first=prefer or ('lighter' if avg<0.18 else 'darker')
+    for d in (first,'darker' if first=='lighter' else 'lighter'):
+        pole=1.0 if d=='lighter' else 0.0
+        at=lambda t: q(from_oklch(L+(pole-L)*t,c,h))
+        if not meets(at(1),cons): continue
+        lo,hi=0.0,1.0
+        for _ in range(28):
+            mid=(lo+hi)/2
+            if meets(at(mid),cons): hi=mid
+            else: lo=mid
+        return at(hi)
+    w=min([WHITE.contrast(on) for on,_ in cons] or [0]); k=min([BLACK.contrast(on) for on,_ in cons] or [0])
+    return WHITE if w>=k else BLACK
+ACCENT_SLOT=dict(red=1,green=2,yellow=3,blue=4,magenta=5,cyan=6)
+PLAIN=['window','sidebar','content','elevated']; TEXTS=PLAIN+['control','hover','pressed','selection']; STATUS=PLAIN+['hover']
+APP_CONTRACT=([('text',o,4.5) for o in TEXTS]+[('textSecondary',o,4.5) for o in TEXTS]+[('icon',o,3.0) for o in TEXTS]
+  +[('controlStroke',o,3.0) for o in PLAIN+['control']]+[('accent',o,3.0) for o in PLAIN]+[('focusRing',o,3.0) for o in PLAIN]
+  +[('onAccent','accent',4.5)]+[('accentText',o,4.5) for o in STATUS+['selection']]
+  +[(n,o,4.5) for n in ('danger','warning','success') for o in STATUS])
+def colorful(pal,n,b): return pal[b] if oklch(pal[b])[1]>oklch(pal[n])[1]+0.02 else pal[n]
+def accent_seed(accent,fg,pal):
+    if isinstance(accent,C): return accent  # AccentSource.color: the theme's own accent
+    neutral=from_oklch(oklch(fg)[0],0,0)
+    if accent in ACCENT_SLOT: s=ACCENT_SLOT[accent]; return colorful(pal,s,s+8)
+    if accent!='theme': return neutral
+    for name in ('magenta','blue','cyan'):
+        s=ACCENT_SLOT[name]; c=colorful(pal,s,s+8)
+        if oklch(c)[1]>=0.05: return c
+    return neutral
+def app_derive_at(bg,fg,pal,accent,tint):
+    dark=bg.lum()<fg.lum(); d=lambda a,b: a if dark else b
+    t={}; window=q(bg); t['window']=window; t['content']=q(bg)
+    t['sidebar']=q(bg.mixed(fg,d(0.04,0.035)*tint)); t['elevated']=q(bg.mixed(fg,0.075*tint) if dark else bg.mixed(WHITE,0.7*tint))
+    t['control']=q(bg.mixed(fg,d(0.1,0.065)*tint)); t['hover']=q(bg.mixed(fg,d(0.06,0.045)*tint)); t['pressed']=q(bg.mixed(fg,d(0.12,0.09)*tint))
+    t['separator']=q(bg.mixed(fg,d(0.13,0.11)))
+    on=lambda names,m: [(t[n],m) for n in names]
+    away='lighter' if dark else 'darker'
+    want=window if dark else WHITE
+    acc=fit(accent_seed(accent,fg,pal),on(PLAIN,3.0)+[(want,4.5)],away); t['accent']=acc; t['focusRing']=acc
+    t['onAccent']=want if meets(want,[(acc,4.5)]) else fit(BLACK if dark else WHITE,[(acc,4.5)],None)
+    t['selection']=q(bg.mixed(acc,d(0.26,0.16)*tint))
+    text=fit(fg,on(TEXTS,4.5),None); t['text']=text
+    t['textSecondary']=fit(text.mixed(bg,0.34),on(TEXTS,4.5),away); t['icon']=fit(text.mixed(bg,0.3),on(TEXTS,3.0),away)
+    t['controlStroke']=fit(bg.mixed(fg,0.42),on(PLAIN+['control'],3.0),away)
+    t['accentText']=fit(acc,on(STATUS+['selection'],4.5),away)
+    t['danger']=fit(colorful(pal,1,9),on(STATUS,4.5),away); t['warning']=fit(colorful(pal,3,11),on(STATUS,4.5),away); t['success']=fit(colorful(pal,2,10),on(STATUS,4.5),away)
+    return dark,t
+def app_derive(bg,fg,pal,accent='neutral'):
+    """AppTheme.derive: bg, fg and the 16 palette colors as C; tint scales tried until every contract pair passes."""
+    bg,fg=bg.wa(1),fg.wa(1)
+    for tint in (1,0.7,0.45,0.25,0.1,0):
+        dark,t=app_derive_at(bg,fg,pal,accent,tint)
+        if all(t[a].contrast(t[b])>=m for a,b,m in APP_CONTRACT): break
+    return dark,t
 GHOSTTY_DEFAULT_PAL=[0x1D1F21,0xCC6666,0xB5BD68,0xF0C674,0x81A2BE,0xB294BB,0x8ABEB7,0xC5C8C6,0x666666,0xD54E53,0xB9CA4A,0xE7C547,0x7AA6DA,0xC397D8,0x70C0B1,0xEAEAEA]
-def derive(bg,fg,pal,sel=None,opacity=1.0):
+def derive(bg,fg,pal,sel=None,opacity=1.0,accent='neutral',cursor=None,accent_color=None):
+    # AppTheme fills a missing slot with Ghostty's default; ThemeTokens takes the default palette under 8 slots.
+    app_pal=[C.hex(pal[i] if i<len(pal) else GHOSTTY_DEFAULT_PAL[i]) for i in range(16)]
     bg,fg=C.hex(bg),C.hex(fg); pal=[C.hex(p) for p in (pal if len(pal)>=8 else GHOSTTY_DEFAULT_PAL)]
     dark=bg.lum()<fg.lum()
-    hover=fg.wa(0.06 if dark else 0.05); selection=fg.wa(0.10 if dark else 0.08); pressed=fg.wa(0.14 if dark else 0.11)
+    # The app accent when appearance.accent or the theme names one; None keeps the neutral fills.
+    source=C.hex(accent_color) if accent_color is not None else accent
+    app=app_derive(bg,fg,app_pal,source)[1] if accent!='neutral' or accent_color is not None else None
+    acc=app['accent'] if app else None
+    hover=fg.wa(0.06 if dark else 0.05); pressed=fg.wa(0.14 if dark else 0.11)
+    selection=acc.wa(0.26 if dark else 0.16) if acc else fg.wa(0.10 if dark else 0.08)
     # Swift: the lower-contrast of pressedFill and selectionFill over bg (pressed, with the neutral accent).
     worst=min([pressed.comp(bg),selection.comp(bg)],key=lambda c: fg.contrast(c))
     primary=readable(fg,worst,4.5); secondary=muted(primary,bg,0.38,worst,4.5); tertiary=muted(primary,bg,0.55,worst,3.0)
     status=lambda i: readable(pal[i],bg,3.0)
-    hl=status(4)
+    hl=acc if acc else status(4)
     best=lambda cs: max(cs,key=lambda c:c.contrast(hl))
     themed=best([bg.wa(1),primary.wa(1)])
     hlt=themed if themed.contrast(hl)>=4.5 else best([C.hex(0),C.hex(0xFFFFFF)])
@@ -67,12 +163,13 @@ def derive(bg,fg,pal,sel=None,opacity=1.0):
       stripBackground=surf,
       sidebarStep=fg.wa(0.04),stripStep=BLACK.wa(0.22 if dark else 0.05),
       textPrimary=primary,textSecondary=secondary,textTertiary=tertiary,hoverFill=hover,selectionFill=selection,
-      secondarySelectionFill=fg.wa(0.07 if dark else 0.055),pressedFill=pressed,badgeFill=fg.wa(0.14 if dark else 0.10),
-      separator=fg.wa(0.08 if dark else 0.07),paneBorder=fg.wa(0.07 if dark else 0.09),focusRing=fg.wa(0.40),
+      secondarySelectionFill=acc.wa(0.18 if dark else 0.11) if acc else fg.wa(0.07 if dark else 0.055),pressedFill=pressed,badgeFill=fg.wa(0.14 if dark else 0.10),
+      separator=fg.wa(0.08 if dark else 0.07),paneBorder=fg.wa(0.07 if dark else 0.09),focusRing=acc if acc else fg.wa(0.40),
       glassTint=bg.wa(0.40 if dark else 0.30),shadow=bg.mixed(BLACK,0.85),
       textSelection=csel if csel is not None else bg.mixed(fg,0.22),
       attention=status(3),danger=status(1),success=status(2),highlight=hl,highlightText=hlt,
-      accent=primary,onAccent=bg.wa(1))
+      accent=acc if acc else primary,onAccent=app['onAccent'] if app else bg.wa(1),
+      caret=readable(C.hex(cursor),bg,3.0) if cursor is not None else primary)
     return dark,t,pal
 def emphasized(t,style,s):
     t=dict(t); page=t['contentBackground'].wa(1)
@@ -96,12 +193,38 @@ THEMES={
  'monokaiClassic':dict(name='Monokai Classic (test fixture)',bg=0x272822,fg=0xFDFFF1,sel=0x57584F,pal=[0x272822,0xF92672,0xA6E22E,0xE6DB74,0xFD971F,0xAE81FF,0x66D9EF,0xFDFFF1,0x6E7066,0xF92672,0xA6E22E,0xE6DB74,0xFD971F,0xAE81FF,0x66D9EF,0xFDFFF1]),
  'githubLight':dict(name='GitHub Light Default (test fixture)',bg=0xFFFFFF,fg=0x1F2328,sel=None,pal=[0x24292F,0xCF222E,0x116329,0x4D2D00,0x0969DA,0x8250DF,0x1B7C83,0x6E7781,0x57606A,0xA40E26,0x1A7F37,0x633C01,0x218BFF,0xA475F9,0x3192AA,0x8C959F]),
 }
+# The Apple System Colors files name cursor-color = #98989d (caret).
+for k in ('appleSystemDark','appleSystemLight'): THEMES[k]['cursor']=0x98989D
+# appearance.accent cases (the hued accent): the cmux default theme in both appearances, and theme on Monokai.
+for k in ('appleSystemDark','appleSystemLight'):
+    for a in ('red','green','blue'):
+        THEMES[k+a.capitalize()]=dict(THEMES[k],name=THEMES[k]['name']+', appearance.accent = '+a,accent=a)
+THEMES['monokaiClassicTheme']=dict(THEMES['monokaiClassic'],name=THEMES['monokaiClassic']['name']+', appearance.accent = theme',accent='theme')
+# A theme's own accent (a <theme>/accent edit or the file's # cmux-accent) wins over appearance.accent = blue.
+THEMES['appleSystemDarkOwnAccent']=dict(THEMES['appleSystemDark'],name=THEMES['appleSystemDark']['name']+", appearance.accent = blue, the theme's own accent #ff9f0a",accent='blue',accent_color=0xFF9F0A)
+THEMES['githubLightOwnAccent']=dict(THEMES['githubLight'],name=THEMES['githubLight']['name']+", the theme's own accent #bf3989",accent_color=0xBF3989)
+if len(sys.argv)>2 and sys.argv[1]=='--check-app-vectors':
+    # Replays the web module's vectors (neutral and theme accents) through the AppTheme port; exit 1 on any difference.
+    # input.accentColor is the theme's own accent (# cmux-accent); it wins over the case's accent, as in derive().
+    cases=json.load(open(sys.argv[2]))['cases']; bad=0
+    for case in cases:
+        i=case['input']; h=lambda x: C.hex(int(x[1:],16))
+        source=h(i['accentColor']) if i.get('accentColor') else case.get('accent','neutral')
+        dark,t=app_derive(h(i['background']),h(i['foreground']),[h(x) for x in i['palette']]+[C.hex(GHOSTTY_DEFAULT_PAL[n]) for n in range(len(i['palette']),16)],source)
+        for n,want in case['tokens'].items():
+            if t[n].css().lower()!=want.lower(): bad+=1; print(case['name'],n,'want',want,'got',t[n].css())
+        if dark!=case['isDark']: bad+=1; print(case['name'],'isDark')
+    print(len(cases),'cases,',bad,'differences'); sys.exit(1 if bad else 0)
 out={}
 for k,v in THEMES.items():
-    dark,t,pal=derive(v['bg'],v['fg'],v['pal'],v['sel'])
+    dark,t,pal=derive(v['bg'],v['fg'],v['pal'],v['sel'],accent=v.get('accent','neutral'),cursor=v.get('cursor'),accent_color=v.get('accent_color'))
     bg=C.hex(v['bg'])
-    e={'name':v['name'],'isDark':dark,'input':{'background':C.hex(v['bg']).css(),'foreground':C.hex(v['fg']).css(),
-        'selectionBackground':C.hex(v['sel']).css() if v['sel'] is not None else None,'palette':[p.css() for p in pal]},
+    inp={'background':C.hex(v['bg']).css(),'foreground':C.hex(v['fg']).css(),
+        'selectionBackground':C.hex(v['sel']).css() if v['sel'] is not None else None,'palette':[p.css() for p in pal]}
+    if v.get('cursor') is not None: inp['cursor']=C.hex(v['cursor']).css()
+    if v.get('accent','neutral')!='neutral': inp['accent']=v['accent']
+    if v.get('accent_color') is not None: inp['accentColor']=C.hex(v['accent_color']).css()
+    e={'name':v['name'],'isDark':dark,'input':inp,
        'tokens':{n:c.css() for n,c in t.items()},
        'composited':{n:c.comp(bg).css() for n,c in t.items() if c.a<1},
        'focusRing':{lvl:t['focusRing'].wa(a).css() for lvl,a in (('subtle',0.20),('standard',0.55),('strong',0.85))},

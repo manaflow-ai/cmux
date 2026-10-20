@@ -36,12 +36,29 @@ final class ThemeCoordinator {
     /// like its handler (`ThemeHandlers`), for picker previews.
     var previewTarget: (@MainActor (ActionID, ActionTargetRef?) -> ThemePreview.Target?)?
     private var observation: Task<Void, Never>?
+    /// Each workspace's own background (`ThemeCoordinator+Backgrounds`).
+    let workspaceBackgrounds: WorkspaceBackgroundStore
+    /// Each workspace's own glass tint over art, as text ("0.6").
+    let workspaceOpacities: WorkspaceBackgroundStore
+    /// A workspace background the picker shows without saving it; the inner nil follows the app's.
+    var backgroundPreview: (workspace: String, value: String?)?
+    /// A workspace tint the picker's slider shows without saving it; nil follows the work's.
+    var opacityPreview: (workspace: String, value: Double?)?
+    /// Shows a Shuffle Daily workspace's next work when the day turns.
+    var dayObservers: [any NSObjectProtocol] = []
     /// The scopes whose theme this coordinator set.
     private let themed = NSHashTable<ThemeScope>.weakObjects()
+    /// The applies each live terminal took: an apply reaches the shown ones, the parked catch up.
+    private let applies = ThemeApplyLedger()
 
-    init(services: AppServices, terminalThemes: TerminalThemeStore) {
+    init(services: AppServices, terminalThemes: TerminalThemeStore, workspaceBackgrounds: WorkspaceBackgroundStore? = nil,
+         workspaceOpacities: WorkspaceBackgroundStore? = nil) {
         self.services = services
         self.terminalThemes = terminalThemes
+        self.workspaceBackgrounds = workspaceBackgrounds
+            ?? .forApplication(bundleIdentifier: services.environment.launch.bundleID)
+        self.workspaceOpacities = workspaceOpacities
+            ?? .forApplication(bundleIdentifier: services.environment.launch.bundleID, file: "workspace-background-opacity.json")
         resolver.onChange = { [weak self] in
             self?.apply(forceSurfaces: true)
             self?.applyChromeTheme()
@@ -54,6 +71,7 @@ final class ThemeCoordinator {
     private var chromeTheme: String?
     private var chromeObservation: Task<Void, Never>?
     private var accentObservation: Task<Void, Never>?
+    private var artAccentObservation: Task<Void, Never>?
 
     /// Follows `appearance.appTheme`: the app theme pages get (`--cmux-app-*`, `WebTheme`),
     /// resolved like the other theme levels (the variant for the system appearance, the user's
@@ -62,7 +80,14 @@ final class ThemeCoordinator {
         // `applied`: a live preview (a theme picker's highlighted row) shows too.
         chromeTheme = settings.applied.chromeTheme
         ThemeStore.shared.setAccent(settings.applied.accent)
+        ThemeStore.shared.setAccentFollowsArt(AccentSetting.followsArt(settings.applied.root))
         applyChromeTheme()
+        artAccentObservation = Task { [weak self] in
+            for await follows in ObservationStream({ AccentSetting.followsArt(settings.applied.root) }) {
+                guard ThemeStore.shared.setAccentFollowsArt(follows) else { continue }
+                self?.applyChromeTheme()
+            }
+        }
         // `appearance.accent` re-derives the terminal-theme tokens (the store) and the app theme.
         accentObservation = Task { [weak self] in
             for await accent in ObservationStream({ settings.applied.accent }) {
@@ -84,6 +109,8 @@ final class ThemeCoordinator {
         ThemeStore.shared.setAppTheme(resolved.map {
             var input = $0.input
             input.accent = ThemeStore.shared.accent
+            // Art Color: pages take the app's art hue (a workspace's own art tints its chrome only).
+            if ThemeStore.shared.accentFollowsArt, let hue = ThemeScope.app.backdropArt?.accentHue { input.accentColor = hue }
             return AppTheme.derive(from: input)
         })
     }
@@ -115,6 +142,10 @@ final class ThemeCoordinator {
         let store = services.machines.local.store
         let terminalThemes = terminalThemes
         let local = services.machines.local
+        let workspaceBackgrounds = self.workspaceBackgrounds, workspaceOpacities = self.workspaceOpacities
+        Task { await workspaceBackgrounds.load() }
+        Task { await workspaceOpacities.load() }
+        dayObservers = observeDayChanges()
         Task { [weak self] in
             await terminalThemes.load()
             // Once per launch, after the home daemon's first tree: drop the
@@ -128,6 +159,7 @@ final class ThemeCoordinator {
             for await _ in ObservationStream({ () -> [String?] in
                 store.profiles.map(\.theme) + store.personal.workspaces.map(\.theme)
                     + [String(describing: store.personal.terminalThemes), String(describing: terminalThemes.themes),
+                       String(describing: workspaceBackgrounds.backgrounds), String(describing: workspaceOpacities.backgrounds),
                        String(store.identity?.supports(DaemonCapabilities.shared.personalTerminals) ?? false)]
             }) {
                 self?.migrateTerminalThemes()
@@ -138,21 +170,28 @@ final class ThemeCoordinator {
 
     // MARK: Mounts
 
-    /// A window opened or switched room.
+    /// A window opened or switched room: its room and its shown workspace take their themes.
     func windowDidChange(_ controller: WindowController) {
         setTheme(of: controller.themeScope, to: roomTheme(controller.state.profileID))
+        if let content = controller.content { contentDidShow(content) }
     }
 
-    /// A workspace content was created or shown in `controller`'s window.
+    /// A workspace content was created or shown in `controller`'s window: it and the terminals in
+    /// its panes take the applies they missed while parked.
     func contentDidShow(_ content: WorkspaceContentController) {
         setTheme(of: content.themeScope, to: workspaceTheme(content.workspace.id))
+        applyWorkspaceBackground(content)
+        for id in content.panes.values.flatMap(\.orderedIDs) { services.cache.existingTerminal(id.rawValue).map { catchUp($0, fresh: false) } }
     }
 
-    /// A terminal surface was created for a tab.
-    func terminalDidMount(_ entry: TerminalEntry) {
+    /// `entry` takes its theme as of the last `apply`. `fresh`: its surface was just made or
+    /// presented for a tab (`TerminalTabContent`), so it takes the theme even when current, and
+    /// its surface syncs (later scope changes reach it through its binding).
+    func catchUp(_ entry: TerminalEntry, fresh: Bool) {
+        guard applies.take(entry, fresh: fresh) else { return }
         entry.themeBinding.coordinator = self
         setTheme(of: entry.themeScope, to: terminalTheme(entry.themeKey))
-        entry.themeBinding.syncSurface(force: false)
+        if fresh { entry.themeBinding.syncSurface(force: false) }
     }
 
     // MARK: Sources
@@ -191,18 +230,15 @@ final class ThemeCoordinator {
 
     // MARK: Apply
 
-    /// Re-reads every theme. `forceSurfaces` re-applies surface configs
-    /// even when unchanged (after a Ghostty config reload reset them).
+    /// Re-reads every theme of what the windows show (I5): each room and each shown workspace with
+    /// the terminals in its panes. A parked workspace and its terminals catch up when they show
+    /// (`contentDidShow`). `forceSurfaces` (a Ghostty config reload reset the surfaces) re-applies
+    /// every live surface's config at once: the config event pays for it, never a later workspace
+    /// or tab switch (the perf gate's relaunch tab switches caught a config apply on the switch).
     func apply(forceSurfaces: Bool = false) {
-        for controller in services.windows.controllers {
-            windowDidChange(controller)
-            for content in controller.mountedContents { contentDidShow(content) }
-        }
-        for entry in services.cache.terminals.values.map({ $0 }) {
-            entry.themeBinding.coordinator = self
-            setTheme(of: entry.themeScope, to: terminalTheme(entry.themeKey))
-            if forceSurfaces { entry.themeBinding.syncSurface(force: true) }
-        }
+        applies.advance()
+        for controller in services.windows.controllers { windowDidChange(controller) }
+        if forceSurfaces { for entry in services.cache.terminals.values { entry.themeBinding.syncSurface(force: true) } }
     }
 
     private func setTheme(of scope: ThemeScope, to text: String?) {

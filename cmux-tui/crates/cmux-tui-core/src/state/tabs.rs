@@ -14,6 +14,10 @@ use crate::state::tab_state_store::{
     TabStateUpdate, delete_saved_tab_group, saved_tab_group, tab_group_ids, tab_group_snapshot,
 };
 
+/// Advertises `icon` on `tab_group.update`, `TabGroupSnapshot`,
+/// `SavedTabGroupSnapshot` and the raw `update-tab-group` and tab group runs.
+pub(crate) const TAB_GROUP_ICON_CAPABILITY: &str = "tab-group-icon-v1";
+
 /// Resolve public tab ids against a locked state, in request order.
 pub(crate) fn resolve_tabs(state: &State, tabs: &[String]) -> anyhow::Result<Vec<SurfaceId>> {
     tabs.iter()
@@ -65,7 +69,13 @@ impl Mux {
                         edit.groups.members.remove(&tab);
                     }
                     tab_groups::place_block(state, pane, &[surface], other_pinned);
-                    edit.pins.push((tab.clone(), pinned));
+                    // A browser tab keeps the page it is pinned on (Back to Pinned Page).
+                    let url = pinned
+                        .then(|| {
+                            state.surfaces.get(&surface).and_then(|surface| surface.browser_url())
+                        })
+                        .flatten();
+                    edit.pins.push((tab.clone(), pinned, url));
                 }
                 edit.result = StripResult::Tab(tab);
                 Ok(())
@@ -81,6 +91,10 @@ impl Mux {
         update: TabStateUpdate,
     ) -> anyhow::Result<ResourcePatchCommit> {
         update.validate()?;
+        // An asset icon names a blob this daemon stores (as a new screen's icon does).
+        if let Some(Some(icon)) = &update.icon {
+            self.with_icon_registry(|registry| registry.require_icon_asset(icon))?;
+        }
         let (_, commit) =
             self.commit_tab_strip_change(request, None, move |mux, state, edit| {
                 let resolved =
@@ -94,6 +108,10 @@ impl Mux {
                 anyhow::ensure!(
                     browser || (update.back.is_none() && update.forward.is_none()),
                     "bad request: back and forward apply only to browser tabs"
+                );
+                anyhow::ensure!(
+                    browser || update.emulation.is_none(),
+                    "bad request: device emulation applies only to browser tabs"
                 );
                 if update.back.is_some() || update.forward.is_some() {
                     let runtime = state.surfaces.get(&surface).context("tab has no surface")?;
@@ -163,6 +181,7 @@ impl Mux {
             name,
             color,
             crate::workspace_registry::new_tab_group_id(),
+            None,
         )
     }
 

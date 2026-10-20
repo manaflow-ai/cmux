@@ -113,11 +113,10 @@ const RESPONSE_LIMIT: usize = 16 * 1024 * 1024;
 /// file first means the owner exited (a lost bind race or a crash).
 pub(crate) const OWNER_READY_FD_ARG: &str = "--owner-ready-fd";
 
-/// Private startup option (P8 3b-2): the app's install key arrives on this
-/// inherited pipe (`cmuxik1 <install_id> <hex key>`), never in argv or the
-/// environment. The owner reads it once, closes the descriptor and keeps
-/// the key in memory only.
-pub(crate) const OWNER_INSTALL_KEY_FD_ARG: &str = "--owner-install-key-fd";
+mod install_key;
+mod replace;
+pub(crate) use install_key::{OWNER_INSTALL_KEY_FD_ARG, install_key_from_launcher};
+pub(crate) use replace::{ReplaceError, replace_if_unresponsive};
 
 /// Takes an inherited descriptor (`option` names it) from argv and keeps it
 /// out of every process the owner starts (terminal hosts): only this owner
@@ -139,13 +138,23 @@ pub(crate) fn claim_inherited_fd(option: &str, value: &str) -> Result<i32, Strin
     Ok(fd)
 }
 
-/// Parses `OWNER_READY_FD_ARG` or `OWNER_INSTALL_KEY_FD_ARG` (each once).
-pub(crate) fn claim_fd_arg(
+/// Whether `arg` is a private owner startup option `claim_owner_arg` parses.
+pub(crate) fn is_owner_arg(arg: &str) -> bool {
+    arg == OWNER_READY_FD_ARG || arg == OWNER_INSTALL_KEY_FD_ARG || install_key::is_stdin_arg(arg)
+}
+
+/// Parses `OWNER_READY_FD_ARG`, `OWNER_INSTALL_KEY_FD_ARG` (each once,
+/// taking its value from `values`) or, on Windows, the value-less
+/// `OWNER_INSTALL_KEY_STDIN_ARG`.
+pub(crate) fn claim_owner_arg(
     arg: &str,
-    value: Option<String>,
+    values: &mut impl Iterator<Item = String>,
     args: &mut crate::Args,
 ) -> Result<(), String> {
-    let value = value.ok_or_else(|| format!("{arg} needs a value"))?;
+    if install_key::is_stdin_arg(arg) {
+        return install_key::claim_install_key_stdin();
+    }
+    let value = values.next().ok_or_else(|| format!("{arg} needs a value"))?;
     let fd = claim_inherited_fd(arg, &value)?;
     let slot = if arg == OWNER_READY_FD_ARG {
         &mut args.owner_ready_fd
@@ -156,25 +165,6 @@ pub(crate) fn claim_fd_arg(
         return Err(format!("{arg} may be supplied only once"));
     }
     Ok(())
-}
-
-/// Reads the app's install key from the inherited pipe `fd`, closes it and
-/// gives the key to the session (`client-hello`). A bad or missing payload
-/// leaves the daemon without a key: no connection proves itself with one.
-pub(crate) fn install_key_from_fd(mux: &cmux_tui_core::Mux, fd: Option<i32>) {
-    let Some(fd) = fd else { return };
-    #[cfg(unix)]
-    {
-        use std::os::fd::FromRawFd;
-        // SAFETY: `claim_inherited_fd` validated this inherited descriptor,
-        // and this is its only use; the File closes it on drop.
-        let pipe = unsafe { std::fs::File::from_raw_fd(fd) };
-        if let Ok(key) = cmux_tui_core::server::read_frontend_key(pipe) {
-            cmux_tui_core::server::install_frontend_key(mux, key);
-        }
-    }
-    #[cfg(not(unix))]
-    let _ = (mux, fd);
 }
 
 /// Tells the parent that spawned this owner that it accepts clients.
@@ -189,6 +179,17 @@ pub(crate) fn signal_ready(fd: i32) {
     }
     #[cfg(not(unix))]
     let _ = fd;
+}
+
+/// `server ensure --ws-loopback [--ws-allow-origin <origin>[,<origin>...]]` (private app
+/// contract, cx-hnmbt.2): the owner opens `--ws 127.0.0.1:0` and, with no
+/// token configured, mints its credential into a 0600 file next to the
+/// socket (`websocket_credential`), never on argv.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct EnsureWebSocket {
+    /// The extra page origins the listener accepts (the app's first-party
+    /// pages, `cmux-page://cmux.<page>`).
+    pub allow_origins: Vec<String>,
 }
 
 /// How the owner process is launched.
@@ -212,6 +213,13 @@ pub(crate) struct OwnerSpec {
     /// Chief brain's tools socket, so the owner serves chief.engine.* and
     /// chief.stop (only `cmux chief` sets it, for its Chief home's owner).
     pub chief_tools_socket: Option<PathBuf>,
+    /// `CMUX_TUI_CHIEF_BRAINS` for an owner this call spawns: the daemon
+    /// starts the brains of the Chiefs that are not the default
+    /// (cmux-tui-core chief_brains).
+    pub chief_brains: Option<String>,
+    /// The loopback WebSocket listener for an owner this call spawns; a
+    /// running owner keeps the listener it was started with.
+    pub websocket: Option<EnsureWebSocket>,
 }
 
 /// A validated, client-ready owner.
@@ -701,34 +709,6 @@ fn ready_pipe(command: &mut Command) -> io::Result<(std::fs::File, io::PipeWrite
     Ok((std::fs::File::from(OwnedFd::from(reader)), writer))
 }
 
-/// The install key pipe: the whole payload is written now (it fits the
-/// pipe buffer) and the write end closes, so the owner reads to end of
-/// file. Only the owner gets the read end (`pre_exec` clears close-on-exec
-/// on its copy); the returned reader closes in this process after spawn.
-#[cfg(unix)]
-fn install_key_pipe(
-    command: &mut Command,
-    key: &cmux_tui_core::server::FrontendKey,
-) -> io::Result<io::PipeReader> {
-    use std::os::fd::AsRawFd;
-    use std::os::unix::process::CommandExt;
-    let (reader, mut writer) = io::pipe()?;
-    writer.write_all(key.to_payload().as_bytes())?;
-    drop(writer);
-    let read_fd = reader.as_raw_fd();
-    command.arg(OWNER_INSTALL_KEY_FD_ARG).arg(read_fd.to_string());
-    // SAFETY: fcntl is async-signal-safe and touches only this descriptor.
-    unsafe {
-        command.pre_exec(move || {
-            if libc::fcntl(read_fd, libc::F_SETFD, 0) != 0 {
-                return Err(io::Error::last_os_error());
-            }
-            Ok(())
-        });
-    }
-    Ok(reader)
-}
-
 fn spawn_detached_owner(spec: &OwnerSpec) -> io::Result<SpawnedOwner> {
     let program = platform::self_exe_for_spawn()?;
     let mut command = Command::new(program);
@@ -743,6 +723,12 @@ fn spawn_detached_owner(spec: &OwnerSpec) -> io::Result<SpawnedOwner> {
     }
     if let Some(grace) = spec.terminal_reap_grace {
         command.arg("--terminal-reap-grace-seconds").arg(grace.as_secs().to_string());
+    }
+    if let Some(websocket) = &spec.websocket {
+        command.arg("--ws").arg("127.0.0.1:0");
+        for origin in &websocket.allow_origins {
+            command.arg("--ws-allow-origin").arg(origin);
+        }
     }
     if let Some(colors) = spec.initial_host_colors {
         if let Some(foreground) = colors.fg {
@@ -760,6 +746,9 @@ fn spawn_detached_owner(spec: &OwnerSpec) -> io::Result<SpawnedOwner> {
     if let Some(tools) = &spec.chief_tools_socket {
         command.env("CMUX_TUI_CHIEF_TOOLS_SOCKET", tools);
     }
+    if let Some(brains) = &spec.chief_brains {
+        command.env(cmux_tui_core::chief_brains::ENV, brains);
+    }
     // The app directory settings this client took at start go to the owner
     // daemon it spawns only (cx-e0cs): the owner takes them out of its own
     // environment again and applies the bundle rule (first_party_dir).
@@ -773,15 +762,20 @@ fn spawn_detached_owner(spec: &OwnerSpec) -> io::Result<SpawnedOwner> {
     let (ready, ready_writer) = ready_pipe(&mut command)?;
     #[cfg(unix)]
     let _install_key_pipe = match &spec.install_key {
-        Some(key) => Some(install_key_pipe(&mut command, key)?),
+        Some(key) => Some(install_key::install_key_pipe(&mut command, key)?),
         None => None,
     };
     #[cfg(not(unix))]
     let ready = None;
     // The owner reports through the bounded client log at its state root;
     // terminal teardown must never reach it, so it gets no stdio and (on
-    // Unix) its own session, free of the controlling terminal.
+    // Unix) its own session, free of the controlling terminal. On Windows
+    // its stdin is the install key pipe when there is a key.
     command.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+    #[cfg(windows)]
+    if spec.install_key.is_some() {
+        command.arg(install_key::OWNER_INSTALL_KEY_STDIN_ARG).stdin(Stdio::piped());
+    }
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
@@ -801,10 +795,15 @@ fn spawn_detached_owner(spec: &OwnerSpec) -> io::Result<SpawnedOwner> {
         const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
         command.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP);
     }
-    let child = command.spawn()?;
+    #[cfg(windows)]
+    install_key::keep_std_handles_from_children();
+    #[cfg_attr(not(windows), allow(unused_mut))]
+    let mut child = command.spawn()?;
     // Only the owner holds the write end now, so end of file means it exited.
     #[cfg(unix)]
     drop(ready_writer);
+    #[cfg(windows)]
+    install_key::send_over_stdin(&mut child, spec.install_key.as_ref());
     let pid = child.id();
     // The owner outlives this process. Reap it in the background so an
     // owner that exits early (for example after losing the bind race) never

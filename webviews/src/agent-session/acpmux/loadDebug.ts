@@ -121,13 +121,7 @@ export async function loadRun(
     }
     previous = now;
     if (!streamDone) scroller.scrollTop = scroller.scrollHeight - scroller.clientHeight - offset;
-    const blankNow = isBlank(
-      acpmuxPerf.mountedTop,
-      acpmuxPerf.mountedBottom,
-      scroller.scrollTop,
-      scroller.clientHeight,
-      scroller.scrollHeight,
-    );
+    const blankNow = isBlank(acpmuxPerf.mounted, scroller.scrollTop, scroller.clientHeight, scroller.scrollHeight);
     if (blankNow) blank += 1;
     acpmuxPerf.markFrame(now, blankNow);
     late.push(begin - now);

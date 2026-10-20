@@ -52,10 +52,20 @@ pub const MAX_BASE64_BYTES: usize = MAX_RASTER_BYTES.div_ceil(3) * 4;
 pub(crate) const ICON_REFERENCE_FIELDS: &[(&str, &str)] = &[
     ("workspace_presentation", "icon"),
     ("screen_presentation", "icon"),
+    ("tab_state", "icon"),
     ("saved_screen_groups", "members_json"),
+    ("screen_groups", "icon"),
+    ("saved_screen_groups", "icon"),
+    ("tab_groups", "icon"),
+    ("personal_saved_tab_groups", "icon"),
     ("profiles", "icon"),
+    ("personal_groups", "icon"),
     ("browser_profiles", "icon"),
     ("workspace_status_entries", "icon"),
+    ("bookmarks", "icon"),
+    // The session registry (`session-icon-v1`); `create_personal_schema`
+    // adds the column before the open-time sweep.
+    ("sessions", "icon"),
     ("closed_groups", "record_json"),
     // Opaque client JSON: kept conservatively in case a window stores an icon.
     ("window_records", "record_json"),

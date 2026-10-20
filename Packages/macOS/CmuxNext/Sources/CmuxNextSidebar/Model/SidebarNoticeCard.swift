@@ -27,6 +27,11 @@ public nonisolated struct SidebarNoticeCard: Hashable, Sendable {
             self.title = title
             self.prominent = prominent
         }
+
+        /// A menu item from an owner's (id, title) list (the tip's and the update cards' x menus).
+        public init(_ item: (id: String, title: String)) {
+            self.init(id: item.id, title: item.title)
+        }
     }
 
     public var id: String
@@ -44,9 +49,28 @@ public nonisolated struct SidebarNoticeCard: Hashable, Sendable {
     public var shortcut: String?
     /// The x's tooltip and VoiceOver label; nil shows no x.
     public var dismissLabel: String?
+    /// With a title, a small text button with it ("Hide", the found-update
+    /// notice, UPDATE-CARD-CLOSE) takes the x's place: one click dismisses at
+    /// once (`dismissNotice`), `dismissLabel` is its tooltip and VoiceOver
+    /// label, and `dismissMenu` is only on the right-click menu.
+    public var dismissTitle: String?
+    /// With items, the x opens this menu (the tip's Hide / Mute / Never)
+    /// instead of dismissing; an item sends `noticeAction` with its id.
+    public var dismissMenu: [Action]
+    /// An action the card sends once while it is on screen (a tip marks
+    /// itself seen); nil sends none.
+    public var shownAction: String?
+    /// After `shownAction` was sent: the action sent when this notice leaves
+    /// the card (another card took the slot); nil sends none.
+    public var hiddenAction: String?
+    /// The answer to something the person just asked for (an update check's
+    /// progress and result): it takes the bottom-left slot from the Now
+    /// Playing and "cmux Updated!" cards, so the answer is never behind them.
+    public var userAsked: Bool
 
     public init(id: String, symbol: String? = nil, eyebrow: String? = nil, title: String, detail: String? = nil,
-                lines: [String] = [], progress: Progress? = nil, actions: [Action] = [], shortcut: String? = nil, dismissLabel: String? = nil) {
+                lines: [String] = [], progress: Progress? = nil, actions: [Action] = [], shortcut: String? = nil, dismissLabel: String? = nil,
+                dismissTitle: String? = nil, dismissMenu: [Action] = [], shownAction: String? = nil, hiddenAction: String? = nil, userAsked: Bool = false) {
         self.id = id
         self.symbol = symbol
         self.eyebrow = eyebrow
@@ -57,5 +81,10 @@ public nonisolated struct SidebarNoticeCard: Hashable, Sendable {
         self.actions = actions
         self.shortcut = shortcut
         self.dismissLabel = dismissLabel
+        self.dismissTitle = dismissTitle
+        self.dismissMenu = dismissMenu
+        self.shownAction = shownAction
+        self.hiddenAction = hiddenAction
+        self.userAsked = userAsked
     }
 }

@@ -1,16 +1,16 @@
-// The chat menu's Copy submenu, as in ChatGPT: the chat's link, the last answer, and the whole
-// chat as Markdown (each prompt a quote, each answer as written, turns split by a rule).
+// The chat menu's Copy submenu, as in ChatGPT: the chat's link, the last answer, the whole chat as
+// Markdown (each prompt a quote, each answer as written, turns split by a rule), and its session id.
 import { type Translate, translate } from "../i18n";
 import type { AcpmuxRow } from "../model";
 import { SHORTCUT_ACTIONS } from "../shortcuts";
 import type { ChatMenuChild, ChatMenuItem } from "./ChatHeaderTools";
 
 export function copyRow(
-  chat: { link: string | undefined; rows: readonly AcpmuxRow[] },
+  chat: { link: string | undefined; rows: readonly AcpmuxRow[]; sessionId?: string },
   copy: (text: string) => void,
   t: Translate = translate,
 ): Exclude<ChatMenuItem, "separator"> | undefined {
-  const { link, rows } = chat;
+  const { link, rows, sessionId } = chat;
   // The menu's rows are read on every render: only check here, build the text on selection.
   const answered = rows.some((row) => row.kind === "assistant" && text(row));
   const children: ChatMenuChild[] = [];
@@ -25,6 +25,8 @@ export function copyRow(
     children.push({ key: "copyResponse", label: t("chatMenu.copyResponse"), onSelect: () => copy(lastResponse(rows)) });
   if (answered)
     children.push({ key: "copyMarkdown", label: t("chatMenu.copyMarkdown"), onSelect: () => copy(chatMarkdown(rows)) });
+  if (sessionId)
+    children.push({ key: "copySessionId", label: t("chatMenu.copySessionId"), onSelect: () => copy(sessionId) });
   if (!children.length) return undefined;
   return { key: "copy", label: t("chatMenu.copy"), icon: "action.copy", children };
 }

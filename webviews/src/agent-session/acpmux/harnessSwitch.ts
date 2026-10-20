@@ -6,6 +6,7 @@ import { lastModel } from "./lastPick";
 import { isTrustRefusal } from "./direct";
 // Outside render: the store reads the pane language when it builds a string.
 import { translate as t } from "./i18n";
+import { askStartMode, exactStartMode, onStartModeAskAgain, onStartModeKept } from "./startMode";
 import type { AcpmuxRow, AcpmuxSnapshot } from "./model";
 
 // A harness or model switch as an intent. The pick changes the
@@ -183,7 +184,17 @@ export class HarnessSwitch {
   private lastHint?: { harness: string; at: number };
   private handlers: SwitchHandlers = {};
 
-  constructor(private readonly clock: SwitchClock = browserSwitchClock) {}
+  constructor(private readonly clock: SwitchClock = browserSwitchClock) {
+    // A pending chat's access chip draws acpmux's kept answer (`applySwitch`): it asks again when
+    // the answer may have changed, and draws again when a kept answer changed.
+    onStartModeAskAgain(() => {
+      const intent = this.intent;
+      if (intent && !intent.reused) void askStartMode(intent.harness, intent.cwd);
+    });
+    onStartModeKept(() => {
+      if (this.intent) this.changed();
+    });
+  }
 
   readonly subscribe = (listener: () => void) => {
     this.listeners.add(listener);
@@ -289,6 +300,8 @@ export class HarnessSwitch {
     }
     this.cancelHintTimer();
     this.changed();
+    // Before session/new: acpmux's answer as its rules stand when the chat is asked for.
+    if (!intent.reused) void askStartMode(intent.harness, intent.cwd);
     void this.run(intent);
     return done.promise;
   }
@@ -649,9 +662,11 @@ export class HarnessSwitch {
 /// picked model drawn until the session reports a change). During one, the target harness's
 /// composer comes from the session once it attaches, else from what that harness last reported
 /// (harnessProfiles.ts), else from the catalog; queued prompts draw as the user's messages.
-/// The model a new chat on `harness` in `folder` starts on before anything is picked: the one last
-/// picked on it (lastPick.ts) while the harness still offers it, else what a session acpmux last
-/// started there reported, else its last session's, else the catalog's first.
+/// The model a new chat on `harness` in `folder` starts on before anything is picked: acpmux's
+/// saved default or the profile's own model (`start`, acpmux start_defaults.rs), else the one last
+/// picked on it here (lastPick.ts) while the harness still offers it, else acpmux's catalog
+/// default, else what a session acpmux last started there reported, else its last session's, else
+/// the catalog's first.
 export function defaultModel(
   harness: string,
   catalog: Catalog,
@@ -659,8 +674,14 @@ export function defaultModel(
   folder?: string,
 ): string | undefined {
   const profile = profiles.get(harness);
+  const start = catalog.find((entry) => entry.id === harness)?.start;
+  // A saved default (acpmux defaults, or a pick acpmux saved) or the profile's own model wins over
+  // this page's last pick: acpmux starts the chat on it.
+  const decided = start?.modelSource === "saved" || start?.modelSource === "profile" ? start.model : undefined;
   return (
+    decided ??
     lastOfferedModel(harness, catalog, folder) ??
+    start?.model ??
     profile?.startModel ??
     profile?.model ??
     catalog.find((entry) => entry.id === harness)?.models[0]?.id
@@ -706,7 +727,18 @@ export function applySwitch(
   const profile = profiles.get(intent.harness);
   const config = intent.config;
   const predicted = config.model ?? live?.model ?? defaultModel(intent.harness, catalog, profiles, intent.cwd);
-  const modes = live?.modes ?? profile?.modes;
+  // Before the session reports, the mode acpmux answers it will start the chat in
+  // (`_acpmux/start_mode`, kept per harness and folder), never the mode the harness's last chat
+  // ran, nor another folder's answer; none without an answer for this folder.
+  const modes =
+    live?.modes ??
+    (profile?.modes && {
+      ...profile.modes,
+      currentModeId:
+        raw.origin === "remote" || raw.origin === "peer"
+          ? undefined
+          : exactStartMode(intent.harness, intent.cwd)?.modeId,
+    });
   const summary: Summary = {
     ...(live ?? { sessionId: "", turnCount: 0, cwd: raw.summary?.cwd ?? intent.cwd }),
     harness: intent.harness,

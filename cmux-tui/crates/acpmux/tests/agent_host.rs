@@ -4,6 +4,11 @@
 //! it logged without losing or repeating one.
 #![cfg(unix)]
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+// This process runs stand-in agents (the fake agents under tests/).
+const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+
 use acpmux::agent_host::link::{self, Connect, HostLauncher, Link};
 use acpmux::agent_host::{
     self, ControllerFrame, Entry, HostFrame, HostRecord, Liveness, SpawnSpec, TapDir,
@@ -24,7 +29,7 @@ fn scratch(tag: &str) -> PathBuf {
 }
 
 fn launcher() -> HostLauncher {
-    HostLauncher { exe: env!("CARGO_BIN_EXE_acpmux").into(), prefix: Vec::new() }
+    HostLauncher { exe: daemon_env::bin().into(), prefix: Vec::new() }
 }
 
 fn spec(dir: &Path, session: &str) -> SpawnSpec {
@@ -33,9 +38,11 @@ fn spec(dir: &Path, session: &str) -> SpawnSpec {
         session_id: session.into(),
         program: "python3".into(),
         args: vec![FAKE.into()],
-        env: std::env::vars().collect(),
+        // The stand-in's environment: never the host's (its PATH has real agents).
+        env: daemon_env::vars(dir, daemon_env::Agents::StandIn, &[]),
         cwd: dir.to_path_buf(),
         translator: None,
+        codex_bridge: false,
         socket: agent_host::socket_path(&hosts, session),
         hosts_dir: hosts,
         buffer_cap: agent_host::DEFAULT_BUFFER_CAP,
@@ -348,7 +355,10 @@ async fn a_failed_start_leaves_no_live_file() {
     let dir = scratch("nolive");
     let mut spec = spec(&dir, "s-nolive");
     spec.program = "/nonexistent/harness".into();
-    assert!(link::spawn(&launcher(), &spec).await.is_err(), "a missing harness started");
+    const SENTINEL: &str = "argv-secret-must-not-leave-the-daemon";
+    spec.args = vec!["--token".into(), SENTINEL.into()];
+    let error = link::spawn(&launcher(), &spec).await.expect_err("a missing harness started");
+    assert!(!error.to_string().contains(SENTINEL), "spawn failure exposed harness argv: {error:#}");
     let left: Vec<_> = std::fs::read_dir(dir.join("hosts"))
         .expect("the host created its hosts dir")
         .filter_map(|e| e.ok().map(|e| e.file_name()))
@@ -360,5 +370,56 @@ async fn a_failed_start_leaves_no_live_file() {
                 || n.to_string_lossy().ends_with(".sock")),
         "a failed start left {left:?}"
     );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn discovery_rejects_linked_records_and_socket_paths_outside_the_host_namespace() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = scratch("record-paths");
+    let hosts = dir.join("hosts");
+    std::fs::create_dir_all(&hosts).unwrap();
+    std::fs::set_permissions(&hosts, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let outside_socket = dir.join("must-not-be-removed");
+    std::fs::write(&outside_socket, "sentinel").unwrap();
+    let record = |session_id: &str, socket: PathBuf| HostRecord {
+        record_version: acpmux::agent_host::RECORD_VERSION,
+        session_id: session_id.into(),
+        incarnation: "11".repeat(16),
+        host_pid: std::process::id(),
+        start_nonce: "22".repeat(16),
+        harness_pid: None,
+        owner_token: "33".repeat(32),
+        protocol_min: acpmux::agent_host::PROTOCOL_MIN,
+        protocol_max: acpmux::agent_host::PROTOCOL_MAX,
+        host_build: "test".into(),
+        socket,
+    };
+    let wrong = record("wrong-socket", outside_socket.clone());
+    let wrong_path = hosts.join("wrong-socket.json");
+    std::fs::write(&wrong_path, serde_json::to_vec(&wrong).unwrap()).unwrap();
+    std::fs::set_permissions(&wrong_path, std::fs::Permissions::from_mode(0o600)).unwrap();
+
+    let linked = record("linked", acpmux::agent_host::socket_path(&hosts, "linked"));
+    let linked_target = dir.join("linked-record.json");
+    std::fs::write(&linked_target, serde_json::to_vec(&linked).unwrap()).unwrap();
+    std::os::unix::fs::symlink(&linked_target, hosts.join("linked.json")).unwrap();
+
+    let promoted = record(
+        "promoted",
+        acpmux::agent_host::socket_path(&acpmux::agent_host::pool_dir(&hosts), "promoted"),
+    );
+    acpmux::agent_host::write_record_atomic(&hosts.join("promoted.json"), &promoted).unwrap();
+
+    let (good, bad) = acpmux::agent_host::load_records(&hosts).unwrap();
+    assert_eq!(
+        good.iter().map(|(_, record)| record.session_id.as_str()).collect::<Vec<_>>(),
+        ["promoted"],
+        "a promoted pool socket is valid, but no other path is: {good:#?}"
+    );
+    assert_eq!(bad.len(), 2, "each refused record is reported: {bad:#?}");
+    assert!(outside_socket.exists(), "discovery removed a path outside the hosts directory");
+    assert_eq!(std::fs::symlink_metadata(&hosts).unwrap().permissions().mode() & 0o777, 0o700);
     let _ = std::fs::remove_dir_all(&dir);
 }

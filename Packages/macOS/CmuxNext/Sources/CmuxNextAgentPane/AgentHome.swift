@@ -9,10 +9,11 @@ public import Foundation
 /// that is not canonical, a workspace id that is not safe, or a symlink anywhere in the path gives
 /// no folder, and the relay refuses the chat (`transport.path_invalid`).
 ///
-/// A close never deletes a folder (chat files may be in it). A History reopen moves it to the new
-/// workspace id (``move(from:to:)``); an expired History entry sends it to the Trash
-/// (``trash(_:using:)``), never a hard delete. Everything here touches the disk: call it off the
-/// main thread, except the one rename of a reopen.
+/// A close never deletes a folder (chat files may be in it). The daemon owns closed history, so
+/// it moves a closed workspace's folder to the reopened workspace's id on Reopen Closed, and
+/// moves a deleted closed workspace's folder into `<base>/.trash-pending`; the app sends that to
+/// the Trash (``emptyTrashPending(using:)``), never a hard delete. Everything here touches the
+/// disk: call it off the main thread.
 public nonisolated struct AgentHome: Sendable, Equatable {
     /// The canonical folder that holds every workspace's folder.
     public let base: String
@@ -109,6 +110,35 @@ public nonisolated struct AgentHome: Sendable, Equatable {
             return true
         } catch {
             return false
+        }
+    }
+
+    /// `<base>/.trash-pending`, where the daemon puts the folders of deleted closed workspaces.
+    public static let trashPending = ".trash-pending"
+
+    /// Sends every folder the daemon left in ``trashPending`` to the Trash with `trash`
+    /// (`FileManager.trashItem`). A symlink or a file there is left alone. Returns how many went.
+    @discardableResult
+    public func emptyTrashPending(using trash: (URL) throws -> Void) -> Int {
+        guard AcpmuxPathPolicy.canonical(base) == base else { return 0 }
+        let pending = base + "/" + Self.trashPending
+        guard Self.isRealFolder(pending), let names = try? FileManager.default.contentsOfDirectory(atPath: pending) else { return 0 }
+        var trashed = 0
+        for name in names where !name.contains("/") && name != "." && name != ".." {
+            let path = pending + "/" + name
+            guard Self.isRealFolder(path) else { continue }
+            if (try? trash(URL(fileURLWithPath: path, isDirectory: true))) != nil { trashed += 1 }
+        }
+        return trashed
+    }
+
+    /// ``standard``'s ``emptyTrashPending(using:)`` with `FileManager.trashItem`, off the main
+    /// thread (at launch and after each closed-history delete).
+    public static func emptyStandardTrashPendingInBackground() {
+        guard let home = standard else { return }
+        // task-owner: one sweep of the trash-pending folder; nothing waits for it
+        Task.detached(priority: .utility) {
+            home.emptyTrashPending { try FileManager.default.trashItem(at: $0, resultingItemURL: nil) }
         }
     }
 

@@ -23,8 +23,6 @@ final class ProfileBarView: NSView {
     private var wheel = SpaceWheelPager()
     private var paging = false
     static let plusIndex = -1
-    /// The History dot, always the strip's last (cx-zlnl): agent history, every chat on this device.
-    static let historyIndex = -2
 
     /// The current space's chip; it slides on a switch.
     let indicator = ProfileBarLayerView()
@@ -58,7 +56,7 @@ final class ProfileBarView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
     override var mouseDownCanMoveWindow: Bool { false }
     /// Like every sidebar control, the first click on a window that is not
     /// key switches the space instead of only activating the window (cx-i3ra).
@@ -90,7 +88,7 @@ final class ProfileBarView: NSView {
 
     /// Where every space and the "+" sit now.
     var strip: SpaceStrip {
-        ProfileBarLogic.strip(count: model.profiles.count + 1, active: activeIndex, width: Double(bounds.width),
+        ProfileBarLogic.strip(count: model.profiles.count, active: activeIndex, width: Double(bounds.width),
                               center: Double(centerX ?? bounds.width / 2),
                               minLeading: Double(leadingInset ?? SidebarStyle.horizontalInset),
                               slot: Double(slot), plus: Double(slot),
@@ -99,7 +97,10 @@ final class ProfileBarView: NSView {
 
     private var activeIndex: Int? { model.profiles.firstIndex { $0.id == model.activeProfileID } }
 
-    /// One rect per space (in order), the History dot's, then the "+" rect.
+    /// One rect per space (in order), then the "+" rect. History is not in the
+    /// strip (Lawrence 2026-10-11: "history should not show up down here");
+    /// cmux://history opens from the palette and the Window menu (Show
+    /// History) and with Cmd-Y in a browser.
     func slotRects() -> [NSRect] {
         let strip = strip
         return (strip.slots + [strip.plus]).map { NSRect(x: $0.x, y: 0, width: $0.width, height: bounds.height) }
@@ -108,8 +109,7 @@ final class ProfileBarView: NSView {
     private func index(at point: NSPoint) -> Int? {
         let rects = slotRects()
         guard let hit = rects.firstIndex(where: { $0.contains(point) }) else { return nil }
-        if hit == model.profiles.count { return Self.historyIndex }
-        guard hit == model.profiles.count + 1 else { return hit }
+        guard hit == model.profiles.count else { return hit }
         return isPointerInside ? Self.plusIndex : nil
     }
 
@@ -200,8 +200,7 @@ final class ProfileBarView: NSView {
                 draw(profile: profile, in: rects[offset], active: active, hovered: hovered == offset,
                      compact: strip.compact && !active)
             }
-            drawHistory(in: rects[model.profiles.count])
-            if isPointerInside { drawPlus(in: rects[model.profiles.count + 1]) }
+            if isPointerInside { drawPlus(in: rects[model.profiles.count]) }
         }
     }
 
@@ -233,8 +232,7 @@ final class ProfileBarView: NSView {
             // The emoji is shown here, not on the dot.
             (rects[offset], profile.iconIsEmoji ? [profile.icon, profile.name].compactMap(\.self).joined(separator: " ") : profile.name)
         }
-        regions.append((rects[model.profiles.count], Strings.history))
-        if isPointerInside { regions.append((rects[model.profiles.count + 1], Strings.newProfile)) }
+        if isPointerInside { regions.append((rects[model.profiles.count], Strings.newProfile)) }
         setThemedToolTipRegions(regions)
     }
 
@@ -269,11 +267,7 @@ final class ProfileBarView: NSView {
     var hoverChip: (rect: NSRect, fill: NSColor)? {
         guard let hovered else { return nil }
         let rects = slotRects()
-        let index = switch hovered {
-        case Self.historyIndex: model.profiles.count
-        case Self.plusIndex: model.profiles.count + 1
-        default: hovered
-        }
+        let index = hovered == Self.plusIndex ? model.profiles.count : hovered
         guard rects.indices.contains(index) else { return nil }
         let fill = performWithTheme { pressed == hovered ? Palette.pressedFill : Palette.hoverFill }
         return (ProfileBarLogic.chipRect(slot: rects[index], inset: Metrics.space1), fill)
@@ -338,9 +332,7 @@ final class ProfileBarView: NSView {
     }
 
     private func activate(_ index: Int) {
-        if index == Self.historyIndex {
-            model.send(.openHistory)
-        } else if index == Self.plusIndex {
+        if index == Self.plusIndex {
             model.send(.newProfile)
         } else if model.profiles.indices.contains(index), model.profiles[index].id != model.activeProfileID {
             model.send(.switchProfile(model.profiles[index].id))
@@ -363,10 +355,7 @@ final class ProfileBarView: NSView {
             element.setAccessibilitySelected(active)
             return element
         }
-        children.append(ProfileDotElement(label: Strings.history, frame: rects[model.profiles.count], parent: self) { [weak self] in
-            self?.activate(Self.historyIndex)
-        })
-        children.append(ProfileDotElement(label: Strings.newProfile, frame: rects[model.profiles.count + 1], parent: self) { [weak self] in
+        children.append(ProfileDotElement(label: Strings.newProfile, frame: rects[model.profiles.count], parent: self) { [weak self] in
             self?.activate(Self.plusIndex)
         })
         setAccessibilityChildren(children)

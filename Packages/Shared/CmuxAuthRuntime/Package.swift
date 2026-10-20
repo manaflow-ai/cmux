@@ -36,7 +36,10 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxAuthRuntimeTests",
-            dependencies: ["CmuxAuthRuntime"],
+            dependencies: [
+                "CmuxAuthRuntime",
+                .product(name: "StackAuth", package: "stack-auth-swift-sdk-prerelease"),
+            ],
             swiftSettings: [
                 .define("CMUX_DEV_AUTH", .when(configuration: .debug)),
                 .swiftLanguageMode(.v6),

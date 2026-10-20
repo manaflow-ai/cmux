@@ -9,12 +9,17 @@ public nonisolated struct ClassicSessionTab: Codable, Equatable, Sendable {
     public let url: String?
     /// The agent session the terminal ran, when classic recorded one.
     public let agent: ClassicSessionAgent?
+    /// The terminal's saved scrollback text (with its colors); nil when
+    /// classic saved none.
+    public let scrollback: String?
 
-    public init(workingDirectory: String?, title: String?, url: String? = nil, agent: ClassicSessionAgent? = nil) {
+    public init(workingDirectory: String?, title: String?, url: String? = nil, agent: ClassicSessionAgent? = nil,
+                scrollback: String? = nil) {
         self.workingDirectory = workingDirectory
         self.title = title
         self.url = url
         self.agent = agent
+        self.scrollback = scrollback
     }
 }
 
@@ -61,7 +66,8 @@ public nonisolated indirect enum ClassicSessionLayout: Codable, Equatable, Senda
                 let agent = tab.agent.map {
                     ClassicSessionAgent(harness: $0.harness, sessionID: $0.sessionID, workingDirectory: $0.workingDirectory.map(folder))
                 }
-                return ClassicSessionTab(workingDirectory: tab.workingDirectory.map(folder), title: tab.title, url: tab.url, agent: agent)
+                return ClassicSessionTab(workingDirectory: tab.workingDirectory.map(folder), title: tab.title, url: tab.url, agent: agent,
+                                         scrollback: tab.scrollback)
             }, selectedTab: pane.selectedTab))
         case .split(let orientation, let ratio, let first, let second):
             return .split(orientation: orientation, ratio: ratio,

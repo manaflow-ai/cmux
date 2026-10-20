@@ -14,7 +14,13 @@ public struct TabItemMapping {
     /// (the conversation's) and the agent chat icon. `isNewTabPage` marks a
     /// tab still on the New Tab page, which draws the new-tab icon instead.
 
-    public func item(_ tab: TabModel, fallbackTitle: String, isNewTabPage: Bool = false) -> StripTabItem {
+    /// `asset` draws a stored image or SVG user icon (``TabUserIcon``).
+    /// `restarting`: a kept tab this launch restarts (`DaemonService.restartsKeptTab`) draws as the
+    /// running terminal it becomes, from the first frame (the app shows its own intent): the
+    /// terminal icon, no failure mark, the directory its new shell starts in, so its item stays
+    /// the same when the new shell runs (cx-8w027.23).
+    public func item(_ tab: TabModel, fallbackTitle: String, isNewTabPage: Bool = false, restarting: Bool = false,
+                     asset: (String) -> TabImage? = { _ in nil }, turns: AgentTurnStateStore = .shared) -> StripTabItem {
         let isBrowser = tab.kind == .browser
         let isConversation = tab.kind == .conversation
         let title = title(tab, fallbackTitle: fallbackTitle)
@@ -22,10 +28,12 @@ public struct TabItemMapping {
         var item = StripTabItem(
             id: StripTabID(tab.id),
             title: title,
-            subtitle: isConversation ? nil : isBrowser ? tab.url : tab.cwd.map(SidebarMapping.shared.abbreviate),
+            // The New Tab and blank pages' addresses are no place a person went: no address line.
+            subtitle: isConversation ? nil : isBrowser ? tab.url.flatMap { Self.isBlankPageAddress($0) ? nil : $0 }
+                : tab.cwd.map(SidebarMapping.shared.abbreviate),
             icon: isNewTabPage ? .icon(.tabNew) : icon(tab, isBrowser: isBrowser, isConversation: isConversation),
             isPinned: tab.pinned,
-            isUnread: tab.hasUnread,
+            isUnread: tab.showsUnread,
             isBusy: busy.state.isLoading || isReportingProgress(tab),
             status: status(tab)
         )
@@ -35,15 +43,23 @@ public struct TabItemMapping {
         if item.status == .needsInput { item.blockedKind = StatusMapping.shared.blockedKind(tab) }
         item.presence = presence(tab)
         item.statusDetail = StatusMapping.shared.detail(tab)
-        applyUserIcon(tab, to: &item)
+        let hover = hoverFacts(tab, turns: turns)
+        item.hover = hover.facts
+        if isConversation { item.subtitle = hover.folder }
+        if restarting, tab.kind != .browser, tab.kind != .remoteTerminal, !isConversation {
+            if item.icon == .icon(.terminalDead) { item.icon = .icon(.terminal) }
+            if item.status == .failure { item.status = .none }
+            if item.subtitle == nil, let cwd = tab.relaunch?.cwd { item.subtitle = SidebarMapping.shared.abbreviate(cwd) }
+        }
+        applyUserIcon(tab, to: &item, asset: asset)
         return item
     }
 
     /// The icon the user set on the tab record replaces every derived icon (kind, agent
     /// mark, page icon, favicon). Callers that set a derived icon after ``item(_:fallbackTitle:isNewTabPage:)``
     /// apply it again last. A busy indicator still covers it while the tab loads.
-    public func applyUserIcon(_ tab: TabModel, to item: inout StripTabItem) {
-        if let icon = TabUserIcon.shared.icon(tab.userIcon) { item.icon = icon }
+    public func applyUserIcon(_ tab: TabModel, to item: inout StripTabItem, asset: (String) -> TabImage? = { _ in nil }) {
+        if let icon = TabUserIcon.shared.icon(tab.userIcon, asset: asset) { item.icon = icon }
     }
 
     /// A tab's kind icon from the cmux icon registry. A terminal whose agent session is live,

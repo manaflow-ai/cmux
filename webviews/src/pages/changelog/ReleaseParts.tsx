@@ -1,11 +1,11 @@
 // The pieces every changelog design shares (cx-urd.61): release meta, the hero, the grouped
 // change rows and the folded commit list. Colors are theme tokens, sizes the type scale
 // (styles.css); nothing here knows which design it sits in.
-import { useSyncExternalStore } from "react";
+import { useState, useSyncExternalStore } from "react";
 import type { Strings } from "../shared/i18n";
 import { getColorScheme, subscribeColorScheme } from "./colorScheme";
 import { formatReleaseDate, type MediaRef, type ReleaseItem, type ReleaseView } from "./model";
-import type { WhatsNewCategory } from "./types";
+import type { ChangeItem, WhatsNewCategory } from "./types";
 
 export interface PartsContext {
   strings: Strings;
@@ -80,34 +80,65 @@ export function Hero({ item, ctx, level = 2 }: { item: ReleaseItem; ctx: PartsCo
   );
 }
 
-/** New / Improved / Fixed / Security, each a short list of one-line rows (title, then its summary). */
+/** New / Improved / Fixed / Security, each a short list of one-line rows (title, then its
+    summary), the first GROUP_PAGE of each with "Show more" for the rest. */
 export function Groups({ view, ctx }: { view: ReleaseView; ctx: PartsContext }) {
   return (
     <>
       {view.groups.map((group) => (
-        <section key={group.category} className="cl-group" aria-label={categoryLabel(ctx.strings, group.category)}>
-          <h3>{categoryLabel(ctx.strings, group.category)}</h3>
-          <ul>
-            {group.items.map((item) => (
-              <li key={item.id}>
-                <span className="cl-row-title">{item.title}</span>
-                {item.summary && <span className="cl-row-summary">{item.summary.split(/\n{2,}/)[0]}</span>}
-                {item.action && (
-                  <button type="button" className="cl-row-action" onClick={() => ctx.onTry(item.action!.id)}>
-                    {item.action.title || ctx.strings.t("changelog.page.tryIt")}
-                  </button>
-                )}
-              </li>
-            ))}
-          </ul>
-        </section>
+        <Group key={group.category} category={group.category} items={group.items} ctx={ctx} />
       ))}
     </>
   );
 }
 
-/** The commit subjects, folded: the full history for whoever wants it, out of the way otherwise. */
-export function ChangesFold({ changes, strings, open }: { changes: string[]; strings: Strings; open?: boolean }) {
+const GROUP_PAGE = 5;
+
+function Group({ category, items, ctx }: { category: WhatsNewCategory; items: ReleaseItem[]; ctx: PartsContext }) {
+  const [all, setAll] = useState(false);
+  const shown = all ? items : items.slice(0, GROUP_PAGE);
+  return (
+    <section className="cl-group" aria-label={categoryLabel(ctx.strings, category)}>
+      <h3>{categoryLabel(ctx.strings, category)}</h3>
+      <ul>
+        {shown.map((item, index) => (
+          <li key={`${item.id}-${index}`}>
+            <span className="cl-row-text">
+              <span className="cl-row-title">{item.title}</span>
+              {item.summary && <span className="cl-row-summary"> {item.summary.split(/\n{2,}/)[0]}</span>}
+            </span>
+            {item.action && (
+              <button type="button" className="cl-row-action" onClick={() => ctx.onTry(item.action!.id)}>
+                {item.action.title || ctx.strings.t("changelog.page.tryIt")}
+              </button>
+            )}
+          </li>
+        ))}
+      </ul>
+      {!all && items.length > GROUP_PAGE && (
+        <button type="button" className="cl-more" onClick={() => setAll(true)}>
+          {ctx.strings.t("changelog.page.showMore")}
+        </button>
+      )}
+    </section>
+  );
+}
+
+/** Every change a person would notice, folded: readable titles with their pull request linked,
+    20 at a time, and under them one quiet line for the internal ones. A release of internal work
+    alone shows no fold: the page already says "Maintenance and fixes". */
+export function ChangesFold({
+  changes,
+  internal = 0,
+  strings,
+  open,
+}: {
+  changes: ChangeItem[];
+  internal?: number;
+  strings: Strings;
+  open?: boolean;
+}) {
+  const [shown, setShown] = useState(CHANGES_PAGE);
   if (changes.length === 0) return null;
   return (
     <details className="cl-changes" open={open}>
@@ -116,10 +147,50 @@ export function ChangesFold({ changes, strings, open }: { changes: string[]; str
         <span className="cl-count">{changes.length}</span>
       </summary>
       <ul>
-        {changes.map((c, i) => (
-          <li key={i}>{c}</li>
+        {changes.slice(0, shown).map((c, i) => (
+          <li key={c.pr ?? `t${i}`}>
+            <span>{c.title}</span>
+            {c.pr !== undefined && (
+              <a className="cl-pr" href={`https://github.com/manaflow-ai/cmux/pull/${c.pr}`} rel="noreferrer">
+                #{c.pr}
+              </a>
+            )}
+          </li>
         ))}
       </ul>
+      {shown < changes.length && (
+        <button type="button" className="cl-more" onClick={() => setShown((n) => n + CHANGES_PAGE * 2)}>
+          {strings.t("changelog.page.showMore")}
+        </button>
+      )}
+      {internal > 0 && (
+        <p className="cl-changes-internal">
+          {internal === 1
+            ? strings.t("changelog.page.internalChange")
+            : strings.format("changelog.page.internalChanges", String(internal))}
+        </p>
+      )}
     </details>
+  );
+}
+
+const CHANGES_PAGE = 20;
+
+/** A run of builds with no change a person would notice: one quiet line, never a blank row. */
+export function Maintenance({ strings }: { strings: Strings }) {
+  return <p className="cl-maintenance">{strings.t("changelog.page.maintenance")}</p>;
+}
+
+/** The build numbers of a section, small and selectable (copy one with a double click). */
+export function BuildNumbers({ builds }: { builds: { build: string; shortVersion: string }[] }) {
+  return (
+    <div className="cl-builds">
+      {builds.map((b, i) => (
+        <span key={b.build}>
+          {i > 0 && <span aria-hidden="true"> · </span>}
+          <span className="cl-build">{b.shortVersion}</span>
+        </span>
+      ))}
+    </div>
   );
 }

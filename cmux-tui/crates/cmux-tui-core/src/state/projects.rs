@@ -49,8 +49,6 @@ pub(crate) struct Overlay {
 }
 
 impl Overlay {
-    // Used by `disable_source`, which the per-source settings call (projects.md slice 3).
-    #[allow(dead_code)]
     fn is_empty(&self) -> bool {
         self == &Overlay::default()
     }
@@ -220,13 +218,65 @@ fn check_source(source: &str) -> Result<(), ProjectReject> {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct Projects {
     by_path: BTreeMap<String, Project>,
+    /// Sources the user turned off: their reports are ignored.
+    disabled: std::collections::BTreeSet<String>,
 }
 
 impl Projects {
     pub(crate) fn from_projects(projects: impl IntoIterator<Item = Project>) -> Self {
         Self {
             by_path: projects.into_iter().map(|project| (project.path.clone(), project)).collect(),
+            disabled: std::collections::BTreeSet::new(),
         }
+    }
+
+    pub(crate) fn with_disabled(mut self, disabled: impl IntoIterator<Item = String>) -> Self {
+        self.disabled = disabled.into_iter().collect();
+        self
+    }
+
+    pub(crate) fn disabled(&self) -> &std::collections::BTreeSet<String> {
+        &self.disabled
+    }
+
+    /// The user turns `source` on or off (`project.source.update`). Off: it
+    /// leaves every project and its reports are ignored until it is on
+    /// again. Returns the paths that changed.
+    pub(crate) fn set_source_enabled(
+        &mut self,
+        source: &str,
+        enabled: bool,
+    ) -> Result<Vec<String>, ProjectReject> {
+        check_source(source)?;
+        if source == USER_SOURCE {
+            return Err(ProjectReject::InvalidName("the user source cannot be turned off".into()));
+        }
+        if enabled {
+            self.disabled.remove(source);
+            return Ok(Vec::new());
+        }
+        self.disabled.insert(source.to_string());
+        Ok(self.disable_source(source))
+    }
+
+    /// Every source with its project count, on or off (Settings).
+    pub(crate) fn source_summaries(&self) -> Vec<(String, bool, usize)> {
+        let mut counts: BTreeMap<String, usize> = BTreeMap::new();
+        for project in self.by_path.values() {
+            for source in project.sources.keys() {
+                *counts.entry(source.clone()).or_default() += 1;
+            }
+        }
+        for source in &self.disabled {
+            counts.entry(source.clone()).or_default();
+        }
+        counts
+            .into_iter()
+            .map(|(source, count)| {
+                let enabled = !self.disabled.contains(&source);
+                (source, enabled, count)
+            })
+            .collect()
     }
 
     pub(crate) fn get(&self, path: &str) -> Option<&Project> {
@@ -275,6 +325,9 @@ impl Projects {
             return Err(ProjectReject::InvalidName(
                 "the user source is added with project.add".into(),
             ));
+        }
+        if self.disabled.contains(source) {
+            return Ok(Vec::new());
         }
         let mut changed = Vec::new();
         let mut reported = std::collections::BTreeSet::new();
@@ -409,8 +462,6 @@ impl Projects {
 
     /// The user turned `source` off: it leaves every project. A project with
     /// nothing left (no source, no edit) goes; an edited one stays.
-    // The per-source settings call it (projects.md slice 3).
-    #[allow(dead_code)]
     pub(crate) fn disable_source(&mut self, source: &str) -> Vec<String> {
         let mut changed = Vec::new();
         self.by_path.retain(|path, project| {

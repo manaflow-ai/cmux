@@ -87,6 +87,10 @@ use crate::state::conversation_tabs_store::ConversationTabRecord;
 
 mod bundle;
 use bundle::{is_bundle_path, page_data_len, page_of, scrub_bundle};
+/// `access-request-v1`, served on a Cloud host as this is.
+pub mod access_requests;
+/// `agent-update-v1`, the same kind of trusted local acpmux client.
+pub mod agent_update;
 mod ask_first;
 mod askable;
 mod landed;
@@ -146,6 +150,8 @@ pub(crate) struct AgentTransfers {
     /// Receives a receive-abort may still name after a restart (`askable.rs`).
     askable: askable::Askable,
     calls: AtomicUsize,
+    /// Update Everything's agent CLI updates (`agent_update.rs`).
+    updates: agent_update::AgentUpdates,
 }
 
 /// A guarded receive: what its finish uses.
@@ -297,6 +303,12 @@ impl Mux {
     /// `agent_transfer.unavailable` and `agent-transfer-v1` is not advertised.
     pub fn set_agent_transfer_host(&self, host: Option<AgentTransferHost>) {
         *self.agent_transfers.host.write().unwrap_or_else(|e| e.into_inner()) = host;
+    }
+
+    /// True on a cmux Cloud host, as the binary set it at start
+    /// (`access-request-v1` is served there only).
+    pub(crate) fn on_cloud_host(&self) -> bool {
+        self.agent_transfers.host().is_some_and(|host| host.cloud)
     }
 
     /// True with an acpmux socket path and a host.
@@ -521,6 +533,7 @@ impl From<LinkError> for Failure {
             LinkError::Closed => Self::Refusal(Refusal::Unavailable),
             LinkError::Timeout => Self::Refusal(Refusal::Timeout),
             LinkError::Busy => Self::Refusal(Refusal::Limit),
+            LinkError::MethodNotFound(message) => Self::Acpmux(message),
             LinkError::Rpc(message, data) => {
                 let moving = data["transferId"].as_str().filter(|id| is_plain_id(id));
                 match moving {
@@ -542,6 +555,11 @@ pub(super) fn try_handle(
     message: &str,
     writer: &MessageWriter,
 ) -> Option<bool> {
+    if let Some(keep_open) = access_requests::try_handle(mux, client, message, writer)
+        .or_else(|| agent_update::try_handle(mux, client, message, writer))
+    {
+        return Some(keep_open);
+    }
     if !message.contains("\"agent-transfer-") {
         return None;
     }

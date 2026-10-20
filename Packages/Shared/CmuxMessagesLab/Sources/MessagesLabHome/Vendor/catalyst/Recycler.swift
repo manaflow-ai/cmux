@@ -68,10 +68,18 @@ final class RowRecycler: UIScrollView, TranscriptList {
 
     var visibleCells: [UICollectionViewCell] { Array(visible.values) }
 
+    /// Ask 11: rows whose keys changed (a streaming bubble's rows renamed to the final message's) keep their cells.
+    func renameKeys(_ renamed: [(String, String)]) {
+        for (a, b) in renamed { if let c = visible.removeValue(forKey: a) { visible.updateValue(c, forKey: b) } }
+    }
+
     func indexPath(for cell: UICollectionViewCell) -> IndexPath? {
         index.value(for: ObjectIdentifier(cell)).map { /* dictionary read */ IndexPath(item: $0, section: 0) }
     }
 
+    /// Layout passes that configured every visible cell (after `reloadData`): a caller that sees this
+    /// count change across its own `layoutIfNeeded` has every visible cell decorated at the final offset.
+    private(set) var fullPasses = 0
     /// All rows may have changed: reconfigure every visible cell on the next pass.
     func reloadData() {
         dirty = true
@@ -105,6 +113,7 @@ final class RowRecycler: UIScrollView, TranscriptList {
         var fresh: [(RowCell, Int)] = []
         let reconfigureAll = dirty
         dirty = false
+        if reconfigureAll { fullPasses &+= 1 }
         CATransaction.begin(); CATransaction.setDisableActions(true)
         for a in attrs {
             let i = a.indexPath.item

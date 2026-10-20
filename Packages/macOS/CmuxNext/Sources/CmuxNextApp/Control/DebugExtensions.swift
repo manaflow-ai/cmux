@@ -11,9 +11,6 @@ import CmuxNextSettings
 /// choose one by title or dismiss it.
 @MainActor
 enum DebugExtensions {
-    /// DevTools answers can pass the default socket deadline on a busy page.
-    static let devToolsDeadline: Duration = .seconds(15)
-
     /// `{on}`: WebAuthn of the focused Chromium tab, which the call marks
     /// agent-driven, runs (`true`) for the passkey matrix's DevTools virtual
     /// authenticator, or is refused again (`false`), as every agent-driven
@@ -64,7 +61,8 @@ enum DebugExtensions {
     }
 
     static func menu(_ params: [String: JSONValue], presenter: BrowserContextMenuBuilder?) -> JSONValue {
-        guard let menu = presenter?.presentedMenu else { return .object(["open": .bool(false)]) }
+        // The page menu, else the device menu (Emulate Device…).
+        guard let menu = presenter?.presentedMenu ?? BrowserDeviceHandlers.presentedMenu else { return .object(["open": .bool(false)]) }
         let titles = menu.items.map { $0.isSeparatorItem ? "-" : $0.title }
         if let choose = params["choose"]?.stringValue, let index = menu.items.firstIndex(where: { $0.title == choose }) {
             menu.cancelTracking()

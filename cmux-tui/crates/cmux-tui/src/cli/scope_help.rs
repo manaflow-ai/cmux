@@ -1,5 +1,5 @@
-//! Help for the scopes `browser`, `notification`, `room`, `closed`, `git` and
-//! `conversation`,
+//! Help for the scopes `browser`, `notification`, `room`, `closed`, `git`,
+//! `status` and `conversation`,
 //! kept out of `cli.rs` for its line budget.
 
 pub(super) const BROWSER_HELP: &str = "\
@@ -7,6 +7,12 @@ USAGE
   cmux browser open <url> [--workspace <selector>] [--screen <selector>]
     [--pane <selector>] [--name <value>] [--width-px <n> --height-px <n>]
   cmux browser list
+  cmux browser profile list
+  cmux browser profile create --name <name> [--color <value>] [--icon <value>]
+    [--index <n>]
+  cmux browser profile move --profile <id-or-name> --index <n>
+  cmux browser profile open <url> --profile <id-or-name> [--engine webkit|cef]
+    [--pane <selector>] [--title <value>] [--background true|false]
   cmux browser <selector> show|navigate|back|forward|reload|activate
   cmux browser <selector> key|text [OPTIONS]
   cmux browser <selector> mouse|wheel --pointer-frame-seq <decimal> [OPTIONS]
@@ -18,13 +24,18 @@ browser open adds a browser tab, like
 `cmux tab create browser --url <url> [--workspace <selector>]`: in the named
 workspace, screen or pane, else the current one. --url <url> is the same as
 the positional URL.
+
+browser profile list shows each profile's id, name, color, icon and index,
+never its cookies, history or site data. browser profile open opens a tab in
+the profile, in the named pane, else the focused one; the URL must be http or
+https. Without --engine the tab uses the browser.defaultEngine setting.
 ";
 
 pub(super) const NOTIFICATION_HELP: &str = "\
 USAGE
   cmux notification list [--limit <1..256>]
   cmux notification create --title <value> --body <value> [--subtitle <value>]
-    [--level info|success|warning|error] [--terminal <term_id>]
+    [--level info|warning|error] [--terminal <term_id>]
   cmux notification clear [--terminal <term_id>]
   cmux notification ack --client <id> <notification_id>...
 
@@ -36,13 +47,48 @@ pub(super) const NOTIFY_HELP: &str = "\
 USAGE
   cmux notify [--title <text>] [--subtitle <text>] [--body <text>]
     [--surface <term_id>|current] [--workspace <ws_id>|current]
+    [--reply] [--desktop true|false]
   cmux notify --clear [--surface <term_id>|current] [--workspace current]
 
 The flags of the macOS `cmux notify`. The notification belongs to the caller's
 terminal unless --surface names another terminal or --workspace asks for a
-session-level row. --title defaults to \"Notification\". --reply is refused:
-a reply would type into a terminal. --window and --id-format are accepted and
-ignored.
+session-level row. --title defaults to \"Notification\". --reply asks for a
+banner with a Reply field when the notification belongs to a terminal: its
+text is typed into that terminal, then Return. --desktop false posts no
+banner. --window and --id-format are accepted and ignored.
+";
+
+pub(super) const STATUS_HELP: &str = "\
+USAGE
+  cmux status set [KEY] (TEXT | --label <text>) [--target <ws_…>|current]
+    [--state busy|waiting|success|error|info] [--progress 0.4|40%]
+    [--style arc|native|dot|none] [--ttl 30s] [--pid <n>] [--keep | --owner none]
+  cmux status clear [KEY] [--target <ws_…>|current] [--all]
+  cmux status list [--target <ws_…>|current]
+  cmux status run [--label <text>] [--target <ws_…>|current] [--badge-ttl 8s] -- CMD …
+  cmux status wait KEY [--target <ws_…>|current] [--until settled|cleared|state=<s>]
+    [--timeout <500ms|30s|5m>]
+
+Loading indicators for scripts and agents, shown on the workspace's sidebar
+row. A shorthand for `cmux workspace [<ws>] status …`: the target is the
+caller's terminal (its workspace), else the current workspace.
+
+KEY defaults to cli:<terminal>, so repeated sets from one terminal replace each
+other. An entry set from a terminal belongs to that terminal and goes when it
+closes; --pid ties it to a process instead, --ttl ends it after that long, and
+--keep (or --owner none) keeps it until cleared. clear without KEY clears the
+default key; --all clears every entry of the workspace.
+
+run marks the entry busy and owned by this process (a killed CLI leaves no
+spinner), runs CMD with the terminal's input and output, then shows success or
+error with the exit code and duration for --badge-ttl, and exits with CMD's
+status (128 + signal when a signal ended it).
+
+wait blocks until the entry KEY holds --until, following the session's events
+(no polling), and prints it. settled, the default, returns when the entry is
+gone (cleared, its owner ended or its TTL passed) or shows success (exit 0),
+or shows error (exit 1); cleared waits for the entry to go; state=<s> for that
+state. A passed --timeout exits 124.
 ";
 
 pub(super) const ROOM_HELP: &str = "\
@@ -72,7 +118,7 @@ USAGE
   cmux closed reopen [--window <install/window>]
   cmux closed <closed> reopen [--window <install/window>] [--members <i,j,...>]
   cmux closed <closed> delete [--members <i,j,...>]
-  cmux closed clear [--since-ms <unix-ms>]
+  cmux closed clear [--since-ms <unix-ms>] [--before-ms <unix-ms>] [--keep-newest <n>]
 
 The session keeps every close as one group: a bulk close (a tab group, the
 tabs to the right) is one group. Reopen restores the whole group, each tab in
@@ -82,7 +128,8 @@ the newest group of a closed window, never a group of another open window.
 --members reopens only those members; the rest stay in the group.
 delete and clear remove groups permanently (and their terminal archives; the
 journals keep what they recorded); clear --since-ms removes only the groups
-closed at or after that time.
+closed at or after that time, --before-ms only those closed before it, and
+--keep-newest every group but the newest n (retention by age and by count).
 ";
 
 pub(super) const GIT_HELP: &str = "\
@@ -90,6 +137,7 @@ USAGE
   cmux git status [TARGET]
   cmux git diff [TARGET] [--scope <scope>] [--patch] [--max-patch-bytes <n>]
     [--max-files <n>] [--context-lines <n>] [<path>...]
+  cmux git branches [TARGET] [--limit <n>]
   cmux git files [TARGET] [--limit <n>] <query>...
   cmux git list [TARGET] [--limit <n>]
   cmux git checkpoint create [TARGET] [--untracked eligible | <untracked-path>...]
@@ -133,6 +181,13 @@ checkout. diff prints each changed file's status and line counts; --patch
 adds each file's patch from its first @@ line, cut at --max-patch-bytes
 (262144 by default). At most --max-files files (500) are listed; the rest are
 counted. Paths are relative to the repository root and taken literally.
+
+branches lists local branches, then remote-tracking ones, newest commit first:
+each one's ref and commit, and for a local branch its upstream and how far it
+is ahead and behind. At most --limit (200, up to 1000) are printed. It also
+suggests the bases a branch diff may compare with: the base a worktree create
+recorded for the branch, origin's default branch (else main or master), then
+the upstream of HEAD's branch.
 
 files lists the files under the target folder whose path contains the query's
 characters in order (case-insensitive, spaces ignored), best first: tracked

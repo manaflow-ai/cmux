@@ -22,9 +22,13 @@ extension WindowRegistry {
             ids = ids.filter { owned.insert($0).inserted }
             guard !ids.isEmpty else { continue }
             appendRestored(Window(id: record.id, workspaceIDs: ids, frame: record.frame?.rect, display: record.display))
+            // A window the user closed stays closed, with its workspaces (Cmd-Shift-T reopens it).
+            if record.isClosed { setRestored(record.id, open: false) }
         }
         // Front window most recent.
         for window in windows.reversed() { activate(window.id) }
+        // With every window closed (the last one closed, then quit), the front one opens, as before.
+        if !windows.contains(where: \.isOpen), let front = recency.first { setRestored(front, open: true) }
     }
 
     private mutating func appendRestored(_ window: Window) {
@@ -57,7 +61,8 @@ extension WindowRegistry {
                 (state?.profileWorkspaces ?? [:]).compactMap { profile, workspace in
                     window.workspaceIDs.contains(workspace) ? (profile.rawValue, WorkspaceKey(rawValue: workspace)) : nil
                 }, uniquingKeysWith: { first, _ in first }),
-            page: state?.page?.rawValue
+            page: state?.page?.rawValue,
+            isClosed: !window.isOpen
         )
     }
 }

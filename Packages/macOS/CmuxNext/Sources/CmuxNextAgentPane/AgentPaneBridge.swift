@@ -35,8 +35,9 @@ final class AgentPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
                 replyHandler(AgentPaneModel.transportReply(error), nil)
             }
         }
-        // Transport and shell requests carry chat content or commands and run often: not logged.
-        if !request.isTransport, !request.isShell {
+        // Transport and shell requests carry chat content or commands and run often, a tool card's
+        // typed value is a secret, and an upload carries the person's files: not logged.
+        if !request.isTransport, !request.isShell, !request.carriesEntered, !request.carriesFiles {
             logger.info("agent pane trusted message request=\(String(describing: request), privacy: .public) url=\(message.frameInfo.request.url?.absoluteString ?? "", privacy: .public)")
         }
         // task-owner: one page request; its reply goes back through replyHandler
@@ -65,15 +66,22 @@ final class AgentPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
         guard let view else { return nil }
         // The page installs its bridge and registry before asking for the
         // handshake, which can be after didFinish, where the theme and
-        // customization were first pushed; push them again so they land.
+        // customization were first pushed; push them again so they land. The New Tab page's chats
+        // and closed items are set when the view is made, before the page loads (cx-uw104).
         if request == .ready {
             logger.info("agent pane ready accepted")
-            view.applyTheme()
+            view.applyTheme(force: true)
             view.applyShortcuts()
             view.applyPreviewFeatures()
+            AgentPaneSessionStatus.push(to: view)
+            AgentPaneSuggestedTasks.shared.push(to: view)
             view.applyEditedFiles()
+            if view.pageEvents == nil { view.model.sidebarPreviewVariant.replay(to: view) }
             view.replayCustomization()
             AgentPaneToolCard.replay(to: view)
+            AgentPaneDeviceChat.push(view.deviceChats, to: view)
+            AgentPaneClosedItem.push(view.recentlyClosed, to: view)
+            AgentPaneNowPlaying.shared.push(to: view)
         }
         return view.model
     }

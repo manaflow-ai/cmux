@@ -37,15 +37,22 @@ class SidebarItemRowView: NSView {
     /// Option override. Plain activations continue through `onPress`.
     var onPressWithModifiers: ((NSEvent.ModifierFlags) -> Void)?
     var onContextMenu: ((NSEvent, NSView) -> Void)?
+    /// True: the item acts on mouse-down, as workspace rows do (every item but a new-tab
+    /// launcher: `LayoutItemRef.activatesOnPress`); false: on release.
+    var activatesOnPress = false
+    /// The current press already ran the action on mouse-down; its release does not run it again.
+    private var activatedOnPress = false
 
     private(set) var info = SidebarItemInfo(title: "", symbol: "circle")
     private(set) var style = Style.builtIn
     private let pill = CALayer()
     private let chip = CALayer()
     let icon = NSImageView()
-    let title = NSTextField(labelWithString: "")
+    let title = ChromeLabel(labelWithString: "")
     let badge = UnreadBadgeView()
     let avatarView = SidebarAvatarView()
+    /// The workspace item's status: the shared indicator (`info.activity`).
+    let activity: StatusIndicatorView = { let view = StatusIndicatorView(); view.tracksWindowOcclusion = true; return view }()
     /// Set only by the hover owner (`PointerHover`, cx-3wu5): the pointer
     /// now over the row's frame now. Leaving also ends a press.
     private(set) var isHovered = false {
@@ -72,7 +79,7 @@ class SidebarItemRowView: NSView {
         icon.imageScaling = .scaleProportionallyDown
         title.lineBreakMode = .byTruncatingTail
         title.maximumNumberOfLines = 1
-        [icon, title, badge, avatarView].forEach(addSubview)
+        [icon, title, badge, avatarView, activity].forEach(addSubview)
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
         // Keyboard focus is the fill's next tonal step (`fill`), never the system's blue ring.
@@ -83,8 +90,8 @@ class SidebarItemRowView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
-    override var isFlipped: Bool { true }
-    override var wantsUpdateLayer: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
+    nonisolated override var wantsUpdateLayer: Bool { true }
     /// A drag from a press (window points): true once the region drags.
     var onDragged: ((NSPoint, NSEvent) -> Bool)?
     var onDragEnded: (() -> Void)?
@@ -106,19 +113,8 @@ class SidebarItemRowView: NSView {
         title.stringValue = style == .favorite ? info.caption ?? info.title : info.title
         title.isHidden = style.isIconOnly
         title.alignment = style == .favorite ? .center : .natural
-        // Icons and tiles have no room for a count: unread items show a dot
-        // at the glyph's top trailing corner (the rail, like the Codex app's).
-        let unread: UnreadState
-        if info.unreadDot {
-            unread = .dot
-        } else if style == .favorite {
-            unread = (info.badge ?? 0) > 0 ? UnreadState.dot : UnreadState.none
-        } else if style.isIconOnly {
-            unread = isRailButton && (info.badge ?? 0) > 0 ? UnreadState.dot : UnreadState.none
-        } else {
-            unread = info.badge.map(UnreadState.count) ?? UnreadState.none
-        }
-        badge.configure(unread)
+        badge.configure(unreadState)
+        activity.configure(info.activity, style: info.activityStyle)
         // VoiceOver hears the count even where no badge draws (icons).
         setAccessibilityValue(info.unreadDot ? Strings.unreadDot : info.badge.map { String($0) })
         // An icon names itself (and its shortcut) in its tooltip; a tile's
@@ -144,7 +140,8 @@ class SidebarItemRowView: NSView {
             // A tile's well is the raised surface on the tiles card (Safari's
             // favorites); a list row's well is the quieter hover step.
             let rest = style == .favorite ? Palette.elevatedBackground : Palette.hoverFill
-            chip.backgroundColor = wells ? (info.color.map(SidebarStyle.color) ?? rest).cgColor : nil
+            // A favicon draws in its own colors: on the resting well, not the workspace color.
+            chip.backgroundColor = wells ? ((info.favicon == nil ? info.color.map(SidebarStyle.color) : nil) ?? rest).cgColor : nil
             title.textColor = Palette.textPrimary
             // An icon is secondary at rest and full strength under the pointer
             // or keyboard focus (the footer's avatar and gear).
@@ -182,22 +179,25 @@ class SidebarItemRowView: NSView {
         super.layout()
         let b = bounds
         if style == .favorite { return layoutFavorite(b) }
+        defer { layoutActivity(in: b) }
         let inset = SidebarStyle.horizontalInset
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         let side = isRailButton ? SidebarStyle.railIconBox : SidebarStyle.iconBox
+        // A text-only workspace item beside its title draws no glyph (WORKSPACE-ROWS-NO-DEFAULT-ICON).
+        let bare = info.textOnly && !style.isIconOnly
         // The glyph lines up with the text of workspace rows (their inset plus the pill inset).
         let iconFrame = style.isIconOnly
             ? NSRect(x: (b.width - side) / 2, y: (b.height - side) / 2, width: side, height: side)
             : NSRect(x: style == .chip ? Metrics.space2 : inset * 2, y: (b.height - side) / 2, width: side, height: side)
-        // Icon-only items keep their selection and hover pill around the glyph.
-        // A full-width fill makes a compact sidebar read like a selected row.
-        let pillFrame = style.isIconOnly ? iconFrame
+        // Icon-only items keep their pill around the glyph (a full-width fill reads
+        // as a selected row); the profile avatar's pill and click fill its square.
+        let pillFrame = style.isIconOnly ? (showsAvatar ? b : iconFrame)
             : style == .chip ? b
             : NSRect(x: inset, y: 0, width: max(0, b.width - inset * 2), height: b.height)
         pill.frame = pillFrame
         pill.cornerRadius = isRailButton ? SidebarStyle.railTileCornerRadius : SidebarStyle.rowCornerRadius
-        chip.frame = style == .list ? iconFrame : .zero
+        chip.frame = style == .list && !bare ? iconFrame : .zero
         chip.cornerRadius = Metrics.space1 + 1
         CATransaction.commit()
 
@@ -205,7 +205,11 @@ class SidebarItemRowView: NSView {
         // Row size beside a title, like a workspace row's type glyph; inside a list well, the well's
         // glyph size; a rail button's own glyph size.
         let glyphSide = isRailButton ? SidebarStyle.railGlyphSize : style == .list ? SidebarStyle.wellGlyphSize : SidebarStyle.kindGlyphSize
-        if style == .icon, !isRailButton, let (image, frame) = inkSizedGlyph(centeredIn: b) {
+        if bare {
+            icon.image = nil
+            icon.frame = .zero
+        } else if style == .icon, !isRailButton, info.favicon == nil, !info.textOnly,
+                  let (image, frame) = inkSizedGlyph(centeredIn: b) {
             icon.image = image
             icon.frame = frame
         } else {
@@ -229,8 +233,8 @@ class SidebarItemRowView: NSView {
         let badgeHeight = badge.state == .dot ? badgeWidth : bh
         badge.frame = NSRect(x: badgeX, y: (b.height - badgeHeight) / 2, width: badgeWidth, height: badgeHeight)
         let th = ceil(title.intrinsicContentSize.height)
-        let textX = iconFrame.maxX + (style == .chip ? Metrics.space2 : Metrics.space3)
-        title.frame = NSRect(x: textX, y: (b.height - th) / 2, width: max(0, badgeX - Metrics.space2 - textX), height: th)
+        let textX = bare ? iconFrame.minX : iconFrame.maxX + (style == .chip ? Metrics.space2 : Metrics.space3)
+        title.frame = NSRect(x: textX, y: (b.height - th) / 2, width: max(0, activityLeading(before: badgeX) - Metrics.space2 - textX), height: th)
     }
 
     /// A large tile: the glyph well centered over a one-line caption, the
@@ -255,11 +259,15 @@ class SidebarItemRowView: NSView {
         title.frame = NSRect(x: 0, y: wellFrame.maxY + Metrics.space1, width: b.width, height: th)
         let dot = SidebarStyle.dotSize
         badge.frame = NSRect(x: wellFrame.maxX - dot / 2 - 1, y: wellFrame.minY - dot / 2 + 1, width: dot, height: dot)
+        layoutActivity(onGlyph: wellFrame)
     }
 
     /// The item's registry icon at `side` points; without one, its SF Symbol at the matching text size.
     private func glyphImage(side: CGFloat) -> NSImage? {
+        if let favicon = info.favicon { return NSImage(cgImage: favicon.image, size: NSSize(width: side, height: side)) }
         if let emoji = info.emoji { return Self.emojiImage(emoji, side: side) }
+        // An empty title has no initial: the item's neutral symbol keeps an icon-only look visible.
+        if info.textOnly, let initial = Self.initialImage(info.caption ?? info.title, side: side) { return initial }
         if let brand = info.brand, let mark = AgentBrandCatalog.templateImage(brand: brand, size: side) { return mark }
         var glyphIcon = info.icon, symbolName = info.symbol
         // The Notifications item draws the Debug Settings glyph (`NotificationIconLook`, cx-epgo).
@@ -291,11 +299,26 @@ class SidebarItemRowView: NSView {
     /// `emoji` drawn as a text glyph filling a `side` square (in color, not a template).
     static func emojiImage(_ emoji: String, side: CGFloat) -> NSImage {
         NSImage(size: NSSize(width: side, height: side), flipped: false) { rect in
-            let text = NSAttributedString(string: emoji, attributes: [.font: NSFont.systemFont(ofSize: side * 0.85)])
+            let text = NSAttributedString(string: emoji, attributes: [.font: Typography.system(size: side * 0.85)])
             let size = text.size()
             text.draw(at: NSPoint(x: rect.midX - size.width / 2, y: rect.midY - size.height / 2))
             return true
         }
+    }
+
+    /// The first letter of `title` as a template glyph filling a `side` square (it takes the
+    /// glyph tint); nil for an empty title.
+    static func initialImage(_ title: String, side: CGFloat) -> NSImage? {
+        guard let first = title.trimmingCharacters(in: .whitespacesAndNewlines).first else { return nil }
+        let image = NSImage(size: NSSize(width: side, height: side), flipped: false) { rect in
+            let font = Typography.system(size: side * 0.72, weight: .semibold)
+            let text = NSAttributedString(string: String(first).localizedUppercase, attributes: [.font: font, .foregroundColor: NSColor.black])
+            let size = text.size()
+            text.draw(at: NSPoint(x: rect.midX - size.width / 2, y: rect.midY - size.height / 2))
+            return true
+        }
+        image.isTemplate = true
+        return image
     }
 
     /// An icon-only item's glyph (the footer's avatar and gear): drawn so its
@@ -350,6 +373,12 @@ class SidebarItemRowView: NSView {
         pressLocation = event.locationInWindow
         pressModifiers = event.modifierFlags
         didDrag = false
+        activatedOnPress = activatesOnPress
+        guard activatesOnPress else { return }
+        activate(with: pressModifiers)
+        // The profile control's menu runs its own tracking loop and takes the release: no mouseUp
+        // follows, so the pressed fill must not stay.
+        if NSEvent.pressedMouseButtons & 1 == 0 { isPressed = false }
     }
 
     /// Past the drag threshold the region reorders in place (R77).
@@ -359,19 +388,24 @@ class SidebarItemRowView: NSView {
         isPressed = false
     }
 
-    /// The item acts on release, like a button: a press that became a drag
-    /// (or left the item first) never opens it. Acting on the press opened
-    /// the App Store, Import and Sync or a new workspace under a tile the
-    /// user only meant to move.
+    /// An item that does not open on press (a new-tab launcher) acts on release, like a
+    /// button: a press that became a drag (or left the item first) never runs it. Acting
+    /// on the press made a tab under a launcher the user only meant to move.
     override func mouseUp(with event: NSEvent) {
         let dragged = didDrag
+        let activated = activatedOnPress
         if dragged { onDragEnded?() }
         pressLocation = nil
         didDrag = false
+        activatedOnPress = false
         guard isPressed else { return super.mouseUp(with: event) }
         isPressed = false
-        guard !dragged, pill.frame.contains(convert(event.locationInWindow, from: nil)) else { return }
-        if let onPressWithModifiers { onPressWithModifiers(pressModifiers) } else { onPress?() }
+        guard !dragged, !activated, pill.frame.contains(convert(event.locationInWindow, from: nil)) else { return }
+        activate(with: pressModifiers)
+    }
+
+    private func activate(with modifiers: NSEvent.ModifierFlags) {
+        if let onPressWithModifiers { onPressWithModifiers(modifiers) } else { onPress?() }
     }
 
     override func rightMouseDown(with event: NSEvent) {

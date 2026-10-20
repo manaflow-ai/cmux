@@ -34,6 +34,8 @@ use zeroize::Zeroizing;
 
 /// First token of the launcher pipe payload.
 const KEY_MAGIC: &str = "cmuxik1";
+/// Lowercase hex digits (`frontend_proof::hex`), for `to_payload`.
+const HEX_DIGITS: &[u8; 16] = b"0123456789abcdef";
 /// Upper bound on the launcher pipe payload.
 const MAX_KEY_PAYLOAD: u64 = 512;
 
@@ -73,11 +75,21 @@ impl FrontendKey {
 
     /// The pipe payload for this key (the launcher writes it).
     pub fn to_payload(&self) -> Zeroizing<String> {
-        Zeroizing::new(format!(
-            "{KEY_MAGIC} {} {}\n",
-            self.install_id,
-            frontend_proof::hex(self.key.as_slice())
-        ))
+        // Written into one zeroized buffer of its final size: no temporary
+        // hex string or regrown buffer keeps a copy of the key.
+        let mut payload = Zeroizing::new(String::with_capacity(
+            KEY_MAGIC.len() + self.install_id.len() + INSTALL_KEY_LEN * 2 + 3,
+        ));
+        payload.push_str(KEY_MAGIC);
+        payload.push(' ');
+        payload.push_str(&self.install_id);
+        payload.push(' ');
+        for byte in self.key.iter() {
+            payload.push(char::from(HEX_DIGITS[usize::from(byte >> 4)]));
+            payload.push(char::from(HEX_DIGITS[usize::from(byte & 0x0f)]));
+        }
+        payload.push('\n');
+        payload
     }
 
     pub fn install_id(&self) -> &str {
@@ -88,7 +100,9 @@ impl FrontendKey {
 /// Reads one key payload from `reader` (an inherited pipe) to end of file.
 /// The caller closes the descriptor right after.
 pub fn read_frontend_key(reader: impl Read) -> std::io::Result<FrontendKey> {
-    let mut payload = Zeroizing::new(String::new());
+    // Sized for the longest payload up front, so a regrown buffer never
+    // leaves a freed copy of the key behind.
+    let mut payload = Zeroizing::new(String::with_capacity(MAX_KEY_PAYLOAD as usize + 1));
     reader.take(MAX_KEY_PAYLOAD + 1).read_to_string(&mut payload)?;
     if payload.len() as u64 > MAX_KEY_PAYLOAD {
         return Err(std::io::Error::new(
@@ -175,6 +189,42 @@ impl super::ClientRegistry {
                 .clients
                 .get(&client)
                 .is_some_and(|record| matches!(record.transport, super::ClientTransport::Unix))
+        })
+    }
+
+    /// Marks `client` as authenticated with a pairing-store credential.
+    pub(super) fn mark_person(&self, client: u64) {
+        if let Ok(mut state) = self.state.lock()
+            && let Some(record) = state.clients.get_mut(&client)
+        {
+            record.person = true;
+        }
+    }
+
+    /// Whether `client` is a WebSocket connection that authenticated with a
+    /// pairing-store credential (`mark_person`). Fails closed.
+    pub(super) fn is_websocket_person(&self, client: u64) -> bool {
+        self.state.lock().is_ok_and(|state| {
+            state.clients.get(&client).is_some_and(|record| {
+                record.person && matches!(record.transport, super::ClientTransport::WebSocket)
+            })
+        })
+    }
+
+    /// Whether `client` is one of the person's own clients for the local
+    /// conversations (`ws-conversations-v1`): a Unix socket connection, or a
+    /// WebSocket connection, which is registered only after it presented
+    /// the daemon's credential or an approved pairing credential
+    /// (transports.md "Authentication and Pairing"). A poisoned registry
+    /// lock trusts no connection (fail closed).
+    pub(super) fn is_owner_client(&self, client: u64) -> bool {
+        self.state.lock().is_ok_and(|state| {
+            state.clients.get(&client).is_some_and(|record| {
+                matches!(
+                    record.transport,
+                    super::ClientTransport::Unix | super::ClientTransport::WebSocket
+                )
+            })
         })
     }
 }

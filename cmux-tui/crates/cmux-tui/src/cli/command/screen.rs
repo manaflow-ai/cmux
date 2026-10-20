@@ -43,10 +43,7 @@ pub(super) fn parse_screen_strings(
             selectors.insert("screen", "screen", selector)?;
             state::screen_change(action, selectors, flags)
         }
-        [selector, "close"] => {
-            selectors.insert("screen", "screen", selector)?;
-            request(ResourceOperation::ScreenClose, selectors, flags, Map::new())
-        }
+        [selector, "close"] => bulk_close::close("screen", selector, selectors, flags),
         [selector, "layout", "export"] => {
             selectors.insert("screen", "screen", selector)?;
             request(ResourceOperation::ScreenLayoutExport, selectors, flags, Map::new())

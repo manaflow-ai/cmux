@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import os
 import pathlib
@@ -79,7 +80,164 @@ def overlapped_in_order(lines: list[str], first: str, second: str) -> bool:
     )
 
 
+class SettingsExportCatalogTests(unittest.TestCase):
+    """Exercise both export commands against a warm SwiftPM resource bundle."""
+
+    def run_export(self, root: pathlib.Path, entrypoint: str, *, fail_compile: bool = False):
+        package = root / "Packages/macOS/CmuxNext"
+        bundle = package / ".build/debug/Settings.bundle"
+        bundle.mkdir(parents=True)
+        (bundle / "Localizable.xcstrings").write_text("Show Tips")
+        (bundle / "Localizable.strings").write_text("Show Tips")
+        bin_dir = root / "bin"
+        bin_dir.mkdir()
+        fake_swift = bin_dir / "swift"
+        fake_swift.write_text(
+            "#!/usr/bin/env python3\n"
+            "import os, pathlib, sys\n"
+            "args = sys.argv[1:]\n"
+            "bundle = pathlib.Path(os.environ['EXPORT_TEST_BUNDLE'])\n"
+            "if '--show-bin-path' in args:\n"
+            "    print(bundle.parent)\n"
+            "    sys.exit(0)\n"
+            "if '--skip-build' not in args:\n"
+            "    # SwiftPM copies the raw catalog but leaves compiled tables alone.\n"
+            "    (bundle / 'Localizable.xcstrings').write_text('Show Hints')\n"
+            "if args[0] == 'build' or args[:2] == ['test', 'list']:\n"
+            "    sys.exit(0)\n"
+            "suite = args[args.index('--filter') + 1]\n"
+            "if suite == 'ManagedPreferencesManifestTests':\n"
+            "    assert os.environ.get('CMUX_UPDATE_MDM_SCHEMA') == '1'\n"
+            "    files = ['docs/mdm/com.manaflow.cmux.json', 'docs/mdm/com.manaflow.cmux.plist', 'docs/mdm/com.manaflow.cmux.intune.plist',\n"
+            "             'docs/mdm/cmux-example.mobileconfig', 'docs/mdm/managed-preferences.md']\n"
+            "else:\n"
+            "    assert suite == 'SettingsSchemaExportTests'\n"
+            "    assert os.environ.get('CMUX_UPDATE_ACTION_SURFACES') == '1'\n"
+            "    files = ['schemas/settings/settings-schema.json', 'schemas/settings-export/settings-schema.sources.sha256']\n"
+            "for file in files:\n"
+            "    target = pathlib.Path(file)\n"
+            "    target.parent.mkdir(parents=True, exist_ok=True)\n"
+            "    target.write_text((bundle / 'Localizable.strings').read_text())\n"
+            "print('Test run with 1 test passed after 0.001 seconds.')\n"
+        )
+        fake_swift.chmod(0o755)
+        fake_xcrun = bin_dir / "xcrun"
+        fake_xcrun.write_text(
+            "#!/usr/bin/env python3\n"
+            "import os, pathlib, sys\n"
+            "assert sys.argv[1:3] == ['xcstringstool', 'compile']\n"
+            "if os.environ.get('EXPORT_TEST_FAIL_COMPILE') == '1':\n"
+            "    sys.exit(42)\n"
+            "catalog = pathlib.Path(sys.argv[3])\n"
+            "catalog.with_suffix('.strings').write_text(catalog.read_text())\n"
+        )
+        fake_xcrun.chmod(0o755)
+        command = [str(ROOT / entrypoint)]
+        if entrypoint == "scripts/ci/run-swift-testing-suites.sh":
+            command.append(str(package))
+        return subprocess.run(
+            command,
+            cwd=root,
+            env={
+                **os.environ,
+                "PATH": f"{bin_dir}:{os.environ['PATH']}",
+                "DEVELOPER_DIR": str(root / "Xcode"),
+                "CMUX_CI_REQUIRED_MACOS_SDK_MAJOR": "export-settings",
+                "EXPORT_TEST_BUNDLE": str(bundle),
+                "EXPORT_TEST_FAIL_COMPILE": "1" if fail_compile else "0",
+            },
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=30,
+        )
+
+    def test_warm_export_uses_current_catalog(self) -> None:
+        for entrypoint in (
+            "scripts/ci/run-swift-testing-suites.sh",
+            "scripts/measure/export-settings-artifacts.sh",
+        ):
+            with self.subTest(entrypoint=entrypoint), tempfile.TemporaryDirectory() as temp:
+                result = self.run_export(pathlib.Path(temp), entrypoint)
+                self.assertEqual(result.returncode, 0, result.stdout)
+                lines = result.stdout.splitlines()
+                artifacts = [
+                    base64.b64decode(lines[index + 1]).decode()
+                    for index, line in enumerate(lines)
+                    if line.startswith("BEGIN_ARTIFACT:")
+                ]
+                self.assertEqual(artifacts, ["Show Hints"] * 7, result.stdout)
+
+    def test_catalog_failure_prevents_export(self) -> None:
+        for entrypoint in (
+            "scripts/ci/run-swift-testing-suites.sh",
+            "scripts/measure/export-settings-artifacts.sh",
+        ):
+            with self.subTest(entrypoint=entrypoint), tempfile.TemporaryDirectory() as temp:
+                root = pathlib.Path(temp)
+                result = self.run_export(root, entrypoint, fail_compile=True)
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertNotIn("BEGIN_ARTIFACT:", result.stdout)
+                self.assertFalse((root / "docs/mdm/com.manaflow.cmux.json").exists())
+
+
 class SwiftTestingSuiteTimeoutTests(unittest.TestCase):
+    def test_a_local_dependency_in_an_empty_submodule_is_populated_first(self) -> None:
+        """Fleet ci-steps check the ref out with every submodule deinitialized, so
+        CmuxAppKitSupportUI (through CmuxWorkspaces' .package(path: vendor/bonsplit))
+        failed at `swift test list`: vendor/bonsplit/Package.swift doesn't exist
+        (step 97793621e02e, 2026-10-12). Only submodules a local dependency reaches
+        are populated; ghostty is not."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp = pathlib.Path(temp_dir)
+            git_env = os.environ.copy()
+            git_env.update(
+                GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@example.com",
+                GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@example.com",
+                GIT_CONFIG_COUNT="1", GIT_CONFIG_KEY_0="protocol.file.allow", GIT_CONFIG_VALUE_0="always",
+            )
+
+            def git(*args: str, cwd: pathlib.Path) -> None:
+                subprocess.run(["git", *args], cwd=cwd, env=git_env, check=True, capture_output=True)
+
+            for name in ("dep", "big"):
+                source = temp / name
+                source.mkdir()
+                git("init", "-q", cwd=source)
+                (source / "Package.swift").write_text(f"// {name}\n", encoding="utf-8")
+                git("add", "-A", cwd=source)
+                git("commit", "-qm", name, cwd=source)
+            repo = temp / "repo"
+            repo.mkdir()
+            git("init", "-q", cwd=repo)
+            git("submodule", "add", "-q", f"file://{temp / 'dep'}", "vendor/dep", cwd=repo)
+            git("submodule", "add", "-q", f"file://{temp / 'big'}", "big", cwd=repo)
+            for name, deps in (("App", ['"../Lib"']), ("Lib", ['"../../vendor/dep"'])):
+                package = repo / "Packages" / name
+                package.mkdir(parents=True)
+                lines = "".join(f"        .package(path: {d}),\n" for d in deps)
+                (package / "Package.swift").write_text(f"let package = Package(\n    dependencies: [\n{lines}    ]\n)\n", encoding="utf-8")
+            git("add", "-A", cwd=repo)
+            git("commit", "-qm", "repo", cwd=repo)
+            git("submodule", "deinit", "-q", "-f", "--all", cwd=repo)
+
+            fake_swift = temp / "bin" / "swift"
+            fake_swift.parent.mkdir()
+            fake_swift.write_text(
+                "#!/usr/bin/env bash\n"
+                f"root={repo}\n"
+                "[ -f \"$root/vendor/dep/Package.swift\" ] || { echo \"error: $root/vendor/dep/Package.swift doesn't exist\" >&2; exit 1; }\n"
+                "[ ! -f \"$root/big/Package.swift\" ] || { echo 'error: populated big, which no package reaches' >&2; exit 1; }\n"
+                "if [ \"$1 $2\" = 'test list' ]; then echo 'ExampleTests.Suite/testOne()'; exit 0; fi\n"
+                "echo 'Test run with 1 test passed after 0.001 seconds.'\n",
+                encoding="utf-8",
+            )
+            fake_swift.chmod(0o755)
+            env = git_env.copy()
+            env["PATH"] = f"{fake_swift.parent}:{env['PATH']}"
+            completed = run_runner(repo / "Packages" / "App", env)
+            self.assertEqual(completed.returncode, 0, completed.stdout)
+
     def test_success_exit_requires_completed_nonzero_execution(self) -> None:
         for output in (
             "Test run with 0 tests passed after 0.001 seconds.",
@@ -339,6 +497,70 @@ class SwiftTestingSuiteTimeoutTests(unittest.TestCase):
             invocations = calls.read_text(encoding="utf-8").splitlines()
             self.assertEqual(len(invocations), 1, invocations)
             self.assertTrue(same_path(invocations[0][len("ensure "):], ROOT), invocations)
+
+    def test_an_unpublished_tree_falls_back_to_the_newest_published_one(self) -> None:
+        """A fleet suite step for a head whose own cmux-tui tree is not published yet ran the
+        live-daemon suites against nothing: 131 of 198 CmuxNext suite steps on 2026-10-12 skipped
+        them. When the head changes no cmux-tui path (pin-cmux-tui.sh fallback-key prints a key, as
+        PR CI's CMUX_TUI_TREE_BASE_FALLBACK), the suites get that published tree; otherwise they
+        still skip."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp = pathlib.Path(temp_dir)
+            calls = temp / "calls.txt"
+            fake_swift = temp / "swift"
+            fake_swift.write_text(
+                "#!/usr/bin/env bash\n"
+                "if [[ \"$*\" == *\"test list\"* ]]; then echo 'ExampleTests.Suite/testOne()'; exit 0; fi\n"
+                "printf 'key=%s path=%s\\n' \"${CMUX_TUI_TREE_KEY:-}\" \"${CMUX_NEXT_TUI_TREE_PATH:-}\" >> \"$CMUX_SWIFT_TEST_CALLS\"\n"
+                "echo 'Test run with 1 test passed after 0.001 seconds.'\n",
+                encoding="utf-8",
+            )
+            fake_swift.chmod(0o755)
+            ensure = temp / "ensure"
+            ensure.write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
+            ensure.chmod(0o755)
+            # The head's own tree is never published; tree "older" is. fallback-key prints it
+            # unless FAKE_HEAD_CHANGES_TUI is set (a head that changes cmux-tui gets no fallback).
+            pin = temp / "pin"
+            pin.write_text(
+                "#!/usr/bin/env bash\n"
+                "dir=\"$FAKE_TREES/${CMUX_TUI_TREE_KEY:-own}\"\n"
+                "case \"$1\" in\n"
+                "  path) echo \"$dir/cmux-tui\" ;;\n"
+                "  fetch) [ \"${CMUX_TUI_TREE_KEY:-}\" = older ] || exit 1\n"
+                "         mkdir -p \"$dir\" && printf '#!/bin/sh\\n' > \"$dir/cmux-tui\" && chmod +x \"$dir/cmux-tui\" ;;\n"
+                "  fallback-key) [ -z \"${FAKE_HEAD_CHANGES_TUI:-}\" ] || exit 1; echo older ;;\n"
+                "  *) exit 2 ;;\n"
+                "esac\n",
+                encoding="utf-8",
+            )
+            pin.chmod(0o755)
+            next_package = temp / "Packages" / "macOS" / "CmuxNext"
+            next_package.mkdir(parents=True)
+            env = os.environ.copy()
+            env.pop("CMUX_NEXT_TUI_TREE_PATH", None)
+            env.pop("CMUX_TUI_TREE_KEY", None)
+            env["PATH"] = f"{temp}:{env['PATH']}"
+            env["CMUX_SWIFT_TEST_CALLS"] = str(calls)
+            env["CMUX_ENSURE_WEB_BUNDLES"] = str(ensure)
+            env["CMUX_PIN_CMUX_TUI"] = str(pin)
+            env["FAKE_TREES"] = str(temp / "trees")
+
+            completed = run_runner(next_package, env)
+            self.assertEqual(completed.returncode, 0, completed.stdout)
+            self.assertEqual(
+                calls.read_text(encoding="utf-8").splitlines(),
+                [f"key=older path={temp / 'trees' / 'older' / 'cmux-tui'}"],
+                completed.stdout,
+            )
+
+            calls.write_text("", encoding="utf-8")
+            env["FAKE_HEAD_CHANGES_TUI"] = "1"
+            completed = run_runner(next_package, env)
+            self.assertEqual(completed.returncode, 0, completed.stdout)
+            invocations = calls.read_text(encoding="utf-8").splitlines()
+            self.assertEqual(len(invocations), 1, invocations)
+            self.assertTrue(invocations[0].startswith("key= "), invocations)
 
     def test_string_catalogs_compile_after_the_build_and_before_the_suites(self) -> None:
         """cx-v2k: swift build copies String Catalogs uncompiled, so QuitAlertContent,

@@ -16,24 +16,28 @@ public struct ScreenBarMapping {
     }
 
     /// `untitled(n)` names the n-th (1-based) screen that has no name;
-    /// `emojiIcon` renders an emoji icon (the App draws it to an image).
+    /// `emojiIcon` renders an emoji icon (the App draws it to an image); `assetIcon` a stored
+    /// image or SVG icon (the App reads it from the workspace's daemon), nil while it loads.
     @MainActor
     public func snapshot(_ workspace: WorkspaceModel, untitled: (Int) -> String,
-                                emojiIcon: (String) -> TabIcon) -> Snapshot {
+                                emojiIcon: (String) -> TabIcon,
+                                assetIcon: (String) -> TabImage? = { _ in nil }) -> Snapshot {
         let items = workspace.screens.enumerated().map { index, screen in
-            item(screen, number: index + 1, untitled: untitled, emojiIcon: emojiIcon)
+            item(screen, number: index + 1, untitled: untitled, emojiIcon: emojiIcon, assetIcon: assetIcon)
         }
         let groups = workspace.screenGroups.map { group in
             TabGroupItem(id: TabGroupID(group.id.rawValue), name: group.name,
                          tint: group.color.flatMap(GroupTint.init(wire:)) ?? .palette(.grey),
-                         isCollapsed: group.collapsed, isSaved: group.savedID != nil)
+                         isCollapsed: group.collapsed, isSaved: group.savedID != nil,
+                         // A group with no icon maps to nil: its chip draws as before.
+                         icon: icon(group.icon, emoji: emojiIcon, asset: assetIcon))
         }
         return Snapshot(items: items, groups: groups, isVisible: workspace.screens.count > 1)
     }
 
     @MainActor
     func item(_ screen: ScreenModel, number: Int, untitled: (Int) -> String,
-                     emojiIcon: (String) -> TabIcon) -> TabItem {
+                     emojiIcon: (String) -> TabIcon, assetIcon: (String) -> TabImage? = { _ in nil }) -> TabItem {
         let name = screen.name?.trimmingCharacters(in: .whitespaces) ?? ""
         let tabs = screen.panes.flatMap(\.tabs)
         let pane = screen.defaultPane.flatMap(screen.pane) ?? screen.panes.first
@@ -42,9 +46,9 @@ public struct ScreenBarMapping {
             id: TabID(screen.id),
             title: name.isEmpty ? untitled(number) : name,
             subtitle: focused.flatMap { $0.cwd.map(SidebarMapping.shared.abbreviate) ?? $0.url },
-            icon: icon(screen.icon, emoji: emojiIcon),
+            icon: icon(screen.icon, emoji: emojiIcon, asset: assetIcon),
             isPinned: screen.pinned,
-            isUnread: tabs.contains(where: \.hasUnread),
+            isUnread: tabs.contains(where: \.showsUnread),
             isBusy: false,
             status: tabs.contains { $0.agent?.state == .blocked } ? .needsInput : .none,
             groupID: screen.group.map { TabGroupID($0.rawValue) },
@@ -52,11 +56,12 @@ public struct ScreenBarMapping {
         )
     }
 
-    func icon(_ value: String?, emoji: (String) -> TabIcon) -> TabIcon {
+    /// A screen's or screen group's icon; a stored asset not read yet draws a placeholder symbol.
+    func icon(_ value: String?, emoji: (String) -> TabIcon, asset: (String) -> TabImage? = { _ in nil }) -> TabIcon {
         switch IconValue(wire: value) {
         case .symbol(let name)?: .symbol(name)
         case .emoji(let text)?: emoji(text)
-        case .image?, .svg?: .symbol("photo")
+        case .image?, .svg?: value.flatMap(asset).map(TabIcon.image) ?? .symbol("photo")
         case nil: .none
         }
     }

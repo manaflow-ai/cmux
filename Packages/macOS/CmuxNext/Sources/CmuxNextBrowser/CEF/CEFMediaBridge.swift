@@ -35,6 +35,7 @@ final class CEFMediaBridge {
             ("Page.enable", [:]),
             ("Page.addScriptToEvaluateOnNewDocument", ["source": observer, "worldName": BrowserMediaState.world, "runImmediately": true]),
             ("Page.addScriptToEvaluateOnNewDocument", ["source": BrowserMediaState.actionsScript, "runImmediately": true]),
+            ("Page.addScriptToEvaluateOnNewDocument", ["source": BrowserPageBusy.recorderScript, "runImmediately": true]),
             Self.binding,
         ]
         run(calls, browser)

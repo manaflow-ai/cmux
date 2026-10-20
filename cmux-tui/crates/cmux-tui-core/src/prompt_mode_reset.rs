@@ -44,9 +44,21 @@ const KEYBOARD_RESET: &[u8] = b"\x1b[?2004l\x1b[?1004l\x1b[?1l\x1b>\x1b[<99u\x1b
 const CURSOR_VISIBLE: u16 = 25;
 
 /// What a pane's terminal drops when its child exits: nothing runs there
-/// any more to want mouse reports, keyboard modes, a hidden cursor or an
-/// alternate screen.
-pub(crate) const EXIT_RESET: &[u8] = b"\x1b[?9l\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1005l\x1b[?1006l\x1b[?1015l\x1b[?1016l\x1b[?2004l\x1b[?1004l\x1b[?1l\x1b>\x1b[<99u\x1b[>4;0m\x1b[?25h\x1b[?47l\x1b[?1047l\x1b[?1049l";
+/// any more to want mouse reports, keyboard modes or a hidden cursor.
+const EXIT_RESET: &[u8] = b"\x1b[?9l\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1005l\x1b[?1006l\x1b[?1015l\x1b[?1016l\x1b[?2004l\x1b[?1004l\x1b[?1l\x1b>\x1b[<99u\x1b[>4;0m\x1b[?25h";
+
+/// The reset for a pane whose child exited: [`EXIT_RESET`], and the way off
+/// an alternate screen only when the child left one up. `?1049l` restores
+/// the saved cursor even on the main screen, so sent there it moved the
+/// cursor back over the dead child's last lines, and the restore banner and
+/// the respawned shell's prompt overwrote them.
+pub(crate) fn exit_reset(term: &Terminal) -> Vec<u8> {
+    let mut reset = EXIT_RESET.to_vec();
+    if matches!(term.active_screen(), Screen::Alternate) {
+        reset.extend_from_slice(ALT_SCREEN_RESET);
+    }
+    reset
+}
 
 /// Where the shell is between its marks, carried across output chunks.
 #[derive(Debug, Default)]

@@ -57,8 +57,14 @@ enum RemoteHandlers {
             let session = try machine(invocation, context)
             guard session.daemon.connection != nil else { throw ActionFailure(message: RemoteStrings.notConnected(session.host.label)) }
             let work: ActionWork = Task {
-                guard let id = await context.services.windows.createWorkspace(on: session.daemon) else {
-                    return ActionWorkFailure(RemoteStrings.notConnected(session.host.label))
+                let id: String
+                do {
+                    id = try await context.services.windows.createWorkspace(WorkspaceSpawn(), on: session.daemon)
+                } catch {
+                    // The real reason (a terminal start deadline on a slow
+                    // host, a refusal), never a bare "not connected" (cx-tzlqb).
+                    session.daemon.logger.error("remote new workspace failed: \(String(describing: error), privacy: .public)")
+                    return ActionWorkFailure(RemoteStrings.newWorkspaceFailed(session.host.label, error))
                 }
                 CloudHandlers.show(id, context)
                 return nil

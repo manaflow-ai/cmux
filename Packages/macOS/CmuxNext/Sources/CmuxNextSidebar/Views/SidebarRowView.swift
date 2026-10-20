@@ -14,12 +14,19 @@ class SidebarRowView: NSView {
     var isSelected = false {
         didSet {
             guard isSelected != oldValue else { return }
+            updateAccessibilitySelection()
             fadesNextFill = false
             needsDisplay = true
             // Rows show controls on the selected row too (the tab chevron, cx-fo2t).
             needsLayout = true
         }
     }
+
+    /// The row shows as selected, the one source of its AXSelected. A row with more
+    /// selection state overrides it and calls `updateAccessibilitySelection()` when that changes.
+    var showsSelection: Bool { isSelected }
+
+    func updateAccessibilitySelection() { setAccessibilitySelected(showsSelection) }
 
     required init(key: SidebarRowKey) {
         self.key = key
@@ -32,12 +39,13 @@ class SidebarRowView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
-    override var isFlipped: Bool { true }
-    override var wantsUpdateLayer: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
+    nonisolated override var wantsUpdateLayer: Bool { true }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
         let local = convert(point, from: superview)
-        for button in interactiveSubviews where !button.isHidden && button.frame.contains(local) {
+        // A button fading out after hover shows but takes no click.
+        for button in interactiveSubviews where !button.isHidden && button.alphaValue > 0 && button.frame.contains(local) {
             return button
         }
         return nil
@@ -55,14 +63,21 @@ class SidebarRowView: NSView {
         return true
     }
 
+    /// A view that comes back to its own row keeps its configured content, so the
+    /// row's next `configure` with equal content changes nothing and its text
+    /// layers keep their drawing (scroll back over parked rows, perf round 4).
+    /// Rows whose configure sets state that this reset clears (a tooltip) say no.
+    class var keepsContentOnReturn: Bool { false }
+
     /// Resets transient state before a recycled view shows another row.
     func prepareForReuse(key: SidebarRowKey) {
-        configuredContent = nil
+        if !(key == self.key && Self.keepsContentOnReturn) { configuredContent = nil }
         self.key = key
         isHovered = false
         isSelected = false
         // A recycled row shows its new content's fill at once.
         fadesNextFill = false
+        fadesNextHover = false
         // A row parked mid-move does not finish that move when it comes back (cx-bqm6).
         layer?.removeAllAnimations()
         clipsToBounds = false
@@ -70,32 +85,51 @@ class SidebarRowView: NSView {
         alphaValue = 1
         setTitleHidden(false)
         themedToolTip = nil
+        // A view that kept its content skips configure: it still paints once more, for a theme that
+        // changed while it was out of the window (a lift). Labels redraw only on a changed value.
+        needsDisplay = true
     }
 
     /// Buttons that receive clicks directly.
     var interactiveSubviews: [NSView] { [] }
 
     /// Frame of the title text in this row's coordinates, for inline rename.
-    var titleFrame: NSRect { .zero }
-    var titleFont: NSFont { SidebarStyle.titleFont }
-    func setTitleHidden(_ hidden: Bool) {}
+    @objc dynamic var titleFrame: NSRect { .zero }
+    @objc dynamic var titleFont: NSFont { SidebarStyle.titleFont }
+    @objc dynamic func setTitleHidden(_ hidden: Bool) {}
 
-    func hoverChanged() {
-        fadesNextFill = true
+    @objc dynamic func hoverChanged() {
+        // Hover entry is immediate; only clearing a row may use the short
+        // exit transition. A pointer sweep should never leave a delayed
+        // highlight behind the row the pointer is currently over.
+        fadesNextFill = !isHovered
+        fadesNextHover = !isHovered
         needsDisplay = true
     }
 
-    /// The next fill change came from hover, so it fades
-    /// (`ChromeHover.fade`: eases in, clears at once); reloads and theme
-    /// changes apply at once.
+    /// Clears hover state before a row leaves the realized list. This avoids
+    /// carrying its fill or hover controls through the close/recycle motion.
+    func clearHoverImmediately() {
+        isHovered = false
+        fadesNextFill = false
+        fadesNextHover = false
+        needsDisplay = true
+        needsLayout = true
+    }
+
+    /// The next fill change came from hover. Hover entry is immediate and the
+    /// default hover-out token clears it without leaving a trail.
     var fadesNextFill = false
+    /// The next layout came from hover: the row's hover controls reveal or
+    /// clear in place (the row's `layout()` clears it).
+    var fadesNextHover = false
 
     /// Paints `color` on the row's backing layer, fading when hover changed
     /// it. Call from `updateLayer()` inside the theme scope.
     func paintFill(_ color: NSColor?) {
         paintsFill = color != nil
         guard let layer else { return }
-        ChromeHover.paint(layer, color, animated: fadesNextFill)
+        ChromeHover.paint(layer, color, animated: fadesNextFill, clearing: .hoverOut)
         fadesNextFill = false
     }
 
@@ -106,11 +140,19 @@ class SidebarRowView: NSView {
     /// The row's disclosure chevron for debug.sidebar_rows: the pack icon it
     /// draws, its frame in the row and whether it shows; nil without one.
     var debugDisclosure: (icon: String, frame: CGRect, shown: Bool)? { nil }
+    /// The leading icon the row's view draws now for debug.sidebar_rows `icon`
+    /// (`symbol`, `swatch`, `emoji`, `favicon`, `agentMark`); nil when it draws none.
+    var debugIcon: String? { nil }
+    /// The address of the favicon the row draws (a link row), for proofs.
+    var debugIconAddress: String? { nil }
 
     /// Counts the times this row started opening its slot (clipped): an
     /// earlier open's completion, run early when a later update reopens the
     /// row, leaves the later open's clip alone (cx-ai79).
     var opens = 0
+    /// The frame a row that left the list closes its slot to, until its close recycles it
+    /// (`RowMotion`): a viewport re-anchor mid-close shifts it with the rows (cx-y2uf5).
+    var closingEnd: NSRect?
 
     /// The frame as drawn now: the presentation mid-animation (debug).
     var shownFrame: CGRect { layer?.presentation()?.frame ?? frame }
@@ -136,8 +178,14 @@ class SidebarRowView: NSView {
     }
 
     /// A one-line label. Its color is set in the row's `updateLayer`, inside
-    /// `performWithTheme`, so it follows the row's theme scope.
-    static func label(font: NSFont) -> NSTextField {
+    /// `performWithTheme`, so it follows the row's theme scope; it is a layer
+    /// color, so a theme change blends it (`ChromeLabel`, I5).
+    static func label(font: NSFont) -> ChromeLabel {
+        ChromeLabel(font: font)
+    }
+
+    /// A one-line AppKit label for attributed text with its own run colors.
+    static func attributedLabel(font: NSFont) -> NSTextField {
         let field = NSTextField(labelWithString: "")
         field.font = font
         field.lineBreakMode = .byTruncatingTail
@@ -161,9 +209,9 @@ final class EmptySectionRowView: SidebarRowView {
         addSubview(label)
     }
 
-    func configure(pinned: Bool) {
-        label.stringValue = pinned ? Strings.pinnedEmpty : Strings.sectionEmpty
-        label.font = SidebarStyle.subtitleFont
+    func configure(pinned: Bool) { // a document Pinned too (`.custom(sec_pinned)`, SidebarListView.configure)
+        label.setString(pinned ? Strings.pinnedEmpty : Strings.sectionEmpty)
+        label.setFont(SidebarStyle.subtitleFont)
         needsLayout = true
     }
 
@@ -171,12 +219,12 @@ final class EmptySectionRowView: SidebarRowView {
         super.layout()
         let b = layoutBounds
         let h = ceil(label.intrinsicContentSize.height)
-        let x = SidebarStyle.titleLeading
+        let x = SidebarStyle.titleLeading - SidebarStyle.labelCellPadding
         label.frame = NSRect(x: x, y: (b.height - h) / 2, width: max(0, b.width - x - Metrics.space2), height: h)
         needsDisplay = true
     }
 
     override func updateLayer() {
-        performWithTheme { label.textColor = Palette.textTertiary }
+        performWithTheme { label.setColor(Palette.textTertiary) }
     }
 }

@@ -83,11 +83,26 @@ const ASK_TOOLS: &[&str] = &[
 const CREDENTIAL_ENV: &[&str] =
     &["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"];
 
+/// The cmux setting that lets a remote chain's Claude Code use this Mac's
+/// Claude login from the keychain. Default off: a remote party never causes
+/// a keychain read unless the person turned it on.
+pub(crate) const KEYCHAIN_LOGIN_SETTING: &str = "agents.remoteChains.claudeKeychainLogin";
+
+/// Whether the settings file holds `true` for `KEYCHAIN_LOGIN_SETTING`, read
+/// now. No file, no key, any other value or a file that cannot be read: off.
+fn keychain_login_allowed() -> bool {
+    let crate::user_settings::Settings::Parsed(doc) = crate::user_settings::read() else {
+        return false;
+    };
+    crate::user_settings::value(&doc, KEYCHAIN_LOGIN_SETTING) == Some(Value::Bool(true))
+}
+
 /// The credential a remote chain's Claude Code gets by env, when it has
 /// none there yet (profile or login env): the OAuth access token from the
 /// keychain item Claude Code keeps ("Claude Code-credentials"), read by
-/// acpmux outside the sandbox. None: it already has one, or none is found
-/// (Claude then reports that it is not logged in).
+/// acpmux outside the sandbox, only while the cmux setting
+/// `KEYCHAIN_LOGIN_SETTING` is on. None: it already has one, the setting is
+/// off, or none is found (Claude then reports that it is not logged in).
 ///
 /// The read is bounded (a keychain dialog never holds the spawn), and a
 /// token that expires within 10 minutes is refused with the fix: the
@@ -101,7 +116,7 @@ async fn claude_credential(
     {
         return Ok(None);
     }
-    if !cfg!(target_os = "macos") {
+    if !cfg!(target_os = "macos") || !keychain_login_allowed() {
         return Ok(None);
     }
     let read = tokio::process::Command::new("/usr/bin/security")
@@ -504,7 +519,8 @@ impl Hub {
     /// other session's plan is unchanged.
     ///
     /// The profile it returns carries the remote chain's env: Claude's own
-    /// credential (the keychain is closed to the sandbox) and
+    /// credential (the keychain is closed to the sandbox; read only with the
+    /// setting `KEYCHAIN_LOGIN_SETTING` on) and
     /// `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB`, so Claude's Bash and other
     /// children never inherit that credential. Env, never argv: argv is
     /// visible to every process of the user.
@@ -517,6 +533,17 @@ impl Hub {
     {
         if !session.meta().remote_origin {
             return Ok((plan, std::borrow::Cow::Borrowed(profile)));
+        }
+        // A remote chain never runs without the permission prompt: no switch
+        // to bypassPermissions (its settings disable the mode as well).
+        let mut plan = plan;
+        plan.args.retain(|a| a != crate::claude_stdio::ALLOW_BYPASS_FLAG);
+        // A chat moved here in full access (a transfer keeps its mode)
+        // starts in Claude's asking default instead.
+        if let Some(i) = plan.args.iter().position(|a| a == "--permission-mode")
+            && plan.args.get(i + 1).is_some_and(|m| m == "bypassPermissions")
+        {
+            plan.args[i + 1] = "default".into();
         }
         let (program, args) =
             self.sandboxed_claude_plan(session, profile, plan.program, plan.args).await?;

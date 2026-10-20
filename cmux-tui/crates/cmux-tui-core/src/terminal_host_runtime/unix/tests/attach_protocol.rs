@@ -83,6 +83,8 @@ fn timed_out_cell_pixel_ack_reconciles_when_the_response_arrives_late() {
             command: vec!["/bin/cat".into()],
             cwd: None,
             osc_progress: String::new(),
+            program_status: None,
+            shell_activity: None,
         },
         protocol_version: PROTOCOL_VERSION,
         smart_renderer: false,
@@ -197,6 +199,8 @@ fn detach_fence_reports_a_delayed_receipt_after_output_as_a_failure() {
             command: Vec::new(),
             cwd: None,
             osc_progress: String::new(),
+            program_status: None,
+            shell_activity: None,
         },
         protocol_version: PROTOCOL_VERSION,
         smart_renderer: true,
@@ -358,6 +362,8 @@ fn adoption_quota_reconfiguration_finishes_before_snapshot_use() {
             command: Vec::new(),
             cwd: None,
             osc_progress: String::new(),
+            program_status: None,
+            shell_activity: None,
         },
         protocol_version: PROTOCOL_VERSION,
         smart_renderer: false,
@@ -476,6 +482,8 @@ fn upgraded_daemon_falls_back_to_a_live_protocol_one_host() {
             command: vec!["/bin/cat".into()],
             cwd: Some("/tmp".into()),
             osc_progress: String::new(),
+            program_status: None,
+            shell_activity: None,
         };
         let mut payload = encode_snapshot(&snapshot).unwrap();
         payload.truncate(
@@ -597,6 +605,8 @@ fn smart_owner_negotiation_falls_back_to_a_live_legacy_host() {
             command: vec!["/bin/sh".into()],
             cwd: None,
             osc_progress: String::new(),
+            program_status: None,
+            shell_activity: None,
         };
         let mut snapshot_frame = Frame::new(MessageKind::Snapshot, encode_snapshot(&snapshot)?);
         snapshot_frame.sequence = 17;

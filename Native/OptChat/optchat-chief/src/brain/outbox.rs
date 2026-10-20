@@ -32,11 +32,23 @@ impl Brain {
                 self.outbox_timer = None;
                 return;
             };
-            let (is_message, not_before, attempted) = (
+            let (is_message, not_before, attempted, previews_until) = (
                 matches!(entry.op, Op::MessageSend { .. }),
                 entry.not_before,
                 entry.attempted,
+                entry.previews_until,
             );
+            // A reply waiting for its link previews (brain/previews.rs)
+            // holds the queue, in order, until they arrive or its hold ends.
+            if !attempted
+                && let Some(until) = previews_until
+                && now_ms() < until
+            {
+                self.outbox_timer = Some(
+                    Instant::now() + Duration::from_millis(until.saturating_sub(now_ms()) + 50),
+                );
+                return;
+            }
             let (conversation, key, op) = (
                 entry.conversation.clone(),
                 entry.idempotency_key.clone(),
@@ -102,6 +114,26 @@ impl Brain {
                         "error: the owner refused op {key} as a reused key with different content ({reason}); the message was not posted"
                     ))
                 }
+                Err(OpError::Rejected(reason))
+                    if self.state.outbox[0].plain_text.is_some() && has_cards(&op) =>
+                {
+                    // The owner refused the link cards (an older or stricter
+                    // owner): the reply goes as its original text, unchanged,
+                    // under a new key, since the refused key is spent.
+                    let head = &mut self.state.outbox[0];
+                    let text = head.plain_text.take().unwrap_or_default();
+                    let fallback = super::reply_entry(
+                        head.conversation.clone(),
+                        &format!("{key}:text"),
+                        &text,
+                    );
+                    *head = fallback;
+                    self.save();
+                    (self.log)(&format!(
+                        "op {key}: the owner refused its link cards ({reason}); sending the text"
+                    ));
+                    continue;
+                }
                 Err(OpError::Rejected(reason)) => {
                     (self.log)(&format!("dropping rejected op {key}: {reason}"))
                 }
@@ -116,4 +148,10 @@ impl Brain {
             self.save();
         }
     }
+}
+
+/// Whether `op` sends link cards (a reply the preview thread filled).
+fn has_cards(op: &Op) -> bool {
+    matches!(op, Op::MessageSend { parts, .. }
+        if parts.iter().any(|p| matches!(p, cmux_conversation::Part::LinkPreview { .. })))
 }

@@ -1,9 +1,12 @@
 import type { Domain } from "@cmux/ownership"
-import { HostEnroll, HostRemove, type Host, type TeamMember } from "@cmux/protocol"
+import { HostEnroll, HostRemove, HostReplicaPurge, type Host, type TeamMember } from "@cmux/protocol"
 import { admit, decodeParams, reject } from "./common.ts"
 import { personalTeamIdFor } from "./user.ts"
 import { hostByInstall, hostDelete, hostOf, hostUpsert, memberLeftItems, memberOf, memberUpsert, roleOf, TABLE_HOST, TABLE_MEMBER, teamIndexItem, type LegacyTeamMaps } from "./team-members.ts"
 import { appendAudit, type AuditState } from "./team-audit.ts"
+import { AI_LIMIT_MEMBER_OP, AI_LIMIT_OP, AI_LIMIT_OPS, mayManageBilling, reduceAiLimit, withoutMemberLimit } from "./team-ai-limit.ts"
+// TeamDO reads limits through this module (team-do.ts stays within its size budget).
+export { aiLimitViewOf, codeRunLimit, memberLimit } from "./team-ai-limit.ts"
 import { reduceDomainClaim, reduceDomainLost, reduceDomainRechecked, reduceDomainReleased, reduceDomainVerified, type DomainState } from "./team-domains.ts"
 import { reduceActivated, reduceConnectionCreate, reduceConnectionDisable, reduceSecretSet, type SsoState } from "./team-sso.ts"
 import { reduceDeviceEnroll, reduceDeviceRelease, reduceReportStatus, reduceTokenCreate, reduceTokenRevoke, type EnrollmentState } from "./team-enrollment.ts"
@@ -30,6 +33,10 @@ export interface TeamState extends EnrollmentState, AuditState, IntegrationSyncS
   readonly server_revocations?: Readonly<Record<string, ServerRevocation>>
   /** Removed members (user -> removal time) whose SSH certificates and hosts TeamDO still has to settle (team-member-cleanup.ts). */
   readonly member_cleanup?: Readonly<Record<string, number>>
+  /** Team default monthly AI spending limit per member in USD (team-ai-limit.ts); absent or null = the cmux default. */
+  readonly ai_user_monthly_limit_usd?: number | null
+  /** Personal monthly AI limits (user -> USD); they win over the team default (team-ai-limit.ts). */
+  readonly ai_member_limits?: Readonly<Record<string, number>>
 }
 
 /**
@@ -72,7 +79,8 @@ export const teamDomain: Domain<TeamState> = withAuditRows<TeamState>({
       const member = memberOf(state, rows, principal.user)
       if (!member) return { code: "auth.forbidden", message: "not a member of this team" }
       // Every person op here uses the team (admin ops check team.manage in the reducer too); guests and billing hold no team.resources grant (spec H12).
-      if (!roleHas(member.role, "team.resources")) return { code: "auth.forbidden", message: `the ${member.role} role has no access to this team's resources` }
+      // The AI spending limit is a billing setting: the billing role may change it (team-ai-limit.ts).
+      if (!roleHas(member.role, "team.resources") && !(AI_LIMIT_OPS.has(op) && mayManageBilling(member.role))) return { code: "auth.forbidden", message: `the ${member.role} role has no access to this team's resources` }
     }
     // The grant lives in UserDO. The Worker asks UserDO on every install call
     // (revocation and grant) and passes the grant's classes; none means refuse.
@@ -122,9 +130,11 @@ export const teamDomain: Domain<TeamState> = withAuditRows<TeamState>({
         const { [user]: _gone, ...legacyMembers } = state.members ?? {}
         const seats = seatsOf(state)
         const seatCount = Math.max(0, seats - (usesSeat(member.role) ? 1 : 0))
-        const removed: TeamState = { ...state, ...(state.members?.[user] ? { members: legacyMembers } : {}), member_count: Math.max(0, (state.member_count ?? 0) - 1), seat_count: seatCount, member_cleanup: { ...(state.member_cleanup ?? {}), [user]: ctx.now } }
+        // A personal AI limit leaves with the member; the removal's audit names it (cx-ds09i).
+        const limit = withoutMemberLimit(state, user)
+        const removed: TeamState = { ...limit.state, ...(state.members?.[user] ? { members: legacyMembers } : {}), member_count: Math.max(0, (state.member_count ?? 0) - 1), seat_count: seatCount, member_cleanup: { ...(state.member_cleanup ?? {}), [user]: ctx.now } }
         // Audited (a seat change is a billing record, spec H12); `by` is the person who asked (team.members.remove).
-        const a0 = state.team ? appendAudit(removed, state.team.id, ctx, op, `${user} (${member.role}) left the team${typeof by === "string" ? ` (removed by ${by})` : fromStack === true ? " in Stack" : ""}`, { user, role: member.role, ...(typeof by === "string" ? { by } : {}), seats_before: seats, seats_after: seatCount }, seats === seatCount ? "admin" : "billing") : undefined
+        const a0 = state.team ? appendAudit(removed, state.team.id, ctx, op, `${user} (${member.role}) left the team${typeof by === "string" ? ` (removed by ${by})` : fromStack === true ? " in Stack" : ""}`, { user, role: member.role, ...(typeof by === "string" ? { by } : {}), seats_before: seats, seats_after: seatCount, ...(limit.cleared !== null ? { ai_limit_cleared_usd: limit.cleared } : {}) }, seats === seatCount && limit.cleared === null ? "admin" : "billing") : undefined
         const owners = withOwnerDelta(a0?.state ?? removed, member.role === "owner" ? -1 : 0, ctx)
         const a = a0 ? { state: owners.state, outbox: [a0.outbox, ...owners.outbox] } : undefined
         return {
@@ -220,6 +230,17 @@ export const teamDomain: Domain<TeamState> = withAuditRows<TeamState>({
           outbox: [{ kind: "host.delete", entity: host.id, payload: { id: host.id, team: state.team?.id } }]
         }
       }
+      case "host.replica.purge": {
+        // The owner's delete of the cloud copy (object-sync DESIGN.md section 13); TeamDO.afterOp drops it in HostDO.
+        const d = decodeParams<typeof HostReplicaPurge.params.Type>(HostReplicaPurge, params)
+        if (!d.ok) return d
+        if (p.kind === "agent" || p.agent) return reject("auth.forbidden", "agents cannot purge a host replica")
+        const host = hostOf(state, ctx.rows, d.value.host)
+        if (!host) return reject("selector.not_found", "host not found")
+        if (host.owner_user !== p.user || host.orphaned) return reject("auth.forbidden", "only the host owner may purge its replica")
+        const a = appendAudit(state, state.team?.id ?? "", ctx, "host.replica.purge", `replica of host ${host.name} purged`, { host: host.id })
+        return { ok: true, state: a.state, value: { host: host.id }, outbox: [a.outbox] }
+      }
       case "server.enrolled": {
         if (p.kind !== "system" || !state.team) return reject("auth.forbidden", "internal op")
         return reduceServerEnrolled(state, params, ctx)
@@ -259,6 +280,9 @@ export const teamDomain: Domain<TeamState> = withAuditRows<TeamState>({
         if (!roleHas(role, "team.manage")) return reject("auth.forbidden", "only team owners and admins may change SSO connections")
         return withAudit(op === "sso.connection.create" ? reduceConnectionCreate(state, params, ctx) : reduceConnectionDisable(state, params, ctx), state.team.id, ctx, op)
       }
+      case AI_LIMIT_OP:
+      case AI_LIMIT_MEMBER_OP:
+        return reduceAiLimit(state, op, params, ctx)
       case "sso.connection.set_secret":
       case "sso.connection.activate":
       case "domain.verify":

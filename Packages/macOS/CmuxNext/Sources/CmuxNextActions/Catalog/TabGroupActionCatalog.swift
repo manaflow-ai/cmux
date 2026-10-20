@@ -36,6 +36,18 @@ nonisolated enum TabGroupActionCatalog: ActionCatalogGroup {
                 arguments: [CatalogArgument.colorChoice], targets: [.tabGroup], cliName: "tab-group set-color"
             ),
             ActionDescriptor(
+                id: "tabGroup.setIcon",
+                title: String(localized: "action.tabGroup.setIcon", defaultValue: "Set Tab Group Icon…", bundle: .module),
+                keywords: ["group", "emoji", "symbol", "badge"], category: .tab, symbol: "face.smiling", surfaces: [.palette],
+                arguments: [CatalogArgument.iconString.optional], targets: [.tabGroup], cliName: "tab-group set-icon"
+            ),
+            ActionDescriptor(
+                id: "tabGroup.clearIcon",
+                title: String(localized: "action.tabGroup.clearIcon", defaultValue: "Remove Tab Group Icon", bundle: .module),
+                keywords: ["group", "emoji", "symbol", "reset"], category: .tab, symbol: "xmark.circle", surfaces: [.palette],
+                targets: [.tabGroup], cliName: "tab-group clear-icon"
+            ),
+            ActionDescriptor(
                 id: "tabGroup.toggleCollapsed",
                 title: String(localized: "action.tabGroup.toggleCollapsed", defaultValue: "Collapse/Expand Tab Group", bundle: .module),
                 keywords: ["group", "fold"], category: .tab, symbol: "chevron.up.chevron.down", surfaces: [.palette],

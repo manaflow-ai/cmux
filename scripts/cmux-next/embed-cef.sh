@@ -32,10 +32,15 @@ FW_NAME="Chromium Embedded Framework.framework"
 FW_BINARY="Chromium Embedded Framework"
 source "$SCRIPT_DIR/cef-locale-allowlist.sh"
 # Bump when the embedded layout changes so existing app bundles are redone.
-LAYOUT="versioned-3-locale-fallback-allowlist-credits-license"
+LAYOUT="versioned-3-locale-fallback-allowlist-credits-license-stripped-libs"
 
 app="${TARGET_BUILD_DIR:?}/${WRAPPER_NAME:?}"
 frameworks="$app/Contents/Frameworks"
+
+# The built-in full uBlock Origin (a Chromium extension, so it rides on this
+# phase; it does not need the CEF artifact). Its own failures are warnings
+# unless CMUX_NEXT_REQUIRE_UBLOCK=1.
+"$SCRIPT_DIR/bundle-ublock.sh"
 
 # Removes a framework left by a build that used the flat layout, with the
 # shim and helpers that belong to it. Used when nothing will replace it.
@@ -165,6 +170,12 @@ if [[ ! -f "$source_stamp" || ! -L "$frameworks/$FW_NAME/Versions/Current" || "$
     ditto "$cef_dir/$FW_NAME/$item" "$fw/Versions/A/$item"
   done
   prune_cef_locales "$fw/Versions/A/Resources"
+  # CEF's dylibs ship with local symbols and debug stabs (7 MiB in
+  # libvk_swiftshader.dylib). Drop them before signing; exported symbols stay
+  # for the Vulkan loader's dlsym.
+  for lib in "$fw/Versions/A/Libraries"/*.dylib; do
+    if [[ -f "$lib" ]]; then "${CMUX_STRIP_TOOL:-strip}" -S -x "$lib"; fi
+  done
   # Chromium's CREDITS.html (license notices), before signing seals Resources:
   # the artifact's own file, else the INTERIM stock credits for the pinned
   # Chromium (chromium-credits/README.md). Release gate: check-cef-credits.sh.
@@ -201,7 +212,7 @@ copy_if_changed() {
 copy_if_changed "$shim_out/libcmux_cef_shim.dylib" "$frameworks/libcmux_cef_shim.dylib"
 
 # 3. Helper apps. CEF derives the variant names from the base helper name.
-min_os="${MACOSX_DEPLOYMENT_TARGET:-26.0}"
+min_os="${MACOSX_DEPLOYMENT_TARGET:-14.0}"
 kinds=("" " (GPU)" " (Renderer)" " (Plugin)" " (Alerts)")
 suffixes=("" ".gpu" ".renderer" ".plugin" ".alerts")
 wanted=()

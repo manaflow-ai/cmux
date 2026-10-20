@@ -81,8 +81,12 @@ extension CEFRuntime {
         case .beforeClose(let browser):
             browserClosed(browser)
         case .devToolsResult(let browser, let messageID, let success, let json):
-            devToolsCalls.resolve(CEFDevToolsKey(browser: browser, message: messageID),
-                                  with: success ? .success(json) : .failure(BrowserTabError.javaScript(json)))
+            let key = CEFDevToolsKey(browser: browser, message: messageID)
+            let result: Result<String, any Error> = success ? .success(json) : .failure(BrowserTabError.javaScript(json))
+            if !devToolsCalls.resolve(key, with: result) {
+                // A synchronous answer: devTools(_:method:) takes it when the shim call returns.
+                synchronousDevToolsResults?[key] = result
+            }
         case .reply(_, let id, let value, let json):
             let reply = CEFSiteReply(value: value, json: json)
             if !siteReplies.resolve(id, with: .success(reply)), siteReplyBrowsers[id] != nil {
@@ -163,6 +167,7 @@ extension CEFRuntime {
     func register(_ tab: CEFTab, browser: Int32) {
         windowRequests.linkClicks.onGesture = { [weak self] browser in self?.tabsByBrowser[browser]?.automaticDownloads.userGesture() }
         windowRequests.linkClicks.startRecordingClicks { [weak self] in self?.windowRequests.clickTargets() ?? [] }
+        swipeNavigation.start()
         tabsByBrowser[browser] = tab
         tab.attach(browser: browser)
         CEFSignInCallbacks.shared.attached(tab)
@@ -224,6 +229,8 @@ extension CEFRuntime {
             }
         case .devToolsDockSide:
             tabsByBrowser[browser]?.devToolsController.dockSideChosen(value)
+        case .devToolsDeviceMode:
+            tabsByBrowser[browser]?.devToolsController.deviceModeChanged(on: value != 0)
         case .foreignBrowserBlocked:
             logger.error("Chromium created a window outside cmux (type \(value)); the fork hid it")
         case .popupWindowCreated:
@@ -247,9 +254,20 @@ extension CEFRuntime {
     func devTools(_ browser: Int32, method: String, params: [String: Any] = [:],
                   timeout: Duration = CEFRuntime.devToolsTimeout) async throws -> String {
         guard let shim else { throw BrowserTabError.closed }
+        // Chromium answers some methods inside ExecuteDevToolsMethod, before a
+        // waiter exists; without this the result was dropped and the call
+        // timed out after `timeout` (every device emulation lost 5 s on
+        // Emulation.setEmitTouchEventsForMouse).
+        // A nested run loop inside the call may start another call: keep the outer one's table.
+        let outer = synchronousDevToolsResults
+        synchronousDevToolsResults = [:]
         let message = shim.devToolsCall(browser, method, CEFDevToolsResult.params(params))
+        let answered = synchronousDevToolsResults
+        synchronousDevToolsResults = outer.map { $0.merging(answered ?? [:]) { first, _ in first } }
         guard message != 0 else { throw BrowserTabError.closed }
-        return try await devToolsCalls.reply(for: CEFDevToolsKey(browser: browser, message: message), timeout: timeout) {
+        let key = CEFDevToolsKey(browser: browser, message: message)
+        if let result = answered?[key] { return try result.get() }
+        return try await devToolsCalls.reply(for: key, timeout: timeout) {
             BrowserTabError.timedOut("DevTools \(method) (\(timeout))")
         }
     }
@@ -319,14 +337,14 @@ extension CEFShimEvent {
     var browserID: Int32? {
         switch self {
         case .address(let b, _), .title(let b, _), .favicon(let b, _), .loadingState(let b, _, _, _),
-             .loadStart(let b, _), .loadEnd(let b, _), .loadError(let b, _, _, _, _), .progress(let b, _),
+             .loadStart(let b, _, _), .loadEnd(let b, _), .loadError(let b, _, _, _, _), .progress(let b, _),
              .fullscreen(let b, _), .findResult(let b, _, _, _), .closeRequested(let b), .popup(let b, _, _, _),
              .afterCreated(let b, _, _, _), .beforeClose(let b), .chromeCommand(let b, _), .devToolsResult(let b, _, _, _), .tab(_, let b, _, _),
              .reply(let b, _, _, _), .contextMenu(let b, _, _, _, _, _),
              .devToolsWillOpen(let b), .devToolsOpened(let b, _, _), .devToolsClosed(let b, _),
              .renderTerminated(let b, _, _, _), .renderUnresponsive(let b), .renderResponsive(let b),
              .navigationReroute(let b, _, _), .localFileHandoff(let b, _), .externalURL(let b, _, _), .keyUnhandled(let b, _, _), .installPrompt(let b, _, _), .takeFocus(let b, _),
-             .devToolsMessage(let b, _), .authCallback(let b, _), .permissionPrompt(let b, _, _, _), .permissionDismissed(let b, _),
+             .devToolsMessage(let b, _), .authCallback(let b, _), .permissionPrompt(let b, _, _, _), .permissionDismissed(let b, _), .passwordPrompt(let b, _, _),
              .webAuthnRefused(let b):
             b
         case .contextInitialized, .omniboxSuggestions, .preferenceChanged, .bookmarks, .download, .unknown:

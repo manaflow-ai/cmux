@@ -479,6 +479,20 @@ touch it.
   on close ops (only for state the daemon cannot own, 3.0), privacy deny-list for env and URL query
   keys, private browser profiles never recorded, window close as a `window` group.
 - S2 (daemon): `layout.bulk` op with every selector and verb, one group per call.
+- S2 AS BUILT, first slice (cx-gzh.5): `layout.bulk {verb: close, level: tab|pane|screen|workspace,
+  selector: this|others|to_right|to_left|all|selection, anchor?, ids?, include_pinned?,
+  end_terminals?}` (capability `layout-bulk-v1`). The chosen objects' tabs close through the shared
+  batch close (`close_tabs_for_bulk`) in one commit, so one call is one closed group; emptied
+  panes, screens and workspaces close in the same plan and join it. Anchored selectors work in the
+  anchor's container in its order; without `anchor` the request's selectors name it (`cmux tab
+  current close --others`). `selection` is for scopes the daemon does not know (the workspaces of the
+  current space in sidebar order). Pinned tabs, screens and workspaces are skipped except by `this` and
+  `selection`; the home workspace never closes; pane `to_right`/`to_left` are refused. CLI:
+  `cmux tab|pane|screen|workspace <selector> close --others|--to-right|--to-left|--all
+  [--include-pinned] [--end-terminals]`; MCP: `layout_bulk` (destructive). Apps: no scope, as for
+  every close op. Not yet: the other verbs and selectors, the Swift presets on it (next PR), and
+  pane geometry on reopen (a reopened tab of a closed pane goes to the screen's focused pane, the
+  section 6 row "Close pane" is not met until the record keeps panes).
 - S3 (daemon): terminal provider (scrollback blob, env deny-list, agent session resume offer).
 - S3 archive on close, AS BUILT (cx-gzh.4.1): a close that stops a running terminal (the reaper
   after Cmd-W, or a batch close with `end_terminals`) captures its screen with the newest

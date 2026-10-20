@@ -1,0 +1,350 @@
+//! The acpmux JSON-RPC surface as one registry: every method and
+//! notification name, and for the typed ones the serde types of their
+//! params, result or payload. `ir()` emits it as `spec/acpmux-protocol.json`
+//! (JSON Schema 2020-12 subschemas from schemars); the web generates its
+//! types and typed client from that file (`webviews/scripts/acpmux-protocol-codegen.ts`).
+//!
+//! A method whose types are not declared yet is listed with `params` and
+//! `result` of `true` (any JSON), so the registry names the whole surface.
+//! Tests fail when the committed IR is stale or when the dispatcher serves
+//! a name this registry lacks (`protocol/tests.rs`).
+
+pub mod inventory;
+pub mod mailbox;
+pub mod permission;
+pub mod session;
+#[cfg(test)]
+mod tests;
+
+use std::collections::BTreeMap;
+
+use schemars::JsonSchema;
+use schemars::generate::{SchemaGenerator, SchemaSettings};
+use serde_json::{Map, Value, json};
+
+use crate::rpc::method;
+
+/// The IR format version. Bump on a change to the IR's own shape.
+pub const IR_VERSION: &str = "1";
+
+/// Who sends a message, and whether it is answered.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Kind {
+    /// A client asks the daemon and gets a result.
+    Request,
+    /// A client tells the daemon; no answer (`session/cancel`).
+    ClientNotification,
+    /// The daemon tells clients; no answer.
+    Notification,
+    /// The daemon asks a client and gets a result (`session/request_permission`).
+    ServerRequest,
+    /// Never on the wire: the client library puts it on its own stream.
+    ClientLocal,
+}
+
+impl Kind {
+    fn as_str(self) -> &'static str {
+        match self {
+            Kind::Request => "request",
+            Kind::ClientNotification => "client_notification",
+            Kind::Notification => "notification",
+            Kind::ServerRequest => "server_request",
+            Kind::ClientLocal => "client_local",
+        }
+    }
+}
+
+type SchemaFn = fn(&mut SchemaGenerator) -> schemars::Schema;
+
+/// One registry entry.
+#[derive(Clone, Copy)]
+pub struct MethodDecl {
+    pub name: &'static str,
+    pub kind: Kind,
+    /// Standard ACP, passed through to the session's agent.
+    pub acp: bool,
+    /// `None`: not declared yet (any JSON).
+    pub params: Option<SchemaFn>,
+    /// `None`: not declared yet, or a notification.
+    pub result: Option<SchemaFn>,
+}
+
+fn schema_of<T: JsonSchema>(generator: &mut SchemaGenerator) -> schemars::Schema {
+    generator.subschema_for::<T>()
+}
+
+const fn untyped(name: &'static str, kind: Kind) -> MethodDecl {
+    MethodDecl { name, kind, acp: false, params: None, result: None }
+}
+
+const fn acp(name: &'static str, kind: Kind) -> MethodDecl {
+    MethodDecl { name, kind, acp: true, params: None, result: None }
+}
+
+fn request<P: JsonSchema, R: JsonSchema>(name: &'static str) -> MethodDecl {
+    MethodDecl {
+        name,
+        kind: Kind::Request,
+        acp: false,
+        params: Some(schema_of::<P>),
+        result: Some(schema_of::<R>),
+    }
+}
+
+fn notification<P: JsonSchema>(name: &'static str) -> MethodDecl {
+    MethodDecl {
+        name,
+        kind: Kind::Notification,
+        acp: false,
+        params: Some(schema_of::<P>),
+        result: None,
+    }
+}
+
+/// Every method and notification acpmux serves or sends, in wire-name order
+/// within each group.
+pub fn registry() -> Vec<MethodDecl> {
+    use Kind::*;
+    use mailbox::*;
+    use permission::*;
+    use session::*;
+    vec![
+        // Standard ACP.
+        acp(method::INITIALIZE, Request),
+        acp(method::AUTHENTICATE, Request),
+        acp(method::SESSION_NEW, Request),
+        acp(method::SESSION_LOAD, Request),
+        acp(method::SESSION_RESUME, Request),
+        acp(method::SESSION_LIST, Request),
+        acp(method::SESSION_FORK, Request),
+        acp(method::SESSION_CLOSE, Request),
+        acp(method::SESSION_DELETE, Request),
+        acp(method::SESSION_PROMPT, Request),
+        acp(method::SESSION_CANCEL, ClientNotification),
+        acp(method::SESSION_SET_MODE, Request),
+        acp(method::SESSION_SET_MODEL, Request),
+        acp(method::SESSION_SET_CONFIG_OPTION, Request),
+        acp(method::SESSION_UPDATE, Notification),
+        acp(method::SESSION_REQUEST_PERMISSION, ServerRequest),
+        acp(method::CANCEL_REQUEST, ClientNotification),
+        // ACP extensions acpmux names in the acp.* space.
+        untyped(method::ACP_SESSION_FORK, Request),
+        untyped(method::ACP_TRUST_GET, Request),
+        untyped(method::ACP_TRUST_SET, Request),
+        untyped("catalog.get", Request),
+        untyped("catalog.refresh", Request),
+        untyped("catalog.changed", Notification),
+        // Sessions.
+        untyped(method::MUX_STATUS, Request),
+        request::<SessionsParams, SessionsResult>(method::MUX_SESSIONS),
+        untyped(method::MUX_ATTACH, Request),
+        untyped(method::MUX_DETACH, Request),
+        untyped(method::MUX_VIEW, Request),
+        untyped(method::MUX_MARK_UNREAD, Request),
+        untyped(method::MUX_WATCH, Request),
+        untyped(method::MUX_RENAME, Request),
+        untyped(method::MUX_OFFER_SESSION, Request),
+        untyped(method::MUX_OFFER_RESPOND, Request),
+        // Sub-sessions (`server/subsessions.rs`).
+        untyped(method::MUX_SUBSESSION_GET, Request),
+        untyped(method::MUX_SUBSESSION_LIMITS, Request),
+        untyped(method::MUX_SUBSESSION_LIST, Request),
+        untyped(method::MUX_SUBSESSION_SEND, Request),
+        untyped(method::MUX_SUBSESSION_START, Request),
+        untyped(method::MUX_SUBSESSION_STOP, Request),
+        untyped(method::MUX_SET_TOOLS, Request),
+        untyped(method::MUX_SUBAGENT_STOP, Request),
+        untyped(method::MUX_STATS, Request),
+        untyped(method::MUX_BOOKMARK_GET, Request),
+        untyped(method::MUX_BOOKMARK_SET, Request),
+        untyped(method::MUX_PROMPT_WITHDRAW, Request),
+        untyped(method::MUX_PROCESS_LIST, Request),
+        untyped(method::MUX_PROCESS_TAIL, Request),
+        untyped(method::MUX_PROCESS_KILL, Request),
+        untyped(method::MUX_PROCESS_UPDATE, Notification),
+        untyped(method::MUX_KILL, Request),
+        untyped(method::MUX_ARCHIVE, Request),
+        untyped(method::MUX_SIDE, Request),
+        untyped(method::MUX_BTW, Request),
+        untyped(method::MUX_TAG, Request),
+        untyped(method::MUX_INFO, Request),
+        untyped(method::MUX_EVENTS, Request),
+        untyped(method::MUX_ATTACHMENT, Request),
+        request::<MailSendParams, MailSendResult>(method::MUX_MAIL_SEND),
+        request::<MailReadParams, MailPageResult>(method::MUX_MAIL_READ),
+        request::<MailWaitParams, MailPageResult>(method::MUX_MAIL_WAIT),
+        request::<MailAckParams, MailAckResult>(method::MUX_MAIL_ACK),
+        untyped(method::MUX_HISTORY, Request),
+        untyped(method::MUX_COMPLETE, Request),
+        untyped(method::MUX_WAIT, Request),
+        untyped(method::MUX_ASK, Request),
+        untyped(method::MUX_WARM, Request),
+        untyped(method::MUX_PREWARM, Request),
+        untyped(method::MUX_START_MODE, Request),
+        untyped(method::MUX_QUEUE_REMOVE, Request),
+        untyped(method::MUX_QUEUE_EDIT, Request),
+        untyped(method::MUX_DRAFT_GET, Request),
+        untyped(method::MUX_DRAFT_SET, Request),
+        untyped(method::MUX_EXPORT, Request),
+        untyped(method::MUX_IMPORT, Request),
+        // Permissions.
+        request::<PermissionRespondParams, PermissionRespondResult>(method::MUX_PERMISSION_RESPOND),
+        request::<PermissionGroupsParams, PermissionGroupList>(method::MUX_PERMISSION_GROUPS),
+        request::<PermissionGroupRespondParams, PermissionGroupReceipt>(
+            method::MUX_PERMISSION_GROUP_RESPOND,
+        ),
+        request::<PermissionChatRevokeParams, PermissionChatRevokeReceipt>(
+            method::MUX_PERMISSION_CHAT_REVOKE,
+        ),
+        untyped(method::MUX_SET_POLICY, Request),
+        untyped("_acpmux/set_default_policy", Request),
+        untyped(method::MUX_SET_RULES, Request),
+        untyped(method::MUX_PERSON_ENROLL, Request),
+        untyped(method::MUX_PERSON_PROVE, Request),
+        untyped(method::MUX_PERSON_HOLDS, Request),
+        untyped(method::MUX_SECRET_REQUEST, Request),
+        untyped(method::MUX_SECRET_SUBMIT, Request),
+        untyped(method::MUX_SECRET_RUN, Request),
+        // Chats (`server/chats.rs`).
+        untyped("_acpmux/chats", Request),
+        untyped("_acpmux/chats_watch", Request),
+        untyped("_acpmux/chat_open", Request),
+        untyped("_acpmux/chat_roots", Request),
+        untyped("_acpmux/chat_roots_record", Request),
+        untyped("_acpmux/chat_settings", Request),
+        untyped("_acpmux/chat_settled", Request),
+        untyped("_acpmux/chat_transcript", Request),
+        untyped("_acpmux/chat_changed", Notification),
+        untyped("_acpmux/chats_lagged", Notification),
+        // Moving a chat to another daemon (`transfer_out.rs`).
+        untyped("_acpmux/transfer_abort", Request),
+        untyped("_acpmux/transfer_begin", Request),
+        untyped("_acpmux/transfer_commit", Request),
+        untyped("_acpmux/transfer_finish", Request),
+        untyped("_acpmux/transfer_forget", Request),
+        untyped("_acpmux/transfer_read", Request),
+        untyped("_acpmux/transfer_receive", Request),
+        untyped("_acpmux/transfer_write", Request),
+        // Handoff.
+        untyped(method::MUX_HANDOFF_PREPARE, Request),
+        untyped(method::MUX_HANDOFF_GET, Request),
+        untyped(method::MUX_HANDOFF_DRAFT, Request),
+        untyped(method::MUX_HANDOFF_START, Request),
+        untyped(method::MUX_HANDOFF_DISCARD, Request),
+        // Harnesses, models, routes.
+        untyped(method::MUX_HARNESSES, Request),
+        untyped(method::MUX_HARNESS_ENABLE, Request),
+        untyped(method::MUX_HARNESS_ADD, Request),
+        untyped(method::MUX_HARNESS_REMOVE, Request),
+        untyped(method::MUX_HARNESS_RESTORE, Request),
+        untyped(method::MUX_HARNESS_DOCTOR, Request),
+        untyped(method::MUX_HARNESS_SECRET_SET, Request),
+        untyped(method::MUX_HARNESS_HEALTH, Request),
+        request::<inventory::InventoryWatchParams, Value>(method::MUX_HARNESS_INVENTORY_WATCH),
+        request::<inventory::InventoryRefreshParams, Value>(method::MUX_HARNESS_INVENTORY_REFRESH),
+        request::<inventory::HarnessUpdatePlanParams, Value>(method::MUX_HARNESS_UPDATE_PLAN),
+        request::<inventory::HarnessUpdatePlanParams, Value>(method::MUX_HARNESS_UPDATE_PREPARE),
+        untyped(method::MUX_HARNESS_UPDATE, Request),
+        untyped(method::MUX_SESSIONS_RESTART_HARNESS, Request),
+        untyped(method::MUX_REGISTRY, Request),
+        untyped(method::MUX_DEFAULTS, Request),
+        untyped(method::MUX_PRESETS, Request),
+        untyped("_acpmux/models", Request),
+        untyped("_acpmux/directories", Request),
+        untyped(method::MUX_ROUTE_LIST, Request),
+        untyped(method::MUX_ROUTE_SHOW, Request),
+        untyped(method::MUX_ROUTE_ADD, Request),
+        untyped(method::MUX_ROUTE_EDIT, Request),
+        untyped(method::MUX_ROUTE_REMOVE, Request),
+        untyped(method::MUX_ROUTE_RESTORE, Request),
+        untyped(method::MUX_ROUTE_TEST, Request),
+        untyped(method::MUX_ROUTE_DEFAULT_SET, Request),
+        untyped(method::MUX_CHAT_ROUTE_SET, Request),
+        // Daemon.
+        untyped(method::MUX_WEB_MODES, Request),
+        untyped(method::MUX_WEB_TOKEN_ROTATE, Request),
+        untyped(method::MUX_RELOAD_CONFIG, Request),
+        untyped(method::MUX_SCHEMA, Request),
+        untyped(method::MUX_SHUTDOWN, Request),
+        untyped("_acpmux/peers", Request),
+        untyped("_acpmux/peer_add", Request),
+        untyped("_acpmux/peer_reconnect", Request),
+        untyped("_acpmux/peer_remove", Request),
+        // Notifications.
+        untyped(method::MUX_EVENT, Notification),
+        notification::<SessionChanged>(method::MUX_SESSION_CHANGED),
+        notification::<PermissionPending>(method::MUX_PERMISSION_PENDING),
+        untyped(method::MUX_HARNESSES_CHANGED, Notification),
+        untyped(method::MUX_HARNESS_INVENTORY, Notification),
+        untyped(method::MUX_START_MODE_CHANGED, Notification),
+        untyped(method::MUX_PROMPT_ACCEPTED, Notification),
+        untyped("_acpmux/lagged", Notification),
+        untyped(method::MUX_DISCONNECTED, ClientLocal),
+    ]
+}
+
+/// The registry as the IR document: `{version, methods[], types{}}`. Each
+/// method's `params` and `result` is `{"$ref": "#/types/<Name>"}`, `true`
+/// (not declared yet) or absent (a notification has no result).
+pub fn ir() -> Value {
+    let mut settings = SchemaSettings::draft2020_12();
+    settings.definitions_path = "/types".into();
+    let mut generator = settings.into_generator();
+    let mut methods = Vec::new();
+    for decl in registry() {
+        let mut entry = Map::new();
+        entry.insert("name".into(), json!(decl.name));
+        entry.insert("kind".into(), json!(decl.kind.as_str()));
+        if decl.acp {
+            entry.insert("acp".into(), json!(true));
+        }
+        let typed = |schema: Option<SchemaFn>, generator: &mut SchemaGenerator| {
+            schema.map_or(Value::Bool(true), |f| f(generator).to_value())
+        };
+        entry.insert("params".into(), typed(decl.params, &mut generator));
+        if matches!(decl.kind, Kind::Request | Kind::ServerRequest) {
+            entry.insert("result".into(), typed(decl.result, &mut generator));
+        }
+        methods.push(Value::Object(entry));
+    }
+    let types: BTreeMap<String, Value> = generator
+        .definitions()
+        .iter()
+        .map(|(name, schema)| (name.clone(), schema.clone()))
+        .collect();
+    canonical(&json!({"version": IR_VERSION, "methods": methods, "types": types}))
+}
+
+/// The IR as committed: two-space JSON with a final newline.
+pub fn ir_text() -> String {
+    let mut text = serde_json::to_string_pretty(&ir()).unwrap_or_default();
+    text.push('\n');
+    text
+}
+
+/// A schemars transform: every property is required, `Option` ones too
+/// (they stay nullable). For shapes whose nullable fields are always on
+/// the wire, as `json!` wrote them.
+pub fn require_all(schema: &mut schemars::Schema) {
+    let Some(object) = schema.as_object_mut() else { return };
+    let names: Vec<Value> = object
+        .get("properties")
+        .and_then(Value::as_object)
+        .map(|properties| properties.keys().map(|name| Value::String(name.clone())).collect())
+        .unwrap_or_default();
+    object.insert("required".into(), Value::Array(names));
+}
+
+/// `value` with every object's keys sorted, so the IR does not depend on
+/// serde_json's map order in this build.
+fn canonical(value: &Value) -> Value {
+    match value {
+        Value::Object(map) => {
+            let sorted: BTreeMap<&String, Value> =
+                map.iter().map(|(key, value)| (key, canonical(value))).collect();
+            Value::Object(sorted.into_iter().map(|(key, value)| (key.clone(), value)).collect())
+        }
+        Value::Array(items) => Value::Array(items.iter().map(canonical).collect()),
+        other => other.clone(),
+    }
+}

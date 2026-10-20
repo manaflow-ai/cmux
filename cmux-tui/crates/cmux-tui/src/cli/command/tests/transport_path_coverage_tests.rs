@@ -43,10 +43,34 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
         (vec!["workspace", "create", "--cwd", "/tmp", "--", "make", "watch"], "workspace.create"),
         (vec!["workspace", "create", "--shell", "make watch"], "workspace.create"),
         (vec!["workspace", "group", "g", "update", "--clear-top-index"], "workspace_group.update"),
-        // closed.delete takes either a group (with members) or all.
+        // closed.delete takes either a group (with members) or all, and all
+        // takes retention bounds.
         (vec!["closed", "c1", "delete", "--members", "1"], "closed.delete"),
+        (vec!["closed", "clear", "--before-ms", "5", "--keep-newest", "3"], "closed.delete"),
+        // machine.list and machine.get: the reader opts in to owner metadata
+        // and admitted remote records.
+        (vec!["machine", "list", "--catalog"], "machine.list"),
+        (
+            vec!["machine", "machine_00000000000000000000000000000001", "show", "--catalog"],
+            "machine.get",
+        ),
         (vec!["pane", PANE, "run", "shell", "printf ok"], "pane.run"),
         (vec!["tab", TAB, "update", "--icon", "star.fill"], "tab.update"),
+        (
+            vec![
+                "tab",
+                TAB,
+                "emulate",
+                "--custom-json",
+                r#"{"title":"Kiosk","screen":{"vertical":{"width":600,"height":1000},"horizontal":{"width":1000,"height":600},"device-pixel-ratio":2}}"#,
+            ],
+            "browser.tab.emulate",
+        ),
+        (vec!["tab", TAB, "emulate", "--fit", "16:9"], "browser.tab.emulate"),
+        // layout.bulk: one case in cases.rs; the other levels and --end-terminals.
+        (vec!["workspace", WORKSPACE, "close", "--others", "--end-terminals"], "layout.bulk"),
+        (vec!["screen", "current", "close", "--to-right"], "layout.bulk"),
+        (vec!["pane", PANE, "close", "--all"], "layout.bulk"),
         (
             vec![
                 "session",
@@ -59,6 +83,24 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                 "42",
             ],
             "session.journal.subscribe",
+        ),
+        // A turn-start hook's prompt rides beside the event as live_prompt (memory only, never
+        // journaled: the event itself carries the prompt redacted).
+        (
+            vec![
+                "agent",
+                "hook",
+                "emit",
+                "--source",
+                "claude",
+                "--event",
+                "UserPromptSubmit",
+                "--terminal",
+                TERMINAL,
+                "--payload-json",
+                r#"{"session_id":"s1","hook_event_name":"UserPromptSubmit","prompt":"fix the parser"}"#,
+            ],
+            "session.journal.append",
         ),
         (vec!["terminal", TERMINAL, "write", "--bytes-base64", "AA=="], "terminal.input.write"),
         (vec!["git", "checkpoint", "get", "--path", "/repo", "--key", "k1"], "git.checkpoint.get"),
@@ -135,7 +177,36 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                         | "palette_usage.import"
                         | "palette_usage.hide"
                         | "palette_usage.forget"
+                        // Stash (stash-v1) is the app's native OneTab; the
+                        // CLI has no stash verbs yet.
+                        | "stash.create"
+                        | "stash.list"
+                        | "stash.restore"
+                        | "stash.delete"
+                        | "stash.import"
                         | "sidebar_layout.update"
+                        // The sidebar document (sidebar-doc-v1) is the app's
+                        // too; the CLI sets only a section's scroll and row
+                        // limit (`sidebar section-scroll`, `section-max-rows`,
+                        // both sidebar.section.update with a partial patch).
+                        | "sidebar.adopt"
+                        | "sidebar.apply"
+                        | "sidebar.get"
+                        | "sidebar.group.create"
+                        | "sidebar.group.ungroup"
+                        | "sidebar.group.update"
+                        | "sidebar.item.add"
+                        | "sidebar.item.remove"
+                        | "sidebar.item.remove_ref"
+                        | "sidebar.item.update"
+                        | "sidebar.move"
+                        | "sidebar.pin"
+                        | "sidebar.reset"
+                        | "sidebar.section.add"
+                        | "sidebar.section.move"
+                        | "sidebar.section.remove"
+                        | "sidebar.section.update"
+                        | "sidebar.unpin"
                         // The project list is the app's and its importers'
                         // (plans/cmux-next/projects.md); no CLI verb yet.
                         | "project.list"
@@ -144,6 +215,7 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                         | "project.update"
                         | "project.remove"
                         | "project.sync"
+                        | "project.source.update"
                         // The hosting app creates its home workspace; the
                         // CLI never offers it (workspace-kind-v1).
                         | "workspace.ensure_home"
@@ -170,6 +242,19 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                         | "chief.engine.get"
                         | "chief.engine.set"
                         | "chief.stop"
+                        // `cmux chief list|new|adopt|edit|delete` send these
+                        // (cli/chief/registry.rs), outside the noun grammar.
+                        | "chief.profile.list"
+                        | "chief.profile.get"
+                        | "chief.profile.create"
+                        | "chief.profile.adopt"
+                        | "chief.profile.update"
+                        | "chief.profile.delete"
+                        | "chief.profile.avatar.set"
+                        | "chief.profile.avatar.get"
+                        // `cmux avatar set|get` and the Channels page send these.
+                        | "participant.avatar.set"
+                        | "participant.avatar.get"
                         // Launch credentials: acpmux and owners call these
                         // on the socket; an agent never mints or rotates.
                         | "credential.verify"
@@ -185,6 +270,13 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                         | "settings.schema"
                         | "settings.set"
                         | "settings.snapshot"
+                        // The daemon's keybindings ops (cx-9ce.17) are the
+                        // Keyboard Shortcuts page's, with no CLI verb or MCP
+                        // tool yet, like the settings ops.
+                        | "keybindings.get"
+                        | "keybindings.remove"
+                        | "keybindings.reset"
+                        | "keybindings.set"
                         // History ops are reached through `cmux history`
                         // (cx-gzh.15), not the noun grammar; the page and
                         // omnibox ops are the browser host's and the app's.
@@ -197,6 +289,7 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                         | "history.visit.record"
                         | "history.visit.title"
                         | "history.visit.import"
+                        | "history.trail.record"
                         | "history.visit.remove"
                         | "history.visit.summaries"
             )
@@ -212,6 +305,10 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
         ("tab.update", "back"),
         ("tab.update", "forward"),
         ("client.metadata.update", "capabilities"),
+        // layout.bulk: the CLI names the anchor by its selector and has no
+        // selection; apps and MCP send anchor and ids.
+        ("layout.bulk", "anchor"),
+        ("layout.bulk", "ids"),
     ];
     for operation in &expected {
         let catalog_fields = catalog["operations"][operation]["params"]["fields"]

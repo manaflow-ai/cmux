@@ -13,7 +13,7 @@ struct KeychainStackTokenStoreTests {
     /// from every SecItemAdd, so the test runs only where a keychain exists
     /// (developer Macs, the GUI build host); it exercises the real keychain
     /// query scope, which an in-memory double would not.
-    static let keychainWritable: Bool = {
+    static let keychainWritable: Bool = writable {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: "cmux-test-probe-\(UUID().uuidString)",
@@ -25,11 +25,39 @@ struct KeychainStackTokenStoreTests {
             kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock,
             kSecUseAuthenticationUI as String: kSecUseAuthenticationUIFail,
         ]
-        let status = SecItemAdd(query as CFDictionary, nil)
         let keys: Set<String> = [kSecClass as String, kSecAttrService as String, kSecAttrAccount as String]
+        let status = SecItemAdd(query as CFDictionary, nil)
         _ = SecItemDelete(query.filter { keys.contains($0.key) } as CFDictionary)
-        return status == errSecSuccess
-    }()
+        return status
+    }
+
+    /// Whether `add` (a probe write and its cleanup) succeeds within `limit`. It runs on its
+    /// own thread: a write that never returns (a locked keychain waiting in securityd) is left
+    /// there, and the keychain counts as not writable.
+    static func writable(within limit: DispatchTimeInterval = .seconds(5),
+                         add: @escaping @Sendable () -> OSStatus) -> Bool {
+        final class Outcome: @unchecked Sendable {
+            let done = DispatchSemaphore(value: 0)
+            var status: OSStatus = errSecNotAvailable
+        }
+        let outcome = Outcome()
+        Thread.detachNewThread {
+            outcome.status = add()
+            outcome.done.signal()
+        }
+        // The semaphore orders the write of `status` before this read.
+        guard outcome.done.wait(timeout: .now() + limit) == .success else { return false }
+        return outcome.status == errSecSuccess
+    }
+
+    /// cx-4av5t: on some fleet hosts the probe's SecItemAdd never returned (a locked login
+    /// keychain waits in securityd), and the suite hung 300 s before any test ran. A probe
+    /// write that never answers counts as no writable keychain.
+    @Test(.timeLimit(.minutes(1)))
+    func aKeychainThatNeverAnswersCountsAsNotWritable() {
+        let never = DispatchSemaphore(value: 0)
+        #expect(!Self.writable { never.wait(); return errSecSuccess })
+    }
 
     @Test(.enabled(if: keychainWritable, "no writable keychain (no GUI login session)"))
     func clearingLegacyTokensPreservesSameAccountInAnotherService() async throws {

@@ -90,7 +90,7 @@ export class PasswordsStore {
     try {
       this.stops.push(
         await this.client.subscribe<ChangedEvent>(PasswordOps.changed, (event) => {
-          if (event.profile === this.snapshot.profile) void this.reload();
+          if (event.profile === undefined || event.profile === this.snapshot.profile) void this.reload();
         }),
       );
       this.stops.push(

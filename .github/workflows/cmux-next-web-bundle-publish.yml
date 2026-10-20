@@ -27,6 +27,12 @@ on:
       - "scripts/cmux-next/build-optchat-inspector-web.sh"
       - "scripts/cmux-next/build-web-bundles.sh"
       - "scripts/cmux-next/web-bundle-key.py"
+      # Files outside webviews/ that webviews sources import (web-bundle-key.py --inputs;
+      # tests/test_web_bundle_key_inputs.sh keeps this list complete).
+      - "web/data/model-catalog/**"
+      - "Resources/markdown-viewer/viewer-navigation.js"
+      - "config/vite-plus/**"
+      - "schemas/sync-motion/**"
       - "scripts/cmux-next/web-bundle-archive.py"
       - "Packages/macOS/CmuxNext/Sources/**/*.xcstrings"
       - ".github/workflows/cmux-next-web-bundle-publish.yml"
@@ -49,7 +55,7 @@ jobs:
   build:
     if: github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next'
     name: build the web bundles for this source key
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 20
     outputs:
       key: ${{ steps.key.outputs.key }}
@@ -133,7 +139,7 @@ jobs:
     if: needs.build.outputs.published != 'true'
     name: publish the web bundles to files.cmux.com
     environment: artifacts
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2

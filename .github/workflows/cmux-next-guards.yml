@@ -39,7 +39,7 @@ jobs:
       linux_guard_source: ${{ 'false' }}
 
   vt-link-graph:
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     steps:
       - name: Checkout
@@ -55,3 +55,165 @@ jobs:
       # the graph followed seven hours later) and the pinned texts match.
       - name: package-notices.json covers vt-link-graph.json
         run: python3 cmux-tui/dist/scripts/package_notices.py check-data
+
+  # The nightly-next build generates the Rust third-party notices from the
+  # tree (scripts/cmux-next/generate-third-party-notices.sh --tui-source tree).
+  # A new path crate it cannot map failed the nightly publish (run 38359624385,
+  # cmux-git, 2026-10-13) hours after the landing. This runs the same generation
+  # when a pull request or push changes a Rust manifest or the notices tooling,
+  # so such a change is red at its own landing.
+  rust-notices-tree:
+    name: cmux-next Rust notices generate
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Changed notice inputs
+        id: inputs
+        env:
+          BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]] || [[ "$BASE_SHA" =~ ^0+$ ]]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          git fetch --no-tags --depth=1 origin "$BASE_SHA"
+          changed="$(git diff --name-only "$BASE_SHA" HEAD)"
+          pattern='(^|/)Cargo\.(toml|lock)$|^cmux-tui/build-support/notices/|^scripts/cmux-next/generate-third-party-notices\.sh$|^scripts/cmux-next/notices/|^Packages/macOS/CmuxNext/Package\.resolved$|^scripts/build-cmux-cua\.sh$'
+          if grep -qE "$pattern" <<<"$changed"; then echo "run=true" >> "$GITHUB_OUTPUT"; else echo "run=false" >> "$GITHUB_OUTPUT"; fi
+
+      - name: Generate the Rust notices from this tree (as the nightly does)
+        if: steps.inputs.outputs.run == 'true'
+        env:
+          CMUX_NOTICES_ALLOW_CARGO: "1"
+          CMUX_NOTICES_CACHE: ${{ runner.temp }}/cmux-notices
+        run: |
+          ./scripts/cmux-next/generate-third-party-notices.sh --tui-source tree \
+            --cargo-trees "$RUNNER_TEMP/cmux-notices-cargo-trees" --write-cargo-trees
+
+  # The CmuxNextApp size cap (code-quality.md SW14) for pull requests into
+  # feat-cmux-next and pushes to it. cmux-next.yml's checks job skips pushes to
+  # feat-cmux-next and runs on pull requests only for its path filter, so GitHub
+  # merges grew the App past the cap. This workflow has no path filter, so the
+  # check can be a required one.
+  # Only the size cap runs here: the god-file checks stay warn-only. A pull
+  # request fails on real source growth against its merge commit's first parent
+  # (the base); comment/blank-line-only merge noise is ignored. A push compares
+  # against event.before, so a push that went around safe-push still turns red.
+  app-size:
+    name: cmux-next CmuxNextApp size cap
+    # A fork pull request runs on a hosted runner, never on LINUX_RUNNER.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          # A pull request's merge commit and its first parent (the base).
+          fetch-depth: 2
+
+      - name: CmuxNextApp size cap
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          base=()
+          if [[ "$EVENT_NAME" == pull_request ]]; then
+            base=(--base HEAD^1)
+          elif [[ "$BEFORE" =~ ^[0-9a-f]{40}$ && ! "$BEFORE" =~ ^0+$ ]] \
+            && git fetch --no-tags --depth=1 origin "$BEFORE"; then
+            base=(--base "$BEFORE")
+          else
+            # No previous tip to compare with: the plain cap check.
+            echo "::warning::no previous tip to compare with; checking the plain cap"
+          fi
+          scripts/cmux-next/check-app-size.sh ${base[@]+"${base[@]}"} "$GITHUB_WORKSPACE"
+
+  # The crash ratchet (plans/cmux-next/crash-elimination.md) for pull requests into feat-cmux-next and
+  # pushes to it. safe-push runs it before a direct push, but a GitHub merge skips safe-push, so
+  # #20223 added 3 unwraps unchecked (2026-10-13). The change's own ratchet script and baseline run
+  # on its tree and on the base tree (a pull request's merge-commit first parent; a push's previous
+  # tip); the job is red when the change turns the ratchet red, or makes an already red base worse.
+  crash-ratchet:
+    name: cmux-next crash ratchet
+    # A fork pull request runs on a hosted runner, never on LINUX_RUNNER.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          # A pull request's merge commit and its first parent (the base).
+          fetch-depth: 2
+
+      - name: Crash ratchet against the base
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          base_ref=""
+          if [[ "$EVENT_NAME" == pull_request ]]; then
+            base_ref=HEAD^1
+          elif [[ "$BEFORE" =~ ^[0-9a-f]{40}$ && ! "$BEFORE" =~ ^0+$ ]] \
+            && git fetch --no-tags --depth=1 origin "$BEFORE"; then
+            base_ref="$BEFORE"
+          fi
+          if [[ -z "$base_ref" ]]; then
+            echo "::warning::no previous tip to compare with; running the plain ratchet"
+            python3 scripts/cmux-next/crash_ratchet.py
+            exit 0
+          fi
+          base_dir="$RUNNER_TEMP/crash-ratchet-base"
+          mkdir -p "$base_dir"
+          paths=()
+          for p in Packages cmux-tui/crates scripts/cmux-next; do
+            if git cat-file -e "$base_ref:$p" 2>/dev/null; then paths+=("$p"); fi
+          done
+          if [[ ${#paths[@]} -gt 0 ]]; then
+            git archive --format=tar "$base_ref" "${paths[@]}" | tar -x -C "$base_dir"
+          fi
+          python3 scripts/ci/crash_ratchet_compare.py --script scripts/cmux-next/crash_ratchet.py \
+            --head "$GITHUB_WORKSPACE" --base "$base_dir"
+
+  # A red size cap or crash ratchet on a pull request into feat-cmux-next gets the same "red: <check>" comment as a
+  # red web check (chief 2026-10-12): ci.yml calls this workflow after `web`; both callers update
+  # one comment, recomputed from all check runs of the head commit.
+  pr-red-checks:
+    needs: [app-size, crash-ratchet]
+    if: ${{ always() && !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' }}
+    permissions:
+      actions: read
+      checks: read
+      contents: read
+      pull-requests: write
+    uses: ./.github/workflows/pr-red-checks-comment.yml
+
+  # The defaults guard's tests, and schemas/defaults/cmux-next.json matching the
+  # action and settings exports, in seconds; cmux-next-defaults-guard.yml judges
+  # the changes and the approval.
+  defaults-snapshot:
+    # A fork pull request runs on a hosted runner, never on LINUX_RUNNER.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: The defaults guard judges changes and approvals
+        run: python3 tests/test_defaults_guard.py
+
+      - name: The defaults snapshot matches the exports
+        run: python3 scripts/ci/defaults_guard.py check-fresh
+
+      # PR #19754 moved the workspace and tab menus' group rows into More and
+      # nothing failed (Lawrence 2026-10-14: "my groups UI is lost").
+      - name: The group rows stay at the top of the right-click menus
+        run: python3 scripts/cmux-next/check-group-menus.py

@@ -63,7 +63,7 @@ afterAll(() => {
 
 const noop = () => {};
 
-async function render(calls: unknown[][]) {
+async function render(calls: unknown[][], history: { url: string }[] = []) {
   const { createRoot } = await import("react-dom/client");
   const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
   const { omnibarContext } = await import("../src/agent-session/acpmux/omnibar");
@@ -76,7 +76,7 @@ async function render(calls: unknown[][]) {
       { id: "docs", kind: "browser", title: "Reddit docs", detail: "docs.example.com", workspace: "notes" },
     ],
     workspaces: [{ id: "ws-reddit", name: "reddit-scraper", detail: "~/src/reddit-scraper" }],
-    history: [{ url: "about:blank" }],
+    history: [{ url: "about:blank" }, ...history],
   });
   await act(async () =>
     root!.render(
@@ -97,8 +97,8 @@ async function render(calls: unknown[][]) {
 }
 
 async function type(text: string) {
-  const field = host.querySelector<HTMLInputElement>(".nt-field")!;
-  const setValue = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!;
+  const field = host.querySelector<HTMLTextAreaElement>(".nt-field")!;
+  const setValue = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(field), "value")!.set!;
   await act(async () => {
     setValue.call(field, text);
     field.dispatchEvent(new window.Event("input", { bubbles: true }));
@@ -129,6 +129,73 @@ test('typing "reddit" offers reddit.com first, highlighted, and Return opens it 
   expect(calls).toEqual([["open", "https://reddit.com"]]);
 });
 
+test("Right accepts the inline URL completion without opening it", async () => {
+  const calls: unknown[][] = [];
+  await render(calls);
+  const field = await type("reddi");
+  field.focus();
+  field.setSelectionRange(field.value.length, field.value.length);
+  await act(async () => field.dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true })));
+  expect(field.value).toBe("reddit.com");
+  expect(calls).toEqual([]);
+});
+
+test("End accepts the inline URL completion and Tab only advances a keyboard-highlighted row", async () => {
+  const calls: unknown[][] = [];
+  await render(calls);
+  const field = await type("reddit");
+  field.focus();
+  field.setSelectionRange(field.value.length, field.value.length);
+  await act(async () => field.dispatchEvent(new window.KeyboardEvent("keydown", { key: "End", bubbles: true })));
+  expect(field.value).toBe("reddit.com");
+
+  // A fresh query has multiple rows; once Down highlights one, Tab moves the highlight and never submits.
+  await type("why is the reddit scraper slow");
+  field.focus();
+  field.setSelectionRange(field.value.length, field.value.length);
+  await act(async () => field.dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true })));
+  const before = rows().findIndex((row) => row.getAttribute("aria-selected") === "true");
+  const tab = new window.KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true });
+  await act(async () => field.dispatchEvent(tab));
+  expect(tab.defaultPrevented).toBe(true);
+  const after = rows().findIndex((row) => row.getAttribute("aria-selected") === "true");
+  expect(after).toBe((before + 1) % rows().length);
+  expect(calls).toEqual([]);
+});
+
+// Tab with no keyboard highlight is the Search | Ask switch's (Leo 2026-10-18, new-tab-search-ask);
+// Shift-Tab is still the browser's, so the keyboard can leave the field.
+test("Tab with suggestions showing but no keyboard-highlighted row switches Search | Ask, not the row", async () => {
+  const calls: unknown[][] = [];
+  await render(calls);
+  const field = await type("why is the reddit scraper slow");
+  field.focus();
+  field.setSelectionRange(field.value.length, field.value.length);
+  expect(rows().length).toBeGreaterThan(0);
+  const tab = new window.KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true });
+  await act(async () => field.dispatchEvent(tab));
+  expect(tab.defaultPrevented).toBe(true);
+  expect(rows()[0]?.getAttribute("data-type")).toBe("search");
+  expect(rows().findIndex((row) => row.getAttribute("aria-selected") === "true")).toBe(0);
+  const back = new window.KeyboardEvent("keydown", { key: "Tab", shiftKey: true, bubbles: true, cancelable: true });
+  await act(async () => field.dispatchEvent(back));
+  expect(back.defaultPrevented).toBe(false);
+  expect(calls).toEqual([]);
+});
+
+// A visited page completes inline like Chrome's omnibox: Right fills the field and opens nothing.
+test("Right inline-accepts a visited-page (history) row without opening it", async () => {
+  const calls: unknown[][] = [];
+  await render(calls, [{ url: "https://zulip.example.com/" }]);
+  const field = await type("zuli");
+  expect(rows()[0]?.getAttribute("data-type")).toBe("history");
+  field.focus();
+  field.setSelectionRange(field.value.length, field.value.length);
+  await act(async () => field.dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true })));
+  expect(field.value).toBe("zulip.example.com");
+  expect(calls).toEqual([]);
+});
+
 test("the rows float in a popover over the page, not in the page's flow", async () => {
   await render([]);
   const field = await type("reddit");
@@ -151,4 +218,55 @@ test("a prompt's top row asks the agent, with a web search under it", async () =
   await act(async () => field.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
   // On the model the chip names (cx-sljrg).
   expect(calls).toEqual([["ask", "claude", "why is the reddit scraper slow", undefined, "claude-opus-5-5"]]);
+});
+
+// Leo 10-13: after typing, a click outside the composer left the suggestions open. A press outside
+// and Escape close them and keep the typed text; a second Escape leaves the field.
+function pressOutside() {
+  const target = window.document.body;
+  const Pointer = (window as unknown as { PointerEvent?: typeof window.MouseEvent }).PointerEvent ?? window.MouseEvent;
+  for (const type of ["pointerdown", "mousedown", "pointerup", "mouseup", "click"]) {
+    const event = type.startsWith("pointer")
+      ? new Pointer(type, { bubbles: true, cancelable: true, button: 0 })
+      : new window.MouseEvent(type, { bubbles: true, cancelable: true, button: 0 });
+    target.dispatchEvent(event);
+  }
+}
+
+test("a press outside closes the suggestions and keeps the text; pressing the field opens them again", async () => {
+  await render([]);
+  const field = await type("reddit");
+  field.focus();
+  expect(rows().length).toBeGreaterThan(0);
+  await act(async () => pressOutside());
+  expect(rows()).toHaveLength(0);
+  expect(field.value).toBe("reddit");
+  await act(async () => field.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true, button: 0 })));
+  expect(rows().length).toBeGreaterThan(0);
+});
+
+test("Escape closes the suggestions and keeps the text; a second Escape leaves the field", async () => {
+  await render([]);
+  const field = await type("reddit");
+  field.focus();
+  const escape = () => field.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+  await act(async () => escape());
+  expect(rows()).toHaveLength(0);
+  expect(field.value).toBe("reddit");
+  expect(window.document.activeElement).toBe(field);
+  await act(async () => escape());
+  expect(field.value).toBe("reddit");
+  expect(window.document.activeElement).not.toBe(field);
+});
+
+test("Return after Escape still takes the top row: reddit opens reddit.com", async () => {
+  const calls: unknown[][] = [];
+  await render(calls);
+  const field = await type("reddit");
+  field.focus();
+  const key = (name: string) => field.dispatchEvent(new window.KeyboardEvent("keydown", { key: name, bubbles: true }));
+  await act(async () => key("Escape"));
+  expect(rows()).toHaveLength(0);
+  await act(async () => key("Enter"));
+  expect(calls).toEqual([["open", "https://reddit.com"]]);
 });

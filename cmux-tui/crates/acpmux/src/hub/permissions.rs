@@ -23,8 +23,15 @@ impl Hub {
                     let s = session.clone();
                     let epoch = session.permission_epoch.load(Ordering::SeqCst);
                     let turn_id = session.turn().map(|t| t.turn_id);
+                    // Counted here, in the agent's order, as this loop
+                    // reads it: a group's timer waits for every request
+                    // read so far (`AskInFlight`). One this loop has not
+                    // read within the group's 100 ms still forms a group
+                    // of its own.
+                    let ask = (m == method::SESSION_REQUEST_PERMISSION)
+                        .then(|| super::permission_groups::AskInFlight::new(&session));
                     tokio::spawn(async move {
-                        hub.on_agent_request(s, id, m, params, epoch, turn_id).await
+                        hub.on_agent_request(s, id, m, params, epoch, turn_id, ask).await
                     });
                 }
                 Inbound::Stderr(line, host_seq) => {
@@ -61,6 +68,8 @@ impl Hub {
                     session.floor.harness_grant.store(false, Ordering::SeqCst);
                     session.floor.unsandboxed.store(false, Ordering::SeqCst);
                     *session.floor.undeclared_mode.lock().unwrap_or_else(|e| e.into_inner()) = None;
+                    // Its background processes ended with it (`processes.rs`).
+                    self.processes_lost(&session, processes::HARNESS_EXIT);
                     let intentional =
                         matches!(session.status(), SessionStatus::Idle | SessionStatus::Closed);
                     // An agent host's exit was logged before its ack.
@@ -95,7 +104,8 @@ impl Hub {
         let kind = update.get("sessionUpdate").and_then(Value::as_str).unwrap_or("");
         // A mode or option change goes through the one setter below.
         let mut mode_write = None;
-        let mut m = session.meta.lock().unwrap();
+        let mut reported_tools = None;
+        let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
         match kind {
             "agent_message_chunk" => {
                 if let Some(text) =
@@ -122,13 +132,27 @@ impl Hub {
                 mode_write = update.get("configOptions").cloned().map(ModeWrite::ConfigOptions);
             }
             "session_info_update" => {
+                // A harness title made from the first input stops before a client context
+                // (prompt_context.rs), so a Cmd-I chat titles from the person's words.
                 if let Some(title) = update.get("title").and_then(Value::as_str) {
-                    m.title = Some(title.to_owned());
+                    let title = cmux_chat_index::without_client_context(title).trim_end();
+                    if !title.is_empty() {
+                        m.title = Some(title.to_owned());
+                        m.title_source = Some(super::titles::HARNESS.to_owned());
+                    }
                 }
+                // Claude Code's system/init: its MCP servers, plugins and skills.
+                reported_tools = update
+                    .pointer("/_meta/claude")
+                    .filter(|c| c.get("mcp_servers").is_some_and(Value::is_array))
+                    .cloned();
             }
             _ => {}
         }
         drop(m);
+        if let Some(claude) = reported_tools {
+            self.absorb_reported_tools(session, &claude);
+        }
         // Default deny on drift: also a mode the harness changes by itself.
         if let Some(w) = mode_write {
             self.write_mode_state(session, [w]);
@@ -143,6 +167,7 @@ impl Hub {
         params: Option<Value>,
         epoch: u64,
         turn_id: Option<String>,
+        ask: Option<super::permission_groups::AskInFlight>,
     ) {
         // Context was captured before spawning this request task, so cancel
         // or a new turn cannot make a delayed request join the new ask.
@@ -175,7 +200,7 @@ impl Hub {
         if m == method::SESSION_REQUEST_PERMISSION {
             let params = params.unwrap_or(Value::Null);
             let result =
-                self.handle_permission_for(&session, params, epoch, turn_id, Some(&id)).await;
+                self.handle_permission_for(&session, params, epoch, turn_id, Some(&id), ask).await;
             let _ = child.respond(id, Ok(result)).await;
             return;
         }
@@ -274,10 +299,9 @@ impl Hub {
         turn_id: Option<String>,
     ) -> Result<Value, RpcError> {
         let mut path = Self::fs_path(session, &params)?;
-        // A read from a turn that ended (or was cancelled) is refused, as a
-        // permission request from it is cancelled.
-        if session.permission_epoch.load(Ordering::SeqCst) != epoch
-            || session.turn().map(|t| t.turn_id) != turn_id
+        // A read from a cancelled turn, or one that arrived before another
+        // turn began, is refused, as a permission request from it is cancelled.
+        if session.permission_epoch.load(Ordering::SeqCst) != epoch || stale_turn(session, &turn_id)
         {
             return Err(RpcError::new(-32000, "the turn of this read ended"));
         }
@@ -367,7 +391,7 @@ impl Hub {
         epoch: u64,
         turn_id: Option<String>,
     ) -> Value {
-        self.handle_permission_for(session, request, epoch, turn_id, None).await
+        self.handle_permission_for(session, request, epoch, turn_id, None, None).await
     }
 
     /// `handle_permission` for the agent's own `session/request_permission`
@@ -380,6 +404,7 @@ impl Hub {
         epoch: u64,
         turn_id: Option<String>,
         agent_request_id: Option<&Id>,
+        ask: Option<super::permission_groups::AskInFlight>,
     ) -> Value {
         // One harness-neutral copy of any questions, before rules and the
         // record see the request (questions.rs).
@@ -389,7 +414,7 @@ impl Hub {
             let cfg = self.config.read().await;
             let mut state = session.permissions.lock().unwrap();
             if session.permission_epoch.load(Ordering::SeqCst) != epoch
-                || session.turn().map(|t| t.turn_id) != turn_id
+                || stale_turn(session, &turn_id)
             {
                 return json!({"outcome":{"outcome":"cancelled"}});
             }
@@ -523,6 +548,8 @@ impl Hub {
             self.set_status(session, SessionStatus::Waiting);
             (rx, prev, grouping, permission_id)
         };
+        // Joined its group (or none): the group's timer need not wait for it.
+        drop(ask);
         if let Some((id, true)) = grouping {
             self.start_permission_group_timer(session, id);
         }
@@ -537,9 +564,11 @@ impl Hub {
         self.append(session, "mux", "permission_decision", decision);
         {
             let state = session.permissions.lock().unwrap();
-            if state.pending.is_empty() && session.status() == SessionStatus::Waiting {
-                let next = if session.turn().is_some() { SessionStatus::Running } else { prev };
-                self.set_status(session, next);
+            if state.pending.is_empty()
+                && session.status() == SessionStatus::Waiting
+                && !self.secrets.waiting_in(&session.id)
+            {
+                self.set_status(session, status_after_ask(session, prev));
             }
         }
         let mut out = json!({"outcome": outcome});
@@ -685,6 +714,8 @@ impl Hub {
         for (_, p) in drained {
             let _ = p.reply.send(json!({"outcome": "cancelled"}));
         }
+        // A secret card waits on the same turn (`secrets.rs`).
+        self.cancel_pending_secrets(session);
     }
 }
 
@@ -719,4 +750,32 @@ fn normalize_path(path: &std::path::Path) -> std::path::PathBuf {
         }
     }
     out
+}
+
+/// Whether a request that arrived during turn `then` (None: between turns) is
+/// stale: another turn runs now, and the request must not join its ask. A turn
+/// that only ended keeps it (cx-jo8yo): subagents and background shells outlive
+/// their turn and still ask, often in the moment between the harness's end of
+/// turn and acpmux's. A cancel bumps `permission_epoch`, and the remote floor
+/// still judges a request after a Web turn by that turn (`web_turn`).
+fn stale_turn(session: &Session, then: &Option<String>) -> bool {
+    // A turn the remote floor cancelled stays cancelled for every request
+    // from it, also after it ended and a local client restored an asking mode.
+    if then.is_some()
+        && *session.floor.floor_cancelled_turn.lock().unwrap_or_else(|e| e.into_inner()) == *then
+    {
+        return true;
+    }
+    session.turn().is_some_and(|now| Some(&now.turn_id) != then.as_ref())
+}
+
+/// The status of a chat whose last ask (a permission or a secret) was just
+/// answered, from `prev`, its status when that ask came: running in a turn,
+/// ready between turns (an ask that outlived its turn), else as it was.
+pub(super) fn status_after_ask(session: &Session, prev: SessionStatus) -> SessionStatus {
+    match (session.turn().is_some(), prev) {
+        (true, _) => SessionStatus::Running,
+        (false, SessionStatus::Running | SessionStatus::Waiting) => SessionStatus::Ready,
+        (false, prev) => prev,
+    }
 }

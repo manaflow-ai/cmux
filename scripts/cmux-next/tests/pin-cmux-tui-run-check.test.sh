@@ -8,6 +8,9 @@
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
+# Waits run on a virtual clock: `took` is the time the script would have waited, exactly.
+source "$ROOT/scripts/cmux-next/tests/lib/fake-clock.sh"
+fake_clock_install "$TMP/clock"
 git_q() { git -c user.name=t -c user.email=t@example.com -c init.defaultBranch=main "$@" >/dev/null 2>&1; }
 
 git_q init "$TMP/src"
@@ -63,11 +66,48 @@ fast superseded \
   'superseded'
 fast missing '{"total_count":0,"workflow_runs":[]}' "no cmux-tui artifacts run exists for $sha"
 
-# An active run (one cancelled attempt plus a queued one) keeps the bounded wait.
-set_runs '{"total_count":2,"workflow_runs":[{"id":13,"status":"completed","conclusion":"cancelled","html_url":"u13"},{"id":14,"status":"queued","conclusion":null,"html_url":"u14"}]}'
-fetch 4
-if [[ "$status" != 1 ]] || ! grep -qF 'is not published after' <<<"$out"; then fail "active run: expected the bounded wait"; fi
+# An active run (one cancelled attempt plus a queued one) extends the wait past
+# CMUX_TUI_TREE_WAIT_SECONDS up to CMUX_TUI_TREE_ACTIVE_WAIT_SECONDS (2026-10-13: a queued
+# side-branch run published 36 min after a fleet build gave up at 45 min).
+active_runs='{"total_count":2,"workflow_runs":[{"id":13,"status":"completed","conclusion":"cancelled","html_url":"u13"},{"id":14,"status":"queued","conclusion":null,"html_url":"u14"}]}'
+set_runs "$active_runs"
+CMUX_TUI_TREE_ACTIVE_WAIT_SECONDS=9 fetch 3
+if [[ "$status" != 1 ]] || ! grep -qF 'is not published after' <<<"$out"; then fail "active run: expected the capped wait to end"; fi
+grep -qF 'is still queued or running; waiting on' <<<"$out" || fail "active run: no extension past the base wait"
+(( took >= 8 )) || fail "active run: ended before the active cap"
 grep -qF 'no cmux-tui artifacts run will publish' <<<"$out" && fail "active run: failed fast"
+
+# In GitHub Actions the extension is off unless asked for: the old bounded wait holds.
+set_runs "$active_runs"
+fetch 3
+if [[ "$status" != 1 ]] || ! grep -qF 'is not published after' <<<"$out"; then fail "CI default: expected the bounded wait"; fi
+grep -qF 'waiting on' <<<"$out" && fail "CI default: extended the wait"
+(( took < 8 )) || fail "CI default: waited past the base wait"
+
+# A fleet build has no GH_TOKEN and no CMUX_TUI_TREE_PUBLISHER_SHA: the checkout is the publisher
+# and the public API is read without a token. Its queued run extends the wait; a cancelled one
+# fails fast instead of waiting the full base wait.
+# It is not a GitHub event either: unset GITHUB_EVENT_NAME, which a pull request's checks job
+# sets and which turns the checkout-is-the-publisher rule off.
+fleet_fetch() {
+  local started
+  started=$(date +%s)
+  status=0
+  out=$(cd "$TMP/src" && env -u CI_JOB_DIR -u GH_TOKEN -u CMUX_TUI_TREE_PUBLISHER_SHA -u GITHUB_ACTIONS -u GITHUB_EVENT_NAME \
+    GITHUB_REPOSITORY=o/r GITHUB_API_URL="file://$TMP/api" CMUX_TUI_PIN_BASE=https://127.0.0.1:9/cmux-tui \
+    CMUX_TUI_TREE_WAIT_SECONDS="$1" CMUX_TUI_TREE_POLL_SECONDS=1 CMUX_TUI_TREE_RUN_CHECK_SECONDS=1 \
+    CMUX_TUI_TREE_ACTIVE_WAIT_SECONDS="$2" bash scripts/cmux-next/pin-cmux-tui.sh fetch 2>&1) || status=$?
+  took=$(( $(date +%s) - started ))
+}
+set_runs "$active_runs"
+fleet_fetch 3 9
+grep -qF 'is still queued or running; waiting on' <<<"$out" || fail "fleet, active run: no extension"
+(( took >= 8 )) || fail "fleet, active run: ended before the active cap"
+set_runs '{"total_count":1,"workflow_runs":[{"id":15,"status":"completed","conclusion":"cancelled","html_url":"https://github.com/o/r/actions/runs/15"}]}'
+fleet_fetch 40 60
+[[ "$status" == 1 ]] || fail "fleet, cancelled run: fetch did not fail"
+(( took < 30 )) || fail "fleet, cancelled run: waited instead of failing fast"
+grep -qF 'cancelled: https://github.com/o/r/actions/runs/15' <<<"$out" || fail "fleet, cancelled run: reason missing"
 
 # An unreadable API fails open: the bounded wait decides.
 rm -f "$runs_dir/runs"

@@ -81,6 +81,7 @@ final class PaletteListView: NSScrollView, NSTableViewDataSource, NSTableViewDel
         self.rows = rows
         rowIndexByID = index
         table.reloadData()
+        syncTableSelection()
         // Size the table now, not at the next display, so the rubber band
         // matches the new results before the next scroll event.
         table.tile()
@@ -91,6 +92,15 @@ final class PaletteListView: NSScrollView, NSTableViewDataSource, NSTableViewDel
         selectedID = id
         refresh(old)
         refresh(id)
+        syncTableSelection()
+    }
+
+    /// The table's own selection follows the palette's, so VoiceOver reads and announces the
+    /// selected row (cx-9ce.44). Nothing draws it (`selectionHighlightStyle` is `.none`), and
+    /// clicks never select (`shouldSelectRow`): the search field keeps the keyboard.
+    private func syncTableSelection() {
+        let rows = selectedID.flatMap { rowIndexByID[$0] }.map { IndexSet(integer: $0) } ?? IndexSet()
+        if table.selectedRowIndexes != rows { table.selectRowIndexes(rows, byExtendingSelection: false) }
     }
 
     func setHover(_ id: String?) {
@@ -192,13 +202,11 @@ final class PaletteListView: NSScrollView, NSTableViewDataSource, NSTableViewDel
 }
 
 /// Table that never takes keyboard focus (the search field keeps it) and
-/// reports pointer movement and clicks by row. A click is a press, drag and release (`PalettePress`).
+/// reports pointer movement and clicks by row. A click runs its row on the press.
 final class PaletteTableView: NSTableView {
     var onMouseMoved: ((NSPoint) -> Void)?
     var onMouseExited: (() -> Void)?
     var onClick: ((Int) -> Void)?
-    /// The press's following mouse events; nil reads the window's queue. Tests feed a press here.
-    var pressEvents: (() -> NSEvent?)?
     private var trackingArea: NSTrackingArea?
 
     override var acceptsFirstResponder: Bool { false }
@@ -219,18 +227,17 @@ final class PaletteTableView: NSTableView {
         onMouseExited?()
     }
 
+    /// A press runs the row under the pointer at once (Lawrence 2026-10-19: "mouse down to
+    /// immediately open", Cmd+P rows included); the release runs nothing more. A press off every
+    /// visible row (a row scrolled under the search bar or footer) runs nothing.
     override func mouseDown(with event: NSEvent) {
-        PalettePress.track(event, in: self, row: { point in
-            // A point over the search bar or footer still maps to a row scrolled out of view.
-            guard self.visibleRect.contains(point) else { return nil }
-            let index = self.row(at: point)
-            return index >= 0 ? index : nil
-        }, select: { index in
-            let rect = self.rect(ofRow: index)
-            self.onMouseMoved?(NSPoint(x: rect.midX, y: rect.midY))
-        }, release: { index in
-            self.onClick?(index)
-        }, next: pressEvents)
+        let point = convert(event.locationInWindow, from: nil)
+        guard visibleRect.contains(point) else { return }
+        let index = row(at: point)
+        guard index >= 0 else { return }
+        let rect = rect(ofRow: index)
+        onMouseMoved?(NSPoint(x: rect.midX, y: rect.midY))
+        onClick?(index)
     }
 }
 

@@ -1,5 +1,6 @@
 // A run of tool calls between two pieces of text, summarized once it settles:
 // "Edited a file, read files, ran commands", opened to list the calls.
+import type { Translate } from "../i18n";
 import type { AcpmuxActivity } from "../model";
 
 /// What a call did, in the order a run's summary names them.
@@ -43,8 +44,8 @@ export function toolRunCategories(items: readonly AcpmuxActivity[]): ToolRunCate
   return ORDER.filter((category) => present.has(category));
 }
 
-/// "Edited a file, read files, ran commands".
-export function toolRunSummary(items: readonly AcpmuxActivity[]): string {
+/// "Edited a file, read files, ran commands", in the language `t` speaks.
+export function toolRunSummary(t: Translate, items: readonly AcpmuxActivity[]): string {
   const tools = items.filter((item) => item.tool);
   const count = (category: ToolRunCategory) =>
     tools.filter((item) => {
@@ -55,19 +56,21 @@ export function toolRunSummary(items: readonly AcpmuxActivity[]): string {
     const one = count(category) === 1;
     switch (category) {
       case "used":
-        return one ? "used a tool" : "used tools";
+        return one ? t("toolRun.used.one") : t("toolRun.used.other");
       case "edited":
-        return one ? "edited a file" : "edited files";
+        return one ? t("toolRun.edited.one") : t("toolRun.edited.other");
       case "read":
-        return one ? "read a file" : "read files";
+        return one ? t("toolRun.read.one") : t("toolRun.read.other");
       case "searched":
-        return "searched the code";
+        return t("toolRun.searched");
       case "web":
-        return "searched the web";
+        return t("toolRun.web");
       case "ran":
-        return one ? "ran a command" : "ran commands";
+        return one ? t("toolRun.ran.one") : t("toolRun.ran.other");
     }
   };
-  const text = toolRunCategories(items).map(phrase).join(", ");
+  // A catalog separator, not Intl.ListFormat: its unit lists join zh-Hans with nothing and add
+  // conjunctions in some languages, while the run reads as a plain comma list.
+  const text = toolRunCategories(items).map(phrase).join(t("toolRun.separator"));
   return text.charAt(0).toUpperCase() + text.slice(1);
 }

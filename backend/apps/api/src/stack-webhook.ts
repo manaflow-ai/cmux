@@ -11,7 +11,9 @@ import type { StackSyncReply } from "./team-stack-sync.ts"
  * team and membership from Stack as they are now and commits that (team-stack-sync.ts); every
  * other event is a 200 no-op.
  *
- * Answers: 503 while the secret is not configured, TeamDO or Stack fails (Svix retries), 401 for a
+ * Answers: 503 while the secret is not configured or TeamDO cannot record the delivery (Svix retries);
+ * 200 `queued` when TeamDO recorded it but Stack could not be read now (pace or 429: TeamDO syncs later
+ * from its alarm, team-stack-sync.ts, cx-f5tk4); 401 for a
  * bad, stale or missing signature, 200 otherwise (a replayed svix-id answers `duplicate`). A signed
  * body we cannot use (Stack's published examples carry only `type`) is a logged 200
  * `ignored_shape`, never a 4xx: Svix retries a 4xx and then disables the endpoint. Every answer logs its reason and the svix-id, never the

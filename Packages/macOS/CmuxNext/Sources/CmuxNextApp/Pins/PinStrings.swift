@@ -5,6 +5,10 @@ import Foundation
 enum PinStrings {
     static var pinTab: String { String(localized: "pins.pinTab", defaultValue: "Pin Tab", table: "Handlers", bundle: .module) }
     static var unpinTab: String { String(localized: "pins.unpinTab", defaultValue: "Unpin Tab", table: "Handlers", bundle: .module) }
+    /// Back to Pinned Page on a tab that is not a pinned browser tab with a page (cx-lle.6).
+    static var noPinnedPage: String {
+        String(localized: "pins.noPinnedPage", defaultValue: "This tab has no pinned page to go back to.", table: "Handlers", bundle: .module)
+    }
     static var pinWorkspace: String {
         String(localized: "pins.pinWorkspace", defaultValue: "Pin Workspace", table: "Handlers", bundle: .module)
     }

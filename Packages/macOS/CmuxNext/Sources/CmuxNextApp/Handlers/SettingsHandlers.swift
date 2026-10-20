@@ -33,6 +33,9 @@ enum SettingsHandlers {
         registry.bind("help.showCrashLogs", run: { _ in context.services.crashRecovery.showCrashLogs() })
         registry.bind("help.documentation", run: { invocation in try context.open(documentationURL(topic: invocation["topic"]?.stringValue)) })
         registry.bind("app.shareCmux", run: { [weak services = context.services] _ in services.map(ShareCmuxPresenter.present) })
+        // The changelog page's provider exists from launch, so a What's New tab that the session
+        // restores (or Reopen Closed brings back) shows its title and page (cx-warpr).
+        ChangelogPageTab.register(context.services)
         UpdateHandlers.bind(into: registry, updater: context.services.updater,
                             openWhatsNew: { [weak services = context.services] in services.map { WhatsNewPage.open($0) } ?? false })
         OnboardingHandlers.bind(into: registry, context: context)

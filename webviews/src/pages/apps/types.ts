@@ -11,8 +11,10 @@ export type AppSource = "default" | "user" | "bundled" | "local";
 export type ScopeRisk = "standard" | "sensitive" | "restricted";
 
 export interface AppIconRef {
-  /** A manifest path served by `cmux.apps.asset.get`; absent means the generic glyph. */
+  /** The image as a `data:` URL (from `cmux.apps.asset.get`); absent means the generic glyph. */
   path?: string;
+  /** The manifest path of the image in the package, which `cmux.apps.asset.get` serves. */
+  asset?: string;
 }
 
 /** One row of `cmux.apps.catalog.list`. */
@@ -83,6 +85,20 @@ export interface InstalledApp {
   failure?: string;
 }
 
+/** One row returned by `cmux.apps.updates.list`. The supervisor owns the versions. */
+export interface AppUpdate {
+  app: string;
+  name?: string;
+  current_version?: string;
+  version: string;
+  failure?: string;
+}
+
+export interface UpdatesListResult {
+  updates: AppUpdate[];
+  revision: number;
+}
+
 export interface InstalledListResult {
   apps: InstalledApp[];
   revision: number;
@@ -103,6 +119,19 @@ export interface LogLine {
   level: "debug" | "info" | "warn" | "error";
   message: string;
   at_ms: number;
+}
+
+/** `cmux.apps.logs`: the last lines of the app's log ring. */
+export interface WireLogs {
+  app: string;
+  lines: { level: LogLine["level"]; message: string; ts_ms: number }[];
+}
+
+/** `cmux.apps.asset.get`. */
+export interface WireAsset {
+  app: string;
+  path: string;
+  data_url: string;
 }
 
 /** `cmux.apps.watch` event. */
@@ -129,9 +158,13 @@ export const AppsOps = {
   set: "cmux.apps.set",
   grantsGet: "cmux.apps.grants.get",
   grantSet: "cmux.apps.grant.set",
+  grantRevoke: "cmux.apps.grant.revoke",
+  hiddenSet: "cmux.apps.hidden.set",
   updatesList: "cmux.apps.updates.list",
   update: "cmux.apps.update",
   logs: "cmux.apps.logs",
   watch: "cmux.apps.watch",
-  open: "cmux.apps.open",
 } as const;
+
+/** Open is a host verb: the page runs the host action `app.open` (cx-hnmbt.13). */
+export const OPEN_ACTION = { op: "cmux.app.action.run", action: "app.open" } as const;

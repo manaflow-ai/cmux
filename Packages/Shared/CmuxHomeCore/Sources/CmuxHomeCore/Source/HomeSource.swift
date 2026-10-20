@@ -49,6 +49,9 @@ public enum HomeEvent: Hashable, Sendable {
     /// An agent's running reply (ephemeral, never stored): Home grows it in
     /// the agent's bubble until the reply is posted.
     case draft(HomeDraftUpdate)
+    /// A Chief's live run frame (`chief-live-v1`, ephemeral, never stored):
+    /// the reply's text so far and the run's "working on" line.
+    case live(HomeLiveEvent)
 }
 
 /// One search hit over Home messages.
@@ -140,11 +143,39 @@ public protocol HomeSource: Sendable {
     /// while a read of it ran (the read may have set up again what the
     /// first close found nothing of), so a repeated close must be harmless.
     func close(_ conversation: ConversationID)
+
+    /// Whether the owner of `conversation` takes `link_preview` parts. A
+    /// sender sends plain text to an owner that does not (an older daemon).
+    func acceptsLinkPreviews(in conversation: ConversationID) async -> Bool
+
+    /// Asks the owner of `conversation` for its live run snapshot (`run.live`),
+    /// which arrives as a `.live(.snapshot)` event: on open and after a missed frame.
+    func requestLive(of conversation: ConversationID) async
+
+    /// The talk steps of a running run as its rows hold them (id, text), for reply
+    /// segments the owner's live buffer already freed (a mid-run join). nil: no read.
+    func liveRunRows(of conversation: ConversationID, run: String, author: ParticipantID) async -> [HomeLiveRunSnapshot.Step]?
+
+    /// The owner's answer for a message permalink (`conversation-link-resolve`): its seq, thread root and
+    /// the path from that root down to it. nil: this owner has no resolver (the message is looked up in pages).
+    func resolveLink(conversation: ConversationID, message: MessageID) async throws -> HomeLinkTarget?
 }
 
 extension HomeSource {
+    public func resolveLink(conversation: ConversationID, message: MessageID) async throws -> HomeLinkTarget? { nil }
     /// Sources that keep no per-transcript state ignore it.
     public func close(_ conversation: ConversationID) {}
+
+    /// Default: an owner without live frames.
+    public func requestLive(of conversation: ConversationID) async {}
+
+    /// Default: an owner without run reads.
+    public func liveRunRows(of conversation: ConversationID, run: String, author: ParticipantID) async -> [HomeLiveRunSnapshot.Step]? {
+        nil
+    }
+
+    /// Default: no link preview parts (send plain text).
+    public func acceptsLinkPreviews(in conversation: ConversationID) async -> Bool { false }
 
     /// Default for sources without blob storage.
     public func upload(_ file: AttachmentUpload) async throws -> AttachmentRef {

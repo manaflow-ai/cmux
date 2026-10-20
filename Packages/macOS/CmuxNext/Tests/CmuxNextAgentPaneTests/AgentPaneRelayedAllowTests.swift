@@ -1,5 +1,5 @@
 import Foundation
-import Synchronization
+import CmuxNextCompat
 import Testing
 @testable import CmuxNextAgentPane
 
@@ -123,7 +123,7 @@ struct AgentPaneRelayedAllowTests {
         _ = await inbox.frame(containing: "permission_pending")
 
         // A ticket only for an option the prompt offers as an allow, of a prompt the pane saw.
-        transport.gestures.record()
+        transport.gestures.record(click: true)
         let deny = try #require(Self.intent(option: "no"))
         let unseen = try #require(Self.intent(option: "yes", permission: "p-unseen"))
         let allow = try #require(Self.intent(option: "yes"))
@@ -166,7 +166,7 @@ struct AgentPaneRelayedAllowTests {
             wire.push(Self.pending())
             _ = await inbox.frame(containing: "permission_pending")
 
-            transport.gestures.record()
+            transport.gestures.record(click: true)
             let allow = try #require(Self.intent(option: "yes"))
             let reserved = withTicket ? transport.reserveGesture(allow) : nil
             if withTicket { #expect(reserved != nil, "no ticket for a seen prompt's allow option") }

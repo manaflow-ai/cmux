@@ -15,8 +15,14 @@
 //! (`registry:<identify.session_id>`), so a tab recorded for another
 //! machine never starts here. The client names only an agent kind
 //! (`harness`, resolved by acpmux from its own config) and a folder (`cwd`,
-//! absolute; acpmux checks it). No command, env, policy, mode, peer, preset
-//! or MCP server param exists (unknown fields are a bad request).
+//! absolute; acpmux checks it). No command, env, policy, mode, peer, preset,
+//! workspace or MCP server param exists (unknown fields are a bad request).
+//! The daemon itself names the tab's workspace to acpmux on `session/new`
+//! (`_meta.acpmux.workspaceId`, which picks the session's display), from the
+//! tab's place in this store; a tab with no workspace, or whose workspace key
+//! is not a UUID, sends none, and acpmux then gives the session no display.
+//! It sends no session env: `CMUX_WORKSPACE_ID` there would also change the
+//! agent-message hold, pooled starts and route bindings for these chats.
 //!
 //! Permissions: the session always starts with policy `ask`, whatever the
 //! daemon default is, and must end up in a mode acpmux's remote table
@@ -44,9 +50,12 @@ use serde_json::{Value, json};
 use super::agent_session_link::AcpmuxLink;
 use super::{MessageWriter, Refusal, SurfaceId, ok, refuse};
 use crate::mux::Mux;
-use crate::state::conversation_tabs_store::ConversationTabRecord;
+use crate::state::conversation_tabs_store::{ConversationTabRecord, validate_harness};
 
 pub const AGENT_SESSION_START_CAPABILITY: &str = "agent-session-start-v1";
+/// `require_person_key` and `person_instance` on `agent-session-start`, and
+/// its typed `agent_session.needs_keyed_start` refusal (cx-0w0jj).
+pub const AGENT_SESSION_START_KEYED_REASON_CAPABILITY: &str = "agent-session-start-keyed-reason-v1";
 
 /// Starts the binary's acpmux daemon (blocking; acpmux bounds its own start).
 pub type AcpmuxStarter = Arc<dyn Fn() -> Result<(), String> + Send + Sync>;
@@ -142,6 +151,18 @@ pub(super) struct StartParams {
     #[serde(default)]
     harness: Option<String>,
     cwd: String,
+    /// The person chose the home folder as the chat's folder (`agent-session-trust`'s rule).
+    #[serde(default)]
+    home_confirmed: bool,
+    /// The caller signs relayed allows with a person key of its own (cx-0w0jj):
+    /// the start runs only when acpmux holds a key for `person_instance`,
+    /// else the typed `needs_keyed_start` refusal says whether a keyed
+    /// restart can lose nothing.
+    #[serde(default)]
+    require_person_key: bool,
+    /// The acpmux run (`personInstance`) the caller holds a key for.
+    #[serde(default)]
+    person_instance: Option<String>,
 }
 
 impl StartParams {
@@ -154,7 +175,11 @@ impl StartParams {
         let cwd_ok = (1..=MAX_CWD_BYTES).contains(&cwd.len())
             && cwd.starts_with('/')
             && !cwd.chars().any(char::is_control);
-        harness_ok && cwd_ok
+        let instance_ok = self.person_instance.as_deref().is_none_or(|instance| {
+            (1..=128).contains(&instance.len())
+                && instance.bytes().all(|b| b.is_ascii_alphanumeric() || b"_.:-".contains(&b))
+        });
+        harness_ok && cwd_ok && instance_ok
     }
 }
 
@@ -182,6 +207,12 @@ pub(super) fn start(
     if let Err(refusal) = startable(mux, params.surface) {
         return refuse(writer, id, refusal);
     }
+    // A chat never starts in `/`, above the home folder, or in the home folder
+    // unless the person chose it (cx-1bhjj), as on the Mac.
+    if let Err(refusal) = super::agent_session_trust::home_rule(&params.cwd, params.home_confirmed)
+    {
+        return refuse(writer, id, refusal);
+    }
     let Some(slot) = AgentSessionStarts::reserve(mux, params.surface) else {
         return refuse(writer, id, Refusal::Limit);
     };
@@ -192,11 +223,17 @@ pub(super) fn start(
         .name("mux-agent-start".into())
         .stack_size(THREAD_STACK_BYTES)
         .spawn(move || {
-            let result = run(&worker_mux, client, socket, params);
+            let result = match keyed_gate(&socket, &params) {
+                Ok(()) => run(&worker_mux, client, socket, params).map_err(|r| (r, None)),
+                Err(refused) => Err(refused),
+            };
             drop(slot);
             match result {
                 Ok(data) => ok(&worker_writer, worker_id, data),
-                Err(refusal) => refuse(&worker_writer, worker_id, refusal),
+                Err((refusal, None)) => refuse(&worker_writer, worker_id, refusal),
+                Err((refusal, Some(data))) => {
+                    super::refuse_with_data(&worker_writer, worker_id, refusal, data)
+                }
             };
         });
     // A failed spawn drops the closure and with it the slot.
@@ -204,6 +241,74 @@ pub(super) fn start(
         return refuse(writer, id, Refusal::Limit);
     }
     true
+}
+
+/// cx-0w0jj: with `require_person_key`, the start runs only when this
+/// machine's acpmux holds a person key for the caller's `person_instance`.
+/// Otherwise `needs_keyed_start` with [`keyed_restart_reason`] (never the
+/// run id or any key material). Nothing listening is acpmux not running: the
+/// gate never starts an acpmux without a key.
+fn keyed_gate(
+    socket: &std::path::Path,
+    params: &StartParams,
+) -> Result<(), (Refusal, Option<Value>)> {
+    if !params.require_person_key {
+        return Ok(());
+    }
+    // Only nothing listening (no socket, or refused) is "acpmux does not run".
+    // Any other connect error, and a status that cannot be read, is an
+    // unknown fact: not safe, and the client starts without its key.
+    let unknown = || (Refusal::NeedsKeyedStart, Some(keyed_restart_reason(Some(&json!({})))));
+    let status = match AcpmuxLink::connect(socket, |_| {}) {
+        Err(error)
+            if matches!(
+                error.kind(),
+                std::io::ErrorKind::NotFound | std::io::ErrorKind::ConnectionRefused
+            ) =>
+        {
+            None
+        }
+        Err(_) => return Err(unknown()),
+        Ok(link) => {
+            let status = link.call("_acpmux/status", json!({}), CALL_TIMEOUT);
+            link.close();
+            Some(status.map_err(|_| unknown())?)
+        }
+    };
+    let keyed = status.as_ref().is_some_and(|status| {
+        status.get("personKey").and_then(Value::as_bool) == Some(true)
+            && params.person_instance.is_some()
+            && status.get("personInstance").and_then(Value::as_str)
+                == params.person_instance.as_deref()
+    });
+    if keyed {
+        return Ok(());
+    }
+    Err((Refusal::NeedsKeyedStart, Some(keyed_restart_reason(status.as_ref()))))
+}
+
+/// The ONE rule for whether a keyed restart of this machine's acpmux can
+/// lose nothing, from its `_acpmux/status` (None: it does not run): it is
+/// ready, keeps agent hosts across a restart, and runs no live agent and no
+/// proxied peer session. An unknown or missing fact is not safe.
+pub(crate) fn keyed_restart_reason(status: Option<&Value>) -> Value {
+    let count = |key: &str| status.and_then(|status| status.get(key)).and_then(Value::as_u64);
+    let flag = |key: &str| status.and_then(|status| status.get(key)).and_then(Value::as_bool);
+    let (live_agents, remote_sessions) = match status {
+        None => (Some(0), Some(0)),
+        Some(_) => (count("liveAgents"), count("remoteSessions")),
+    };
+    let safe_to_restart = status.is_none()
+        || (flag("ready") == Some(true)
+            && flag("agentHosts") == Some(true)
+            && live_agents == Some(0)
+            && remote_sessions == Some(0));
+    json!({
+        "reason": "needs_keyed_start",
+        "safe_to_restart": safe_to_restart,
+        "live_agents": live_agents,
+        "remote_sessions": remote_sessions,
+    })
 }
 
 /// Ok when `surface` is an unbound agent tab whose record names this store.
@@ -235,8 +340,12 @@ fn run(
     result
 }
 
-/// A link to acpmux, starting it once when nothing listens.
-fn connect(mux: &Mux, socket: &std::path::Path) -> Result<Arc<AcpmuxLink>, Refusal> {
+/// A link to acpmux, starting it once when nothing listens (also an
+/// `agent-update-apply`, `agent_update.rs`).
+pub(in crate::server) fn connect(
+    mux: &Mux,
+    socket: &std::path::Path,
+) -> Result<Arc<AcpmuxLink>, Refusal> {
     let open = || AcpmuxLink::connect(socket, |_| {});
     if let Ok(link) = open() {
         return Ok(link);
@@ -250,6 +359,24 @@ fn connect(mux: &Mux, socket: &std::path::Path) -> Result<Arc<AcpmuxLink>, Refus
     }
     starter().map_err(|_| Refusal::AcpmuxUnavailable)?;
     open().map_err(|_| Refusal::AcpmuxUnavailable)
+}
+
+/// Runs `restart` (an acpmux handoff, `agent_update.rs`: the running acpmux
+/// stopped, this binary's started) under the start lock, so no start here
+/// runs while acpmux is down; then a link to the acpmux that answers. A failed
+/// restart still connects once (another process may have started acpmux),
+/// and is logged.
+pub(in crate::server) fn restart_with(
+    mux: &Mux,
+    socket: &std::path::Path,
+    restart: impl FnOnce() -> Result<(), String>,
+) -> Option<Arc<AcpmuxLink>> {
+    let starts = &mux.control_clients.agent_sessions.starts;
+    let _one_start = starts.start_lock.lock().unwrap_or_else(|e| e.into_inner());
+    if let Err(error) = restart() {
+        eprintln!("cmux-tui: acpmux handoff for an agent update failed: {error}");
+    }
+    AcpmuxLink::connect(socket, |_| {}).ok()
 }
 
 fn start_and_bind(
@@ -271,8 +398,8 @@ fn start_and_bind(
     }
     // The folder must be trusted before an agent starts there (an agent can
     // run the folder's own hooks and settings at start); this daemon reaches
-    // acpmux over its unix socket, which acpmux's trust gate does not hold,
-    // and the remote side can never answer the question.
+    // acpmux over its unix socket, which acpmux's trust gate does not hold;
+    // only the person answers it (`agent-session-trust`, from the app).
     let trust = link
         .call("acp.trust.get", json!({"cwd": params.cwd}), CALL_TIMEOUT)
         .map_err(Refusal::of)?;
@@ -282,6 +409,11 @@ fn start_and_bind(
     let mut meta = json!({"policy": "ask"});
     if let Some(harness) = &params.harness {
         meta["harness"] = json!(harness);
+    }
+    // The workspace of the tab, read here and never taken from the client:
+    // acpmux gives the session that workspace's display (none without it).
+    if let Some(workspace) = mux.surface_workspace_key(params.surface) {
+        meta["workspaceId"] = json!(workspace);
     }
     // The folder acpmux checked (its canonical path), so a symlink changed
     // after the trust answer cannot move the agent elsewhere.
@@ -304,10 +436,19 @@ fn start_and_bind(
     if !folder_trusted(&trust, Some(&family)) {
         return Err(end(Refusal::UntrustedFolder));
     }
+    // The agent the session runs, as acpmux answered it (`_meta.acpmux.harness`
+    // of `session/new`; a profile such as `providers/deepseek` by its last
+    // part), else its family: the tab's brand mark (cx-w4bbw).
+    let harness =
+        [created.pointer("/_meta/acpmux/harness").and_then(Value::as_str), Some(family.as_str())]
+            .into_iter()
+            .flatten()
+            .filter_map(|harness| harness.rsplit('/').next())
+            .find(|harness| validate_harness(harness).is_ok());
     // The tab may have closed, or another start bound it, meanwhile.
     let actor = super::super::origin_gate::connection_actor(mux, client);
     let (record, _) = mux
-        .bind_conversation_tab_session_as(&actor, params.surface, &session, None)
+        .bind_conversation_tab_session_as(&actor, params.surface, &session, None, harness)
         .map_err(|_| end(startable(mux, params.surface).err().unwrap_or(Refusal::Refused)))?;
     Ok(json!({"surface": params.surface, "session": session, "conversation": record.wire()}))
 }

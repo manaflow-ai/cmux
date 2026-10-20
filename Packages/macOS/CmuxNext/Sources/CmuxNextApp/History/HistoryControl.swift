@@ -1,8 +1,8 @@
+import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextSettings
 import CmuxNextHistory
 import Foundation
-import Observation
 
 /// `history.list {kind?, text?, limit?, range?}` for `cmux history list`
 /// and `cmux history search` (plans/cmux-next/history.md 5.3). The main
@@ -65,7 +65,7 @@ enum HistoryControl {
         }
         if let model = find() { return model }
         _ = try? await ControlDeadline.shared.run(method: "debug.history_cookie_backups", deadline: .now + .seconds(5)) { @MainActor in
-            for await found in Observations({ find() != nil }) where found { return true }
+            for await found in ObservationStream({ find() != nil }) where found { return true }
             return false
         }
         return find()

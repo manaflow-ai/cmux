@@ -9,7 +9,7 @@ public final class Protocol {
     public static final String SDK_VERSION = "1.0.0";
     public static final int VERSION = 12;
     public static final int SCHEMA_VERSION = 2;
-    public static final String IR_SHA256 = "761a7d05f476d3612f4a0b64b043b5b3ddce8a39c4ce19c02d869525fc4cf1c0";
+    public static final String IR_SHA256 = "a453986b67d167174f384a45b851ba6779b4ecfde280ba17c07ea656ab7e84b0";
     private Protocol() {}
 
     public static ProtocolEvent decodeEvent(Object value) {
@@ -18,16 +18,23 @@ public final class Protocol {
         return switch (event) {
             case "activity-changed" -> ActivityChangedEvent.fromWire(value);
             case "agent-changed" -> AgentChangedEvent.fromWire(value);
+            case "agent-inventory-changed" -> AgentInventoryChangedEvent.fromWire(value);
+            case "agent-inventory-watch-ended" -> AgentInventoryWatchEndedEvent.fromWire(value);
             case "agent-presence-changed" -> AgentPresenceChangedEvent.fromWire(value);
             case "bell" -> BellEvent.fromWire(value);
             case "bookmarks-changed" -> BookmarksChangedEvent.fromWire(value);
             case "browser-state" -> BrowserStateEvent.fromWire(value);
+            case "chief-changed" -> ChiefChangedEvent.fromWire(value);
             case "client-attached" -> ClientAttachedEvent.fromWire(value);
             case "client-changed" -> ClientChangedEvent.fromWire(value);
             case "client-detached" -> ClientDetachedEvent.fromWire(value);
             case "client-list-invalidated" -> ClientListInvalidatedEvent.fromWire(value);
             case "cloud-conversation-changed" -> CloudConversationChangedEvent.fromWire(value);
+            case "cloud-conversation-live" -> CloudConversationLiveEvent.fromWire(value);
             case "cloud-conversation-resynced" -> CloudConversationResyncedEvent.fromWire(value);
+            case "cloud-conversation-run-changed" -> CloudConversationRunChangedEvent.fromWire(value);
+            case "cloud-conversation-typing" -> CloudConversationTypingEvent.fromWire(value);
+            case "cloud-host-replica-needed" -> CloudHostReplicaNeededEvent.fromWire(value);
             case "cloud-inbox-changed" -> CloudInboxChangedEvent.fromWire(value);
             case "cloud-inbox-reset" -> CloudInboxResetEvent.fromWire(value);
             case "cloud-mux-resynced" -> CloudMuxResyncedEvent.fromWire(value);
@@ -38,6 +45,9 @@ public final class Protocol {
             case "config-reload-requested" -> ConfigReloadRequestedEvent.fromWire(value);
             case "conversation-changed" -> ConversationChangedEvent.fromWire(value);
             case "conversation-draft" -> ConversationDraftEvent.fromWire(value);
+            case "conversation-inbox-changed" -> ConversationInboxChangedEvent.fromWire(value);
+            case "conversation-live" -> ConversationLiveEvent.fromWire(value);
+            case "conversation-run-changed" -> ConversationRunChangedEvent.fromWire(value);
             case "conversation-typing" -> ConversationTypingEvent.fromWire(value);
             case "daemon-shutdown" -> DaemonShutdownEvent.fromWire(value);
             case "detached" -> DetachedEvent.fromWire(value);
@@ -46,6 +56,7 @@ public final class Protocol {
             case "frontend-projection-changed" -> FrontendProjectionChangedEvent.fromWire(value);
             case "graphics-status" -> GraphicsStatusEvent.fromWire(value);
             case "history-changed" -> HistoryChangedEvent.fromWire(value);
+            case "keybindings-changed" -> KeybindingsChangedEvent.fromWire(value);
             case "layout-changed" -> LayoutChangedEvent.fromWire(value);
             case "machine-usage-changed" -> MachineUsageChangedEvent.fromWire(value);
             case "notification" -> NotificationEvent.fromWire(value);
@@ -55,7 +66,9 @@ public final class Protocol {
             case "pairing-resolved" -> PairingResolvedEvent.fromWire(value);
             case "pane-added" -> PaneAddedEvent.fromWire(value);
             case "pane-closed" -> PaneClosedEvent.fromWire(value);
+            case "participant-avatar-changed" -> ParticipantAvatarChangedEvent.fromWire(value);
             case "personal-changed" -> PersonalChangedEvent.fromWire(value);
+            case "program-status-changed" -> ProgramStatusChangedEvent.fromWire(value);
             case "render-delta" -> RenderDeltaEvent.fromWire(value);
             case "render-state" -> RenderStateEvent.fromWire(value);
             case "resized" -> ResizedEvent.fromWire(value);
@@ -77,6 +90,7 @@ public final class Protocol {
             case "tab-renamed" -> TabRenamedEvent.fromWire(value);
             case "terminal-clipboard-read" -> TerminalClipboardReadEvent.fromWire(value);
             case "terminal-clipboard-read-cancelled" -> TerminalClipboardReadCancelledEvent.fromWire(value);
+            case "terminal-input-unclaimed" -> TerminalInputUnclaimedEvent.fromWire(value);
             case "terminal-reaped" -> TerminalReapedEvent.fromWire(value);
             case "terminal-registry-changed" -> TerminalRegistryChangedEvent.fromWire(value);
             case "title-changed" -> TitleChangedEvent.fromWire(value);

@@ -8,10 +8,22 @@
   --page-text: var(--cmux-text, CanvasText);
   --page-text-2: var(--cmux-text-secondary, color-mix(in srgb, CanvasText 70%, transparent));
   --page-text-3: var(--cmux-text-tertiary, color-mix(in srgb, CanvasText 50%, transparent));
+  /* Disabled controls stay at the tertiary tier everywhere: WCAG exempts them, and they must read
+     as off next to the lifted tertiary text below. */
+  --page-text-disabled: var(--cmux-text-tertiary, color-mix(in srgb, CanvasText 50%, transparent));
   --page-separator: var(--cmux-separator, color-mix(in srgb, CanvasText 8%, transparent));
   --page-hover: var(--cmux-hover, color-mix(in srgb, CanvasText 6%, transparent));
   --page-selection: var(--cmux-selection, color-mix(in srgb, CanvasText 10%, transparent));
   --page-elevated: var(--cmux-elevated-background, Canvas);
+}
+
+/* Over a see-through window (desktop.ts sets data-cmux-see-through when the page background is not
+   opaque) the text sits on the window tint over art. The native tint floor
+   (BackdropArtRange.legibleTintOpacity) holds secondary text at 4.5:1 over any art but tertiary
+   only at the 3:1 mark contrast, so tertiary text (labels such as "Add channel") takes the
+   secondary tier here. An opaque window keeps the tertiary tier. */
+:root[data-cmux-see-through] {
+  --page-text-3: var(--page-text-2);
 }
 
 html {
@@ -44,7 +56,7 @@ input {
   border-radius: 8px;
   background: var(--surface-popup);
   border: 1px solid var(--page-separator);
-  box-shadow: 0 6px 24px rgb(0 0 0 / 0.18);
+  box-shadow: var(--elevation-2);
   outline: none;
 }
 
@@ -66,7 +78,7 @@ input {
 }
 
 .page-menu-item:is([data-disabled], [aria-disabled="true"]) {
-  color: var(--page-text-3);
+  color: var(--page-text-disabled);
 }
 
 .page-menu-separator {

@@ -1,13 +1,15 @@
 public import CmuxNextDaemon
 public import CmuxNextDesign
 public import CmuxNextTabs
+import Foundation
 
 /// Turns the status facts the daemon publishes about a tab into
 /// `StatusReport`s, and merges them per tab and per workspace with
 /// `StatusStack` (plans/cmux-next/status-indicators.md). The app only
 /// renders: every fact here is written by its owner (agent hooks through
-/// the session host today; `workspace_status` entries, OSC 9;4 terminal
-/// progress and running commands once the daemon publishes them).
+/// the session host; running shell commands from the terminal record's
+/// `extra.busy`; `workspace_status` entries and OSC 9;4 terminal progress
+/// once the app reads them).
 public struct StatusMapping {
     public static let shared = Self()
 
@@ -35,7 +37,27 @@ public struct StatusMapping {
         if let ref = tab.agentSession, let turn = visibleTurn(tab) {
             reports.append(StatusReport(id: "acp:\(ref.session ?? tab.id)", source: .agent, state: state(turn), label: ref.harness))
         }
+        if let report = command(tab) { reports.append(report) }
         return reports
+    }
+
+    /// A plain shell command (the daemon's `extra.busy`) that has run `status.inferCommandBusyAfter`:
+    /// busy, the weakest source. A younger one arms the tab's one-shot recheck for when it comes of age.
+    /// An agent's terminal shows its own hook or turn state instead: the agent CLI is one long command
+    /// that would look busy while it waits at its prompt.
+    func command(_ tab: TabModel, nowMs: UInt64 = UInt64(Date().timeIntervalSince1970 * 1000)) -> StatusReport? {
+        let behavior = DesignSettings.shared.statusBehavior
+        guard behavior.inferCommandBusy, tab.agent == nil, tab.agentSession == nil, var since = tab.commandSinceMs else { return nil }
+        _ = tab.commandRecheck
+        // A daemon whose clock runs ahead (another machine) counts from when this client saw the command.
+        if let seen = tab.commandSeenAt { since = min(since, UInt64(seen.timeIntervalSince1970 * 1000)) }
+        let age = nowMs > since ? nowMs - since : 0
+        let after = UInt64(behavior.inferCommandBusyAfter * 1000)
+        guard age >= after else {
+            tab.recheckCommand(after: .milliseconds(after - age))
+            return nil
+        }
+        return StatusReport(id: "command:\(tab.id)", source: .command, state: .busy(progress: nil), updatedAtMs: since)
     }
 
     /// Roster sources that infer state from the screen (the agent plugin,
@@ -129,9 +151,27 @@ public struct StatusMapping {
         tabs.contains { tab in reports(tab).contains { $0.state.isWorking } }
     }
 
-    /// A workspace's merged status over its tabs.
-    public func summary(tabs: [TabModel]) -> StatusSummary {
-        StatusStack.resolve(tabs.flatMap(reports), honoring: honored)
+    /// A workspace's merged status over its tabs and its `cmux status set` entries.
+    public func summary(tabs: [TabModel], status: WorkspaceStatus? = nil) -> StatusSummary {
+        StatusStack.resolve(tabs.flatMap(reports) + reports(status), honoring: honored)
+    }
+
+    /// The reports of a workspace's status entries that carry a state (`cmux status set --state`,
+    /// `status run`; cx-lko8w): busy with its progress, waiting, error, success. `info` and plain
+    /// lines draw only their text. The daemon clears owned entries (TTL, owner exit).
+    public func reports(_ status: WorkspaceStatus?) -> [StatusReport] {
+        (status?.entries ?? []).compactMap { entry in
+            let state: StatusIndicatorState? = switch entry.state {
+            case "busy": .busy(progress: entry.progress.map { min(max($0, 0), 1) })
+            case "waiting": .waiting
+            case "error": .error
+            case "success": .success
+            default: nil
+            }
+            guard let state else { return nil }
+            return StatusReport(id: "status:\(entry.key)", source: .explicit, state: state, label: entry.text,
+                                style: entry.style.flatMap(StatusIndicatorStyle.init(rawValue:)))
+        }
     }
 
     /// Sources whose style hint wins (`appearance.statusIndicator.honorStatusStyle`).

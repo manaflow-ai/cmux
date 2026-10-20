@@ -3,7 +3,8 @@ public import Foundation
 /// Fetches, verifies and caches signed release notes (R114 changelog).
 /// Notes live next to the build's appcast: `<feed folder>/notes/<build>.json`
 /// and `.sig`. Only notes whose signature verifies are cached or returned;
-/// offline, the cache answers.
+/// a build's notes come from the cache once verified, the index and
+/// announcements from the network first; offline, the cache answers.
 nonisolated public struct ReleaseNotesStore: Sendable {
     public let notesBase: URL
     public let cache: URL
@@ -21,11 +22,14 @@ nonisolated public struct ReleaseNotesStore: Sendable {
         self.fetcher = fetcher
     }
 
-    /// The verified notes of `build`: fresh when the network answers, else cached.
+    /// The verified notes of `build`: cached once verified (a build's notes never
+    /// change), else fetched.
     @concurrent
     public func notes(for build: String) async -> ReleaseNotes? {
-        guard Self.isSafeName(build), let data = await verified("\(build).json"),
-              let notes = try? JSONDecoder().decode(ReleaseNotes.self, from: data), notes.build == build else { return nil }
+        guard Self.isSafeName(build), let data = await verified("\(build).json", cacheFirst: true),
+              var notes = try? JSONDecoder().decode(ReleaseNotes.self, from: data), notes.build == build else { return nil }
+        // Older notes carry only commit subjects: readers (the changelog page) get titles with PRs.
+        notes.items = notes.changeItems
         return notes
     }
 
@@ -45,12 +49,16 @@ nonisolated public struct ReleaseNotesStore: Sendable {
         return feed.items
     }
 
-    /// The file and its signature from the network (cached once verified),
-    /// else the cached pair, verified again.
+    /// The file and its signature, fetched together from the network (cached
+    /// once verified), else the cached pair, verified again. `cacheFirst`
+    /// (a build's notes, which never change) answers from the verified cache
+    /// and fetches only when it misses, so What's New opens inside its paint hold.
     @concurrent
-    private func verified(_ name: String) async -> Data? {
-        let file = notesBase.appending(path: name), signature = notesBase.appending(path: name + ".sig")
-        if let data = try? await fetcher.fetch(file), let sig = try? await fetcher.fetch(signature),
+    private func verified(_ name: String, cacheFirst: Bool = false) async -> Data? {
+        if cacheFirst, let data = cached(name) { return data }
+        async let fetchedData = try? fetcher.fetch(notesBase.appending(path: name))
+        async let fetchedSignature = try? fetcher.fetch(notesBase.appending(path: name + ".sig"))
+        if let data = await fetchedData, let sig = await fetchedSignature,
            let text = String(data: sig, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
            ContentSignature.verify(data, signature: text, publicKey: publicKey) {
             try? FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true)
@@ -58,9 +66,14 @@ nonisolated public struct ReleaseNotesStore: Sendable {
             try? sig.write(to: cache.appending(path: name + ".sig"), options: .atomic)
             return data
         }
-        // concurrency-allow: @concurrent, never on the main thread; small cached files.
+        return cacheFirst ? nil : cached(name)
+    }
+
+    /// The cached pair, when its signature still verifies.
+    private func cached(_ name: String) -> Data? {
+        // concurrency-allow: called from @concurrent verified(_:), never on the main thread; small cached files.
         guard let data = try? Data(contentsOf: cache.appending(path: name)),
-              // concurrency-allow: @concurrent, never on the main thread; small cached files.
+              // concurrency-allow: called from @concurrent verified(_:), never on the main thread; small cached files.
               let sig = try? String(contentsOf: cache.appending(path: name + ".sig"), encoding: .utf8),
               ContentSignature.verify(data, signature: sig.trimmingCharacters(in: .whitespacesAndNewlines), publicKey: publicKey)
         else { return nil }

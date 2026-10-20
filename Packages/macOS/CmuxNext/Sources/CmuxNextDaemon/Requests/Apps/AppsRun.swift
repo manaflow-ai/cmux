@@ -60,6 +60,16 @@ public struct AppsRunResult: Decodable, Sendable, Equatable {
 /// `apps-terminal-links`: every open terminal connector link and its local
 /// socket (`{links: [{channel, app, id, target, socket}]}`). Read-only; like
 /// any `apps-` request it subscribes the connection to app events.
+/// `apps-link-changed`: this Mac's `cmux link` started or stopped (`cmux
+/// link ensure` / `stop`); the daemon tells every app server that reads the
+/// link (`cmux.host.link.changed`). Answers `{servers: N}`.
+public struct AppsLinkChangedRequest: DaemonRequest {
+    public typealias Response = JSONValue
+    public static let command = "apps-link-changed"
+
+    public init() {}
+}
+
 public struct AppsTerminalLinksRequest: DaemonRequest {
     public typealias Response = JSONValue
     public static let command = "apps-terminal-links"

@@ -153,6 +153,13 @@ enum DebugKey {
                 // The row id Return runs and the first rows, so a probe tells an action row from a
                 // scope or setting row with the same action.
                 "palette_selected_row": palette.model.selectedItem.map { .string($0.id) } ?? .null,
+                // The rows on screen when this reply is built. A query ranks off the main actor:
+                // while `palette_ranking` is true they are stand-ins (the previous query's rows), and
+                // while `palette_loading` is true a provider can still add rows and rank again. Read
+                // the rows again when both are false, or use the `palette.query` socket method.
+                "palette_query": .string(palette.model.query),
+                "palette_ranking": .bool(palette.model.isRanking),
+                "palette_loading": .bool(palette.model.isLoading),
                 "palette_rows": .array(palette.model.rows.prefix(6).map { .string($0.id) }),
                 "palette_recorder": palette.model.shortcutRecorder.map { recorder in
                     .object(["action": .string(recorder.actionID.rawValue), "message": recorder.message.map(JSONValue.string) ?? .null,
@@ -231,7 +238,7 @@ enum DebugKey {
     }
 
     /// The Chromium page window over `pane`'s selected Chromium tab.
-    private static func pageWindow(of pane: String, in controller: WindowController) -> NSWindow? {
+    static func pageWindow(of pane: String, in controller: WindowController) -> NSWindow? {
         guard let window = controller.window, let paneController = controller.content?.paneController(key: pane),
               case .browser(let entry)? = paneController.currentContent, entry.tab.presentation == .childWindow else { return nil }
         let content = entry.tab.contentView

@@ -9,7 +9,7 @@ extension DaemonEvent {
         case .screenAdded(let d), .screenClosed(let d), .screenRenamed(let d), .screenChanged(let d): d.clientTransactionID
         case .paneAdded(let d), .paneClosed(let d): d.clientTransactionID
         case .tabAdded(let d), .tabClosed(let d), .tabRenamed(let d), .tabChanged(let d): d.clientTransactionID
-        case .treeChanged(let transaction), .layoutChanged(_, let transaction): transaction
+        case .treeChanged(let transaction), .layoutChanged(_, _, let transaction): transaction
         case .conversationChanged(let event): event.transaction
         default: nil
         }
@@ -22,6 +22,10 @@ extension DaemonEvent {
         func d<T: Decodable>(_ type: T.Type) throws -> T { try decoder.decode(T.self, from: line) }
         do {
             switch name {
+            case "apps-agent-inventory-demand":
+                return .unknown(name: name, payload: AgentInventoryProviderDemand.payload(line: line))
+            case "agent-inventory-changed", "agent-inventory-watch-ended":
+                return .unknown(name: name, payload: AgentInventoryWatchEvent.decode(name: name, line: line)?.payload ?? .null)
             case "workspace-added": return .workspaceAdded(try d(WorkspaceDelta.self))
             case "workspace-closed": return .workspaceClosed(try d(WorkspaceDelta.self))
             case "workspace-renamed": return .workspaceRenamed(try d(WorkspaceDelta.self))
@@ -43,7 +47,10 @@ extension DaemonEvent {
             case "personal-changed": return .treeChanged(transaction: nil)
             case "layout-changed":
                 let e = try d(EventPayload.ScreenField.self)
-                return .layoutChanged(screen: e.screen, transaction: e.clientTransactionID)
+                // `layout-delta-v1`: the screen's layout fields, flat. A
+                // payload that does not decode refetches, like no payload.
+                let layout = e.hasLayout ? try? d(ScreenLayoutDelta.self) : nil
+                return .layoutChanged(screen: e.screen, layout: layout, transaction: e.clientTransactionID)
             case "title-changed":
                 let e = try d(EventPayload.TitleChanged.self)
                 return .titleChanged(surface: e.surface, title: e.title ?? "")
@@ -67,9 +74,13 @@ extension DaemonEvent {
             case "history-changed":
                 let e = try d(EventPayload.HistoryChanged.self)
                 return .historyChanged(revision: e.revision, kinds: e.kinds ?? [])
+            case "keybindings-changed":
+                return .keybindingsChanged(revision: try d(EventPayload.KeybindingsChanged.self).revision)
             case "conversation-changed": return .conversationChanged(try d(ConversationEvent.self))
             case "conversation-typing": return .conversationTyping(try d(ConversationTyping.self))
             case "conversation-draft": return .conversationDraft(try d(ConversationDraft.self))
+            case "conversation-live": return .conversationLive(try d(ConversationLive.self))
+            case "conversation-run-changed": return .conversationRunChanged(try d(ConversationRunChanged.self))
             case "terminal-clipboard-read": return .terminalClipboardRead(try d(TerminalClipboardRead.self))
             case "terminal-clipboard-read-cancelled":
                 return .terminalClipboardReadCancelled(requestID: try d(EventPayload.RequestField.self).requestID)
@@ -80,6 +91,13 @@ extension DaemonEvent {
                 return .cloudConversations(event)
             case "client-attached", "client-changed", "client-detached", "client-list-invalidated":
                 return .client(name: name, payload: payload())
+            // The request id is a random u64: JSONValue numbers are Double (53 bits), so the exact id
+            // goes along as a decimal string (`request_id`) for `pairing-response` (cx-hnmbt.2).
+            case "pairing-requested", "pairing-resolved":
+                let id = try d(EventPayload.PairingRequest.self).request
+                guard case .object(var fields) = payload() else { return .unknown(name: name, payload: .null) }
+                fields["request_id"] = .string(String(id))
+                return .unknown(name: name, payload: .object(fields))
             case "overflow": return .overflow(try d(EventPayload.OverflowEvent.self).error ?? "overflow")
             case "daemon-shutdown": return .daemonShutdown
             case LineTransport.streamEvent:
@@ -100,6 +118,14 @@ private enum EventPayload {
         var kinds: [String]?
     }
 
+    struct PairingRequest: Decodable {
+        var request: UInt64
+    }
+
+    struct KeybindingsChanged: Decodable {
+        var revision: UInt64
+    }
+
     struct BookmarksChanged: Decodable {
         var browserProfileID: String
         var revision: UInt64?
@@ -112,9 +138,17 @@ private enum EventPayload {
     struct ScreenField: Decodable {
         var screen: ScreenID
         var clientTransactionID: ClientTransactionID?
+        /// The event carries a screen layout (`layout-changed` with `layout-delta-v1`).
+        var hasLayout: Bool
         enum CodingKeys: String, CodingKey {
-            case screen
+            case screen, layout
             case clientTransactionID = "transaction"
+        }
+        init(from decoder: any Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            screen = try c.decode(ScreenID.self, forKey: .screen)
+            clientTransactionID = try c.decodeIfPresent(ClientTransactionID.self, forKey: .clientTransactionID)
+            hasLayout = c.contains(.layout)
         }
     }
 

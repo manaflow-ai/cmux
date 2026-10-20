@@ -7,6 +7,7 @@ import CmuxNextBrowserAutomation
 import CmuxNextDaemon
 import CmuxNextHistory
 import CmuxNextRemoteView
+import CmuxNextScreenshots
 import Foundation
 import os
 #if DEBUG
@@ -107,7 +108,7 @@ extension TabContentCache {
     /// wake, engine switch). A tab created later, by anyone, records its
     /// first visit. Typing an app page address (`cmux://history`,
     /// `cmux://bookmarks`, or `chrome://history`, `chrome://bookmarks`:
-    /// `routedChromiumPage`) into the address bar shows that page.
+    /// `ChromiumPageRouter`) into the address bar shows that page.
     func serveAppPages(_ entry: BrowserEntry, key: String) {
         guard let services = pageRequests.services else { return }
         let installedBefore = !services.history.installedPageKeys.insert(key).inserted
@@ -116,7 +117,7 @@ extension TabContentCache {
         }
         entry.chrome.loadOverride = { [weak self, weak chrome = entry.chrome] typed in
             // chrome://history shows cmux's page; chrome://settings opens Settings and nothing loads here.
-            guard let url = services.routedChromiumPage(typed) else {
+            guard let url = ChromiumPageRouter.routed(typed, services: services) else {
                 chrome?.addressBar.showPageURL()
                 return true
             }
@@ -141,6 +142,7 @@ extension TabContentCache {
 
     static func isAppPage(_ url: URL?) -> Bool {
         HistoryPageAddress.matches(url) || BookmarkPageAddress.matches(url) || AgentActivityPageAddress.matches(url)
+            || ScreenshotsPageAddress.matches(url)
             || RemoteViewTabRecord.matches(url) || isRemoteBrowserPage(url) || MachineBrowserRecord.matches(url)
     }
 
@@ -169,6 +171,11 @@ extension TabContentCache {
         #endif
         if AgentActivityPageAddress.matches(url) {
             let page = services.agentActivityPage.makePage(key: key, engine: engine, profile: profile)
+            page.onNavigate = { [weak self] target in self?.leaveAppPage(key, to: target) }
+            return page
+        }
+        if ScreenshotsPageAddress.matches(url) {
+            let page = services.screenshotsPage.makePage(key: key, engine: engine, profile: profile)
             page.onNavigate = { [weak self] target in self?.leaveAppPage(key, to: target) }
             return page
         }

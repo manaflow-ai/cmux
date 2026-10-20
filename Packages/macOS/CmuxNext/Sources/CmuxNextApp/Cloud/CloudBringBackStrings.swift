@@ -22,6 +22,12 @@ enum CloudBringBackStrings {
                               defaultValue: "These files changed both here and on Cloud, so nothing came back: %@. Settle them, then Retry.",
                               table: "Cloud", bundle: .module), ListFormatter.localizedString(byJoining: paths))
     }
+    /// The machine's cmux-tui is too old to give the chat back (`machine_outdated`, cx-rppd.13).
+    static func outdatedMachine(_ machine: String) -> String {
+        String(format: String(localized: "cloud.bringBack.outdatedMachine",
+                              defaultValue: "%@ runs an older cmux that can't give this chat back yet. Update the machine to bring it back.",
+                              table: "Cloud", bundle: .module), machine)
+    }
     static func syncFailed(_ machine: String, _ detail: String) -> String {
         String(format: String(localized: "cloud.bringBack.syncFailed", defaultValue: "Couldn't copy the folder back from %1$@: %2$@", table: "Cloud", bundle: .module),
                machine, detail)

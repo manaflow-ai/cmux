@@ -127,20 +127,23 @@ test("a New Tab's picker lists the curated models and the chip's own, with the r
       </QueryClientProvider>,
     );
   });
-  expect(host.querySelector(".acpmux-model-name")?.textContent).toBe("Claude Sonnet 5");
+  // The chip draws the name without the vendor its mark shows; the title keeps the full name.
+  expect(host.querySelector(".acpmux-model-name")?.textContent).toBe("Opus 5.5");
+  expect(host.querySelector('[data-menu="Model"]')?.getAttribute("title")).toBe("Claude Opus 5.5");
   await act(async () => host.querySelector<HTMLButtonElement>('[data-menu="Model"]')!.click());
   const rows = () =>
     [...host.querySelectorAll('[data-key^="model:"] .acpmux-menu-label')].map((row) => row.textContent);
-  expect(rows()).toEqual(["Fable 5.1", "Opus 5.5", "Sonnet 5.5", "Haiku 5.5", "Sonnet 5"]);
+  // The chip names the catalog's default, Opus 5.5 (cx-qtmy2): a top model, so nothing joins the list.
+  expect(rows()).toEqual(["Fable 5.1", "Opus 5.5", "Sonnet 5.5", "Haiku 5.5"]);
   const more = host.querySelector<HTMLButtonElement>(".acpmux-mp-older")!;
   expect(more.getAttribute("aria-expanded")).toBe("false");
   // Fable 5.1 runs by the alias Claude Code offers. The chip's row is checked, and opening the fold
   // lists every other model under it once.
   expect(host.querySelector('[data-key="model:fable"] .acpmux-menu-label')?.textContent).toBe("Fable 5.1");
-  expect(host.querySelector('[data-key="model:claude-sonnet-5"]')?.getAttribute("aria-checked")).toBe("true");
+  expect(host.querySelector('[data-key="model:claude-opus-5-5"]')?.getAttribute("aria-checked")).toBe("true");
   await act(async () => more.click());
   const all = rows();
-  expect(all.slice(0, 5)).toEqual(["Fable 5.1", "Opus 5.5", "Sonnet 5.5", "Haiku 5.5", "Sonnet 5"]);
+  expect(all.slice(0, 4)).toEqual(["Fable 5.1", "Opus 5.5", "Sonnet 5.5", "Haiku 5.5"]);
   expect(all).toContain("Opus 4.8");
   expect(all.filter((name) => name === "Sonnet 5")).toHaveLength(1);
 });

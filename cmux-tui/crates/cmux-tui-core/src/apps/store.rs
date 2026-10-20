@@ -13,6 +13,8 @@
 //! - `install` and `uninstall`: origin user only (the A2 gate admits it only
 //!   from the hosting app connection, after the native confirmation sheet),
 //!   third-party apps only (`apps.first_party_hide_only`).
+//! - `grants.get`, `logs`, `asset.get`, `hidden.set`, `grant.set` and
+//!   `grant.revoke`: the installed-app panels (apps/store_panels.rs).
 //! - `cmux.apps.open` opens UI, so the Mac app answers it; it is not a
 //!   daemon op.
 //!
@@ -156,22 +158,22 @@ struct SetResult {
     app: InstalledApp,
 }
 
-fn bad_request(e: impl std::fmt::Display) -> ApiError {
+pub(super) fn bad_request(e: impl std::fmt::Display) -> ApiError {
     ApiError::new("bad-request", e.to_string())
 }
 
 /// Parses op params; absent params are an empty object.
-fn params<T: for<'de> Deserialize<'de>>(params: Value) -> Result<T, ApiError> {
+pub(super) fn params<T: for<'de> Deserialize<'de>>(params: Value) -> Result<T, ApiError> {
     let params = if params.is_null() { Value::Object(Default::default()) } else { params };
     serde_json::from_value(params).map_err(bad_request)
 }
 
-fn to_value(value: impl Serialize) -> Result<Value, ApiError> {
+pub(super) fn to_value(value: impl Serialize) -> Result<Value, ApiError> {
     serde_json::to_value(value).map_err(|e| ApiError::new("operation.failed", e.to_string()))
 }
 
 /// The en text of a manifest string or `{en: ...}` object.
-fn text(value: &Value) -> String {
+pub(super) fn text(value: &Value) -> String {
     match value {
         Value::String(s) => s.clone(),
         Value::Object(map) => map
@@ -235,7 +237,7 @@ fn installed_app(app: &str, record: &Record, package: Option<&Package>) -> Insta
     }
 }
 
-fn risk(scope: &str) -> &'static str {
+pub(super) fn risk(scope: &str) -> &'static str {
     use cmux_app_manifest::ScopeClass;
     match cmux_app_manifest::scope_info(scope).map(|i| i.class) {
         Some(ScopeClass::Standard) => "standard",
@@ -259,10 +261,19 @@ fn matches(package: &Package, query: &str) -> bool {
 }
 
 /// Whether App Store op `op` changes the install mirror (`set`, `install`,
-/// `uninstall`): the wire admits it only from the verified cmux app
-/// connection (Gate A2), whatever origin it claims.
+/// `uninstall`, `hidden.set`, `grant.set`, `grant.revoke`): the wire admits
+/// it only from the verified cmux app connection (Gate A2), whatever origin
+/// it claims.
 pub(crate) fn store_op_mutates(op: &str) -> bool {
-    matches!(op.strip_prefix("cmux.").unwrap_or(op), "apps.set" | "apps.install" | "apps.uninstall")
+    matches!(
+        op.strip_prefix("cmux.").unwrap_or(op),
+        "apps.set"
+            | "apps.install"
+            | "apps.uninstall"
+            | "apps.hidden.set"
+            | "apps.grant.set"
+            | "apps.grant.revoke"
+    )
 }
 
 impl Supervisor {
@@ -288,7 +299,9 @@ impl Supervisor {
             "apps.uninstall" => {
                 params(args).and_then(|p| self.store_install(client, p, origin, false))
             }
-            _ => Err(ApiError::new("apps.op.unknown", format!("{op} is not an App Store op"))),
+            other => self.panel_call(client, other, args, origin).unwrap_or_else(|| {
+                Err(ApiError::new("apps.op.unknown", format!("{op} is not an App Store op")))
+            }),
         }
     }
 
@@ -362,7 +375,7 @@ impl Supervisor {
 
     /// The app's state after a commit, as `set`, `install` and `uninstall`
     /// answer it.
-    fn set_result(&self, app: &str) -> Result<Value, ApiError> {
+    pub(super) fn set_result(&self, app: &str) -> Result<Value, ApiError> {
         let inner = self.inner.lock().unwrap();
         let fallback = super::mirror::absent(Source::User, None);
         let record = inner.mirror.apps.get(app).unwrap_or(&fallback);
