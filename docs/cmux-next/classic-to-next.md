@@ -5,11 +5,24 @@ work to come along: recent workspaces (folder, title, terminals and their launch
 or SSH commands) and Claude Code or Codex chats, resumed by session id. An agent
 can follow it end to end. Nothing here modifies classic's files.
 
-The quick way is **Import Workspaces from Classic cmux** in cmux-next's command
-palette, or `cmux workspace import-classic`. It opens every workspace from
-classic's last saved session, with the same panes, splits, tabs and tab names.
-It never runs on its own. It shows a toast when it finishes, and running it
-again opens the workspaces again.
+Usually nothing is needed: the first launch of cmux-next after the update
+brings classic's last saved session over once, by itself. Every window comes
+back with its workspaces in sidebar order, their groups (name, color, icon,
+collapsed, pinned), colors and pins, with the same panes, splits, tabs and tab
+names. A toast says what came over and what stayed. Later launches make
+nothing again. If you go back to classic and then update again, only the
+workspaces classic made in between come over, into the same groups. Classic's
+files are only read; a copy of what was read is kept in
+`~/Library/Application Support/cmux-next/<bundle id>/classic-migration/backups/`.
+Set `CMUX_NEXT_CLASSIC_MIGRATION=0` to turn it off. When cmux-next was already
+in use before this build, the first launch only records classic's workspaces
+and opens none.
+
+To bring workspaces over by hand, run **Import Workspaces from Classic cmux**
+in cmux-next's command palette, or `cmux workspace import-classic`. It opens
+every workspace from classic's last saved session that is not open here (one
+you closed here comes back), never a duplicate, and shows a toast when it
+finishes.
 
 - Terminals open in their folders. A command that was running doesn't start
   again. A terminal's saved scrollback prints once above its first prompt, as

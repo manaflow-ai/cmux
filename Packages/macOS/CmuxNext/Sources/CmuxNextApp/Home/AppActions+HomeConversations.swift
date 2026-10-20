@@ -61,7 +61,7 @@ extension AppActions {
             registry.bind(id) {
                 let step: @MainActor (TopHomePageView) -> Void = { page in
                     guard let next = page.sidebar.model().neighbor(of: page.shown, offset: offset) else { return }
-                    page.show(next)
+                    page.open(next)
                 }
                 // The docked Home steps its Messages list; Channels has its own keys (j/k).
                 guard services.home.dock.isClassic else {
@@ -88,7 +88,7 @@ extension AppActions {
                 }
             }
             guard let page = homePage(services) else { return }
-            page.show(ConversationID(id))
+            page.open(ConversationID(id))
         })
     }
 
