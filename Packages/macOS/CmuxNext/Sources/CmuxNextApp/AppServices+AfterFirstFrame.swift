@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextAgentPane
 
 // Launch work no first frame needs: AppDelegate starts it once the first window's
 // frame is committed (FirstFrameGate), so it never delays that frame (perf-launch-memory).
