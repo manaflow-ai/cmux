@@ -61,6 +61,9 @@ public final class ResizeCoordinator {
         waited[key] = nil
     }
 
+    /// Holds (or lets go of) every terminal's grid for `holder`. Red: holds nothing.
+    public func setHeld(_ held: Bool, by holder: AnyObject) {}
+
     /// One frame; false once every size went.
     public func tick() -> Bool {
         // Held sizes keep waiting; the frames keep running until it ends.

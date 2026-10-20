@@ -2195,6 +2195,15 @@
     "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift (MotionTunables.springDefaults); cmux-tui/crates/cmux-motion reads this file at build time (build.rs)",
     "unit": "s",
     "use": "A new tab growing in at its final slot and the tabs right of it making room, on one spring (ui.animations.newTab, on by default; Lawrence 2026-10-14: the tab-open motion of 10-11, about 7 frames / 115 ms). Visible end 118 ms."
+   },
+   "split": {
+    "value": {
+     "response": 0.28,
+     "dampingFraction": 0.95
+    },
+    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift (MotionTunables.springDefaults); cmux-tui/crates/cmux-motion reads this file at build time (build.rs)",
+    "unit": "s",
+    "use": "Cmd-D and Cmd-Shift-D (plans/cmux-next/split-spring-animation/DESIGN.md): the new pane grows in from the split edge while every pane of its chain makes room, one spring from the key's frame to rest (Lawrence 2026-10-19). Half the travel at ~73 ms, a 700 pt split visibly at rest by ~375 ms, overshoot under 0.1 pt. Not structural. macOS only until cmux-motion's MotionSpring gets it (build.rs reads only its own list)."
    }
   },
   "tweens": {

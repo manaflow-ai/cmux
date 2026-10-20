@@ -157,7 +157,7 @@ final class ScreenContentView: NSView {
         // with its velocity, instead of snapping to the end (hq-1d: Cmd-D measured 4 frames).
         let inFlight = splits && structural && arrivals.isEmpty && !departing
             && paneFrames.values.contains { $0.rect != $0.targetRect }
-        motionState.retarget(structural: structural, inFlight: inFlight, departing: departing, zooming: zooming, hasFrames: paneFrames.values.contains { $0.rect != $0.targetRect })
+        motionState.retarget(structural: structural, inFlight: inFlight, departing: departing, zooming: zooming, splitting: !arrivals.isEmpty, hasFrames: paneFrames.values.contains { $0.rect != $0.targetRect })
         let carried = !arrivals.isEmpty || departing || returning
         // Strip springs run in strip coordinates and fixed ones in the view's: a moved strip origin (a dock
         // that came or went) or a pane changing sides (a zoom shows its pane fixed) keeps it where it showed.

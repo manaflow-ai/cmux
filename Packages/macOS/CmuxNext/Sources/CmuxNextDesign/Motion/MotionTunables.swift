@@ -14,6 +14,9 @@ public nonisolated enum MotionTunables {
         .zoom: (SpringParameters(response: 0.30, dampingFraction: 1), "A pane zooming to fill its screen and back (Cmd-Shift-Enter)."),
         .exit: (SpringParameters(response: 0.24, dampingFraction: 1), "A pane closing: its neighbours and dividers covering its space."),
         .tabOpen: (SpringParameters(response: 0.1, dampingFraction: 1), "A new tab growing in at its slot and the tabs right of it making room."),
+        // plans/cmux-next/split-spring-animation/DESIGN.md: half its travel at ~73 ms (the key reads as
+        // answered), a 700 pt split visibly at rest by ~375 ms, overshoot under 0.1 pt.
+        .split: (SpringParameters(response: 0.28, dampingFraction: 0.95), "Cmd-D and Cmd-Shift-D: the new pane growing in while its whole chain makes room, on one spring."),
         .appear: (SpringParameters(response: 0.135, dampingFraction: 1), "Palette scale-in, tab grow-in, group expand, row insert, sidebar show."),
         .disappear: (SpringParameters(response: 0.11, dampingFraction: 1), "Tab close, group collapse, row removal, sidebar hide."),
         .settle: (SpringParameters(response: 0.22, dampingFraction: 0.85), "Release after a drag: tab drop, ghost landing, sidebar row drop."),
