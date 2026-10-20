@@ -268,6 +268,7 @@ public final class TerminalSession {
     /// Stops consuming events and detaches the surface. The IO owner decides
     /// whether the underlying terminal keeps running.
     public func close() {
+        surfaceView.clipboardRequests.cancelPendingWrite()
         eventsTask?.cancel()
         eventsTask = nil
         closeCancels.forEach { $0.cancel() }
@@ -361,6 +362,7 @@ public final class TerminalSession {
     /// that takes the old one's place (cmux-tui-contract.md 3.2).
     private func swapSurface() {
         let old = surfaceView
+        old.clipboardRequests.cancelPendingWrite()
         let wasFirstResponder = old.isFirstResponder
         let fresh = TerminalSurfaceView(io: ioMode, input: input, session: self)
         swappedSurfaces += 1
