@@ -50,6 +50,40 @@ struct AcpmuxLaunchSecurityTests {
         #expect(variables["PATH"] == "/usr/bin")
     }
 
+    @Test func signedLaunchDoesNotInheritUnrelatedApplicationSecrets() throws {
+        var environment = try Self.environment()
+        environment.passesPersonKeyAtSpawn = false
+
+        let variables = AcpmuxDaemonLauncher.spawnEnvironment(
+            environment,
+            inherited: [
+                "HOME": "/Users/test",
+                "LANG": "en_US.UTF-8",
+                "PATH": "/usr/bin:/bin",
+                "OPENAI_API_KEY": "fixture-secret",
+                "UNRELATED_SESSION_TOKEN": "fixture-secret",
+            ]
+        )
+
+        #expect(variables["HOME"] == "/Users/test")
+        #expect(variables["LANG"] == "en_US.UTF-8")
+        #expect(variables["PATH"] == "/usr/bin:/bin")
+        #expect(variables["OPENAI_API_KEY"] == nil)
+        #expect(variables["UNRELATED_SESSION_TOKEN"] == nil)
+    }
+
+    @Test func unsignedDevelopmentLaunchKeepsItsApplicationEnvironment() throws {
+        var environment = try Self.environment()
+        environment.passesPersonKeyAtSpawn = true
+
+        let variables = AcpmuxDaemonLauncher.spawnEnvironment(
+            environment,
+            inherited: ["DEVELOPMENT_TEST_VALUE": "present"]
+        )
+
+        #expect(variables["DEVELOPMENT_TEST_VALUE"] == "present")
+    }
+
     @Test func signedResolutionRejectsAnExecutableOutsideTheAppsTeam() {
         var checkedTeam: String?
         let environment = AcpmuxEnvironment.resolve(
