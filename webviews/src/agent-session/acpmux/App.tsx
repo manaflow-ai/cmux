@@ -6284,7 +6284,9 @@ function AcpmuxPane() {
           data-new-chat={freshView && !showNewTab ? "" : undefined}
           // The transcript runs the pane's height under the bottom stack (bottomStack.css) while the
           // stage shows it; a new chat's hero, a handoff review, the diff and the inspector keep it in flow.
-          data-dock={!reviewing && !freshView && !diffView && !fileOpen && !filesOpen && !inspectorOpen ? "float" : undefined}
+          data-dock={
+            !reviewing && !freshView && !diffView && !fileOpen && !filesOpen && !inspectorOpen ? "float" : undefined
+          }
           data-summary={summaryCard.column ? "inline" : "popover"}
         >
           {!harnessesOpen && showNewTab && !newTab.history && (
