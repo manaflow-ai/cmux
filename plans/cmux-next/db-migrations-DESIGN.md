@@ -123,7 +123,15 @@ pscale deploy-request create cmux-next-vitess release-<sha12> --into main --org 
 pscale deploy-request diff cmux-next-vitess <n> --org cmux      # review: only the expected DDL
 pscale deploy-request deploy cmux-next-vitess <n> --org cmux
 pscale deploy-request apply cmux-next-vitess <n> --org cmux     # swap when ready, at a quiet time
+# 4. After the revert window closes green: record the history on main (a data write, not DDL),
+#    with a short-TTL admin password. A deploy request copies schema, not rows, so without this
+#    the next release branch sees every file as pending and 0000_baseline fails.
+#    INSERT INTO schema_migrations (name, checksum) VALUES (...)  -- the rows staging has for these files
 ```
+
+The release branch gets `main`'s schema and `main`'s `schema_migrations` rows only if step 4 ran
+for every earlier deploy request. The first production deploy request (empty `main`) applies all
+files.
 
 PlanetScale runs each change as an online schema change (a shadow table, copied in the background,
 then a short cut-over), so tables stay readable and writable. Only one deploy request runs at a time
