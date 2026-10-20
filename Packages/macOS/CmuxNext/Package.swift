@@ -356,6 +356,11 @@ let package = Package(
             dependencies: ["CmuxNextCompat", "CmuxNextCloud"],
             swiftSettings: daemonSwiftSettings
         ),
+        .testTarget(
+            name: "CmuxNextCodeRouterTests",
+            dependencies: ["CmuxNextCodeRouter"],
+            swiftSettings: daemonSwiftSettings
+        ),
         // The Accounts screen (Settings > Accounts, onboarding step). The App
         // supplies `AccountsServices`.
         .target(
