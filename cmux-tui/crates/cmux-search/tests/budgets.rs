@@ -236,6 +236,7 @@ fn cmux_search_budget_queries_stay_fast_while_a_segment_seals() {
                     // The guard drops at the end of this statement; the
                     // retired segment is freed after it, off the lock.
                     let retired = engine.write().unwrap().finish_seal(sealed);
+                    assert!(retired.is_some());
                     drop(retired);
                 }
             }
