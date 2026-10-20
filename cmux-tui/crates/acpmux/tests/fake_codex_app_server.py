@@ -5,6 +5,8 @@ field. `model/list` answers in two pages; `thread/start` makes one thread and
 `turn/start` streams one message ("ok") and completes the turn.
 FAKE_CODEX=unauth refuses `model/list` as a signed-out Codex does;
 FAKE_CODEX=hang never answers; FAKE_DELAY waits before each answer.
+A prompt with "until-interrupt" streams "working" and completes its turn
+(interrupted) only on `turn/interrupt`.
 
 Background terminals (unified exec): a prompt with "bg-codex" runs `npm run
 dev` (process 1001), whose item is still open when the turn completes, `ls`
@@ -126,6 +128,9 @@ def reply(message):
     sys.stdout.flush()
 
 
+# Turns "until-interrupt" left open: turn id -> thread id.
+open_turns = {}
+
 for line in sys.stdin:
     try:
         message = json.loads(line)
@@ -154,11 +159,21 @@ for line in sys.stdin:
             sys.exit(1)
         reply({"id": rid, "result": {"turn": {"id": turn, "status": "inProgress", "items": []}}})
         reply({"method": "turn/started", "params": {"threadId": thread, "turn": {"id": turn, "status": "inProgress", "items": []}}})
+        if "until-interrupt" in text:
+            reply({"method": "item/agentMessage/delta", "params": {"threadId": thread, "turnId": turn, "itemId": "m1", "delta": "working"}})
+            open_turns[turn] = thread
+            continue
         if "bg-codex" in text:
             background_turn(thread, turn, os.getcwd(), text)
         reply({"method": "item/agentMessage/delta", "params": {"threadId": thread, "turnId": turn, "itemId": "m1", "delta": "ok"}})
         status = "interrupted" if "bg-codex-interrupt" in text else "completed"
         reply({"method": "turn/completed", "params": {"threadId": thread, "turn": {"id": turn, "status": status, "items": []}}})
+    elif method == "turn/interrupt":
+        params = message.get("params", {})
+        turn = params.get("turnId")
+        thread = open_turns.pop(turn, params.get("threadId"))
+        reply({"id": rid, "result": {}})
+        reply({"method": "turn/completed", "params": {"threadId": thread, "turn": {"id": turn, "status": "interrupted", "items": []}}})
     elif method == "thread/backgroundTerminals/terminate":
         params = message.get("params", {})
         found = running.pop(params.get("processId"), None)

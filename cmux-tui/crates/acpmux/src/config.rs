@@ -556,6 +556,17 @@ impl TitlesConfig {
     }
 }
 
+/// What a prompt sent while a turn runs does (`Config::busy_prompt`).
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum BusyPrompt {
+    /// Stop the running turn; the prompt runs next.
+    #[default]
+    Interrupt,
+    /// Wait behind the running turn (and the prompts already waiting).
+    Queue,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct Config {
@@ -611,6 +622,11 @@ pub struct Config {
     /// ended. Default 90000.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_start_timeout_ms: Option<u64>,
+    /// `busyPrompt`: what a prompt sent while its session's turn runs does, when the prompt
+    /// does not say (`_meta.acpmux.queue`). `interrupt` (the default): the running turn
+    /// stops and the prompt runs next. `queue`: it waits for the turn to end.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub busy_prompt: Option<BusyPrompt>,
     /// `autoResumeDelaysMs`: the wait before each automatic continuation of a turn a
     /// connection error cut off (`hub/auto_resume.rs`), one entry per attempt. Default
     /// `[10000, 60000, 300000, 1200000]`; `[]` turns it off. Checked on load: at most 4

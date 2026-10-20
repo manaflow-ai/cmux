@@ -18,6 +18,8 @@ prompts the conversation holds (a resumed or forked transcript's included).
 "hold: PATH" answers once PATH exists, so a test can act while a turn runs.
 A prompt ending in "settings-probe" replies with the prompt text as Claude
 read it, every `apply_flag_settings` it got, and its argv.
+"until-interrupt" streams "working" and ends at once on the interrupt, as
+Claude Code does (error_during_execution).
 "slow-stop" runs until the interrupt, then echoes the next prompt line it
 reads before the stopped turn's result (a Stop Claude Code answers late).
 A stop_task control request ends its task killed (task_updated);
@@ -156,6 +158,31 @@ def slow_stop():
             send({"type": "user", "isReplay": True, "uuid": msg.get("uuid"), "message": msg.get("message")})
             AGAIN.append(got)
             break
+    send({"type": "result", "subtype": "error_during_execution", "is_error": True, "result": None,
+          "num_turns": 1, "duration_api_ms": 5})
+
+
+def until_interrupt():
+    """The "until-interrupt" turn: it runs until the interrupt, then ends at once."""
+    send({"type": "stream_event", "event": {"type": "content_block_delta", "index": 0,
+                                             "delta": {"type": "text_delta", "text": "working"}}})
+    while True:
+        got = LINES.get()
+        if got is None:
+            sys.exit(0)
+        try:
+            msg = json.loads(got)
+        except ValueError:
+            continue
+        if msg.get("type") == "control_request":
+            send({"type": "control_response", "response": {"subtype": "success",
+                  "request_id": msg.get("request_id"), "response": {}}})
+            if (msg.get("request") or {}).get("subtype") == "interrupt":
+                break
+            continue
+        if msg.get("type") == "user":
+            # A steer: echoed when read, as Claude Code does; the turn goes on.
+            send({"type": "user", "isReplay": True, "uuid": msg.get("uuid"), "message": msg.get("message")})
     send({"type": "result", "subtype": "error_during_execution", "is_error": True, "result": None,
           "num_turns": 1, "duration_api_ms": 5})
 
@@ -330,6 +357,9 @@ while True:
             continue
         if said.strip() == "slow-stop":
             slow_stop()
+            continue
+        if said.strip() == "until-interrupt":
+            until_interrupt()
             continue
         # "/compact" runs Claude Code 2.1.303's compaction: the compacting status, the
         # boundary, the summary as a synthetic user line, the command's stdout, a result.
