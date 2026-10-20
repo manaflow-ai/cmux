@@ -160,6 +160,23 @@ import Testing
         #expect(machine.handle(.macSignaled) == [.dial(generation: 4, macID: "m1", transport: .webRTC)])
     }
 
+    /// termfix-r13 D2b (T-LIFE-12): after a cnx-hostd kill the phone's redial
+    /// sent its offer while the host was down; the offer was never answered
+    /// and the dial waited out its 25 s timeout (link back 26.7 s after the
+    /// kill). The host's signaling socket coming back abandons that dial and
+    /// dials again at once.
+    @Test func macSignalingBackRestartsADialInFlight() {
+        var machine = LinkMachine(transport: .webRTC)
+        _ = machine.handle(.target(mac))
+        _ = machine.handle(.dialSucceeded(generation: 1, path: .direct))
+        _ = machine.handle(.linkDropped(generation: 1, reason: "keepalive timed out"))
+        guard case .connecting(_, attempt: 1) = machine.phase else { Issue.record("expected a redial"); return }
+        #expect(machine.handle(.macSignaled) == [.dial(generation: 3, macID: "m1", transport: .webRTC)])
+        // The abandoned dial's late failure changes nothing.
+        #expect(machine.handle(.dialFailed(generation: 2, reason: "answer timeout")) == [])
+        guard case .connecting = machine.phase else { Issue.record("expected connecting"); return }
+    }
+
     /// termfix-r13 D4 (T-LIFE-13: offline label ≤ 5 s): terminals say the Mac
     /// is offline at once when presence says so, and after a bounded time
     /// when the link just cannot be brought back; never while connected.
