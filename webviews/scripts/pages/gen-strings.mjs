@@ -144,6 +144,11 @@ export const PAGES = {
               ].includes(key),
           ),
       },
+      {
+        // Machines > Add Server… (u3849): the palette action's own title.
+        file: `${sources}/CmuxNextActions/ServerActions.xcstrings`,
+        keys: () => ["action.server.addServer"],
+      },
     ],
   },
   history: {
