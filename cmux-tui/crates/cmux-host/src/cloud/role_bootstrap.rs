@@ -1,5 +1,6 @@
 //! Preparing private receiving bootstrap belongs to the root Cloud worker.
 use super::*;
+use crate::cloud::receiver_files;
 
 impl Worker {
     pub(super) fn drive_bootstrap(&mut self) {
@@ -13,13 +14,9 @@ impl Worker {
         // The opaque request pins both this role incarnation and the actual
         // authenticated daemon endpoint before the bounded original-self read.
         let Some(request) = bridge.prepare_native() else { return };
-        let frame = super::receiver_files::bootstrap(
-            &self.paths,
-            &self.instance_id,
-            &mut live.client,
-            wall_ms(),
-        )
-        .and_then(|bootstrap| bootstrap.encode());
+        let frame =
+            receiver_files::bootstrap(&self.paths, &self.instance_id, &mut live.client, wall_ms())
+                .and_then(|bootstrap| bootstrap.encode());
         if frame.is_ok_and(|frame| bridge.publish_native(request, frame)) {
             self.bootstrap_backoff.reset();
         } else {

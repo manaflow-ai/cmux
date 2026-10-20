@@ -1055,7 +1055,7 @@ jobs:
           ../scripts/ci/cmux-tui-focused-test.sh "$TEST_FILTER"
 
       - name: Root and work-user bootstrap boundary
-        if: runner.os == 'Linux' && (inputs.mode == 'full' || inputs.test_filter == 'receiver_root')
+        if: runner.os == 'Linux' && (inputs.mode == 'full' || inputs.test_filter == 'receiver_root' || inputs.test_filter == 'receiver')
         run: python3 scripts/ci/verify-link-root-boundary.py
 
       - name: Optional Iroh route and auth tests
