@@ -90,6 +90,7 @@ export function makeS3aFakes(resources: OwnedResource[], provider: FakeUpstream)
       Effect.sync(() =>
         resources
           .filter((row) => row.tenantId === tenantId && row.kind === "snapshot")
+          .filter((row) => page.createdBy === undefined || row.createdBy === page.createdBy)
           .map(rowOf)
           .filter((row) => page.sourceVmId === null || row.sourceVmId === page.sourceVmId)
           .filter((row) => Object.entries(page.labels ?? {}).every(([key, value]) => row.labels[key] === value))

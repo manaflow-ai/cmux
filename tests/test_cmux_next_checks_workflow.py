@@ -884,6 +884,13 @@ class SameTreeIsAnEvent(unittest.TestCase):
             with self.subTest(job=name):
                 self.assertIn("inputs.same_tree_sha == ''", jobs[name]["if"])
 
+    def test_a_feat_cmux_next_push_runs_the_checks(self):
+        # gh-merge-green excuses a PR's red lint only when the base's latest push run
+        # prints every finding too (scripts/ci/base_red_excuse.py); a push that skips
+        # the job leaves nothing to compare, and every base red refuses every PR.
+        condition = " ".join(self.jobs()["checks"]["if"].split())
+        self.assertNotIn("!(github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next')", condition)
+
     def test_an_unavailable_tree_is_red_without_waiting(self):
         gate = self.jobs()["same-tree-cmux-tui"]
         self.assertLessEqual(int(gate["timeout-minutes"]), 5)
