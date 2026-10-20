@@ -2633,7 +2633,7 @@ class TerminalController {
                     guard await writer.writeAll(Data((response + "\n").utf8)) else { return }
                     continue
                 }
-                handleEventsStreamRequest(
+                await handleEventsStreamRequest(
                     trimmed,
                     socket: socket,
                     authorizationGeneration: authorizationGeneration,
@@ -3756,7 +3756,8 @@ class TerminalController {
                     "tab_id": v2OrNull(surfaceUUID?.uuidString),
                     "tab_ref": v2TabRef(uuid: surfaceUUID),
                     "surface_type": v2OrNull(projection?.panel.panelType.rawValue),
-                    "is_browser_surface": v2OrNull(projection.map { $0.panel.panelType == .browser })
+                    "is_browser_surface": v2OrNull(projection.map { $0.panel.panelType == .browser }),
+                    "file_path": v2OrNull(projection.flatMap { Self.controlSurfaceFilePath($0.panel) })
                 ]
             } else {
                 focused = [
@@ -4327,6 +4328,7 @@ class TerminalController {
         id: Any?,
         timeoutSeconds: TimeInterval? = 17 * 60,
         transportUnsupportedMachineID: String? = nil,
+        daemonUnavailableMessage: String? = nil,
         _ work: @escaping () async throws -> [String: Any]
     ) -> String {
         let semaphore = DispatchSemaphore(value: 0)
@@ -4390,13 +4392,13 @@ class TerminalController {
                 return v2Error(id: id, code: "vm_env_delivery_failed", message: combinedError.localizedDescription)
             }
             if let linkError = error as? CloudMachineLink.LinkError,
-               String(describing: linkError).lowercased().contains("daemon") {
+               linkError.category == .daemonUnavailable {
                 return v2Error(
                     id: id,
                     code: "vm_tui_daemon_unavailable",
-                    message: String(
-                        localized: "socket.cloudVM.tuiDaemonUnavailable",
-                        defaultValue: "The machine's cmux-tui daemon is unavailable. Wake the machine or retry `cmux vm workspace new`."
+                    message: daemonUnavailableMessage ?? String(
+                        localized: "socket.cloudVM.daemonUnavailable",
+                        defaultValue: "The Cloud VM connection is unavailable. Wake the machine or retry the command."
                     )
                 )
             }
@@ -16330,15 +16332,25 @@ class TerminalController {
                     )
                 }
             }
-            let snapshotData = readTerminalTextFromVTExportForSnapshot(
-                terminalTarget: terminalTarget,
-                bindingAction: "write_active_file:copy,vt",
-                lineLimit: nil,
-                normalizeLineEndings: false
-            )?.data(using: .utf8) ?? Data()
+            let snapshotSurface = terminalTarget.surface.liveSurfaceForGhosttyAccess(
+                reason: "mobileTerminalReplay.snapshot"
+            )
+            let snapshotSize = snapshotSurface.map(ghostty_surface_size)
+            let snapshotData = snapshotSize.flatMap { size in
+                terminalTarget.surface.readBoundedScreenTailVT(
+                    maxRows: max(Int(size.rows), 1),
+                    maxBytes: SessionPersistencePolicy.maxScrollbackCharactersPerTerminal * 4
+                )
+            }?.data(using: .utf8)
+                ?? readTerminalTextFromVTExportForSnapshot(
+                    terminalTarget: terminalTarget,
+                    bindingAction: "write_active_file:copy,vt",
+                    lineLimit: nil,
+                    normalizeLineEndings: false
+                )?.data(using: .utf8)
+                ?? Data()
             let data = state?.data ?? Data()
-            if let surface = terminalTarget.surface.liveSurfaceForGhosttyAccess(reason: "mobileTerminalReplay") {
-                let size = ghostty_surface_size(surface)
+            if let size = snapshotSize {
                 payload["columns"] = max(Int(size.columns), 1)
                 payload["rows"] = max(Int(size.rows), 1)
             }

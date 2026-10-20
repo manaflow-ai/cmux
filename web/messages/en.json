@@ -3522,6 +3522,7 @@
           "soundOverrides": "Sparse per-agent and per-alert-type notification sound overrides. Missing cells use notifications.sound.",
           "soundOverride": "A notification sound override. `default` uses notifications.sound, `none` disables playback, and the remaining values select a built-in or custom sound."
         },
+        "actions": "Reusable actions for the Command Palette, shortcuts, tab-bar buttons, and plus-button menu. Supports builtin, command, agent, workspaceCommand, workspace, setting, settingPreset, and text. Text actions paste into the focused terminal and preserve newlines; submit: true presses Enter. Setting actions require global configuration.",
         "remoteTmux": {
           "beta": {
             "newWorkspaceOnHost": {
@@ -4999,6 +5000,16 @@
       "title": "Open Rules in cmux",
       "intro": "This page opens rules in the current cmux workspace.",
       "fallback": "cmux shows the rules first and asks before pasting them into the current workspace. If cmux does not open, install cmux and click Open in cmux again."
+    },
+    "agent": {
+      "metaTitle": "Open agent session in cmux",
+      "metaDescription": "Open a cmux agent session deeplink from the web, with install fallback when cmux is not available.",
+      "title": "Open agent session",
+      "intro": "This link opens the agent's session in cmux if this Mac can already reach it. The link itself grants no access.",
+      "fallback": "If cmux does not open, install cmux and click Open in cmux again. cmux opens the session only if this Mac can already reach it.",
+      "nameLabel": "Name: {value}",
+      "hostLabel": "Host: {value}",
+      "harnessLabel": "Harness: {value}"
     }
   },
   "download": {

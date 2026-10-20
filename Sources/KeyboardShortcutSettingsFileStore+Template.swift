@@ -88,6 +88,7 @@ extension CmuxSettingsFileStore {
                     "warnBeforeClosingTabXButton": AppCatalogSection().warnBeforeClosingTabXButton.defaultValue,
                     "warnBeforeClosingAgentSession": AppCatalogSection().warnBeforeClosingAgentSession.defaultValue,
                     "warnBeforeClosingWorkspace": AppCatalogSection().warnBeforeClosingWorkspace.defaultValue,
+                    "alwaysConfirmWorkspaceClose": AppCatalogSection().alwaysConfirmWorkspaceClose.defaultValue,
                     "warnBeforeClosingWindow": AppCatalogSection().warnBeforeClosingWindow.defaultValue,
                     "hideTabCloseButton": AppCatalogSection().hideTabCloseButton.defaultValue,
                     "tabBarVisibility": AppCatalogSection().tabBarVisibility.defaultValue.rawValue,
@@ -191,6 +192,7 @@ extension CmuxSettingsFileStore {
                     "selectionColor": NSNull(),
                     "subtleSelection": SettingCatalog().workspaceColors.subtleSelection.defaultValue,
                     "brightenInDarkMode": SettingCatalog().workspaceColors.brightenInDarkMode.defaultValue,
+                    "unselectedFillOpacity": SettingCatalog().workspaceColors.unselectedFillOpacity.defaultValue,
                     "notificationBadgeColor": NSNull(),
                     "colors": Dictionary(
                         uniqueKeysWithValues: WorkspaceTabColorSettings.defaultPalette.map { ($0.name, $0.hex) }

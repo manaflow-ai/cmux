@@ -2258,6 +2258,7 @@
           "currentLineHighlight": "Farv den linje, hvor markøren står, når intet er markeret.",
           "tabWidth": "Hvor mange kolonner ét tabulatorstop fylder. Indrykningslinjerne bruger samme afstand."
         },
+        "actions": "Genbrugelige handlinger til kommandopaletten, genveje, knapper på fanelinjen og plusknappens menu. Understøtter builtin, command, agent, workspaceCommand, workspace, setting, settingPreset og text. Teksthandlinger indsætter i terminalen med fokus og bevarer linjeskift; submit: true trykker på Enter. Indstillingshandlinger kræver global konfiguration.",
         "remoteTmux": {
           "beta": {
             "newWorkspaceOnHost": {
@@ -3470,6 +3471,16 @@
       "title": "Åbn regler i cmux",
       "intro": "Denne side åbner regler i det aktuelle cmux-arbejdsområde.",
       "fallback": "cmux viser først reglerne og spørger, før de indsættes i det aktuelle arbejdsområde. Hvis cmux ikke åbner, skal du installere cmux og klikke på Åbn i cmux igen."
+    },
+    "agent": {
+      "metaTitle": "Åbn agentsession i cmux",
+      "metaDescription": "Åbn et cmux-deeplink til en agentsession fra nettet, med installationsmulighed, når cmux ikke er tilgængelig.",
+      "title": "Åbn agentsession",
+      "intro": "Dette link åbner agentens session i cmux, hvis denne Mac allerede kan nå den. Selve linket giver ingen adgang.",
+      "fallback": "Hvis cmux ikke åbner, så installer cmux og klik på Åbn i cmux igen. cmux åbner kun sessionen, hvis denne Mac allerede kan nå den.",
+      "nameLabel": "Navn: {value}",
+      "hostLabel": "Vært: {value}",
+      "harnessLabel": "Harness: {value}"
     }
   },
   "download": {

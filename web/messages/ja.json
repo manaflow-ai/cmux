@@ -3445,6 +3445,7 @@
           "soundOverrides": "エージェントとアラート種別ごとの通知サウンド上書きです。空のセルは notifications.sound を使用します。",
           "soundOverride": "通知サウンドの上書きです。default は notifications.sound を使用し、none は再生を無効にします。それ以外の値では組み込みまたはカスタムサウンドを選択します。"
         },
+        "actions": "コマンドパレット、ショートカット、タブバーのボタン、プラスボタンのメニューで使う再利用可能なアクションです。builtin、command、agent、workspaceCommand、workspace、setting、settingPreset、text に対応しています。text アクションはフォーカス中のターミナルに改行を保持して貼り付け、submit: true を指定すると Enter を押します。設定アクションにはグローバル設定が必要です。",
         "remoteTmux": {
           "beta": {
             "newWorkspaceOnHost": {
@@ -4982,6 +4983,16 @@
       "title": "cmux のオープンルール",
       "intro": "このページでは、現在の cmux ワークスペースのルールが開きます。",
       "fallback": "cmux は最初にルールを表示し、現在のワークスペースに貼り付ける前に質問します。 cmux が開かない場合は、cmux をインストールし、もう一度 cmux で開くをクリックします。"
+    },
+    "agent": {
+      "metaTitle": "cmux でエージェントセッションを開く",
+      "metaDescription": "cmux が使用できない場合はインストールの案内を表示して、Web から cmux のエージェントセッションのディープリンクを開きます。",
+      "title": "エージェントセッションを開く",
+      "intro": "この Mac がすでにアクセスできる場合、このリンクは cmux でエージェントのセッションを開きます。リンク自体はアクセス権を付与しません。",
+      "fallback": "cmux が開かない場合は、cmux をインストールし、もう一度 cmux で開くをクリックします。cmux は、この Mac がすでにアクセスできるセッションのみを開きます。",
+      "nameLabel": "名前: {value}",
+      "hostLabel": "ホスト: {value}",
+      "harnessLabel": "ハーネス: {value}"
     }
   },
   "download": {

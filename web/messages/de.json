@@ -2258,6 +2258,7 @@
           "currentLineHighlight": "Hebt die Zeile mit dem Textcursor farbig hervor, solange nichts ausgewählt ist.",
           "tabWidth": "Wie viele Spalten ein Tabstopp umfasst. Die Einrückungshilfslinien verwenden denselben Abstand."
         },
+        "actions": "Wiederverwendbare Aktionen für die Befehlspalette, Tastenkürzel, Schaltflächen der Tableiste und das Menü der Plus-Schaltfläche. Unterstützt builtin, command, agent, workspaceCommand, workspace, setting, settingPreset und text. Textaktionen fügen Text im fokussierten Terminal ein und erhalten Zeilenumbrüche; submit: true drückt Enter. Einstellungsaktionen erfordern eine globale Konfiguration.",
         "remoteTmux": {
           "beta": {
             "newWorkspaceOnHost": {
@@ -3473,6 +3474,16 @@
       "title": "Öffnen Sie Regeln in cmux",
       "intro": "Auf dieser Seite werden Regeln im aktuellen cmux-Arbeitsbereich geöffnet.",
       "fallback": "cmux zeigt die Regeln zuerst an und fragt nach, bevor sie in den aktuellen Arbeitsbereich eingefügt werden. Wenn cmux nicht geöffnet wird, installieren Sie cmux und klicken Sie erneut auf „In cmux öffnen“."
+    },
+    "agent": {
+      "metaTitle": "Agent-Sitzung in cmux öffnen",
+      "metaDescription": "Öffne einen cmux-Deeplink zu einer Agent-Sitzung im Web, mit Installationshinweis, falls cmux nicht verfügbar ist.",
+      "title": "Agent-Sitzung öffnen",
+      "intro": "Dieser Link öffnet die Sitzung des Agents in cmux, sofern dieser Mac sie bereits erreichen kann. Der Link selbst gewährt keinen Zugriff.",
+      "fallback": "Wenn cmux nicht geöffnet wird, installiere cmux und klicke erneut auf In cmux öffnen. cmux öffnet die Sitzung nur, wenn dieser Mac sie bereits erreichen kann.",
+      "nameLabel": "Name: {value}",
+      "hostLabel": "Host: {value}",
+      "harnessLabel": "Harness: {value}"
     }
   },
   "download": {
