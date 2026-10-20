@@ -217,7 +217,7 @@ class WebValidationTests(unittest.TestCase):
         self.assertIn("'blacksmith-8vcpu-ubuntu-2404'", runs_on)
 
     def test_webviews_tests_shard_wide_enough_to_split_the_dev_server_files(self):
-        """Two shards each ran about 50 dev-server files two at a time for 12 of their
+        """Two shards each ran about 65 dev-server files two at a time for 12 of their
         14-16 minutes; Blacksmith ran 256 concurrent jobs without queueing, so the
         suite splits across enough shards that no shard holds more than a handful."""
         workflow = (ROOT / ".github/workflows/ci-web.yml").read_text()
@@ -229,6 +229,13 @@ class WebValidationTests(unittest.TestCase):
         self.assertGreaterEqual(len(shards), 12)
         self.assertEqual(shards, list(range(1, len(shards) + 1)))
         self.assertEqual(counts, {str(len(shards))})
+        for step in ("Generated bundle merge driver", "Check diff viewer eager JS budget",
+                     "Verify React Compiler for webviews", "Check webviews (Oxlint, Oxfmt, type check)",
+                     "Check PR-scoped webview rules"):
+            with self.subTest(step=step):
+                body = block[block.index(f"- name: {step}"):]
+                body = body[: body.index("\n      - name:", 1)] if "\n      - name:" in body[1:] else body
+                self.assertIn("if: matrix.shard == 1", body)
 
     def test_pr_and_merge_group_checks_belong_to_ci(self):
         delegated = {"changes": {"result": "success", "outputs": {"required": "true"}},

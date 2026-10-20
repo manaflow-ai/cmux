@@ -346,20 +346,26 @@ jobs:
         run: ./scripts/cmux-next/build-web-bundles.sh --force
 
       # ci-guards runs this on main; feat-cmux-next PRs skip ci-guards.
+      # The checks from here to the engines do not depend on the shard, so
+      # they run once, on shard 1: one red check, not one per shard.
       - name: Generated bundle merge driver
+        if: matrix.shard == 1
         run: python3 tests/test_install_git_hooks.py
 
       # A budget miss must not hide the checks and tests below: the step records its outcome and
       # the job fails on it in the last step. A failed build still stops everything after it.
       - name: Check diff viewer eager JS budget
         id: eager-js-budget
+        if: matrix.shard == 1
         continue-on-error: true
         run: node ./scripts/check-webviews-diff-budget.mjs
 
       - name: Verify React Compiler for webviews
+        if: matrix.shard == 1
         run: ./scripts/check-webviews-react-compiler.mjs
 
       - name: Check webviews (Oxlint, Oxfmt, type check)
+        if: matrix.shard == 1
         working-directory: webviews
         run: bun run check
 
