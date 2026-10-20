@@ -2,6 +2,18 @@
 use cmux_cloud_wire::{Op, OpVisitor, visit_op};
 use serde_json::{Value, json};
 
+#[test]
+fn host_network_policy_integer_literals_preserve_zero_and_negative_values() {
+    use cmux_cloud_wire::IntLit;
+    assert_eq!(serde_json::to_value(IntLit::<0>).unwrap(), json!(0));
+    assert_eq!(serde_json::to_value(IntLit::<-1>).unwrap(), json!(-1));
+    assert!(serde_json::from_value::<IntLit<0>>(json!(0)).is_ok());
+    assert!(serde_json::from_value::<IntLit<-1>>(json!(-1)).is_ok());
+    for value in [json!(1), json!(false), json!("0"), Value::Null] {
+        assert!(serde_json::from_value::<IntLit<0>>(value).is_err());
+    }
+}
+
 struct PolicyTrip(Value);
 impl OpVisitor for PolicyTrip {
     type Output = (Value, bool);
