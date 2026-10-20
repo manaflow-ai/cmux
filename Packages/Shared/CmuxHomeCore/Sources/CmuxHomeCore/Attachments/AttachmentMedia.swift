@@ -300,7 +300,12 @@ enum AttachmentMedia {
         let handle = try FileHandle(forReadingFrom: url)
         defer { try? handle.close() }
         let prefix = try handle.read(upToCount: HomeAttachmentPolicy.sniffBytes) ?? Data()
-        let complete = prefix.count < HomeAttachmentPolicy.sniffBytes || (try handle.read(upToCount: 1) ?? Data()).isEmpty
+        let complete: Bool
+        if prefix.count < HomeAttachmentPolicy.sniffBytes {
+            complete = true
+        } else {
+            complete = try (handle.read(upToCount: 1) ?? Data()).isEmpty
+        }
         return HomeAttachmentPolicy.sniffedMimeType(prefix, complete: complete)
     }
 
