@@ -251,7 +251,7 @@ def scenario_workflow_step():
     _check(step is not None, f"the tour job has a '{STEP_NAME}' step")
     if step is None:
         return
-    build = names.index("Build base and head tagged apps")
+    build = names.index("Build the base app")
     _check(index < build, "the cap runs before the tour builds")
     _check(step.get("continue-on-error") is True, "a failed cap never fails the tour")
     with tempfile.TemporaryDirectory() as home, tempfile.TemporaryDirectory() as outside:
