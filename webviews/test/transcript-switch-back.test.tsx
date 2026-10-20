@@ -51,6 +51,7 @@ const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
 const { Markdown } = await import("../src/agent-session/acpmux/conversation/Markdown");
+const { RevealedMarkdown, revealFrames } = await import("../src/agent-session/acpmux/conversation/RevealedMarkdown");
 const page = pageSwitch(dom.window);
 
 afterAll(() => {
@@ -134,6 +135,59 @@ test("back on a chat, reply blocks that streamed in while it was hidden start no
     await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
     expect(page.entrances().length).toBeGreaterThan(0);
   } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+// In the app a streaming reply reveals its text over display frames (RevealedMarkdown), and WebKit
+// runs none while the page is hidden: the text that streamed while away waits, then reveals as the
+// chat shows again. It must draw at once, with no block entrance and no character fade.
+test("back on a chat, a revealed reply's backlog draws at once with no entrance", async () => {
+  const request = revealFrames.request;
+  const cancel = revealFrames.cancel;
+  let queue = new Map<number, (now: number) => void>();
+  let nextHandle = 0;
+  let clock = 1_000;
+  revealFrames.request = (run) => {
+    queue.set((nextHandle += 1), run);
+    return nextHandle;
+  };
+  revealFrames.cancel = (handle) => void queue.delete(handle);
+  const visible = () => dom.window.document.visibilityState !== "hidden";
+  // One display frame: none while hidden; the reveal's ticks, then the page's own frames.
+  const frame = async () => {
+    if (!visible()) return;
+    clock += 16;
+    const run = queue;
+    queue = new Map();
+    await act(async () => {
+      for (const tick of run.values()) tick(clock);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+  };
+  const root = createRoot(dom.window.document.getElementById("root")!);
+  const render = (text: string) => root.render(<RevealedMarkdown text={text} streaming />);
+  try {
+    let text = "First paragraph.";
+    await act(async () => render(text));
+    for (let step = 0; step < 4; step += 1) {
+      text += " more words";
+      await act(async () => render(text));
+      await frame();
+    }
+    await page.setVisibility("hidden");
+    page.reset();
+    for (let step = 0; step < 5; step += 1) {
+      text += `\n\nParagraph ${step}, streamed while the chat was hidden, with enough text to reveal.`;
+      await act(async () => render(text));
+    }
+    await page.setVisibility("visible");
+    for (let step = 0; step < 30; step += 1) await frame();
+    expect(dom.window.document.body.textContent).toContain("Paragraph 4");
+    expect(page.entrances()).toEqual([]);
+  } finally {
+    revealFrames.request = request;
+    revealFrames.cancel = cancel;
     await act(async () => root.unmount());
   }
 });
