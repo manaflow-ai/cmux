@@ -485,6 +485,60 @@ def test_a_range_over_200_commits_with_a_surface_change_asks_for_an_ack() -> Non
     assert out["decision"]["landers"] == ["lawrencecchen", "teamleaderleo"]
 
 
+def merged_long_range(main_count, side_count, surface_at_side=None) -> dict:
+    # A long feat-cmux-next range with a big merge (like the iOS merge
+    # ebc7d9c6296): side_count commits on a side branch from CURRENT, merged
+    # into a main_count-commit line. Over 1000 commits in all.
+    side = [f"a{i:039x}" for i in range(1, side_count + 1)]
+    line = [f"b{i:039x}" for i in range(1, main_count + 1)]
+    merge = "9" * 39 + "e"
+    chain = []
+    for i, sha in enumerate(side):
+        parent = CURRENT if i == 0 else side[i - 1]
+        files = [".github/workflows/nightly.yml"] if i == surface_at_side else [f"ios/S{i}.swift"]
+        chain.append(commit(sha, [parent], files, "austinywang"))
+    for i, sha in enumerate(line):
+        parent = CURRENT if i == 0 else (merge if i == main_count // 2 else line[i - 1])
+        chain.append(commit(sha, [parent], [f"Sources/M{i}.swift"]))
+    merged = commit(merge, [line[main_count // 2 - 1], side[-1]], [])
+    if surface_at_side is not None:
+        # The merge keeps the side branch's surface change (the harness tree
+        # of a merge is otherwise its first parent's).
+        merged["tree"] = {".github/workflows/nightly.yml": side[surface_at_side]}
+    chain.append(merged)
+    chain.reverse()
+    head = line[-1]
+    return scenario(sha=head, sourceHead=head, onSource={head: "identical"},
+                    runs=[gate_run(head_sha=head)], commits=chain + [commit(CURRENT, [], [])],
+                    activity=[{"before": CURRENT, "after": head, "actor": {"login": "teamleaderleo"}}],
+                    commitPulls={}, surface=SURFACE)
+
+
+def test_a_range_over_1000_commits_with_a_merge_promotes() -> None:
+    # 304de7d...ad551c0 on 2026-10-20 was 1782 commits, 1549 from one merge:
+    # no smaller step existed, so a cap on the range blocked every nightly.
+    out = run(merged_long_range(232, 1549))
+    assert out["decision"]["action"] == "promote", out["decision"]
+    assert out["calls"]["comparePages"] >= 18  # every page of the commit list was read
+
+
+def test_a_surface_change_on_a_late_page_of_a_long_range_still_asks_for_an_ack() -> None:
+    # The surface commit sits past the 1000th commit of the list.
+    out = run(merged_long_range(232, 1549, surface_at_side=5))
+    assert out["decision"]["action"] == "needs-ack", out["decision"]
+    assert out["decision"]["surfaceFiles"] == [".github/workflows/nightly.yml"]
+    assert "austinywang" in out["decision"]["landers"], out["decision"]
+
+
+def test_a_long_range_the_compare_api_lists_short_is_refused() -> None:
+    # total_commits says more than the pages hold: fail closed.
+    case = merged_long_range(232, 1549)
+    case["totalCommitsOverride"] = 1782 + 40
+    out = run(case)
+    assert out["decision"]["action"] == "refuse", out["decision"]
+    assert "did not list them all" in out["decision"]["reason"]
+
+
 def test_a_diverged_or_behind_range_is_refused() -> None:
     for status in ("diverged", "behind"):
         out = run(scenario(rangeStatus=status))
