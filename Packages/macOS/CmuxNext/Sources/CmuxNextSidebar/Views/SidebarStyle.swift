@@ -44,7 +44,15 @@ enum SidebarStyle {
     static var footerHeight: CGFloat { Metrics.sidebarRowHeightWithSubtitle - Metrics.space2 }
     static var autoscrollZone: CGFloat { Metrics.sidebarRowHeight }
     static var dragThreshold: CGFloat { Metrics.space2 }
-    static var overscan: CGFloat { Metrics.sidebarRowHeightWithSubtitle * 10 }
+    /// Rows realized past each edge of the visible list. A scroll draws rows as they come in
+    /// (one or two a frame), so a deep overscan bought nothing and cost every frame: each realized
+    /// or parked row view is a subtree AppKit walks per scroll frame (tracking areas, layout,
+    /// display), 10 rows a side made a scroll cost grow with the workspace count
+    /// (sidebar-scroll-perf-DESIGN.md).
+    static var overscan: CGFloat { Metrics.sidebarRowHeightWithSubtitle * 3 }
+    /// Extra distance past the realization rect before a row view is parked, so a row at the
+    /// edge does not park and come back on every small scroll.
+    static var pruneMargin: CGFloat { Metrics.sidebarRowHeightWithSubtitle }
 
     /// Workspace titles: regular weight, read or unread, selected or not
     /// (Lawrence 2026-10-14: "sidebar text should not be bold by default"),
@@ -71,6 +79,13 @@ enum SidebarStyle {
     static func groupHeaderFont(barHeight: CGFloat) -> NSFont {
         NSFont.systemFont(ofSize: min(15, max(11, (barHeight * 0.54).rounded())), weight: .medium)
     }
+    /// The opt-in member count after a group's name (Lawrence 2026-10-20): a detail, not a title,
+    /// so smaller than `name`, at the regular weight, in ``groupHeaderCountInkAlpha`` of the ink.
+    static func groupHeaderCountFont(name: NSFont) -> NSFont {
+        NSFont.systemFont(ofSize: max(TypeScale.caption, name.pointSize - 2), weight: TypeScale.regular)
+    }
+    /// How much of the header's ink the member count takes: lighter than the name.
+    static let groupHeaderCountInkAlpha: CGFloat = 0.7
     /// The members' bar: 3 pt at the 32 pt row, scaled; at the members' leading edge.
     static var groupBarWidth: CGFloat { max(2, (Metrics.sidebarRowHeight * 0.1).rounded()) }
     static var groupBarX: CGFloat { (Metrics.sidebarRowHeight * 0.12).rounded() }

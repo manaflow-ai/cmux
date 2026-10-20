@@ -13,7 +13,7 @@ extension PageWebView {
         }
         guard let model = WebPopupHost.Model(params) else { return .object(["shown": .bool(false)]) }
         let host = popupHost ?? WebPopupHost(
-            webView: webView, zoom: { [weak self] in self?.webView.pageZoom ?? 1 },
+            webView: focusView, zoom: { [weak self] in CGFloat(self?.pageZoom ?? 1) },
             send: { [weak self] event in self?.router.publishPopup(JSONValue(foundation: event) ?? .null) })
         popupHost = host
         if op == PageNativeOp.popupUpdate {

@@ -20,6 +20,7 @@ struct WorkspaceTodoRow: View {
             if isEditing {
                 TextField(WorkspaceChecklistStrings.addPlaceholder, text: $text)
                     .textFieldStyle(.plain)
+                    .focusEffectDisabled()
                     .onAppear { text = item.text }
                     .onSubmit { actions.commitEdit(item.id, text) }
                     .onExitCommand { actions.cancelEdit() }

@@ -50,6 +50,7 @@ import {
   type RemarkLike,
   type SourceMap,
 } from "./sourceMap";
+import { quoteLines } from "./selectionQuote";
 import { imageSize, obsidianSyntaxPlugin } from "./obsidian";
 import { isPointerSelecting, pointerChanged, pointerSelectPlugin } from "./pointerSelect";
 import {
@@ -555,6 +556,28 @@ export class MarkdownEditor {
   /** Makes `map` (a snapshot that was saved) the baseline. */
   commit(map: SourceMap): void {
     this.baseline = map;
+  }
+
+  /**
+   * The selection's text and the source lines that hold it (viewer comments,
+   * viewer-comments-DESIGN.md), null with nothing selected. Lines count in the current document,
+   * which is the file after the next save.
+   */
+  selectionQuote(): { text: string; startLine?: number; endLine?: number } | null {
+    const view = this.view;
+    if (!view || !this.serializeDoc) return null;
+    const { from, to, empty } = view.state.selection;
+    if (empty) return null;
+    const doc = view.state.doc;
+    const text = doc.textBetween(from, to, "\n", "\n");
+    if (!text.trim()) return null;
+    const lines = quoteLines(
+      this.snapshot(),
+      doc.resolve(from).index(0),
+      doc.resolve(Math.max(from, to - 1)).index(0),
+      text,
+    );
+    return lines ? { text, ...lines } : { text };
   }
 
   /** The baseline text: what the file held at the last load or save. */

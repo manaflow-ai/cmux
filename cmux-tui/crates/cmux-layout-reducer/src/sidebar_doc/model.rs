@@ -15,6 +15,11 @@ pub use crate::sidebar_layout::{Alignment, ArrangementLayout, Look, Region};
 pub type SectionId = String;
 pub type ItemId = String;
 
+/// `Item::extra` key: a group member pinned inside its group.
+pub const PINNED_IN_GROUP_KEY: &str = "pinned";
+/// `Item::extra` key: where a top-level item pinned to the Pinned band goes
+/// back on Unpin (`{"section": id, "after": id or null}`).
+pub const UNPIN_TO_KEY: &str = "unpin_to";
 /// The one Pinned section.
 pub const PINNED_SECTION_ID: &str = "sec_pinned";
 /// The prefix of a machine section id: `sec_m_<session_id>`.
@@ -421,6 +426,13 @@ impl Item {
 
     pub fn workspace(reference: WorkspaceRef, section: &str) -> Self {
         Item::new(&workspace_item_id(&reference), section, Body::Workspace { reference })
+    }
+
+    /// Whether this group member is pinned inside its group
+    /// (`extra.pinned`): it lists first among the group's members.
+    pub fn pinned_in_group(&self) -> bool {
+        self.parent.is_some()
+            && self.extra.get(PINNED_IN_GROUP_KEY).and_then(Value::as_bool) == Some(true)
     }
 
     /// The label stored with the item (an old tile's workspace name), drawn
