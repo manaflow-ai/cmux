@@ -80,7 +80,8 @@ already (focus.md, close-focus.md) and was not changed here.
 | P13 | CLI/MCP `focus: true` | named pane/tab | its content | reducer; P1 for pages |
 | P14 | Restore after relaunch | restored focused pane | its content once presented (`contentPresented`) | reducer; P2 for Monaco |
 | P15 | Home Chief pane (a250) | never closes | Home message box | a250 owns it |
-| P16 | Markdown, diff pages | that pane/tab | web view; no text input, so `<body>` is right (keys scroll) | correct as is; the hook is available if an input is added |
+| P16 | Markdown page (editable, ProseMirror) | that pane/tab | web view; the editor only if focusing it keeps the scroll position (ProseMirror `focus()` scrolls its selection, at the top for a fresh document, into view) | **open**: takes `focusContent` today and ignores it; wire `contentFocus` with a scroll-keeping focus, coordinate with a223 (Markdown selection) and a217 (table scroll) |
+| P16b | Diff page | that pane/tab | web view; no text input, so `<body>` is right (keys scroll) | correct as is |
 | P17 | Settings page | that pane/tab | web view; the search field only on Cmd-F (`focusSearch`), not on every focus | correct as is: auto-focusing search would eat type-to-scroll |
 | P18 | Agent chat pane (`AgentPaneView`, its own web view) | that pane/tab | composer | **open**: not a `PageWebView`; it has its own composer focus path. Wire it to `contentFocus` when that path is moved over |
 | P19 | Browser tabs (third-party pages) | that pane/tab | WebKit view / Chromium page window; the page's own autofocus rules | correct as is: cmux must not focus elements in a third-party page |
