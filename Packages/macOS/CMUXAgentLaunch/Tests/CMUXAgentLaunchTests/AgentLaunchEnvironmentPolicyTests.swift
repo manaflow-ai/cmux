@@ -115,6 +115,8 @@ struct AgentLaunchEnvironmentPolicyTests {
         let environment = ["XDG_CONFIG_HOME": "/tmp/custom-config"]
 
         #expect(policy.selectedRestoreEnvironment(from: environment, kind: "cursor").isEmpty)
+        // XDG_CONFIG_HOME is captured for OpenCode restores (#21346); capture
+        // alone must not make it replay for Cursor.
         #expect(policy.selectedEnvironment(from: environment, kind: "cursor").isEmpty)
     }
 
