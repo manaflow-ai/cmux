@@ -471,6 +471,7 @@
       "set-tab-pinned",
       "set-terminal-idle-policy",
       "set-terminal-keep",
+      "set-terminal-resume-command",
       "set-viewport-pane-width",
       "set-window-title",
       "set-workspace-metadata",

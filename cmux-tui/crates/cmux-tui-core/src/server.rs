@@ -389,6 +389,10 @@ pub const TERMINAL_IDLE_CLOSE_CAPABILITY: &str = "terminal-idle-close-v1";
 /// field on `new-tab`, `split`, and `create-terminal`, the `terminal-reaped`
 /// event, and `end_terminals` on `shutdown-daemon`.
 pub const TERMINAL_REAP_CAPABILITY: &str = "terminal-reap-v1";
+/// Advertises `set-terminal-resume-command`, the `resume_command` tab field,
+/// and running a terminal's resume command in its new shell on a respawn or
+/// `restart-tab`.
+pub const TERMINAL_RESUME_COMMAND_CAPABILITY: &str = "terminal-resume-command-v1";
 /// Advertised only while this owner's unplaced-terminal reaper runs (the
 /// owner was started with `--terminal-reap-grace-seconds`). Without it a
 /// detached terminal lives until it is ended or the session ends, so a
@@ -1065,6 +1069,19 @@ enum Command {
         #[serde(default)]
         terminal_id: Option<String>,
         keep: bool,
+    },
+    /// Set (`command` a string) or clear (`command` null or empty) the
+    /// resume command of one hosted terminal, named by exactly one of a PTY
+    /// `surface` or a stable `terminal_id`: the command the terminal's new
+    /// shell runs when it is respawned or restarted.
+    #[serde(rename = "set-terminal-resume-command")]
+    SetTerminalResume {
+        #[serde(default)]
+        surface: Option<SurfaceId>,
+        #[serde(default)]
+        terminal_id: Option<String>,
+        #[serde(default)]
+        command: Option<String>,
     },
     /// New tab in a pane (default: the active pane).
     NewTab {

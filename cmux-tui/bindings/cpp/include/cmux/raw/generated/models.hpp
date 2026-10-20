@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "a453986b67d167174f384a45b851ba6779b4ecfde280ba17c07ea656ab7e84b0";
+inline constexpr std::string_view kProtocolIrSha256 = "8ecb3a2f99b67cade06c5c1faead6b946839bc3b6ead1d4fccf685de967b1b41";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -165,6 +165,7 @@ struct SetSizeCountsResult;
 struct SetSizePolicyResult;
 struct SetTerminalIdlePolicyResult;
 struct SetTerminalKeepResult;
+struct SetTerminalResumeCommandResult;
 struct ShownProgramStatus;
 struct ShutdownDaemonResult;
 struct SidebarPluginResult;
@@ -506,6 +507,7 @@ struct SetTabPinnedRequest;
 struct SetTerminalCommandHistoryRequest;
 struct SetTerminalIdlePolicyRequest;
 struct SetTerminalKeepRequest;
+struct SetTerminalResumeCommandRequest;
 struct SetViewportPaneWidthRequest;
 struct SetWindowTitleRequest;
 struct SetWorkspaceMetadataRequest;
@@ -5037,6 +5039,20 @@ struct SetTerminalKeepResult {
     friend bool operator==(const SetTerminalKeepResult&, const SetTerminalKeepResult&) = default;
 };
 
+struct SetTerminalResumeCommandRequest {
+    std::optional<std::string> command{};
+    Field<Id> surface{};
+    Field<std::string> terminal_id{};
+    friend bool operator==(const SetTerminalResumeCommandRequest&, const SetTerminalResumeCommandRequest&) = default;
+};
+
+struct SetTerminalResumeCommandResult {
+    std::optional<std::string> resume_command{};
+    std::string terminal_id{};
+    Field<std::string> terminal_resource_id{};
+    friend bool operator==(const SetTerminalResumeCommandResult&, const SetTerminalResumeCommandResult&) = default;
+};
+
 struct SetViewportPaneWidthRequest {
     Id pane{};
     Field<std::uint64_t> transaction{};
@@ -6749,6 +6765,12 @@ template <>
 struct Codec<SetTerminalKeepResult> {
     static Result<Json> encode(const SetTerminalKeepResult& value);
     static Result<SetTerminalKeepResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<SetTerminalResumeCommandResult> {
+    static Result<Json> encode(const SetTerminalResumeCommandResult& value);
+    static Result<SetTerminalResumeCommandResult> decode(const Json& value);
 };
 
 template <>
@@ -8795,6 +8817,12 @@ template <>
 struct Codec<SetTerminalKeepRequest> {
     static Result<Json> encode(const SetTerminalKeepRequest& value);
     static Result<SetTerminalKeepRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<SetTerminalResumeCommandRequest> {
+    static Result<Json> encode(const SetTerminalResumeCommandRequest& value);
+    static Result<SetTerminalResumeCommandRequest> decode(const Json& value);
 };
 
 template <>

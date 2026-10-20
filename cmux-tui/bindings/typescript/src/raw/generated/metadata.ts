@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR a453986b67d167174f384a45b851ba6779b4ecfde280ba17c07ea656ab7e84b0. */
+/* cmux-tui mux protocol 12, IR 8ecb3a2f99b67cade06c5c1faead6b946839bc3b6ead1d4fccf685de967b1b41. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "a453986b67d167174f384a45b851ba6779b4ecfde280ba17c07ea656ab7e84b0" as const;
+export const SDK_IR_SHA256 = "8ecb3a2f99b67cade06c5c1faead6b946839bc3b6ead1d4fccf685de967b1b41" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -2917,6 +2917,18 @@ export const COMMAND_METADATA = {
     "constraints": [
       "The keep flag is stored durably with the terminal and survives owner restarts.",
       "A terminal that is not kept is ended, as close-terminal does, once it has had no tab placement for the owner's reap grace period (default 30 seconds); a placement restored within the period cancels it."
+    ]
+  },
+  "set-terminal-resume-command": {
+    "authority": "control",
+    "since": 12,
+    "capability": "terminal-resume-command-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "The resume command is stored durably with the terminal and survives owner restarts.",
+      "A respawn of the terminal after a host loss and a restart-tab run the command in the new shell.",
+      "Every tab of the terminal shows the command as resume_command."
     ]
   },
   "set-viewport-pane-width": {
@@ -10560,6 +10572,37 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "nullable": true,
         "presence": "optional",
         "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "SetTerminalResumeCommandResult": {
+    "additional_properties": false,
+    "fields": {
+      "resume_command": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "terminal_id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "terminal_resource_id": {
+        "default": null,
+        "nullable": true,
+        "presence": "optional",
         "type": {
           "kind": "scalar",
           "name": "string"
@@ -25263,6 +25306,59 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "SetTerminalKeepResult"
+    }
+  },
+  "set-terminal-resume-command": {
+    "request": {
+      "additional_properties": false,
+      "constraints": [
+        "Exactly one of surface or terminal_id is present."
+      ],
+      "fields": {
+        "command": {
+          "constraints": [
+            {
+              "format": "one line without control characters; null or an empty string clears",
+              "max_utf8_bytes": 4096
+            }
+          ],
+          "nullable": true,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "surface": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        },
+        "terminal_id": {
+          "constraints": [
+            {
+              "format": "terminal host id (UUIDv4 hex without dashes) or public term_ resource id",
+              "pattern": "^(term_)?[0-9a-f]{32}$"
+            }
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "SetTerminalResumeCommandResult"
     }
   },
   "set-viewport-pane-width": {

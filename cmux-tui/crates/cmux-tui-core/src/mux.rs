@@ -306,6 +306,7 @@ mod terminal_reap;
 mod terminal_rehost;
 mod terminal_relaunch;
 pub(crate) mod terminal_respawn;
+mod terminal_resume_command;
 mod terminal_sizing;
 mod terminal_work;
 mod topology_result;

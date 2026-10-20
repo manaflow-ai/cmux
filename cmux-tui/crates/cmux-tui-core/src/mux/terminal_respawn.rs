@@ -561,7 +561,8 @@ impl Mux {
         self.publish_resource_event();
         let _ = self.retry_pending_agent_hooks_for_terminal(&plan.public_id);
         self.reconcile_agent_roster_projections_for_terminal(&plan.public_id);
-        let prefill = self.respawn_prefill(&plan.terminal_id, record.as_ref());
+        let prefill =
+            self.respawn_prefill(&plan.terminal_id, plan.public_id.as_str(), record.as_ref());
         Ok(Some((surface, prefill)))
     }
 

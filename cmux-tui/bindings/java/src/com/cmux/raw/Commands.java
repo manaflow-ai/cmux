@@ -248,6 +248,7 @@ public final class Commands {
     public static final CommandMetadata SET_TERMINAL_COMMAND_HISTORY = new CommandMetadata("set-terminal-command-history", Authority.LOCAL_ADMIN, 12, "terminal-command-history-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata SET_TERMINAL_IDLE_POLICY = new CommandMetadata("set-terminal-idle-policy", Authority.CONTROL, 12, "terminal-idle-close-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata SET_TERMINAL_KEEP = new CommandMetadata("set-terminal-keep", Authority.CONTROL, 12, "terminal-reap-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata SET_TERMINAL_RESUME_COMMAND = new CommandMetadata("set-terminal-resume-command", Authority.CONTROL, 12, "terminal-resume-command-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata SET_VIEWPORT_PANE_WIDTH = new CommandMetadata("set-viewport-pane-width", Authority.CONTROL, 9, "viewport-column-resize-v1", StreamKind.NONE, Map.ofEntries(Map.entry("transaction", 9L)), Map.ofEntries(Map.entry("transaction", "layout-undo-v1")));
     public static final CommandMetadata SET_WINDOW_TITLE = new CommandMetadata("set-window-title", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata SET_WORKSPACE_METADATA = new CommandMetadata("set-workspace-metadata", Authority.CONTROL, 12, "workspace-metadata-v1", StreamKind.NONE, Map.ofEntries(Map.entry("marked_unread", 12L), Map.entry("pinned", 12L)), Map.ofEntries(Map.entry("marked_unread", "notification-mark-unread-v1"), Map.entry("pinned", "workspace-pin-v1")));
@@ -530,6 +531,7 @@ public final class Commands {
         values.put("set-terminal-command-history", SET_TERMINAL_COMMAND_HISTORY);
         values.put("set-terminal-idle-policy", SET_TERMINAL_IDLE_POLICY);
         values.put("set-terminal-keep", SET_TERMINAL_KEEP);
+        values.put("set-terminal-resume-command", SET_TERMINAL_RESUME_COMMAND);
         values.put("set-viewport-pane-width", SET_VIEWPORT_PANE_WIDTH);
         values.put("set-window-title", SET_WINDOW_TITLE);
         values.put("set-workspace-metadata", SET_WORKSPACE_METADATA);
