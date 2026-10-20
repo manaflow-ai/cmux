@@ -1703,12 +1703,14 @@ jobs:
     outputs:
       verdict: ${{ steps.check.outputs.verdict }}
     steps:
-      # The gateway checks nothing out: the fleet fetches the pushed commit
-      # (a pull request's head, which a same-repository branch holds).
+      # The gateway checks nothing out: the fleet fetches the commit the Mac
+      # canary would build (github.sha: a pull request's merge commit, so a
+      # head that breaks against the current base is still caught). A commit
+      # the fleet cannot fetch is "no verdict", and the Mac canary runs.
       - name: Compile-check CmuxNext on the build fleet
         id: check
         env:
-          REF: ${{ github.event.pull_request.head.sha || github.sha }}
+          REF: ${{ github.sha }}
         run: |
           set -uo pipefail
           status=0
