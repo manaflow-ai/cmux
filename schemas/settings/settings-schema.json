@@ -60,6 +60,7 @@
               "layout.frameOrientation",
               "layout.rows",
               "layout.focusFollowsMouse",
+              "layout.scrollAreas",
               "layout.minimumPaneWidth",
               "layout.minimumPaneHeight",
               "layout.newPanePlacement",
@@ -5068,6 +5069,59 @@
       "title" : {
         "key" : "settings.layout.focusFollowsMouse",
         "text" : "Focus Follows Mouse"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.columns",
+        "text" : "Columns"
+      },
+      "help" : {
+        "key" : "settings.layout.scrollAreas.help",
+        "text" : "Side-by-side panes that do not fit scroll sideways instead of shrinking, also in docked columns."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "layout.scrollAreas",
+      "keywords" : [
+        "scroll",
+        "area",
+        "split",
+        "squash",
+        "dock",
+        "horizontal",
+        "overflow"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "layout",
+        "scrollAreas"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : {
+        "key" : "settings.layout.scrollAreas.summary",
+        "text" : "Splits scroll instead of squashing"
+      },
+      "title" : {
+        "key" : "settings.layout.scrollAreas",
+        "text" : "Scroll Areas"
       },
       "validation" : "portable"
     },
@@ -10396,14 +10450,14 @@
       },
       "help" : {
         "key" : "settings.appearance.experimentalControls.help",
-        "text" : "Show the wallpaper grid and live appearance tuner while they are being integrated."
+        "text" : "Applies Hue and Saturation to the window's tint. Off, they have no effect."
       },
       "kept_on_reset_all" : false,
       "key" : "appearance.experimentalControls",
       "keywords" : [
         "experimental",
-        "wallpaper",
-        "tuner",
+        "tuning",
+        "tint",
         "transparency",
         "hue",
         "saturation",

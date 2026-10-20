@@ -17,8 +17,9 @@ export type AskStartMode = (harness: string, cwd?: string) => Promise<StartMode 
 const STORAGE_KEY = "cmux.acpmux.startModes.v1";
 
 let ask: AskStartMode | undefined;
-/// Bumped whenever an answer may have changed (acpmux's `_acpmux/start_mode_changed`, this
-/// pane's own pick, the pane shown again, a new client): every pending chat asks again.
+/// Bumped whenever an answer may have changed (acpmux's `_acpmux/start_mode_changed`, which it
+/// also sends when the `agents.defaultPermissionMode` setting changes; this pane's own pick; a new
+/// client): every pending chat asks again. Showing the pane again asks nothing.
 let generation = 0;
 /// Bumped whenever a kept answer changed: every pending chat draws it.
 let version = 0;
@@ -152,20 +153,7 @@ export function startModeChanged(): void {
 export function setStartModeSource(next: AskStartMode | undefined): void {
   if (ask === next) return;
   ask = next;
-  if (next) watchPage();
   startModeChanged();
-}
-
-let watchingPage = false;
-/// The pane shown or focused again (Settings may have changed the default meanwhile, which acpmux
-/// does not announce): pending chats ask again. Also covers daemons that send no notice.
-function watchPage(): void {
-  if (watchingPage || typeof document === "undefined") return;
-  watchingPage = true;
-  document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible") startModeChanged();
-  });
-  globalThis.addEventListener?.("focus", () => startModeChanged());
 }
 
 /// Asks acpmux now and keeps its answer. Without a client: the kept answer.
