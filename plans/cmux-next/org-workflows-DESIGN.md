@@ -171,6 +171,31 @@ typed, so a Chief can fix a spec in one more turn.
 - acpmux in the Cloud image (it was uploaded by hand for the proof).
 - A staging run through the deployed Worker.
 
-## 7. Proof
+## 7. Proof (2026-10-20)
 
-See the report in section 8 (filled in after the run).
+- Tests (workerd, on a Freestyle VM): `test/automation-machine.test.ts` 7 pass, with
+  `automation-caps` and `automation-code` 22 pass in all; `tsc` clean; `catalog:check` clean
+  after regenerating the catalog, the TS client and the Rust wire types; `cargo check -p
+  cmux-cloud-wire` clean. The workerd test runs a real `AutomationRunWorkflow` against the
+  team's CloudDO: a step on a machine the team does not have ends the run `failed` with
+  `machine.not_found`.
+- Real tenant VM: the example spec
+  [examples/org-workflow-commit-digest.json](examples/org-workflow-commit-digest.json) ran with
+  the same step executor (`automation-machine.ts`) through
+  [examples/run-on-classic-vm.ts](examples/run-on-classic-vm.ts) on Lawrence's tenant VM
+  `vm-0a28ba3e264e46aebdfcb89cbcfac259` (2 vCPU / 4 GiB; deleted after), run
+  `run_digest0a203000000003`:
+
+  | Step | Type | Time | Result |
+  |---|---|---|---|
+  | 0 | machine: last 5 commits of feat-cmux-next | 0.75 s | 5 lines |
+  | 1 | agent: Claude via acpmux, input from step 0 | 13.7 s | a 3-line digest |
+  | 2 | machine: save step 1's output | 0.67 s | `saved 3 lines to /home/cmux/digests/run_digest0a203000000003.txt` |
+
+  A replay with the same run id made 0 machine calls and returned the same three outputs from
+  the journal. The first two attempts failed honestly (`machine.exit`, `acpmux: not found`):
+  the proof port ran as the work user instead of root, and acpmux was not on the login PATH;
+  both are fixed (the port uses `sudo -n` like the driver's root exec; the agent command puts
+  `~/.local/bin` first on PATH, test first).
+- Not proven: a run through the deployed staging Worker (needs a staging deploy and a staging
+  session; next step), metering of sandbox seconds per step, acpmux in the image.

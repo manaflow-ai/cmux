@@ -38,7 +38,7 @@ export const isMachineLikeStep = (s: Step): s is MachineLikeStep => s.type === "
 export const machineStepCommand = (step: MachineLikeStep, ctx: { readonly run: string; readonly index: number }): string => {
   const ids = `CMUX_RUN=${shellQuote(ctx.run)} CMUX_STEP=${ctx.index} CMUX_STEP_KEY=${shellQuote(`step:${ctx.run}:${ctx.index}`)}`
   // The harness is one of three literals, so it is safe in the command; the prompt never is.
-  const body = step.type === "machine" ? step.command : `p="$(cat)"; exec acpmux run -m ${step.harness} "$p"`
+  const body = step.type === "machine" ? step.command : `p="$(cat)"; PATH="$HOME/.local/bin:$PATH" exec acpmux run -m ${step.harness} "$p"`
   return `${layoutSelector()}; ${asDaemonUser(`${ids} bash -lc ${shellQuote(body)}`, { exec: true })}`
 }
 
