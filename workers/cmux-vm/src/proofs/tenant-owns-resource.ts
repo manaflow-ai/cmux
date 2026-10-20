@@ -61,6 +61,19 @@ const mint = <C, R>(caller: Named<C, Principal>, resource: Named<R, unknown>, ro
 
 export const tenantOwnsVm = <C, R>(caller: Named<C, Principal>, vm: Named<R, VmId>) => owns(caller, vm, "vm");
 
+/**
+ * Whether the caller's tenant owned this VM and it is already deleted, under the same allowlist and
+ * service-label rules as a live one. Grants nothing: only a repeated delete may answer success from it.
+ */
+export const tenantDeletedVm = <C, R>(caller: Named<C, Principal>, vm: Named<R, VmId>): Effect.Effect<boolean, StoreError, OwnershipStore> =>
+  Effect.gen(function* () {
+    const principal = caller.value;
+    if (principal.resourceAllowlist !== null && !principal.resourceAllowlist.has(vm.value)) return false;
+    const store = yield* OwnershipStore;
+    const found = yield* store.findDeleted(principal.tenantId, "vm", vm.value);
+    return Option.isSome(found) && found.value.tenantId === principal.tenantId && carriesRequiredLabels(principal, found.value.labels);
+  });
+
 export const tenantOwnsSnapshot = <C, R>(caller: Named<C, Principal>, snapshot: Named<R, SnapshotId>) =>
   owns(caller, snapshot, "snapshot");
 
