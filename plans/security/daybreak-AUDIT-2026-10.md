@@ -7,7 +7,7 @@ account lawrence@manaflow.ai), one per area. Rounds 1-2 (Oct 18-19, 12 areas) ar
 Full per-area reports: `~/fun/cmux-worktrees/security-audit/r3/<area>.md`.
 
 Status at 2026-10-20 14:30 PDT: 6 of 10 areas done; chief-tools, chromium, cloud-chief and
-acpmux-new are still fixing. Counts so far: **0 critical, 18 high, 18 medium, 6 low.**
+acpmux-new are still fixing. Counts so far: **0 critical, 18 high, 18 medium, 6 low** (round 3) plus **6 high, 7 medium, 1 low** from the first nightly run (below).
 
 ## High findings (most severe first)
 
@@ -31,6 +31,22 @@ acpmux-new are still fixing. Counts so far: **0 critical, 18 high, 18 medium, 6 
 | freestyle-1 | Org-workflow `automationExec` did not check that the creator is still a team member. | fixed: 353056437db (test), cd3693b170c (fix). |
 | freestyle-5 | Own-sign-in stores Claude/Codex/OpenCode credentials in the shared `cmux` HOME of team VMs. | partly fixed: 8bd30951d31..26db4bda19b (team auth default, isolated launchers). Rollout: bake image, revoke creds on old disks; real per-user isolation needs a design decision. |
 | teammate-access-1 | On a322's unlanded `teammate-access-scratch`: a legacy full-access `allow` entry survives `revoke`. | lead for a322 (not edited). |
+
+## First nightly run (2026-10-20 04:23, range a7ebd89a0a7..e9c6f20a63b)
+
+Lanes app and rust finished; cloud, mobile and ci hung on the model stream (fixed by the lane
+timeout, they run again tonight). Fix workers (round 4) are queued, max 5 workers at a time.
+
+| ID | What is wrong | Status |
+|----|---------------|--------|
+| cmux-app-1 | CLI/MCP screenshot actions capture any window/pane/tab, including off-screen signed-in tabs. | likely closed by 45fe246e9ab (person-only); worker n-screens verifies. |
+| cmux-app-2 | App and phone screenshot actions write to caller-chosen paths and replace existing files. | worker n-screens. |
+| cmux-app-3 | App launches `cnx-hostd` and VS Code `code-server` from user-writable paths without a code-identity check, and gives them credentials. | worker n-helpers (relates to update-3). |
+| cmux-app-4 | Opening Markdown runs `git status`/`diff` with repo config enabled; an untrusted repo's `core.fsmonitor` runs code. | worker n-git. |
+| cmux-rust-1 | acpmux `start_session` accepts any absolute cwd outside the parent's trusted root. | worker n-subsessions. |
+| cmux-rust-2 | Cross-harness child of a restricted parent keeps the target's broader default mode. | worker n-subsessions. |
+
+Mediums: cmux-app-5..8 (design mode, CEF events, task-manager kill policy, iPhone host), cmux-rust-3..5; low cmux-rust-6. Details: `~/fun/cmux-worktrees/security-audit/nightly/2026-10-20/`.
 
 ## Medium and low (summary)
 
