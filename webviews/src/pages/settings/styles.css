@@ -819,11 +819,28 @@ mark {
   border: 0;
 }
 
-.accounts-team {
-  display: flex;
+/* A radio row, not a setting row: layout.css stacks `.row` as a column, which put the radio
+   above a centered name. The doubled class outranks `.row` and the refined look's row rule. */
+.accounts-teams > .row.accounts-team.accounts-team {
+  flex-direction: row;
   align-items: center;
+  justify-content: flex-start;
   gap: 10px;
+  text-align: start;
   cursor: default;
+}
+
+.accounts-team > input[type="radio"] {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: var(--accent, var(--text));
+}
+
+.accounts-team > .row-title {
+  flex: 1;
+  min-width: 0;
 }
 
 .accounts-teams:disabled .accounts-team {
