@@ -607,6 +607,11 @@ struct MacScreenDevicesSettingsTests {
         let disconnected = AuditEntry(id: "e5", event: "ended", viewerId: "v1", hostId: hostID, detail: "viewer_disconnected")
         #expect(MacScreenDevicesSettings.historyRow(disconnected, names: names, me: hostID).detail.contains("Laptop"))
         // Devices joining and leaving (the backend's per-device audit): the detail names the device.
+        // A removed device's name comes from the entry itself when no list knows it.
+        var gone = AuditEntry(id: "e11", event: "ended", viewerId: "gone-id", hostId: hostID, detail: "device_removed:viewer")
+        gone.viewerName = "Old Laptop"
+        let goneRow = MacScreenDevicesSettings.historyRow(gone, names: names, me: hostID)
+        #expect(goneRow.device == "Old Laptop" && goneRow.detail.contains("Old Laptop"))
         // The backend names the device in deviceId.
         let joined = AuditEntry(id: "e9", event: "device_added", deviceId: "v1")
         let joinedRow = MacScreenDevicesSettings.historyRow(joined, names: names, me: hostID)

@@ -76,6 +76,44 @@ import Testing
         #expect(secrets.relayIDs() == ["r1"])
     }
 
+    /// Removing another device never changes this device's identity or empties its History:
+    /// only a removal of THIS device makes a new identity.
+    @Test func removingAnotherDeviceKeepsIdentityAndHistory() async throws {
+        let me = self.me, phone = self.phone
+        let listed = Locked([(me, "Studio"), (phone, "Phone")])
+        let stub = StubHub { request in
+            switch (request.method, request.url.path) {
+            case (_, "/v1/auth/stack"): return (200, #"{"session":"hub-session","userId":"u","expiresAt":1800003600000}"#)
+            case ("GET", "/v1/devices"): return (200, devicesJSON(listed.value))
+            case ("DELETE", _): return (200, "{}")
+            case ("GET", "/v1/audit"):
+                return (200, #"{"entries":[{"id":"a3","ts":1800000002000,"event":"device_removed","deviceId":"p","deviceName":"Phone"},{"id":"a2","ts":1800000001000,"event":"ended","viewerId":"p","hostId":"m"},{"id":"a1","ts":1800000000000,"event":"started","viewerId":"p","hostId":"m"}]}"#)
+            default: return (200, "{}")
+            }
+        }
+        let hub = DeviceHub(client: makeClient(stub, identity: me), secrets: MemoryRelaySecretStore(), deviceName: "Studio",
+                            renewIdentity: { DeviceIdentity.software("ffffffff-0000-4000-8000-000000000009") }, now: fixedNow)
+        await hub.refreshDevices()
+        await hub.refreshAudit()
+        #expect(hub.audit.count == 3)
+        try await hub.removeDevice(phone.id)
+        listed.set([(me, "Studio")])
+        await hub.handle(.push(.devicesChanged))
+        await hub.handle(.push(.sessionRevoked(sessionID: "s1", reason: "device_removed:viewer")))
+        await hub.refreshAudit()
+        #expect(hub.identity.id == me.id)
+        #expect(hub.audit.count == 3)
+        #expect(stub.requests.last { $0.url.path == "/v1/audit" }?.pathAndQuery.contains("device=\(me.id)") == true)
+        #expect(hub.status != .failed("this device was removed"))
+    }
+
+    /// Entries name their devices as they were (`viewerName`, `hostName`, `deviceName`), even removed ones.
+    @Test func auditEntriesReadTheirDevicesNames() throws {
+        let data = Data(#"{"id":"a","event":"ended","viewerId":"v","hostId":"h","viewerName":"Laptop","hostName":"Studio","deviceName":null}"#.utf8)
+        let entry = try JSONDecoder().decode(AuditEntry.self, from: data)
+        #expect(entry.viewerName == "Laptop" && entry.hostName == "Studio" && entry.deviceName == nil)
+    }
+
     /// Audit entries carry `deviceId` for device_added and device_removed.
     @Test func auditEntriesReadTheirDevice() throws {
         let data = Data(#"{"id":"a","ts":1800000000000,"event":"device_added","deviceId":"d1"}"#.utf8)
