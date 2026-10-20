@@ -70,6 +70,8 @@ ANSI = re.compile(r"\x1b\[[0-9;]*m|\^\[\[[0-9;]*m")
 # A log GitHub served without step names, and the lines that end a job's last step there.
 UNKNOWN_STEP = "UNKNOWN STEP"
 POST_STEPS = re.compile(r"^(Post job cleanup\.|A job completed hook has been configured|Cleaning up orphan processes)")
+STARTED_HOOK = re.compile(r"^A job started hook has been configured")
+RUNNER_STEPS = re.compile(r"^(Set up job|Set up runner|Complete job|Complete runner|Post )")
 CRASH_LINE = re.compile(r"exited with unexpected signal code|the test helper died on signal|"
                         r"no \"Test run with\" summary line")
 
@@ -103,24 +105,41 @@ def step_lines(log: str) -> list[tuple[str, str]]:
     GitHub sometimes serves a job's log with no step names, every line under `UNKNOWN STEP`
     (2026-10-20: the checks job of #22200 on a Blacksmith runner, while the base's had them).
     Then each step is told by the `##[group]Run ...` echo that opens it and ends at the next one
-    or at the job's post steps, and the runner's own setup and cleanup belong to no step:
+    or at the job's post steps; the runner's own setup, hooks and cleanup belong to no step, and
+    printed() refuses when the blocks do not match the steps that ran one for one:
     otherwise the whole job, its runner banner and fetched tags, counted as one failed step's
     findings that no base run could have."""
     parsed = [(parts[1], parts[2]) for parts in (line.split("\t", 2) for line in log.splitlines())
               if len(parts) == 3]
     if not parsed or any(step != UNKNOWN_STEP for step, _ in parsed):
         return parsed
-    found, step, blocks = [], None, 0
+    found, step, blocks, hook, post = [], None, 0, False, False
     for _, raw in parsed:
         text = ANSI.sub("", STAMP.sub("", raw.lstrip("\ufeff"))).strip()
-        if text.startswith("##[group]Run "):
+        if post:
+            continue
+        if STARTED_HOOK.match(text):
+            # The runner's own job-started hook echoes a `Run` group of its own before the first step.
+            hook, step = True, None
+        elif POST_STEPS.match(text):
+            post, step = True, None
+            continue
+        elif text.startswith("##[group]Run "):
+            if hook:
+                hook = False
+                continue
             blocks += 1
             step = f"{UNKNOWN_STEP} {blocks}"
-        elif POST_STEPS.match(text):
-            step = None
         if step is not None:
             found.append((step, raw))
     return found
+
+
+def ran_steps(job: dict) -> int:
+    """How many of the job's own steps ran: not the runner's set-up, completion or post steps."""
+    return sum(1 for step in job.get("steps") or []
+               if step.get("conclusion") not in (None, "skipped")
+               and not RUNNER_STEPS.match(step.get("name") or ""))
 
 
 def printed(job: dict, log: str) -> Counter[str]:
@@ -133,6 +152,12 @@ def printed(job: dict, log: str) -> Counter[str]:
     failed = {step["name"] for step in job.get("steps") or []
               if step.get("conclusion") not in (None, "success", "skipped")}
     lines = step_lines(log)
+    blocks = {step for step, _ in lines if step.startswith(f"{UNKNOWN_STEP} ")}
+    if blocks and len(blocks) != ran_steps(job):
+        # A composite action or a script's own `Run` group adds a block: a step's findings could
+        # then fall outside the block that logged its error, unseen. Refuse rather than guess.
+        raise Refused(f"'{job.get('name')}': its log names no steps and has {len(blocks)} `Run` groups for "
+                      f"{ran_steps(job)} steps; its findings cannot be told apart to compare with the base")
     for step, raw in lines:
         if "##[error]" in raw:
             failed.add(step)

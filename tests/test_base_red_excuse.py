@@ -386,6 +386,11 @@ class LintFindings(unittest.TestCase):
             + [line.replace(f"\t{L10N}\t", "\tUNKNOWN STEP\t") for line in self.gh.logs[1].splitlines()]
             + [f"{CHECKS}\tUNKNOWN STEP\t2026-10-07T02:10:37.8032610Z {line}" for line in (
                 "Post job cleanup.", "[command]/usr/local/bin/git version")])
+        self.gh.jobs[1]["steps"] = [
+            {"name": name, "status": "completed", "conclusion": conclusion} for name, conclusion in (
+                ("Set up job", "success"), ("Run actions/checkout@de0fac2e", "success"),
+                ("God files and types (Swift)", "success"), (L10N, "failure"),
+                ("Post Run actions/checkout@de0fac2e", "success"), ("Complete job", "success"))]
         self.gh.logs[1] = unnamed
         text = "\n".join(self.judge())
         self.assertIn("sidebar.doc.move: missing uk", text)
@@ -393,6 +398,13 @@ class LintFindings(unittest.TestCase):
         self.gh.logs[1] = unnamed.replace("missing uk", "missing uk\n" + (
             f"{CHECKS}\tUNKNOWN STEP\t2026-10-07T02:10:37.8032610Z {XCSTRINGS}:sidebar.doc.rename: missing uk"), 1)
         with self.assertRaisesRegex(excuse.Refused, "sidebar.doc.rename"):
+            self.judge()
+        # A nested `Run` group (a composite action's step) could split a red step's findings from
+        # its error: the blocks no longer match the steps, so it refuses rather than guess.
+        self.gh.logs[1] = unnamed.replace("##[group]Run python3 scripts/cmux-next/check-god-files.py",
+                                          "##[group]Run python3 scripts/cmux-next/check-god-files.py\n" + (
+            f"{CHECKS}\tUNKNOWN STEP\t2026-10-07T02:10:37.8032610Z ##[group]Run inner"), 1)
+        with self.assertRaisesRegex(excuse.Refused, "cannot be told apart"):
             self.judge()
 
     def test_a_lint_check_green_on_the_base_blocks(self):
