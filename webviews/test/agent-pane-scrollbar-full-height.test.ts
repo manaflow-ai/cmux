@@ -6,7 +6,7 @@
 // its end on every painted frame, with nothing under the card.
 //
 // Before: the transcript ended at the top of the bottom stack, so its track ended about a
-// composer's height (120px here) above the pane's bottom.
+// composer's height (111px here, 211px with a five-line prompt) above the pane's bottom.
 //
 // The page is the pane's dev entry with its browser host, talking JSON-RPC to a stand-in acpmux.
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
@@ -141,12 +141,13 @@ await requireBrowserLane("agent-pane-scrollbar-full-height.test.ts", async () =>
       const last = rows.reduce((a, b) =>
         Number(b.getAttribute("aria-posinset")) > Number(a.getAttribute("aria-posinset")) ? b : a,
       );
-      const lastText = [...last.querySelectorAll("p")].at(-1) ?? last;
+      const answer = rows.find((row) => row.textContent?.includes("Answer 40:"));
       return {
         trackGap: Math.round(main.bottom - view.bottom),
         rowAboveCard: Math.round(card.top - last.getBoundingClientRect().bottom),
-        textAboveCard: Math.round(card.top - lastText.getBoundingClientRect().bottom),
-        lastIsLatest: last.textContent?.includes("Answer 40:") ?? false,
+        answerAboveCard: answer ? Math.round(card.top - answer.getBoundingClientRect().bottom) : null,
+        // The chat has no older pages, so the transcript's last row is the last of the set.
+        lastIsLatest: last.getAttribute("aria-posinset") === last.getAttribute("aria-setsize"),
         fromEnd: Math.round(scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight),
         cardHeight: Math.round(card.height),
         bar: Math.round(view.right - (view.left + scroller.clientWidth)),
@@ -164,7 +165,7 @@ await requireBrowserLane("agent-pane-scrollbar-full-height.test.ts", async () =>
     // Opened at its latest message: the view is at the end, the last row whole above the card.
     expect({ fromEnd: drawn.fromEnd, lastIsLatest: drawn.lastIsLatest }).toEqual({ fromEnd: 0, lastIsLatest: true });
     expect(drawn.rowAboveCard).toBeGreaterThanOrEqual(-1);
-    expect(drawn.textAboveCard).toBeGreaterThan(0);
+    expect(drawn.answerAboveCard).toBeGreaterThanOrEqual(0);
 
     // The scrollbar paints under the composer too: at the end its thumb rests at the track's foot,
     // so the pixel there differs from the page beside it (a mask over that band would hide both).
