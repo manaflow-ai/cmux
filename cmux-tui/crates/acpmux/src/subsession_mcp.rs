@@ -30,7 +30,8 @@ fn tools() -> Value {
                     "name": {"type": "string", "description": "A short name for it among your sub-sessions, e.g. \"tests\" (default: from the prompt)."},
                     "harness": {"type": "string", "description": "The agent to run it, e.g. claude or codex. Default: the same agent as yours."},
                     "model": {"type": "string", "description": "The model. Default: the agent's default."},
-                    "cwd": {"type": "string", "description": "The folder it works in, as an absolute path. Default: yours."}
+                    "cwd": {"type": "string", "description": "The folder it works in, as an absolute path. Default: yours."},
+                    "worktree": {"type": "boolean", "description": "Work in a new git worktree of that folder's repository (~/.cmux/worktrees/<project>/<name>, branch cmux/<name>), so its edits stay apart from yours until the user applies them. It starts in the same subfolder of the worktree as that folder. Its files are checked out as committed, without running the repository's hooks or filters (a Git LFS file stays its pointer)."}
                 },
                 "required": ["prompt"]
             }
