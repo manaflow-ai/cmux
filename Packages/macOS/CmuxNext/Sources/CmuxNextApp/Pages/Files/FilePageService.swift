@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextDesign
@@ -38,7 +39,7 @@ final class FilePageService: InternalPageProvider {
 
     let kind: FilePageKind
     // crash-allow: AppServices owns this service for the app's whole life (ViewerService's lazy page services), so it outlives it.
-    private unowned let services: AppServices
+    unowned let services: AppServices
     private let clock: any Clock<Duration>
     private let images: any RemoteImageFetching
     private var tabs: [String: Tab] = [:]
@@ -55,7 +56,8 @@ final class FilePageService: InternalPageProvider {
     private(set) lazy var liveShare = MarkdownLiveShareServer(clock: clock)
 
     /// The file pages draw at the display's full rate, as the diff and agent pages do.
-    static let engineOptions = PageEngineOptions(fullFrameRate: true)
+    /// File pages open dropped files themselves (`fileDrop`), a WebKit-only hook so far.
+    static let engineOptions = PageEngineOptions(fullFrameRate: true, requiresWebKit: .nativeHooks)
     /// How long a closed editor tab's page may take to save its pending edits.
     static let flushTimeout: Duration = .seconds(3)
 
@@ -318,9 +320,11 @@ final class FilePageService: InternalPageProvider {
             return NSView()
         }
         native.anchor = { [weak page] in page }
-        if kind == .markdown { page.contextMenuEditor = Self.tableMenu(provider: provider, page: page) }
         page.onOpenExternal = { [weak self] url in self?.openExternal(url, from: key) }
         page.fileDrop = fileDrop(provider: provider, page: page, key: key)
+        // One menu: Copy; Comment…, Quote in Chat, Send to Chief and Send to… on a selection; Reset
+        // Column Widths on a table (viewer-comments-DESIGN.md).
+        installSelectionMenu(on: page, key: key, then: kind == .markdown ? Self.tableMenu(provider: provider, page: page) : nil)
         tab.page = page
         tab.provider = provider
         tab.host = host

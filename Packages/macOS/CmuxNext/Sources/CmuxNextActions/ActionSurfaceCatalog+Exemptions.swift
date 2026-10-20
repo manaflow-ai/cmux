@@ -24,7 +24,7 @@ nonisolated extension ActionSurfaceCatalog {
         "workspace.closeAll", "workspace.closeAllInAllWindows", "workspaceGroup.closeOthers", "workspaceGroup.duplicate",
         "window.closeOthers", "closeAllWindows",
         "palette.toggleWorkspacePin", "palette.markWorkspaceRead", "palette.markWorkspaceUnread",
-        "palette.workspaceColor", "palette.resetWorkspaceColor", "reconnectWorkspace", "disconnectWorkspace",
+        "palette.workspaceColor", "palette.resetWorkspaceColor", "reconnectWorkspace", "disconnectWorkspace", "disconnectRemoteTab",
         "clearWorkspaceNotifications", "workspaceGroup.newWorkspace", "workspaceGroup.rename",
         "workspaceGroup.togglePin", "workspaceGroup.markRead", "workspaceGroup.markUnread",
         "workspaceGroup.clearNotifications", "workspaceGroup.ungroup", "workspaceGroup.delete", "saveLayoutTemplate",
@@ -53,7 +53,7 @@ nonisolated extension ActionSurfaceCatalog {
         "splitRight", "newColumn", "newRow", "splitDown", "newPaneAutoLayout", "equalizeSplits", "triggerFlash",
         "palette.swapWithSession", "toggleCanvasLayout", "canvasTidy", "palette.newSimulatorPane", "file.open",
         "pane.toggleTabBar",
-        "newTab.default", "newTab.page", "newTab.submit", "newSurface", "openBrowser", "openBrowser.webkit",
+        "newTab.default", "newTab.afterCurrent", "newTab.atStart", "newTab.atEnd", "newTab.page", "newTab.submit", "newSurface", "openBrowser", "openBrowser.webkit",
         "openBrowser.chromium", "closeOtherTabsInPane", "closeTabsToLeft", "closeTabsToRight",
         "renameTab", "palette.clearTabName", "tab.restart",
         "moveSurfaceLeft", "moveSurfaceRight", "moveSurfaceToPreviousPane", "moveSurfaceToNextPane",
@@ -154,7 +154,6 @@ nonisolated extension ActionSurfaceCatalog {
     static let cliExemptionsByReason: [SurfaceExemption: [ActionID]] = [
         .ownerVerb: ownerVerbActions,
         .unimplemented: [
-            "disconnectRemoteTab",
             "agentChat.toggleNotificationMute",
             "palette.openFindPane",
             "palette.openFilesPane",
@@ -170,7 +169,7 @@ nonisolated extension ActionSurfaceCatalog {
             "toggleBrowserDeveloperTools", "showBrowserJavaScriptConsole", "inspectBrowserElement", "browserPrint",
             "toggleBrowserFocusMode", "toggleBrowserDesignMode", "toggleReactGrab", "palette.browserToggleOmnibar",
             "importFromBrowser", "password.importCSV", "browser.importFromFiles", "browser.allowAgentWithExtensions", "browserProfile.delete", "openLinkInDefaultBrowser", "filePreviewOpenWith", "filePreviewOpenExternally",
-            "filePreviewRevealInFinder", "palette.vscodeServeWebStop", "palette.vscodeServeWebRestart",
+            "filePreviewRevealInFinder", "filePreviewRevealInFiles", "palette.vscodeServeWebStop", "palette.vscodeServeWebRestart",
             "browser.pageInfo", "browser.pageInfo.connection", "browser.pageInfo.certificate",
             "browser.pageInfo.cookies", "browser.pageInfo.manageSiteData", "browser.pageInfo.siteSettings",
             "browser.pageInfo.aboutThisPage", "browser.extensions.menu", "browser.extensions.manage",
@@ -224,7 +223,7 @@ nonisolated extension ActionSurfaceCatalog {
         .focusMove: [
             "history.goTo",
             "home.show",
-            "showHideAllWindows", "goToWorkspace", "showMainWindow", "nextSidebarTab", "prevSidebarTab",
+            "showHideAllWindows", "goToWorkspace", "search.chats", "showMainWindow", "nextSidebarTab", "prevSidebarTab",
             // nextWorkspaceGroup/prevWorkspaceGroup: their cliName ("workspace-group next") is the action's
             // identifier ActionContractTests requires; the CLI verb is deliberately not offered (a focus move).
             "nextSidebarTabInGroup", "prevSidebarTabInGroup", "nextWorkspaceGroup", "prevWorkspaceGroup",

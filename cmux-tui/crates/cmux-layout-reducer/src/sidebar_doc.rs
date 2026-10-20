@@ -23,7 +23,11 @@ pub mod check;
 pub mod doc;
 pub mod migrate;
 pub mod model;
+#[cfg(test)]
+mod nested_pin_tests;
 pub mod order_key;
+#[cfg(test)]
+mod pin_tests;
 pub mod reduce;
 pub mod reset;
 pub mod view;

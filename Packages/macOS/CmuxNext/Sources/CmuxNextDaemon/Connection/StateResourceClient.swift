@@ -79,6 +79,23 @@ extension StateResourceClient {
         try await stateMutation("closed.reopen", ["closed": .string(id)], as: ReopenedItem.self)
     }
 
+    /// Reopens closed tab `tab` (`tab_…`) by its id, under that same id
+    /// (`closed.reopen {tab}`, a `cmux://tab/` link to a closed tab): the
+    /// member of the newest closed group that holds it.
+    ///
+    /// - Parameters:
+    ///   - tab: The tab's resource id.
+    ///   - fallbackPane: The `pane_` id the tab opens in when its own pane
+    ///     and workspace are gone; nil for the session's focused pane.
+    /// - Throws: `DaemonError.command` with code `resource.not_found` when
+    ///   no closed group holds the tab (it is open, or its record is gone).
+    @discardableResult
+    public func reopenClosed(tab: String, fallbackPane: String?) async throws -> ReopenedItem {
+        var params: [String: JSONValue] = ["tab": .string(tab)]
+        if let fallbackPane { params["fallback_pane"] = .string(fallbackPane) }
+        return try await stateMutation("closed.reopen", params, as: ReopenedItem.self)
+    }
+
     /// The window ids of install `installID`'s window records (`window_record.list`).
     public func windowRecordIDs(installID: String) async throws -> [String] {
         let list = try await connection.resourceRequest({ id in
@@ -131,13 +148,27 @@ extension StateResourceClient {
     }
 
     /// `workspace.create`; `ephemeral` workspaces are closed by the daemon at
-    /// its next start and leave no closed history.
+    /// its next start and leave no closed history. `focus` makes the new
+    /// workspace the daemon's focused one, as the person's own creations
+    /// are; without it the daemon keeps its focused workspace.
     @discardableResult
-    public func createWorkspace(name: String?, ephemeral: Bool, terminal: Bool) async throws -> CreatedWorkspace {
+    public func createWorkspace(name: String?, ephemeral: Bool, terminal: Bool, focus: Bool) async throws -> CreatedWorkspace {
+        let supportsFocus = await connection.identity?.supports(DaemonCapabilities.shared.workspaceCreateFocus) == true
+        let params: [String: JSONValue] = Self.workspaceCreateParams(name: name, ephemeral: ephemeral, terminal: terminal,
+                                                                     focus: focus, daemonSupportsFocus: supportsFocus)
+        return try await stateMutation("workspace.create", params, as: CreatedWorkspace.self)
+    }
+
+    /// The `workspace.create` params. `focus` is sent only to a daemon with
+    /// `workspace-create-focus-v1`: an older one refuses the field and
+    /// focuses every new workspace anyway.
+    static func workspaceCreateParams(name: String?, ephemeral: Bool, terminal: Bool,
+                                      focus: Bool, daemonSupportsFocus: Bool) -> [String: JSONValue] {
         var params: [String: JSONValue] = ["initial_content": .string(terminal ? "terminal" : "empty")]
         if let name { params["name"] = .string(name) }
         if ephemeral { params["ephemeral"] = .bool(true) }
-        return try await stateMutation("workspace.create", params, as: CreatedWorkspace.self)
+        if focus, daemonSupportsFocus { params["focus"] = .bool(true) }
+        return params
     }
 
     /// Workspace title, color, icon, description (`workspace-description-v1`) and manual task

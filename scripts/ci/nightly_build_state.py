@@ -37,7 +37,12 @@ NOTICES_CACHE_MAX_BYTES = 8 << 30
 
 
 def owned(runner: str) -> bool:
-    return re.fullmatch(r'[a-zA-Z0-9._-]+-glaeda(?:-[0-9]+)?', runner) is not None
+    # A Glaeda mini runner (<member>-glaeda[-K]) or the dedicated nightly-next
+    # builder (cmux22-nightly-next, plans/cmux-next/nightly-builder-DESIGN.md),
+    # whose admission hook runs only this build. Without it the dedicated
+    # builder compiled every head cold (425 cache misses, xcodebuild 505 s
+    # against 254 s on cmux15, run 39396919366).
+    return re.fullmatch(r'[a-zA-Z0-9._-]+-(?:glaeda(?:-[0-9]+)?|nightly-next)', runner) is not None
 
 
 def remove(path: Path) -> None:

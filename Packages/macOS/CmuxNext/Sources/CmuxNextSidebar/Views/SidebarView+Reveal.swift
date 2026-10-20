@@ -31,6 +31,7 @@ extension SidebarViewComponents {
             aboveFade.animator().alphaValue = above
             belowFade.animator().alphaValue = belowRegion.restAlpha(hiddenByMode: below == 0)
             footerRegion.animator().alphaValue = below
+            searchButton.animator().alphaValue = below
         }
         fadeLine(aboveLine, to: above)
     }
