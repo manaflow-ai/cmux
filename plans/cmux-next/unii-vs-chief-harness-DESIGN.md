@@ -35,10 +35,10 @@ The bench is [BENCH-unii.md](BENCH-unii.md). The script is `Native/OptChat/optch
 | # | Topic | Unii baseline | Chief harness before | Now |
 |---|---|---|---|---|
 | 1 | Same upstream cache across turns | One process: same key, same account (direct API) | A new Claude session per turn. sr2 picks an account per session, so 52% of claude-sr2 turns (23% on claude) wrote 38k-83k tokens again | **Fixed.** acpmux sends `X-Subrouter-Session` for turn and compactor presets (`subrouter_session.rs`). In the bench, warm hit went from 39.4% to 98.5% |
-| 2 | Per-turn process start | 0 (a server that is already running) | Claude Code process plus session per turn. Measured `start_ms` p50 1.15 s, p90 3.1 s (Oct 18-19) | Open. A persistent turn session or the native engine would fix it (below) |
-| 3 | Fixed prompt overhead | 4.4 KB system prompt and 9 tools: about 39.6k tokens for a 100 KB view | Claude Code system prompt plus tools plus our 11.6 KB system prompt: about 45.0k for the same view (+14%) | Open. Use `engine=native` (direct API) for the Chief |
-| 4 | Uncached tail per turn | 4 tokens | 462 tokens after our last mark (Claude Code puts its own text after the user content) | Open |
-| 5 | Single flight on a shared prefix | Yes | No. Parallel compactor slots can write the same prefix twice | Open (small) |
+| 2 | Per-turn process start | 0 (a server that is already running) | Claude Code process plus session per turn. Measured `start_ms` p50 1.15 s, p90 3.1 s (Oct 18-19) | **Fixed.** A kept turn session (`Settings::keep_turn_session`, default on): the next turn prompts the same Claude Code process |
+| 3 | Fixed prompt overhead | 4.4 KB system prompt and 9 tools: about 39.6k tokens for a 100 KB view | Claude Code system prompt plus tools plus our 11.6 KB system prompt: about 45.0k for the same view (+14%) | Open. About 4.1k tokens are the Chief's own instructions and 1.4k are tools; warm turns read them at 0.1x. Kept on purpose |
+| 4 | Uncached tail per turn | 4 tokens | 462 tokens after our last mark (Claude Code puts its own text after the user content) | **Fixed.** The kept session uses Claude Code's own marks: 4 tokens |
+| 5 | Single flight on a shared prefix | Yes | No. Parallel compactor slots can write the same prefix twice | **Fixed.** `single_flight.rs`: a node waits until the leader's response begins |
 | 6 | Settle before render | Yes | Cloud Chief yes; the Rust Chief keeps the frozen view (optchat.md 5a) | Same as before |
 | 7 | Resident memory | One Bun server | Each live Claude Code process is 140-310 MB. The default Chief today: 8 processes, 926 MB, plus a 197 MB host | Open. Pool size, or the native engine |
 
@@ -67,5 +67,14 @@ Each metric is taken per turn, on the same model, route, view (100 KB synthetic)
 ## Next steps (not landed here)
 
 1. Run the Chief on `engine=native` by default (the direct Messages API loop, `chief/native`). This removes rows 2, 3, 4 and 7. It needs a credential route through sr2 that does not depend on a Claude Code login.
-2. Alternatively, keep one Claude Code session per Chief and reuse it for turns. This needs a stable prefix inside Claude Code's own transcript.
-3. Add single flight for compactor slots that share a prefix.
+2. Done (phase 2): one Claude Code session per Chief, reused while the frozen view holds. Our marks are off in a kept session: they pile up in its history, and turn 4 failed with "A maximum of 4 blocks with cache_control may be provided. Found 5".
+3. Done (phase 2): single flight for compactor nodes that share a prefix.
+
+## Kept turn session (phase 2)
+
+- A Claude turn with the cached layout keeps its session when it ends cleanly (no error, stop, move or orphan).
+- The next turn prompts it again when the session shape is the same (harness, model, effort, preset, system prompt, frozen view, TTL), the view was not rendered again, and the kept context is under 120k tokens. It sends only the log lines from the kept turn's end on, plus images and the per-turn tail.
+- Else the brain ends the kept session (`TurnStart::retire`) and starts a fresh one with the whole view.
+- A kept session whose first request read and wrote no cache (a pooled process with Claude Code's caching off) is not kept.
+- `PendingTurn.session` holds this turn's name, as before. A reused session is reported through `progress` and its fold row at once, so crash recovery finds it by id, as before. A restarted host ends the session in `HostState::kept_session` at its first turn. `recover.rs` and acpmux `auto_resume` are not changed.
+- `CHIEF_KEEP_TURN_SESSION=0` turns it off.

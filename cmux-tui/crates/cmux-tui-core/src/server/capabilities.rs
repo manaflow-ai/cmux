@@ -81,6 +81,7 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
     #[cfg(unix)]
     if mux.serves_agent_update() {
         capabilities.push(agent_transfer::agent_update::AGENT_UPDATE_CAPABILITY);
+        capabilities.push(agent_transfer::agent_update::AGENT_UPDATE_OWNER_CAPABILITY);
     }
     #[cfg(unix)]
     if mux.serves_agent_transfer() {
@@ -171,6 +172,7 @@ pub(super) fn advertised_capabilities(
         PINNED_DOCK_CAPABILITY,
         PINNED_DOCK_ALONE_CAPABILITY,
         ROWS_CAPABILITY,
+        COLUMN_MOVE_CAPABILITY,
         PANE_BROWSER_KIND_CAPABILITY,
         LAYOUT_UNDO_CAPABILITY,
         TAB_WORKSPACE_MOVE_CAPABILITY,
@@ -202,6 +204,7 @@ pub(super) fn advertised_capabilities(
         SERVER_STATS_CAPABILITY,
         TERMINAL_IDLE_CLOSE_CAPABILITY,
         TERMINAL_REAP_CAPABILITY,
+        RESUME_COMMAND_CAPABILITY,
         END_TERMINALS_KEEP_LAYOUT_CAPABILITY,
         BATCH_CLOSE_CAPABILITY,
         CLOSE_WORKSPACE_IF_EMPTY_CAPABILITY,
@@ -215,6 +218,7 @@ pub(super) fn advertised_capabilities(
         TAB_MARK_UNREAD_CAPABILITY,
         WORKSPACE_DESCRIPTION_CAPABILITY,
         WORKSPACE_STATUS_CAPABILITY,
+        WORKSPACE_CREATE_FOCUS_CAPABILITY,
         TAB_METADATA_CAPABILITY,
         FRONTEND_BROWSER_TABS_CAPABILITY,
         FRONTEND_BROWSER_HISTORY_CAPABILITY,
@@ -263,6 +267,7 @@ pub(super) fn advertised_capabilities(
         chief_registry_resource::CHIEF_PROFILE_WS_CAPABILITY,
         chief_registry_resource::CHIEF_EVENTS_CAPABILITY,
         chief_registry_resource::CHIEF_PROFILE_ADOPT_CAPABILITY,
+        chief_registry_resource::CHIEF_PROFILE_HISTORY_CAPABILITY,
         SCREEN_METADATA_CAPABILITY,
         SCREEN_GROUPS_CAPABILITY,
         NOTIFICATION_SOURCE_CAPABILITY,

@@ -11,6 +11,45 @@ bun tests/agent-evals/run.mjs --run NAME --agents claude:cli,claude:mcp,codex:cl
 
 Per-run artifacts (snapshots, agent output, call logs): `artifacts/agent-evals/<run>/` (not committed).
 
+## Run split-focus-2026-10-20 (2026-10-20): after the split-keeps-focus fix
+
+Same headless tier, agents and settings as the baseline below, one run per
+cell. The cmux CLI and daemon were built on the fleet from 565d372d356 (fix:
+`pane split` keeps focus unless `focus: true`, and takes `argv`/`shell`), with
+the updated `cmux-workspace` and `cmux` skills installed. Command:
+`bun tests/agent-evals/run.mjs --run split-focus-2026-10-20 --cli <fleet-built cmux> --agents claude:cli,claude:mcp,codex:cli,codex:mcp,opencode:cli,opencode:mcp,cursor-agent:cli --parallel 5`.
+
+| Agent | Surface | Passed (baseline) | Passed (now) | Top failures now |
+| --- | --- | --- | --- | --- |
+| claude | cli | 6/9 | 9/9 | |
+| codex | cli | 5/9 | 9/9 | |
+| codex | mcp | 3/9 | 8/9 | wrong_place 1 |
+| claude | mcp | 3/9 | 7/9 | focus_stolen 1, wrong_place 1 |
+| opencode | mcp | 4/9 | 7/9 | focus_stolen 1, wrong_place 1 |
+| opencode | cli | 2/9 | 7/9 | left_session 1, not_done 1 |
+| cursor-agent | cli | 5/9 | 5/9 | agent_error 3, left_session 1 |
+| **all** | | **28/63** | **52/63** | |
+
+`focus_stolen` went from 26 runs to 2. The 2 left are `new-workspace-background`
+over MCP: `workspace.create` (CLI and MCP alike) makes the new workspace the
+daemon's focused one. In the app the window keeps showing what it showed
+(app_focus overlay), so this counts more in the headless tier than in real use;
+it is a separate follow-up, not a split bug. `reuse-right` still fails for 4 of
+7 pairs (`wrong_place`: a tab lands in a pane that is not right of the origin).
+cursor-agent's 3 `agent_error` runs are its server dropping the connection.
+
+| Task | claude/cli | codex/cli | codex/mcp | claude/mcp | opencode/mcp | opencode/cli | cursor-agent/cli |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| watch-command | pass | pass | pass | pass | pass | pass | pass |
+| subagents-right | pass | pass | pass | pass | pass | pass | pass |
+| terminal-right | pass | pass | pass | pass | pass | pass | agent_error (0.67) |
+| reuse-right | pass | pass | wrong_place (0.75) | wrong_place (0.75) | wrong_place (0.75) | not_done (0.63) | agent_error (0.75) |
+| group-workspaces | pass | pass | pass | pass | pass | pass | left_session (0.90) |
+| group-tabs | pass | pass | pass | pass | pass | pass | pass |
+| read-only-answer | pass | pass | pass | pass | pass | left_session (0.80) | agent_error (0.80) |
+| new-workspace-background | pass | pass | pass | focus_stolen (0.80) | focus_stolen (0.80) | pass | pass |
+| organize-end-to-end | pass | pass | pass | pass | pass | pass | pass |
+
 ## Run baseline-2026-10-20 (2026-10-20)
 
 | Agent | Surface | Passed | Mean score | Median cmux calls | Median time (s) | Top failures |

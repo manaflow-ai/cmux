@@ -26,20 +26,24 @@ extension ScreenContentView {
             scrollState = ColumnScrollState()
             settleCarried()
             applyPresentation()
-            return rowsNeedFrames
+            // Resetting the camera can start a carried pane off screen. Keep its spring
+            // ticking while this workspace stays visible (Lucas 2026-10-19).
+            return hasMotion || rowsNeedFrames
         }
         scrollState.mode = mode
         let effects = scrollState.reduce(.sync(strip, focused: focused, source: source, animated: animate, reveals: reveals,
                                                anchor: ScreenDividers(screen: self).dragAnchorColumn))
         settleCarried()
         if effects.snapped && showsScrollbarOnSnap { scrollbarFlash = true }
-        return apply(effects) || rowsNeedFrames
+        let needsFrames = apply(effects)
+        return needsFrames || hasMotion || rowsNeedFrames
     }
 
     /// Centers the column holding `pane` once, or with `reveal` scrolls it the least into view (cx-27j7). Returns true if the spring needs frames.
     @discardableResult
     func center(_ pane: PaneID, animated: Bool, reveal: Bool = false) -> Bool {
         scrollbarFlash = true
+        scrollRidesFrames = false
         return apply(scrollState.reduce(reveal ? .reveal(pane, animated: animated && !context.reduceMotion) : .center(pane, animated: animated && !context.reduceMotion)))
     }
 
@@ -54,10 +58,13 @@ extension ScreenContentView {
     /// A scrollbar track click: rest on `offset` (ColumnScrollEvent.page).
     func page(to offset: CGFloat) {
         scrollbarFlash = true
+        scrollRidesFrames = false
         apply(scrollState.reduce(.page(to: offset, animated: !context.reduceMotion)))
     }
 
     func beginUserScroll() {
+        // The user takes the camera over from a close in flight: its snap springs on the scroll spring.
+        scrollRidesFrames = false
         scrollState.reduce(.gestureBegan)
     }
 
@@ -76,6 +83,7 @@ extension ScreenContentView {
     /// One mouse wheel notch: move to the adjacent snap point.
     func discreteScroll(direction: Int) {
         scrollbarFlash = true
+        scrollRidesFrames = false
         apply(scrollState.reduce(.wheel(direction: direction, animated: !context.reduceMotion)))
     }
 

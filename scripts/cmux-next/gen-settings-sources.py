@@ -141,13 +141,13 @@ SECTIONS = [
         "swift": SCHEMA_DIR + "/SettingsSchema+HoverCards.generated.swift",
         "type": "HoverCardSettingsSchema",
         "lists": {"hoverCards": ("descriptors", "HoverCardSettings")},
-        "enums": {"sidebar.hoverCards.layout": "HoverCardLayoutSetting"},
+        "enums": {"sidebar.hoverCards.layout": "HoverCardLayoutSetting", "sidebar.hoverCards.groups.order": "GroupHoverCardOrderSetting"},
     },
     {
         "source": "schemas/settings/source/now-playing.json",
         "swift": SCHEMA_DIR + "/SettingsSchema+NowPlaying.generated.swift",
         "type": "NowPlayingSettingsSchema",
-        "lists": {"nowPlaying": ("descriptors", "NowPlayingSettings")},
+        "lists": {"nowPlaying": ("descriptors", "NowPlayingSettings"), "newTab": ("newTabDescriptors", "NowPlayingSettings")},
         "enums": {},
     },
     {

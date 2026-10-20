@@ -21,6 +21,8 @@ public final class MockAccountsServices: AccountsServices {
     ]
     public var isSignedInToCmux = true
     public var failure: (any Error)?
+    /// Fails only the account list (CodeRouter answered the add or remove, then not the reload).
+    public var linkedFailure: (any Error)?
     public private(set) var calls: [String] = []
 
     public init() {}
@@ -38,7 +40,7 @@ public final class MockAccountsServices: AccountsServices {
 
     public func linkedAccounts() async throws -> [LinkedAccount] {
         calls.append("linked")
-        if let failure { throw failure }
+        if let failure = failure ?? linkedFailure { throw failure }
         return linked
     }
 

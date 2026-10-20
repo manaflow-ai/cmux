@@ -47,6 +47,14 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     private(set) var connectingView: DaemonConnectingView?
     /// Agent cursors on this window's cursor layer (made on the first input it draws).
     private(set) lazy var agentCursor = AgentCursorWiring.slot(for: self)
+    /// This window's clickable agent cursor tags (the overlay host holds it weakly).
+    private(set) lazy var agentCursorTags = AgentCursorWindowTags(links: services.agentCursorTagLinks) { [weak self] in
+        self?.agentCursor.stack?.host
+    }
+    /// This window's right sidebar (`WindowController+RightSidebar`).
+    let rightSidebar: RightSidebarModel
+    /// Its view, made the first time it shows.
+    var rightSidebarView: RightSidebarView?
     /// This window's top pages (TOP-SECTION-ITEMS-ARE-PAGES), one view per route.
     private(set) lazy var topPages = TopPageHost(services: services)
 
@@ -55,7 +63,12 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         self.services = services
         let sidebar = SidebarBridge(services: services, state: state)
         self.sidebar = sidebar
+        rightSidebar = RightSidebarModel(defaults: services.rightSidebarDefaults)
         SidebarProfileControl(services: services, state: state).install(model: sidebar.model, sidebar: sidebar.container.sidebarView)
+        // The footer's Search button runs the one palette.open path (plans/cmux-next/sidebar-search.md).
+        sidebar.container.sidebarView.onSearch = { [weak registry = services.registry] _ in
+            _ = registry?.perform("palette.open", invocation: ActionInvocation(arguments: ["scope": .string("search")], origin: .user))
+        }
         root = WindowRootView(sidebar: sidebar.container)
         // The static toggle runs the same action as the shortcut, palette and menu (R68).
         root.toolbarBand.onToggleSidebar = { [weak registry = services.registry] in
@@ -94,6 +107,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         observeRoom()
         observeSidebarHidden()
         followContentChanges()
+        if rightSidebar.isVisible { showRightSidebar() }
     }
 
     @available(*, unavailable)

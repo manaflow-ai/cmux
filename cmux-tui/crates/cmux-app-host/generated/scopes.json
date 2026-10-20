@@ -249,9 +249,17 @@
       "scope": "chief:read",
       "class": "read"
     },
+    "chief.profile.history": {
+      "scope": "chief:read",
+      "class": "read"
+    },
     "chief.profile.list": {
       "scope": "chief:read",
       "class": "read"
+    },
+    "chief.profile.undo": {
+      "scope": "chief:write",
+      "class": "mutation"
     },
     "chief.profile.update": {
       "scope": "chief:write",
@@ -1269,6 +1277,10 @@
       "scope": "search_app:read",
       "class": "read"
     },
+    "server.network.confirm": {
+      "scope": "server:write",
+      "class": "mutation"
+    },
     "session.get": {
       "scope": "session:read",
       "class": "read"
@@ -1947,6 +1959,7 @@
     "home.requests.list",
     "home.settings.set",
     "host.enroll",
+    "host.network.bind",
     "host.remove",
     "host.replica.purge",
     "install.list",

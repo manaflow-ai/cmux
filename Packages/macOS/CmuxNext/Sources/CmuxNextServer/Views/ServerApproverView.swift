@@ -38,7 +38,7 @@ struct ServerApproverView: View {
         }
         .padding(Metrics.space6)
         .frame(width: ServerMetrics.cardWidth, alignment: .leading)
-        .animation(reduceMotion ? nil : Motion.animation(.crossfade), value: Self.layoutKey(step))
+        .animation(reduceMotion ? nil : Motion.overlays.animation(.crossfade), value: Self.layoutKey(step))
         .onGeometryChange(for: CGSize.self) { $0.size } action: { resized($0) }
     }
 
@@ -78,34 +78,32 @@ struct ServerApproverView: View {
     }
 
     private func options(_ candidate: PairingCandidate) -> some View {
-        Grid(alignment: .leading, horizontalSpacing: Metrics.space3, verticalSpacing: Metrics.space3) {
-            GridRow {
-                label(ServerStrings.name)
+        VStack(alignment: .leading, spacing: Metrics.space3) {
+            field(ServerStrings.name) {
                 ServerTextField(text: model.approval.name, placeholder: candidate.name, monospaced: false, size: TypeScale.body) {
                     model.approval.name = $0
                 }
-                .frame(height: ServerMetrics.rowFieldHeight).padding(.horizontal, Metrics.space3).card(radius: ServerMetrics.fieldRadius)
+                // On the field itself: a frame outside the card would widen nothing that draws.
                 .frame(maxWidth: .infinity)
+                .frame(height: ServerMetrics.rowFieldHeight).padding(.horizontal, Metrics.space3).card(radius: ServerMetrics.fieldRadius)
             }
             // One team needs no choice.
             if candidate.teams.count > 1 {
-                GridRow {
-                    label(ServerStrings.team)
-                    TeamChips(model: model, teams: candidate.teams).frame(maxWidth: .infinity, alignment: .leading)
-                }
+                field(ServerStrings.team) { TeamChips(model: model, teams: candidate.teams) }
             }
-            GridRow {
-                Color.clear.gridCellUnsizedAxes([.horizontal, .vertical])
-                Toggle(ServerStrings.runChief, isOn: Binding(get: { model.approval.runChief }, set: { model.approval.runChief = $0 }))
-                    .toggleStyle(.checkbox).font(Font(Typography.body)).foregroundStyle(colors.primary).tint(colors.primary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
+            Toggle(ServerStrings.runChief, isOn: Binding(get: { model.approval.runChief }, set: { model.approval.runChief = $0 }))
+                .toggleStyle(.checkbox).font(Font(Typography.body)).foregroundStyle(colors.primary).tint(colors.primary)
+                .fixedSize(horizontal: false, vertical: true)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func label(_ text: String) -> some View {
-        Text(text).font(Font(Typography.body)).foregroundStyle(colors.secondary).gridColumnAlignment(.trailing)
+    /// A caption over its control (labels of any length in any language, no column to align).
+    private func field(_ title: String, @ViewBuilder content: () -> some View) -> some View {
+        VStack(alignment: .leading, spacing: Metrics.space1) {
+            Text(title).font(Font(Typography.caption)).foregroundStyle(colors.secondary)
+            content()
+        }
     }
 
     /// Cancel and Deny stay pressable while an approve is in flight.
