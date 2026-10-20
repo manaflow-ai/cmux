@@ -1,6 +1,7 @@
 //! The signaling WebSocket (PROTOCOL.md "Signaling WebSocket"): JSON text
-//! frames for hello, presence, signal and error, and binary WireGuard relay
-//! frames. One task owns the socket; envelopes are routed to the dial or
+//! frames for hello, presence, signal and error. (The binary WireGuard relay
+//! frames are retired: a tunnel without a UDP path uses TURN over TLS.)
+//! One task owns the socket; envelopes are routed to the dial or
 //! answer that owns their `sessionId`. The first signal of a new session
 //! (`webrtc-offer`, `wg-init`) opens that session's subscription atomically
 //! and is handed to [`SignalingClient::next_session`] (a Mac answering
@@ -10,13 +11,11 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, PoisonError};
 
-use bytes::Bytes;
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use tokio::sync::{broadcast, mpsc};
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
-use uuid::Uuid;
 
 use crate::send_queue::{SendQueue, Signal};
 
@@ -80,6 +79,14 @@ pub enum SignalPayload {
         /// from older phones.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         relayed: Vec<String>,
+        /// Which of `relayed` reach their TURN server over TCP or TLS (the
+        /// path label `turn-tls`); absent from older phones.
+        #[serde(rename = "relayedTls", default, skip_serializing_if = "Vec::is_empty")]
+        relayed_tls: Vec<String>,
+        /// The WireGuard protocol version ([`WG_VERSION`]); absent (0) from
+        /// older peers, which still send relay frames and their marker.
+        #[serde(default, skip_serializing_if = "is_zero")]
+        version: u32,
     },
     #[serde(rename = "wg-resp")]
     WgResp {
@@ -92,6 +99,31 @@ pub enum SignalPayload {
         /// "Lanes"); absent from older peers.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         lanes: Vec<String>,
+        /// Which of `endpoints` are the Mac's own TURN relayed addresses (a
+        /// Mac whose network blocks UDP allocates one); absent otherwise.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        relayed: Vec<String>,
+        /// Which of `relayed` reach their TURN server over TCP or TLS.
+        #[serde(rename = "relayedTls", default, skip_serializing_if = "Vec::is_empty")]
+        relayed_tls: Vec<String>,
+        /// The WireGuard protocol version ([`WG_VERSION`]); absent (0) from
+        /// older Macs.
+        #[serde(default, skip_serializing_if = "is_zero")]
+        version: u32,
+    },
+    /// A WireGuard side's new endpoints after a roam (or a new TURN
+    /// allocation), the same announcement it sends inside the tunnel
+    /// (PROTOCOL.md "WireGuard roaming"), so it arrives even when the peer
+    /// cannot receive from the new address yet (a NAT that filters by
+    /// address). Older peers ignore it.
+    #[serde(rename = "wg-endpoints")]
+    WgEndpoints {
+        generation: u64,
+        endpoints: Vec<String>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        relayed: Vec<String>,
+        #[serde(rename = "relayedTls", default, skip_serializing_if = "Vec::is_empty")]
+        relayed_tls: Vec<String>,
     },
     #[serde(rename = "bye")]
     Bye {
@@ -136,73 +168,20 @@ pub enum SignalMessage {
     },
 }
 
-/// A WireGuard relay frame: `[16 sessionId][16 peer deviceId][datagram]`.
-/// On send the peer field is the destination; on receive the backend has
-/// rewritten it to the sender.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RelayFrame {
-    pub session_id: Uuid,
-    pub peer: Uuid,
-    pub datagram: Bytes,
-}
+/// The WireGuard protocol version this side speaks (`version` in `wg-init`
+/// and `wg-resp`, PROTOCOL.md):
+///
+/// - 0 (absent): sends WireGuard datagrams through the backend relay frames
+///   until the peer's relay marker confirms a direct route;
+/// - 2: never sends relay frames; confirms routes with an in-tunnel `reach`
+///   message, and may offer TURN relayed addresses reached over TCP or TLS.
+///
+/// A side treats a version-0 peer's authenticated datagrams as the
+/// confirmation, since that peer's marker can no longer arrive.
+pub const WG_VERSION: u32 = 2;
 
-impl RelayFrame {
-    pub fn encode(&self) -> Vec<u8> {
-        let mut out = Vec::with_capacity(32 + self.datagram.len());
-        out.extend_from_slice(self.session_id.as_bytes());
-        out.extend_from_slice(self.peer.as_bytes());
-        out.extend_from_slice(&self.datagram);
-        out
-    }
-
-    pub fn decode(bytes: &[u8]) -> Option<Self> {
-        if bytes.len() < 32 {
-            return None;
-        }
-        Some(Self {
-            session_id: Uuid::from_slice(&bytes[..16]).ok()?,
-            peer: Uuid::from_slice(&bytes[16..32]).ok()?,
-            datagram: Bytes::copy_from_slice(&bytes[32..]),
-        })
-    }
-}
-
-/// How a relay frame is queued on the signaling socket (highest first; see
-/// `send_queue`). The tunnel names the class of what its pacer sends
-/// ([`SignalingClient::send_relay_as`]); otherwise [`relay_class`] infers
-/// it from the WireGuard datagram's outer shape, its type and length.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum RelayClass {
-    /// The "your UDP reaches me" marker, handshake messages, keepalives.
-    Control,
-    /// Small data datagrams: keystrokes, TCP ACKs, small requests.
-    Input,
-    /// Bulk data (large output, files), or full-size data of no known class.
-    /// Shares the socket with [`RelayClass::Media`] by bytes; both drop.
-    Bulk,
-    /// Media datagrams (the media lane's RTP: browser and screen video).
-    Media,
-}
-
-/// Encrypted data datagrams up to this size are [`RelayClass::Input`]: a
-/// TCP segment with a few hundred bytes of payload, or a pure ACK.
-pub const RELAY_INPUT_MAX: usize = 400;
-
-impl RelayFrame {
-    pub fn class(&self) -> RelayClass {
-        relay_class(&self.datagram)
-    }
-}
-
-/// The class of a WireGuard datagram on the relay.
-pub fn relay_class(datagram: &[u8]) -> RelayClass {
-    use cmux_transport::classify::WG_DATA_MIN_LEN;
-    use cmux_transport::{DatagramClass, classify};
-    match classify(datagram) {
-        DatagramClass::WireGuardData if datagram.len() > RELAY_INPUT_MAX => RelayClass::Bulk,
-        DatagramClass::WireGuardData if datagram.len() > WG_DATA_MIN_LEN => RelayClass::Input,
-        _ => RelayClass::Control,
-    }
+fn is_zero(value: &u32) -> bool {
+    *value == 0
 }
 
 /// A session a peer started: its first signal and the subscription that
@@ -215,9 +194,9 @@ pub struct IncomingSession {
 
 /// What a session subscription receives.
 #[derive(Debug, Clone)]
+#[allow(clippy::large_enum_variant)] // rare events; boxing buys nothing
 pub enum SessionEvent {
     Signal(SignalEnvelope),
-    Relay(Bytes),
     /// The signaling socket closed.
     Disconnected,
 }
@@ -370,7 +349,10 @@ impl SignalingClient {
                 shared.inbound.send_modify(|count| *count += 1);
                 match message {
                     Message::Text(text) => shared.dispatch_text(&text, &incoming_tx),
-                    Message::Binary(bytes) => shared.dispatch_relay(&bytes),
+                    // Relay frames are retired; a peer never sends one here.
+                    Message::Binary(bytes) => {
+                        tracing::debug!(len = bytes.len(), "ignoring a binary signaling frame");
+                    }
                     Message::Close(frame) => {
                         break format!(
                             "signaling closed by server{}",
@@ -483,23 +465,6 @@ impl SignalingClient {
     pub fn close(&self) {
         self.shared.out.close();
     }
-
-    /// Send one WireGuard datagram through the backend relay, queued by its
-    /// [`RelayClass`] (inferred from its shape): behind every signal, and
-    /// dropped (oldest first) when its class is past its bound.
-    pub fn send_relay(&self, frame: &RelayFrame) -> Result<(), SignalingError> {
-        self.send_relay_as(frame, frame.class())
-    }
-
-    /// [`send_relay`](Self::send_relay) in a class the sender knows.
-    pub fn send_relay_as(&self, frame: &RelayFrame, class: RelayClass) -> Result<(), SignalingError> {
-        self.shared.out.push_relay(frame.encode(), class)
-    }
-
-    /// Relay frames of `class` dropped because the socket could not keep up.
-    pub fn relay_dropped(&self, class: RelayClass) -> u64 {
-        self.shared.out.dropped(class)
-    }
 }
 
 impl Shared {
@@ -546,15 +511,6 @@ impl Shared {
             }
         }
     }
-
-    fn dispatch_relay(&self, bytes: &[u8]) {
-        let Some(frame) = RelayFrame::decode(bytes) else { return };
-        let key = frame.session_id.to_string();
-        let sessions = self.sessions.lock().unwrap_or_else(PoisonError::into_inner);
-        if let Some(tx) = sessions.get(&key) {
-            let _ = tx.send(SessionEvent::Relay(frame.datagram));
-        }
-    }
 }
 
 #[cfg(test)]
@@ -599,32 +555,21 @@ mod tests {
     }
 
     #[test]
-    fn relay_frame_round_trip() {
-        let frame = RelayFrame {
-            session_id: Uuid::new_v4(),
-            peer: Uuid::new_v4(),
-            datagram: Bytes::from_static(b"wg"),
-        };
-        assert_eq!(RelayFrame::decode(&frame.encode()), Some(frame));
-        assert_eq!(RelayFrame::decode(&[0; 31]), None);
-    }
-
-    #[test]
-    fn relay_classes_follow_the_datagram_shape() {
-        let data = |len: usize| {
-            let mut datagram = vec![0u8; len];
-            datagram[0] = 4;
-            datagram
-        };
-        assert_eq!(relay_class(&[0xff]), RelayClass::Control);
-        let mut initiation = vec![0u8; 148];
-        initiation[0] = 1;
-        assert_eq!(relay_class(&initiation), RelayClass::Control);
-        assert_eq!(relay_class(&data(32)), RelayClass::Control, "keepalive");
-        assert_eq!(relay_class(&data(32 + 64)), RelayClass::Input, "a TCP ACK");
-        assert_eq!(relay_class(&data(RELAY_INPUT_MAX)), RelayClass::Input);
-        assert_eq!(relay_class(&data(RELAY_INPUT_MAX + 16)), RelayClass::Bulk);
-        assert_eq!(relay_class(&data(1312)), RelayClass::Bulk, "a full-size segment or RTP packet");
+    fn wg_versions_and_tls_relayed_addresses() {
+        let resp: SignalPayload = serde_json::from_value(serde_json::json!(
+            {"kind":"wg-resp","publicKey":"k","endpoints":["9.9.9.9:7"],"overlayIP":"10.77.0.1",
+             "relayed":["9.9.9.9:7"],"relayedTls":["9.9.9.9:7"],"version":2}))
+        .unwrap();
+        assert!(
+            matches!(resp, SignalPayload::WgResp { version: 2, ref relayed_tls, .. } if relayed_tls == &["9.9.9.9:7"])
+        );
+        // An older Mac's wg-resp has neither: version 0.
+        let old: SignalPayload = serde_json::from_value(serde_json::json!(
+            {"kind":"wg-resp","publicKey":"k","endpoints":[],"overlayIP":"10.77.0.1"}))
+        .unwrap();
+        assert!(matches!(old, SignalPayload::WgResp { version: 0, .. }));
+        let text = serde_json::to_string(&old).unwrap();
+        assert!(!text.contains("version") && !text.contains("relayed"), "{text}");
     }
 
     #[test]

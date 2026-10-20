@@ -1,5 +1,10 @@
 # cnx link connectivity
 
+> Superseded in part (2026-10-19, `feat-cnx-ios-turntls`): the Worker relay
+> frames this note measures are retired. WireGuard without UDP now rides TURN
+> over TLS on 443; see PROTOCOL.md "WireGuard paths" and
+> `verify/transport-wireguard-everything.md`.
+
 ## WireGuard performance: before and after (2026-10-13, afternoon)
 
 Branch `feat-cnx-ios-wgperf`. `cnx-dial` (release) on Aziz's MacBook,

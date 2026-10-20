@@ -1670,21 +1670,124 @@ w("\r\x1b[2KSTREAMDONE\n")
         return {"notes": f"WireGuard Connected in {a:.1f} s, back to WebRTC in {b:.1f} s; terminal input worked on both",
                 "metric_wg_switch_s": round(a, 2), "metric_webrtc_switch_s": round(b, 2)}
 
-    def relay_toggle(self, want):
-        """Sets Settings > Transport > Developer > Relay only to `want` ("1"/"0"); returns (before, after)."""
+    def relay_toggle(self, want, ident="settings.transport.relayOnly"):
+        """Sets a Settings > Transport > Developer toggle (Relay only, or Block UDP with
+        `ident="settings.transport.blockUDP"`) to `want` ("1"/"0"); returns (before, after)."""
         self.open_transport_page()
-        e = self.sim.wait(ident="settings.transport.relayOnly", timeout=5)
-        check(e, "no 'Relay only' toggle on Settings > Transport")
+        e = self.sim.wait(ident=ident, timeout=5)
+        check(e, f"no {ident} toggle on Settings > Transport")
         before = e.value
         for _ in range(3):
             if e.value == want:
                 break
             self.sim.press(e.frame[0] + e.frame[2] - 40, e.center[1], hold=0.1)
             time.sleep(1.2)
-            e = self.sim.find(ident="settings.transport.relayOnly")[0]
+            e = self.sim.find(ident=ident)[0]
         after = e.value
         self.close_transport_page()
         return before, after
+
+    def mac_path(self, since):
+        """The rig Mac's label of the phone's link path since `since` (cnx-hostd's log:
+        `link up ... path=` and `link path changed path=`), the latest one."""
+        path = os.path.join(self.mac.hostd_state, "cnx-hostd.log")
+        last = None
+        if os.path.exists(path):
+            for line in open(path, errors="replace"):
+                if ("link up" in line or "link path changed" in line) and "path=" in line:
+                    m = re.search(r"path=(\w+)", line)
+                    if m:
+                        last = m.group(1)
+        return last
+
+    def wait_status(self, want, timeout=40):
+        """Waits for a 'Connected' link line containing `want`; returns (line, seconds, seen)."""
+        t = time.time()
+        self.tab("Workspaces")
+        seen = []
+        while time.time() - t < timeout:
+            lab = self.link_status()
+            if lab and (not seen or seen[-1][1] != lab):
+                seen.append((round(time.time() - t, 1), lab))
+            if "Connected" in lab and want(lab):
+                return lab, time.time() - t, seen
+            time.sleep(0.4)
+        return None, time.time() - t, seen
+
+    def browser_over_link(self):
+        """Opens a browser workspace from the phone (hold New Workspace > New Browser
+        Workspace), loads example.com and waits for the page on the phone's screen."""
+        self.back_to_list()
+        new = self.sim.wait(ident="workspaces.new", timeout=10)
+        check(new, "no New Workspace button")
+        self.sim.long_press(*new.center, seconds=1.0); time.sleep(1.0)
+        item = self.sim.find(contains="Browser")
+        if not item:
+            raise Blocked("this Mac build offers no browser workspace in the hold menu")
+        before = {w["id"] for w in self.mac.cmux("workspace", "list", json_out=True)}
+        t = self.sim.tap_el(item[0])
+        bar = self.sim.wait(contains="Search or enter website", timeout=20)
+        check(bar, "the browser workspace showed no address bar in 20 s")
+        self.sim.tap_el(bar); time.sleep(0.8)
+        self.sim.dismiss_keyboard_intro()
+        self.sim.softtype("example.com\n")
+        found = self.sim.ocr_find("Example Domain", timeout=25)
+        self.sim.shot(f"browser-turn-tls-{self.run_id}")
+        dt = time.time() - t
+        now = self.mac.cmux("workspace", "list", json_out=True)
+        for w in now:
+            if w["id"] not in before:
+                self.mac.cmux("workspace", w["id"], "close", check=False)
+        self.back_to_list()
+        check(found, "example.com did not render on the phone in 25 s")
+        return round(dt, 1)
+
+    def s_turn_paths(self):  # noqa: C901 - one live scenario, two modes
+        """WireGuard over TURN on the real link, typed on the phone: Relay only (TURN
+        over UDP), then Block UDP (no plain UDP, no TURN over UDP: TURN over TLS on
+        443). Each: the link line, the Mac's label, a terminal round trip, keystroke
+        echo latency; over TLS also a browser tab."""
+        from latency import Latency
+        wg = self.settings_transport("WireGuard")
+        out = {"metric_wg_switch_s": round(wg, 2)}
+        notes = []
+        modes = (("turn_udp", "settings.transport.relayOnly", lambda lab: "TURN)" in lab and "TLS" not in lab),
+                 ("turn_tls", "settings.transport.blockUDP", lambda lab: "TURN over TLS" in lab))
+        try:
+            for mode, ident, want in modes:
+                since = time.time()
+                b, a = self.relay_toggle("1", ident)
+                check(a == "1", f"{ident} did not turn on ({b} -> {a})")
+                st, dt, seen = self.wait_status(want)
+                check(st, f"{mode}: never 'Connected' on the expected path in 40 s; status sequence {seen[:6]}")
+                # Typed on the phone: a command through the composer, then
+                # keystroke echo measured from the screen recording, both in
+                # the seeded terminal without leaving it.
+                self.open_seed_workspace()
+                check(self.current_tab_marker() is not None, f"{mode}: terminal input did not reach the Mac")
+                stay = _InTerminal(self)
+                lat = Latency(stay, os.path.join(self.out, f"latency-{mode}"), self.log, 12)
+                lat.keystroke_echo(False)
+                echo = lat.metrics.get("keystroke_echo_idle", {})
+                browser = self.browser_over_link() if mode == "turn_tls" else None
+                mac = self.mac_path(since)
+                out[f"metric_{mode}_connect_s"] = round(dt, 2)
+                out[f"{mode}_status"] = st
+                out[f"{mode}_mac_path"] = mac
+                out[f"metric_{mode}_echo_median_ms"] = echo.get("median_ms")
+                out[f"metric_{mode}_echo_p95_ms"] = echo.get("p95_ms")
+                if browser is not None:
+                    out["metric_turn_tls_browser_s"] = browser
+                notes.append(f"{mode}: '{st}' in {dt:.1f} s, Mac path {mac}, keystroke echo {echo.get('median_ms')} ms median"
+                             f" / {echo.get('p95_ms')} ms p95" + (f", example.com rendered in {browser} s" if browser else ""))
+                self.relay_toggle("0", ident)
+        finally:
+            for _, ident, _ in modes:
+                try:
+                    self.relay_toggle("0", ident)
+                except Exception:
+                    pass
+        return {"notes": "; ".join(notes)} | out
 
     def s_relay_only(self):
         b, a = self.relay_toggle("1")
@@ -1982,6 +2085,7 @@ w("\r\x1b[2KSTREAMDONE\n")
             ("chief", "Chief: real Mac conversation, send/receive, model", "chieflive", self.s_chief),
             ("transport", "Transport WebRTC <-> WireGuard", "fastconn", self.s_transport),
             ("relay_only", "Relay only", "fastconn", self.s_relay_only),
+            ("turn_paths", "WireGuard over TURN: UDP, then TLS with UDP blocked", "fastconn", self.s_turn_paths),
             ("sign_out_in", "Sign out and back in", "prodinfra", self.s_sign_out_in),
             ("persist_approval", "Sign-out keeps the Mac approval; Remove This iPhone asks again", "persist", self.s_persist_approval),
             ("background", "Background 45 s / foreground reconnect", "fastconn", self.s_background),
@@ -2005,3 +2109,21 @@ w("\r\x1b[2KSTREAMDONE\n")
                 self.results.append({"id": sid, "title": title, "owner": owner, "status": "fail",
                                      "notes": f"rig error around the step: {e}"[:400], "seconds": 0})
         return self.results
+
+
+class _InTerminal:
+    """The journey as the latency probe sees it, already in the seeded terminal:
+    returning to the list and reopening it are no-ops (the list's sheet
+    handling taps an off-screen row on the current app)."""
+
+    def __init__(self, journey):
+        self._j = journey
+
+    def back_to_list(self):
+        pass
+
+    def open_seed_workspace(self):
+        pass
+
+    def __getattr__(self, name):
+        return getattr(self._j, name)

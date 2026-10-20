@@ -5,7 +5,7 @@ parts of [`../PROTOCOL.md`](../PROTOCOL.md), which is the contract.
 
 - `src/index.ts`: routes, Stack JWT auth, validation.
 - `src/team-hub.ts`: `TeamHub` Durable Object, one per team (SQLite-backed,
-  hibernating WebSockets): signaling admission, Mac presence, WireGuard relay,
+  hibernating WebSockets): signaling admission, Mac presence (no data relay: WireGuard without UDP uses TURN over TLS),
   60 s membership cache. A hub is created with a `locationHint` from the
   caller's geolocation (`locationHintFor` in `src/index.ts`), since a hub
   never moves and free-plan requests are sometimes received in a far colo.
@@ -82,8 +82,8 @@ bunx wrangler@4 deploy --env dev
 ## Live smoke test
 
 `scripts/smoke.ts` exercises health, auth rejection, ICE, device upsert, team
-Macs, prefs, and a two-client WebSocket exchange (hello, offer/answer, relay
-rewrite, refusal, offline presence) against the deployed Worker. It prints
+Macs, prefs, and a two-client WebSocket exchange (hello, offer/answer, a retired
+relay frame refused, refusal, offline presence) against the deployed Worker. It prints
 PASS/FAIL lines only, never tokens.
 
 ```bash

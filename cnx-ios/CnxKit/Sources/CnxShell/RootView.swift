@@ -304,6 +304,7 @@ public struct RootView: View {
             deviceName: UIDevice.current.name,
             transport: settings.transport.link,
             relayOnly: DeveloperOptions.relayOnly,
+            blockUDP: DeveloperOptions.blockUDP,
             dialer: FFIMacLinkDialer(),
             keys: PhoneKeys(userID: user.id)
         )
@@ -378,6 +379,8 @@ struct ShellView: View {
     /// Settings → Developer "Relay only"; read through `DeveloperOptions`,
     /// which ignores it outside DEBUG builds.
     @AppStorage(DeveloperOptions.relayOnlyKey) private var relayOnlyPreference = false
+    /// Settings → Developer "Block UDP"; read through `DeveloperOptions`.
+    @AppStorage(DeveloperOptions.blockUDPKey) private var blockUDPPreference = false
     private let options: ShellLaunchOptions
     /// RootView's coordinator; it can arrive after the shell is built.
     private let live: LiveCoordinator?
@@ -435,6 +438,9 @@ struct ShellView: View {
         }
         .onChange(of: relayOnlyPreference) { _, _ in
             shell.live?.setRelayOnly(DeveloperOptions.relayOnly)
+        }
+        .onChange(of: blockUDPPreference) { _, _ in
+            shell.live?.setBlockUDP(DeveloperOptions.blockUDP)
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { shell.live?.foreground() }

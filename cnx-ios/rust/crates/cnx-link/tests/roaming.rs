@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 
 use bytes::Bytes;
 use cnx_link::dial::{self, SessionEvents, wireguard};
-use cnx_link::testing::{FakeOptions, FakeSignaling};
+use cnx_link::testing::{FakeOptions, FakeSignaling, TestTurn};
 use cnx_link::{ChannelEvent, DialOptions, LinkConfig, LinkPath, SignalingClient, TransportKind};
 
 fn options() -> DialOptions {
@@ -17,53 +17,6 @@ fn options() -> DialOptions {
 /// Bytes `[start, start + len)` of the endless test pattern.
 fn pattern(start: usize, len: usize) -> Vec<u8> {
     (start..start + len).map(|i| (i % 251) as u8).collect()
-}
-
-/// Relayed ports of the test TURN server.
-const TURN_RELAY_PORTS: std::ops::RangeInclusive<u16> = 50_300..=50_399;
-
-struct TurnAuth;
-
-impl webrtc::turn::auth::AuthHandler for TurnAuth {
-    fn auth_handle(
-        &self,
-        username: &str,
-        realm: &str,
-        _source: std::net::SocketAddr,
-    ) -> Result<Vec<u8>, webrtc::turn::Error> {
-        Ok(webrtc::turn::auth::generate_auth_key(username, realm, "secret"))
-    }
-}
-
-async fn turn_server() -> (webrtc::turn::server::Server, cnx_link::api::IceServer) {
-    use std::sync::Arc;
-    let socket = Arc::new(tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap());
-    let port = socket.local_addr().unwrap().port();
-    let server = webrtc::turn::server::Server::new(webrtc::turn::server::config::ServerConfig {
-        conn_configs: vec![webrtc::turn::server::config::ConnConfig {
-            conn: socket,
-            relay_addr_generator: Box::new(webrtc::turn::relay::relay_range::RelayAddressGeneratorRanges {
-                relay_address: "127.0.0.1".parse().unwrap(),
-                min_port: *TURN_RELAY_PORTS.start(),
-                max_port: *TURN_RELAY_PORTS.end(),
-                max_retries: 10,
-                address: "127.0.0.1".into(),
-                net: Arc::new(webrtc::util::vnet::net::Net::new(None)),
-            }),
-        }],
-        realm: "cnx.test".into(),
-        auth_handler: Arc::new(TurnAuth),
-        channel_bind_timeout: Duration::from_secs(0),
-        alloc_close_notify: None,
-    })
-    .await
-    .unwrap();
-    let ice = cnx_link::api::IceServer {
-        urls: vec![format!("turn:127.0.0.1:{port}?transport=udp")],
-        username: Some("cnx".into()),
-        credential: Some("secret".into()),
-    };
-    (server, ice)
 }
 
 /// What a run measured.
@@ -81,7 +34,7 @@ struct Run {
 }
 
 /// What happens to the phone at 1 s.
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone)]
 enum Change {
     /// Its network goes away; it roams this much later (as the OS reports
     /// the new path), or never.
@@ -89,6 +42,12 @@ enum Change {
     /// The backend drops its signaling socket; it opens a new one and the
     /// session moves there.
     Signaling,
+    /// The TCP or TLS stream of its TURN allocation dies; the session takes
+    /// a new allocation.
+    TurnStream,
+    /// Its network starts dropping UDP to the TURN server (`TestTurn`
+    /// blocks it), and it roams: the new allocation must use TLS.
+    UdpBlocked(std::sync::Arc<TestTurn>),
 }
 
 /// Stream through an echo channel, take the phone's network away at 1 s
@@ -150,11 +109,7 @@ async fn stream_across(
             .expect("dial");
     let session_id = connected.session_id.clone();
     let mut path = connected.path.clone();
-    let _ = tokio::time::timeout(
-        Duration::from_secs(10),
-        path.wait_for(|p| *p != LinkPath::Relay || phone_options.relay_only && p == &LinkPath::Relay),
-    )
-    .await;
+    let _ = tokio::time::timeout(Duration::from_secs(10), path.wait_for(|p| *p != LinkPath::NoPath)).await;
     let channel = connected.link.open("echo", serde_json::json!({})).await.unwrap();
     let (sender, mut receiver) = channel.split();
 
@@ -221,6 +176,16 @@ async fn stream_across(
             _new_phone = Some(fresh);
             None
         }
+        Change::TurnStream => {
+            assert_eq!(wireguard::simulate_turn_loss(Some(&session_id), true), 1);
+            None
+        }
+        Change::UdpBlocked(turn) => {
+            turn.set_udp_blocked(true);
+            assert_eq!(wireguard::simulate_network_loss(Some(&session_id), true), 1);
+            let session_id = session_id.clone();
+            Some(tokio::spawn(async move { wireguard::roam_session(&session_id, true).await }))
+        }
     };
     tokio::time::sleep(after_change).await;
     stop.store(true, std::sync::atomic::Ordering::Relaxed);
@@ -277,7 +242,7 @@ async fn wireguard_roams_to_a_new_socket_without_a_stall() {
 
 /// The Mac sits behind an address-restricted NAT: it drops the phone's UDP
 /// from the new address until it has sent there itself. Only the phone's
-/// endpoint announcement (inside the tunnel, over the relay meanwhile) lets
+/// endpoint announcement (inside the tunnel, over its new route) lets
 /// the Mac open its side.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn wireguard_roams_through_an_address_restricted_nat() {
@@ -293,8 +258,8 @@ async fn wireguard_roams_through_an_address_restricted_nat() {
 /// belongs to the old network) and the Mac follows the new relayed address.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn wireguard_roam_takes_a_fresh_turn_allocation() {
-    let (_turn, ice) = turn_server().await;
-    let phone = DialOptions { relay_only: true, ice_servers: vec![ice], ..options() };
+    let turn = TestTurn::start().await;
+    let phone = DialOptions { relay_only: true, ice_servers: vec![turn.udp_only()], ..options() };
     let run = stream_across_a_change(phone, options(), Some(Duration::ZERO), Duration::from_secs(3)).await;
     eprintln!("turn roam: {run:?}");
     assert_eq!(run.before, LinkPath::Turn);
@@ -337,26 +302,96 @@ async fn wireguard_resumes_after_airplane_mode() {
     assert!(run.stall < Duration::from_millis(5500), "stalled {:?}", run.stall);
 }
 
-/// Relay only (no TURN): the backend drops the phone's signaling socket, as
-/// a network change does. The session moves to the new socket and the
-/// relay frames lost on the old one are sent again.
+/// The backend drops the phone's signaling socket, as a network change
+/// does. The tunnel never used it for data: the stream goes on, and the
+/// session moves to the new socket (for `bye`).
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn wireguard_relay_follows_a_new_signaling_socket() {
-    let phone = DialOptions { relay_only: true, ..options() };
-    let mac = DialOptions { relay_only: true, ..options() };
-    let run = stream_across(phone, mac, Change::Signaling, Duration::from_secs(3)).await;
+async fn wireguard_session_follows_a_new_signaling_socket() {
+    let run = stream_across(options(), options(), Change::Signaling, Duration::from_secs(3)).await;
     eprintln!("rehome: {run:?}");
-    assert_eq!(run.after, LinkPath::Relay);
-    assert!(run.stall < Duration::from_secs(1), "stalled {:?}", run.stall);
+    assert_eq!(run.after, LinkPath::Direct);
+    assert!(run.stall < Duration::from_millis(500), "stalled {:?}", run.stall);
 }
 
-/// The baseline: the network goes away and nothing roams. The session
-/// falls back to the backend relay only once the direct route has been
-/// silent for 14 s. Run with `--ignored` to measure.
+/// UDP blocked: the roam takes a fresh TURN allocation over TLS, and the
+/// Mac follows the new relayed address (still labeled TURN over TLS).
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[ignore = "takes about 20 s; the before-roaming measurement"]
-async fn wireguard_without_roaming_stalls_until_the_relay() {
-    let run = stream_across_a_change(options(), options(), None, Duration::from_secs(18)).await;
-    eprintln!("no roam: {run:?}");
-    assert!(run.stall > Duration::from_secs(5), "stalled only {:?}", run.stall);
+async fn wireguard_roam_with_udp_blocked_takes_a_fresh_turn_tls_allocation() {
+    let turn = TestTurn::start().await;
+    let phone = DialOptions {
+        block_udp: true,
+        ice_servers: vec![turn.ice.clone()],
+        turn_tls_roots: Some(std::sync::Arc::clone(&turn.roots)),
+        ..options()
+    };
+    let run = stream_across_a_change(phone, options(), Some(Duration::ZERO), Duration::from_secs(3)).await;
+    eprintln!("turn-tls roam: {run:?}");
+    assert_eq!(run.before, LinkPath::TurnTls);
+    assert_eq!(run.after, LinkPath::TurnTls);
+    assert_eq!(run.mac_before, Some(LinkPath::TurnTls));
+    assert_eq!(run.mac_after, Some(LinkPath::TurnTls));
+    assert!(run.stall < Duration::from_secs(1), "stalled {:?}", run.stall);
+    assert_eq!(turn.stream_connections(), 2, "the roam did not take a new TLS allocation");
+    for mark in ["roam_turn_tls_allocated", "roam_first_packet", "roam_turn"] {
+        assert!(names(&run).contains(&mark), "no {mark} in {:?}", run.marks);
+    }
+}
+
+/// Roaming across TURN transports: the phone rides TURN over UDP, then
+/// moves to a network that drops UDP. The roam's new allocation falls back
+/// to TLS and the stream goes on with every byte.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn wireguard_roams_from_turn_udp_to_turn_tls() {
+    let turn = std::sync::Arc::new(TestTurn::start().await);
+    let phone = DialOptions {
+        relay_only: true,
+        ice_servers: vec![turn.ice.clone()],
+        turn_tls_roots: Some(std::sync::Arc::clone(&turn.roots)),
+        ..options()
+    };
+    let run = stream_across(
+        phone,
+        options(),
+        Change::UdpBlocked(std::sync::Arc::clone(&turn)),
+        Duration::from_secs(4),
+    )
+    .await;
+    eprintln!("udp to tls roam: {run:?}");
+    assert_eq!(run.before, LinkPath::Turn);
+    assert_eq!(run.after, LinkPath::TurnTls);
+    assert_eq!(run.mac_after, Some(LinkPath::TurnTls));
+    // The UDP attempt waits out its stagger before TLS starts.
+    assert!(run.stall < Duration::from_secs(3), "stalled {:?}", run.stall);
+    assert!(names(&run).contains(&"roam_turn_tls_allocated"), "{:?}", run.marks);
+}
+
+/// The TLS stream to the TURN server dies (a middlebox resets it) without
+/// any network change: the session takes a new allocation, tells the Mac,
+/// and resends what went into the dead one.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn wireguard_replaces_a_dead_turn_tls_stream() {
+    let turn = TestTurn::start().await;
+    let phone = DialOptions {
+        block_udp: true,
+        ice_servers: vec![turn.ice.clone()],
+        turn_tls_roots: Some(std::sync::Arc::clone(&turn.roots)),
+        ..options()
+    };
+    let run = stream_across(phone, options(), Change::TurnStream, Duration::from_secs(3)).await;
+    eprintln!("dead TLS stream: {run:?}");
+    assert_eq!(run.after, LinkPath::TurnTls);
+    assert_eq!(run.mac_after, Some(LinkPath::TurnTls));
+    assert_eq!(turn.stream_connections(), 2);
+    assert!(run.stall < Duration::from_secs(2), "stalled {:?}", run.stall);
+}
+
+/// The baseline: the network goes away and nothing roams. With no TURN
+/// server and no backend relay (retired), nothing carries the stream again
+/// without a roam: the bytes sent meanwhile never come back. Run with
+/// `--ignored` to see it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "takes about 35 s; the before-roaming baseline"]
+#[should_panic(expected = "bytes lost")]
+async fn wireguard_without_roaming_never_recovers() {
+    let _ = stream_across_a_change(options(), options(), None, Duration::from_secs(5)).await;
 }

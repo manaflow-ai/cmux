@@ -40,7 +40,7 @@ ffi) and the app. Change this file first, then the implementations.
   the id is still per project (above), so even a shared sub would give two
   separate spaces. It is admitted for that user only, with no Stack membership
   call; any other user gets `403 not_member`. Every route works with it
-  (devices, macs, prefs, signal WebSocket, relay) except
+  (devices, macs, prefs, signal WebSocket) except
   `POST /v1/teams/:teamId/invites`, which answers `400 bad_request`
   "personal space has no members". Use it when the user has no Stack team.
 - Devices: `deviceId` is a client-generated UUID persisted in Keychain;
@@ -74,7 +74,7 @@ echoes the token),
 | `POST /v1/teams/:teamId/invites` | `{email}` → `{url, sent:true}`: Stack emails a team invitation whose link opens `url` (the configured callback) with the code. Changed from a bare link: without a Stack server key the API can only send the invitation email, not mint a shareable link. Needs the caller's `$invite_members` team permission. |
 | `GET /v1/ice` | → `{iceServers:[{urls:[...],username?,credential?}], ttl, turn}` from the Cloudflare TURN key (generate-ice-servers), STUN `stun:stun.cloudflare.com:3478` always included (STUN only if TURN is unavailable). `turn` (0.7.0) is `false` when no TURN server could be included: clients must say so (off-LAN WebRTC may then fail) instead of failing silently. `ttl` is 1 h (was 4 h) |
 | `GET /v1/me/devices` | → `{devices:[{deviceId,kind,name,teamId,createdAt,updatedAt,lastSeenAt,online,push}]}` (0.7.0): every Mac and phone the caller registered, in any team or personal space. `online` is live presence for Macs and `null` for phones; `push` is whether the phone has an APNs token |
-| `DELETE /v1/devices/:deviceId` | → `{deleted:true, deviceId}` (0.7.0). Owner only (`403 not_owner`, `404 not_found`). Deletes the row and its push token; the device's team hub drops the Mac from presence (broadcasting `presence` with `removed:true`), closes the device's signaling socket with code 4002 `removed`, and ends its relay sessions. A removed device that registers again is a new registration: removal tidies stale devices, it does not ban an id. Used by the phone (Settings → Connection → Macs / Phones) and by the Mac app ("Unpair this Mac") |
+| `DELETE /v1/devices/:deviceId` | → `{deleted:true, deviceId}` (0.7.0). Owner only (`403 not_owner`, `404 not_found`). Deletes the row and its push token; the device's team hub drops the Mac from presence (broadcasting `presence` with `removed:true`), closes the device's signaling socket with code 4002 `removed`, and ends its signaling sessions. A removed device that registers again is a new registration: removal tidies stale devices, it does not ban an id. Used by the phone (Settings → Connection → Macs / Phones) and by the Mac app ("Unpair this Mac") |
 | `PUT /v1/devices/:deviceId/push` | `{token, environment, topic, kinds?}` → `{push:{environment,topic,kinds,updatedAt}}` (0.7.0). Phone only, owner only. `token` is the APNs device token in hex (64 to 200 hex digits), `environment` `sandbox` or `production` (the app's `aps-environment`), `topic` its bundle id, which must be one of the Worker's `APNS_TOPICS`. `kinds` is which events to push (default all): `question`, `permission`, `completed`, `failed`, `chief` |
 | `DELETE /v1/devices/:deviceId/push` | → `{deleted:true}` (0.7.0): stop pushing to this phone (sign-out, notifications turned off) |
 | `POST /v1/devices/:deviceId/notify` | `{eventId, kind, agent?, place?, workspaceId?, tabId?, sessionId?}` → `{configured, sent, failed, dropped}` (0.7.0). `:deviceId` is a Mac the caller owns. Pushes one event to every phone of the same owner that registered a token and wants that `kind`. Content minimization: the Mac sends only a kind, a short agent name (≤ 40 characters) and a short place such as the workspace title (≤ 60); the Worker writes the text itself ("Claude has a question", "Claude needs permission", "Claude finished", "Claude stopped with an error", "Chief replied") with the place as the body, and never forwards agent output, prompts, tool arguments or paths. The payload's `cnx` object carries `{mac, kind, eventId, workspaceId, tabId, sessionId}` so a tap opens that tab. `eventId` (≤ 64) is the APNs collapse id. `configured:false` when the Worker has no APNs key. Tokens APNs reports as gone are deleted (`dropped`). Rate limited per Mac (`429 rate_limited`) |
@@ -116,89 +116,151 @@ with 4001 `moved`.
   own user; a missing `fromUserId` is refused with `bye {reason:"not_admitted"}`.
   where `P.kind` is one of
   - `webrtc-offer` `{sdp}`, `webrtc-answer` `{sdp}`, `webrtc-ice` `{candidate, sdpMid, sdpMLineIndex}`
-  - `wg-init` `{publicKey, endpoints:[ "ip:port" ], overlayIP, lanes?, relayed?}`, `wg-resp` `{publicKey, endpoints, overlayIP, lanes?}`.
-    `relayed` (optional) lists which of the phone's endpoints are its TURN
-    relayed addresses. The Mac sends plain UDP to them like any endpoint,
-    and labels such a route `turn`, not `direct`. A roam's endpoint
-    announcement inside the tunnel (`{"t":"endpoints", generation,
-    endpoints, relayed?}`) carries the new allocation's address the same
-    way. Older peers omit it, and the label stays `direct`.
+  - `wg-init` `{publicKey, endpoints:[ "ip:port" ], overlayIP, lanes?, relayed?, relayedTls?, version?}`,
+    `wg-resp` `{publicKey, endpoints, overlayIP, lanes?, relayed?, relayedTls?, version?}`.
+    `relayed` (optional) lists which of the sender's endpoints are its TURN
+    relayed addresses (the phone's; a Mac's only when its network blocks
+    UDP). The peer sends plain UDP to them like any endpoint, and labels
+    such a route `turn`, not `direct`; `relayedTls` lists which of them
+    reach their TURN server over TCP or TLS (label `turn-tls`). `version`
+    is the WireGuard protocol version: absent (0) from older peers, `2`
+    from peers that never send relay frames and confirm routes with an
+    in-tunnel `reach` message (below). A roam's endpoint announcement
+    (`{"t":"endpoints", generation, endpoints, relayed?, relayedTls?}`)
+    carries a new allocation's address the same way. Older peers omit all
+    of these, and the label stays `direct`.
+  - `wg-endpoints` `{generation, endpoints, relayed?, relayedTls?}` (API
+    0.9.0): the same endpoint announcement a roaming side sends inside the
+    tunnel (below), also sent through signaling, because the peer may not
+    receive anything from the new address yet (a NAT that filters by
+    address). The receiver applies the newer generation of either copy.
+    Older peers ignore it (an unknown kind).
   - `bye` `{reason}`
-- relay for WireGuard when no direct UDP path: binary frames
-  `[16 bytes sessionId][16 bytes to deviceId][wireguard datagram]`; the DO
-  rewrites the second field to the sender before forwarding. sessionId and
-  deviceIds are UUIDs, written as their 16 raw bytes. Relay needs an
-  admitted session between exactly those two devices (opened by a `signal`,
-  ended by `bye` or after 24 h); datagrams up to 65535 bytes.
-  A relay datagram of the single byte `0xff` is a reachability marker, "your
-  datagrams reach me" (WireGuard messages are at least 32 bytes and start
-  with type 1 to 4). A side sends it when an authenticated datagram from its
-  peer arrives over UDP or TURN (at most every 3 s). A side leaves the relay
-  only after receiving the marker; until then it sends every datagram
-  through the relay as well, because reachability can be one-way. An address
-  the OS refuses to send to (macOS Local Network privacy answers
-  `EHOSTUNREACH` for LAN peers) is never chosen as the route again.
-  A sender queues its socket by priority (no wire change): text frames and
-  pings first, then relay control (the marker, handshake messages,
-  keepalives), then input (what the tunnel's pacer sends as interactive:
-  keystrokes, ACKs, terminal output at a terminal's pace), then bulk (large
-  transfers) and media (the media lane's video), which share the rest by
-  bytes. A resend after a route change keeps the class it first went out
-  in; a datagram the pacer did not class (packets held through a handshake,
-  the watchdog's resends after a forced handshake) is input up to 400
-  bytes, else bulk. Each relay class is bounded by bytes (16, 64, 256 and
-  256 KiB) and drops its oldest frame past it, and media older than 250 ms
-  is dropped, so media never delays signaling or input and a slow socket
-  never grows memory.
+- Relay frames (retired in API 0.9.0). Binary frames
+  `[16 bytes sessionId][16 bytes to deviceId][wireguard datagram]` used to
+  carry WireGuard when no UDP path worked. The DO no longer forwards them:
+  every binary frame is dropped, and its sender gets
+  `{"type":"error","code":"relay_retired","sessionId":...}` at most once
+  per socket and session every 5 s. The error always names the frame's
+  session, so an older client fails no other dial in progress (it fails a
+  dial only on an error for that dial's session or one without
+  `sessionId`). A frame shorter than 16 bytes is dropped silently. The
+  TeamHub keeps presence and signaling (introductions); it carries no
+  data. A WireGuard path without UDP is TURN over TLS (below).
 - WireGuard specifics: `publicKey` is base64 Curve25519; `endpoints` are
   `ip:port` strings (host and STUN-reflexive addresses of the tunnel's UDP
   socket); `overlayIP` is the sender's IPv4 address inside the tunnel (the
   dialer uses `10.77.0.2`, the answerer `10.77.0.1`).
-- WireGuard over TURN (no wire change, so older Macs take part as they
-  are): when `/v1/ice` lists a `turn:` UDP server, the dialer allocates a
-  TURN relay and adds the relayed address to its `endpoints`. The Mac sends
-  plain UDP to it like to any endpoint. The dialer sends through its
-  allocation to the Mac's public endpoints and reports the path `turn` once
-  that route is confirmed. TURN servers sit on well-routed anycast
-  addresses, so this is usually far nearer than the Worker relay: on
-  2026-10-13 it measured 16 ms RTT against 240 to 345 ms through the
-  Worker. The relay frames stay as the fallback.
-- WireGuard roaming (no wire change for signaling; older peers simply never
+- WireGuard paths, in order: plain UDP (direct, hole-punched), then TURN
+  over UDP, then TURN over TLS on 443. When `/v1/ice` lists a TURN server
+  the dialer allocates a TURN relay and adds the relayed address to its
+  `endpoints`. It tries `turn:...?transport=udp` first; when that gets no
+  allocation it uses `turns:...:443?transport=tcp` (any other `turns:` URL,
+  else `turn:...?transport=tcp`, when the service lists no TLS on 443).
+  The TLS attempt starts 500 ms after the UDP one (at once when UDP
+  fails), so a network that answers UDP never opens a TLS connection; when
+  TLS finishes first, UDP gets 250 ms more. Only the leg to the TURN
+  server changes (RFC 5766 over TCP or TLS): the allocation still relays
+  UDP, so the Mac sends plain UDP to the relayed address like to any
+  endpoint. On the stream every STUN message and ChannelData message is
+  framed by its own length, ChannelData padded to 4 bytes (RFC 5766
+  §11.5). The TLS server name is the URL's host, checked against the
+  public web PKI. The dialer sends through its allocation to the Mac's
+  public endpoints and reports the path `turn`, or `turn-tls` when the
+  allocation rides TCP or TLS. TURN servers sit on well-routed anycast
+  addresses: on 2026-10-13 TURN over UDP measured 16 ms RTT against 240 to
+  345 ms through the retired Worker relay. A Mac whose STUN servers never
+  answer (its network drops UDP) takes its own TURN allocation the same
+  way, lists it in `wg-resp` (`relayed`, `relayedTls`), and sends through
+  it; so does a side with relay only or UDP blocked (debug). A TURN
+  allocation whose TCP or TLS stream dies is replaced at once (then after
+  1, 3, 10 and 30 s) and announced like a roam's.
+  Datagrams queue toward a TURN allocation by class (no wire change):
+  control (handshake messages, keepalives), then input (what the tunnel's
+  pacer sends as interactive: keystrokes, ACKs, terminal output at a
+  terminal's pace), then bulk (large transfers) and media (the media
+  lane's video), which share the rest by bytes. A datagram the pacer did
+  not class (packets held through a handshake, the watchdog's resends) is
+  input up to 400 bytes, else bulk. Each class is bounded by bytes (16, 64,
+  256 and 256 KiB) and drops its oldest datagram past it, and media older
+  than 250 ms is dropped, so on a backed-up TLS stream media never delays
+  control or input and memory stays bounded.
+- WireGuard route confirmation. Reachability can be one-way, so a side that
+  receives its peer's datagrams on a route does not yet know its own reach
+  the peer. Until it does, it sends every datagram on that route and through
+  its TURN allocation too (and to every candidate when it has no route; and
+  every 100 ms to each of the peer's other endpoints, its relayed addresses
+  among them). The confirmation is an overlay UDP datagram to port 7421 of
+  the peer, JSON `{"t":"reach","from":"ip:port","via":"udp"|"turn"}` ("your
+  datagrams reach me": they arrived from `from`, your address as seen here,
+  on my plain UDP socket or my TURN allocation), sent by a version-2 side
+  when an authenticated datagram from its peer arrives: at once on a new
+  route, then 100, 300 and 1000 ms later while datagrams keep arriving, then
+  at most every 3 s. `from` names the carrier that works (the receiver's
+  TURN when it is its relayed address, else plain UDP) and `via` whether it
+  reached the peer's relayed address. The current route is confirmed only
+  when it is that pair. Otherwise the side switches to that pair when it is
+  an upgrade (direct UDP instead of a relayed route), or when no `reach`
+  confirmed the current route in the 4 s since it became the route (for
+  example plain UDP to the peer's relayed address when its own UDP to the
+  peer's LAN address is lost), and keeps it while `reach` keeps naming it,
+  even though the peer's datagrams arrive on another route, and for 25 s
+  after the last one (an idle link's keepalives every 10 s each draw one),
+  or until the peer announces endpoints without that address. A relayed copy
+  of a datagram never displaces a direct route that still delivers. A side
+  that receives its peer's direct UDP while most of the peer's datagrams
+  arrive relayed sends `reach` for that direct arrival at once (at most
+  every 100 ms), so the peer upgrades; while the route is relayed (its own
+  TURN, or the peer's relayed address) the direct candidates are tried every
+  5 s. A confirmed route that is silent for 14 s, or that no `reach`
+  confirmed for 25 s, is no longer trusted (every route again until a new
+  `reach`). A bare `{"t":"reach"}` confirms the current route. An older peer
+  (version 0) sends its confirmation through the retired relay, where it is
+  lost, and never sends `reach`: with such a peer a side takes the peer's
+  authenticated datagrams as the confirmation. An address the OS refuses to
+  send to (macOS Local Network privacy answers `EHOSTUNREACH` for LAN peers)
+  is never chosen as the route again.
+- WireGuard roaming (no wire change for older peers, which simply never
   announce): a side whose network changed (the phone's `NWPathMonitor`, the
   Mac's routing socket) moves its tunnel onto a new UDP socket and at once
   sends an authenticated datagram from it (a keepalive on a session younger
   than 120 s, else a handshake initiation); the peer follows the new
-  address (WireGuard endpoint roaming) and answers the reachability marker
-  at once. Until the new route is confirmed every datagram also goes
-  through the relay and to all of the peer's candidates, and for 3 s after
-  a roam both sides also spray candidates every 100 ms. The roaming side
-  learns its new reflexive address with STUN on the new socket and the
-  phone takes a fresh TURN allocation. New endpoints travel inside the
-  tunnel: an overlay UDP datagram to port 7421 of the peer's overlay
-  address, JSON `{"t":"endpoints","generation":N,"endpoints":["ip:port"]}`
-  (at most 16, `generation` grows per announcement), answered with
-  `{"t":"ack","generation":N}` and resent after 0.15, 0.4, 1, 2 and 4 s until
-  acknowledged. An empty list means "same endpoints, my network changed".
-  A side that receives an announcement replaces its candidates (unless
-  empty) and resends the data messages it sent in the last 20 s (at most
-  128); so does a side whose route changes or that roams. WireGuard's replay
-  window drops the copies that already arrived, and TCP inside the tunnel
-  never waits out its 1 s minimum retransmission timeout. While the
-  confirmed route is TURN, plain UDP candidates are tried every 5 s, so a
-  direct path wins again. A side whose signaling socket was replaced moves
-  its sessions to the new socket (relay frames and `bye`) and announces an
-  empty list.
+  address (WireGuard endpoint roaming) and answers `reach` at once. Until
+  the new route is confirmed every datagram also goes through TURN and to
+  all of the peer's candidates, and for 3 s after a roam both sides also
+  spray candidates every 100 ms. The roaming side learns its new reflexive
+  address with STUN on the new socket and takes a fresh TURN allocation on
+  the transport the new network allows (UDP, else TLS). New endpoints
+  travel inside the tunnel: an overlay UDP datagram to port 7421 of the
+  peer's overlay address, JSON
+  `{"t":"endpoints","generation":N,"endpoints":["ip:port"]}` (at most 16,
+  `generation` grows per announcement), answered with
+  `{"t":"ack","generation":N}` and resent after 0.15, 0.4, 1, 2 and 4 s
+  until acknowledged; and once through signaling (`wg-endpoints`, again
+  after the side's signaling socket is replaced). An empty list means
+  "same endpoints, my network changed". A side that receives an
+  announcement replaces its candidates (unless empty) and resends the data
+  messages it sent in the last 20 s (at most 128); so does a side whose
+  route changes or that roams, as soon as it has a route to send them on.
+  WireGuard's replay window drops the copies that already arrived, and TCP
+  inside the tunnel never waits out its 1 s minimum retransmission
+  timeout. The tunnel's UDP socket asks for 2 MB buffers, so such a burst
+  is not dropped by the OS. While the confirmed route is TURN, plain UDP
+  candidates are tried every 5 s, so a direct path wins again. A side
+  whose signaling socket was replaced moves its sessions to the new socket
+  (for `bye` and `wg-endpoints`).
 - `{"type":"error","code","message","sessionId"?}` for refusals (`not_owner`,
   `offline`, `rate_limited`, `bad_request` for malformed frames or a `from`
-  that is not the socket's device). A refused relay frame is answered at most
-  once per socket and session every 5 s (0.6.0; before, every frame of a
-  tunnel whose peer had left drew an error). A client fails a dial only on
-  an error for that dial's session or one without `sessionId`, never on an
-  error naming another session. A WireGuard side that closes its tunnel
-  sends `bye {reason:"closed"}` so the peer's tunnel stops too.
-- Rate limits per socket: 20 text frames/s (burst 60), 12000 binary frames/s
-  (burst 24000; excess binary frames are dropped silently). Raised from
-  4000/8000 in 0.6.0: about 100 Mbit/s of 1280-byte datagrams plus ACKs.
+  that is not the socket's device, `relay_retired` for a binary frame). A
+  refused signal names its session once the frame has a valid `sessionId`
+  (0.9.0). A client fails a dial only on an error for that dial's session
+  or one without `sessionId`, never on an error naming another session. A
+  WireGuard side that closes its tunnel sends `bye {reason:"closed"}` so
+  the peer's tunnel stops too.
+- Rate limits per socket: 20 text frames/s (burst 60). Binary frames
+  (retired) are counted in their own bucket (12000/s, burst 24000), so a
+  flood of an older client's frames costs at most a bounded number of
+  `relay_retired` checks; excess ones are dropped silently.
 
 Admission: the DO forwards `signal` only when `to` is a Mac owned by the
 sender's user (same `sub` in the same Stack project), or the reply direction of an existing sessionId. A sessionId
@@ -457,7 +519,9 @@ Nothing here changes the wire; it is how a phone keeps a dial short.
   server) by the phone and by `cnx-hostd`, which refreshes it in the
   background so an answer never waits on it.
 - WebRTC nominates the first working candidate pair (host, srflx and prflx
-  at once; relay after 300 ms unless relay only).
+  at once; relay after 300 ms unless relay only). WireGuard tries direct
+  UDP, TURN over UDP and (only when UDP gets no TURN allocation) TURN over
+  TLS on 443.
 - A signaling socket lost after the answer does not fail a WebRTC dial or
   answer: ICE and DTLS finish without it. Lost before the answer, the dial
   fails at once and the app redials without showing an error; it shows a
@@ -471,8 +535,20 @@ The app exposes Settings → Connection → Transport: `WebRTC` or `WireGuard`.
 Both produce the same `Link`; switching tears the link down and redials.
 
 Debug builds add Settings → Developer → "Relay only (simulate distant
-network)". It is a phone-side dial policy with no wire change: WebRTC gathers
-only TURN relay candidates (path `turn`), and WireGuard never sends plain
-UDP: it offers only its TURN relayed address and sends through TURN (path
-`turn`), or, without a TURN server, sends empty `endpoints`, ignores the
-Mac's and stays on the relay frames (path `relay`). Changing it redials.
+network)" and "Block UDP". Both are phone-side dial policies with no wire
+change, and changing either redials.
+
+- Relay only: WebRTC gathers only TURN relay candidates (path `turn`), and
+  WireGuard never sends plain UDP: it offers only its TURN relayed address
+  and sends through TURN (path `turn`, or `turn-tls` when UDP to the TURN
+  server fails). Without a TURN server the dial fails at once.
+- Block UDP (WireGuard; WebRTC ignores it): no plain UDP in or out and no
+  TURN over UDP, as on a network that passes only TCP. The link rides TURN
+  over TLS on 443 (path `turn-tls`); without a `turns:` or TCP `turn:`
+  server the dial fails at once. The rig sets it without the app's
+  settings: simulator `SIMCTL_CHILD_CNX_DEV_BLOCK_UDP=1`.
+
+The phone's link line names the path: "WireGuard direct", "WireGuard relay
+(TURN)", "WireGuard relay (TURN over TLS)" (and the same for WebRTC's
+TURN). There is no WebSocket relay any more. cnx-hostd reports the path as
+`direct`, `turn`, `turn-tls` or `none` (`phone_up`, `phone_path`).

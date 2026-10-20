@@ -5,7 +5,7 @@
 //!
 //!   cnx-lanebench --base-url URL --token-file PATH --team TEAM --mac MAC_DEVICE_ID
 //!                 --transport webrtc|wireguard [--no-input-lane] [--samples N]
-//!                 [--flood COMMAND] [--exclude-cgnat] [--relay-only]
+//!                 [--flood COMMAND] [--exclude-cgnat] [--relay-only] [--block-udp]
 //!
 //! It creates two workspaces (A and B), attaches to both on their own
 //! `daemon` channels like the app, and starts COMMAND (default
@@ -47,6 +47,7 @@ struct Args {
     flood: String,
     exclude_cgnat: bool,
     relay_only: bool,
+    block_udp: bool,
 }
 
 fn parse() -> Result<Args> {
@@ -54,6 +55,7 @@ fn parse() -> Result<Args> {
     let (mut base_url, mut token_file, mut team, mut mac, mut transport) = (None, None, None, None, None);
     let (mut input_lane, mut samples, mut exclude_cgnat, mut relay_only) = (true, 20, false, false);
     let mut flood = "yes | head -c 50000000".to_owned();
+    let mut block_udp = false;
     while let Some(arg) = args.next() {
         let mut value = || args.next().with_context(|| format!("{arg} needs a value"));
         match arg.as_str() {
@@ -73,6 +75,7 @@ fn parse() -> Result<Args> {
             "--flood" => flood = value()?,
             "--exclude-cgnat" => exclude_cgnat = true,
             "--relay-only" => relay_only = true,
+            "--block-udp" => block_udp = true,
             other => bail!("unknown argument {other}"),
         }
     }
@@ -89,6 +92,7 @@ fn parse() -> Result<Args> {
         flood,
         exclude_cgnat,
         relay_only,
+        block_udp,
     })
 }
 
@@ -272,6 +276,7 @@ async fn main() -> Result<()> {
         exclude_cgnat: args.exclude_cgnat,
         input_lane: args.input_lane,
         relay_only: args.relay_only,
+        block_udp: args.block_udp,
         ..DialOptions::default()
     };
     let connected =

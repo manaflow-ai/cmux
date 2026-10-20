@@ -17,14 +17,14 @@ Per configuration (carrier x path x loss), from the simulator's recording:
 - input to frame: tap sent (host time) -> first video frame showing that tap's
   count (its phone clock), split at the page's own receipt time.
 
-Configurations: `[wg-]{track,channel}[-relay|-wss][-loss<permille>]`. A `wg-`
+Configurations: `[wg-]{track,channel}[-relay|-tls][-loss<permille>]`. A `wg-`
 prefix dials WireGuard (`-cnx.settings.transport wireguard`), whose lane is RTP
 inside the tunnel (overlay label `wg-rtp`); without it the link is WebRTC.
-`-relay` is relay only (TURN when the service offers one); `-wss` is relay only
-with TURN removed on the phone (CNX_DEV_NO_TURN), so WireGuard rides the
-backend's WebSocket relay.
+`-relay` is relay only (TURN over UDP); `-tls` (WireGuard only) blocks UDP on
+the phone (CNX_DEV_BLOCK_UDP), so WireGuard rides TURN over TLS on 443. (The
+old `-wss` configuration rode the backend's WebSocket relay, which is retired.)
 
-usage: browser-track-bench.py --mac-app APP [--configs track,channel,track-relay,channel-relay,track-loss30,wg-track,wg-channel,wg-track-relay,wg-track-wss,wg-track-loss30]
+usage: browser-track-bench.py --mac-app APP [--configs track,channel,track-relay,channel-relay,track-loss30,wg-track,wg-channel,wg-track-relay,wg-track-tls,wg-track-loss30]
        [--seconds 12] [--taps 10] [--keep] [--no-build]
 """
 import argparse
@@ -174,16 +174,18 @@ class Bench:
         wg = name.startswith("wg-")
         base = name[3:] if wg else name
         carrier = "channel" if base.startswith("channel") else ("wg-rtp" if wg else "track")
-        wss = "wss" in base
-        relay = "relay" in base or wss
+        tls = "tls" in base
+        if "wss" in base:
+            raise ValueError(f"{name}: the WebSocket relay is retired; use -tls (TURN over TLS)")
+        relay = "relay" in base
         m = re.search(r"loss(\d+)", name)
         drop = int(m.group(1)) if m else 0
         self.log(f"=== {name}: transport {'wireguard' if wg else 'webrtc'}, carrier {carrier}, relay only {relay}"
-                 f"{' (no TURN)' if wss else ''}, drop {drop}/1000")
+                 f"{' (UDP blocked: TURN over TLS)' if tls else ''}, drop {drop}/1000")
         args = ["-cnx.dev.relayOnly", "YES" if relay else "NO",
                 "-cnx.settings.transport", "wireguard" if wg else "webrtc",
                 "-cnx.dev.browserVideoOnChannel", "YES" if carrier == "channel" else "NO"]
-        sim_env = {"CNX_DEV_NO_TURN": "1"} if wss else None
+        sim_env = {"CNX_DEV_BLOCK_UDP": "1"} if tls else None
         if self.a.remote:
             # The Mac app runs on a fleet Mac (browser-track-mac.sh); hostd reads the
             # drop share from its state folder at each new link.
@@ -244,7 +246,7 @@ class Bench:
         time.sleep(1.5)
         sim.record_stop()
         shot = sim.shot(f"{os.path.basename(cfg_dir)}-end")
-        result = {"config": os.path.basename(cfg_dir), "transport": "wireguard" if wg else "webrtc", "no_turn": wss,
+        result = {"config": os.path.basename(cfg_dir), "transport": "wireguard" if wg else "webrtc", "udp_blocked": tls,
                   "carrier_expected": carrier, "relay_only": relay, "drop_permille": drop,
                   "hostd_env": env, "overlay_at_start": shown[:300], "link_status": status,
                   "recording_started_host": rec_t0, "taps_host": taps, "screenshot": shot}

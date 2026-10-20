@@ -149,6 +149,7 @@ public final class LiveCoordinator {
         deviceName: String,
         transport: CnxTransport.TransportKind,
         relayOnly: Bool = false,
+        blockUDP: Bool = false,
         dialer: any MacLinkDialer,
         feedStore: FeedStore = .shared,
         keys: PhoneKeys? = nil,
@@ -170,7 +171,7 @@ public final class LiveCoordinator {
         self.clock = clock
         workspaces = WorkspaceSync(deviceID: identity.link, deviceName: deviceName)
         let apiForLink = api
-        link = LinkController(transport: transport, relayOnly: relayOnly, dialer: dialer, clock: clock,
+        link = LinkController(transport: transport, relayOnly: relayOnly, blockUDP: blockUDP, dialer: dialer, clock: clock,
                               accessToken: { try await apiForLink.accessToken($0) })
         // The default Chief is the account's Cloud Chief (same sign-in);
         // the Mac Chief below stays reachable beside it.
@@ -710,6 +711,11 @@ public final class LiveCoordinator {
     /// Debug relay-only mode (Settings → Developer); a change redials.
     public func setRelayOnly(_ relayOnly: Bool) {
         link.send(.relayOnly(relayOnly))
+    }
+
+    /// Debug UDP-blocked mode (Settings → Developer); a change redials.
+    public func setBlockUDP(_ blockUDP: Bool) {
+        link.send(.blockUDP(blockUDP))
     }
 
     /// App foreground: probe or redial the link and the presence socket.
@@ -1289,9 +1295,10 @@ public final class LiveCoordinator {
                 }
             }
         case .waiting(let transport, _, let reason, _):
-            // An offline Mac is not a connection failure; without TURN, WebRTC
-            // from another network cannot get through: say so.
-            let relay = relayAvailable == false && transport == .webRTC ? ". Relay (TURN) unavailable" : ""
+            // An offline Mac is not a connection failure; without TURN, neither
+            // transport gets through from another network (WireGuard's backend
+            // relay is retired), so say so.
+            let relay = relayAvailable == false ? ". Relay (TURN) unavailable" : ""
             banner = reason == LinkController.reason(LinkError(code: "offline", message: ""))
                 ? .macOffline(name) : .failed("Can't reach \(name) over \(transport.displayName)\(relay)")
         }

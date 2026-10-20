@@ -10,9 +10,13 @@ public enum DeveloperOptions {
     /// `UserDefaults` key: a scripted demo to run once at the next launch.
     public static let launchDemoKey = "cnx.dev.launchDemo"
     /// `UserDefaults` key: relay only, to simulate a distant network. Links
-    /// skip every direct path (WebRTC over TURN, WireGuard over the relay).
+    /// skip every direct path (WebRTC and WireGuard over TURN).
     /// Applies live: changing it redials.
     public static let relayOnlyKey = "cnx.dev.relayOnly"
+    /// `UserDefaults` key: block UDP, to simulate a network that passes only
+    /// TCP: WireGuard sends no plain UDP and rides TURN over TLS on 443.
+    /// Applies live: changing it redials.
+    public static let blockUDPKey = "cnx.dev.blockUDP"
     /// `UserDefaults` key: streamed browser tabs keep their video on the
     /// reliable `browser` channel even over WebRTC (no media lane), the
     /// baseline of verify/browser-video-track.md. Applies at the next dial.
@@ -27,7 +31,8 @@ public enum DeveloperOptions {
     /// removes them so a value set by an earlier Debug or Demo install in the
     /// same container can never apply.
     public static let storedKeys = [
-        mockDataKey, launchDemoKey, relayOnlyKey, browserVideoOnChannelKey, terminalDemoPhasesKey, slowFaceIDKey,
+        mockDataKey, launchDemoKey, relayOnlyKey, blockUDPKey, browserVideoOnChannelKey, terminalDemoPhasesKey,
+        slowFaceIDKey,
     ]
 
     /// Removes every stored developer setting (Production launch).
@@ -59,6 +64,16 @@ public enum DeveloperOptions {
     public static var relayOnly: Bool {
         #if DEBUG
         UserDefaults.standard.bool(forKey: relayOnlyKey)
+        #else
+        false
+        #endif
+    }
+
+    /// Whether WireGuard acts as on a network that blocks UDP. Always off in
+    /// Release builds.
+    public static var blockUDP: Bool {
+        #if DEBUG
+        UserDefaults.standard.bool(forKey: blockUDPKey)
         #else
         false
         #endif

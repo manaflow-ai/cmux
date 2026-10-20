@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { BUCKETS, uuidToBytes } from "../src/team-hub.ts"
+import { uuidToBytes } from "../src/team-hub.ts"
 import { call, connect, PROD_PROJECT, register, token, worker } from "./helpers.ts"
 
 const offer = (from: string, to: string, sessionId = crypto.randomUUID()) => ({ type: "signal", to, from, sessionId, payload: { kind: "webrtc-offer", sdp: "v=0" } })
@@ -105,7 +105,7 @@ describe("TeamHub signaling", () => {
     for (const s of [p, m]) s.ws.close()
   })
 
-  it("personal space signals and relays for its owner only", async () => {
+  it("personal space signals for its owner only", async () => {
     const solo = await token("solo")
     const team = "personal-solo"
     const phone = await register(solo, "phone", team)
@@ -117,12 +117,6 @@ describe("TeamHub signaling", () => {
     p.send(offer(phone, mac, sessionId))
     await m.until((s) => s.frames.some((f) => f.type === "signal"))
     expect(m.frames.find((f) => f.type === "signal")).toMatchObject({ from: phone, fromUserId: "solo" })
-    const b = new Uint8Array(36)
-    b.set(uuidToBytes(sessionId), 0)
-    b.set(uuidToBytes(mac), 16)
-    p.ws.send(b)
-    await m.until((s) => s.binary.length === 1)
-    expect([...m.binary[0]!.subarray(16, 32)]).toEqual([...uuidToBytes(phone)])
     const alicePhone = await register(await token("alice"), "phone", "team-a")
     const other = await worker.fetch(`https://api.test/v1/teams/${team}/signal?deviceId=${alicePhone}`, { headers: { Upgrade: "websocket", authorization: `Bearer ${await token("alice")}` } })
     expect(other.status).toBe(403)
@@ -140,20 +134,18 @@ describe("TeamHub signaling", () => {
     p.ws.close()
   })
 
-  it("relays WireGuard frames for a session and rewrites the to field to the sender", async () => {
+  it("drops retired WireGuard relay frames with one relay_retired error per session, and keeps the socket", async () => {
     const alice = await token("alice")
-    const bob = await token("bob")
     const phone = await register(alice, "phone", "team-a")
     const mac = await register(alice, "mac", "team-a")
-    const bobPhone = await register(bob, "phone", "team-a")
     const p = await connect(alice, "team-a", phone)
     const m = await connect(alice, "team-a", mac)
-    const bp = await connect(bob, "team-a", bobPhone)
-    for (const s of [p, m, bp]) await s.until((x) => x.frames.some((f) => f.type === "hello"))
+    for (const s of [p, m]) await s.until((x) => x.frames.some((f) => f.type === "hello"))
     const sessionId = crypto.randomUUID()
     p.send({ type: "signal", to: mac, from: phone, sessionId, payload: { kind: "wg-init", publicKey: "k", endpoints: [], overlayIP: "10.77.0.2" } })
     await m.until((s) => s.frames.some((f) => f.type === "signal"))
 
+    // An older phone's relay frames for an admitted session: none is forwarded.
     const frame = (to: string, sid = sessionId) => {
       const b = new Uint8Array(32 + 4)
       b.set(uuidToBytes(sid), 0)
@@ -161,57 +153,42 @@ describe("TeamHub signaling", () => {
       b.set([1, 2, 3, 4], 32)
       return b
     }
-    p.ws.send(frame(mac))
-    await m.until((s) => s.binary.length === 1)
-    const got = m.binary[0]!
-    expect([...got.subarray(0, 16)]).toEqual([...uuidToBytes(sessionId)])
-    expect([...got.subarray(16, 32)]).toEqual([...uuidToBytes(phone)])
-    expect([...got.subarray(32)]).toEqual([1, 2, 3, 4])
-
-    m.ws.send(frame(phone))
-    await p.until((s) => s.binary.length === 1)
-    expect([...p.binary[0]!.subarray(16, 32)]).toEqual([...uuidToBytes(mac)])
-
-    // A device outside the session cannot inject frames, and a burst of refused frames gets one error.
-    for (let i = 0; i < 10; i++) bp.ws.send(frame(mac))
-    await bp.until((s) => s.frames.some((f) => f.type === "error" && f.code === "not_owner"))
+    for (let i = 0; i < 10; i++) p.ws.send(frame(mac))
+    const other = crypto.randomUUID()
+    p.ws.send(frame(mac, other))
+    await p.until((s) => s.frames.filter((f) => f.type === "error" && f.code === "relay_retired").length === 2)
+    // Each error names its session (a sessionless error would fail the client's other dials).
+    const errors = p.frames.filter((f) => f.type === "error" && f.code === "relay_retired")
+    expect(errors.map((e) => e.sessionId).sort()).toEqual([sessionId, other].sort())
+    // The socket still signals: a bad frame is answered, and the session's next signal reaches the Mac.
     p.send({ type: "nope" })
     await p.until((s) => s.frames.some((f) => f.type === "error" && f.code === "bad_request"))
-    bp.send({ type: "nope" })
-    await bp.until((s) => s.frames.some((f) => f.type === "error" && f.code === "bad_request"))
-    expect(bp.frames.filter((f) => f.type === "error" && f.code === "not_owner")).toHaveLength(1)
-    expect(bp.frames.find((f) => f.code === "not_owner")).toMatchObject({ sessionId })
-    expect(m.binary).toHaveLength(1)
-    for (const s of [p, m, bp]) s.ws.close()
+    p.send({ type: "signal", to: mac, from: phone, sessionId, payload: { kind: "bye", reason: "done" } })
+    await m.until((s) => s.frames.filter((f) => f.type === "signal").length === 2)
+    expect(m.binary).toHaveLength(0)
+    expect(p.frames.filter((f) => f.type === "error" && f.code === "relay_retired")).toHaveLength(2)
+    for (const s of [p, m]) s.ws.close()
   })
 
-  it("relays a burst of frames in order, with room for about 100 Mbit/s", async () => {
-    const solo = await token("burst")
-    const team = "personal-burst"
-    const phone = await register(solo, "phone", team)
-    const mac = await register(solo, "mac", team)
-    const p = await connect(solo, team, phone)
-    const m = await connect(solo, team, mac)
+  it("forwards wg-endpoints, and names the session when it refuses an unknown kind", async () => {
+    const alice = await token("alice")
+    const phone = await register(alice, "phone", "team-a")
+    const mac = await register(alice, "mac", "team-a")
+    const p = await connect(alice, "team-a", phone)
+    const m = await connect(alice, "team-a", mac)
     for (const s of [p, m]) await s.until((x) => x.frames.some((f) => f.type === "hello"))
     const sessionId = crypto.randomUUID()
-    p.send({ type: "signal", to: mac, from: phone, sessionId, payload: { kind: "wg-init", publicKey: "k", endpoints: [], overlayIP: "10.77.0.2" } })
+    p.send({ type: "signal", to: mac, from: phone, sessionId, payload: { kind: "wg-init", publicKey: "k", endpoints: [], overlayIP: "10.77.0.2", version: 2 } })
     await m.until((s) => s.frames.some((f) => f.type === "signal"))
-    expect(BUCKETS.binary.burst).toBeGreaterThanOrEqual(20000)
-    const count = 2000
-    const b = new Uint8Array(32 + 40)
-    b.set(uuidToBytes(sessionId), 0)
-    b.set(uuidToBytes(mac), 16)
-    for (let i = 0; i < count; i++) {
-      b[32] = i & 0xff
-      b[33] = i >> 8
-      p.ws.send(b)
-    }
-    const deadline = Date.now() + 20000
-    while (m.binary.length < count && Date.now() < deadline) await new Promise((r) => setTimeout(r, 50))
-    expect(m.binary.length).toBe(count)
-    expect(m.binary.every((f, i) => f[32] === (i & 0xff) && f[33] === i >> 8)).toBe(true)
+    const announcement = { kind: "wg-endpoints", generation: 1, endpoints: ["203.0.113.7:4000"], relayed: ["203.0.113.7:4000"], relayedTls: ["203.0.113.7:4000"] }
+    p.send({ type: "signal", to: mac, from: phone, sessionId, payload: announcement })
+    await m.until((s) => s.frames.filter((f) => f.type === "signal").length === 2)
+    expect(m.frames.filter((f) => f.type === "signal")[1]).toMatchObject({ from: phone, sessionId, payload: announcement })
+    p.send({ type: "signal", to: mac, from: phone, sessionId, payload: { kind: "wg-relay" } })
+    await p.until((s) => s.frames.some((f) => f.type === "error" && f.code === "bad_request"))
+    expect(p.frames.find((f) => f.type === "error" && f.code === "bad_request")).toMatchObject({ sessionId })
     for (const s of [p, m]) s.ws.close()
-  }, 30000)
+  })
 
   it("reports where a team's hub runs", async () => {
     const alice = await token("alice")

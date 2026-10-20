@@ -129,10 +129,10 @@ frame.set(hex(sessionId), 0)
 frame.set(hex(macId), 16)
 frame.set([9, 8, 7, 6], 32)
 p.ws.send(frame)
-const deadline = Date.now() + 5000
-while (!m.bins.length && Date.now() < deadline) await new Promise((r) => setTimeout(r, 50))
-const relayed = m.bins[0]
-check("relay rewrite", !!relayed && relayed.subarray(16, 32).every((b, i) => b === hex(phoneId)[i]) && relayed[32] === 9)
+// Relay frames are retired (0.9.0): dropped, one relay_retired error naming the session.
+const retired = await p.wait((f) => f.type === "error" && f.code === "relay_retired")
+await new Promise((r) => setTimeout(r, 500))
+check("relay frame refused", retired?.sessionId === sessionId && m.bins.length === 0)
 
 p.ws.send(JSON.stringify({ type: "signal", to: phoneId, from: phoneId, sessionId: crypto.randomUUID(), payload: { kind: "bye", reason: "x" } }))
 check("self-signal refused", (await p.wait((f) => f.type === "error" && f.code === "not_owner"))?.code === "not_owner")

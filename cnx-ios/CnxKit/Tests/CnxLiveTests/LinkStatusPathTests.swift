@@ -18,8 +18,11 @@ import Testing
         _ = machine.handle(.dialSucceeded(generation: machine.generation, path: .direct))
         #expect(machine.phase.statusLine(macName: "Studio") == "Connected · WireGuard direct")
         _ = machine.handle(.linkUpdated(generation: machine.generation, path: .turn, rttMillis: 40))
-        #expect(machine.phase.statusLine(macName: "Studio") == "Connected · WireGuard TURN · 40 ms")
-        _ = machine.handle(.linkUpdated(generation: machine.generation, path: .relay, rttMillis: nil))
-        #expect(machine.phase.statusLine(macName: "Studio") == "Connected · WireGuard relay · 40 ms")
+        #expect(machine.phase.statusLine(macName: "Studio") == "Connected · WireGuard relay (TURN) · 40 ms")
+        // UDP blocked: TURN reached over TLS. (There is no WebSocket relay any more.)
+        _ = machine.handle(.linkUpdated(generation: machine.generation, path: .turnTLS, rttMillis: nil))
+        #expect(machine.phase.statusLine(macName: "Studio") == "Connected · WireGuard relay (TURN over TLS) · 40 ms")
+        _ = machine.handle(.linkUpdated(generation: machine.generation, path: .noPath, rttMillis: nil))
+        #expect(machine.phase.statusLine(macName: "Studio") == "Connected · WireGuard no path · 40 ms")
     }
 }

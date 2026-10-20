@@ -199,7 +199,7 @@ async fn connect_once(
         .context("signaling connect")?;
     tracing::info!(device_id = config.device_id, "signaling connected");
     // Sessions of the previous socket (WireGuard tunnels outlive it) send
-    // their relay frames and `bye` on this one now.
+    // their `bye` on this one now.
     let moved = dial::wireguard::rehome(&signaling);
     if moved > 0 {
         tracing::info!(moved, "WireGuard sessions moved to the new signaling socket");
@@ -370,8 +370,8 @@ async fn answer_session(
     let path_watch = tokio::spawn(async move {
         while paths.changed().await.is_ok() {
             let path = *paths.borrow_and_update();
-            // The label at link up is often `Relay` (a WireGuard link starts
-            // on the relay until the phone confirms UDP); this says when it moved.
+            // A WireGuard link can move between direct, TURN and TURN over
+            // TLS after link up (roams, a direct path found again); this says when.
             tracing::info!(session_id = path_session, ?path, "link path changed");
             control::emit(&Event::PhonePath {
                 session_id: path_session.clone(),

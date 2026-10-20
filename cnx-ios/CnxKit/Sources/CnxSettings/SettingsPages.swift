@@ -383,6 +383,7 @@ struct TransportPage: View {
     let relayAvailable: Bool?
     #if DEBUG
     @AppStorage(DeveloperOptions.relayOnlyKey) private var relayOnly = false
+    @AppStorage(DeveloperOptions.blockUDPKey) private var blockUDP = false
     @AppStorage(DeveloperOptions.browserVideoOnChannelKey) private var browserVideoOnChannel = false
     #endif
 
@@ -426,8 +427,14 @@ struct TransportPage: View {
                 Toggle(isOn: $relayOnly) {
                     SettingsLabel("Relay only", symbol: "point.3.connected.trianglepath.dotted")
                 }
-                .disabled(relayAvailable == false)
+                // Turning off stays possible when the relay goes away while on.
+                .disabled(relayAvailable == false && !relayOnly)
                 .accessibilityIdentifier("settings.transport.relayOnly")
+                Toggle(isOn: $blockUDP) {
+                    SettingsLabel("Block UDP", symbol: "network.slash")
+                }
+                .disabled(relayAvailable == false && !blockUDP)
+                .accessibilityIdentifier("settings.transport.blockUDP")
                 Toggle(isOn: $browserVideoOnChannel) {
                     SettingsLabel("Browser video on channel", symbol: "film")
                 }
@@ -437,7 +444,7 @@ struct TransportPage: View {
             } footer: {
                 Text(relayAvailable == false
                      ? "Relay unavailable."
-                     : "Relay only: always through the relay, as from a distant network: WebRTC over TURN, WireGuard over the cmux relay. Applies at once. Browser video on channel: streamed browser tabs skip the media lane (RTP on WebRTC or in the WireGuard tunnel). Applies at the next connection.")
+                     : "Relay only: always through TURN, as from a distant network. Block UDP: as on a network that passes only TCP: WireGuard rides TURN over TLS on port 443. Both apply at once. Browser video on channel: streamed browser tabs skip the media lane (RTP on WebRTC or in the WireGuard tunnel). Applies at the next connection.")
             }
             #endif
         }

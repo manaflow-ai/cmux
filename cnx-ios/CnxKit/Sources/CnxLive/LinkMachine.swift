@@ -39,6 +39,8 @@ public struct LinkMachine: Sendable {
         case transport(TransportKind)
         /// Debug relay-only mode on or off; a change redials.
         case relayOnly(Bool)
+        /// Debug UDP-blocked mode on or off; a change redials.
+        case blockUDP(Bool)
         case dialSucceeded(generation: Int, path: LinkPathKind)
         case dialFailed(generation: Int, reason: String)
         /// The link reported a new path or RTT.
@@ -64,15 +66,18 @@ public struct LinkMachine: Sendable {
     public private(set) var transport: TransportKind
     /// Debug "simulate distant network": dials skip every direct path.
     public private(set) var relayOnly: Bool
+    /// Debug "simulate a network that blocks UDP": WireGuard rides TURN over TLS.
+    public private(set) var blockUDP: Bool
     public private(set) var generation = 0
     /// Retry delays in seconds after the silent retries; the last one repeats.
     public var backoff: [Int] = [1, 2, 4, 8, 15, 30]
     /// Failed dials retried at once, before any failure shows.
     public static let silentRetries = 1
 
-    public init(transport: TransportKind, relayOnly: Bool = false) {
+    public init(transport: TransportKind, relayOnly: Bool = false, blockUDP: Bool = false) {
         self.transport = transport
         self.relayOnly = relayOnly
+        self.blockUDP = blockUDP
     }
 
     public mutating func handle(_ event: Event) -> [Effect] {
@@ -93,6 +98,12 @@ public struct LinkMachine: Sendable {
             guard next != relayOnly else { return [] }
             relayOnly = next
             guard let target, target.isOnline else { return [] }
+            return dial(attempt: 1, closing: true)
+        case .blockUDP(let next):
+            guard next != blockUDP else { return [] }
+            blockUDP = next
+            // WebRTC ignores it: no redial (the next WireGuard dial uses it).
+            guard transport == .wireGuard, let target, target.isOnline else { return [] }
             return dial(attempt: 1, closing: true)
         case .dialSucceeded(let gen, let path):
             guard gen == generation, case .connecting = phase else { return [] }
@@ -181,8 +192,9 @@ extension LinkPathKind {
     public var displayName: String {
         switch self {
         case .direct: "direct"
-        case .relay: "relay"
-        case .turn: "TURN"
+        case .turn: "relay (TURN)"
+        case .turnTLS: "relay (TURN over TLS)"
+        case .noPath: "no path"
         }
     }
 }

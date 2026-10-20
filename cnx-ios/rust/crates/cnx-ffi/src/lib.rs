@@ -62,16 +62,21 @@ impl From<Transport> for cnx_link::TransportKind {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
 pub enum LinkPath {
     Direct,
-    Relay,
+    /// Through a TURN server over UDP.
     Turn,
+    /// Through a TURN server reached over TLS (UDP blocked).
+    TurnTls,
+    /// No working route at the moment.
+    NoPath,
 }
 
 impl From<cnx_link::LinkPath> for LinkPath {
     fn from(value: cnx_link::LinkPath) -> Self {
         match value {
             cnx_link::LinkPath::Direct => Self::Direct,
-            cnx_link::LinkPath::Relay => Self::Relay,
             cnx_link::LinkPath::Turn => Self::Turn,
+            cnx_link::LinkPath::TurnTls => Self::TurnTls,
+            cnx_link::LinkPath::NoPath => Self::NoPath,
         }
     }
 }
@@ -366,8 +371,9 @@ impl LinkHandle {
                 .collect();
             let path = match *path.borrow() {
                 cnx_link::LinkPath::Direct => "direct",
-                cnx_link::LinkPath::Relay => "relay",
                 cnx_link::LinkPath::Turn => "turn",
+                cnx_link::LinkPath::TurnTls => "turn-tls",
+                cnx_link::LinkPath::NoPath => "none",
             };
             serde_json::json!({
                 "roam": roam,
@@ -444,11 +450,16 @@ impl ChannelHandle {
 #[derive(Debug, Clone, Default, PartialEq, Eq, uniffi::Record)]
 pub struct ConnectOptions {
     /// Debug "simulate distant network": skip every direct path. WebRTC
-    /// uses ICE transport policy `relay` with the service's TURN servers
-    /// (path `Turn`; no TURN server fails the dial), WireGuard uses only the
-    /// backend relay frames (path `Relay`).
+    /// uses ICE transport policy `relay` with the service's TURN servers,
+    /// WireGuard only its TURN allocation (path `Turn`, or `TurnTls` when
+    /// the allocation had to use TLS). No TURN server fails the dial.
     #[uniffi(default = false)]
     pub relay_only: bool,
+    /// Debug "simulate a network that blocks UDP": WireGuard sends and
+    /// accepts no plain UDP and skips TURN over UDP, so it rides TURN over
+    /// TLS on 443 (path `TurnTls`). WebRTC ignores it.
+    #[uniffi(default = false)]
+    pub block_udp: bool,
     /// Debug: do not offer the media lane, so browser video rides its
     /// reliable channel on either transport (the comparison baseline).
     #[uniffi(default = false)]
@@ -504,6 +515,7 @@ pub async fn connect_with_options(
         transport,
         include_loopback: false,
         relay_only: options.relay_only,
+        block_udp: options.block_udp,
         video_lane: !options.no_video_lane,
     };
     on_runtime(connect_inner(request, observer)).await
@@ -525,6 +537,7 @@ pub struct ConnectRequest {
     pub transport: Transport,
     pub include_loopback: bool,
     pub relay_only: bool,
+    pub block_udp: bool,
     /// Offer the media lane (browser video as RTP: a WebRTC track, or UDP inside the WireGuard tunnel).
     pub video_lane: bool,
 }
@@ -768,13 +781,13 @@ pub async fn prewarm(base_url: String, token: String, team_id: String, device_id
 
 /// How long the signaling socket may take to answer after a network
 /// change before a new one is opened (the old network's socket is usually
-/// dead, and the WireGuard relay and roaming need a live one).
+/// dead, and `bye` and new dials need a live one).
 const NETWORK_PROBE: Duration = Duration::from_millis(1000);
 
 /// The device's network changed or came back (iOS `NWPathMonitor`): every
 /// WireGuard link moves onto the new network at once without a redial, and
-/// the signaling socket is checked (and replaced when dead) so relay frames
-/// flow again. Returns the steps: the first link's roam marks, then the
+/// the signaling socket is checked (and replaced when dead) so signaling
+/// works again. Returns the steps: the first link's roam marks, then the
 /// signaling ones prefixed `signaling:`.
 #[uniffi::export]
 pub async fn network_changed(
@@ -860,8 +873,8 @@ async fn dial(
     let mut ice_servers = ice_servers;
     if std::env::var_os("CNX_DEV_NO_TURN").is_some() {
         // Measurement support (simulator: SIMCTL_CHILD_CNX_DEV_NO_TURN=1):
-        // no TURN server, so a relay-only WireGuard link rides the backend's
-        // WebSocket relay instead of TURN.
+        // no TURN server, so WireGuard has only direct paths (and a relay-only
+        // or UDP-blocked dial fails at once: there is no backend relay).
         for server in &mut ice_servers {
             server.urls.retain(|url| !url.starts_with("turn:") && !url.starts_with("turns:"));
         }
@@ -871,6 +884,9 @@ async fn dial(
         ice_servers,
         include_loopback: request.include_loopback,
         relay_only: request.relay_only,
+        // The rig's UDP-blocked runs (simulator:
+        // SIMCTL_CHILD_CNX_DEV_BLOCK_UDP=1) without touching app settings.
+        block_udp: request.block_udp || std::env::var_os("CNX_DEV_BLOCK_UDP").is_some(),
         video_lane: request.video_lane,
         timeline: timeline.clone(),
         ..DialOptions::default()
