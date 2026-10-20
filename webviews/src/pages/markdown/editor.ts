@@ -17,14 +17,7 @@ import { commonmark, imageSchema, linkSchema } from "@milkdown/kit/preset/common
 import { gfm } from "@milkdown/kit/preset/gfm";
 import type { Mark, Node as ProseNode, Schema } from "@milkdown/kit/prose/model";
 import { Plugin, PluginKey, TextSelection, type Transaction } from "@milkdown/kit/prose/state";
-import { TableView } from "@milkdown/kit/prose/tables";
-import {
-  Decoration,
-  DecorationSet,
-  type EditorView,
-  type NodeViewConstructor,
-  type ViewMutationRecord,
-} from "@milkdown/kit/prose/view";
+import { Decoration, DecorationSet, type EditorView, type NodeViewConstructor } from "@milkdown/kit/prose/view";
 import { ParserState, type SerializerState } from "@milkdown/kit/transformer";
 import { $nodeSchema, $prose } from "@milkdown/kit/utils";
 import "../../markdown-task-checkbox.css";
@@ -57,6 +50,7 @@ import {
   type RemarkLike,
   type SourceMap,
 } from "./sourceMap";
+import { ResizableTableView, tableClipboard, tableKeyDown, type TableWidths } from "./tables";
 
 /** What the editor needs from its page: links, images, code colors, diagrams and labels. */
 export interface MarkdownEditorHost {
@@ -76,6 +70,8 @@ export interface MarkdownEditorHost {
   githubRepository?: string;
   /** Link checks, the link bubble's strings, path completion and copying. */
   links?: LinkHost;
+  /** Column widths the user dragged, kept per file (a view setting, never written to the file). */
+  tableWidths?: TableWidths;
 }
 
 export type EditorLabel = "frontmatter" | "html" | "definition" | "source" | "plainText" | "document";
@@ -271,9 +267,14 @@ export class MarkdownEditor {
           handleClick: (_view, _pos, event) =>
             event.metaKey &&
             !!(event.target as Element | null)?.closest?.('a[href], sup[data-type="footnote_reference"]'),
+          // Obsidian's table keys (tables.ts): before every plugin's keymap.
+          handleKeyDown: (view, event) => tableKeyDown(view, event, this.schema),
           handleDOMEvents: {
             click: (_view, event) => this.handleClick(event),
             auxclick: (_view, event) => this.handleClick(event),
+            // A cell selection copies as a Markdown table (and an HTML one for spreadsheets).
+            copy: (view, event) => tableClipboard(view, event, (cell) => this.inlineMarkdown(cell), true),
+            cut: (view, event) => tableClipboard(view, event, (cell) => this.inlineMarkdown(cell), this.readOnly),
           },
         }));
       })
@@ -315,6 +316,14 @@ export class MarkdownEditor {
       this.remark = ctx.get(remarkCtx) as unknown as RemarkLike;
       this.serializeDoc = ctx.get(serializerCtx);
     });
+  }
+
+  /** A table cell's content as Markdown on one line (copying cells as a Markdown table). */
+  private inlineMarkdown(cell: ProseNode): string {
+    if (!this.schema || !this.serializeDoc) return cell.textContent;
+    const blocks: ProseNode[] = [];
+    cell.forEach((child) => blocks.push(child));
+    return this.serializeDoc(this.schema.topNodeType.create(null, blocks)).trim();
   }
 
   private handleClick(event: MouseEvent): boolean {
@@ -691,9 +700,10 @@ function nodeViews(host: MarkdownEditorHost): Record<string, NodeViewConstructor
     code_block: (node, view, getPos) => new CodeBlockView(node, view, getPos, host),
     [RAW_NODE]: (node, view, getPos) => new RawBlockView(node, view, getPos, host),
     // Each table sits in prosemirror-tables' `.tableWrapper` (its min-width 100px a column), the
-    // box a wide table scrolls sideways in (styles.css, MARKDOWN-TABLE-SCROLL). gfm's plugins leave
-    // out columnResizing, which would install this view, so the editor names it here.
-    table: (node) => new ScrollingTableView(node, 100),
+    // box a wide table scrolls sideways in (styles.css, MARKDOWN-TABLE-SCROLL), with a resize
+    // handle on each column's edge (tables.ts). gfm's plugins leave out columnResizing, which
+    // would write widths into the document, so the editor names its own view here.
+    table: (node, view, getPos) => new ResizableTableView(node, view, getPos, host.tableWidths, 100),
     image: (node) => {
       const img = document.createElement("img");
       const apply = (next: ProseNode) => {
@@ -713,15 +723,6 @@ function nodeViews(host: MarkdownEditorHost): Record<string, NodeViewConstructor
       };
     },
   };
-}
-
-/** prosemirror-tables' TableView, minus one re-render: the wrapper's scroll mark
- * (`data-cmux-scrolling`, scrollers.ts) is an attribute change ProseMirror would read as an edit,
- * redrawing the table and dropping its sideways scroll on the first wheel step. */
-class ScrollingTableView extends TableView {
-  override ignoreMutation(record: ViewMutationRecord): boolean {
-    return (record.type === "attributes" && record.target === this.dom) || super.ignoreMutation(record);
-  }
 }
 
 /** Puts the caret at the start of a node's text, so clicking a preview edits its source. */
