@@ -2065,6 +2065,7 @@ jobs:
           IMPORT_VARIANT: ${{ needs.decide.outputs.import_variant }}
           SWIFT_IMPORT_FLAGS: ${{ needs.decide.outputs.swift_import_flags }}
           EMPTY_BROWSER_SOURCES: ${{ needs.decide.outputs.empty_browser_sources }}
+          BUILD_TRACK: ${{ needs.decide.outputs.track }}
         run: |
           set -euo pipefail
           # cx-f58x: compile out browser-import code as `decide` chose (the
@@ -2101,6 +2102,21 @@ jobs:
           # phases find the local-source helpers fresh instead of building them after
           # the compile. A failed or late prebuild only leaves that work to the
           # phases, so its status never fails this step.
+          # Xcode's script phases resolved HOME to the build user's home, not the
+          # job's HOME. On the dedicated nightly-next builder the job's HOME is
+          # /Users/runner (the Blacksmith path) while the user is cmux, so the
+          # CEF shim and the diff sidecar recorded /Users/cmux paths (build
+          # 74986f8b: libcmux_cef_shim.dylib and the five helpers named
+          # /Users/cmux/Library/Caches/cmux/cef, cmux-diff-sidecar
+          # /Users/cmux/.cargo). Name the cargo, rustup and CEF roots from the job's HOME, so the
+          # phases build where the earlier steps fetched and the bytes match a
+          # Blacksmith build. Same values as before on every other runner.
+          if [ "${BUILD_TRACK:-}" = nightly-next ]; then
+            export CARGO_HOME="${CARGO_HOME:-$HOME/.cargo}"
+            export RUSTUP_HOME="${RUSTUP_HOME:-$HOME/.rustup}"
+            CMUX_CEF_CACHE_DIR="${CMUX_CEF_CACHE_DIR:-$(scripts/cmux-next/cef-cache-root.sh)}"
+            export CMUX_CEF_CACHE_DIR
+          fi
           python3 scripts/ci/run-with-helper-prebuild.py \
             --derived-data build-universal --configuration Release --archs "$archs" \
             --log "$RUNNER_TEMP/helper-prebuild.log" -- \
