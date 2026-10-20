@@ -91,6 +91,10 @@ import PackageDescription
 //     the session state machine; no UI)
 //   CmuxNextErrorJournal -> system frameworks only (the bounded, deduplicated error journal
 //     `cmux errors` reads: app log, page consoles, acpmux and Chief logs, crash reports)
+//   CmuxNextFiles -> system frameworks only (Files pane core: listing, FSEvents, file operations,
+//     Undo, the pane model; no AppKit; plans/finder-parity/PARITY.md)
+//   CmuxNextFilesUI -> Files, Design, Compat (the Files pane's AppKit views: list, icons, columns,
+//     path bar, Quick Look, drag in and out)
 //   CmuxNextCrashReporting -> CmuxSentryReporting, Sentry (crash and exception reports to Sentry:
 //     consent, channel environment, release, scrubbing; no UI, no daemon; cx-urd.58)
 
@@ -180,6 +184,8 @@ let package = Package(
             name: "CmuxNextApp",
             dependencies: [
                 "CmuxNextCompat",
+                "CmuxNextFiles",
+                "CmuxNextFilesUI",
                 "CmuxNextKeepAwake",
                 "CmuxNextChromiumWarmup",
                 "CmuxNextPhoneAccess",
@@ -577,6 +583,30 @@ let package = Package(
             dependencies: ["CmuxNextPhone", "CmuxNextCompat"],
             resources: [.copy("Fixtures")],
             swiftSettings: daemonSwiftSettings
+        ),
+        // Files (u2360, plans/finder-parity/PARITY.md): the Finder-parity file browser's core.
+        // Off-main getattrlistbulk listing, Finder name order, FSEvents per item, file
+        // operations with conflict answers and Undo, and the pane model. No AppKit; the
+        // Screenshots pane and the Files pane both read folders through it.
+        .target(
+            name: "CmuxNextFiles",
+            swiftSettings: daemonSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextFilesTests",
+            dependencies: ["CmuxNextFiles"],
+            swiftSettings: daemonSwiftSettings
+        ),
+        // The Files pane's AppKit views over CmuxNextFiles: list (NSTableView), icons
+        // (NSCollectionView), columns (NSBrowser), path bar, Quick Look, drag in and out,
+        // the shared icon and thumbnail cache. The App hosts it as an internal page.
+        .target(
+            name: "CmuxNextFilesUI",
+            dependencies: ["CmuxNextFiles", "CmuxNextDesign", "CmuxNextCompat"],
+            resources: [
+                .process("Resources"),
+            ],
+            swiftSettings: uiSwiftSettings
         ),
         // Keep awake (sessions.keepAwake): one idle-sleep hold for the Keep Mac Awake
         // action and working local agents, released on battery unless the user

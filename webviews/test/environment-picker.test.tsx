@@ -172,7 +172,7 @@ async function press(target: Element, init: KeyboardEventInit) {
 
 test("a peer's transport reads the same from the relayed reply and the daemon's own", async () => {
   const { peerKindsFromStatus } = await import("../src/agent-session/acpmux/environments");
-  const kinds = { "gpu-box": "ssh", "cloud-1": "cloud" };
+  const kinds: Record<string, "ssh" | "cloud"> = { "gpu-box": "ssh", "cloud-1": "cloud" };
   expect(peerKindsFromStatus(relayedStatus)).toEqual(kinds);
   expect(peerKindsFromStatus(status)).toEqual(kinds);
   expect(peerKindsFromStatus({ peers: [{ name: "bare" }] })).toEqual({ bare: "cloud" });

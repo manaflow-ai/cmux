@@ -987,7 +987,10 @@ pub(crate) fn version_string() -> String {
     // The version is the npm/PyPI release (version_report.rs), not the crate's.
     let stamp = build_stamp();
     version_report::version_text(
-        version_report::DISTRIBUTION_VERSION,
+        version_report::release_version(
+            version_report::DISTRIBUTION_VERSION,
+            env!("CARGO_PKG_VERSION"),
+        ),
         stamp.build_commit(),
         stamp.ghostty_commit(),
     )
