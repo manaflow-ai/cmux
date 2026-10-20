@@ -22,6 +22,9 @@ public struct MacScreenTabEvents {
     /// The store tab id of tab `key` (a tab the pane's daemon keeps and
     /// restores), nil for an app-only tab. For `debug.mac_screen`.
     public var storeTabID: (String) -> String? = { _ in nil }
+    /// Titles that come from routes changed (device names were read or
+    /// renamed): strips draw their unopened Mac Screen tabs again.
+    public var routeTitlesChanged: () -> Void = {}
 
     public init() {}
 }
@@ -173,8 +176,9 @@ public final class MacScreenPages {
         namesWatch = Task { [weak self] in
             for await names in ObservationStream({ hub.devices.map { [$0.id, $0.name] } }) {
                 guard let self else { return }
-                store.rememberDeviceNames(Dictionary(names.map { ($0[0], $0[1]) }, uniquingKeysWith: { _, last in last }))
-                refreshDeviceTitles()
+                if store.rememberDeviceNames(Dictionary(names.map { ($0[0], $0[1]) }, uniquingKeysWith: { _, last in last })) {
+                    refreshDeviceTitles()
+                }
                 for tab in tabs.values {
                     guard let id = tab.record.deviceID, let name = names.first(where: { $0[0] == id })?[1],
                           !name.isEmpty, tab.pane?.model.name != name else { continue }
@@ -193,6 +197,22 @@ public final class MacScreenPages {
     /// Device tabs whose view is not made yet (restored, not selected) take their device's name.
     private func refreshDeviceTitles() {
         for (key, record) in records where record.deviceID != nil && tabs[key] == nil { events.titleChanged(key) }
+        events.routeTitlesChanged()
+    }
+
+    /// The title of a tab known only by its route (a restored tab not yet
+    /// shown): the device's or saved Mac's name, else "Mac Screen"; nil for no route.
+    public func title(forRoute route: String?) -> String? {
+        guard let route, let record = Self.record(route: route) else { return route == nil ? nil : Self.homeTitle }
+        if let device = record.deviceID { return deviceName(device) }
+        return record.macID.flatMap { store.mac($0)?.name } ?? Self.homeTitle
+    }
+
+    /// The hub's sessions end here now with `reason` (this Mac was removed:
+    /// `device_removed:viewer`), before the hub goes away and would say "signed out".
+    public func endHubSessions(reason: String) {
+        hubHost.closeAll()
+        for viewer in hubViewers { viewer.hubGone(reason: reason) }
     }
 
     /// The home page opens device `id` asking for `scope` (a person's click).

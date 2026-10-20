@@ -74,6 +74,8 @@ enum MacScreenCard: Equatable {
     case hubDeclined(SessionScope)
     case hubRefused(MacScreenHubRefusal, requested: SessionScope)
     case hubRevoked(MacScreenEndReason)
+    /// A Full Control session ended because the host lowered this Mac's access to View Only.
+    case hubAccessLowered
     case hubEnded(MacScreenEndReason)
 }
 
@@ -103,7 +105,7 @@ extension MacScreenPaneModel {
         case .missing: return .missing
         case .open: break
         }
-        if let hub, let card = Self.hubCard(hub.phase) { return card }
+        if let hub, let card = Self.hubCard(hub.phase, access: hub.accessToHost) { return card }
         guard let session else { return .missing }
         switch session.phase {
         case .connecting: return Self.connectingCard(isReconnecting: session.isReconnecting, everConnected: everConnected)
@@ -115,7 +117,8 @@ extension MacScreenPaneModel {
 
     /// A device hub tab's card for `phase`; nil while it streams (the
     /// session's own phase decides then).
-    static func hubCard(_ phase: MacScreenHubPhase) -> MacScreenCard? {
+    static func hubCard(_ phase: MacScreenHubPhase, access: DeviceScope? = nil) -> MacScreenCard? {
+        if case let .revoked(reason) = phase, MacScreenEndReason(reason) == .permissionRevoked, access == .view { return .hubAccessLowered }
         switch phase {
         case .idle: .hubConnect
         case let .requesting(scope), let .approved(_, scope): .hubRequesting(scope)
@@ -132,10 +135,15 @@ extension MacScreenPaneModel {
     /// refused the credentials or can't be reached, a relay-only path that
     /// found no relay, else what to check on the other Mac.
     var failedDetail: String {
-        Self.failedDetail(relayErrors: session?.relayErrors ?? [], relayOnly: relayOnly, hubTab: hub != nil, name: name)
+        Self.failedDetail(relayErrors: session?.relayErrors ?? [], relayOnly: relayOnly, hubTab: hub != nil, name: name,
+                          hubOnline: hub?.hubConnected ?? true)
     }
 
-    static func failedDetail(relayErrors errors: [ICECandidateError], relayOnly: Bool, hubTab: Bool, name: String) -> String {
+    static func failedDetail(relayErrors errors: [ICECandidateError], relayOnly: Bool, hubTab: Bool, name: String,
+                             hubOnline: Bool = true) -> String {
+        if hubTab, !hubOnline {
+            return L.t("macScreen.card.ownLinkLost", "This Mac lost its connection to the device hub. Check your network; cmux reconnects on its own.")
+        }
         if errors.contains(where: \.refusedCredentials) {
             return L.t("macScreen.card.relayRefused", "The relay refused the credentials. Check its secret in Settings › Devices.")
         }
@@ -204,7 +212,7 @@ struct MacScreenToolbar: View {
                     .background(colors.attention.opacity(0.14), in: Capsule())
                     .fixedSize()
                     .layoutPriority(3)
-                    .themedHelp(L.t("macScreen.toolbar.viewOnlyHelp", "You can see this Mac. Clicks, keys and scrolling stay on this Mac."))
+                    .themedHelp(String(format: L.t("macScreen.toolbar.viewOnlyHelpNamed", "You can see %@ but not control it. Your clicks, keys and scrolling aren’t sent."), model.name))
                     .accessibilityIdentifier("macScreen.viewOnly")
             }
             if model.capturesKeyboard, model.isLive {
@@ -425,7 +433,7 @@ struct MacScreenCardView: View {
                     .buttonStyle(MacScreenButtonStyle(role: .primary))
                     .accessibilityIdentifier("macScreen.card.reconnect")
             }
-        case .hubConnect, .hubRequesting, .hubWaiting, .hubDeclined, .hubRefused, .hubRevoked, .hubEnded:
+        case .hubConnect, .hubRequesting, .hubWaiting, .hubDeclined, .hubRefused, .hubRevoked, .hubAccessLowered, .hubEnded:
             hubContent(card)
         }
     }
@@ -475,9 +483,22 @@ struct MacScreenCardView: View {
             HStack {
                 Button(L.t("macScreen.card.closeTab", "Close Tab"), action: actions.closeTab)
                     .buttonStyle(MacScreenButtonStyle())
-                Button(L.t("macScreen.hub.connectAgain", "Connect Again"), action: actions.connect)
+                if reason.canReconnect {
+                    Button(L.t("macScreen.hub.connectAgain", "Connect Again"), action: actions.connect)
+                        .buttonStyle(MacScreenButtonStyle(role: .primary))
+                        .accessibilityIdentifier("macScreen.hub.connectAgain")
+                }
+            }
+        case .hubAccessLowered:
+            glyph("eye", color: colors.attention)
+            title(L.t("macScreen.hub.loweredTitle", "Access Changed to View Only"))
+            detail(String(format: L.t("macScreen.hub.loweredBody", "%@ now lets this Mac view its screen but not control it."), model.name))
+            HStack {
+                Button(L.t("macScreen.card.closeTab", "Close Tab"), action: actions.closeTab)
+                    .buttonStyle(MacScreenButtonStyle())
+                Button(L.t("macScreen.hub.viewInstead", "View Instead")) { actions.requestScope(.view) }
                     .buttonStyle(MacScreenButtonStyle(role: .primary))
-                    .accessibilityIdentifier("macScreen.hub.connectAgain")
+                    .accessibilityIdentifier("macScreen.hub.viewInstead")
             }
         case let .hubEnded(reason):
             glyph(reason.removesAccess ? "lock" : "display", color: reason.removesAccess ? colors.danger : nil)
@@ -486,9 +507,11 @@ struct MacScreenCardView: View {
             HStack {
                 Button(L.t("macScreen.card.closeTab", "Close Tab"), action: actions.closeTab)
                     .buttonStyle(MacScreenButtonStyle())
-                Button(L.t("macScreen.card.reconnect", "Reconnect"), action: actions.connect).keyboardShortcut(.defaultAction)
-                    .buttonStyle(MacScreenButtonStyle(role: .primary))
-                    .accessibilityIdentifier("macScreen.card.reconnect")
+                if reason.canReconnect {
+                    Button(L.t("macScreen.card.reconnect", "Reconnect"), action: actions.connect).keyboardShortcut(.defaultAction)
+                        .buttonStyle(MacScreenButtonStyle(role: .primary))
+                        .accessibilityIdentifier("macScreen.card.reconnect")
+                }
             }
         default:
             EmptyView()
@@ -501,19 +524,9 @@ struct MacScreenCardView: View {
         case .permissionNone:
             glyph("nosign", color: colors.danger)
             title(L.t("macScreen.hub.noneTitle", "No Access"))
-            detail(String(format: L.t("macScreen.hub.noneBodyNamed", "%@ does not allow this Mac to see its screen. Ask for access, or allow this Mac in Settings › Devices on that Mac."), model.name))
-            HStack {
-                Button(L.t("macScreen.card.closeTab", "Close Tab"), action: actions.closeTab)
-                    .buttonStyle(MacScreenButtonStyle())
-                Menu {
-                    Button(L.t("macScreen.hub.view", "View Only")) { actions.requestScope(.view) }
-                    Button(L.t("macScreen.hub.control", "Full Control")) { actions.requestScope(.full) }
-                } label: {
-                    Text(L.t("macScreen.home.askForAccess", "Ask for Access")).font(MacScreenType.body)
-                }
-                .macScreenMenu(colors.primary)
-                .accessibilityIdentifier("macScreen.hub.askForAccess")
-            }
+            detail(String(format: L.t("macScreen.hub.noneBodyBlocked", "%1$@ doesn’t allow this Mac. Change it on %2$@ in Settings › Devices."), model.name, model.name))
+            Button(L.t("macScreen.card.closeTab", "Close Tab"), action: actions.closeTab)
+                .buttonStyle(MacScreenButtonStyle())
         case .scopeExceeds:
             glyph("eye", color: colors.attention)
             title(L.t("macScreen.hub.viewOnlyTitle", "View Only Access"))

@@ -39,6 +39,12 @@ final class MacScreenPageService: InternalPageProvider {
             open(record, in: pane, focus: true, byPerson: true)
         }
         events.closeTab = { [weak self] key in self?.close(key) }
+        events.routeTitlesChanged = { [weak self] in
+            // Unopened restored tabs take their device names (read from disk or the hub).
+            for controller in self?.services.windows.controllers ?? [] {
+                for pane in controller.content?.panes.values.map({ $0 }) ?? [] { pane.apply(pane.snapshot()) }
+            }
+        }
         events.replaceTab = { [weak self] record, key in self?.replace(key, with: record) ?? false }
         events.storeTabID = { [weak self] key in
             guard let self, let pane = services.paneController(showingTab: key),
@@ -80,6 +86,7 @@ final class MacScreenPageService: InternalPageProvider {
     func tabClosed(_ key: String) { pages.tabClosed(key) }
     func route(for key: String) -> String? { pages.route(for: key) }
     func restore(_ route: String, for key: String) { pages.restore(route, for: key) }
+    func title(forRoute route: String) -> String? { pages.title(forRoute: route) }
 
     /// Opens a Mac Screen tab showing `record` after `pane`'s selected tab: a
     /// store tab where the pane's daemon holds page tabs, else an app-only

@@ -138,6 +138,14 @@ public nonisolated enum MacScreenEndReason: Equatable, Sendable {
         }
     }
 
+    /// Whether Connect Again makes sense: not for a device that left the user's devices.
+    var canReconnect: Bool {
+        switch self {
+        case .hostRemoved, .viewerRemoved, .deviceRemoved: false
+        default: true
+        }
+    }
+
     /// The viewer lost its access (a card titled Access Removed), rather than a session that ended.
     var removesAccess: Bool {
         switch self {
@@ -156,7 +164,7 @@ public nonisolated enum MacScreenEndReason: Equatable, Sendable {
         case .sharingOff: String(format: L.t("macScreen.hub.reason.sharingOffNamed", "%@ turned off Mac Screen."), host)
         case .hostStopped: String(format: L.t("macScreen.hub.reason.hostStoppedNamed", "%@ stopped sharing its screen."), host)
         case .viewerDisconnected: L.t("macScreen.hub.reason.viewer", "You disconnected.")
-        case .signedOut: L.t("macScreen.hub.reason.signedOutEither", "A Mac in this session signed out of cmux.")
+        case .signedOut: L.t("macScreen.hub.reason.signedOutOrQuit", "A Mac in this session signed out of cmux or quit it.")
         case .peerOffline: String(format: L.t("macScreen.hub.reason.offline", "%@ went offline."), host)
         case .failed: L.t("macScreen.hub.reason.failed", "The screen stream could not start.")
         case .expired: String(format: L.t("macScreen.hub.reason.expired", "%@ did not answer in time."), host)
@@ -235,6 +243,10 @@ public nonisolated struct MacScreenAccess: Sendable, Equatable {
         case .full: L.t("macScreen.access.full", "Full Control")
         }
     }
+
+    /// Whether this device may ask the host for a session: not at None, which
+    /// means the host blocked it (the hub refuses the request without a prompt).
+    public var allowsRequests: Bool { scope != .none }
 
     /// What a session of `requested` gets without a prompt: the scope, nil
     /// when it asks first (Ask) or is refused (None, or Full under View).

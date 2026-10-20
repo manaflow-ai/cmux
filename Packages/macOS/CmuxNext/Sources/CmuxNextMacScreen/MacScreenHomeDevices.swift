@@ -85,16 +85,14 @@ struct MacScreenHomeDeviceSections: View {
                 .font(MacScreenType.caption).foregroundStyle(colors.secondary)
             }
             Spacer()
-            if access == .none {
-                Menu {
-                    Button(L.t("macScreen.hub.view", "View Only")) { actions.openDevice(device.id, .view) }
-                    Button(L.t("macScreen.hub.control", "Full Control")) { actions.openDevice(device.id, .full) }
-                } label: {
-                    Text(L.t("macScreen.home.askForAccess", "Ask for Access")).font(MacScreenType.body)
-                }
-                .macScreenMenu(colors.primary)
-                .themedHelp(String(format: L.t("macScreen.home.askForAccessHelpNamed", "Asks %@. Only that Mac can change this Mac’s access to it."), device.name))
-                .accessibilityIdentifier("macScreen.home.askForAccess.\(device.name)")
+            if !MacScreenAccess(access).allowsRequests {
+                // None: the host blocked this Mac, and the hub refuses a request without a prompt.
+                Text(String(format: L.t("macScreen.home.blocked", "%1$@ doesn’t allow this Mac. Change it on %2$@ in Settings › Devices."),
+                            device.name, device.name))
+                    .font(MacScreenType.caption).foregroundStyle(colors.secondary)
+                    .multilineTextAlignment(.trailing).frame(maxWidth: 260, alignment: .trailing)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("macScreen.home.blocked.\(device.name)")
             } else {
                 Button(L.t("macScreen.hub.view", "View Only")) { actions.openDevice(device.id, .view) }
                     .buttonStyle(MacScreenButtonStyle())
@@ -102,26 +100,26 @@ struct MacScreenHomeDeviceSections: View {
                 Button(L.t("macScreen.hub.control", "Full Control")) { actions.openDevice(device.id, .full) }
                     .buttonStyle(MacScreenButtonStyle(role: .primary))
                     .accessibilityIdentifier("macScreen.home.control.\(device.name)")
-            }
-            Menu {
-                Button(L.t("macScreen.home.openViewNewTab", "View Only in New Tab")) { actions.openDeviceInNewTab(device.id, .view) }
-                Button(L.t("macScreen.home.openControlNewTab", "Full Control in New Tab")) { actions.openDeviceInNewTab(device.id, .full) }
-                Divider()
-                // Only the host sets access to itself: from here this Mac asks, and the
-                // host's prompt offers Always Allow.
-                Menu(L.t("macScreen.home.requestAccess", "Ask for Access")) {
-                    Button(L.t("macScreen.hub.view", "View Only")) { actions.openDevice(device.id, .view) }
-                    Button(L.t("macScreen.hub.control", "Full Control")) { actions.openDevice(device.id, .full) }
+                Menu {
+                    Button(L.t("macScreen.home.openViewNewTab", "View Only in New Tab")) { actions.openDeviceInNewTab(device.id, .view) }
+                    Button(L.t("macScreen.home.openControlNewTab", "Full Control in New Tab")) { actions.openDeviceInNewTab(device.id, .full) }
+                    Divider()
+                    // Only the host sets access to itself: from here this Mac asks, and the
+                    // host's prompt offers Always Allow.
+                    Menu(L.t("macScreen.home.requestAccess", "Ask for Access")) {
+                        Button(L.t("macScreen.hub.view", "View Only")) { actions.openDevice(device.id, .view) }
+                        Button(L.t("macScreen.hub.control", "Full Control")) { actions.openDevice(device.id, .full) }
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
                 }
-            } label: {
-                Image(systemName: "ellipsis.circle")
+                .macScreenMenu(colors.secondary)
+                .accessibilityIdentifier("macScreen.home.more.\(device.name)")
             }
-            .macScreenMenu(colors.secondary)
-            .accessibilityIdentifier("macScreen.home.more.\(device.name)")
         }
         .padding(.horizontal, 14).padding(.vertical, 10)
         .contentShape(Rectangle())
-        .onTapGesture(count: 2) { if access != .none { actions.openDevice(device.id, nil) } }
+        .onTapGesture(count: 2) { if MacScreenAccess(access).allowsRequests { actions.openDevice(device.id, nil) } }
     }
 
     // MARK: Allow Mac Screen on This Mac

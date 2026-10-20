@@ -195,7 +195,8 @@ public final class MacScreenHubHost {
         let host = self.host
         self.host = nil
         host?.onEvent = nil
-        host?.disconnectViewer()
+        // Closing the peer connection waits on WebRTC's threads: never on the main actor.
+        if let host { Task.detached { host.disconnectViewer() } }
         serveTask = nil
         eventTask?.cancel()
         eventTask = nil

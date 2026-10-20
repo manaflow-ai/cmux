@@ -23,6 +23,8 @@ public final class MacScreenDevicesSettings {
     @ObservationIgnored let box: MacScreenHubBox
     @ObservationIgnored let hubHost: MacScreenHubHost
     @ObservationIgnored let share: MacScreenShareHost
+    /// The device names seen before (History names devices that left the list).
+    @ObservationIgnored let store: MacScreenStore
     /// Whether this Mac left the hub (it removed itself) and may sign in again.
     @ObservationIgnored public var canSignIn: @MainActor () -> Bool = { false }
     /// Sign in to the hub again (after this Mac removed itself).
@@ -43,6 +45,7 @@ public final class MacScreenDevicesSettings {
         box = pages.hubBox
         hubHost = pages.hubHost
         share = pages.host
+        store = pages.store
     }
 
     var hub: DeviceHub? { box.hub }
@@ -226,7 +229,7 @@ public final class MacScreenDevicesSettings {
                          thisDevice: nil, others: [], sharing: nil, relays: [], history: [])
         }
         let me = hub.identity.id
-        let names = Dictionary(hub.devices.map { ($0.id, $0.name) }, uniquingKeysWith: { first, _ in first })
+        let names = store.deviceNames.merging(hub.devices.map { ($0.id, $0.name) }) { _, listed in listed }
         let this = hub.thisDevice.map { device(for: $0, hub: hub, me: me) }
         let sharing = hub.thisDevice.map { _ in
             State.Sharing(on: hubHost.isSharing, busy: hubHost.busy, permissions: [
@@ -375,17 +378,24 @@ public final class MacScreenDevicesSettings {
         date.formatted(.dateTime.month(.abbreviated).day().hour().minute().second())
     }
 
+    /// Whether a History name is a device's (not "—" or "Removed device").
+    static func known(_ name: String) -> Bool {
+        name != "—" && name != L.t("devices.history.removedDevice", "Removed device")
+    }
+
     /// An end reason in History, naming the devices (never "this Mac" for another one).
     static func endText(_ reason: MacScreenEndReason, viewer: String, host: String) -> String {
         switch reason {
         case .permissionRevoked: String(format: L.t("devices.history.revoked", "%@ removed the access"), host)
-        case .viewerRemoved: String(format: L.t("devices.history.deviceRemoved", "%@ was removed"), viewer)
-        case .hostRemoved: String(format: L.t("devices.history.deviceRemoved", "%@ was removed"), host)
+        case .viewerRemoved: known(viewer) ? String(format: L.t("devices.history.deviceRemoved", "%@ was removed"), viewer)
+            : L.t("devices.history.someDeviceRemoved", "A device was removed")
+        case .hostRemoved: known(host) ? String(format: L.t("devices.history.deviceRemoved", "%@ was removed"), host)
+            : L.t("devices.history.someDeviceRemoved", "A device was removed")
         case .deviceRemoved: L.t("devices.history.someDeviceRemoved", "A device was removed")
         case .sharingOff: String(format: L.t("devices.history.sharingOff", "%@ turned off Mac Screen"), host)
         case .hostStopped: String(format: L.t("devices.history.hostStopped", "%@ stopped sharing"), host)
         case .viewerDisconnected: String(format: L.t("devices.history.viewerDisconnected", "%@ disconnected"), viewer)
-        case .signedOut: L.t("devices.history.signedOut", "A device signed out")
+        case .signedOut: L.t("devices.history.signedOutOrQuit", "A device signed out or quit cmux")
         case .peerOffline: L.t("devices.history.offline", "A device went offline")
         case .failed: L.t("devices.history.failed", "The stream could not start")
         case .expired: L.t("devices.history.expired", "No answer in time")

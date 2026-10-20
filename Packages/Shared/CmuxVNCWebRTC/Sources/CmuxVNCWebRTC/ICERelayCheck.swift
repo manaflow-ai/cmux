@@ -55,11 +55,12 @@ public struct ICERelayCheck: Sendable {
         }
     }
 
-    /// Why no relay candidate came, from the TURN servers' errors.
+    /// Why no relay candidate came, from the TURN servers' errors: a 401
+    /// is refused credentials; anything else (a 701, or silence until the
+    /// deadline, as a blackholed UDP port gives) is a relay that can't be reached.
     public static func outcome(_ errors: [ICECandidateError]) -> Outcome {
         if errors.contains(where: \.refusedCredentials) { return .refusedCredentials }
-        if errors.contains(where: \.unreachable) { return .unreachable }
-        return .noRelayCandidate
+        return .unreachable
     }
 
     /// Errors from WebRTC's threads.

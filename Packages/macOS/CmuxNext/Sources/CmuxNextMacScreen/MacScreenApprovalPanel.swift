@@ -103,19 +103,29 @@ public final class MacScreenApprovalPrompt {
 
     // MARK: Panel
 
+    /// Where the prompt's panel shows; nil while hidden (tests).
+    var panelFrame: CGRect? { panel?.isVisible == true ? panel?.frame : nil }
+
     private func setPanelVisible(_ visible: Bool) {
-        guard visible else {
+        guard visible, current != nil else {
             panel?.orderOut(nil)
             return
         }
         let panel = self.panel ?? makePanel()
         self.panel = panel
-        if let screen = NSScreen.main ?? NSScreen.screens.first {
-            let size = panel.contentView?.fittingSize ?? CGSize(width: 380, height: 200)
-            let frame = screen.visibleFrame
-            panel.setFrame(CGRect(x: frame.maxX - size.width - 16, y: frame.maxY - size.height - 16, width: size.width, height: size.height),
-                           display: true)
-        }
+        // A fresh content view per request, laid out before it is measured: a
+        // reused hosting view still draws the last state (nothing, between
+        // requests) when it is read, which gave a 0×0 panel from the second prompt on.
+        let content = MacScreenHostingView(MacScreenApprovalView(prompt: self))
+        content.sizingOptions = []
+        panel.contentView = content
+        content.layoutSubtreeIfNeeded()
+        var size = content.fittingSize
+        if size.width < 300 || size.height < 100 { size = CGSize(width: max(size.width, 380), height: max(size.height, 220)) }
+        let screen = NSScreen.main ?? NSScreen.screens.first
+        let area = screen?.visibleFrame ?? CGRect(x: 0, y: 0, width: size.width + 32, height: size.height + 32)
+        panel.setFrame(CGRect(x: area.maxX - size.width - 16, y: area.maxY - size.height - 16, width: size.width, height: size.height),
+                       display: true)
         // Over every app, without activating this one or taking the keyboard.
         panel.orderFrontRegardless()
     }
@@ -132,9 +142,6 @@ public final class MacScreenApprovalPrompt {
         panel.backgroundColor = .clear
         panel.hasShadow = true
         panel.isReleasedWhenClosed = false
-        let content = MacScreenHostingView(MacScreenApprovalView(prompt: self))
-        content.sizingOptions = [.intrinsicContentSize]
-        panel.contentView = content
         return panel
     }
 }

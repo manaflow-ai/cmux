@@ -278,11 +278,14 @@ public final class MacScreenStore {
     }
 
     /// Keeps the names the hub lists now (a device's last name stays after it goes away).
-    public func rememberDeviceNames(_ names: [String: String]) {
+    /// True when a name changed.
+    @discardableResult
+    public func rememberDeviceNames(_ names: [String: String]) -> Bool {
         let merged = deviceNames.merging(names.filter { !$0.value.isEmpty }) { _, new in new }
-        guard merged != deviceNames else { return }
+        guard merged != deviceNames else { return false }
         deviceNames = merged
         save()
+        return true
     }
 
     public func setShareEnabled(_ enabled: Bool) {

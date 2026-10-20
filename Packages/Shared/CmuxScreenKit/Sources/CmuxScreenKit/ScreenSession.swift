@@ -358,7 +358,9 @@ public final class ScreenSession {
         tasks.removeAll()
         if let client { Task { await client.disconnect() } }
         client = nil
-        stream?.close()
+        // Closing a peer connection waits on WebRTC's threads (TURN
+        // deallocation can take seconds): never on the main actor.
+        if let stream { Task.detached { stream.close() } }
         stream = nil
         if !silently { phase = .ended }
     }

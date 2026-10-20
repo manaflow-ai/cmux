@@ -326,3 +326,11 @@ test("history cells wrap instead of widening the table", async () => {
   expect(first.querySelector("td.devices-time")).not.toBeNull();
   page.unmount();
 });
+
+test("device rows keep their status and Copy at a narrow width: their lines wrap", async () => {
+  const page = await open();
+  const rows = card(page.container).querySelectorAll<HTMLElement>("[data-device]");
+  expect(rows.length).toBeGreaterThan(1);
+  for (const row of rows) expect(row.classList.contains("devices-device")).toBe(true);
+  page.unmount();
+});

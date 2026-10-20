@@ -49,7 +49,7 @@ final class DeviceHubService {
         settingsModel.thisDeviceRemoved = { [weak self] in
             guard let self else { return }
             leftHub = true
-            stopHub(endingSessions: false)
+            stopHub(endingSessions: false, removed: true)
         }
         settingsModel.thisDeviceRenamed = { [weak pages] name in pages?.store.setHubDeviceName(name) }
     }
@@ -113,47 +113,51 @@ final class DeviceHubService {
                 // Another device removed this Mac: it leaves the hub until the person signs in again.
                 guard let self, self.hub === hub else { return }
                 leftHub = true
-                stopHub(endingSessions: false)
+                stopHub(endingSessions: false, removed: true)
                 return
             }
         }
         logger.info("device hub started")
     }
 
+    /// A sign-out starts (the account's tokens still work): the hub hears
+    /// `signed_out` now, not after the rest of the sign-out.
+    func willSignOut() {
+        stopHub(endingSessions: true)
+    }
+
     /// Signed out (or another account, address or a removal): this Mac's
-    /// sessions end on the hub (while the hub session still holds), then the
-    /// hub stops and Mac Screen forgets it.
-    private func stopHub(endingSessions: Bool) {
+    /// sessions end here at once, and the hub hears why in the background
+    /// (one device sign-out, `signed_out`, while the hub session still
+    /// holds), then stops. Nothing here waits on the network: the main
+    /// actor stays free. `removed`: another device (or this one) removed
+    /// this Mac, so its sessions end with that reason, never "signed out".
+    private func stopHub(endingSessions: Bool, removed: Bool = false) {
         removalWatch?.cancel()
         removalWatch = nil
         guard let hub else { return }
         self.hub = nil
         running = nil
-        if endingSessions {
-            var ids = Set(hub.tickets.keys)
-            if let session = pages.hubHost.session { ids.insert(session.id) }
-            // The hub hears `signed_out` first (one sign-out ends every session
-            // of this device, while the hub session still holds), then the
-            // streams close and the hub stops. An older hub without the call:
-            // every session ends on its own, all at once.
-            // task-owner: the sign-out call, then the stop
-            Task { [weak self] in
-                do { try await hub.signOutDevice() } catch {
-                    await withTaskGroup(of: Void.self) { group in
-                        for id in ids {
-                            group.addTask { try? await hub.endSession(id, reason: MacScreenHubReason.signedOut.rawValue) }
-                        }
-                    }
-                }
-                hub.stop()
-                if let pages = self?.pages, pages.hub === hub { pages.hub = nil }
-            }
-            logger.info("device hub stopping")
+        if removed { pages.endHubSessions(reason: "device_removed:viewer") }
+        let ids = Set(hub.tickets.keys).union(pages.hubHost.session.map { [$0.id] } ?? [])
+        pages.hub = nil
+        guard endingSessions else {
+            hub.stop()
+            logger.info("device hub stopped")
             return
         }
-        hub.stop()
-        pages.hub = nil
-        logger.info("device hub stopped")
+        // task-owner: the sign-out call (an older hub: one /end per session), then the stop
+        Task {
+            do { try await hub.signOutDevice() } catch {
+                await withTaskGroup(of: Void.self) { group in
+                    for id in ids {
+                        group.addTask { try? await hub.endSession(id, reason: MacScreenHubReason.signedOut.rawValue) }
+                    }
+                }
+            }
+            hub.stop()
+        }
+        logger.info("device hub signing out")
     }
 }
 
@@ -161,6 +165,7 @@ extension AppServices {
     /// The device hub follows `deviceHub.url` and the cmux account.
     func startDeviceHub(_ settings: SettingsController) {
         deviceHub.start(settings: settings)
+        cloud.willSignOut.append { [weak self] in self?.deviceHub.willSignOut() }
     }
 
     /// `debug.device_hub` (DEV builds).

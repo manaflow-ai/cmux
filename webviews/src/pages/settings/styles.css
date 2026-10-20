@@ -1000,6 +1000,25 @@ mark {
   min-width: 6.5em;
 }
 
+/* A narrow page (about 1000 pt) keeps every device line: the label wraps and the controls go below it. */
+.devices-device .row-main {
+  flex-wrap: wrap;
+}
+
+.devices-device .row-label {
+  min-width: min(100%, 16em);
+}
+
+.devices-device .row-label > .row-help {
+  white-space: normal;
+  overflow: visible;
+  overflow-wrap: anywhere;
+}
+
+.devices-device .row-control {
+  max-width: 100%;
+}
+
 .devices-copy {
   padding: 0 6px;
   font-size: var(--text-detail);

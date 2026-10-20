@@ -368,7 +368,12 @@ final class CloudService {
         machines.session(machineID)?.machine.displayName = name.isEmpty ? nil : name
     }
 
+    /// Runs when a sign-out starts, while the account's tokens still work
+    /// (the device hub signs this Mac out of its sessions at once).
+    var willSignOut: [@MainActor () -> Void] = []
+
     func signOut() async {
+        for hook in willSignOut { hook() }
         dropAllMachines()
         if let hub { await hub.revoke() }
         // Revoke the install while the Stack session still exists.

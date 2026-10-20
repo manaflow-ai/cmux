@@ -146,6 +146,10 @@ final class InternalPageTabStore {
     /// A store page tab's strip title and icon, from the page it shows.
     func storeTabItem(_ tab: TabModel, page: InternalPageID? = nil) -> (title: String, icon: TabIcon)? {
         guard let page = page ?? tab.page.map(InternalPageID.init(rawValue:)), let provider = providers[page] else { return nil }
+        // A restored tab before its first show has no key yet: its route names what it shows.
+        if storeKeys[tab.id] == nil, let route = tab.pageRoute, let title = provider.title(forRoute: route) {
+            return (title, Self.tabIcon(provider))
+        }
         return (provider.title(for: storeKeys[tab.id] ?? ""), Self.tabIcon(provider))
     }
 
