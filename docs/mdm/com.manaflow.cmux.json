@@ -1415,6 +1415,12 @@
       "title" : "URLs to Always Open Externally",
       "type" : "array"
     },
+    "browser.verificationAutofill.enabled" : {
+      "default" : false,
+      "description" : "When a site emails you a code or link, its tab offers it. Only on the sender's own site, never filled without your click, and never stored.",
+      "title" : "Fill Codes from Verification Emails",
+      "type" : "boolean"
+    },
     "computerUse.driver" : {
       "default" : "legacy",
       "description" : "Legacy runs the current cmux Computer Use helper. Upstream runs the new helper built on the upstream Cua Driver; macOS asks for its permissions separately.",
@@ -2899,7 +2905,7 @@
     },
     "sidebar.nowPlaying.enabled" : {
       "default" : false,
-      "description" : "A player for what is playing, at the bottom of the sidebar and on the new chat page.",
+      "description" : "A player for what is playing, at the bottom of the sidebar.",
       "title" : "Show Now Playing",
       "type" : "boolean"
     },
@@ -3500,6 +3506,12 @@
       "default" : false,
       "description" : "When off, Cmd-W on a pinned tab selects the next tab and keeps the pinned tab. Close a pinned tab from its menu.",
       "title" : "Cmd-W Closes Pinned Tabs",
+      "type" : "boolean"
+    },
+    "tabs.newTabNowPlaying" : {
+      "default" : true,
+      "description" : "A player for what is playing, on the New Tab page.",
+      "title" : "Show Now Playing on New Tab",
       "type" : "boolean"
     },
     "tabs.newTabPosition" : {

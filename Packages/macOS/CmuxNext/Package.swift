@@ -285,7 +285,7 @@ let package = Package(
         // through macOS Now Playing, the card's feed, and the New Tab page's player (AgentPane).
         .target(
             name: "CmuxNextNowPlaying",
-            dependencies: ["CmuxNextAgentPane", "CmuxNextBrowser", "CmuxNextCompat", "CmuxNextSidebar", "CmuxNextWakeups"],
+            dependencies: ["CmuxNextActions", "CmuxNextAgentPane", "CmuxNextBrowser", "CmuxNextCompat", "CmuxNextSettings", "CmuxNextSidebar", "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
         // Agent pane (plans/cmux-next roadmap Phase 1): hosts the React pane

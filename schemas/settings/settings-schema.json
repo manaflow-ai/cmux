@@ -38,7 +38,8 @@
               "appearance.metrics.tabMinInactiveWidth",
               "appearance.metrics.tabPinnedWidth",
               "tabs.cmdWClosesPinnedTabs",
-              "tabs.swapCmdTAndCmdN"
+              "tabs.swapCmdTAndCmdN",
+              "tabs.newTabNowPlaying"
             ],
             "title" : {
               "key" : "settings.group.tabs",
@@ -19439,7 +19440,7 @@
       },
       "help" : {
         "key" : "settings.sidebar.nowPlaying.enabled.help",
-        "text" : "A player for what is playing, at the bottom of the sidebar and on the new chat page."
+        "text" : "A player for what is playing, at the bottom of the sidebar."
       },
       "kept_on_reset_all" : false,
       "key" : "sidebar.nowPlaying.enabled",
@@ -19469,6 +19470,57 @@
       "title" : {
         "key" : "settings.sidebar.nowPlaying.enabled",
         "text" : "Show Now Playing"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.tabs",
+        "text" : "Tabs"
+      },
+      "help" : {
+        "key" : "settings.tabs.newTabNowPlaying.help",
+        "text" : "A player for what is playing, on the New Tab page."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "tabs.newTabNowPlaying",
+      "keywords" : [
+        "music",
+        "now playing",
+        "player",
+        "media",
+        "spotify",
+        "song",
+        "new tab",
+        "new chat"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "tabs",
+        "newTabNowPlaying"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.tabs.newTabNowPlaying",
+        "text" : "Show Now Playing on New Tab"
       },
       "validation" : "portable"
     },
@@ -26176,6 +26228,58 @@
       "title" : {
         "key" : "settings.browser.passwords.allowExport",
         "text" : "Allow Password Export"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.passwords",
+        "text" : "Passwords"
+      },
+      "help" : {
+        "key" : "settings.browser.verificationAutofill.enabled.help",
+        "text" : "When a site emails you a code or link, its tab offers it. Only on the sender's own site, never filled without your click, and never stored."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.verificationAutofill.enabled",
+      "keywords" : [
+        "email",
+        "verification",
+        "code",
+        "one-time",
+        "otp",
+        "2fa",
+        "autofill",
+        "magic link"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : true,
+      "path" : [
+        "browser",
+        "verificationAutofill",
+        "enabled"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "browser",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.browser.verificationAutofill.enabled",
+        "text" : "Fill Codes from Verification Emails"
       },
       "validation" : "portable"
     },
