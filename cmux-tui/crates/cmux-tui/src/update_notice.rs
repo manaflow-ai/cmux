@@ -84,6 +84,18 @@ pub(crate) fn registry_url(channel: InstallChannel) -> Option<String> {
     }
 }
 
+/// npm's `next` tag beside its `latest` URL (`…/cmux/latest` → `…/cmux/next`):
+/// the tester channel a176 publishes. PyPI has no tags, so None there.
+pub(crate) fn next_url(channel: InstallChannel, latest_url: &str) -> Option<String> {
+    if channel != InstallChannel::Npm {
+        return None;
+    }
+    latest_url.strip_suffix("/latest").map(|base| format!("{base}/next"))
+}
+
+/// The command that moves an npm install to the `next` tag.
+const NPM_NEXT_UPDATE: &str = "npm install --global cmux@next";
+
 /// The latest version in an npm (`version`) or PyPI (`info.version`) answer.
 pub(crate) fn parse_latest(body: &[u8]) -> Option<String> {
     let document: Value = serde_json::from_slice(body).ok()?;
@@ -121,6 +133,8 @@ pub(crate) fn newer(latest: &str, current: &str) -> bool {
 pub(crate) struct Cached {
     pub(crate) checked_at_ms: u64,
     pub(crate) latest: String,
+    /// npm's `next` tag, when the registry has one.
+    pub(crate) next: Option<String>,
     pub(crate) channel: String,
 }
 
@@ -133,6 +147,7 @@ pub(crate) fn read_cache(root: &Path) -> Option<Cached> {
     Some(Cached {
         checked_at_ms: document.get("checked_at_ms")?.as_u64()?,
         latest: document.get("latest")?.as_str()?.to_string(),
+        next: document.get("next").and_then(Value::as_str).map(String::from),
         channel: document.get("channel")?.as_str()?.to_string(),
     })
 }
@@ -142,6 +157,7 @@ pub(crate) fn write_cache(root: &Path, cached: &Cached) -> Result<(), String> {
     let body = serde_json::json!({
         "checked_at_ms": cached.checked_at_ms,
         "latest": cached.latest,
+        "next": cached.next,
         "channel": cached.channel,
     });
     let path = cache_path(root);
@@ -170,19 +186,30 @@ pub(crate) fn due(cached: Option<&Cached>, channel: InstallChannel, now_ms: u64)
 }
 
 /// The notice line for a cached answer, when it names a newer release.
+///
+/// A stable install hears only about `latest`. A pre-release install (a
+/// tester on npm's `next` tag) hears about whichever of `next` and `latest`
+/// is newer, with the command for that tag.
 pub(crate) fn notice(
     template: &str,
     cached: &Cached,
     channel: InstallChannel,
     current: &str,
 ) -> Option<String> {
-    if cached.channel != channel.as_str() || !newer(&cached.latest, current) {
+    if cached.channel != channel.as_str() {
         return None;
     }
-    let command = channel.update_command()?;
+    let on_prerelease = numbers(current).is_some_and(|(_, pre)| pre);
+    let (target, command) = match cached.next.as_deref() {
+        Some(next) if on_prerelease && newer(next, &cached.latest) => (next, NPM_NEXT_UPDATE),
+        _ => (cached.latest.as_str(), channel.update_command()?),
+    };
+    if !newer(target, current) {
+        return None;
+    }
     Some(
         template
-            .replace("{latest}", &cached.latest)
+            .replace("{latest}", target)
             .replace("{current}", current)
             .replace("{command}", command),
     )
@@ -241,7 +268,7 @@ pub(crate) fn print_on_exit() {
 }
 
 #[cfg(test)]
-mod tests {
+mod tester_rollout_tests {
     use super::*;
     use std::collections::BTreeMap;
 
@@ -309,7 +336,12 @@ mod tests {
     #[test]
     fn one_answer_holds_for_a_day_and_one_channel() {
         let day = CHECK_INTERVAL.as_millis() as u64;
-        let cached = Cached { checked_at_ms: 1_000, latest: "1.0.0".into(), channel: "npm".into() };
+        let cached = Cached {
+            checked_at_ms: 1_000,
+            latest: "1.0.0".into(),
+            next: None,
+            channel: "npm".into(),
+        };
         assert!(due(None, InstallChannel::Npm, 1_000));
         assert!(!due(Some(&cached), InstallChannel::Npm, 1_000 + day - 1));
         assert!(due(Some(&cached), InstallChannel::Npm, 1_000 + day));
@@ -320,7 +352,12 @@ mod tests {
 
     #[test]
     fn the_notice_names_the_command_for_the_install() {
-        let cached = Cached { checked_at_ms: 0, latest: "0.14.0".into(), channel: "pypi".into() };
+        let cached = Cached {
+            checked_at_ms: 0,
+            latest: "0.14.0".into(),
+            next: None,
+            channel: "pypi".into(),
+        };
         let english = crate::localization::update_notice_english().available;
         let line = notice(english, &cached, InstallChannel::Pypi, "0.13.4").unwrap();
         assert_eq!(
@@ -335,9 +372,42 @@ mod tests {
     }
 
     #[test]
+    fn a_tester_on_next_hears_about_the_newer_tag() {
+        let english = crate::localization::update_notice_english().available;
+        let cached = Cached {
+            checked_at_ms: 0,
+            latest: "1.0.0".into(),
+            next: Some("1.1.0-next.4".into()),
+            channel: "npm".into(),
+        };
+        let line = notice(english, &cached, InstallChannel::Npm, "1.1.0-next.3").unwrap();
+        assert!(line.contains("1.1.0-next.4") && line.ends_with("cmux@next"), "{line}");
+        // A stable install never hears about next.
+        assert_eq!(notice(english, &cached, InstallChannel::Npm, "1.0.0"), None);
+        // A stable release past next moves the tester to latest.
+        let past = Cached { latest: "1.2.0".into(), ..cached };
+        let line = notice(english, &past, InstallChannel::Npm, "1.1.0-next.3").unwrap();
+        assert!(line.contains("1.2.0") && line.ends_with("cmux@latest"), "{line}");
+    }
+
+    #[test]
+    fn only_npm_has_a_next_tag() {
+        assert_eq!(
+            next_url(InstallChannel::Npm, "https://registry.npmjs.org/cmux/latest").as_deref(),
+            Some("https://registry.npmjs.org/cmux/next")
+        );
+        assert_eq!(next_url(InstallChannel::Pypi, "https://pypi.org/pypi/cmux/json"), None);
+    }
+
+    #[test]
     fn the_cache_round_trips() {
         let root = tempfile::tempdir().unwrap();
-        let cached = Cached { checked_at_ms: 42, latest: "1.0.1".into(), channel: "npm".into() };
+        let cached = Cached {
+            checked_at_ms: 42,
+            latest: "1.0.1".into(),
+            next: Some("1.1.0-next.2".into()),
+            channel: "npm".into(),
+        };
         write_cache(root.path(), &cached).unwrap();
         assert_eq!(read_cache(root.path()), Some(cached));
     }
