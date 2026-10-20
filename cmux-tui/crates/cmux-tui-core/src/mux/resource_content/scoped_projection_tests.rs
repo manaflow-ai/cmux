@@ -141,3 +141,56 @@ fn scoped_creates_without_the_crosscheck_leave_nothing_for_a_full_projection() {
         browser.kill();
     });
 }
+
+/// A tab, pane or screen close that leaves its workspace open restates
+/// nothing of another workspace and reads no full topology, so its cost
+/// does not grow with the session (CREATE-CLOSE-DESIGN.md, C1).
+#[test]
+fn closing_inside_a_workspace_restates_no_resource_of_another_workspace() {
+    let mux = Mux::new_for_test("scoped-close", SurfaceOptions::default());
+    mux.new_workspace(Some("a".into()), Some((80, 24))).unwrap();
+    mux.new_workspace(Some("b".into()), Some((80, 24))).unwrap();
+    let ((a, _), (b, b_public)) = (workspace(&mux, "a"), workspace(&mux, "b"));
+    let mut tabs = Vec::new();
+    for _ in 0..3 {
+        tabs.push(mux.create_terminal_in_workspace(a, None, None, None, Some((80, 24))).unwrap());
+        mux.create_terminal_in_workspace(b, None, None, None, Some((80, 24))).unwrap();
+    }
+    let pane = tabs[0].pane;
+    let split = mux.split(pane, crate::SplitDir::Right, Some((80, 24))).unwrap();
+    let split_pane = mux.with_state(|state| state.pane_of(split.id).unwrap());
+    let browser =
+        mux.new_browser_tab("about:blank#close".into(), Some(pane), Some((80, 24))).unwrap();
+    let screen = mux.new_screen(Some(a), Some((80, 24))).unwrap();
+    let screen_id = mux.with_state(|state| {
+        let pane = state.pane_of(screen.id).unwrap();
+        let (w, s) = state.screen_of(pane).unwrap();
+        state.workspaces[w].screens[s].id
+    });
+    let (b_ids, revision) = subtree_ids(&mux, &b_public);
+    let full = stat(&mux, "full_projections");
+
+    assert!(mux.close_surface(tabs[1].surface).unwrap(), "terminal tab close");
+    assert!(mux.close_surface(browser.id).unwrap(), "browser tab close");
+    assert!(mux.close_pane(split_pane).unwrap(), "pane close");
+    assert!(mux.close_screen(screen_id).unwrap(), "screen close");
+
+    let page = mux.workspace_registry.lock().unwrap().resource_events_after(revision).unwrap();
+    assert!(page.batches.len() >= 4, "every close committed a resource revision");
+    for batch in &page.batches {
+        for change in batch.changes.as_array().unwrap() {
+            let id = change["id"].as_str().unwrap_or_default();
+            assert!(
+                !b_ids.contains(id),
+                "a close in workspace a restated workspace b's {} {id}: {}",
+                change["resource"],
+                batch.changes
+            );
+        }
+    }
+    let _ = b;
+    // Debug builds cross-check each scoped projection with a full one; the
+    // cross-check is not counted as a projection of its own.
+    assert_eq!(stat(&mux, "full_projections"), full, "a close read the full topology");
+    assert_eq!(stat(&mux, "crosscheck_mismatches"), 0);
+}
