@@ -172,12 +172,12 @@ jobs:
           python3 - <<'PY'
           import hashlib, json, os, subprocess
           from pathlib import Path
-          files = subprocess.check_output(["git", "diff", "--name-only", "-z"]).decode().strip("\0").split("\0")
+          files = subprocess.check_output(["git", "diff", "HEAD", "--name-only", "-z"]).decode().strip("\0").split("\0")
           files = [p for p in files if p]
           exact = {"backend/catalog/cloud-operations.json", "clients/ts/cloud/src/generated.ts", "clients/ts/cloud/src/automation-cmux.ts"}
           if any(p not in exact and not (p.startswith("cmux-tui/crates/cmux-cloud-wire/src/generated/") and p.endswith(".rs")) for p in files):
               raise SystemExit("generator changed an unexpected source path")
-          patch = subprocess.check_output(["git", "diff", "--binary"])
+          patch = subprocess.check_output(["git", "diff", "HEAD", "--binary"])
           output = Path(os.environ["RUNNER_TEMP"]) / "protocol-codegen"
           output.mkdir()
           (output / "catalog.patch").write_bytes(patch)

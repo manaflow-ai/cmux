@@ -2,6 +2,7 @@ import { Schema } from "effect"
 import { CloudMachine, MachineId } from "./cloud-machine-ops.ts"
 import { def, mutationErrors } from "./op-def.ts"
 import { CloudVmNetworkPolicyView } from "./cloud-vm-network-policy.ts"
+import { CloudVmReceiverLifecycle } from "./cloud-vm-receiver-ops.ts"
 
 /**
  * The VM daemon's own-machine ops (VM install at bind; coordinator and a9, 2026-10-05). Only a kind
@@ -85,4 +86,4 @@ export const CloudVmEventEmit = vmDef(
   "Send one event to the team's subscribers as the ephemeral team event cloud.machine.event (never stored). v1 kinds only; data per kind, at most 4 KB, URL query strings and fragments removed; 10/s, burst 50 per install."
 )
 
-export const cloudVmOps = [CloudVmSelfGet, CloudVmNetworkPolicy, CloudVmStatusReport, CloudVmEventEmit] as const
+export const cloudVmOps = [CloudVmSelfGet, CloudVmNetworkPolicy, CloudVmReceiverLifecycle, CloudVmStatusReport, CloudVmEventEmit] as const

@@ -1,5 +1,5 @@
 import type { Principal, RowReader, SqlStore } from "@cmux/ownership"
-import { MachineId } from "@cmux/protocol"
+import { CloudVmReceiverLifecycleParams } from "@cmux/protocol"
 import { Effect, Exit, Schema } from "effect"
 import { vmGate, type VmReply } from "./cloud-vm.ts"
 import type { MachineRow } from "./domains/cloud.ts"
@@ -7,8 +7,6 @@ import { digest, pointOf, type NetworkIdentity } from "./host-network-peers.ts"
 import { boundVmReceiver, liveVmReceiver, originalVmReceiverGrant, vmReceiverStamp } from "./cloud-vm-receiver-identity.ts"
 import { VmReceiverGenerations, type ReceiverTransitionAudit } from "./cloud-vm-receiver-generations.ts"
 
-const Version = Schema.String.check(Schema.isPattern(/^[0-9a-f]{64}$/))
-const Params = Schema.Struct({ machine: MachineId, phase: Schema.Literals(["read", "begin", "ready", "end"]), expected: Schema.optionalKey(Version), attempt: Schema.optionalKey(Schema.String.check(Schema.isPattern(/^[0-9a-f]{32}$/))) })
 interface Deps {
   team: string; rows: RowReader | undefined; now(): number; sql(): SqlStore;
   own(user: string, install: string, grant: string, machine: string): Promise<NetworkIdentity | null>;
@@ -17,10 +15,10 @@ interface Deps {
 const unavailable = (): VmReply => ({ ok: false, code: "owner.unreachable", message: "receiving incarnation unavailable" })
 const forbidden = (): VmReply => ({ ok: false, code: "auth.forbidden", message: "the original live VM authority is unavailable" })
 
-/** Internal CloudDO boundary only. Public catalog, token and guest wiring follow. */
+/** Catalog and internal callers share the original-VM lifecycle boundary. */
 export const cloudVmReceiverLifecycle = (d: Deps, p: Principal, params: unknown): Promise<VmReply> => Effect.runPromise(
   Effect.tryPromise({ try: async (signal): Promise<VmReply> => {
-    const decoded = Schema.decodeUnknownExit(Params)(params)
+    const decoded = Schema.decodeUnknownExit(CloudVmReceiverLifecycleParams)(params)
     if (!Exit.isSuccess(decoded)) return { ok: false, code: "validation.invalid", message: "invalid receiving transition" }
     const r = decoded.value
     if (Object.keys(params as object).some((k) => !["machine", "phase", "expected", "attempt"].includes(k))
