@@ -1346,3 +1346,75 @@ body {
 .md-prose .md-callout-folded .md-callout-body {
   display: none;
 }
+
+/* Viewer comments (comments.ts, viewer-comments-DESIGN.md): a marker in the left margin just before
+   the block that holds the comment's first line; it opens the comment's card under it. The marker
+   takes no height, so the text never moves when comments come and go. */
+.cmux-comment-marker {
+  position: relative;
+  height: 0;
+  user-select: none;
+}
+
+.cmux-comment-button {
+  position: absolute;
+  top: 0.35em;
+  left: -28px;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 9px 9px 9px 3px;
+  background: var(--cmux-accent);
+  opacity: 0.85;
+  cursor: pointer;
+}
+
+.cmux-comment-button:hover,
+.cmux-comment-button[aria-expanded="true"] {
+  opacity: 1;
+}
+
+.cmux-comment-card {
+  position: absolute;
+  z-index: 5;
+  top: 1.6em;
+  left: -28px;
+  width: min(360px, 80vw);
+  padding: 10px 12px;
+  border: 1px solid var(--cmux-md-border-color);
+  border-radius: 10px;
+  background: var(--page-elevated);
+  color: var(--cmux-md-text-color);
+  font-size: 13px;
+  line-height: 1.45;
+  box-shadow: 0 6px 20px rgb(0 0 0 / 0.18);
+}
+
+.cmux-comment-card blockquote {
+  margin: 0 0 6px;
+  padding-left: 8px;
+  border-left: 2px solid var(--cmux-md-border-color);
+  color: var(--cmux-md-muted-color);
+  white-space: pre-wrap;
+  max-height: 6.5em;
+  overflow: hidden;
+}
+
+.cmux-comment-card p {
+  margin: 0 0 8px;
+  white-space: pre-wrap;
+}
+
+.cmux-comment-delete {
+  border: 0;
+  padding: 0;
+  background: none;
+  color: var(--cmux-md-muted-color);
+  font: inherit;
+  cursor: pointer;
+}
+
+.cmux-comment-delete:hover {
+  color: var(--cmux-md-text-color);
+}

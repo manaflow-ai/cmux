@@ -82,10 +82,9 @@ describe("comment markers", () => {
     editor.setComments(parseComments(COMMENTS));
     const markers = [...root.querySelectorAll<HTMLElement>(".cmux-comment-marker")];
     expect(markers.map((marker) => marker.dataset.commentId)).toEqual(["c2", "c1"]);
-    expect(markers[0]!.closest("p")?.textContent ?? markers[0]!.nextElementSibling?.textContent).toContain(
-      "First paragraph",
-    );
-    expect(markers[1]!.closest("ul")).not.toBeNull();
+    // A marker sits just before the block it marks, in the margin.
+    expect(markers[0]!.nextElementSibling?.textContent).toContain("First paragraph");
+    expect(markers[1]!.nextElementSibling?.tagName).toBe("UL");
   });
 
   test("a marker opens its card with the quote and the comment, Delete asks the host", async () => {

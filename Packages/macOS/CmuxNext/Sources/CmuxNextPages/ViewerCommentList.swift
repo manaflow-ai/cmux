@@ -18,21 +18,43 @@ public nonisolated struct ViewerCommentList: Hashable, Sendable {
 
     /// The list stored as `data`; nil when it is not one.
     public init?(data: Data) {
-        nil
+        guard let stored = try? JSONDecoder().decode(Stored.self, from: data), stored.v == 1 else { return nil }
+        comments = Array(stored.comments.suffix(Self.limit))
     }
 
     /// The stored form.
-    public var data: Data { Data() }
+    public var data: Data {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+        return (try? encoder.encode(Stored(v: 1, comments: comments))) ?? Data()
+    }
 
     /// Adds a comment for `quote` (which must have lines and a comment); false when it has neither.
     @discardableResult
     public mutating func add(_ quote: ChatQuote, id: String) -> Bool {
-        false
+        let text = quote.comment.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let lines = quote.lines, !text.isEmpty else { return false }
+        comments.append(ViewerComment(id: id, startLine: lines.lowerBound, endLine: lines.upperBound,
+                                      quoted: String(quote.quoted.prefix(Self.quotedLimit)), comment: String(text.prefix(Self.commentLimit))))
+        if comments.count > Self.limit { comments.removeFirst(comments.count - Self.limit) }
+        return true
     }
 
     /// Removes the comment `id`; false when there is none.
     @discardableResult
     public mutating func remove(_ id: String) -> Bool {
-        false
+        guard let index = comments.firstIndex(where: { $0.id == id }) else { return false }
+        comments.remove(at: index)
+        return true
+    }
+
+    /// Drops the oldest comments until the stored form is at most `bytes` long.
+    public mutating func trim(toBytes bytes: Int) {
+        while !comments.isEmpty, data.count > bytes { comments.removeFirst() }
+    }
+
+    nonisolated private struct Stored: Codable {
+        var v: Int
+        var comments: [ViewerComment]
     }
 }
