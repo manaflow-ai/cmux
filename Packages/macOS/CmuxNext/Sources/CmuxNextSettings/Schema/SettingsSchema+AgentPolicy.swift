@@ -148,6 +148,7 @@ extension SettingsSchema {
         "sidebar.pinnedBandsScroll", "sidebar.showWorkspaceTabs", "sidebar.showChats",
         "sidebar.cards.tips", "sidebar.hoverCards.enabled", "sidebar.hoverCards.delay", "sidebar.nowPlaying.enabled", "sidebar.showProjects", "sidebar.showSpaces", "sidebar.showProfileControl", "sidebar.groupBy",
         "browser.defaultEngine",
+        "browser.siteEngines",
         "browser.newTabPage",
         "browser.showBookmarksBar",
         "browser.toolbarButtons",
