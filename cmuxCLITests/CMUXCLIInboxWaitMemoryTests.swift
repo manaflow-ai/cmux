@@ -19,7 +19,11 @@ struct CMUXCLIInboxWaitMemoryTests {
     @Test("The bundled CLI uses a prohibited activation policy")
     func bundledCLIUsesProhibitedActivationPolicy() {
         var observed: NSApplication.ActivationPolicy?
-        CLIApplicationPolicy.apply { observed = $0 }
+        let applied = CLIApplicationPolicy.apply {
+            observed = $0
+            return true
+        }
+        #expect(applied)
         #expect(observed == .prohibited)
     }
 
