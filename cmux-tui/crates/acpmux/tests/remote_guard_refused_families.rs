@@ -259,7 +259,7 @@ async fn the_session_owner_refuses_remote_family_and_launch_shape_before_spawn()
     );
     let hub = hub(&d);
 
-    let refused = hub
+    let refused = match hub
         .new_session(acpmux::hub::NewRequest {
             harness: Some("funknown".into()),
             cwd: Some(d.join("work")),
@@ -267,7 +267,10 @@ async fn the_session_owner_refuses_remote_family_and_launch_shape_before_spawn()
             ..Default::default()
         })
         .await
-        .expect_err("the owner admitted an unreviewed remote family");
+    {
+        Err(error) => error,
+        Ok(_) => panic!("the owner admitted an unreviewed remote family"),
+    };
     assert_eq!(
         refused.data.as_ref().and_then(|v| v.get("reason")).and_then(Value::as_str),
         Some("remote.mode_not_asking")
@@ -280,7 +283,7 @@ async fn the_session_owner_refuses_remote_family_and_launch_shape_before_spawn()
         ("fenvcwd", None),
     ] {
         let _ = std::fs::remove_file(&marker);
-        let refused = hub
+        let refused = match hub
             .new_session(acpmux::hub::NewRequest {
                 harness: Some(harness.into()),
                 cwd: Some(d.join("work")),
@@ -289,7 +292,10 @@ async fn the_session_owner_refuses_remote_family_and_launch_shape_before_spawn()
                 ..Default::default()
             })
             .await
-            .expect_err("the owner admitted a remote-controlled launch shape");
+        {
+            Err(error) => error,
+            Ok(_) => panic!("the owner admitted a remote-controlled launch shape"),
+        };
         assert_eq!(
             refused.data.as_ref().and_then(|v| v.get("reason")).and_then(Value::as_str),
             Some("remote.executable_refused"),
