@@ -1,6 +1,6 @@
 //! Wire protocol shared by `mux2d` (the server) and `mux2` (the client).
 //!
-//! One Unix stream socket per client. Every message is a frame:
+//! One Unix stream socket per client (AF_UNIX on Windows too). Every message is a frame:
 //! `u32 little-endian length` (of what follows), `u8 kind`, payload.
 //! Terminal output travels as raw bytes in [`OUTPUT`] frames: no base64,
 //! no JSON, no copy beyond the socket write.
@@ -33,6 +33,18 @@ pub const SNAPSHOT: u8 = 104;
 /// Largest frame either side accepts.
 pub const MAX_FRAME: usize = 64 << 20;
 
+/// The client end of a connection: a Unix stream socket. Windows has
+/// AF_UNIX sockets since 10 1803; `uds_windows` wraps them as std does on Unix.
+#[cfg(unix)]
+pub type Stream = std::os::unix::net::UnixStream;
+#[cfg(windows)]
+pub type Stream = uds_windows::UnixStream;
+
+pub fn connect(path: &std::path::Path) -> io::Result<Stream> {
+    Stream::connect(path)
+}
+
+#[cfg(unix)]
 pub fn socket_path() -> PathBuf {
     if let Some(path) = std::env::var_os("MUX2_SOCKET") {
         return PathBuf::from(path);
@@ -41,6 +53,19 @@ pub fn socket_path() -> PathBuf {
     // SAFETY: getuid has no preconditions.
     let uid = unsafe { libc::getuid() };
     base.join(format!("mux2-{uid}")).join("sock")
+}
+
+/// `%TEMP%\mux2-USER\sock`. `%TEMP%` is under the user's profile, which only
+/// the user (and administrators) can open, as `$TMPDIR/mux2-UID` with mode
+/// 0700 on Unix.
+#[cfg(windows)]
+pub fn socket_path() -> PathBuf {
+    if let Some(path) = std::env::var_os("MUX2_SOCKET") {
+        return PathBuf::from(path);
+    }
+    let base = std::env::temp_dir();
+    let user = std::env::var("USERNAME").unwrap_or_else(|_| "user".into());
+    base.join(format!("mux2-{user}")).join("sock")
 }
 
 /// Appends one frame to `out`.

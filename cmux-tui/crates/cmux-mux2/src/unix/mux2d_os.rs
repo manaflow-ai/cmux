@@ -40,8 +40,17 @@ pub(super) fn set_winsize(fd: RawFd, cols: u16, rows: u16) {
     unsafe { libc::ioctl(fd, libc::TIOCSWINSZ, &ws) };
 }
 
-// From <spawn.h> (macOS 10.15+); not bound by the pinned libc.
+// From <spawn.h> (macOS 10.15+, glibc 2.26+); not bound by the pinned libc.
+#[cfg(target_os = "macos")]
 const POSIX_SPAWN_SETSID: libc::c_short = 0x0400;
+#[cfg(target_os = "linux")]
+const POSIX_SPAWN_SETSID: libc::c_short = 0x80;
+/// macOS starts the child with only the descriptors file actions name. Linux
+/// has no such flag; every descriptor the server opens is close-on-exec.
+#[cfg(target_os = "macos")]
+const SPAWN_CLOEXEC_DEFAULT: libc::c_short = libc::POSIX_SPAWN_CLOEXEC_DEFAULT as libc::c_short;
+#[cfg(target_os = "linux")]
+const SPAWN_CLOEXEC_DEFAULT: libc::c_short = 0;
 unsafe extern "C" {
     fn posix_spawn_file_actions_addchdir_np(
         actions: *mut libc::posix_spawn_file_actions_t,
@@ -73,12 +82,21 @@ pub(super) fn spawn_pty(
         e
     };
     let mut name = [0 as libc::c_char; 128];
-    // SAFETY: grantpt/unlockpt on our master; TIOCPTYGNAME fills 128 bytes.
+    // SAFETY: grantpt/unlockpt on our master; the slave name fills at most
+    // 128 bytes (TIOCPTYGNAME on macOS, ptsname_r on Linux).
     unsafe {
         cvt(libc::grantpt(master)).map_err(close_master)?;
         cvt(libc::unlockpt(master)).map_err(close_master)?;
+        #[cfg(target_os = "macos")]
         cvt(libc::ioctl(master, libc::TIOCPTYGNAME as _, name.as_mut_ptr()))
             .map_err(close_master)?;
+        #[cfg(target_os = "linux")]
+        {
+            let rc = libc::ptsname_r(master, name.as_mut_ptr(), name.len());
+            if rc != 0 {
+                return Err(close_master(io::Error::from_raw_os_error(rc)));
+            }
+        }
     }
     set_nonblock_cloexec(master).map_err(close_master)?;
     set_winsize(master, cols, rows);
@@ -88,8 +106,10 @@ pub(super) fn spawn_pty(
     // SAFETY: attribute and file-action objects are initialized before use
     // and destroyed after; every pointer passed outlives the call.
     let rc = unsafe {
-        let mut attr: libc::posix_spawnattr_t = std::ptr::null_mut();
-        let mut fa: libc::posix_spawn_file_actions_t = std::ptr::null_mut();
+        // A pointer on macOS, a struct on Linux: zeroed is a valid start
+        // for both before the init calls.
+        let mut attr: libc::posix_spawnattr_t = std::mem::zeroed();
+        let mut fa: libc::posix_spawn_file_actions_t = std::mem::zeroed();
         let mut rc = libc::posix_spawnattr_init(&mut attr);
         if rc != 0 {
             return Err(close_master(io::Error::from_raw_os_error(rc)));
@@ -99,14 +119,14 @@ pub(super) fn spawn_pty(
             libc::posix_spawnattr_destroy(&mut attr);
             return Err(close_master(io::Error::from_raw_os_error(rc)));
         }
-        let mut all: libc::sigset_t = 0;
+        let mut all: libc::sigset_t = std::mem::zeroed();
         libc::sigfillset(&mut all);
-        let mut none: libc::sigset_t = 0;
+        let mut none: libc::sigset_t = std::mem::zeroed();
         libc::sigemptyset(&mut none);
         let flags = POSIX_SPAWN_SETSID
             | libc::POSIX_SPAWN_SETSIGDEF as libc::c_short
             | libc::POSIX_SPAWN_SETSIGMASK as libc::c_short
-            | libc::POSIX_SPAWN_CLOEXEC_DEFAULT as libc::c_short;
+            | SPAWN_CLOEXEC_DEFAULT;
         // The first failing setup call wins; nothing spawns half-configured.
         for step in [
             libc::posix_spawnattr_setsigdefault(&mut attr, &all),
@@ -135,12 +155,24 @@ pub(super) fn spawn_pty(
 }
 
 /// The current environment, for posix_spawn.
+#[cfg(target_os = "macos")]
 pub(super) fn environ_ptr() -> *const *mut libc::c_char {
     unsafe extern "C" {
         fn _NSGetEnviron() -> *mut *const *mut libc::c_char;
     }
     // SAFETY: _NSGetEnviron returns the process environment pointer.
     unsafe { *_NSGetEnviron() }
+}
+
+/// The current environment, for posix_spawn.
+#[cfg(target_os = "linux")]
+pub(super) fn environ_ptr() -> *const *mut libc::c_char {
+    unsafe extern "C" {
+        static environ: *const *mut libc::c_char;
+    }
+    // SAFETY: reading the libc environment pointer; the server only changes
+    // the environment before it starts threads.
+    unsafe { environ }
 }
 
 pub(super) fn listen_socket(path: &std::path::Path) -> io::Result<RawFd> {
@@ -175,19 +207,52 @@ pub(super) fn raise_nofile() {
     unsafe {
         let mut lim: libc::rlimit = std::mem::zeroed();
         if libc::getrlimit(libc::RLIMIT_NOFILE, &mut lim) == 0 {
+            #[cfg(target_os = "linux")]
+            let max: libc::c_int = 0; // the hard limit is the bound
+            #[cfg(target_os = "macos")]
             let mut max: libc::c_int = 0;
-            let mut len = size_of::<libc::c_int>();
-            let name = c"kern.maxfilesperproc";
-            libc::sysctlbyname(
-                name.as_ptr(),
-                (&raw mut max).cast(),
-                &mut len,
-                std::ptr::null_mut(),
-                0,
-            );
+            #[cfg(target_os = "macos")]
+            {
+                let mut len = size_of::<libc::c_int>();
+                let name = c"kern.maxfilesperproc";
+                libc::sysctlbyname(
+                    name.as_ptr(),
+                    (&raw mut max).cast(),
+                    &mut len,
+                    std::ptr::null_mut(),
+                    0,
+                );
+            }
             let want = if max > 0 { (max as libc::rlim_t).min(lim.rlim_max) } else { lim.rlim_max };
             lim.rlim_cur = want;
             libc::setrlimit(libc::RLIMIT_NOFILE, &lim);
         }
     }
+}
+
+/// The command for a terminal started without one: `login -fp USER`, as
+/// Terminal.app and Rex do. login(1) records the session (utmpx), runs the
+/// account's shell from the user database as a login shell, and `-p` keeps
+/// the server's environment. Falls back to `$SHELL -l` when login is missing
+/// or the account has no name.
+pub(super) fn default_login_argv() -> Result<Vec<CString>, std::ffi::NulError> {
+    const LOGIN: &str = "/usr/bin/login";
+    // SAFETY: getpwuid returns a pointer into static storage or null; the
+    // name is copied before any other passwd call.
+    let user = unsafe {
+        let pw = libc::getpwuid(libc::getuid());
+        if pw.is_null() || (*pw).pw_name.is_null() {
+            None
+        } else {
+            Some(std::ffi::CStr::from_ptr((*pw).pw_name).to_owned())
+        }
+    };
+    // Linux login(1) is not setuid: -f works only for root there.
+    // SAFETY: geteuid has no preconditions.
+    let can_login = cfg!(target_os = "macos") || unsafe { libc::geteuid() } == 0;
+    if let Some(user) = user.filter(|_| can_login && std::path::Path::new(LOGIN).exists()) {
+        return Ok(vec![CString::new(LOGIN)?, CString::new("-fp")?, user]);
+    }
+    let shell = std::env::var_os("SHELL").unwrap_or_else(|| "/bin/zsh".into());
+    Ok(vec![CString::new(shell.as_bytes())?, CString::new("-l")?])
 }

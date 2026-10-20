@@ -171,3 +171,129 @@ checks that path: the whole stream unwatched, then the final state.
 
 Rex starts shells through `login -fp` (as Terminal.app does), which writes
 login records; mux2 runs `$SHELL -l` directly.
+
+## Windows (2026-10-19, GCP n2d-standard-8, Windows Server 2025 build 26100)
+
+Rex has no Windows build, so on Windows mux2 is held to its own gate, to
+cmux-tui (`2fcf8b55`'s successor on this branch, release build, same VM),
+and to Rex's macOS numbers above. Harness: `bench/windows-bench.ps1`,
+`bench/windows-gate.ps1`, `bench/windows-conpty.ps1`.
+
+### Design
+
+- One process, one event-loop thread, one IO completion port for every
+  terminal and client. The request handling and the correctness rules are
+  the Unix server's; the parse workers, query scanner and client are shared
+  (`src/shared`).
+- A terminal is a pseudoconsole from `CreatePseudoConsole` (resize-quirk
+  and passthrough flags; no WIN32_INPUT_MODE, so clients write plain VT
+  input), its two pipes named pipes opened overlapped on the server side,
+  and its program in a job object (kill on close), so the program tree ends
+  with the terminal and with the server.
+- Every pipe and socket is a `Slot` with one read and one write in flight.
+  With `FILE_SKIP_COMPLETION_PORT_ON_SUCCESS` an operation that completes
+  at once is handled inline, so a busy pipe drains through back-to-back
+  synchronous reads and only a read that waits posts a packet. Reads are
+  double-buffered (the next read is issued before the filled buffer is
+  parsed) and grow from 4 KiB to 256 KiB while a pipe stays full.
+- Child exit: a thread-pool wait posts to the port. conhost keeps the output
+  pipe open after the child exits, so the server closes the pseudoconsole
+  (on its own thread: the close can wait for the last frame) and sends EXIT
+  only when the pipe ends: a waiter sees every byte.
+- conhost's start is most of a create, so one spare pseudoconsole is made
+  ahead of time on a helper thread (`MUX2_SPARE_CONSOLES`, default 1).
+- `conpty.dll` next to `mux2d.exe` (or `MUX2_CONPTY_DLL`) is used instead of
+  the system's: Windows Terminal's out-of-band ConPTY with its
+  `OpenConsole.exe` (MIT, NuGet `Microsoft.Windows.Console.ConPTY`
+  1.25.260930003). portable-pty, and so cmux-tui, loads it the same way.
+- Not on Windows yet: upgrade in place; `mux2 attach` sends its size once.
+- conhost's output pipe has a 1 MiB quota (`MUX2_PIPE_BUFFER`): against
+  128 KiB, Windows Terminal's ConPTY moves 210 vs 172 MB/s plain and 78 vs
+  61 MB/s SGR (3 runs each); the system ConPTY does not change (11 MB/s,
+  even at 4 KiB).
+- Not built: one reader thread per terminal. The server's own CPU is a
+  small part of every run (below), so the read path is not the limit;
+  conhost is.
+
+### What ConPTY means for exactness
+
+The server reads conhost's output, not the program's. The system conhost
+renders its own buffer and sends what changed. Its final screen matched
+the file for plain, SGR and cursor text at 200x50 (not Unicode), and the
+whole state (scrollback) never did. The passthrough flag is accepted and
+changes nothing measurable on build 26100 (flags 0x6, cmux-tui's, and 0xa,
+ours: 8.4-8.6 MB/s either way). Windows Terminal's ConPTY passes the bytes
+through: screen and whole state matched the file for all four corpora.
+The system conhost answers DSR/CPR and DA itself: of 100 CPR and 100 DA
+queries the server saw none, so the replies a program gets there are
+conhost's, about its own buffer. Windows Terminal's ConPTY forwards every
+query (the server saw all 100 and 101) and the server's libghostty
+answers, as on Unix. `mux2-query-probe` checks every reply either way.
+
+So the Windows gate checks the server and the client against a reference
+that parsed exactly the bytes the server read (`MUX2_TAP_DIR`, written by
+the server only for the gate): every byte parsed in order, snapshot plus
+stream exact, resync taken. With `-FileReference` (sideloaded ConPTY) it
+also requires the file's own reference, as on Unix, which also proves that
+nothing was lost before the tap.
+
+### Results (mux2 this branch, cmux-tui same tree; medians of 3 for throughput; WT ConPTY = Windows Terminal's, 1 MiB pipe for mux2)
+
+| # | Metric | cmux-tui, system ConPTY | mux2, system ConPTY | cmux-tui, WT ConPTY | mux2, WT ConPTY | Rex (macOS) |
+|---|---|---|---|---|---|---|
+| 1 | Create, CLI (p50) | 126 ms | 14.3 ms | 121 ms | 14.6 ms | 11.3 ms |
+| 2 | Create, API (p50) | | 2.7-9.8 ms | | 3.7-7.5 ms | |
+| 3 | Server memory per terminal, working set (500 terminals) | 229 KB | 48 KB | | | 132 KB (RSS) |
+| 3 | Server memory per terminal, committed (private bytes) | 1.9 MB | 1.6 MB | 2.0 MB | 1.6 MB | |
+| 3 | All processes per terminal, committed (minus program) | 7.2 MB | 2.8 MB | 8.3 MB | 3.8 MB | 211 KB |
+| 4 | System memory at 500 terminals | 2,645 MB | 1,132 MB | | | 590 MB at 200 |
+| 5 | Empty server, working set | 30 MB | 6.0 MB | 31 MB | 6.1 MB | 37.6 MB |
+| 6 | Server start to ready | 297 ms | 28 ms | 267 ms | 28 ms | 36 ms |
+| 7 | Throughput, plain, no client | 10.3 MB/s | 11.0 MB/s | 110 MB/s | 210 MB/s | 449 MB/s |
+| 8 | Throughput, SGR, no client | 9.1 MB/s | 8.4 MB/s | 46 MB/s | 77.9 MB/s | 216 MB/s |
+| 9 | Throughput, plain, client attached | 10.7 MB/s | 10.9 MB/s | 114 MB/s | 164 MB/s | 155 MB/s |
+| 9 | Throughput, SGR, client attached | 8.1 MB/s | 8.5 MB/s | 42.6 MB/s | 69.4 MB/s | 106 MB/s |
+| 10 | Server CPU, 256 MB SGR, no client | 10-41 s | 3.8 s | 2.4-3.9 s | 3.6 s | 1.18 s |
+| | `type` of 16 MB (cmd) | 0.6 MB/s, 51-75 s CPU | 0.9 MB/s, 1.0-1.5 s CPU | 0.6 MB/s | 1.0 MB/s | |
+| 11 | Screen read, CLI (p50) | 17 ms | 10 ms | 17 ms | 9.9 ms | 11.8 ms |
+| 12 | Write to visible, CLI (p50) | 46 ms | 23 ms | 46 ms | 23 ms | 23.7 ms |
+| 13 | Write to visible, API (p50) | | 1.7 ms | | 1.7-2.0 ms | |
+| | Keystroke echo at a viewer, API (p50) | | 10 ms | | 0.07 ms | 22 µs (mux2, macOS) |
+| 14 | Idle CPU, 500 terminals (incl. conhosts) | 1.25 % | 0 % | | | 0.2 % |
+| 17 | Processes per terminal beyond the program | 2 (host + conhost) | 1 (conhost) | 2 | 1 (OpenConsole) | 1 |
+| 20 | Query reply, CPR (p50, in-terminal) | | 46-63 µs (conhost answers) | | 95-117 µs (mux2 answers) | 11.9 µs |
+
+The floor for every CLI metric is starting a process: a small program that
+exits at once takes 7.8 ms (p50) on this VM against 0.99 ms on the M6 mini,
+so CLI create (14 ms) is the floor plus the create. The system ConPTY
+bounds throughput (11 MB/s plain): mux2's server spends 2 s of CPU per
+256 MB there. Windows Terminal's ConPTY raises the bound 15-20x; mux2 is
+then 1.7-1.9x cmux-tui with no viewer and 1.4-1.6x with one, and beats
+Rex's macOS numbers with a viewer attached for plain text (164 vs 155
+MB/s). The keystroke echo
+of the system conhost is about 10 ms whatever the server does (its render
+timer); Windows Terminal's ConPTY echoes in 0.1 ms. cmux-tui's high CPU
+with the system ConPTY comes from its per-terminal journal and helper.
+
+Memory: on Windows conhost or OpenConsole is a process per terminal of
+1.2-2 MB committed, which no server can remove. mux2's own cost per idle
+terminal is 48 KB of working set (34 KB RSS on macOS); the 1.6 MB it
+commits per terminal is libghostty's reserved page memory, not touched
+until used. The empty server commits 1.4 MB.
+
+### Gate results (final binaries)
+
+- System ConPTY, tap reference: 18/20. The two failures are
+  `cursor --resize-midway` and `unicode --resize-midway`, client against
+  server after a resize while output flows; both also fail on macOS and
+  Linux on the parent commit (`a04f1fa2`), so they are not Windows-specific.
+- Windows Terminal ConPTY, file reference (as strict as Unix): 16/20. The
+  failures are the same two resize cases plus `cursor --attach-midway` and
+  `cursor --slow-viewer`: the server's state equals the file's
+  (`conpty_replay_faithful`), but a client rebuilt from a snapshot taken in
+  the middle of the cursor corpus differs in replay. The same two cases fail
+  on macOS and Linux at the parent commit (macOS: 15-17/20 per run), so the
+  open problem is the snapshot (libghostty replay) of that corpus's state,
+  not the Windows server. With the system ConPTY they pass, because conhost
+  re-renders the exotic state away.
+- `mux2-query-probe` (1000 CPR + 1000 DA): every reply correct on both.
