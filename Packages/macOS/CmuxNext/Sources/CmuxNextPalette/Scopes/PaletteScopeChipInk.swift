@@ -28,10 +28,11 @@ struct PaletteScopeChipInk: Equatable {
     ///   - isTop: The chip of the current scope.
     ///   - increaseContrast: The macOS Increase Contrast setting.
     static func ink(isTop: Bool, increaseContrast: Bool) -> PaletteScopeChipInk {
-        // The top chip is the selected one: filled, primary text. A chip under it is a back button:
-        // outlined, no fill, secondary text (built for 4.5:1), never tertiary (built for 3:1 marks).
+        // The top chip is the selected one: a soft fill (the full selection fill drops primary text
+        // under 4.5:1 on some themes), primary text. A chip under it is a back button: outlined, no
+        // fill, secondary text (built for 4.5:1), never tertiary (built for 3:1 marks).
         let tone: PaletteTone = increaseContrast || isTop ? .primary : .secondary
-        return isTop ? PaletteScopeChipInk(text: tone, icon: tone, fill: .selection, outlined: increaseContrast)
+        return isTop ? PaletteScopeChipInk(text: tone, icon: tone, fill: .halfSelection, outlined: increaseContrast)
             : PaletteScopeChipInk(text: tone, icon: tone, fill: .none, outlined: true)
     }
 }
