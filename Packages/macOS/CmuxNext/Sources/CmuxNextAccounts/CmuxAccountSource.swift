@@ -8,23 +8,22 @@ public protocol CmuxAccountSource: AnyObject {
     var accountName: String? { get }
     var isSigningIn: Bool { get }
     var signInWaitsInBrowser: Bool { get }
-    var signInFailure: String? { get }
+    var signInFailed: Bool { get }
     func beginSignIn(selectAccount: Bool) -> Task<Bool, Never>
     func cancelSignIn()
     func continueSignInInBrowser() -> Bool
 }
 
 extension CmuxAccountState {
-    /// The row's state from `source`: a masked label when signed in, else
-    /// where a sign-in in progress stands and why the last one failed.
+    /// The row's state from `source`: a masked label when signed in, where
+    /// a sign-in in progress stands (Switch Account runs while signed in),
+    /// and whether the last one failed.
     @MainActor
     public init(_ source: some CmuxAccountSource) {
-        if source.isSignedIn {
-            self.init(signedIn: true, label: Self.mask(source.accountEmail) ?? source.accountName)
-        } else {
-            self.init(signedIn: false, signingIn: source.isSigningIn, waitingForBrowser: source.signInWaitsInBrowser,
-                      failure: source.signInFailure)
-        }
+        self.init(signedIn: source.isSignedIn,
+                  label: source.isSignedIn ? Self.mask(source.accountEmail) ?? source.accountName : nil,
+                  signingIn: source.isSigningIn, waitingForBrowser: source.signInWaitsInBrowser,
+                  failed: source.signInFailed)
     }
 }
 

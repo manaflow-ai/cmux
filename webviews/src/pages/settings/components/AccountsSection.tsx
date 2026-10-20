@@ -76,7 +76,12 @@ function CmuxAccountRow({ cmux }: { cmux: AccountsCmux }) {
           <div className="row-title">{cmux.title}</div>
           {cmux.detail && <div className="row-help">{cmux.detail}</div>}
         </div>
-        <span className="accounts-status" data-status={cmux.statusKind}>
+        <span
+          className="accounts-status"
+          data-status={cmux.statusKind}
+          data-busy={cmux.busy || undefined}
+          aria-busy={cmux.busy}
+        >
           <span className="accounts-dot" aria-hidden="true" />
           {cmux.status}
         </span>

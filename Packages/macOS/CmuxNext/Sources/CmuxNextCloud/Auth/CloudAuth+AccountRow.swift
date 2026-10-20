@@ -11,11 +11,6 @@ extension CloudAuth {
     public var isSigningIn: Bool { browserSignIn.isPresentingSignIn }
     /// The sign-in waits in the default browser, or the popup has been open a while.
     public var signInWaitsInBrowser: Bool { browserSignIn.signInIsSlow }
-    /// Why the last sign-in failed, display-safe, with its diagnostic code.
-    public var signInFailure: String? {
-        let flow = browserSignIn
-        return flow.lastFailure.map { error in
-            [error.errorDescription, flow.lastFailureDetail.map { "(\($0))" }].compactMap { $0 }.joined(separator: " ")
-        }
-    }
+    /// The last sign-in failed (its reason and detail stay in the flow's log).
+    public var signInFailed: Bool { browserSignIn.lastFailure != nil }
 }

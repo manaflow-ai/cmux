@@ -65,6 +65,9 @@ public final class HostBrowserSignInFlow {
     @ObservationIgnored private var issuedCallbackStates = HostBrowserIssuedCallbackStates()
     @ObservationIgnored private var isAwaitingCallbackApproval = false
     @ObservationIgnored private var signOutGeneration: UInt64 = 0
+    /// The attempt whose callback is being completed: its tokens are already
+    /// seeded, so a Cancel then is ignored rather than tearing it down mid-way.
+    @ObservationIgnored private var completingAttemptID: UInt64?
     /// Pending waits before rate-limited completions retry, keyed by epoch.
     /// Sign-out and a replacing attempt cancel every one, so no stale wait
     /// lingers or retries beside the new attempt.
@@ -137,9 +140,15 @@ public final class HostBrowserSignInFlow {
     }
 
     /// Ends the sign-in in progress (the person's Cancel). A late callback
-    /// carrying its state is then rejected.
+    /// carrying its state is then rejected. Once its callback has arrived,
+    /// the sign-in finishes instead: the tokens already replaced the previous
+    /// session, so undoing it would sign the person out of every account.
     public func cancelSignIn() {
-        guard activeAttemptID != nil else { return }
+        guard let activeAttemptID else { return }
+        guard completingAttemptID != activeAttemptID else {
+            log.log("auth.browser.cancelSignIn.ignored id=\(activeAttemptID) reason=callbackCompleting")
+            return
+        }
         log.log("auth.browser.cancelSignIn")
         cancelActiveAttempt()
     }
@@ -593,6 +602,8 @@ public final class HostBrowserSignInFlow {
             return false
         }
         let generation = signOutGeneration
+        if let attemptID { completingAttemptID = attemptID }
+        defer { if completingAttemptID == attemptID { completingAttemptID = nil } }
         log.log("auth.callback.tokens.seed attempt=\(attemptID.map(String.init) ?? "external") generation=\(generation)")
         await tokenStore.seed(accessToken: payload.accessToken, refreshToken: payload.refreshToken)
         guard signOutGeneration == generation,

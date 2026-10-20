@@ -50,6 +50,29 @@ import Testing
         #expect(!harness.coordinator.isAuthenticated)
     }
 
+    /// Cancel after the callback arrived: its tokens already replaced the
+    /// session, so the sign-in finishes rather than half-tearing down.
+    @Test func cancelAfterTheCallbackArrivedLetsTheSignInFinish() async {
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let harness = HostBrowserSignInFlowHarness(user: user)
+        await harness.client.closeUserGate()
+
+        let attempt = harness.flow.beginSignIn(inDefaultBrowser: true)
+        await harness.waitForCondition { harness.flow.signInIsSlow || !harness.flow.isSigningIn }
+        let callbackState = state(of: harness.openedURLs.first)
+        let callback = Task { await harness.flow.handleCallbackURL(harness.callbackURL(state: callbackState)) }
+        await harness.waitForPendingUserRequest()
+
+        harness.flow.cancelSignIn()
+        #expect(harness.flow.isSigningIn)
+        await harness.client.openUserGate()
+
+        #expect(await callback.value)
+        #expect(await attempt.value)
+        #expect(harness.coordinator.isAuthenticated)
+        #expect(!harness.flow.isSigningIn && !harness.flow.isPresentingSignIn)
+    }
+
     @Test func aDefaultBrowserThatCannotOpenEndsTheAttemptWithAFailure() async {
         let harness = HostBrowserSignInFlowHarness(openSucceeds: false)
 

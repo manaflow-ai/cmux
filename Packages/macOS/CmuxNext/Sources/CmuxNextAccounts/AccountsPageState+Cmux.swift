@@ -24,24 +24,25 @@ extension AccountsModel {
         func button(_ action: CmuxAccountAction, _ title: String, destructive: Bool = false) -> Button {
             Button(id: "cmux.\(action.rawValue)", title: title, disabled: false, help: nil, destructive: destructive)
         }
-        if account.signedIn {
-            return .init(title: AccountsStrings.cmuxTitle, detail: account.label, status: AccountsStrings.cmuxSignedIn,
-                         statusKind: "success", busy: false,
-                         buttons: [button(.switchAccount, AccountsStrings.cmuxSwitchAccount),
-                                   button(.signOut, AccountsStrings.cmuxSignOut, destructive: true)],
-                         note: nil, error: nil)
-        }
+        let error = account.failed ? AccountsStrings.cmuxSignInFailed : nil
         if account.signingIn {
-            return .init(title: AccountsStrings.cmuxTitle, detail: nil, status: AccountsStrings.cmuxSigningIn,
+            return .init(title: AccountsStrings.cmuxTitle, detail: account.label, status: AccountsStrings.cmuxSigningIn,
                          statusKind: "neutral", busy: true,
                          buttons: [button(.continueInBrowser, AccountsStrings.cmuxOpenInBrowser),
                                    button(.cancelSignIn, AccountsStrings.cancel)],
                          note: account.waitingForBrowser ? AccountsStrings.cmuxFinishInBrowser : nil, error: nil)
         }
+        if account.signedIn {
+            return .init(title: AccountsStrings.cmuxTitle, detail: account.label, status: AccountsStrings.cmuxSignedIn,
+                         statusKind: "success", busy: false,
+                         buttons: [button(.switchAccount, AccountsStrings.cmuxSwitchAccount),
+                                   button(.signOut, AccountsStrings.cmuxSignOut, destructive: true)],
+                         note: nil, error: error)
+        }
         return .init(title: AccountsStrings.cmuxTitle, detail: nil, status: AccountsStrings.cmuxSignedOut,
-                     statusKind: account.failure == nil ? "quiet" : "attention", busy: false,
+                     statusKind: account.failed ? "attention" : "quiet", busy: false,
                      buttons: [button(.signIn, AccountsStrings.signInToCmux)],
-                     note: nil, error: account.failure.map(AccountsStrings.cmuxSignInFailed))
+                     note: nil, error: error)
     }
 }
 
@@ -56,7 +57,5 @@ extension AccountsStrings {
     static var cmuxOpenInBrowser: String { text("accounts.cmux.openInBrowser", "Open in Browser") }
     static var cmuxSwitchAccount: String { text("accounts.cmux.switchAccount", "Switch Account…") }
     static var cmuxSignOut: String { text("accounts.cmux.signOut", "Sign Out") }
-    static func cmuxSignInFailed(_ reason: String) -> String {
-        String(format: text("accounts.cmux.signInFailed", "Sign-in did not finish: %@"), reason)
-    }
+    static var cmuxSignInFailed: String { text("accounts.cmux.signInFailed", "Sign-in did not finish. Try again.") }
 }

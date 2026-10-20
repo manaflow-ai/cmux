@@ -72,6 +72,7 @@ test("a cmux sign-in in progress offers Open in Browser and Cancel", async () =>
   await act(async () => row().querySelector<HTMLButtonElement>('[data-account-button="cmux.signIn"]')!.click());
   await settle();
   expect(row().textContent).toContain("Signing in…");
+  expect(row().querySelector(".accounts-status")?.hasAttribute("data-busy")).toBe(true);
   expect(row().textContent).toContain("Finish signing in in your browser");
   await act(async () =>
     row().querySelector<HTMLButtonElement>('[data-account-button="cmux.continueInBrowser"]')!.click(),

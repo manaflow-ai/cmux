@@ -28,14 +28,27 @@ import Testing
         #expect(row.error == nil)
     }
 
-    @Test func aFailedSignInSaysWhyAndOffersSignInAgain() {
+    /// The reason and its diagnostic code stay in the log, not on screen.
+    @Test func aFailedSignInSaysSoAndOffersSignInAgain() {
         let services = MockAccountsServices()
         services.isSignedInToCmux = false
-        services.cmuxSignInState = CmuxAccountState(signedIn: false, failure: "Sign-in timed out. (TIMED_OUT)")
+        services.cmuxSignInState = CmuxAccountState(signedIn: false, failed: true)
         let row = AccountsModel(services: services).pageState.cmux
         #expect(ids(row) == ["cmux.signIn"])
         #expect(row.statusKind == "attention")
-        #expect(row.error?.contains("TIMED_OUT") == true)
+        #expect(row.error == "Sign-in did not finish. Try again.")
+    }
+
+    /// Switch Account runs while signed in: the row shows its progress with
+    /// the current account, and Cancel.
+    @Test func aSwitchInProgressShowsProgressWithTheCurrentAccount() {
+        let services = MockAccountsServices()
+        services.cmuxSignInState = CmuxAccountState(signedIn: false, signingIn: true)
+        let row = AccountsModel(services: services).pageState.cmux
+        #expect(row.status == "Signing in…")
+        #expect(row.detail == "d…@e…")
+        #expect(row.busy)
+        #expect(ids(row) == ["cmux.continueInBrowser", "cmux.cancelSignIn"])
     }
 
     @Test func pageActionsReachTheServices() async {
@@ -105,7 +118,7 @@ private final class FakeCmuxAccountSource: CmuxAccountSource {
     var accountName: String?
     var isSigningIn = false
     var signInWaitsInBrowser = false
-    var signInFailure: String?
+    var signInFailed = false
     var calls: [String] = []
 
     func beginSignIn(selectAccount: Bool) -> Task<Bool, Never> {

@@ -11,15 +11,17 @@ public struct CmuxAccountState: Equatable, Sendable {
     /// The sign-in waits in the default browser (it opened there, or the
     /// popup has been open a while): the screen offers to open it again.
     public var waitingForBrowser: Bool
-    /// Why the last sign-in failed, display-safe, with its diagnostic code.
-    public var failure: String?
+    /// The last sign-in failed. The row says so in its own words: Cloud
+    /// auth's reasons are not in this app's catalogs, and their diagnostic
+    /// details stay in the log.
+    public var failed: Bool
 
-    public init(signedIn: Bool, label: String? = nil, signingIn: Bool = false, waitingForBrowser: Bool = false, failure: String? = nil) {
+    public init(signedIn: Bool, label: String? = nil, signingIn: Bool = false, waitingForBrowser: Bool = false, failed: Bool = false) {
         self.signedIn = signedIn
         self.label = label
         self.signingIn = signingIn
         self.waitingForBrowser = waitingForBrowser
-        self.failure = failure
+        self.failed = failed
     }
 
     public static let signedOut = CmuxAccountState(signedIn: false)
