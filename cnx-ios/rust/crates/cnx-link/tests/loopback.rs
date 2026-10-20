@@ -659,13 +659,11 @@ async fn webrtc_dial_gives_up_on_an_unanswered_offer_at_its_answer_deadline() {
     // The Mac is on signaling but never answers (its host is gone).
     let _mac = SignalingClient::connect(&server.base_url, "user:alice", "team", &mac_id).await.unwrap();
     let phone = SignalingClient::connect(&server.base_url, "user:alice", "team", &phone_id).await.unwrap();
-    let dial_options = DialOptions {
-        timeout: Duration::from_secs(20),
-        answer_timeout: Duration::from_secs(1),
-        ..options()
-    };
+    let dial_options =
+        DialOptions { timeout: Duration::from_secs(20), answer_timeout: Duration::from_secs(1), ..options() };
     let started = std::time::Instant::now();
-    let result = dial::connect(&phone, &mac_id, TransportKind::WebRtc, &dial_options, LinkConfig::default()).await;
+    let result =
+        dial::connect(&phone, &mac_id, TransportKind::WebRtc, &dial_options, LinkConfig::default()).await;
     let waited = started.elapsed();
     assert!(matches!(result, Err(dial::DialError::Timeout)), "expected a timeout, got {:?}", result.err());
     assert!(waited < Duration::from_secs(4), "gave up after {waited:?}");
