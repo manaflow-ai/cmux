@@ -39,7 +39,7 @@ extension HoverCardPanel {
 
     /// The corner of the card that stays on its target while it resizes (unit, y up).
     private var fixedCorner: CGPoint {
-        switch placement {
+        switch restingPlacement {
         case .above: CGPoint(x: isLeading ? 1 : 0, y: 0)
         case .below, .beside: CGPoint(x: isLeading ? 1 : 0, y: 1)
         }
