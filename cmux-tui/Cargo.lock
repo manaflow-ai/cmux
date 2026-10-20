@@ -53,7 +53,7 @@ dependencies = [
 
 [[package]]
 name = "acpmux-build-id"
-version = "0.1.0"
+version = "1.0.0"
 
 [[package]]
 name = "adler2"

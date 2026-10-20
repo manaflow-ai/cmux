@@ -6,7 +6,7 @@
 //! package whose build script reruns. acpmux depends on this crate only with
 //! its default `build-id` feature (the standalone `acpmux` binary and its
 //! tests). The cmux-tui binary turns that feature off, depends on this crate
-//! itself, and installs the value at start (`acpmux::install_build`), so a new
+//! itself, and installs the value at start (`acpmux::hub::install_build`), so a new
 //! stamp recompiles only this crate and cmux-tui.
 
 #![forbid(unsafe_code)]
