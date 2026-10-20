@@ -678,6 +678,13 @@ pub fn apply_tokio_for(
     if let Some(path) = agent_path() {
         cmd.env("PATH", path);
     }
+    if let Some((layer, user)) = agent_shell_env() {
+        cmd.env("ZDOTDIR", layer);
+        match user {
+            Some(user) => cmd.env(AGENT_USER_ZDOTDIR_ENV, user),
+            None => cmd.env_remove(AGENT_USER_ZDOTDIR_ENV),
+        };
+    }
 }
 
 /// Same, for std's process builder.
@@ -690,6 +697,53 @@ pub fn apply_std_for(
     if let Some(path) = agent_path() {
         cmd.env("PATH", path);
     }
+    if let Some((layer, user)) = agent_shell_env() {
+        cmd.env("ZDOTDIR", layer);
+        match user {
+            Some(user) => cmd.env(AGENT_USER_ZDOTDIR_ENV, user),
+            None => cmd.env_remove(AGENT_USER_ZDOTDIR_ENV),
+        };
+    }
+}
+
+/// The app's agent zsh layer, `<Resources>/cmux-cli-path/zsh-agent`, next to
+/// the bundled CLI (`<Resources>/bin/cmux`).
+const AGENT_ZSH_LAYER: &str = "cmux-cli-path/zsh-agent";
+/// The user's ZDOTDIR while the agent layer stands in for it.
+pub const AGENT_USER_ZDOTDIR_ENV: &str = "CMUX_CLI_AGENT_ZDOTDIR";
+
+/// The variables that keep the app's `cmux` first in the shells an agent
+/// starts for its commands. [`agent_path`] puts it first in the agent's own
+/// PATH, but Codex and Claude Code run each command in a fresh `zsh -lc`,
+/// which reads the user's `.zprofile` again; that often prepends
+/// `~/.local/bin`, where an old PyPI `cmux` lives (0.13.4 lacks this app's
+/// verbs). `ZDOTDIR` names the app's agent layer
+/// (Resources/cmux-cli-path/zsh-agent/.zshenv), which runs the user's files
+/// from the user's ZDOTDIR, saved in [`AGENT_USER_ZDOTDIR_ENV`], and moves the
+/// bundled CLI back to the front after each. Returns (the layer for
+/// `ZDOTDIR`, the user's ZDOTDIR or none); `None` without a bundled CLI or
+/// without the layer next to it (an older app). Other shells ignore ZDOTDIR.
+pub fn agent_shell_env() -> Option<(OsString, Option<OsString>)> {
+    let Some(resources) = std::env::var_os(BUNDLED_CLI_ENV)
+        .map(PathBuf::from)
+        .filter(|cli| cli.is_absolute())
+        .and_then(|cli| cli.parent()?.parent().map(std::path::Path::to_path_buf))
+    else {
+        return None;
+    };
+    let layer = resources.join(AGENT_ZSH_LAYER);
+    if !layer.join(".zshenv").is_file() {
+        return None;
+    }
+    // The user's ZDOTDIR: the daemon's, else the login shell's. A daemon
+    // started from an agent's shell already has the layer: keep its saved one.
+    let current = std::env::var_os("ZDOTDIR").or_else(|| var("ZDOTDIR").map(OsString::from));
+    let user = match current {
+        Some(dir) if PathBuf::from(&dir) == layer => std::env::var_os(AGENT_USER_ZDOTDIR_ENV),
+        other => other,
+    }
+    .filter(|dir| !dir.is_empty());
+    Some((layer.into_os_string(), user))
 }
 
 /// Parse `env -0` output: (variables worth importing, the login PATH).
