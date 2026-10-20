@@ -10,7 +10,7 @@ struct PaletteScopeChipInk: Equatable {
         case none
         /// The selected-row fill.
         case selection
-        /// The selected-row fill at half strength.
+        /// The selected-row fill at half its alpha.
         case halfSelection
     }
 
