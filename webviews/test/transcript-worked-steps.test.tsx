@@ -150,3 +150,31 @@ test("with the Debug toggle workedForFoldsRuns, an open 'Worked for' folds a run
     delete host.ownerDocument.documentElement.dataset.workedForRuns;
   }
 });
+
+test("a thought that ends its row lasts until the next row starts, and the open copy redraws on its own version", async () => {
+  // Review of the redesign: a thought sent as one chunk before the reply read "Thought", not "Thought for 3s".
+  const { turnView, WORKED } = await import("../src/agent-session/acpmux/conversation/turns");
+  const { ToolRows } = await import("../src/agent-session/acpmux/conversation/TurnRows");
+  const { createRoot } = await import("react-dom/client");
+  const rows = [
+    { id: "u", kind: "user", version: 1, at: 0, text: "Is it green?" },
+    {
+      id: "a",
+      kind: "activity",
+      version: 2,
+      at: 1_000,
+      items: [{ kind: "thought", text: "Check the checks.", startedAt: 1_000, endedAt: 1_000 }],
+    },
+    { id: "r", kind: "assistant", version: 1, at: 4_000, text: "Yes." },
+    { id: "s", kind: "turnSummary", version: 1, at: 5_000, status: "completed" },
+  ] as never[];
+  const worked = turnView(rows, new Set()).find((row) => row.kind === WORKED)!;
+  const copy = turnView(rows, new Set([worked.id])).find((row) => row.id === "a")!;
+  expect(copy.nextAt).toBe(4_000);
+  // Its own version: never the stored one, nor a Codex-run version (v*4+1, v*4+2) of the same row.
+  expect([copy.version % 4, copy.settled]).toEqual([3, true]);
+  act(() => root?.unmount());
+  root = createRoot(host);
+  await act(async () => root!.render(<ToolRows row={copy} />));
+  expect(host.querySelector(".cv-thought__label")?.textContent).toBe("Thought for 3s");
+});

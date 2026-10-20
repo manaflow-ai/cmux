@@ -81,3 +81,11 @@ test("a message moves through sending and sent", async () => {
   expect(host.querySelector(".cv-message")?.getAttribute("data-delivery")).toBe("sent");
   expect(host.querySelector(".cv-message__status")?.textContent).toBe("Sent");
 });
+
+test("an opened delivered message shows what else the send printed, without the receipt", async () => {
+  // Review of the redesign: a receipt hid every other line the send printed.
+  await render(send("completed", "delivered to leoli-24 (id 9defc4d0ed87)\nqueued behind 2 messages\n"));
+  await act(async () => host.querySelector<HTMLButtonElement>(".cv-message__head")!.click());
+  expect(host.querySelector(".cv-tool-output")?.textContent).toBe("queued behind 2 messages");
+  expect(host.textContent).not.toContain("9defc4d0ed87");
+});

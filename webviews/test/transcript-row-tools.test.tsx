@@ -132,11 +132,27 @@ test("a summary never claims what the command did not do", async () => {
     "grep -A 3 TODO x.ts",
     "rg -t ts useState",
     "tail -n 50",
+    // Review of the redesign: an escaped quote, a `||` whose right side may not run, a dry run,
+    // and a reader told to write a file.
+    'git status "\\"" ; rm -rf /',
+    "git diff --quiet || git commit -am x",
+    "git push --dry-run",
+    "git push -n origin main",
+    "git log | sort -o out.txt",
+    "git log | uniq in.txt out.txt",
   ])
     expect([command, commandSummary(command, t)]).toEqual([command, undefined]);
   // Two different reads stay two; only a repeat of the same step folds.
   expect(commandSummary("cat a.ts && cat b.ts", t)).toBe("Read a.ts and read b.ts");
   expect(commandSummary("git status | head -20 && tail -n 5 log.txt", t)).toBe("Checked git status and read log.txt");
+});
+
+test("a cd that names no folder keeps its prefix on the command", async () => {
+  // Review of the redesign: `cd .. && rm -rf build` showed only `rm -rf build`, with no folder chip.
+  const { commandFolder } = await import("../src/agent-session/acpmux/conversation/commandSummary");
+  for (const command of ["cd .. && rm -rf build", "cd ~ && ls", "cd - ; ls"])
+    expect(commandFolder(command)).toEqual({ rest: command });
+  expect(commandFolder("cd ~/wt/lanes/x && ls")).toEqual({ folder: "x", rest: "ls" });
 });
 
 test("a joined summary keeps a file name's case in every language", async () => {
@@ -164,4 +180,25 @@ test("Find in Chat matches a row's words only where it counts them", async () =>
   ]);
   expect(host.querySelector(".cv-thought__label")?.closest("[data-find-skip]")).not.toBeNull();
   expect(host.querySelector(".cv-tool__text")?.closest("[data-find-skip]")).not.toBeNull();
+});
+
+test("Find counts a command as its rows draw it, without the leading cd", async () => {
+  // Review of the redesign: the Shell block and a group's command line drop `cd <folder> &&`, so a
+  // match there would be counted but never drawn.
+  const { findMatches } = await import("../src/agent-session/acpmux/conversation/chatFind");
+  const row = {
+    id: "activity-find",
+    kind: "activity",
+    version: 1,
+    at: 1,
+    items: [
+      {
+        kind: "tool",
+        text: "Run",
+        tool: { id: "t10", title: "Run", kind: "execute", status: "completed", command: "cd ~/wt/lanes/x && ls build" },
+      },
+    ],
+  };
+  expect(findMatches([row as never], "lanes")).toEqual([]);
+  expect(findMatches([row as never], "build")).toHaveLength(1);
 });
