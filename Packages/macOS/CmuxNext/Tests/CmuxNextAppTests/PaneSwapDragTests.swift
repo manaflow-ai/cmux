@@ -95,4 +95,37 @@ struct PaneSwapDragTests {
         window.drag(from: try window.emptyStripPoint("p2"), to: try window.center("p2"))
         #expect(window.swaps.isEmpty)
     }
+
+    /// Lawrence 2026-10-19 (u2814): "Mouse down to focus tab is still not implemented." The strip
+    /// selects on the press, but the pane-swap pan recognizer tried every press, tabs included, and
+    /// AppKit held the mouse-down from the strip until the recognizer failed at the release: every
+    /// pane tab switched on mouse-up. A press on a tab must reach the strip at once.
+    @Test func aPressOnATabSelectsItBeforeTheRelease() throws {
+        let model = TabStripModel(tabs: [TabItem(id: TabID("a"), title: "a"), TabItem(id: TabID("b"), title: "b")],
+                                  selectedID: TabID("a"))
+        let strip = TabStripView(model: model)
+        strip.dragsWindowFromEmptySpace = false
+        var intents: [TabStripIntent] = []
+        model.intentHandler = { intents.append($0) }
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 40), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.contentView = strip
+        // Gesture recognizers only see the events of a window on screen.
+        window.orderFrontRegardless()
+        defer { window.orderOut(nil) }
+        strip.layoutSubtreeIfNeeded()
+        let drag = PaneSwapDrag(strip: strip, pane: "p1", layout: { nil }, swap: { _, _ in })
+        defer { withExtendedLifetime(drag) {} }
+        let cell = try #require(strip.cells[TabID("b")])
+        let point = strip.convert(strip.convert(CGPoint(x: cell.frame.midX, y: cell.frame.midY), from: strip.tabsClip), to: nil)
+        func send(_ type: NSEvent.EventType) throws {
+            window.sendEvent(try #require(NSEvent.mouseEvent(
+                with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: type == .leftMouseUp ? 0 : 1)))
+        }
+        try send(.leftMouseDown)
+        #expect(intents.contains(.select(TabID("b"))), "the press did not select the tab before the release: \(intents)")
+        try send(.leftMouseUp)
+        #expect(intents.filter { $0 == .select(TabID("b")) }.count == 1, "one click selects the tab once: \(intents)")
+    }
 }

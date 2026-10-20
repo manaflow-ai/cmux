@@ -67,12 +67,13 @@ struct UpdateSheetView: View {
                         .underline()
                 }
                 Spacer(minLength: 0)
+                let cancel = content.buttons.dropLast().firstIndex(where: \.dismisses)
                 ForEach(Array(content.buttons.enumerated()), id: \.element) { index, button in
                     let isDefault = index == content.buttons.count - 1
-                    Button(button.title) { press(button) }
+                    // The last button is Return's; the first other one that closes the sheet, Escape's.
+                    CmuxDialogActionButton(button.title, hint: isDefault ? .return : (index == cancel ? .escape : nil)) { press(button) }
                         .glassButtonStyle()
                         .font(Font(isDefault ? Typography.bodyEmphasized : Typography.body))
-                        .keyboardShortcut(isDefault ? .defaultAction : (button.dismisses ? .cancelAction : nil))
                 }
             }
         }

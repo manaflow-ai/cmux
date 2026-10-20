@@ -1,0 +1,94 @@
+#!/usr/bin/env python3
+"""Nightly workflows never run on Blacksmith.
+
+User decision 2026-10-19: cmux NIGHTLY, cmux NEXT NIGHTLY and the cmux-tui
+nightly build on our own Mac minis (the trusted glaeda pools), and every other
+nightly job runs on an ephemeral GitHub-hosted runner. No nightly job may name
+a Blacksmith label, and no nightly job may read a repository runner variable
+whose value or fallback is Blacksmith (LINUX_RUNNER, MACOS_RUNNER_*, ...),
+because setting such a variable would silently move the nightly back.
+"""
+
+from __future__ import annotations
+
+import re
+import unittest
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+WORKFLOWS = ROOT / ".github" / "workflows"
+
+BLACKSMITH = re.compile(r"blacksmith", re.IGNORECASE)
+# Repository variables that route to Blacksmith pools today (docs/ci-runners.md).
+SHARED_RUNNER_VARIABLES = re.compile(
+    r"vars\.(LINUX_RUNNER|LINUX_ARM64_RUNNER|LINUX_RUNNER_DARWIN_CROSS|WINDOWS_RUNNER"
+    r"|MACOS_RUNNER_[A-Z0-9_]+|CI_NIGHTLY_DECIDE_RUNNER|CI_TRUSTED_RUNNER)\b"
+)
+# The cmux-tui nightly calls the shared package builder, which keeps its own
+# fallbacks for other callers; the nightly must override every runner input.
+TUI_NIGHTLY_RUNNER_INPUTS = (
+    "macos_runner",
+    "macos_retry_runner",
+    "linux_runner",
+    "linux_arm64_runner",
+    "windows_runner",
+)
+
+
+def nightly_workflows() -> list[Path]:
+    paths = set(WORKFLOWS.glob("*nightly*.yml")) | set(WORKFLOWS.glob("*notarization*.yml"))
+    return sorted(paths)
+
+
+def code_lines(path: Path):
+    for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+        if line.lstrip().startswith("#"):
+            continue
+        yield number, line.split(" # ", 1)[0]
+
+
+class NightlyOffBlacksmithTests(unittest.TestCase):
+    def test_nightly_workflows_are_discovered(self) -> None:
+        names = {path.name for path in nightly_workflows()}
+        for required in ("nightly.yml", "cmux-tui-nightly.yml", "auto-resume-nightly-notarization.yml"):
+            self.assertIn(required, names)
+
+    def test_no_nightly_job_names_blacksmith(self) -> None:
+        failures = [
+            f"{path.name}:{number}: {line.strip()}"
+            for path in nightly_workflows()
+            for number, line in code_lines(path)
+            if BLACKSMITH.search(line)
+        ]
+        self.assertEqual(failures, [], "nightly workflows must not route to Blacksmith")
+
+    def test_no_nightly_job_reads_a_shared_blacksmith_runner_variable(self) -> None:
+        failures = [
+            f"{path.name}:{number}: {line.strip()}"
+            for path in nightly_workflows()
+            for number, line in code_lines(path)
+            if SHARED_RUNNER_VARIABLES.search(line)
+        ]
+        self.assertEqual(failures, [], "a shared runner variable points at Blacksmith; use a literal owned or hosted label")
+
+    def test_tui_nightly_overrides_every_package_builder_runner(self) -> None:
+        text = (WORKFLOWS / "cmux-tui-nightly.yml").read_text(encoding="utf-8")
+        block = text[text.index("uses: ./.github/workflows/cmux-tui-build-package.yml"):]
+        block = block[: block.index("\n  publish-npm:")]
+        for name in TUI_NIGHTLY_RUNNER_INPUTS:
+            with self.subTest(input=name):
+                match = re.search(rf"^\s+{name}: (.+)$", block, re.MULTILINE)
+                self.assertIsNotNone(match, f"cmux-tui nightly must pass {name}")
+                self.assertNotRegex(match.group(1), BLACKSMITH)
+
+    def test_compiles_stay_on_the_owned_trusted_minis(self) -> None:
+        text = (WORKFLOWS / "nightly.yml").read_text(encoding="utf-8")
+        job = text[text.index("\n  build-nightly-app:"):]
+        runs_on = re.search(r"^    runs-on: (.+)$", job, re.MULTILINE).group(1)
+        self.assertIn("vars.CI_NIGHTLY_TRUSTED_RUNNER", runs_on)
+        self.assertIn("vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER", runs_on)
+        self.assertIn("glaeda-trusted-next-nightly", runs_on)
+
+
+if __name__ == "__main__":
+    unittest.main()
