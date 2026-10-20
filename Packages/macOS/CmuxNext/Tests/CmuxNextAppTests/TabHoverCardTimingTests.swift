@@ -6,9 +6,10 @@ import Testing
 
 /// Leo 2026-10-14: tab previews behave like a browser's. A card opens after the hover card delay
 /// (`sidebar.hoverCards.delay`, `HoverCardTiming.showDelay` by default, cx-23e1f) on a tab; with one open, another
-/// tab takes it over at once; leaving the tab hides it at once, also onto the card's own area
-/// (nothing on the card takes the pointer); a tab reached within the reshow window (a gap
-/// between tabs) shows its card at once. The delays run on a manual clock the test moves.
+/// tab takes it over at once; leaving the tab hides it at once; a tab reached within the reshow
+/// window (a gap between tabs) shows its card at once. Lawrence 2026-10-19: the card touches its
+/// tab, and the pointer moving from the tab onto the card keeps it. The delays run on a manual
+/// clock the test moves.
 @MainActor @Suite(.serialized) struct TabHoverCardTimingTests {
     private struct Strip {
         let strip: TabStripView
@@ -112,14 +113,30 @@ import Testing
         #expect(s.shows("c"), "the open card did not swap to the next tab at once")
     }
 
-    @Test func leavingTheTabHidesTheCardAtOnceAlsoOntoTheCard() async throws {
+    @Test func theCardStaysWithThePointerOnItAndFadesOutAtOnceOffIt() async throws {
         let s = Self.strip()
         defer { s.tearDown() }
         try await Self.open("a", s)
         let card = try s.cardFrame()
-        // Straight down from the tab into the card: nothing on it takes the pointer.
+        // Straight down from the tab onto the card: it stays, also resting there past the grace.
         s.move(to: CGPoint(x: card.midX, y: card.midY))
-        #expect(!s.showsAny, "the card stayed with the pointer on it")
+        #expect(s.shows("a"), "the card hid as the pointer moved from its tab onto it")
+        try await s.clock.waitForSleeper()
+        s.clock.advance(by: HoverCardTiming.reshowWindow + .milliseconds(100))
+        try await Self.settle()
+        #expect(s.shows("a"), "the card hid with the pointer resting on it")
+        // Off the card and off the strip: it fades out on this move, with no grace timer first.
+        s.move(to: CGPoint(x: s.strip.bounds.midX, y: s.strip.bounds.minY - 120))
+        #expect(!s.showsAny, "the card stayed after the pointer left it: \(s.coordinator.report["phase"] ?? "-")")
+        let panel = try #require(s.coordinator.panel)
+        #expect(!panel.isShowingCard, "the fade did not start on the move off the card")
+        let fade = Motion.duration(.fadeOut)
+        let start = ContinuousClock.now
+        while panel.isVisible, panel.alphaValue > 0.001, ContinuousClock.now - start < .seconds(fade + 1) {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        #expect(!panel.isVisible || panel.alphaValue <= 0.001, "the card was still at alpha \(panel.alphaValue)")
+        #expect(ContinuousClock.now - start <= .seconds(fade + 0.25), "the fade ran past its \(fade) s")
         // Back onto a tab within the grace: its card at once.
         s.move(to: try s.center("b"))
         #expect(s.shows("b"), "a tab reached within the grace waited for the delay")
@@ -134,6 +151,24 @@ import Testing
         s.move(to: CGPoint(x: s.strip.bounds.midX, y: s.strip.bounds.minY - 120))
         try await Self.settle(until: { s.coordinator.machine.phase == .idle })
         #expect(s.coordinator.machine.phase == .idle, "leaving before the delay left a card pending")
+    }
+
+    /// Lawrence 2026-10-19: the card sits right against its tab, no gap for the pointer to cross.
+    @Test func theCardTouchesItsTab() async throws {
+        Motion.reduceMotionOverride = true
+        defer { Motion.reduceMotionOverride = nil }
+        let s = Self.strip()
+        defer { s.tearDown() }
+        try await Self.open("b", s)
+        let cell = try #require(s.strip.cells[TabID("b")])
+        let tab = s.window.convertToScreen(s.strip.tabsClip.convert(cell.frame, to: nil))
+        let card = NSRectFromString(try #require(s.coordinator.report["card_frame"]))
+        let scale = s.window.backingScaleFactor
+        // The strip is at the window's top, so the card opens below the tab.
+        let gap = tab.minY - card.maxY
+        #expect(gap <= 0.001, "a \(gap) pt gap between the tab and its card")
+        #expect(gap > -1 / scale - 0.001, "the card overlaps its tab by \(-gap) pt")
+        #expect(abs(card.minX - tab.minX) < 0.5, "the card is not aligned with its tab")
     }
 
     /// Chrome: a click or Esc on a tab ends its card until the pointer leaves that tab; a
