@@ -172,7 +172,7 @@ class Place(unittest.TestCase):
         with mock.patch.object(cascade.Api, "in_flight", return_value={LARGE: 2, SMALL: 3}):
             self.assertEqual(cascade.read(live_env, pool, now=NOW, log=lambda _: None),
                              ({LARGE: 2, SMALL: 3}, {LARGE: 1, SMALL: 0},
-                              cascade.Seen(waits={LARGE: 5.0, SMALL: 0.0}, hosted=0)))
+                              cascade.Seen(waits={LARGE: 5.0, SMALL: 0.0}, hosted=0, age=2.0)))
         with mock.patch.object(cascade.Api, "in_flight", side_effect=OSError("boom")):
             self.assertEqual(cascade.read(live_env, pool, now=NOW, log=lambda _: None), (None, None, None))
         pool.GitHub.return_value.snapshot.side_effect = OSError("boom")
@@ -205,7 +205,7 @@ class Place(unittest.TestCase):
             live, waiting, seen = cascade.read(env(ROUTE_TOKEN="route", SNAPSHOT_TOKEN="gh",
                                                    GITHUB_REPOSITORY="manaflow-ai/cmux"), pool, now=NOW)
         self.assertEqual((live, waiting), ({LARGE: 3, SMALL: 1}, {LARGE: 2, SMALL: 0}))
-        self.assertEqual(seen, cascade.Seen(waits={LARGE: 2.0, SMALL: 0.0}, hosted=0))
+        self.assertEqual(seen, cascade.Seen(waits={LARGE: 2.0, SMALL: 0.0}, hosted=0, age=2.0))
         self.assertEqual(calls, ["/orgs/manaflow-ai/actions/runner-groups?per_page=100&visible_to_repository=cmux",
                                  "/orgs/manaflow-ai/actions/runner-groups/15/runners?per_page=100",
                                  "/orgs/manaflow-ai/actions/runner-groups/10/runners?per_page=100",
@@ -253,9 +253,12 @@ class Stall(unittest.TestCase):
         return cascade.Seen(waits={LARGE: 46.0, SMALL: 13.0}, hosted=hosted)
 
     def test_seen_reads_each_labels_wait_by_now_and_the_hosted_load(self):
-        seen = cascade.seen(snapshot(5, oldest={"large": 41, "small": 8}, hosted=(1, 2), large=3, small=6), NOW)
-        # The oldest job has waited the snapshot's age longer by now.
-        self.assertEqual(seen, cascade.Seen(waits={LARGE: 46.0, SMALL: 13.0}, hosted=3))
+        shot = snapshot(5, oldest={"large": 41, "small": 8}, hosted=(1, 2), large=3, small=6)
+        shot["pools"]["macos-15"] = {"queued": 0, "running": 1}
+        shot["pools"]["blacksmith-6vcpu-macos-15"] = {"queued": 4, "running": 3}
+        seen = cascade.seen(shot, NOW)
+        # The oldest job has waited the snapshot's age longer by now; every hosted macOS pool counts.
+        self.assertEqual(seen, cascade.Seen(waits={LARGE: 46.0, SMALL: 13.0}, hosted=4, age=5.0))
         # An empty queue has no wait, whatever a stale oldest field says.
         self.assertEqual(cascade.seen(snapshot(5, oldest={"large": 41}), NOW).waits, {LARGE: 0.0, SMALL: 0.0})
         self.assertIsNone(cascade.seen(snapshot(minutes_old=cascade.QUEUE_SNAPSHOT_MINUTES + 1), NOW))
@@ -272,6 +275,10 @@ class Stall(unittest.TestCase):
                                          {LARGE: float(idle), SMALL: float(idle)}), (LARGE,))
         self.assertEqual(cascade.stalled({LARGE: 0, SMALL: 0}, {LARGE: 1, SMALL: 0},
                                          {LARGE: idle - 1.0, SMALL: 0.0}), ())
+        # An idle scale set has no runner online: a job the snapshot saw queued only briefly
+        # is not a stall however old the snapshot is (it may have run since).
+        self.assertEqual(cascade.stalled({LARGE: 0, SMALL: 0}, {LARGE: 1, SMALL: 0},
+                                         {LARGE: 12.0, SMALL: 0.0}, age=10.0), ())
         # A runner online does not excuse a queue that has waited STALL_MINUTES.
         self.assertEqual(cascade.stalled({LARGE: 3, SMALL: 0}, {LARGE: 1, SMALL: 0},
                                          {LARGE: float(cascade.STALL_MINUTES), SMALL: 0.0}), (LARGE,))
@@ -326,6 +333,19 @@ class Stall(unittest.TestCase):
         both = cascade.Seen(waits={LARGE: 30.0, SMALL: 30.0}, hosted=0)
         self.assertEqual(cascade.place(env(), (), live, {LARGE: 1, SMALL: 1}, both).retry_runner,
                          cascade.retry_label(live, {LARGE: 1, SMALL: 1}))
+
+    def test_only_the_hosted_jobs_read_the_hosted_route_and_get_more_time(self):
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        readers = {name for name, job in jobs.items() if "outputs.hosted_runner" in str(job.get("runs-on", ""))}
+        self.assertEqual(readers, {"fast-tier", "swift-canary"})
+        # Their runs-on, and swift-canary's CMUX_NEXT_RUNNER copy of it: no other job reads the hosted label.
+        self.assertEqual(WORKFLOW.read_text(encoding="utf-8").count("needs.macos-placement.outputs.hosted_runner"), 3)
+        for name in readers:
+            with self.subTest(job=name):
+                timeout = jobs[name]["timeout-minutes"]
+                hosted = {"needs": {"macos-placement": {"outputs": {"hosted_jobs": f" {name} "}}}}
+                self.assertEqual(evaluate(timeout, hosted), 45)
+                self.assertEqual(evaluate(timeout, {"needs": {"macos-placement": {"outputs": {"hosted_jobs": ""}}}}), 20)
 
     def test_the_placement_writes_the_hosted_route(self):
         with tempfile.TemporaryDirectory() as tmp:

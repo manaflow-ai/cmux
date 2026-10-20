@@ -47,7 +47,9 @@ so every run's cascade kept sending jobs to labels where none started, about
 80 by 10:50Z. The janitor's snapshot (the same read as the queued counts)
 records each label's oldest queued job; by now it has waited that long plus
 the snapshot's age. A label is stalled when that wait is STALL_MINUTES or
-more, or IDLE_STALL_MINUTES or more while the label has no runner online:
+more, or when the snapshot itself saw it wait IDLE_STALL_MINUTES or more and
+the label has no runner online now (age is not added there: an idle scale set
+has no runner online, and a job queued at snapshot time may since have run):
 a moving Blacksmith label starts a job in a few minutes (6 vCPU: median 2.6
 min, p90 14.7, 2026-10-20 01:04Z to 02:35Z).
 
@@ -55,7 +57,11 @@ Then hosted macos-26 takes the overflow (Leo: GitHub-hosted macOS is free on
 this public repository and must not sit idle while Blacksmith queues). The
 jobs Blacksmith did not take, in HOSTED_JOBS, go to `macos-26` while it has
 room: HOSTED_CAPACITY, the organization's hosted macOS concurrency, less this
-repository's macos-26 jobs in the snapshot, at most MAX_PER_RUN a run. The
+repository's hosted macOS jobs in the snapshot, at most MAX_PER_RUN a run.
+Nothing measures hosted health: an outage there queues at most that many
+jobs, and a hosted job that fails falls back only on the bot's attempt 3
+(retry_runner); the rescue does not watch hosted jobs. A hosted job gets a
+45 min timeout instead of 20, since it builds cold. The
 rest stay on the minis' queue as before. HOSTED_JOBS are the jobs whose pins
 the hosted image meets: they pin no Xcode path (select-ci-xcode.sh takes
 xcode-pins.txt's 26.6, the image default, build 17F113 as on Blacksmith),
@@ -128,6 +134,7 @@ class Seen:
     """What else the snapshot says: each label's oldest queued wait by now (minutes), and HOSTED's load."""
     waits: Mapping[str, float]
     hosted: int
+    age: float = 0.0  # the snapshot's age in minutes, already in `waits`
 
 
 def _fresh(snapshot: Mapping[str, Any] | None, now: dt.datetime) -> tuple[float, Mapping[str, Any]] | None:
@@ -169,17 +176,24 @@ def seen(snapshot: Mapping[str, Any] | None, now: dt.datetime) -> Seen | None:
     if fresh is None:
         return None
     age, pools = fresh
-    waits = {label: float(_field(pools, label, "oldest_queued_minutes")) + max(0.0, age)
+    age = max(0.0, age)
+    waits = {label: float(_field(pools, label, "oldest_queued_minutes")) + age
              if _field(pools, label, "queued") else 0.0 for label in LABELS}
-    return Seen(waits=waits, hosted=_field(pools, HOSTED, "queued") + _field(pools, HOSTED, "running"))
+    # Every hosted macOS pool shares the organization's concurrency; the janitor keys a job by its
+    # macOS labels joined with commas, so a hosted pool is one whose labels are all macos-*.
+    hosted = sum(_field(pools, pool, "queued") + _field(pools, pool, "running") for pool in pools
+                 if all(part.startswith("macos-") for part in str(pool).split(",")))
+    return Seen(waits=waits, hosted=hosted, age=age)
 
 
-def stalled(live: Mapping[str, int], waiting: Mapping[str, int], waits: Mapping[str, float]) -> tuple[str, ...]:
-    """The labels whose queue is not moving: a wait of STALL_MINUTES, or IDLE_STALL_MINUTES with no runner online."""
+def stalled(live: Mapping[str, int], waiting: Mapping[str, int], waits: Mapping[str, float],
+            age: float = 0.0) -> tuple[str, ...]:
+    """The labels whose queue is not moving: a wait of STALL_MINUTES by now, or one of IDLE_STALL_MINUTES
+    the snapshot saw (`waits` less its `age`) with no runner online now."""
     return tuple(label for label in LABELS
                  if waiting.get(label, 0) > 0
                  and (waits.get(label, 0.0) >= STALL_MINUTES
-                      or live.get(label, 0) == 0 and waits.get(label, 0.0) >= IDLE_STALL_MINUTES))
+                      or live.get(label, 0) == 0 and waits.get(label, 0.0) - age >= IDLE_STALL_MINUTES))
 
 
 def cascade(jobs: Sequence[str], live: Mapping[str, int], waiting: Mapping[str, int], *,
@@ -225,7 +239,7 @@ def place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int] 
         return Placement(empty, "", skipped(env))
     if live is None:
         return Placement(empty, "", "Blacksmith's runner groups could not be read; no job leaves the minis' queue")
-    stall = stalled(live, waiting or {}, seen.waits) if seen is not None else ()
+    stall = stalled(live, waiting or {}, seen.waits, seen.age) if seen is not None else ()
     moving = [label for label in LABELS if label not in stall]
     retry = retry_label(live, waiting or {})
     if stall and moving:
