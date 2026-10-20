@@ -65,6 +65,11 @@ export interface MarkdownConfig {
   hash: string;
   /** The file's GitHub `origin` repository (`owner/repo`), when it has one. */
   githubRepository?: string;
+  /**
+   * The native omnibar above the page shows the file's full path
+   * (plans/cmux-next/markdown-omnibar-DESIGN.md), so the toolbar shows no file name of its own.
+   */
+  omnibar?: boolean;
   /** The page may not save: see `readOnlyReason`. */
   readOnly?: boolean;
   /** Why the page may not save; the page names it. */

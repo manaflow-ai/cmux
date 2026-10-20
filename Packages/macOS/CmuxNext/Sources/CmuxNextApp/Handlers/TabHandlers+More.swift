@@ -98,7 +98,11 @@ extension TabHandlers {
             }
             entry.chrome.perform(.reload)
         })
-        registry.bindUnavailable("palette.toggleFullWidthTab", reason: RefusalStrings.fullWidthTabUnported)
+        // Full Width Tab: the pane's strip shows only the selected tab, across the strip (PaneFullWidthTabs).
+        registry.bind("palette.toggleFullWidthTab", invoke: { invocation in
+            guard let (pane, id) = ctx.tab(invocation) else { return }
+            pane.toggleFullWidthTab(showing: id)
+        })
         bindAudio(registry, ctx)
         registry.bindUnavailable("disconnectRemoteTab", reason: RefusalStrings.needsDaemonCapability("remote-ssh-tabs"))
     }

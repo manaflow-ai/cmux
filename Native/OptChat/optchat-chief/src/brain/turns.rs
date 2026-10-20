@@ -1120,10 +1120,10 @@ impl Brain {
             outcome.refused,
             &failed,
         );
-        // A Chief that reads every message stays quiet with NO_REPLY (membership).
-        let text = if self.settings.membership.acts_on_its_own()
-            && crate::membership::is_no_reply(&text)
-        {
+        // NO_REPLY posts nothing: a Chief that reads every message stays
+        // quiet with it (membership), and any Chief ends with it when a
+        // reaction or its `reply` calls said it all (brain/replies.rs).
+        let text = if crate::membership::is_no_reply(&text) {
             (self.log)(&format!(
                 "turn {key} answered {}: nothing posted",
                 crate::membership::NO_REPLY
@@ -1165,12 +1165,7 @@ impl Brain {
         }
         let pending: Vec<String> = answers
             .iter()
-            .filter(|id| {
-                self.state
-                    .spawns
-                    .values()
-                    .any(|s| s.answers.contains(id) && s.working())
-            })
+            .filter(|id| self.state.spawns.values().any(|s| s.working_for(id)))
             .cloned()
             .collect();
         // Work announced as pending that this turn closes: a silent turn
@@ -1202,10 +1197,11 @@ impl Brain {
         let thread = if superseded {
             None
         } else {
-            let thread = answers
-                .last()
-                .and_then(|id| self.reply_threads.get(id))
-                .cloned();
+            // In the Chief conversation too: the thread of the user message
+            // it answers, by `replies.thread` (brain/replies.rs).
+            let thread = conversation
+                .as_deref()
+                .and_then(|c| self.reply_thread(c, &answers));
             for id in &answers {
                 self.reply_threads.remove(id);
             }
@@ -1381,7 +1377,20 @@ impl Brain {
                 }
                 Source::Spawn(r) => {
                     if let Some(record) = self.state.spawns.get(&r.spawn) {
-                        add_answers(&mut answers, record.answers.clone());
+                        // A subagent told during a later turn answers that
+                        // turn's messages; the others, the spawn's.
+                        let mut spawn_wide = r.subs.is_empty();
+                        for (sub, _) in &r.subs {
+                            match record.subs.iter().find(|s| &s.id == sub) {
+                                Some(s) if !s.answers.is_empty() => {
+                                    add_answers(&mut answers, s.answers.clone())
+                                }
+                                _ => spawn_wide = true,
+                            }
+                        }
+                        if spawn_wide {
+                            add_answers(&mut answers, record.answers.clone());
+                        }
                     }
                 }
                 _ => {}

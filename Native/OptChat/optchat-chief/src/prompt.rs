@@ -70,7 +70,15 @@ few lookups, a small edit. Give any task that needs builds, tests, many tool
 calls or long work to a subagent, one subagent per independent ask, then end
 your turn and tell the user what runs, naming each subagent by its id (the
 cmux app shows each subagent id as a link to its chat). When a turn has made
-about 8 tool calls and the work is not done, hand the rest to a subagent.";
+about 8 tool calls and the work is not done, hand the rest to a subagent.
+
+Replies: be brief and specific to the message you answer. Your reply goes
+into the thread of that message when other messages came after it. When a
+message needs only an acknowledgement (thanks, ok, a done, an approval you
+act on), react to it with react(id, \"ack\") instead of writing, and end the
+turn with exactly NO_REPLY when nothing else needs saying. When one turn
+answers separate asks, answer each in its own thread with reply(id, text).
+The id is the message's line id in the view or after </chat>.";
 
 /// VIEW_DOC of the older spec (section 7.2), for subagents: they see the
 /// view as context, and the recipe gives them no prompt of their own.
@@ -409,6 +417,12 @@ pub fn subagent_blocks(view: &str, task: &str) -> Vec<Value> {
 pub const SPAWN_DESCRIPTION: &str = "Start one subagent per task, in parallel, in the background, in `cwd`; answers their ids at once and, for each, the cmux workspace that shows its chat, its sidebar group and where it is, or that it has none and why. Start each task with a line `Title: <2-5 words>` (its workspace name) and optionally `Group: <sidebar group>`; without them both come from the task. Tell the user only that. Each subagent sees the view and its task. Each one's report reaches you as a message \"[id] report\" when it finishes. Never wait or poll for them.";
 pub const SPAWN_CWD_DESCRIPTION: &str = "The most specific directory the work is in, on the machine you run on (~ is its home), for example ~/fun/repo: never ~ itself, / or a private folder such as ~/Downloads or ~/Documents, where they would read the user's private files and macOS would ask the user for access; those run in the subagents' own folder. The answer says when it does not exist there.";
 pub const TELL_DESCRIPTION: &str = "Send a message to a subagent; a running one reads it between its tool calls, an idle one runs again; a queued or starting one gets it the moment it can (never tell it again). Its report answers it.";
+
+/// The `react` tool's description.
+pub const REACT_DESCRIPTION: &str = "React to a user message with a tapback (like, love, laugh, emphasize, question, dislike; ack is a like), shown on the message at once. Use it instead of a reply that only acknowledges. id: the message's line id.";
+
+/// The `reply` tool's description.
+pub const REPLY_DESCRIPTION: &str = "Post text now as a reply in the thread of a user message, so the user sees which ask it answers. Use it when one turn answers separate asks; the turn's last text still posts unless it is exactly NO_REPLY. id: the message's line id.";
 
 /// The `control` tool's description.
 pub const CONTROL_DESCRIPTION: &str = "Control your subagents; every answer starts with its outcome (done, queued, noop, refused). status [id]: state, elapsed, last output, pending prompt with its options. interrupt id [message]: stop its turn now, keep its context, then send message. answer id option: answer its pending prompt with an option id, or deny; approve only safe steps (reads, edits and tests in its worktree), ask the user for money, legal, destructive or credential steps. pause id / resume id [message]. cancel id: stop for good. restart id [message]: stop and continue in the same session. priority id: a queued one starts next. cap n: subagents at work at once (0: no cap). Never poll: reports, stuck notes and prompts come to you as messages.";

@@ -630,6 +630,19 @@ impl Brain {
                 "outcome: refused. {id} was cancelled; control(action: \"restart\", id: \"{id}\") brings it back"
             ));
         }
+        // The messages this tell is for: its next report answers them, in
+        // their thread (chief-replies-reactions-DESIGN.md).
+        let told_for = self
+            .state
+            .turn
+            .as_ref()
+            .map(|t| t.answers.clone())
+            .unwrap_or_default();
+        if !told_for.is_empty()
+            && let Some(sub) = self.state.sub_mut(id)
+        {
+            sub.answers = told_for;
+        }
         if let Some(key) = key
             && let Some(sub) = self.state.sub_mut(id)
         {
