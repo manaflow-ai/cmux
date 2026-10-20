@@ -11,6 +11,8 @@ import Foundation
 struct ClassicMigrationOutcome: Equatable {
     var decision: ClassicMigrationPlanner.Decision
     var summary = ClassicImportSummary()
+    /// False when the person declined the exact plan before it wrote anything.
+    var confirmed = true
     /// The cmux-next workspaces it made, in order.
     var opened: [String] = []
     /// Why classic workspaces did not open, by classic key (the next manual run tries them again).
@@ -58,7 +60,8 @@ extension AppOnboardingServices {
     func migrateClassicAtLaunch(firstWorkspace: String?) async {
         guard classicMigrationRunsAtLaunch else { return }
         do {
-            let outcome = try await migrateClassic(.automatic, firstWorkspace: firstWorkspace)
+            let outcome = try await migrateClassic(.automatic, firstWorkspace: firstWorkspace,
+                                                   confirmation: confirmClassicImport)
             guard !outcome.opened.isEmpty, let notice = owner.classicImportNotice else { return }
             ClassicImportStrings.toast(notice, in: services.windows.active?.window)
         } catch {
@@ -67,17 +70,25 @@ extension AppOnboardingServices {
     }
 
     /// One migration run. Runs never overlap: a second one waits for the first.
-    func migrateClassic(_ mode: ClassicMigrationPlanner.Mode, firstWorkspace: String? = nil) async throws -> ClassicMigrationOutcome {
+    func migrateClassic(_ mode: ClassicMigrationPlanner.Mode, firstWorkspace: String? = nil,
+                        confirmation: @escaping @MainActor (ClassicImportPlan) async -> Bool) async throws -> ClassicMigrationOutcome {
         let previous = owner.classicMigrationRun
         let run = Task { @MainActor in
             _ = await previous?.result
-            return try await runClassicMigration(mode, firstWorkspace: firstWorkspace)
+            return try await runClassicMigration(mode, firstWorkspace: firstWorkspace, confirmation: confirmation)
         }
         owner.classicMigrationRun = run
         return try await run.value
     }
 
-    private func runClassicMigration(_ mode: ClassicMigrationPlanner.Mode, firstWorkspace: String?) async throws -> ClassicMigrationOutcome {
+    /// The one confirmation path for launch and manual migration.
+    func confirmClassicImport(_ plan: ClassicImportPlan) async -> Bool {
+        if let confirmation = owner.classicMigrationConfirmation { return await confirmation(plan) }
+        return await ClassicImportConfirmation(plan: plan, services: services).ask()
+    }
+
+    private func runClassicMigration(_ mode: ClassicMigrationPlanner.Mode, firstWorkspace: String?,
+                                     confirmation: @escaping @MainActor (ClassicImportPlan) async -> Bool) async throws -> ClassicMigrationOutcome {
         let repository = ClassicMigrationRepository(directory: classicMigrationDirectory)
         let load = await repository.load()
         let planner = ClassicMigrationPlanner()
@@ -138,6 +149,12 @@ extension AppOnboardingServices {
             return outcome
         }
 
+        let preview = ClassicImportPlan(source: read.source, migration: plan)
+        guard await confirmation(preview) else {
+            outcome.confirmed = false
+            return outcome
+        }
+
         // The classic files this run read, copied before anything changes here.
         let stamp = Self.backupStamp()
         try await repository.backup(read.backups, stamp: stamp)
@@ -169,7 +186,7 @@ extension AppOnboardingServices {
         }
         let hosts = connecting
         let run = ClassicMigrationRunState(
-            ledger: ledger, outcome: outcome, plan: plan, groups: groups, hosts: hosts, repository: repository,
+            ledger: ledger, outcome: outcome, mode: mode, plan: plan, groups: groups, hosts: hosts, repository: repository,
             targets: plan.windows.indices.map { $0 == 0 ? windows.targetWindow(preferring: firstWindow) : UUID().uuidString.lowercased() })
 
         // One window after another: creating windows side by side was five
@@ -261,8 +278,34 @@ extension AppOnboardingServices {
         run.ledger.workspaces[saved.key] = ClassicMigrationLedger.Entry(stage: .done, nextWorkspace: made)
         try await save(run.ledger, to: repository)
         run.outcome.opened.append(made)
+        // The launch's run only: Import from Classic is the person asking now, its terminals open live.
+        if run.mode == .automatic, saved.key != window.selectedKey { await parkClassicTerminals(of: made, saved: saved) }
         if index == 0 { run.openedInFirstWindow = true }
         if index == 0, saved.key == window.selectedKey { run.reveal = made }
+    }
+
+    /// Parks the terminals of a workspace that came over in the background
+    /// (`park-tabs`): their shells end and their tabs stay, each starting when
+    /// the workspace is first shown (`DaemonService.wakeParkedTabs`). So a
+    /// session with more terminals than macOS has PTYs (`kern.tty.ptmx_max`)
+    /// comes over whole. A workspace whose classic terminals carry scrollback
+    /// keeps running: its shell prints the scrollback at its first prompt.
+    private func parkClassicTerminals(of id: String, saved: ClassicSessionWorkspace) async {
+        let local = services.machines.local
+        guard local.supports(DaemonCapabilities.shared.tabPark), local.supports(DaemonCapabilities.shared.tabRestartKeptLayout),
+              saved.remote == nil, !saved.layout.tabs.contains(where: { $0.scrollback != nil || $0.agent != nil }),
+              let connection = local.connection else { return }
+        let store = local.store
+        let terminals: @MainActor @Sendable () -> [SurfaceID] = {
+            store.workspace(id: id)?.screens.flatMap(\.panes).flatMap(\.tabs).filter { $0.kind == .pty && !$0.dead }.map(\.surface) ?? []
+        }
+        let expected = saved.layout.tabs.filter { $0.url == nil }.count
+        guard expected > 0, await Self.awaitStore({ terminals().count >= expected }) else { return }
+        do {
+            _ = try await connection.request(ParkTabsRequest(surfaces: terminals()))
+        } catch {
+            services.daemon.logger.error("classic workspace not parked: \(String(describing: error), privacy: .public)")
+        }
     }
 
     /// Whether `ready` holds, now or within 5 s, woken by the store's own changes.
@@ -429,6 +472,8 @@ fileprivate struct ClassicWorkspaceTurn: Sendable {
 fileprivate final class ClassicMigrationRunState {
     var ledger: ClassicMigrationLedger
     var outcome: ClassicMigrationOutcome
+    /// Who started the run (only the launch's run parks background workspaces).
+    let mode: ClassicMigrationPlanner.Mode
     let plan: ClassicMigrationPlan
     /// cmux-next group ids by classic group id.
     let groups: [String: WorkspaceGroupID]
@@ -442,10 +487,11 @@ fileprivate final class ClassicMigrationRunState {
     var reveal: String?
     var openedInFirstWindow = false
 
-    init(ledger: ClassicMigrationLedger, outcome: ClassicMigrationOutcome, plan: ClassicMigrationPlan,
+    init(ledger: ClassicMigrationLedger, outcome: ClassicMigrationOutcome, mode: ClassicMigrationPlanner.Mode, plan: ClassicMigrationPlan,
          groups: [String: WorkspaceGroupID], hosts: [String: DaemonService], repository: ClassicMigrationRepository, targets: [String]) {
         self.ledger = ledger
         self.outcome = outcome
+        self.mode = mode
         self.plan = plan
         self.groups = groups
         self.hosts = hosts

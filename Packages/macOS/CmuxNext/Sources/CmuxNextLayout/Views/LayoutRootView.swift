@@ -31,8 +31,6 @@ public final class LayoutRootView: NSView {
     /// The last reveal request applied; a newer one waits until its pane is in a screen's layout.
     private var appliedReveal: ColumnCenterRequest?
     private var reportedVisible: Set<PaneID> = []
-    /// The agent chat column last posted (`reportAgentChatColumn`).
-    var reportedAgentChatColumn: CGRect?
     private var reportedKeepAlive: Set<PaneID> = []
     var scrollLock: ScrollLock = .idle
     var consumeMomentum = false
@@ -55,6 +53,13 @@ public final class LayoutRootView: NSView {
     /// The pane the current drag empties, as the last preview decided the
     /// split room with it: the drop decides with the same pane (cx-ohle).
     var tabDragRemoving: PaneID?
+    /// The pane a terminal tab is dragged from: the facing edge of the pane next to it joins
+    /// (`DropZoneGeometry.joiningSharedEdge`).
+    var tabDragJoinsFrom: PaneID?
+    /// The target the drag shows now, and the one the App refused (`hideTabDragHighlight`): a refused
+    /// target stays hidden until the target changes, instead of drawing and hiding on every move (#22287).
+    var tabDragShownTarget: DropTarget?
+    var tabDragRefusedTarget: DropTarget?
     /// The pane edge the drag is over and since when; it splits once held for the dwell.
     var tabDragEdge: (hit: DropTarget, since: CFTimeInterval)?
     /// When the edge under a held pointer arms (a new split); nil when none is pending. The
@@ -365,7 +370,6 @@ public final class LayoutRootView: NSView {
         // Pane padding or corners changed: pages drawn as child windows
         // re-read their clip shape (their frames may not have moved).
         if let previous, previous.style != snapshot.style { planeHost?.paneShapesDidChange(overlayPlane) }
-        reportAgentChatColumn()
         if needsFrames || snapshot.gestureActive { driver.start() }
     }
 
@@ -439,7 +443,6 @@ public final class LayoutRootView: NSView {
         if overlayPlane.syncFrame() { overlayIsStale = true }
         flushOverlaySync()
         planeHost?.planeDidLayout(overlayPlane)
-        reportAgentChatColumn()
     }
 
     override public func setFrameOrigin(_ newOrigin: NSPoint) {
@@ -504,7 +507,6 @@ public final class LayoutRootView: NSView {
             }
         }
         updateVisibility()
-        reportAgentChatColumn()
     }
 
 }

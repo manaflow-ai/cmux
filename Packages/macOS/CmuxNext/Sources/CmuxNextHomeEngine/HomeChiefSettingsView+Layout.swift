@@ -111,6 +111,10 @@ extension HomeChiefSettingsView {
         diagnosticsToggle.action = #selector(toggleDiagnostics)
         diagnosticsToggle.setAccessibilityLabel(HomeEngineStrings.diagnostics)
         let title = HomeChiefLinkButton(title: HomeEngineStrings.diagnostics, target: self, action: #selector(clickDiagnosticsTitle))
+        // One control for VoiceOver and Tab: the triangle (named Diagnostics, with its expanded
+        // state); the title is a larger click target for the pointer only.
+        title.setAccessibilityElement(false)
+        title.refusesFirstResponder = true
         title.ink = .secondary
         title.textFont = Typography.header
         let row = NSStackView(views: [diagnosticsToggle, title])

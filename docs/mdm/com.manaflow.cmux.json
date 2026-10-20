@@ -811,7 +811,7 @@
     },
     "appearance.experimentalControls" : {
       "default" : false,
-      "description" : "Show the wallpaper grid and live appearance tuner while they are being integrated.",
+      "description" : "Applies Hue and Saturation to the window's tint. Off, they have no effect.",
       "title" : "Experimental Appearance Controls",
       "type" : "boolean"
     },
@@ -2213,7 +2213,7 @@
     },
     "home.chiefPetEnabled" : {
       "default" : false,
-      "description" : "A small Chief floats over every app and shows agent events above it. Drag it anywhere; click it to message the Chief or reply to a session.",
+      "description" : "A small Chief floats over every app and shows agent events above it. Drag it anywhere; click it to message the Chief or reply to a session. While it shows, ⌃⌥⌘C opens its reply box from any app.",
       "title" : "Show Chief Pet",
       "type" : "boolean"
     },
@@ -2413,6 +2413,12 @@
       "default" : true,
       "description" : "Off hides New Row and fits a column's existing rows into it without scrolling.",
       "title" : "Rows",
+      "type" : "boolean"
+    },
+    "layout.scrollAreas" : {
+      "default" : false,
+      "description" : "Side-by-side panes that do not fit scroll sideways instead of shrinking, also in docked columns.",
+      "title" : "Scroll Areas",
       "type" : "boolean"
     },
     "layout.splitSizing" : {

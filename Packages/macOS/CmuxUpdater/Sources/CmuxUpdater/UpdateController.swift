@@ -46,6 +46,9 @@ public final class UpdateController {
     var activeCheckIntent: UpdateCheckIntent?
     /// A ``checkInBackground()`` that waits for the running session to end.
     var pendingBackgroundCheck = false
+    /// The wake observer and the pending check after a wake (`UpdateController+Wake.swift`).
+    var wakeObservation: Task<Void, Never>?
+    var wakeCheckTask: Task<Void, Never>?
     /// Armed when the user asks to install; fires a visible "Update Didn't Start" error if the
     /// flow never reaches downloading/installing (or another visible outcome). See
     /// ``attemptUpdate`` in `UpdateController+InstallAttempt.swift` (internal for that file).
@@ -60,7 +63,7 @@ public final class UpdateController {
     let readyRetryDelay: Duration = .milliseconds(250)
     let readyRetryCount = 20
 
-    private var didStartUpdater = false
+    private(set) var didStartUpdater = false
     /// `DisableAutoUpdate` (MDM), read on every start and check request.
     let isDisabledByPolicy: () -> Bool
 
@@ -158,6 +161,8 @@ public final class UpdateController {
         stateReactionTask?.cancel()
         noUpdateDismissTask?.cancel()
         readyCheckTask?.cancel()
+        wakeObservation?.cancel()
+        wakeCheckTask?.cancel()
         // installWatchdog cancels its own pending timer in its deinit (it is released with self).
     }
 
@@ -279,6 +284,7 @@ public final class UpdateController {
             defaults.removeObject(forKey: UpdateSettings.scheduledCheckIntervalKey)
             defaults.removeObject(forKey: UpdateSettings.sendProfileInfoKey)
             defaults.removeObject(forKey: UpdateSettings.migrationKey)
+            defaults.removeObject(forKey: UpdateSettings.intervalMigrationKey)
             defaults.synchronize()
             log.append("reset sparkle permission defaults (ui test)")
         }
@@ -298,6 +304,7 @@ public final class UpdateController {
                 "updater started (autoChecks=\(updater.automaticallyChecksForUpdates), interval=\(interval)s, autoDownloads=\(updater.automaticallyDownloadsUpdates))"
             )
             startLaunchUpdateProbeIfNeeded()
+            if installsUpdatesInBackground { observeSystemWake() }
             return true
         } catch {
             model.setState(.error(.init(
@@ -328,6 +335,14 @@ public final class UpdateController {
             return
         }
 
+        if installsUpdatesInBackground {
+            // Hosts that never prompt check for real at launch: a found update downloads in the
+            // background and waits staged, instead of only being noted until the next scheduled
+            // check (up to an interval later).
+            log.append("starting launch background check")
+            checkInBackground()
+            return
+        }
         // Probe immediately on launch so the sidebar can surface a passive update indicator
         // without waiting for Sparkle's scheduled check or opening interactive update UI.
         log.append("starting launch update probe")
