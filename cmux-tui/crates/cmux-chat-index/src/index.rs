@@ -55,6 +55,8 @@ struct CacheFile {
 pub struct ChatIndex {
     slots: Vec<Slot>,
     merged: BTreeMap<ChatKey, IndexedChat>,
+    /// Root entries the last change merged (see ``merge_visits``).
+    visits: usize,
 }
 
 impl ChatIndex {
@@ -75,7 +77,7 @@ impl ChatIndex {
             .into_iter()
             .map(|root| Slot { scan: saved.remove(&root.id()).unwrap_or_default(), root })
             .collect();
-        let mut index = Self { slots, merged: BTreeMap::new() };
+        let mut index = Self { slots, merged: BTreeMap::new(), visits: 0 };
         index.merged = index.merge();
         index
     }
@@ -176,6 +178,13 @@ impl ChatIndex {
         self.merged.get(key)
     }
 
+    /// How many root entries the last change merged: the cost of one watcher
+    /// burst. A burst that names one transcript merges that chat's copies
+    /// only, however many chats the index holds.
+    pub fn merge_visits(&self) -> usize {
+        self.visits
+    }
+
     fn remerge(&mut self) -> Vec<ChatChange> {
         let next = self.merge();
         let mut changes = Vec::new();
@@ -193,7 +202,8 @@ impl ChatIndex {
         changes
     }
 
-    fn merge(&self) -> BTreeMap<ChatKey, IndexedChat> {
+    fn merge(&mut self) -> BTreeMap<ChatKey, IndexedChat> {
+        let mut visits = 0;
         let mut merged: BTreeMap<ChatKey, IndexedChat> = BTreeMap::new();
         for slot in &self.slots {
             let account = (slot.root.accounts.len() == 1).then(|| slot.root.accounts[0].clone());
@@ -202,6 +212,7 @@ impl ChatIndex {
             // session with no user message (Lawrence 2026-10-11).
             for entry in slot.scan.entries.iter().filter(|entry| crate::scan::is_person_chat(entry))
             {
+                visits += 1;
                 let chat = merged.entry(entry.key()).or_insert_with(|| IndexedChat {
                     entry: entry.clone(),
                     accounts: Vec::new(),
@@ -221,6 +232,7 @@ impl ChatIndex {
                 }
             }
         }
+        self.visits = visits;
         merged
     }
 }
