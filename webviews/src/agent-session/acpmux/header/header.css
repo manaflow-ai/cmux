@@ -36,7 +36,7 @@
 /* The chat's viewer (labs chatViewer, Lucas 2026-10-19): only Files and linked files sit beside the
    transcript from an ordinary pane width. Changes keeps the production layout above. */
 /* About Thread details' width (300px), a little more for code (Lucas 2026-10-19). */
-.acpmux-stage{--acpmux-viewer-width:320px}
+.acpmux-main{container-type:inline-size;--acpmux-viewer-width:320px}
 @container (min-width:820px){
   html[data-lab-chat-viewer="on"] .acpmux-reviewing:has(>.acpmux-file-viewer)>.acpmux-header,html[data-lab-chat-viewer="on"] .acpmux-reviewing:has(>.acpmux-file-viewer)>.acpmux-scroll{visibility:visible;margin-right:var(--acpmux-viewer-width)}
   html[data-lab-chat-viewer="on"] .acpmux-reviewing>.acpmux-file-viewer{left:auto;bottom:auto;height:100vh;width:var(--acpmux-viewer-width);border-left:var(--cmux-hairline,.5px) solid var(--agent-border);background:var(--agent-page-bg)}
@@ -49,10 +49,11 @@
   html[data-lab-chat-viewer="on"] .acpmux-reviewing>.acpmux-file-viewer .acpmux-file-viewer-body{padding:0 0 6px}
   html[data-lab-chat-viewer="on"] .acpmux-reviewing:has(>.acpmux-file-viewer)>.acpmux-summary-card[data-placement=popover]{visibility:visible;right:calc(var(--acpmux-viewer-width) + 10px)}
 }
-/* The composer and the pull request dock sit under the transcript, not centered on the whole pane (the
-   pane is the page, so the page width stands in for the stage's container query above). */
-@media (min-width:820px){
-  html[data-lab-chat-viewer="on"] .acpmux-main:has(>.acpmux-stage.acpmux-reviewing>.acpmux-diff-panel.acpmux-file-viewer)>.acpmux-dock{display:flex;flex-direction:column;min-height:0;margin-right:320px}
+/* The whole bottom stack shares the transcript's available width, including asks and the PR dock.
+   Query its main container: the pane can be narrower than the page, and the viewer width is shared
+   by the stage and dock rather than repeated here. */
+@container (min-width:820px){
+  html[data-lab-chat-viewer="on"] .acpmux-main:has(>.acpmux-stage.acpmux-reviewing>.acpmux-diff-panel.acpmux-file-viewer)>.acpmux-dock{display:flex;flex-direction:column;min-height:0;margin-right:var(--acpmux-viewer-width)}
 }
 .acpmux-file-viewer{background:var(--agent-page-bg)}
 /* No Back chevron (only the X closes it): the name lines up with the search field below. */
