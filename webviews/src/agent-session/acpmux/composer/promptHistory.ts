@@ -8,7 +8,8 @@ export function usePromptHistory(rows: readonly AcpmuxRow[]) {
   const prompts = useMemo(() => {
     const sent: string[] = [];
     for (const row of rows) {
-      const text = row.kind === "user" ? row.text?.trim() : undefined;
+      // Another agent's message or a task's result is not a prompt the person wrote.
+      const text = row.kind === "user" && !row.untyped ? row.text?.trim() : undefined;
       // The same prompt sent twice in a row is one step.
       if (text && sent[sent.length - 1] !== text) sent.push(text);
     }
