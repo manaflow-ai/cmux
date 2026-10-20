@@ -214,8 +214,8 @@ await requireBrowserLane("agent-pane-subagent-groups-open.test.ts", async () => 
     expect(await settled(page)).toEqual({ open: ["false"], lines: 0 });
     push(finished("a1", "Reviewer"));
     expect(await settled(page)).toEqual({ open: ["false"], lines: 0 });
-    // The turn goes on: another batch of agents starts.
-    push(read("r2", "src/net.ts"));
+    // The turn goes on: the agent writes, then starts another batch.
+    push(reply("Both reviews started; now a lint pass."));
     push(spawned("a3", "Linter"));
     await page.getByText("Linter").waitFor({ timeout: 5_000 });
     expect(await settled(page)).toEqual({ open: ["false", "true"], lines: 1 });
