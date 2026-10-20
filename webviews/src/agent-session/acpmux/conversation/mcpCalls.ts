@@ -179,7 +179,9 @@ const INTERNAL_TAGS = [
   "ide_selection",
   "ide_opened_file",
 ];
-const INTERNAL_BLOCK = new RegExp(`<(${INTERNAL_TAGS.join("|")})\\b[^>]*>[\\s\\S]*?(?:</\\1>|$)\\s*`, "g");
+/// Only a closed block goes: text that merely names a tag (a file that mentions `<system-reminder>`)
+/// keeps everything after it.
+const INTERNAL_BLOCK = new RegExp(`<(${INTERNAL_TAGS.join("|")})\\b[^>]*>[\\s\\S]*?</\\1>\\s*`, "g");
 
 /// `text` without the internal context blocks a host injected into it.
 export function cleanText(text: string): string {
