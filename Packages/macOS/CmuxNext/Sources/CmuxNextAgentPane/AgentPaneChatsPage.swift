@@ -74,12 +74,17 @@ public nonisolated struct AgentPaneChatsPage: Sendable {
 extension AcpmuxStatusClient {
     /// `_acpmux/chats`: one page of the device-wide chat index. The socket exchange and the JSON
     /// decode run off the caller's actor.
-    @concurrent static func chatsPage(socketPath: String, query: AgentPaneChatsQuery,
+    @concurrent static func chatsPage(environment: AcpmuxEnvironment, query: AgentPaneChatsQuery,
                                       deadline: Duration = .seconds(3)) async throws -> AgentPaneChatsPage {
         var params: [String: any Sendable] = ["limit": query.limit]
         if let text = query.text { params["query"] = text }
         if let cursor = query.cursor { params["cursor"] = cursor }
-        let result = try await call(socketPath: socketPath, method: "_acpmux/chats", params: params, deadline: deadline)
+        guard let result = await AcpmuxPersonLine.request(
+            environment,
+            method: "_acpmux/chats",
+            params: params,
+            deadline: deadline
+        )?.value else { throw Failure.rpc("acpmux refused the person proof") }
         return AgentPaneChatsPage(result: result)
     }
 }
@@ -87,7 +92,7 @@ extension AcpmuxStatusClient {
 extension AcpmuxEnvironment {
     /// One page of this daemon's device-wide chat index (`chats.page`, cx-n0i9).
     public nonisolated func chatsPage(_ query: AgentPaneChatsQuery) async throws -> AgentPaneChatsPage {
-        try await AcpmuxStatusClient.chatsPage(socketPath: socketPath, query: query)
+        try await AcpmuxStatusClient.chatsPage(environment: self, query: query)
     }
 }
 

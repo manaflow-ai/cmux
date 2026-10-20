@@ -32,6 +32,7 @@ use tokio::sync::mpsc;
 
 const CODEX_ID: &str = "0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b";
 const FAKE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+const PERSON_KEY: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
 struct Home(PathBuf);
 
@@ -98,6 +99,28 @@ async fn call(
     }
 }
 
+async fn prove_person(hub: &Arc<Hub>, tx: &mpsc::Sender<String>, rx: &mut mpsc::Receiver<String>) {
+    hub.person.install_spawn_key(PERSON_KEY).unwrap();
+    let initialized = call(
+        tx,
+        rx,
+        1,
+        method::INITIALIZE,
+        json!({"protocolVersion": 1, "clientInfo": {"name": "app"}}),
+    )
+    .await;
+    let challenge = &initialized["result"]["_meta"]["acpmux"]["personChallenge"];
+    let proof = acpmux::hub::person::person_proof(
+        PERSON_KEY,
+        acpmux::hub::person::TRANSPORT_UNIX,
+        challenge["nonce"].as_str().unwrap(),
+        challenge["connection"].as_str().unwrap(),
+    )
+    .unwrap();
+    let proved = call(tx, rx, 0, "_acpmux/person_prove", json!({"proof": proof})).await;
+    assert_eq!(proved["result"]["person"], true, "{proved}");
+}
+
 /// The open plan's `sessionNew` params create the adopted session through
 /// the profile whose store holds the chat (not the daemon's default store).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -125,14 +148,7 @@ async fn chat_open_then_session_new_adopts_from_the_profile_store() {
     let (tx, in_rx) = mpsc::channel(64);
     let (out_tx, mut rx) = mpsc::channel(4096);
     tokio::spawn(serve_connection_with(hub.clone(), in_rx, out_tx, Origin::Local));
-    call(
-        &tx,
-        &mut rx,
-        1,
-        method::INITIALIZE,
-        json!({"protocolVersion": 1, "clientInfo": {"name": "t"}}),
-    )
-    .await;
+    prove_person(&hub, &tx, &mut rx).await;
 
     let key = format!("codex:{CODEX_ID}");
     let plan = call(&tx, &mut rx, 2, "_acpmux/chat_open", json!({"key": key})).await;
@@ -205,14 +221,7 @@ async fn a_chat_in_a_store_no_profile_uses_adopts_with_that_store() {
     let (tx, in_rx) = mpsc::channel(64);
     let (out_tx, mut rx) = mpsc::channel(4096);
     tokio::spawn(serve_connection_with(hub.clone(), in_rx, out_tx, Origin::Local));
-    call(
-        &tx,
-        &mut rx,
-        1,
-        method::INITIALIZE,
-        json!({"protocolVersion": 1, "clientInfo": {"name": "t"}}),
-    )
-    .await;
+    prove_person(&hub, &tx, &mut rx).await;
 
     let key = format!("codex:{CODEX_ID}");
     let mut plan = Value::Null;
@@ -307,8 +316,7 @@ async fn an_opencode_chat_opens_by_adopting_it_over_acp() {
     let (tx, in_rx) = mpsc::channel(64);
     let (out_tx, mut rx) = mpsc::channel(4096);
     tokio::spawn(serve_connection_with(hub.clone(), in_rx, out_tx, Origin::Local));
-    let init = json!({"protocolVersion": 1, "clientInfo": {"name": "t"}});
-    call(&tx, &mut rx, 1, method::INITIALIZE, init).await;
+    prove_person(&hub, &tx, &mut rx).await;
 
     let key = format!("opencode:{OPENCODE_ID}");
     let plan = call(&tx, &mut rx, 2, "_acpmux/chat_open", json!({"key": key})).await;
@@ -401,8 +409,7 @@ async fn a_muse_chat_lists_and_opens_muse_resume_in_its_folder() {
     let (tx, in_rx) = mpsc::channel(64);
     let (out_tx, mut rx) = mpsc::channel(4096);
     tokio::spawn(serve_connection_with(hub.clone(), in_rx, out_tx, Origin::Local));
-    let init = json!({"protocolVersion": 1, "clientInfo": {"name": "t"}});
-    call(&tx, &mut rx, 1, method::INITIALIZE, init).await;
+    prove_person(&hub, &tx, &mut rx).await;
 
     let listed = call(&tx, &mut rx, 2, "_acpmux/chats", json!({"harness": "muse"})).await;
     let chats = listed["result"]["chats"].as_array().expect("chats").clone();

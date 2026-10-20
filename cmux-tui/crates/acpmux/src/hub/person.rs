@@ -631,7 +631,8 @@ impl PersonGate {
     }
 
     /// Whether the app that holds this run's person key authorized one read-only terminal viewer
-    /// for `session` and `tool_call`. The capability never widens to another process or method.
+    /// for `session` and `tool_call`. The capability counts once and never widens to another
+    /// process or method.
     pub(crate) fn process_viewer_proves(
         &self,
         scope: &ProcessViewerScope,
@@ -639,8 +640,10 @@ impl PersonGate {
         proof: &str,
     ) -> bool {
         let key = self.key.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
-        key.and_then(|key| process_viewer_proof(&key, &scope.session, &scope.tool_call, nonce))
-            .is_some_and(|expected| cmux_local_auth::tokens_match(proof, &expected))
+        let valid = key
+            .and_then(|key| process_viewer_proof(&key, &scope.session, &scope.tool_call, nonce))
+            .is_some_and(|expected| cmux_local_auth::tokens_match(proof, &expected));
+        valid && self.spend_decision(nonce)
     }
 
     /// Whether `presented` is this launch's key (constant time).

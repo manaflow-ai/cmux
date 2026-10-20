@@ -32,10 +32,10 @@
 //!   answers the roots view with `applied: true`. While chats are off,
 //!   `_acpmux/chats` answers `enabled: false` and no chats.
 //!
-//! Titles and folders are user data (C5): only the local unix socket gets
-//! them. Every WebSocket origin (Web, LocalApp, Peer) gets "Method not
-//! found", like `_acpmux/directories`. Agents and MCP get them only through
-//! the `chats.read` scope, which is never granted by default.
+//! Titles, folders and historical turns are user data (C5): only a local unix connection that
+//! proves the app's in-memory person key gets them. Every WebSocket origin (Web, LocalApp, Peer)
+//! gets "Method not found", like `_acpmux/directories`; caller-session and unbound same-uid
+//! connections are refused too.
 
 mod offers;
 mod stats;
@@ -102,6 +102,11 @@ pub(super) async fn route(
         return Err(RpcError::method_not_found(&format!(
             "{m} (served only on the local unix socket)"
         )));
+    }
+    if !conn.is_person() {
+        return Err(crate::hub::person::person_required(
+            "reading or changing the device-wide chat index",
+        ));
     }
     let service = hub.chat_index().cloned();
     match m {

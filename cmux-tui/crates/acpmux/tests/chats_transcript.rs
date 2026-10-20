@@ -24,6 +24,7 @@ const AMP_ID: &str = "T-0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b";
 const CLAUDE_ID: &str = "5b6c7d8e-9f0a-4b1c-8d2e-3f4a5b6c7d8e";
 const CODEX_ID: &str = "0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5c";
 const BROKEN_AMP_ID: &str = "T-0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5d";
+const PERSON_KEY: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
 struct Home(PathBuf);
 
@@ -123,6 +124,7 @@ async fn hub_on(h: &Path) -> Arc<Hub> {
     cfg.store.mode = StoreMode::Memory;
     let store = acpmux::store::open(&cfg.store, Path::new("/nonexistent")).expect("store");
     let hub = Hub::new(cfg, store);
+    hub.person.install_spawn_key(PERSON_KEY).unwrap();
     let sources = ChatSources {
         home: h.to_path_buf(),
         acpmux_home: h.join(".acpmux"),
@@ -140,7 +142,19 @@ async fn connect(hub: &Arc<Hub>, origin: Origin) -> (mpsc::Sender<String>, mpsc:
     let (out_tx, mut rx) = mpsc::channel(4096);
     tokio::spawn(serve_connection_with(hub.clone(), in_rx, out_tx, origin));
     let hello = json!({"protocolVersion": 1, "clientInfo": {"name": "t"}});
-    call(&tx, &mut rx, 1, method::INITIALIZE, hello).await;
+    let initialized = call(&tx, &mut rx, 1, method::INITIALIZE, hello).await;
+    if origin == Origin::Local {
+        let challenge = &initialized["result"]["_meta"]["acpmux"]["personChallenge"];
+        let proof = acpmux::hub::person::person_proof(
+            PERSON_KEY,
+            acpmux::hub::person::TRANSPORT_UNIX,
+            challenge["nonce"].as_str().unwrap(),
+            challenge["connection"].as_str().unwrap(),
+        )
+        .unwrap();
+        let proved = call(&tx, &mut rx, 0, "_acpmux/person_prove", json!({"proof": proof})).await;
+        assert_eq!(proved["result"]["person"], true, "{proved}");
+    }
     (tx, rx)
 }
 

@@ -10,20 +10,19 @@ import os
 /// and settings observation are the only wakeups; no retry timer or polling is used.
 @MainActor
 final class ChatSettingsPush {
-    private let socket: String
+    private let environment: AcpmuxEnvironment
     private var watcher: ConfigFileWatcher?
-    private var connection: AgentActivityLineConnection?
+    private var sendTask: Task<Void, Never>?
     private var desired: ChatSettings?
     private var sent: ChatSettings?
-    private var loggedUnsupported = false
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "chat-settings")
 
-    init(socketPath: String) { socket = socketPath }
+    init(environment: AcpmuxEnvironment) { self.environment = environment }
 
     /// App-lifetime observation, started at composition after the initial settings load.
     static func start(settings: SettingsController, environment: AcpmuxEnvironment?) {
         guard let environment else { return }
-        let push = ChatSettingsPush(socketPath: environment.socketPath)
+        let push = ChatSettingsPush(environment: environment)
         push.watchSocket()
         Task { @MainActor in
             for await value in ObservationStream({ settings.chatSettings }) {
@@ -37,16 +36,16 @@ final class ChatSettingsPush {
         guard Thread.isMainThread else { return } // main-proof: returns off the main thread
         MainActor.assumeIsolated {
             watcher?.stop()
-            connection?.cancel()
+            sendTask?.cancel()
         }
     }
 
     private func watchSocket() {
-        watcher = ConfigFileWatcher(url: URL(fileURLWithPath: socket)) { [weak self] in
+        watcher = ConfigFileWatcher(url: URL(fileURLWithPath: environment.socketPath)) { [weak self] in
             Task { @MainActor in
                 guard let self else { return }
-                self.connection?.cancel()
-                self.connection = nil
+                self.sendTask?.cancel()
+                self.sendTask = nil
                 self.sent = nil
                 self.send()
             }
@@ -63,35 +62,24 @@ final class ChatSettingsPush {
     }
 
     private func send() {
-        guard connection == nil, let desired, desired != sent,
-              FileManager.default.fileExists(atPath: socket) else { return }
-        let current = AgentActivityLineConnection(path: socket)
-        connection = current
-        current.start(send: desired.request, onLine: { [weak self] line in
-            Task { @MainActor in self?.received(line, from: current, value: desired) }
-        }, onClose: { [weak self] in
-            Task { @MainActor in
-                guard let self, self.connection === current else { return }
-                self.connection = nil
-                if self.desired != desired { self.send() }
-                // A restarted daemon replaces its socket. Its vnode event retries the latest
-                // settings; a settings change also triggers a new attempt.
-            }
-        })
+        guard sendTask == nil, let desired, desired != sent,
+              FileManager.default.fileExists(atPath: environment.socketPath) else { return }
+        sendTask = Task { [weak self, environment] in
+            let applied = await environment.applyChatSettings(
+                enabled: desired.enabled,
+                discovery: desired.discovery,
+                roots: desired.roots,
+                managedRoots: desired.managedRoots
+            )
+            guard !Task.isCancelled else { return }
+            self?.received(applied, value: desired)
+        }
     }
 
-    private func received(_ line: Data, from current: AgentActivityLineConnection, value: ChatSettings) {
-        guard connection === current, let message = try? JSONValue.parse(line), message["id"]?.doubleValue == 2 else { return }
-        let unsupported = message["error"]?["code"]?.doubleValue == -32601
-        if unsupported, !loggedUnsupported {
-            logger.debug("The local daemon does not support chat settings yet")
-            loggedUnsupported = true
-        }
-        let applied = message["result"]?["applied"]?.boolValue == true
-        current.cancel()
-        connection = nil
-        // Treat an old daemon's refusal as settled; do not spin or surface an alert.
-        if applied || unsupported { sent = value }
+    private func received(_ applied: Bool, value: ChatSettings) {
+        sendTask = nil
+        if applied { sent = value }
+        else { logger.debug("The local daemon did not accept chat settings") }
         if desired != value { send() }
     }
 }
