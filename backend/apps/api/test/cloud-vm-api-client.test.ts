@@ -231,6 +231,35 @@ describe("generated VM API Cloud transport", () => {
     expect(x.calls.some((r) => r.method !== "GET")).toBe(false);
   });
 
+  it("fences unadmitted journaled captures while retaining uncertain legacy work", async () => {
+    const x = fake(async (r) => {
+      const path = new URL(r.url).pathname;
+      if (path === "/v1/snapshot-creations/by-key/cancel") {
+        expect(await r.json()).toEqual({ expectedSnapshotId: null });
+        return json({ state: "fenced", id: null });
+      }
+      if (path === "/v1/snapshots") return json({ items: [], nextCursor: null });
+      return new Response(null, { status: 404 });
+    });
+    await expect(x.guarded.removeSnapshot(slug, { team, machine }, false)).rejects.toThrow("legacy capture outcome");
+    await expect(x.guarded.removeSnapshot(slug, { team, machine }, true)).resolves.toBeUndefined();
+    expect(x.calls.some((r) => r.method === "POST" && new URL(r.url).pathname.endsWith("/snapshots"))).toBe(false);
+  });
+  it("checks cancellation identity and permits a legacy deleted source only for cleanup", async () => {
+    const x = fake(async (r) => {
+      if (new URL(r.url).pathname.endsWith("/cancel")) {
+        expect(await r.json()).toEqual({ expectedSnapshotId: SNAPSHOT });
+        return json({ state: "cancelled", id: SNAPSHOT, receipt: { ...snapshot(), sourceVmId: null } });
+      }
+      return json({ state: "committed", id: SNAPSHOT, receipt: { ...snapshot(), sourceVmId: null } });
+    });
+    await expect(x.guarded.removeSnapshot(slug, { team, machine }, false)).resolves.toBeUndefined();
+    const changed = fake((r) => new URL(r.url).pathname.endsWith("/cancel")
+      ? json({ state: "cancelled", id: `snap_${"2".repeat(26)}`, receipt: { ...snapshot(), id: `snap_${"2".repeat(26)}` } })
+      : json({ state: "pending", id: SNAPSHOT, receipt: snapshot() }));
+    await expect(changed.guarded.removeSnapshot(slug, { team, machine }, true)).rejects.toMatchObject({ outcome: "pending" });
+  });
+
   it("writes UTF-8 bytes and root exec stdin without putting content in query strings", async () => {
     const x = fake(async (r) => {
       if (r.method === "PUT") {

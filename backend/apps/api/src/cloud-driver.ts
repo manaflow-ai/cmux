@@ -41,6 +41,8 @@ export interface RawCloudDriver {
   findSnapshot(slug: string): Promise<{ readonly id: string; readonly sourceVmId: string | null } | null>
   /** VM API only: resume the exact capture key before requiring its source. False never admits new capture work. */
   resumeSnapshot?(slug: string, tag: VmTag, allowSend: boolean): Promise<{ readonly id: string } | null>
+  /** VM API only: fence the key before verifying deletion, including pending captures. */
+  cancelSnapshot?(slug: string, tag: VmTag, allowEmptyFence: boolean): Promise<void>
   /** Snapshot a running or paused VM under `slug` (Freestyle `POST /v5/vms/{id}/snapshot`). */
   createSnapshot(vmId: string, slug: string, tag?: VmTag): Promise<{ readonly id: string }>
   /** Delete a snapshot (Freestyle `DELETE /v5/snapshots/{id}`; 404 is success). */
@@ -285,8 +287,9 @@ export class GuardedCloudDriver {
   }
 
   /** Deletes the snapshot under our recorded `slug`; none there is success. */
-  async removeSnapshot(slug: string): Promise<void> {
+  async removeSnapshot(slug: string, tag?: VmTag, allowEmptyFence = false): Promise<void> {
     this.guardSnapshot(slug)
+    if (this.raw.cancelSnapshot && tag) return this.raw.cancelSnapshot(slug, tag, allowEmptyFence)
     const found = await this.raw.findSnapshot(slug)
     if (found) await this.raw.deleteSnapshot(found.id)
   }

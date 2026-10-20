@@ -6,3 +6,9 @@ export const scopedCreationKey = (principal: Principal, key: string) =>
   Effect.promise(() => crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(
     principal.actor.kind === "service" ? ["service", principal.actor.serviceId, key] : ["key", key],
   )))).pipe(Effect.map((digest) => Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("")));
+
+/** Snapshots preserve their tenant-wide namespace; retained commands enforce service actor and labels. */
+export const scopedSnapshotKey = (key: string) =>
+  Effect.promise(() => crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(["key", key])))).pipe(
+    Effect.map((digest) => Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("")),
+  );

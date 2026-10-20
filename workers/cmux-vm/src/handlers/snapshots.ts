@@ -6,6 +6,7 @@
  * account holds thousands.
  */
 import { createSnapshotCapture, inspectSnapshotCaptureByKey, inspectSnapshotCapture, listSnapshotCaptures, reconcileSnapshotCapture, cancelSnapshotCapture } from "./snapshot-capture.ts";
+import { cancelSnapshotCaptureKey } from "./snapshot-key-cancellation.ts";
 import { HttpApiBuilder } from "@effect/platform";
 import { Clock, Effect, Option, Schema } from "effect";
 import { CmuxVmApi } from "../api.ts";
@@ -82,6 +83,7 @@ const invalidCursor = () => new InvalidRequest({ message: "The cursor is not val
 export const snapshotsHandlers = HttpApiBuilder.group(CmuxVmApi, "snapshots", (handlers) =>
   handlers
     .handle("createSnapshot", ({ path, payload, headers }) => createSnapshotCapture(path.vmId, payload, headers["idempotency-key"]))
+    .handle("cancelSnapshotCreationByKey", ({ headers, payload }) => cancelSnapshotCaptureKey(headers["idempotency-key"], payload.expectedSnapshotId))
     .handle("getSnapshotCreationByKey", ({ headers }) => inspectSnapshotCaptureByKey(headers["idempotency-key"]))
     .handle("getSnapshotCreation", ({ path }) => inspectSnapshotCapture(path.snapshotId))
     .handle("listSnapshotCreations", ({ urlParams }) => listSnapshotCaptures(urlParams.cursor, urlParams.limit ?? 50))

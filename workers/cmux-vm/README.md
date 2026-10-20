@@ -120,7 +120,14 @@ even after its source is deleted; it never captures again. `POST .../cancel`
 fences future sends before deleting a verified capture. An unknown capture stays
 pending and consumes quota even if its provider lookup currently returns 404.
 Completed or cancelled keys never create another snapshot. Delete a committed
-snapshot through the ordinary snapshot endpoint. Source-allowlisted credentials
+snapshot through the ordinary snapshot endpoint. To cancel by key, use
+`POST /v1/snapshot-creations/by-key/cancel` with the original header and
+`expectedSnapshotId` from the lookup. A null ID fences only an unadmitted key;
+it does not prove an older unrecorded provider operation was deleted. A known ID
+can cancel a pending capture or delete its committed snapshot. Unverified cleanup
+stays pending and retains quota. By-key cancellation requires credentials without
+a resource allowlist; existing by-ID controls retain their source scope.
+Source-allowlisted credentials
 can control only their original derived capture; general snapshot access stays
 subject to its own allowlist. Service labels and the original service actor apply
 to capture controls. Legacy uncertain snapshot requests fail closed; their old

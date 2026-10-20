@@ -122,3 +122,12 @@ it("persists snapshot capture fences and quota through the actual native RPC", a
   expect(await stub.snapshotCapture({ op: "get", id }, now + IDEMPOTENCY_TTL_MS * 2)).toMatchObject({ record: { state: "cancelled" } });
   expect(await Effect.runPromise(limits.snapshotCapture(tenant, { op: "list", limit: 1 }))).toMatchObject({ state: "page", items: [{ intent: { id } }] });
 });
+
+it("persists an absent-key cancellation fence across native RPC calls and future claims", async () => {
+  const tenant = TenantId.make(crypto.randomUUID());
+  const limits = await Effect.runPromise(Effect.provide(TenantLimits, durableObjectLimitsLayer(env.TENANT_LIMITS)));
+  expect(await Effect.runPromise(limits.snapshotCapture(tenant, { op: "fence", key: "never-admitted", expectedId: null, createdBy: "service:cloud", labels: { role: "cloud" } }))).toMatchObject({ state: "fenced", granted: true });
+  const stub = env.TENANT_LIMITS.get(env.TENANT_LIMITS.idFromName(tenant)), id = newSnapshotId();
+  expect(await stub.snapshotCapture({ op: "begin", key: "never-admitted", fingerprint: "late", nonce: "late", intent: { id, sourceVmId: newVmId(), displayName: null, labels: { role: "cloud" }, createdBy: "service:cloud", createdAt: new Date().toISOString(), ttlSeconds: null, autoDeleteSeconds: null } }, Date.now() + IDEMPOTENCY_TTL_MS * 3)).toMatchObject({ state: "fenced" });
+  expect(await Effect.runPromise(limits.snapshotCapture(tenant, { op: "inspect", key: "never-admitted" }))).toMatchObject({ state: "fenced", fence: { createdBy: "service:cloud" } });
+});

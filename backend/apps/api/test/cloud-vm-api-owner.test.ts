@@ -11,7 +11,7 @@ import { inDO } from "./team-ssh-support.ts"
 import { DAEMON, vmKey, WG_KEY } from "./cloud-bind-support.ts"
 
 /** Real Cloud owner, reducers, ledger and bind registration; only the HTTP VM service is fake. */
-it.each(["shared", "personal", "lost-capture"] as const)("runs a mixed %s Cloud lifecycle through recorded transports after deployment defaults change", async (kind) => {
+it.each(["shared", "personal", "lost-capture", "cancel-capture"] as const)("runs a mixed %s Cloud lifecycle through recorded transports after deployment defaults change", async (kind) => {
   const original = await mirroredTeam("VM API owner lifecycle")
   const t = { ...original, team: kind === "personal" ? personalTeamIdFor(original.user) : original.team, stackTeam: kind === "personal" ? "e6fb9d09-d951-4a65-9d21-e1d132dfe671" : original.stackTeam }
   let identityCreates = 0
@@ -27,6 +27,8 @@ it.each(["shared", "personal", "lost-capture"] as const)("runs a mixed %s Cloud 
   const calls: string[] = []
   let captured: { id: string; sourceVmId: string; displayName: string; labels: Record<string, string>; createdAt: string } | undefined
   let captureReady = false
+  let cancelRequested = false
+  let cancelReady = false
   let sequence = 0
   const spy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const r = new Request(input, init), url = new URL(r.url)
@@ -40,8 +42,16 @@ it.each(["shared", "personal", "lost-capture"] as const)("runs a mixed %s Cloud 
       return Response.json({ items: url.pathname === "/v1/vms" ? [...vms.values()].filter((v) => selected(v.labels, url.searchParams.getAll("label"))) : [...snapshots.values()].filter((s) => selected(s.labels, (url.searchParams.get("labels") ?? "").split(","))), nextCursor: null })
     }
     if (url.pathname === "/v1/snapshot-creations") return Response.json({ items: [], nextCursor: null });
+    if (url.pathname === "/v1/snapshot-creations/by-key/cancel") {
+      const body = await r.json() as { expectedSnapshotId: string | null };
+      expect(body.expectedSnapshotId).toBe(captured?.id ?? null);
+      cancelRequested = true;
+      const finished = kind !== "cancel-capture" || cancelReady;
+      if (finished && captured) snapshots.delete(captured.id);
+      return Response.json(captured ? { state: finished ? "cancelled" : "cancelling", id: captured.id, receipt: captured } : { state: "fenced", id: null });
+    }
     if (url.pathname === "/v1/snapshot-creations/by-key") {
-      return captured ? Response.json({ id: captured.id, state: snapshots.has(captured.id) ? "committed" : "pending", receipt: captured }) : new Response(null, { status: 404 });
+      return captured ? Response.json({ id: captured.id, state: cancelRequested && cancelReady ? "deleted" : snapshots.has(captured.id) ? "committed" : "pending", receipt: captured, ...(cancelRequested ? { cancellation: cancelReady ? "completed" : "requested" } : {}) }) : new Response(null, { status: 404 });
     }
     if (url.pathname === `/v1/snapshot-creations/${captured?.id}/reconcile`) {
       if (!captured) throw new Error("missing capture");
@@ -68,9 +78,9 @@ it.each(["shared", "personal", "lost-capture"] as const)("runs a mixed %s Cloud 
     }
     if (parts[4] === "snapshots") {
       const body = await r.json() as { displayName: string; labels: Record<string, string> }
-      if (kind === "lost-capture" && captured) return Response.json({ _tag: "ServiceUnavailable", message: "capture uncertain", pendingSnapshotId: captured.id }, { status: 503 })
+      if ((kind === "lost-capture" || kind === "cancel-capture") && captured) return Response.json({ _tag: "ServiceUnavailable", message: "capture uncertain", pendingSnapshotId: captured.id }, { status: 503 })
       const snapshot = { ...body, id: `snap_${String(++sequence).padStart(26, "0")}`, sourceVmId: id, createdAt: new Date().toISOString() }
-      if (kind === "lost-capture") { captured = snapshot; return Response.json({ _tag: "ServiceUnavailable", message: "capture uncertain", pendingSnapshotId: snapshot.id }, { status: 503 }) }
+      if (kind === "lost-capture" || kind === "cancel-capture") { captured = snapshot; return Response.json({ _tag: "ServiceUnavailable", message: "capture uncertain", pendingSnapshotId: snapshot.id }, { status: 503 }) }
       snapshots.set(snapshot.id, snapshot)
       return Response.json({ ...snapshot, lastUsedAt: null, ttlSeconds: null, autoDeleteSeconds: null }, { status: 201 })
     }
@@ -101,6 +111,36 @@ it.each(["shared", "personal", "lost-capture"] as const)("runs a mixed %s Cloud 
       await submit("cloud.machine.pause", { machine: apiMachine })
       await submit("cloud.machine.start", { machine: apiMachine })
       let saved: { snapshot?: { id: string } };
+      if (kind === "cancel-capture") {
+        const creating = { t: "op" as const, op: "cloud.snapshot.create", params: { machine: apiMachine }, idempotency_key: crypto.randomUUID(), origin: "user" as const };
+        expect((await owner.submit(t.team, principal, creating)).frames).toContainEqual(expect.objectContaining({ t: "reject", code: "mutation.indeterminate" }));
+        const listed = await owner.readOp(t.team, principal, "cloud.snapshot.list", { machine: apiMachine });
+        if (!listed.ok) throw new Error("snapshot list refused");
+        const id = (listed.value as { snapshots: Array<{ id: string }> }).snapshots[0]?.id;
+        if (!id) throw new Error("snapshot missing");
+        const deleting = { t: "op" as const, op: "cloud.snapshot.delete", params: { snapshot: id }, idempotency_key: crypto.randomUUID(), origin: "user" as const };
+        expect((await owner.submit(t.team, principal, deleting)).frames).toContainEqual(expect.objectContaining({ t: "reject", code: "mutation.indeterminate" }));
+        expect(cancelRequested).toBe(true);
+        for (let i = 0; i < 6; i++) { await owner.fakeControl({ advance_ms: 400_000 }); await owner.alarm(); }
+        expect(await owner.readOp(t.team, principal, "cloud.snapshot.list", { machine: apiMachine })).toMatchObject({ ok: true, value: { snapshots: [{ id, status: "deleting" }] } });
+        const held = await owner.readOp(t.team, principal, "cloud.plan.get", {});
+        if (!held.ok) throw new Error("usage read refused");
+        expect((held.value as { usage: { saved: number } }).usage.saved).toBe(1);
+        expect((await owner.submit(t.team, principal, creating)).frames).toContainEqual(expect.objectContaining({ t: "reject", code: "cloud.provider.unavailable" }));
+        const source = [...vms.values()].find((v) => v.labels.cmux_next_machine === apiMachine);
+        if (!source) throw new Error("source missing");
+        vms.delete(source.id); cancelReady = true;
+        owner = new CloudDO(state, { ...e, CLOUD_ALLOWED_TEAMS: "", CLOUD_VM_TRANSPORT: "direct" });
+        await owner.readOp(t.team, principal, "cloud.snapshot.list", { machine: apiMachine });
+        await owner.fakeControl({ advance_ms: 4_000_000 }); await owner.alarm();
+        expect(await owner.readOp(t.team, principal, "cloud.snapshot.list", { machine: apiMachine })).toMatchObject({ ok: true, value: { snapshots: [] } });
+        const released = await owner.readOp(t.team, principal, "cloud.plan.get", {});
+        if (!released.ok) throw new Error("usage read refused");
+        expect((released.value as { usage: { saved: number } }).usage.saved).toBe(0);
+        expect(calls.filter((c) => c.endsWith("/snapshots") && c.startsWith("POST"))).toHaveLength(1);
+        await submit("cloud.machine.delete", { machine: apiMachine });
+        return owner.fakeControl({});
+      }
       if (kind === "lost-capture") {
         const frame = { t: "op" as const, op: "cloud.snapshot.create", params: { machine: apiMachine }, idempotency_key: crypto.randomUUID(), origin: "user" as const };
         const first = await owner.submit(t.team, principal, frame);
@@ -136,10 +176,10 @@ it.each(["shared", "personal", "lost-capture"] as const)("runs a mixed %s Cloud 
       return owner.fakeControl({})
     })
     expect(identityCreates).toBe(kind === "personal" ? 1 : 0)
-    expect(result).toMatchObject({ creates: 1, deletes: 1, pending: 0 })
+    expect(result).toMatchObject({ creates: kind === "cancel-capture" ? 0 : 1, deletes: kind === "cancel-capture" ? 0 : 1, pending: 0 })
     expect(vms.size).toBe(0)
     expect(snapshots.size).toBe(0)
-    expect(calls.filter((c) => c === "POST /v1/vms")).toHaveLength(2)
+    expect(calls.filter((c) => c === "POST /v1/vms")).toHaveLength(kind === "cancel-capture" ? 1 : 2)
     expect(calls.some((c) => c.endsWith("/pause"))).toBe(true)
     expect(calls.some((c) => c.endsWith("/start"))).toBe(true)
   } finally { spy.mockRestore() }
