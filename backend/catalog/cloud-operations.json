@@ -5195,6 +5195,105 @@
               }
             }
           }
+        },
+        {
+          "kind": "object",
+          "fields": {
+            "type": {
+              "required": true,
+              "type": {
+                "kind": "enum",
+                "values": [
+                  "machine"
+                ]
+              }
+            },
+            "machine": {
+              "required": true,
+              "type": {
+                "kind": "ref",
+                "name": "MachineId"
+              }
+            },
+            "command": {
+              "required": true,
+              "type": {
+                "kind": "primitive",
+                "name": "string",
+                "min_length": 1,
+                "max_length": 4000
+              }
+            },
+            "input_from": {
+              "required": false,
+              "type": {
+                "kind": "primitive",
+                "name": "int64"
+              }
+            },
+            "timeout_seconds": {
+              "required": true,
+              "type": {
+                "kind": "primitive",
+                "name": "int64"
+              }
+            }
+          }
+        },
+        {
+          "kind": "object",
+          "fields": {
+            "type": {
+              "required": true,
+              "type": {
+                "kind": "enum",
+                "values": [
+                  "agent"
+                ]
+              }
+            },
+            "machine": {
+              "required": true,
+              "type": {
+                "kind": "ref",
+                "name": "MachineId"
+              }
+            },
+            "harness": {
+              "required": true,
+              "type": {
+                "kind": "enum",
+                "values": [
+                  "claude",
+                  "codex",
+                  "opencode"
+                ]
+              }
+            },
+            "prompt": {
+              "required": true,
+              "type": {
+                "kind": "primitive",
+                "name": "string",
+                "min_length": 1,
+                "max_length": 8000
+              }
+            },
+            "input_from": {
+              "required": false,
+              "type": {
+                "kind": "primitive",
+                "name": "int64"
+              }
+            },
+            "timeout_seconds": {
+              "required": true,
+              "type": {
+                "kind": "primitive",
+                "name": "int64"
+              }
+            }
+          }
         }
       ]
     },
@@ -7883,6 +7982,11 @@
               }
             ]
           },
+          "MachineId": {
+            "type": "string",
+            "pattern": "^vm_[a-z0-9]{20}$",
+            "description": "A Cloud machine."
+          },
           "Step": {
             "anyOf": [
               {
@@ -7951,6 +8055,87 @@
                   "type",
                   "op",
                   "params"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "machine"
+                    ]
+                  },
+                  "machine": {
+                    "$ref": "#/$defs/MachineId"
+                  },
+                  "command": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 4000
+                  },
+                  "input_from": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 49
+                  },
+                  "timeout_seconds": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 3600
+                  }
+                },
+                "required": [
+                  "type",
+                  "machine",
+                  "command",
+                  "timeout_seconds"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "agent"
+                    ]
+                  },
+                  "machine": {
+                    "$ref": "#/$defs/MachineId"
+                  },
+                  "harness": {
+                    "type": "string",
+                    "enum": [
+                      "claude",
+                      "codex",
+                      "opencode"
+                    ]
+                  },
+                  "prompt": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 8000
+                  },
+                  "input_from": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 49
+                  },
+                  "timeout_seconds": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 3600
+                  }
+                },
+                "required": [
+                  "type",
+                  "machine",
+                  "harness",
+                  "prompt",
+                  "timeout_seconds"
                 ],
                 "additionalProperties": true
               }
@@ -8494,6 +8679,11 @@
             ],
             "additionalProperties": true
           },
+          "MachineId": {
+            "type": "string",
+            "pattern": "^vm_[a-z0-9]{20}$",
+            "description": "A Cloud machine."
+          },
           "Step": {
             "anyOf": [
               {
@@ -8562,6 +8752,87 @@
                   "type",
                   "op",
                   "params"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "machine"
+                    ]
+                  },
+                  "machine": {
+                    "$ref": "#/$defs/MachineId"
+                  },
+                  "command": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 4000
+                  },
+                  "input_from": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 49
+                  },
+                  "timeout_seconds": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 3600
+                  }
+                },
+                "required": [
+                  "type",
+                  "machine",
+                  "command",
+                  "timeout_seconds"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "agent"
+                    ]
+                  },
+                  "machine": {
+                    "$ref": "#/$defs/MachineId"
+                  },
+                  "harness": {
+                    "type": "string",
+                    "enum": [
+                      "claude",
+                      "codex",
+                      "opencode"
+                    ]
+                  },
+                  "prompt": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 8000
+                  },
+                  "input_from": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 49
+                  },
+                  "timeout_seconds": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 3600
+                  }
+                },
+                "required": [
+                  "type",
+                  "machine",
+                  "harness",
+                  "prompt",
+                  "timeout_seconds"
                 ],
                 "additionalProperties": true
               }
@@ -9424,6 +9695,11 @@
             ],
             "additionalProperties": true
           },
+          "MachineId": {
+            "type": "string",
+            "pattern": "^vm_[a-z0-9]{20}$",
+            "description": "A Cloud machine."
+          },
           "Step": {
             "anyOf": [
               {
@@ -9492,6 +9768,87 @@
                   "type",
                   "op",
                   "params"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "machine"
+                    ]
+                  },
+                  "machine": {
+                    "$ref": "#/$defs/MachineId"
+                  },
+                  "command": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 4000
+                  },
+                  "input_from": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 49
+                  },
+                  "timeout_seconds": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 3600
+                  }
+                },
+                "required": [
+                  "type",
+                  "machine",
+                  "command",
+                  "timeout_seconds"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "agent"
+                    ]
+                  },
+                  "machine": {
+                    "$ref": "#/$defs/MachineId"
+                  },
+                  "harness": {
+                    "type": "string",
+                    "enum": [
+                      "claude",
+                      "codex",
+                      "opencode"
+                    ]
+                  },
+                  "prompt": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 8000
+                  },
+                  "input_from": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 49
+                  },
+                  "timeout_seconds": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 3600
+                  }
+                },
+                "required": [
+                  "type",
+                  "machine",
+                  "harness",
+                  "prompt",
+                  "timeout_seconds"
                 ],
                 "additionalProperties": true
               }
@@ -10195,6 +10552,11 @@
             ],
             "additionalProperties": true
           },
+          "MachineId": {
+            "type": "string",
+            "pattern": "^vm_[a-z0-9]{20}$",
+            "description": "A Cloud machine."
+          },
           "Step": {
             "anyOf": [
               {
@@ -10263,6 +10625,87 @@
                   "type",
                   "op",
                   "params"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "machine"
+                    ]
+                  },
+                  "machine": {
+                    "$ref": "#/$defs/MachineId"
+                  },
+                  "command": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 4000
+                  },
+                  "input_from": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 49
+                  },
+                  "timeout_seconds": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 3600
+                  }
+                },
+                "required": [
+                  "type",
+                  "machine",
+                  "command",
+                  "timeout_seconds"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "agent"
+                    ]
+                  },
+                  "machine": {
+                    "$ref": "#/$defs/MachineId"
+                  },
+                  "harness": {
+                    "type": "string",
+                    "enum": [
+                      "claude",
+                      "codex",
+                      "opencode"
+                    ]
+                  },
+                  "prompt": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 8000
+                  },
+                  "input_from": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 49
+                  },
+                  "timeout_seconds": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 3600
+                  }
+                },
+                "required": [
+                  "type",
+                  "machine",
+                  "harness",
+                  "prompt",
+                  "timeout_seconds"
                 ],
                 "additionalProperties": true
               }
@@ -11080,6 +11523,11 @@
             ],
             "additionalProperties": true
           },
+          "MachineId": {
+            "type": "string",
+            "pattern": "^vm_[a-z0-9]{20}$",
+            "description": "A Cloud machine."
+          },
           "Step": {
             "anyOf": [
               {
@@ -11148,6 +11596,87 @@
                   "type",
                   "op",
                   "params"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "machine"
+                    ]
+                  },
+                  "machine": {
+                    "$ref": "#/$defs/MachineId"
+                  },
+                  "command": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 4000
+                  },
+                  "input_from": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 49
+                  },
+                  "timeout_seconds": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 3600
+                  }
+                },
+                "required": [
+                  "type",
+                  "machine",
+                  "command",
+                  "timeout_seconds"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "agent"
+                    ]
+                  },
+                  "machine": {
+                    "$ref": "#/$defs/MachineId"
+                  },
+                  "harness": {
+                    "type": "string",
+                    "enum": [
+                      "claude",
+                      "codex",
+                      "opencode"
+                    ]
+                  },
+                  "prompt": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 8000
+                  },
+                  "input_from": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 49
+                  },
+                  "timeout_seconds": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 3600
+                  }
+                },
+                "required": [
+                  "type",
+                  "machine",
+                  "harness",
+                  "prompt",
+                  "timeout_seconds"
                 ],
                 "additionalProperties": true
               }
@@ -12697,6 +13226,11 @@
               }
             ]
           },
+          "MachineId": {
+            "type": "string",
+            "pattern": "^vm_[a-z0-9]{20}$",
+            "description": "A Cloud machine."
+          },
           "Step": {
             "anyOf": [
               {
@@ -12765,6 +13299,87 @@
                   "type",
                   "op",
                   "params"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "machine"
+                    ]
+                  },
+                  "machine": {
+                    "$ref": "#/$defs/MachineId"
+                  },
+                  "command": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 4000
+                  },
+                  "input_from": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 49
+                  },
+                  "timeout_seconds": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 3600
+                  }
+                },
+                "required": [
+                  "type",
+                  "machine",
+                  "command",
+                  "timeout_seconds"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "agent"
+                    ]
+                  },
+                  "machine": {
+                    "$ref": "#/$defs/MachineId"
+                  },
+                  "harness": {
+                    "type": "string",
+                    "enum": [
+                      "claude",
+                      "codex",
+                      "opencode"
+                    ]
+                  },
+                  "prompt": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 8000
+                  },
+                  "input_from": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 49
+                  },
+                  "timeout_seconds": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 3600
+                  }
+                },
+                "required": [
+                  "type",
+                  "machine",
+                  "harness",
+                  "prompt",
+                  "timeout_seconds"
                 ],
                 "additionalProperties": true
               }
@@ -13308,6 +13923,11 @@
             ],
             "additionalProperties": true
           },
+          "MachineId": {
+            "type": "string",
+            "pattern": "^vm_[a-z0-9]{20}$",
+            "description": "A Cloud machine."
+          },
           "Step": {
             "anyOf": [
               {
@@ -13376,6 +13996,87 @@
                   "type",
                   "op",
                   "params"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "machine"
+                    ]
+                  },
+                  "machine": {
+                    "$ref": "#/$defs/MachineId"
+                  },
+                  "command": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 4000
+                  },
+                  "input_from": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 49
+                  },
+                  "timeout_seconds": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 3600
+                  }
+                },
+                "required": [
+                  "type",
+                  "machine",
+                  "command",
+                  "timeout_seconds"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "agent"
+                    ]
+                  },
+                  "machine": {
+                    "$ref": "#/$defs/MachineId"
+                  },
+                  "harness": {
+                    "type": "string",
+                    "enum": [
+                      "claude",
+                      "codex",
+                      "opencode"
+                    ]
+                  },
+                  "prompt": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 8000
+                  },
+                  "input_from": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 49
+                  },
+                  "timeout_seconds": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 3600
+                  }
+                },
+                "required": [
+                  "type",
+                  "machine",
+                  "harness",
+                  "prompt",
+                  "timeout_seconds"
                 ],
                 "additionalProperties": true
               }
@@ -48686,6 +49387,11 @@
             ],
             "additionalProperties": true
           },
+          "MachineId": {
+            "type": "string",
+            "pattern": "^vm_[a-z0-9]{20}$",
+            "description": "A Cloud machine."
+          },
           "Step": {
             "anyOf": [
               {
@@ -48754,6 +49460,87 @@
                   "type",
                   "op",
                   "params"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "machine"
+                    ]
+                  },
+                  "machine": {
+                    "$ref": "#/$defs/MachineId"
+                  },
+                  "command": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 4000
+                  },
+                  "input_from": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 49
+                  },
+                  "timeout_seconds": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 3600
+                  }
+                },
+                "required": [
+                  "type",
+                  "machine",
+                  "command",
+                  "timeout_seconds"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "agent"
+                    ]
+                  },
+                  "machine": {
+                    "$ref": "#/$defs/MachineId"
+                  },
+                  "harness": {
+                    "type": "string",
+                    "enum": [
+                      "claude",
+                      "codex",
+                      "opencode"
+                    ]
+                  },
+                  "prompt": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 8000
+                  },
+                  "input_from": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 49
+                  },
+                  "timeout_seconds": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 3600
+                  }
+                },
+                "required": [
+                  "type",
+                  "machine",
+                  "harness",
+                  "prompt",
+                  "timeout_seconds"
                 ],
                 "additionalProperties": true
               }

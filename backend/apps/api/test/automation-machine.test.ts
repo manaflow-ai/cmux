@@ -60,8 +60,8 @@ describe("deterministic commands", () => {
   it("the same step and run make the same command, with the run, step and idempotency key", () => {
     const c = machineStepCommand(machine, { run: RUN, index: 2 })
     expect(c).toBe(machineStepCommand(machine, { run: RUN, index: 2 }))
-    expect(c).toContain(`CMUX_STEP_KEY=step:${RUN}:2`)
-    expect(c).toContain(`CMUX_RUN=${RUN}`)
+    expect(c).toContain(`CMUX_STEP_KEY='step:${RUN}:2'`)
+    expect(c).toContain(`CMUX_RUN='${RUN}'`)
     expect(c).toContain("git log -1 --format=%H")
     expect(machineStepCommand(machine, { run: RUN, index: 3 })).not.toBe(c)
   })
