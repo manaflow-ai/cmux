@@ -6,7 +6,7 @@ public nonisolated enum BrowserURLDisplay {
     /// no `www.`, no trailing slash on a bare host, percent escapes decoded.
     /// `http://` is kept so insecure pages stay recognizable; `chrome://`
     /// and `chrome-extension://` are kept as Chromium keeps them.
-    public static func displayText(for url: URL?) -> String {
+    public static func displayText(for url: URL?, home: String = NSHomeDirectory()) -> String {
         guard let url else { return "" }
         if BrowserNewTabPage.isNewTabPage(url) { return "" }
         if url.isFileURL { return url.path(percentEncoded: false) }
