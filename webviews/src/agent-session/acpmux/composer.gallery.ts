@@ -119,6 +119,52 @@ function footerChat(mode: "default" | "full-access") {
   };
 }
 
+// A chat on a Claude profile acpmux lists under its own id (claude-sr2), its models by id only.
+function profileIdsChat() {
+  const base = chat(finished, { harness: "claude-sr2" });
+  return {
+    ...base,
+    catalog: [
+      ...CATALOG,
+      {
+        id: "claude-sr2",
+        name: "Claude Code (sr2)",
+        models: ["claude-opus-5-5", "claude-sonnet-5-5"].map((id) => ({ id, name: id })),
+      },
+    ],
+    summary: {
+      ...base.summary!,
+      usage: { used: 84_000, size: 200_000 },
+      modes: {
+        currentModeId: "bypassPermissions",
+        availableModes: [
+          { id: "default", name: "Default", description: "Ask before sensitive actions." },
+          { id: "bypassPermissions", name: "Bypass permissions", description: "Run actions without asking." },
+        ],
+      },
+      configOptions: [
+        {
+          id: "effort",
+          name: "Reasoning",
+          category: "thought_level",
+          currentValue: "default",
+          options: ["default", "low", "medium", "high", "xhigh", "max"].map((value) => ({ value })),
+        },
+        {
+          id: "fast-mode",
+          name: "Fast mode",
+          category: "model_config",
+          currentValue: "off",
+          options: [
+            { value: "off", name: "Off" },
+            { value: "on", name: "On" },
+          ],
+        },
+      ],
+    },
+  };
+}
+
 // A new chat in a project on `branch`, before its first send.
 const onBranch = (branch: string) =>
   noChat([session({ sessionId: "older", title: "An older chat" })], {
@@ -257,6 +303,22 @@ export default agentPaneEntry({
       snapshot: noChat([session({ sessionId: "older", title: "An older chat" })], {
         summary: { sessionId: "", cwd: CWD, harness: "claude", model: "claude-opus-5-5", effort: "high" },
       }),
+    },
+    // Leo's nightly (2026-10-20): a Claude chat on a second Claude profile (claude-sr2) whose
+    // acpmux list names its models by id, on Claude Code's own level, with fast mode offered. The
+    // chip names Opus 5.5 and Medium, not "claude-opus-5-5" and "Reasoning".
+    "footer-profile-ids": {
+      note: "A chat on a second Claude profile whose models carry only their ids, on the agent's default level: the footer names the model by its catalog short name (Opus 5.5) and the level it resolves to (Medium).",
+      snapshot: profileIdsChat(),
+      play: async (ctx) => {
+        const text = (selector: string) => ctx.document.querySelector(selector)?.textContent?.trim() ?? "";
+        await ctx.waitFor(() => text(".acpmux-composer-foot .acpmux-model .acpmux-picker-button").includes("Opus 5.5"));
+        await ctx.waitFor(() => text(".acpmux-composer-foot .acpmux-effort .acpmux-picker-button") === "Medium");
+        await ctx.waitFor(() => !text(".acpmux-composer-foot").includes("claude-opus-5-5"));
+        await ctx.waitFor(() =>
+          ctx.document.querySelector(".acpmux-context")?.getAttribute("title")?.startsWith("Context: 42% used"),
+        );
+      },
     },
     "footer-full-access": {
       note: "Full access keeps its name in the bar: a mode that is not the default always says what it is.",
