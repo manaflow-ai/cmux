@@ -105,6 +105,26 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
         return { text, cwd in TerminalLinkResolver.resolve(text, cwd: cwd ?? start, allowsLocalFiles: allowsLocalFiles) != nil }
     }
 
+    /// Clipboard writes stay silent only for the focused local PTY when its
+    /// foreground executable is known and is not a remote transport.
+    func terminalSessionAllowsClipboardWrite(_ session: TerminalSession) async -> Bool {
+        guard let services, let ref = target(of: session, in: services),
+              let tab = services.cache.tabModel(ref.id) else { return false }
+        let daemon = services.machines.daemon(forTab: tab)
+        let policy = TerminalClipboardWritePolicy()
+        guard policy.canCheckProcess(isFocused: session.model.isFocused,
+                                     isLocalDaemon: daemon.isLocal,
+                                     isRemoteTerminal: tab.kind == .remoteTerminal),
+              let connection = daemon.connection,
+              let process = try? await connection.request(TerminalProcessInfoRequest(surface: tab.surface), timeout: .seconds(1)) else {
+            return false
+        }
+        return policy.allowsSilentWrite(isFocused: session.model.isFocused,
+                                        isLocalDaemon: daemon.isLocal,
+                                        isRemoteTerminal: tab.kind == .remoteTerminal,
+                                        foregroundExecutable: process.foregroundExecutable)
+    }
+
     /// A local path belongs to this Mac only for a local PTY tab, never a remote-terminal projection.
     private func allowsLocalFiles(_ session: TerminalSession, services: AppServices) -> Bool {
         guard let ref = target(of: session, in: services), let tab = services.cache.tabModel(ref.id),
