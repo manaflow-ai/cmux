@@ -44,6 +44,9 @@ mod agent_message_launch_credential {
         .unwrap();
         cfg.store.mode = StoreMode::Memory;
         let store = acpmux::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+        // The cmux-tui binary installs acpmux's build id at start (main.rs); so
+        // does this in-process hub, or it reports `unstamped`.
+        acpmux::hub::install_build(acpmux_build_id::BUILD);
         let hub = Hub::new(cfg, store);
         let (in_tx, in_rx) = mpsc::channel(64);
         let (out_tx, out_rx) = mpsc::channel(4096);
