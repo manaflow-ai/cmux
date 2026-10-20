@@ -44,8 +44,8 @@ export const policyWorld = async () => {
     return Response.json(policy)
   })
   const sessionOp = (op: string, params: unknown) => call("/v1/ops", team.creator.token, { op, params, idempotency_key: crypto.randomUUID(), origin: "cli" }, { "x-cmux-team": team.team })
-  const credentials = async (install: string, pair: CryptoKeyPair) => {
-    const challenge = await call("/v1/auth/challenge", undefined, { user: team.creator.user, install, team: team.team })
+  const credentials = async (install: string, pair: CryptoKeyPair, daemon = false) => {
+    const challenge = await call("/v1/auth/challenge", undefined, { user: team.creator.user, install, ...(daemon ? {} : { team: team.team }) })
     expect(challenge.status).toBe(200)
     const signature = await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, pair.privateKey, new TextEncoder().encode(`${challenge.json.message_prefix}${challenge.json.nonce}`))
     const issued = await call("/v1/auth/token", undefined, { user: team.creator.user, install, nonce: challenge.json.nonce, signature: b64u(signature) })
@@ -64,7 +64,7 @@ export const policyWorld = async () => {
   }
   const approved = await sessionOp("server.pair.approve", { code: begun.res.json.code, team: team.team, name: "Policy server", mesh: MESH })
   expect(approved.json.ok).toBe(true)
-  const server: Peer = { ...approved.json.value, ...await credentials(approved.json.value.install, begun.pair), device: serverDevice, wg: begun.wg, point: serverPoint, pair: begun.pair, daemon: true }
+  const server: Peer = { ...approved.json.value, ...await credentials(approved.json.value.install, begun.pair, true), device: serverDevice, wg: begun.wg, point: serverPoint, pair: begun.pair, daemon: true }
   addPolicy(server.device, server.wg, server.point, server.pair)
   const confirmed = await call("/v1/ops", server.token, { op: "server.network.confirm", params: { host: server.host, mesh: MESH, device: server.device, proof: await proof(server) }, idempotency_key: crypto.randomUUID(), origin: "cli" })
   expect(confirmed.json.ok).toBe(true)
