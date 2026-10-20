@@ -464,9 +464,9 @@ async fn a_remote_client_cannot_resume_a_pair() {
 }
 
 /// A parent and the sub-session it started, talking through cmux-subsessions `send_message`
-/// one way and `cmux agent message` (`agents_chat_send`) the other: every exchange counts toward
-/// the same pair, whichever path carried it. The tenth in a row with no progress is held, and
-/// the person's resume delivers it to the child.
+/// (both ways) and `cmux agent message` (`agents_chat_send`): every exchange counts toward the
+/// same pair, whichever path carried it. The tenth in a row with no progress is held, and
+/// the person's resume delivers it to the parent.
 #[tokio::test]
 async fn a_sub_session_and_its_parent_messaging_through_send_message_are_paused() {
     let hub = hub();
@@ -478,6 +478,7 @@ async fn a_sub_session_and_its_parent_messaging_through_send_message_are_paused(
         .as_str()
         .unwrap()
         .to_owned();
+    let mut k = Client::as_session(&hub, &child).await;
     for (i, text) in CHATTER.iter().enumerate().take(9).skip(1) {
         let reply = if i % 2 == 1 {
             c.message(&child, &parent, &format!("c{i}"), text).await
@@ -486,16 +487,16 @@ async fn a_sub_session_and_its_parent_messaging_through_send_message_are_paused(
         };
         assert!(reply.get("error").is_none(), "exchange {i} was delivered: {reply}");
     }
-    // The tenth exchange in a row, a `send_message` to the child, trips the guard.
-    let tenth = p.send_message(&child, "c9", CHATTER[9], false).await;
+    // The tenth exchange in a row, the child's `send_message` to its parent, trips the guard.
+    let tenth = k.send_message(&parent, "c9", CHATTER[9], false).await;
     assert!(held(&tenth), "the tenth exchange is held: {tenth}");
-    assert!(!c.ran(&child, "c9").await, "a held message does not run");
+    assert!(!c.ran(&parent, "c9").await, "a held message does not run");
     for session in [&parent, &child] {
         let paused = c.records(session, "agent_pair_paused").await;
         assert_eq!(paused.len(), 1, "{session}: {paused:?}");
         assert_eq!(paused[0]["reason"], "alternating", "{paused:?}");
     }
-    let held_records = c.records(&child, "agent_pair_held").await;
+    let held_records = c.records(&parent, "agent_pair_held").await;
     assert_eq!(held_records.len(), 1, "{held_records:?}");
     assert_eq!(held_records[0]["promptId"], "c9", "{held_records:?}");
     assert_eq!(held_records[0]["provenance"]["kind"], "subsession_message", "{held_records:?}");
@@ -503,8 +504,8 @@ async fn a_sub_session_and_its_parent_messaging_through_send_message_are_paused(
     let mut person = Client::person(&hub).await;
     let resumed = person.call(RESUME, json!({"sessionId": child})).await;
     assert_eq!(resumed["delivered"], 1, "{resumed}");
-    c.wait_ran(&child, "c9").await;
-    let ran = c.records(&child, "user_message").await;
+    c.wait_ran(&parent, "c9").await;
+    let ran = c.records(&parent, "user_message").await;
     let released = ran.iter().find(|m| m["promptId"] == "c9").unwrap();
     assert_eq!(released["_meta"]["provenance"]["kind"], "subsession_message", "{released}");
     // A resumed pair starts counting again.
