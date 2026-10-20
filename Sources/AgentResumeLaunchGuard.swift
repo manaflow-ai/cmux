@@ -60,6 +60,18 @@ final class AgentResumeLaunchGuard {
         return claim
     }
 
+    /// Whether a launch claim is still active for `(kind, sessionId)`.
+    ///
+    /// Recovery uses this as in-flight ownership evidence while the new
+    /// process has not appeared in the live-agent index yet. Claims are
+    /// intentionally bounded by the same TTL as admission, so a failed or
+    /// abandoned startup cannot suppress a later retry forever.
+    func hasActiveResumeLaunch(kind: String, sessionId: String) -> Bool {
+        let now = dateProvider()
+        pruneExpiredClaims(now: now)
+        return claimedSessionKeys[Self.key(kind: kind, sessionId: sessionId)] != nil
+    }
+
     /// Releases a claim early, before its TTL elapses, when the caller
     /// discovers its own launch never actually happened (e.g. terminal
     /// surface creation failed after the claim was taken). Safe to call for

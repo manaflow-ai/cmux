@@ -277,38 +277,145 @@ extension AppDelegate {
             managers.append(tabManager)
         }
         var ids = Set<String>()
-        func collect(
-            restored: [UUID: SessionRestorableAgentSnapshot],
-            bindings: [UUID: SurfaceResumeBindingSnapshot],
-            deferred: [UUID: DeferredAgentResumeRestore]
-        ) {
-            ids.formUnion(restored.filter { $0.key != excludedPanelId }.values.map(\.sessionId))
-            ids.formUnion(bindings.filter { $0.key != excludedPanelId }.values.compactMap(\.checkpointId))
-            for (panelId, restore) in deferred where panelId != excludedPanelId {
-                if let sessionId = restore.restorableAgent?.sessionId { ids.insert(sessionId) }
-                if let checkpointId = restore.resumeBinding?.checkpointId { ids.insert(checkpointId) }
+
+        func identity(
+            kind rawKind: String?,
+            sessionId rawSessionId: String?
+        ) -> (kind: String, sessionId: String)? {
+            guard let rawKind,
+                  let kind = RestorableAgentKind(rawValue: rawKind),
+                  let rawSessionId,
+                  !rawSessionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                return nil
             }
+            return (kind.rawValue, rawSessionId)
         }
+
+        func hasInFlightClaim(_ identity: (kind: String, sessionId: String)) -> Bool {
+            AgentResumeLaunchGuard.shared.hasActiveResumeLaunch(
+                kind: identity.kind,
+                sessionId: identity.sessionId
+            )
+        }
+
+        func matches(
+            _ snapshot: SessionRestorableAgentSnapshot,
+            _ identity: (kind: String, sessionId: String)
+        ) -> Bool {
+            snapshot.kind.rawValue == identity.kind &&
+                ManagedAgentSessionIdentity.sessionIDsMatch(
+                    kind: identity.kind,
+                    lhs: snapshot.sessionId,
+                    rhs: identity.sessionId
+                )
+        }
+
+        func owns(
+            _ snapshot: SessionRestorableAgentSnapshot,
+            panelId: UUID,
+            in workspace: Workspace
+        ) -> Bool {
+            let identity = (kind: snapshot.kind.rawValue, sessionId: snapshot.sessionId)
+            return workspace.restoredAgentHasLiveProcess(snapshot, panelId: panelId) ||
+                workspace.restoredAgentLifecycle.ownsInFlightRestoredCommand(panelId: panelId) ||
+                hasInFlightClaim(identity)
+        }
+
+        func owns(
+            _ binding: SurfaceResumeBindingSnapshot,
+            panelId: UUID,
+            in workspace: Workspace
+        ) -> Bool {
+            guard let identity = identity(
+                kind: binding.kind,
+                sessionId: binding.checkpointId
+            ) else { return false }
+            let snapshot = workspace.restoredAgentSnapshotsByPanelId[panelId]
+            let live = if let snapshot, matches(snapshot, identity) {
+                workspace.restoredAgentHasLiveProcess(snapshot, panelId: panelId)
+            } else {
+                workspace.agentHookBindingHasLiveProcess(panelId: panelId)
+            }
+            return live ||
+                workspace.restoredAgentLifecycle.ownsInFlightRestoredCommand(panelId: panelId) ||
+                workspace.deferredAgentResumeRestoreOwns(binding, panelId: panelId) ||
+                hasInFlightClaim(identity)
+        }
+
+        func owns(
+            _ snapshot: SessionRestorableAgentSnapshot,
+            panelId: UUID,
+            in dock: DockSplitStore
+        ) -> Bool {
+            let identity = (kind: snapshot.kind.rawValue, sessionId: snapshot.sessionId)
+            return dock.restoredAgentHasLiveProcess(panelId: panelId, restoredAgent: snapshot) ||
+                dock.restoredAgentLifecycle.ownsInFlightRestoredCommand(panelId: panelId) ||
+                hasInFlightClaim(identity)
+        }
+
+        func owns(
+            _ binding: SurfaceResumeBindingSnapshot,
+            panelId: UUID,
+            in dock: DockSplitStore
+        ) -> Bool {
+            guard let identity = identity(
+                kind: binding.kind,
+                sessionId: binding.checkpointId
+            ) else { return false }
+            return dock.restoredAgentHasLiveProcess(panelId: panelId, restoredAgent: nil) ||
+                dock.restoredAgentLifecycle.ownsInFlightRestoredCommand(panelId: panelId) ||
+                dock.deferredAgentResumeRestoreOwns(binding, panelId: panelId) ||
+                hasInFlightClaim(identity)
+        }
+
         func collect(_ dock: DockSplitStore) {
-            collect(
-                restored: dock.restoredAgentLifecycle.snapshotsByPanelId,
-                bindings: dock.surfaceResumeBindingsByPanelId,
-                deferred: dock.deferredAgentResumeRestoresByPanelId
-            )
-            ids.formUnion(
-                dock.managedAgentResumeBindingsByPanelId
-                    .filter { $0.key != excludedPanelId }
-                    .values
-                    .compactMap(\.checkpointId)
-            )
+            for (panelId, snapshot) in dock.restoredAgentLifecycle.snapshotsByPanelId
+                where panelId != excludedPanelId && owns(snapshot, panelId: panelId, in: dock) {
+                ids.insert(snapshot.sessionId)
+            }
+            for (panelId, binding) in dock.surfaceResumeBindingsByPanelId
+                where panelId != excludedPanelId && owns(binding, panelId: panelId, in: dock) {
+                if let checkpointId = binding.checkpointId { ids.insert(checkpointId) }
+            }
+            for (panelId, restore) in dock.deferredAgentResumeRestoresByPanelId
+                where panelId != excludedPanelId {
+                if let snapshot = restore.restorableAgent,
+                   owns(snapshot, panelId: panelId, in: dock) {
+                    ids.insert(snapshot.sessionId)
+                }
+                if let binding = restore.resumeBinding,
+                   owns(binding, panelId: panelId, in: dock),
+                   let checkpointId = binding.checkpointId {
+                    ids.insert(checkpointId)
+                }
+            }
+            for (panelId, binding) in dock.managedAgentResumeBindingsByPanelId
+                where panelId != excludedPanelId && owns(binding, panelId: panelId, in: dock) {
+                if let checkpointId = binding.checkpointId { ids.insert(checkpointId) }
+            }
         }
         for manager in managers {
             for workspace in manager.tabs {
-                collect(
-                    restored: workspace.restoredAgentSnapshotsByPanelId,
-                    bindings: workspace.surfaceResumeBindingsByPanelId,
-                    deferred: workspace.deferredAgentResumeRestoresByPanelId
-                )
+                for (panelId, snapshot) in workspace.restoredAgentSnapshotsByPanelId
+                    where panelId != excludedPanelId && owns(snapshot, panelId: panelId, in: workspace) {
+                    ids.insert(snapshot.sessionId)
+                }
+                for (panelId, binding) in workspace.surfaceResumeBindingsByPanelId
+                    where panelId != excludedPanelId && owns(binding, panelId: panelId, in: workspace) {
+                    if let checkpointId = binding.checkpointId { ids.insert(checkpointId) }
+                }
+                for (panelId, restore) in workspace.deferredAgentResumeRestoresByPanelId
+                    where panelId != excludedPanelId {
+                    if let snapshot = restore.restorableAgent,
+                       owns(snapshot, panelId: panelId, in: workspace) {
+                        ids.insert(snapshot.sessionId)
+                    }
+                    if let binding = restore.resumeBinding,
+                       owns(binding, panelId: panelId, in: workspace),
+                       let checkpointId = binding.checkpointId {
+                        ids.insert(checkpointId)
+                    }
+                }
                 if let dock = workspace._dockSplit { collect(dock) }
             }
         }

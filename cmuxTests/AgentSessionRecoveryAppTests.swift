@@ -564,4 +564,69 @@ struct AgentSessionRecoveryAppTests {
             #expect(code == "invalid_params")
         }
     }
+
+    /// Persisted restore metadata is not proof that an agent is still open.
+    /// A dead snapshot or hook binding must remain eligible for the next
+    /// recovery pass, while a launch that is actually in flight remains
+    /// protected from a duplicate resume.
+    @MainActor
+    @Test
+    func staleRestoreMetadataIsRetryableButInFlightRestoreIsOpen() throws {
+        let previousApp = AppDelegate.shared
+        let app = AppDelegate()
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        app.tabManager = manager
+        AppDelegate.shared = app
+        defer {
+            app.tabManager = nil
+            manager.finalizeAllWorkspacesForWindowClose()
+            AppDelegate.shared = previousApp
+        }
+
+        let workspace = try #require(manager.selectedWorkspace)
+        let staleSnapshotID = UUID()
+        let staleBindingID = UUID()
+        let inFlightID = UUID()
+        let staleSnapshotSession = "stale-snapshot-\(UUID().uuidString)"
+        let staleBindingSession = "stale-binding-\(UUID().uuidString)"
+        let inFlightSession = "in-flight-\(UUID().uuidString)"
+
+        workspace.restoredAgentLifecycle.seedSessionRestore(
+            panelId: staleSnapshotID,
+            snapshot: SessionRestorableAgentSnapshot(
+                kind: .codex,
+                sessionId: staleSnapshotSession,
+                workingDirectory: "/tmp",
+                launchCommand: nil
+            ),
+            manualResumeAvailable: true,
+            willRunStartupInput: false,
+            resumeWorkingDirectory: nil
+        )
+        workspace.surfaceResumeBindingsByPanelId[staleBindingID] = SurfaceResumeBindingSnapshot(
+            name: "Claude Code",
+            kind: "claude",
+            command: "claude --resume \(staleBindingSession)",
+            checkpointId: staleBindingSession,
+            source: "agent-hook",
+            updatedAt: Date().timeIntervalSince1970
+        )
+        workspace.restoredAgentLifecycle.seedSessionRestore(
+            panelId: inFlightID,
+            snapshot: SessionRestorableAgentSnapshot(
+                kind: .claude,
+                sessionId: inFlightSession,
+                workingDirectory: "/tmp",
+                launchCommand: nil
+            ),
+            manualResumeAvailable: false,
+            willRunStartupInput: true,
+            resumeWorkingDirectory: nil
+        )
+
+        let open = app.openAgentSessionIdsForRecovery()
+        #expect(!open.contains(staleSnapshotSession))
+        #expect(!open.contains(staleBindingSession))
+        #expect(open.contains(inFlightSession))
+    }
 }

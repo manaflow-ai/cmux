@@ -222,6 +222,17 @@ extension CMUXCLI {
         return diagnostics
     }
 
+    func sessionsListVerifiedRuntimeStatus(
+        _ status: AgentHookRuntimeStatus?,
+        storedPIDExists: Bool?
+    ) -> AgentHookRuntimeStatus? {
+        guard status == .running else { return status }
+        // A persisted running marker is only authoritative while the recorded
+        // process still exists. Do not let a dead or reused PID make sessions
+        // list report a stale record as live.
+        return storedPIDExists == true ? status : nil
+    }
+
     private func sessionsListStalePIDBlocksRestoreIn06417(
         agent: String,
         record: ClaudeHookSessionRecord,
@@ -459,7 +470,7 @@ extension CMUXCLI {
         }
     }
 
-    private func sessionsListStoredPIDExists(_ pid: Int?) -> Bool? {
+    func sessionsListStoredPIDExists(_ pid: Int?) -> Bool? {
         guard let pid, pid > 0 else { return nil }
         guard let processID = pid_t(exactly: pid) else { return nil }
         errno = 0

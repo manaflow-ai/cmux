@@ -24,6 +24,7 @@ extension CMUXCLIErrorOutputRegressionTests {
                     "surfaceId": surfaceId,
                     "cwd": "/tmp/cmux/debug",
                     "pid": 987_654_321,
+                    "runtimeStatus": "running",
                     "startedAt": 1_781_996_800.0,
                     "updatedAt": 1_781_996_867.0,
                     "launchCommand": [
@@ -73,6 +74,7 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(session["fork_unavailable_reason"] as? String == "available")
         #expect(session["fork_startup_input_available"] as? Bool == true)
         #expect(session["stored_pid_exists"] as? Bool == false)
+        #expect(session["runtime_status"] is NSNull)
         #expect(session["stale_pid_blocks_restore_in_0_64_17"] as? Bool == true)
     }
 
