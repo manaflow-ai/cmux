@@ -29,7 +29,9 @@
 //! pair, so it stops retrying. Both transcripts record `agent_pair_paused`; the receiver's
 //! records each `agent_pair_held`, with all the prompt needs to run, so a restarted daemon
 //! rebuilds the pause from the log (`queue.rs` `restore_queue`): every held message that never
-//! reached the receiver, including one a resume had not delivered yet when the daemon stopped.
+//! reached the receiver. A pair a resume was still delivering when the daemon stopped goes on
+//! delivering once the daemon starts (`resume_queues`), so it never sits held behind a transcript
+//! that reads resumed.
 //! Both chats are marked unread and the daemon's `notify_command` fires.
 //!
 //! Only the person resumes: `_acpmux/agent_pair_resume` from a connection that proved the person
@@ -138,6 +140,9 @@ struct PairsState {
     pairs: HashMap<PairKey, Pair>,
     /// Prompt ids of held messages a resume is delivering: they pass once.
     releasing: HashSet<String>,
+    /// Pairs a restart found resumed with messages still to deliver: `resume_queues` delivers
+    /// them (`Hub::resume_agent_pair_drains`).
+    restored_drains: Vec<PairKey>,
 }
 
 #[derive(Default)]
@@ -348,37 +353,54 @@ fn messaging_tool(title: &str) -> bool {
             && server.is_none_or(|s| s == crate::subsession_mcp::SERVER_NAME))
 }
 
-/// The messages a receiver's log shows held and still owed, by sender, oldest first: an
-/// `agent_pair_held` whose prompt id never reached the session (`recorded`) and has no
-/// `agent_pair_dropped` after it.
+/// What a receiver's log shows one sender's pair still owes it.
+#[derive(Default)]
+struct Owed {
+    /// Oldest first.
+    held: Vec<Held>,
+    /// The pair's last pause or resume record is a resume: a resume was delivering these.
+    resumed: bool,
+}
+
+/// The messages a receiver's log shows held and still owed, by sender: an `agent_pair_held`
+/// whose prompt id never reached the session (`recorded`) and has no `agent_pair_dropped` after
+/// it, and whether the person had resumed the pair (its last `agent_pair_paused` or
+/// `agent_pair_resumed`, whose `peer` is the sender).
 fn still_held(
     session: &str,
     records: Vec<EventRecord>,
     recorded: &HashSet<String>,
-) -> HashMap<String, Vec<Held>> {
-    let mut held: HashMap<String, Vec<Held>> = HashMap::new();
+) -> HashMap<String, Owed> {
+    let mut owed: HashMap<String, Owed> = HashMap::new();
     for rec in records {
-        match rec.kind.as_str() {
-            "agent_pair_held" => {
+        let peer = rec.msg.get("peer").and_then(Value::as_str);
+        match (rec.kind.as_str(), peer) {
+            ("agent_pair_held", _) => {
                 if let Some(h) = Held::from_record(session, &rec.msg)
                     && !recorded.contains(&h.prompt_id)
                 {
-                    let list = held.entry(h.from.clone()).or_default();
+                    let list = &mut owed.entry(h.from.clone()).or_default().held;
                     if !list.iter().any(|x| x.prompt_id == h.prompt_id) {
                         list.push(h);
                     }
                 }
             }
-            "agent_pair_dropped" => {
+            ("agent_pair_dropped", _) => {
                 if let Some(id) = rec.msg.get("promptId").and_then(Value::as_str) {
-                    held.values_mut().for_each(|list| list.retain(|h| h.prompt_id != id));
+                    owed.values_mut().for_each(|o| o.held.retain(|h| h.prompt_id != id));
                 }
+            }
+            ("agent_pair_paused", Some(peer)) => {
+                owed.entry(peer.to_owned()).or_default().resumed = false
+            }
+            ("agent_pair_resumed", Some(peer)) => {
+                owed.entry(peer.to_owned()).or_default().resumed = true
             }
             _ => {}
         }
     }
-    held.retain(|_, list| !list.is_empty());
-    held
+    owed.retain(|_, o| !o.held.is_empty());
+    owed
 }
 
 /// Whether a log record shows the session doing work: a tool call that is not a messaging
@@ -630,26 +652,47 @@ impl Hub {
 
     /// Rebuilds the pauses `session`'s log shows (`queue.rs` `restore_queue`, at load and for a
     /// chat moved here): every message held for it that never reached it (`recorded`: the prompt
-    /// ids of its `queued` and `user_message` records) and was not dropped. A resume that a
-    /// restart cut short leaves its undelivered messages held, for the person to resume again.
+    /// ids of its `queued` and `user_message` records) and was not dropped. A pair a resume was
+    /// delivering when the daemon stopped goes on draining once `resume_queues` runs: the person
+    /// resumed it, and its transcript says so.
     pub(super) fn restore_agent_pairs(
         &self,
         session: &str,
         records: Vec<EventRecord>,
         recorded: &HashSet<String>,
     ) {
-        let held = still_held(session, records, recorded);
+        let owed = still_held(session, records, recorded);
         let mut state = self.pairs_state();
-        for (from, list) in held {
-            let pair = state.pairs.entry(pair_key(&from, session)).or_default();
+        let mut drains = Vec::new();
+        for (from, o) in owed {
+            let key = pair_key(&from, session);
+            let pair = state.pairs.entry(key.clone()).or_default();
             let paused = pair
                 .paused
                 .get_or_insert_with(|| Paused { held: VecDeque::new(), draining: false });
-            for h in list {
+            for h in o.held {
                 if !paused.held.iter().any(|x| x.prompt_id == h.prompt_id) {
                     paused.held.push_back(h);
                 }
             }
+            if o.resumed && !paused.draining {
+                paused.draining = true;
+                drains.push(key);
+            }
+        }
+        state.restored_drains.extend(drains);
+    }
+
+    /// Delivers what the pairs `restore_agent_pairs` found mid-resume still hold (`queue.rs`
+    /// `resume_queues`, after the daemon's startup).
+    pub(super) fn resume_agent_pair_drains(self: &Arc<Self>) {
+        let keys = std::mem::take(&mut self.pairs_state().restored_drains);
+        for key in keys {
+            let hub = self.clone();
+            tokio::spawn(async move {
+                hub.wait_startup().await;
+                hub.drain_pair(key).await;
+            });
         }
     }
 
@@ -912,10 +955,20 @@ mod tests {
         ];
         let recorded: HashSet<String> = ["h1".to_owned()].into();
         let owed = still_held("b", records, &recorded);
-        let ids: Vec<&str> = owed["a"].iter().map(|h| h.prompt_id.as_str()).collect();
+        let ids: Vec<&str> = owed["a"].held.iter().map(|h| h.prompt_id.as_str()).collect();
         assert_eq!(ids, ["h3", "h4"]);
-        assert!(owed["a"][0].interrupt, "the flags come back as sent");
+        assert!(owed["a"].held[0].interrupt, "the flags come back as sent");
+        assert!(!owed["a"].resumed, "never resumed: still paused");
         assert!(still_held("b", vec![held("h1")], &recorded).is_empty());
+        // A resume, then a hold while it delivered: still the resume's to deliver. A new pause
+        // after it is paused again.
+        let resumed = rec("agent_pair_resumed", json!({"peer": "a", "by": "request"}));
+        let paused = rec("agent_pair_paused", json!({"peer": "a", "reason": "repeating"}));
+        let owed = still_held("b", vec![held("h3"), resumed.clone(), held("h4")], &recorded);
+        assert!(owed["a"].resumed);
+        assert_eq!(owed["a"].held.len(), 2);
+        let owed = still_held("b", vec![held("h3"), resumed, paused, held("h4")], &recorded);
+        assert!(!owed["a"].resumed);
     }
 
     #[test]

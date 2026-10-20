@@ -595,3 +595,27 @@ async fn a_restart_during_a_resume_keeps_delivering_what_was_held() {
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// `peerSessionId` only picks one of the named session's pairs: a resume naming a session that
+/// is not in the paused pair resumes nothing, whichever peer it names.
+#[tokio::test]
+async fn a_resume_acts_only_on_the_named_sessions_pairs() {
+    let hub = hub();
+    let mut c = Client::open(&hub);
+    let (a, b, other) = (c.new_session().await, c.new_session().await, c.new_session().await);
+    for i in 0..2 {
+        c.message(&a, &b, &format!("p{i}"), "please check the build").await;
+    }
+    assert!(held(&c.message(&a, &b, "p2", "please check the build").await));
+    let mut person = Client::person(&hub).await;
+    for peer in [&a, &b] {
+        let resumed = person.call(RESUME, json!({"sessionId": other, "peerSessionId": peer})).await;
+        assert_eq!(resumed["resumed"], 0, "{resumed}");
+    }
+    assert!(held(&c.message(&a, &b, "p3", "something else").await), "still paused");
+    assert!(!c.ran(&b, "p2").await);
+    // The pair's own session with its peer resumes it.
+    let resumed = person.call(RESUME, json!({"sessionId": b, "peerSessionId": a})).await;
+    assert_eq!(resumed["resumed"], 1, "{resumed}");
+    c.wait_ran(&b, "p2").await;
+}
