@@ -160,6 +160,88 @@ Findings and what was done:
 | A tab opened while hidden holds the session until `opened()` hides it | nice, not done | The stream reports hidden right after it opens; the session lingers at most 30 s |
 | The media source uses the WireGuard link's RTT for its NACK deadline | nice, not done | The deadline is clamped to 80 to 400 ms; both paths measured within a few ms on the rig |
 
-## Live check
+## Live check (2026-10-19, real link)
 
-See "Live results" below.
+Rig: `mini-cmuxs-mac-mini-3`. Mac: fleet build `cnx-e2e-ce1d3585` (job
+`dd065e7afd8577993eead970`, this branch's cnx-hostd), its settings passed
+with `open --env` only (`verify/e2e/mac.py` no longer edits or re-signs the
+Info.plist). Phone: this branch's Demo build (`cb003359`) in one headless
+iOS 26.5 simulator. Both reached each other through the shared dev Worker's
+TeamHub and Cloudflare TURN; nothing loopback or mocked on the phone.
+Another agent's rig app (`cnx-e2e-90375ce5`) was running on the same mini
+and the same dev account; it was left alone, and the run chose its own Mac
+by device id (`CNX_E2E_ALLOW_OTHER_RIGS=1`). Evidence (recordings,
+frames, results.json, hostd log) stays on the mini in
+`~/cnx-hybrid-evidence/run2`, `run3` and `label`.
+
+**Load caveat.** The mini's 1-minute load was 500 to 900 during run 2 (CI
+jobs and the other rig), so absolute numbers are noisy and run-to-run
+spread is large. Treat these as a smoke comparison, not a benchmark.
+
+### Hybrid (WebRTC video) vs WireGuard only (RTP in the tunnel)
+
+`browser-track-bench.py --configs hy-track,wg-track,hy-track,wg-track
+--seconds 12 --taps 5`, `bench.html?scroll=6`, both paths direct:
+
+| Config | Carrier seen | Glass to glass p50 / p90 / max (ms) | fps | Frame interval p95 / max (ms) | Stalls > 100 ms | Page tap to phone frame p50 (ms) |
+| --- | --- | --- | --- | --- | --- | --- |
+| `hy-track` | track (834 frames) | 40 / 67 / 181 | 34.5 | 51.7 / 115 | 2 | 88 |
+| `wg-track` | wg-rtp (947) | 56 / 1741 / 2207 | 30.2 | 50.0 / 83 | 0 | 69 |
+| `hy-track-2` | track (799) | 83 / 216 / 299 | 23.8 | 83.3 / 417 | 10 | 276 |
+| `wg-track-2` | wg-rtp (853) | 51 / 101 / 544 | 34.0 | 66.7 / 537 | 6 | 111 |
+
+Reading it: each configuration rode the carrier it asked for, for every
+OCR'd frame. On a same-machine direct path the two carriers are within the
+noise of this loaded rig (p50 40 to 83 ms against 51 to 56 ms); the
+`wg-track` p90 of 1.7 s is a run of late frames during a load spike, and
+`hy-track-2` ran during the next spike. The case for WebRTC video is the
+one the earlier runs showed (verify/browser-video-track.md): the tunnel's
+RTP shares the link's path, so when WireGuard falls to TURN over TLS (one
+ordered TCP stream) video pays head-of-line blocking, while the media
+session keeps its own UDP path. A clean A/B on an idle Mac, and on a real
+cellular path, is still to do.
+
+### Fallback (run 3, `hy-track`, 20 s)
+
+cnx-hostd got `SIGUSR2` (close every media session) at 4.09 s, and `SIGUSR1`
+(black hole under the track, peer connection still connected) at 11.09 s and
+off at 15.10 s. Carrier per recorded frame, and hostd's log:
+
+| Event | hostd | Phone overlay |
+| --- | --- | --- |
+| Session closed (4.09 s) | session down; the phone's redial was up 1.19 s later (path Direct); switched to `webrtc-track` 43 ms after at a keyframe | `wg-rtp` from 4.32 s (0.23 s), `track` again from 5.34 s |
+| Black hole on (11.09 s) | "media route stalled (no feedback)" 595 ms later; switched to `wireguard-udp` at a keyframe 24 ms after; retried after 1 s, stalled again, backed off | `wg-rtp` from 11.91 s |
+| Black hole off (15.10 s) | the next retry took the track | `track` from 15.49 s |
+
+The longest gap between frames over the 20 s was 650 ms (at the black
+hole, the stall time plus a keyframe), and the tab never went black: the
+phone kept the last frame. Every switch was at a keyframe.
+
+### Block UDP (run 3, `hy-track-tls`)
+
+The phone with `CNX_DEV_BLOCK_UDP=1`: the link came up over TURN over TLS
+(hostd `path=TurnTls`), the media session never connected (hostd: "the
+media session's peer connection failed", every attempt), the phone retried
+at 1, 2, 4, 8, 16, then every 30 s plus the 12 s dial, and video stayed on
+`wg-rtp` for every frame. Glass to glass was 1009 ms p50 here: TURN over
+TLS on a mini at load 500+ (the media lane over one TCP stream).
+
+### Labels
+
+- Phone, Settings → Devices, the rig Mac's row: "Connected · WireGuard
+  direct · video WebRTC (direct) · 0 ms" (`label/hybrid-devices-status.png`).
+- Phone, Settings → Transport: "WireGuard (recommended)" checked, "WebRTC
+  only" below (`label/hybrid-transport.png`).
+- Mac: hostd logs the media path and every route switch; the iPhone card's
+  "Video over WebRTC (direct)" is covered by `CnxHostTests` and was not
+  looked at in the rig app's window (a hidden app; taking a screenshot of it
+  would need focus on the mini).
+
+### Input path, measured
+
+The media session's ICE pair and the WireGuard link were both direct on the
+rig (link RTT 0 to 4 ms in the status line). With equal paths, moving input
+to a new data channel on the media session buys nothing and loses the
+always-there input lane, so input stays on WireGuard. On a path where the
+link is on TURN over TLS and the session is on UDP, input over the session
+would win; that is a follow-up once measured on a real network.
