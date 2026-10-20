@@ -344,6 +344,7 @@ import Testing
     @Test(arguments: ["receipt", "refused", "mismatch", "busy"])
     func aReplayedStartKeepsItsLedgerRowConsistent(answer: String) async throws {
         let h = Harness(); h.owner.loseReply = true
+        h.resolution = .indeterminate // the owner cannot say; the replay is the only path
         let (actions, registry) = h.make()
         do { _ = try await actions.runSettings(id: "work-profile", context: gesture("lost-start"), registry: registry) } catch {}
         #expect(h.ledger.rows["lost-start"]?.receipt == nil)
@@ -389,13 +390,79 @@ import Testing
         #expect(h.ledger.rows.isEmpty && h.owner.starts.isEmpty)
     }
 
-    /// A busy owner may be running this very key; its intent stays tracked.
-    @Test func aBusyOwnerKeepsTheIntent() async throws {
-        let h = Harness(); h.owner.refuse = [.claude]; h.owner.refuseCode = "agent_cli_job.busy"
+    /// The owner answers busy (its inventory reservation or execution lock) before it looks up
+    /// the key, and a first start always sends a fresh key: nothing was created for it. The row
+    /// settles, so a retry click is not blocked and no later refresh starts it unasked.
+    @Test func aBusyFirstStartSettlesAndLeavesTheCLIUnblocked() async throws {
+        let h = Harness(); h.owner.busy = [.claude]
         let (actions, registry) = h.make()
         do { _ = try await actions.runSettings(id: nil, context: gesture(), registry: registry) } catch {}
-        #expect(!h.ledger.events.contains("settle:1"))
-        #expect(Set(h.ledger.rows.values.map(\.intent.cli)) == ["claude", "codex"])
+        #expect(h.ledger.events == ["record:2", "start:claude", "settle:1", "start:codex", "attach:codex"])
+        #expect(h.ledger.rows.values.map(\.intent.cli) == ["codex"])
+        #expect(actions.state.arrayValue?.map { $0["cli"] } == ["codex"])
+        await actions.refresh()
+        #expect(h.owner.starts.count == 2, "no refresh replays a start the owner answered busy")
+        h.owner.busy = []
+        _ = try await actions.runSettings(id: "claude", context: gesture("retry-claude"), registry: registry)
+        #expect(h.owner.starts.last?.0 == .claude && h.owner.starts.last?.1 == "retry-claude")
+    }
+
+    /// A lost reply whose key the owner has nothing for (not_found or prepared) is offered as
+    /// Resume, which needs a click; a refresh never sends it again unasked.
+    @Test(arguments: ["not_found", "prepared"])
+    func aLostReplyTheOwnerHasNothingForOffersResumeInsteadOfReplaying(state: String) async throws {
+        let h = Harness(); h.owner.loseReply = true
+        h.resolution = state == "prepared" ? .prepared : .notFound
+        let (actions, registry) = h.make()
+        do { _ = try await actions.runSettings(id: "work-profile", context: gesture("lost-nothing"), registry: registry) } catch {}
+        h.owner.loseReply = false
+        await actions.refresh()
+        await actions.refresh()
+        #expect(h.owner.starts.map(\.1) == ["lost-nothing"])
+        let job = try #require(actions.state.arrayValue?.first)
+        #expect(job["intent_key"] == "lost-nothing" && job["can_resume"] == true && job["terminal"] == nil)
+        _ = try await actions.resumeRetained(key: "lost-nothing", context: gesture("resume-click"), registry: registry)
+        #expect(h.owner.starts.map(\.1) == ["lost-nothing", "lost-nothing"])
+    }
+
+    /// A replay in flight holds its intent: a dismiss then is refused instead of deleting the row
+    /// the replayed receipt attaches to, so no updater runs untracked.
+    @Test func aDismissDuringAReplayIsRefusedAndTheReceiptAttaches() async throws {
+        let h = Harness(); h.owner.loseReply = true
+        h.resolution = .indeterminate
+        let (actions, registry) = h.make()
+        do { _ = try await actions.runSettings(id: "work-profile", context: gesture("lost-held"), registry: registry) } catch {}
+        h.owner.loseReply = false
+        h.owner.hold = .codex
+        let refresh = Task { await actions.refresh() }
+        for _ in 0..<200 where h.owner.held == nil { await Task.yield() }
+        let held = try #require(h.owner.held)
+        do {
+            _ = try await actions.runPage(["action": "dismissUpdate", "intent": "lost-held"], context: gesture("dismiss-click"), registry: registry)
+            Issue.record("a dismiss settled a key whose replay is in flight")
+        } catch {}
+        #expect(h.ledger.rows["lost-held"] != nil)
+        held.resume()
+        await refresh.value
+        #expect(h.ledger.rows["lost-held"]?.receipt?.path.terminalID.rawValue == "term_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+        #expect(actions.state.arrayValue?.first?["terminal"] == "term_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+    }
+
+    /// A batch that stops early names the families it never sent.
+    @Test func aBatchThatStopsEarlyNamesTheFamiliesItDropped() async throws {
+        let h = Harness(); h.owner.hold = .claude
+        let (actions, registry) = h.make()
+        let batch = Task { try await actions.runSettings(id: nil, context: gesture("stops-early"), registry: registry) }
+        for _ in 0..<200 where h.owner.held == nil { await Task.yield() }
+        let held = try #require(h.owner.held)
+        h.owner.epoch += 1
+        h.owner.loseReply = true
+        held.resume()
+        do {
+            _ = try await batch.value
+            Issue.record("a batch that lost its route reported success")
+        } catch let error as PageError { #expect(error.message.contains("claude") && error.message.contains("codex")) }
+        #expect(h.owner.starts.map(\.0) == [.claude])
     }
 
     @Test(arguments: ["indeterminate", "not_found", "pending"])
