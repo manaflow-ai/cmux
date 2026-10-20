@@ -137,7 +137,7 @@ public final class ChiefPetController {
         let drew = bubble.bubble.show(feed.notices, expanded: expanded)
         let height = ChiefPetBubblePanel.height(count: feed.notices.count, expanded: expanded)
         // With no screen (a display being reconfigured) it still takes its size, over the pet.
-        let visible = panel.screen?.visibleFrame ?? ChiefPetPanel.screenUnderPointer()?.visibleFrame ?? panel.frame.insetBy(dx: -4000, dy: -4000)
+        let visible = panel.visibleFrame() ?? ChiefPetPanel.screenUnderPointer()?.visibleFrame ?? panel.frame.insetBy(dx: -4000, dy: -4000)
         bubble.setFrame(ChiefPetBubblePanel.frame(height: height, over: panel.frame, in: visible), display: drew)
         guard !bubble.isVisible else { return }
         bubble.alphaValue = animated && drew ? 0 : 1
@@ -150,16 +150,13 @@ public final class ChiefPetController {
 
     /// Places the shown bubble and reply box toward the quadrant with room around the pet's frame now.
     func followPet() {
-        guard let panel, let visible = panel.screen?.visibleFrame ?? ChiefPetPanel.screenUnderPointer()?.visibleFrame else { return }
+        guard let panel, let visible = panel.visibleFrame() ?? ChiefPetPanel.screenUnderPointer()?.visibleFrame else { return }
         if let bubble, bubble.isVisible {
             let height = ChiefPetBubblePanel.height(count: feed.notices.count, expanded: expanded)
             let frame = ChiefPetBubblePanel.frame(height: height, over: panel.frame, in: visible)
             if frame != bubble.frame { bubble.setFrame(frame, display: false) }
         }
-        if let replyPanel, replyPanel.isVisible {
-            let frame = ChiefPetReplyPanel.frame(over: panel.frame, in: visible)
-            if frame != replyPanel.frame { replyPanel.setFrame(frame, display: false) }
-        }
+        placeReply()
     }
 
     func hideBubble() {
@@ -188,8 +185,11 @@ public final class ChiefPetController {
         made.pet.onDragEnded = { [weak self, weak made] in
             made?.saveOrigin()
             self?.render(animated: false)
-            // A drop past the screen's edge pulled the pet back on: the reply box follows it too.
-            self?.followPet()
+            self?.placeReply()
+        }
+        made.onKeptOnScreen = { [weak self] in
+            self?.render(animated: false)
+            self?.placeReply()
         }
         panel = made
         return made

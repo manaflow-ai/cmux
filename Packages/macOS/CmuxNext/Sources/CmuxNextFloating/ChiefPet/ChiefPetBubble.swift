@@ -96,7 +96,11 @@ final class ChiefPetBubbleView: NSView {
             capsule.isHidden = index >= notices.count
             guard index < notices.count else { continue }
             // Folded, only the front capsule shows its text; the deck behind it is bare.
-            capsule.show(notices[index], text: expanded || index == 0)
+            let text = expanded || index == 0
+            capsule.show(notices[index], text: text)
+            // VoiceOver reads what a click can open: folded, the front notice; unfolded, each one.
+            capsule.setAccessibilityElement(text)
+            capsule.onPress = { [weak self] in self?.onOpen?(index) }
         }
         needsLayout = true
         return true
@@ -141,6 +145,8 @@ final class ChiefPetBubbleView: NSView {
 /// One notice: a glass capsule (the solid overlay surface under Reduce Transparency) with the
 /// title in bold and one muted line under it, no status glyph, as the references draw it.
 final class ChiefPetCapsule: NSView {
+    /// A VoiceOver press: opens this notice, as a click on it does.
+    var onPress: (() -> Void)?
     private let surface: NSView
     private let title = ChromeLabel(labelWithString: "")
     private let detail = ChromeLabel(labelWithString: "")
@@ -164,6 +170,12 @@ final class ChiefPetCapsule: NSView {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
+
+    override func accessibilityPerformPress() -> Bool {
+        guard let onPress else { return false }
+        onPress()
+        return true
+    }
 
     func show(_ notice: ChiefPetNotice, text: Bool) {
         title.stringValue = notice.title

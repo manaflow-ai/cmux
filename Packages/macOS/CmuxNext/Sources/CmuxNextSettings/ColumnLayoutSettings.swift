@@ -4,7 +4,7 @@ public import CoreGraphics
 /// Column and split defaults in cmux.json (plans/cmux-next/column-sizing.md):
 /// `layout.splitSizing`, `layout.newColumnWidth`, `layout.dockColumnEdge`,
 /// `layout.dockColumnMode`, `layout.frameOrientation`, `layout.minimumPaneWidth`,
-/// `layout.minimumPaneHeight`, `layout.rows`, `layout.focusFollowsMouse`. A missing key is the default with no
+/// `layout.minimumPaneHeight`, `layout.rows`, `layout.focusFollowsMouse`, `layout.scrollAreas`. A missing key is the default with no
 /// diagnostic; a bad value is the default plus a diagnostic.
 public nonisolated enum ColumnLayoutSettings {
     public static let splitSizingPath = ["layout", "splitSizing"]
@@ -20,6 +20,7 @@ public nonisolated enum ColumnLayoutSettings {
     public static let minimumPaneHeightPath = ["layout", "minimumPaneHeight"]
     public static let rowsPath = ["layout", "rows"]
     public static let focusFollowsMousePath = ["layout", "focusFollowsMouse"]
+    public static let scrollAreasPath = ["layout", "scrollAreas"]
 
     public static let splitSizingFallback: SplitSizing = .even
     public static let newColumnWidthFallback: NewColumnWidthMode = .matchCurrent
@@ -31,6 +32,8 @@ public nonisolated enum ColumnLayoutSettings {
     /// `layout.focusFollowsMouse` defaults off: hovering or scrolling a pane leaves
     /// keyboard focus where it is, so typing is never pulled into another pane.
     public static let focusFollowsMouseFallback = false
+    /// `layout.scrollAreas` defaults off until dogfood (scroll-areas-DESIGN.md, open question 1).
+    public static let scrollAreasFallback = false
     public static let minimumPaneWidthFallback: Double = 200
     public static let minimumPaneHeightFallback: Double = 64
     public static let minimumPaneWidthRange: ClosedRange<Double> = 80...800
@@ -117,6 +120,16 @@ public nonisolated enum ColumnLayoutSettings {
             }
         } else {
             snapshot.focusFollowsMouse = focusFollowsMouseFallback
+        }
+        if let value = root.value(at: scrollAreasPath) {
+            if let on = value.boolValue {
+                snapshot.layoutScrollAreas = on
+            } else {
+                snapshot.layoutScrollAreas = scrollAreasFallback
+                diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "layout.scrollAreas", message: "expected true or false"))
+            }
+        } else {
+            snapshot.layoutScrollAreas = scrollAreasFallback
         }
         snapshot.diagnostics += diagnostics
     }

@@ -35,7 +35,7 @@ export function childView(
   const agents = subagentsIn(rows, views);
   const agent = agents.get(id);
   if (!agent) return undefined;
-  const parent = agent.parent === null ? chat : (agents.get(agent.parent)?.name ?? chat);
+  const parent = agent.parent === null ? chat : agents.get(agent.parent)?.name || chat;
   const pill: AcpmuxRow = {
     id: `${id}:of`,
     version: 1,
@@ -48,6 +48,21 @@ export function childView(
 }
 
 export const isSubagentGroup = (row: AcpmuxRow) => row.kind === SUBAGENTS;
+
+/// The latest turn's groups, nested views' included, with an agent still running: in a working
+/// turn they start open (App.tsx), after Codex and Claude Code. An earlier turn's group stays as
+/// it was, its agent still running in the background.
+export function runningGroups(rows: readonly AcpmuxRow[], views: Record<string, AcpmuxRow[]> = {}): string[] {
+  // The turn starts after its prompt; a prompt still waiting to send starts none.
+  let start = rows.length;
+  while (start > 0 && (rows[start - 1]!.kind !== "user" || rows[start - 1]!.pending || rows[start - 1]!.failed))
+    start -= 1;
+  const found: string[] = [];
+  for (const list of [rows.slice(start), ...Object.values(views)])
+    for (const row of list)
+      if (row.kind === SUBAGENTS && row.subagents?.some((agent) => agent.state === "running")) found.push(row.id);
+  return found;
+}
 
 /// ``withSubagentRows`` with what it was drawn from, for the next snapshot to build on.
 export type SubagentRows = { source: readonly AcpmuxRow[]; grouped: boolean; rows: AcpmuxRow[] };

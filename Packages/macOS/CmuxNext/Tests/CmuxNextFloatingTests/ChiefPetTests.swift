@@ -215,7 +215,8 @@ import Testing
         controller.arrive(ChiefPetNotice(id: 1, tab: "t", surface: nil, title: "Done", detail: "Build finished", kind: .done))
         let panel = try #require(controller.panel)
         let bubble = try #require(controller.bubble)
-        let visible = try #require(panel.screen?.visibleFrame ?? ChiefPetPanel.screenUnderPointer()?.visibleFrame)
+        let visible = Self.visible
+        panel.visibleFrame = { visible }
         // Start on the lower right, then drag to the lower left.
         let start = CGPoint(x: visible.maxX - 40 - panel.frame.width, y: visible.minY + 40)
         panel.setFrameOrigin(start)

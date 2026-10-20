@@ -9,14 +9,29 @@ extension ChiefPetController {
         guard let panel else { return }
         let reply = replyPanelOnce()
         reply.show(targets: ChiefPetReply.targets(feed))
-        if let visible = panel.screen?.visibleFrame ?? ChiefPetPanel.screenUnderPointer()?.visibleFrame {
-            reply.setFrame(ChiefPetReplyPanel.frame(over: panel.frame, in: visible), display: false)
-        }
+        place(reply, over: panel)
         hideBubble()
+        // A child of the pet, as the notices are: a drag moves it with the pet.
+        panel.addChildWindow(reply, ordered: .above)
         reply.present()
     }
 
+    /// Puts the open reply box back over the pet, on the side with room (after a drag or a screen change).
+    func placeReply() {
+        guard let panel, let replyPanel, replyPanel.isVisible else { return }
+        place(replyPanel, over: panel)
+    }
+
+    private func place(_ reply: ChiefPetReplyPanel, over panel: ChiefPetPanel) {
+        guard let visible = panel.visibleFrame() ?? ChiefPetPanel.screenUnderPointer()?.visibleFrame else { return }
+        let frame = ChiefPetReplyPanel.frame(over: panel.frame, in: visible)
+        if frame != reply.frame { reply.setFrame(frame, display: false) }
+    }
+
     func closeReply() {
+        // Out of the pet's children first, shown or not: a hidden child would come back the next time
+        // the pet is ordered in.
+        if let replyPanel { replyPanel.parent?.removeChildWindow(replyPanel) }
         guard let replyPanel, replyPanel.isVisible, !closingReply else { return }
         closingReply = true
         defer { closingReply = false }
