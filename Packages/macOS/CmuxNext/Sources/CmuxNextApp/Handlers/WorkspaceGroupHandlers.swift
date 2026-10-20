@@ -105,7 +105,7 @@ enum WorkspaceGroupHandlers {
         registry.bind("workspaceGroup.togglePin", requires: DaemonCapabilities.shared.workspaceGroupPin, daemon: home, run: { invocation in
             // On the sidebar document a pinned group is one in Pinned.
             let group = try context.group(invocation), id = sidebarID(group)
-            try context.sidebar().handle(.setGroupPinned(id, !(SidebarDocStore.activeRecords?.isPinned(group: id.rawValue) ?? group.pinned)))
+            try context.sidebar().handle(.setGroupPinned(id, !(SidebarDocStore.current?.showsPinned(group: id.rawValue) ?? group.pinned)))
         })
         // The group icon: the shared icon string, same rule as workspace and tab icons.
         registry.bind("workspaceGroup.setIcon", requires: DaemonCapabilities.shared.workspaceGroupIcon, daemon: home, run: { invocation in

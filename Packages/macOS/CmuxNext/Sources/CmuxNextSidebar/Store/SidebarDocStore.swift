@@ -165,6 +165,14 @@ public final class SidebarDocStore {
         isActive ? mirror?.rows(request) : nil
     }
 
+    /// Group item `item` sits in Pinned as the sidebar draws it, pending changes included, so a second
+    /// Pin/Unpin before the daemon answers undoes the first; nil while the document is not shown.
+    public func showsPinned(group item: String) -> Bool? {
+        guard isActive, shown != nil else { return nil }
+        let row = rows(SidebarViewRequest(live: Array(lastLive)))?.first { $0.kind == SidebarDocProjection.groupKind && $0.item == item }
+        return row.map { $0.section == Self.pinnedSection } ?? records.isPinned(group: item)
+    }
+
     /// What a drop of `items` may do beside each row (one FFI call per drag).
     public func acceptance(dragging items: [String]) -> [String: SidebarDocAcceptance] {
         isActive ? mirror?.acceptance(dragging: items) ?? [:] : [:]
