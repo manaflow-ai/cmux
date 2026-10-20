@@ -28,6 +28,22 @@ struct ClassicImportTests {
     private static let splits = fixture("session-com.cmuxterm.app.json")
     private static let everything = fixture("session-everything.json")
 
+    @Test func previewIncludesInterruptedWorkspacesThatWillBeReplaced() {
+        let source = ClassicMigrationSource(
+            path: "/tmp/session.json",
+            bundleID: ClassicSessionImporter.stableBundleIdentifier,
+            size: 1,
+            modifiedAt: 1,
+            createdAt: 1
+        )
+        let plan = ClassicImportPlan(
+            source: source,
+            migration: ClassicMigrationPlan(cleanup: ["half-made-1", "half-made-2"])
+        )
+        #expect(plan.cleanupWorkspaces == 2)
+        #expect(ClassicImportStrings.previewLines(plan).count == 9)
+    }
+
     /// What the import left: each workspace's pane trees by name, the SSH
     /// destinations it reached, and its toast.
     private struct Imported {
