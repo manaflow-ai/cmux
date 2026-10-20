@@ -172,9 +172,11 @@ fn optional_nullable_request(request: &Request) -> Result<Value, CmuxError> {
         device_kind: Optional::Missing,
         device_name: Optional::Missing,
         display_name: Optional::Missing,
+        install: Optional::Missing,
         kind: Optional::Missing,
         name,
         user_id: Optional::Missing,
+        version: Optional::Missing,
     })?;
     Ok(json!({"presence": request.presence}))
 }

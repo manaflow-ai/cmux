@@ -24,6 +24,7 @@ public final class PhoneTabView: NSView {
         self.service = service
         deviceID = device
         super.init(frame: .zero)
+        notesField.focusRingType = .none
         build()
         observation = Task { [weak self] in
             guard let service = self?.service else { return }
