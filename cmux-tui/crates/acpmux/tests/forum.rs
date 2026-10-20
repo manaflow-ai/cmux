@@ -543,6 +543,44 @@ async fn a_waiting_prompt_carries_an_urgent_rule_pushed_behind_it() {
 }
 
 #[tokio::test]
+async fn an_urgent_rule_whose_carrying_prompt_failed_is_still_pushed() {
+    let hub = hub();
+    let mut app = Client::person(&hub).await;
+    let s = app.new_session().await;
+    app.prompt(&s, "warm up").await;
+    let gate = Gate::new();
+    gate.hold(&hub, &s).await;
+    // The person's prompt waits behind the held turn and fails once it runs;
+    // the urgent rule's own prompt waits behind it.
+    let mut bg = Client::person(&hub).await;
+    let mine = json!({"sessionId": s, "prompt": [{"type": "text", "text": "fail-streamed: boom"}]});
+    let queued = tokio::spawn(async move { bg.call("session/prompt", mine).await });
+    let mut c = Client::person(&hub).await;
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    while hub.session_summary(&hub.resolve(&s).unwrap())["queued"] != json!(1) {
+        assert!(tokio::time::Instant::now() < deadline, "the prompt never queued");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let u = c
+        .ok(ANNOUNCE, json!({"key": "ci", "body": "CI waits use glaeda-gh.", "urgent": true, "account": "leo"}))
+        .await;
+    assert_eq!(u["pushed"], json!([s.as_str()]), "{u}");
+    gate.open().await;
+    let r = queued.await.unwrap();
+    assert!(r.get("error").is_some(), "{r}");
+    // The failed prompt did not tell the rule: its pushed prompt still runs,
+    // ahead of the next one, without waiting for another person prompt.
+    app.prompt(&s, "after").await;
+    let replies = app.replies(&s).await;
+    assert!(
+        replies.iter().any(|r| r.contains("Urgent cmux rule. [ci]")),
+        "{replies:?}"
+    );
+    let after = replies.iter().find(|r| r.starts_with("echo: after")).unwrap();
+    assert!(!after.contains("CI waits use glaeda-gh."), "{replies:?}");
+}
+
+#[tokio::test]
 async fn a_restored_agent_session_is_told_a_rule_its_transcript_holds_was_retired() {
     let hub = hub();
     let mut app = Client::person(&hub).await;
