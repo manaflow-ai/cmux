@@ -2196,8 +2196,11 @@ asked to exit, and each tab then shows dead with
 `relaunch: {cwd, on_show: true}` once its host exited. A frontend starts a
 parked tab again with `restart-tab` (`tab-restart-kept-layout-v1`) when its
 workspace is first shown. Tabs that are not terminals, or whose terminal
-does not run, launch or adopt, are left as they are. A terminal whose shell
-could not be asked to exit keeps running and loses its kept record.
+does not run, launch or adopt, are left as they are. Parking a terminal keeps
+every tab that shows it, also one the request did not name. A terminal whose
+shell could not be asked to exit keeps running and loses its kept record.
+`parked` lists the named tabs whose terminal was chosen to park, before any
+shell is asked to exit; it can name a tab whose terminal then kept running.
 
 Params:
 
