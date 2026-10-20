@@ -167,7 +167,12 @@ struct ChromiumRuntimeInstallerTests {
         let (oldData, oldPin) = try PackFixture.make(in: folder.url, key: "aaaaaaaaaaaaaaaa")
         let (unusedData, unusedPin) = try PackFixture.make(in: folder.url, key: "bbbbbbbbbbbbbbbb")
         _ = await installer(oldPin, downloader: MemoryDownloader(bytes: oldData)).run(.user)
-        _ = await installer(unusedPin, downloader: MemoryDownloader(bytes: unusedData)).run(.user)
+        // Each install prunes; keep pack a through b's install so the setup holds both.
+        _ = await ChromiumRuntimeInstaller(
+            pin: unusedPin, store: store, downloader: MemoryDownloader(bytes: unusedData), unpacker: TarChromiumRuntimeUnpacker(),
+            signatures: RecordingSignatures(), network: FixedNetwork(), retryDelays: [.zero], maxAttempts: 1,
+            keepAlso: { ["aaaaaaaaaaaaaaaa"] }).run(.user)
+        #expect(store.installations().map(\.pin.key).sorted() == ["aaaaaaaaaaaaaaaa", "bbbbbbbbbbbbbbbb"])
         let (data, pin) = try PackFixture.make(in: folder.url, key: "cccccccccccccccc")
         let installer = ChromiumRuntimeInstaller(
             pin: pin, store: store, downloader: MemoryDownloader(bytes: data), unpacker: TarChromiumRuntimeUnpacker(),
