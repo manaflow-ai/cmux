@@ -283,6 +283,34 @@ export type HarnessesRun = {
   recheck?: boolean;
 };
 
+/** One coding agent's hooks as `cmux agent hook status` reports them (Settings > Agents >
+ * Agent integrations). `conflict`: a file cmux did not create is in the way (install refuses
+ * it); `unavailable`: the file could not be read. */
+export type IntegrationRow = {
+  id: string;
+  path: string;
+  state: "installed" | "partial" | "absent" | "conflict" | "unavailable";
+  /** For `conflict` / `unavailable`: what is in the way. */
+  reason: "symlink" | "not_a_file" | "not_a_directory" | "not_owned" | "unreadable" | null;
+  /** The CLI's own (English) text for a conflict. */
+  detail: string | null;
+  /** The CLI's refusal of this row's last gesture. */
+  error: string | null;
+};
+
+/** The Agent integrations part (`SettingsAgentIntegrations.state`). */
+export type IntegrationsState = {
+  loading: boolean;
+  /** `unavailable`: this build carries no cmux CLI; `failed`: status did not answer. */
+  problem: "unavailable" | "failed" | null;
+  /** The command to run by hand (`cmux agent hook install`); a row appends its id. */
+  command: string;
+  providers: IntegrationRow[];
+};
+
+/** One Agent integrations gesture; each runs only on a click. */
+export type IntegrationsRun = { action: "refresh" } | { action: "install" | "repair" | "remove"; id: string };
+
 /** The v2 mutation result: `revision` is a decimal string. */
 export type MutationResult = { value: { keys: string[] }; revision: string; replayed: boolean };
 
@@ -309,6 +337,10 @@ export type SettingsOps = {
   "cmux.settings.harnesses.state": [Record<string, never>, HarnessesState];
   /** Native: one Harnesses gesture (a terminal tab for sign-in, or a refresh). */
   "cmux.settings.harnesses.run": [HarnessesRun, unknown];
+  /** Native: the coding-agent hooks `cmux agent hook status` reports (Settings > Agents). */
+  "cmux.settings.integrations.state": [Record<string, never>, IntegrationsState];
+  /** Native: one Agent integrations gesture (`agent hook install|uninstall <id>`, or a refresh). */
+  "cmux.settings.integrations.run": [IntegrationsRun, unknown];
   /** Native: set the theme of one level of the active window; `spec` null uses the Ghostty config. */
   "cmux.settings.theme.set": [{ level: string; spec: string | null }, unknown];
   /** Native: the colors of every published theme, for the theme preview and the picker's swatches. */
