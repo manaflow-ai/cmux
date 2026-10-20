@@ -72,7 +72,7 @@ struct RunawaySessionSelectorTests {
         let selection = select(session() + runawayJob())
 
         #expect(selection?.processGroupIDs == [300])
-        #expect(selection?.processCount == 63)
+        #expect(selection?.processCount == 61)
         #expect(selection?.memoryBytes == 31 * Self.gb + 12_000_000)
     }
 
@@ -93,7 +93,7 @@ struct RunawaySessionSelectorTests {
         #expect(select(session() + detached) == nil)
         let selection = select(session() + runawayJob() + detached, aggregateGB: 60)
         #expect(selection?.processGroupIDs == [300])
-        #expect(selection?.processCount == 63)
+        #expect(selection?.processCount == 61)
     }
 
     @Test("a group with a member off the tty is never signalled")
@@ -108,9 +108,29 @@ struct RunawaySessionSelectorTests {
         #expect(select(session(loginParent: 1) + runawayJob()) == nil)
     }
 
-    @Test("a command sharing the shell's group is never signalled")
+    /// A small suspended job (`vim`, group 400) that releases nothing.
+    private func bystander() -> [RunawaySessionProcess] {
+        [process(400, parent: 200, name: "vim", group: 400, bytes: 50_000_000)]
+    }
+
+    @Test("a command sharing the shell's group is never signalled, nor are bystanders")
     func shellGroupIsProtected() {
-        #expect(select(session() + runawayJob(includeLeader: false, workerParent: 200, group: 200)) == nil)
+        let runawayInShellGroup = runawayJob(includeLeader: false, workerParent: 200, group: 200)
+
+        #expect(select(session() + runawayInShellGroup) == nil)
+        #expect(select(session() + runawayInShellGroup + bystander()) == nil)
+    }
+
+    @Test("bystander jobs are untouched when the runaway group can't be signalled")
+    func bystandersSurviveAnUnsignallableRunaway() {
+        let escaped = process(900, parent: 1, group: 300, bytes: 0, tty: nil)
+
+        #expect(select(session() + runawayJob() + [escaped] + bystander()) == nil)
+    }
+
+    @Test("only the runaway group is picked when a bystander job shares the tty")
+    func bystanderIsNotPickedWithTheRunaway() {
+        #expect(select(session() + runawayJob() + bystander())?.processGroupIDs == [300])
     }
 
     @Test("the app's own group is never signalled")

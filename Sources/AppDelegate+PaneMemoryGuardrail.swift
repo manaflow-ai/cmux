@@ -69,10 +69,42 @@ extension AppDelegate {
         let browserMemoryBudget = BrowserHiddenWebViewMemoryBudgetCoordinator { [weak self] in
             self?.allLiveBrowserPanels() ?? []
         }
+        let runawayWarnings = runawayPaneWarningCenter
+        runawayWarnings.paneProvider = { [weak self] in
+            self?.paneMemoryGuardrailDescriptors() ?? []
+        }
+        runawayWarnings.onNewWarning = { [weak self] warning in
+            self?.postRunawayPaneWarningNotification(warning)
+        }
         monitor.onSampleApplied = { sampledAt in
             browserMemoryBudget.enforceBudget(now: sampledAt)
+            runawayWarnings.evaluate()
         }
         monitor.start()
+    }
+
+    /// Posts the runaway-terminal warning as a notification on that pane, so
+    /// it reaches the user while cmux is in the background. Clicking it opens
+    /// the terminal, where the banner offers Stop Process Tree.
+    private func postRunawayPaneWarningNotification(_ warning: RunawayPaneWarning) {
+        notificationStore?.addNotification(
+            tabId: warning.workspaceId,
+            surfaceId: warning.panelId,
+            title: String(
+                localized: "runawayPaneWarning.title",
+                defaultValue: "A terminal's processes are running away"
+            ),
+            subtitle: warning.locationText,
+            body: String.localizedStringWithFormat(
+                String(
+                    localized: "runawayPaneWarning.notification.body",
+                    defaultValue: "%@. Open the terminal to stop its process tree."
+                ),
+                warning.detailText
+            ),
+            cooldownKey: "runaway-pane-tree.\(warning.panelId.uuidString)",
+            cooldownInterval: 300
+        )
     }
 
     /// Every live browser panel, each once: workspace panes plus the panes of
