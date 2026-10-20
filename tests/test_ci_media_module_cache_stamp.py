@@ -12,9 +12,21 @@ The build step now runs scripts/ci/media_module_cache_stamp.py around each
 reload.sh: `clear` removes the precompiled module dirs when the binary pins
 differ from the stamp of the tag's last good build, and `record` stamps it.
 
+Removing only the module dirs broke every warm tour it touched: Xcode's
+build description (Build/Intermediates.noindex/XCBuildData) still listed the
+removed .pcm files as built, so the next compile died within a minute on
+"module file '.../ExplicitPrecompiledModules/Darwin-*.pcm' not found". All 14
+such failures on 2026-10-19 (e.g. job 118285853270) came right after a clear
+in that same dir, and since a failed build never recorded the stamp, each
+retry cleared and failed again (7 in a row on cmux-ci-media-feat-cmux-next-base).
+`clear` now removes the whole Build dir with the module caches (the package
+checkouts in SourcePackages stay) and stamps the dir right away: what is left
+was built from no other pin, whether the build then succeeds or not.
+
 This checks the script on a fake source tree and DerivedData, then runs the
-workflow's build step twice with a stand-in reload.sh that fails like Xcode
-did when a module precompiled from an older pin is still there.
+workflow's build step with a stand-in reload.sh that fails like Xcode did
+when a module precompiled from an older pin is still there, or when its build
+description lists a module file that is gone.
 """
 
 import os
@@ -27,11 +39,15 @@ import yaml
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SCRIPT = os.path.join(ROOT, "scripts", "ci", "media_module_cache_stamp.py")
+BUILD_SCRIPT = os.path.join(ROOT, "scripts", "ci", "media_build_app.sh")
+CACHE_SCRIPT = os.path.join(ROOT, "scripts", "ci", "media_app_cache.py")
 WORKFLOW = os.path.join(ROOT, ".github", "workflows", "cmux-next-media.yml")
-STEP_NAME = "Build base and head tagged apps"
+STEP_NAMES = ("Build the base app", "Build the head app")
 PIN_A = "a" * 64
 PIN_B = "b" * 64
 MODULES = "Build/Intermediates.noindex/SwiftExplicitPrecompiledModules"
+BUILD_DB_DIR = "Build/Intermediates.noindex/XCBuildData"
+CHECKOUTS = "SourcePackages/checkouts"
 FAILURES = []
 
 # Stands in for reload.sh: like Xcode, it fails when a module precompiled from
@@ -43,12 +59,23 @@ tag="$2"
 derived="$HOME/Library/Developer/Xcode/DerivedData/cmux-$tag"
 pin="$(grep -o -E '[0-9a-f]{64}' Packages/Kit/Package.swift)"
 pcm="$derived/Build/Intermediates.noindex/SwiftExplicitPrecompiledModules/GhosttyNextKit.pcm"
+darwin="$derived/Build/Intermediates.noindex/ExplicitPrecompiledModules/Darwin-B8F87C0RKU9WKGDHPXYECQVCK.pcm"
+db="$derived/Build/Intermediates.noindex/XCBuildData/build.db"
 if [ -f "$pcm" ] && [ "$(cat "$pcm")" != "$pin" ]; then
   echo "error: file 'include/ghostty.h' has been modified since the module file '$pcm' was built"
   exit 1
 fi
-mkdir -p "$(dirname "$pcm")" "$derived/Build/Products/Debug/cmux DEV $tag.app"
+# A warm build description trusts the modules it built and does not rebuild one that is gone.
+if [ -f "$db" ]; then
+  while read -r built; do
+    [ -f "$built" ] || { echo "fatal error: module file '$built' not found"; exit 1; }
+  done < "$db"
+fi
+mkdir -p "$(dirname "$pcm")" "$(dirname "$darwin")" "$(dirname "$db")" "$derived/Build/Products/Debug/cmux DEV $tag.app" \
+  "$derived/SourcePackages/checkouts/sparkle"
 echo "$pin" > "$pcm"
+echo "$pin" > "$darwin"
+printf '%s\n%s\n' "$pcm" "$darwin" > "$db"
 printf 'App path:\n  %s\n' "$derived/Build/Products/Debug/cmux DEV $tag.app"
 """
 
@@ -86,7 +113,7 @@ def make_source(path, pin):
 
 
 def make_derived(path):
-    for relative in (MODULES, "ModuleCache.noindex", "Build/Products/Debug/app.app"):
+    for relative in (MODULES, "ModuleCache.noindex", "Build/Products/Debug/app.app", BUILD_DB_DIR, CHECKOUTS):
         os.makedirs(os.path.join(path, relative))
         write(os.path.join(path, relative, "file"), "x")
 
@@ -118,8 +145,12 @@ def scenario_script():
         make_derived(derived)
         run("clear", source, derived)
         _check(not modules_present(derived), "a warm dir with no stamp drops its precompiled modules")
-        _check(os.path.isdir(os.path.join(derived, "Build/Products/Debug/app.app")),
-               "the rest of the DerivedData stays warm")
+        _check(not os.path.exists(os.path.join(derived, BUILD_DB_DIR)),
+               "it drops the build description that still lists them")
+        _check(os.path.isdir(os.path.join(derived, CHECKOUTS)), "the package checkouts stay")
+        make_derived_modules_again(derived)
+        run("clear", source, derived)
+        _check(modules_present(derived), "a cleared dir is stamped: the next tour does not clear it again")
 
         make_derived_modules_again(derived)
         run("record", source, derived)
@@ -147,13 +178,12 @@ def make_derived_modules_again(derived):
         os.makedirs(os.path.join(derived, relative), exist_ok=True)
 
 
-def build_step():
+def build_steps():
     with open(WORKFLOW) as handle:
         workflow = yaml.safe_load(handle)
-    for step in workflow["jobs"]["tour"]["steps"]:
-        if step.get("name") == STEP_NAME:
-            return step
-    return None
+    by_name = {step.get("name"): step for step in workflow["jobs"]["tour"]["steps"]}
+    steps = [by_name.get(name) for name in STEP_NAMES]
+    return None if None in steps else steps
 
 
 def fake_checkout(path, pin):
@@ -161,13 +191,14 @@ def fake_checkout(path, pin):
     write(os.path.join(path, "scripts", "reload.sh"), FAKE_RELOAD)
     os.chmod(os.path.join(path, "scripts", "reload.sh"), 0o755)
     os.makedirs(os.path.join(path, "scripts", "ci"))
-    shutil.copy(SCRIPT, os.path.join(path, "scripts", "ci"))
+    for script in (SCRIPT, BUILD_SCRIPT, CACHE_SCRIPT):
+        shutil.copy(script, os.path.join(path, "scripts", "ci"))
 
 
 def scenario_workflow_step():
-    step = build_step()
-    _check(step is not None, f"the tour job has a '{STEP_NAME}' step")
-    if step is None:
+    steps = build_steps()
+    _check(steps is not None, f"the tour job has {STEP_NAMES} steps")
+    if steps is None:
         return
     with tempfile.TemporaryDirectory() as tmp:
         home = os.path.join(tmp, "home")
@@ -184,12 +215,20 @@ def scenario_workflow_step():
             RUNNER_TEMP=runner_temp,
             GITHUB_OUTPUT=os.path.join(tmp, "output"),
             TOUR_TAG="ci-media-pr-9",
+            RUNNER_NAME="runner-1",
+            MEDIA_TOUR_CI=os.path.join(workspace, "scripts", "ci"),
+            MEDIA_APP_RECIPE="0123456789ab",
+            MERGE_BASE="0" * 40,
+            BASE_APP="",
         )
 
         def tour():
-            result = subprocess.run(["bash", "-c", step["run"]], cwd=workspace, env=env,
-                                    capture_output=True, text=True)
-            print(result.stdout + result.stderr)
+            for step in steps:
+                result = subprocess.run(["bash", "-c", step["run"]], cwd=workspace, env=env,
+                                        capture_output=True, text=True)
+                print(result.stdout + result.stderr)
+                if result.returncode != 0:
+                    break
             return result
 
         _check(tour().returncode == 0, "a cold tour builds base and head")
@@ -197,10 +236,11 @@ def scenario_workflow_step():
         # The pull request's next head moves the GhosttyNextKit pin.
         set_pin(workspace, PIN_B)
         _check(tour().returncode == 0, "a warm tour after a GhosttyNextKit pin change builds")
+        _check(tour().returncode == 0, "the next tour at the new pin builds warm")
         pcm = os.path.join(home, "Library/Developer/Xcode/DerivedData/cmux-ci-media-pr-9-head",
                            MODULES, "GhosttyNextKit.pcm")
-        with open(pcm) as handle:
-            _check(handle.read().strip() == PIN_B, "the head's module is rebuilt from the new pin")
+        built = open(pcm).read().strip() if os.path.isfile(pcm) else None
+        _check(built == PIN_B, f"the head's module is rebuilt from the new pin (found {built and built[:9]})")
 
 
 def main():

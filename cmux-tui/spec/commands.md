@@ -6385,8 +6385,11 @@ marked_unread:bool}` (the new state).
 | status | implemented |
 | since | protocol 12 additive extension; capability `conversation-inbox-state-v1` (with `cloud-conversations-v1`) |
 
-The Cloud form of `conversation-inbox-op`: forwards `inbox.pin` or
-`inbox.mark_unread` (the same `op` shapes) for one conversation to the
+The Cloud form of `conversation-inbox-op`: forwards `inbox.pin`,
+`inbox.mark_unread` (the same `op` shapes) or `inbox.mute`
+(`{kind:"inbox.mute", muted:bool, until?:uint64}`, `until` in Unix ms; the
+owner refuses an `until` in the past; approvals still notify a muted
+conversation) for one conversation to the
 person's UserDO inbox with the client's `idempotency_key` (`POST /v1/ops`) and
 answers from a worker thread with the `cloud-conversation-op` reply shape
 (`value` is the inbox entry). Other kinds are refused before anything is sent
@@ -7169,7 +7172,7 @@ While the app's lease exists, `cloud-*` events reach only the app's
 reach every trusted local `subscribe` stream.
 
 While the app's lease exists it is the human's: every command that uses it
-(`cloud-inbox-list`, `cloud-conversation-snapshot`, `cloud-conversation-history`,
+(`cloud-inbox-list`, `cloud-requests-list`, `cloud-conversation-snapshot`, `cloud-conversation-history`,
 `cloud-conversation-thread`, `cloud-conversation-op` with any origin,
 `cloud-inbox-subscribe`, `cloud-conversation-subscribe`, `cloud-mux-subscribe`,
 `cloud-mux-ack`) from another connection is refused the same way and sends
@@ -7322,9 +7325,12 @@ Forward to the cloud owners (ConversationDO, UserDO inbox) with the lease and
 answer from a worker thread, so replies may arrive out of order (match by
 `id`). `cloud-conversation-op {conversation?, idempotency_key, origin?, op}`
 forwards one op tagged by `kind` (`dm.open`, `conversation.create`,
-`participants.add`, `participants.remove`, `message.send`, `message.edit`,
+`participants.add`, `participants.remove`, `participants.set_role`,
+`participants.unban`, `ownership.transfer`, `grant.create`, `grant.revoke`,
+`message.send`, `message.edit`,
 `message.retract`, `reaction.add`, `reaction.remove`, `read_cursor.set`,
-`title.set`, `thread.update`, `invite.create`) with the client's key and origin and returns
+`title.set`, `thread.update`, `invite.create`, `invite.accept_verified`,
+`request.dismiss {block?}`) with the client's key and origin and returns
 `object{value, rev?, seq?, change?, replayed, transaction, stream, sequence}`.
 Errors carry `error_code` (`cloud_conversation_rejected`, `cloud_signed_out`,
 `cloud_session_expired`, `cloud_unauthenticated`, `cloud_unavailable`),
@@ -7335,6 +7341,23 @@ refused before anything is sent, with `cloud_conversation_rejected`,
 plans/cmux-next/home-cloud-proxy.md.
 `cloud-conversation-snapshot` and `cloud-conversation-history` pass the
 owner's `threads` field through unchanged when it sends one.
+
+### cloud-requests-list
+
+| Field | Value |
+| --- | --- |
+| name | `cloud-requests-list` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `cloud-conversations-v1` |
+
+The lease person's open message requests (plans/cmux-next/home-messaging-invites/DESIGN.md
+2.3): `POST /v1/read home.requests.list {}` with the lease. Takes no fields (an
+unknown field is refused). Returns `object{requests}`, each row
+`{conversation, inviter, kind, title?, preview, created_at, expires_at, trusted}`
+as the owner sent it; a row whose `conversation` is not a conversation id is
+dropped. Accept with `cloud-conversation-op` `invite.accept_verified` and
+dismiss (or block, `block: true`) with `request.dismiss`, both naming the
+conversation. Errors as `cloud-inbox-list`.
 
 ### cloud-conversation-thread
 

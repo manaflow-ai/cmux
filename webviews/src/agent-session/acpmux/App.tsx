@@ -143,6 +143,7 @@ import { loadEditDiffHunks } from "./conversation/EditDiff";
 import { PlanList } from "./conversation/PlanList";
 import { BackgroundTaskNote } from "./conversation/BackgroundTaskNote";
 import { CompactionNote, FailoverNote } from "./conversation/CompactionNote";
+import { SessionStartNote } from "./conversation/SessionStartNote";
 import {
   SessionCwdContext,
   SessionEditsContext,
@@ -152,6 +153,7 @@ import {
 } from "./turnChanges/sessionRows";
 import { TurnActionsContext, chatLoginCommand, type TurnActions } from "./conversation/turnActions";
 import { UserBubble } from "./conversation/UserBubble";
+import { ChiefPromptBubble } from "./conversation/ChiefPromptBubble";
 import { editableKey, editableSeqs, editableTurns } from "./conversation/editPrompt";
 import {
   clearFindHighlights,
@@ -564,8 +566,8 @@ const MessageRow = memo(
               <pre className="cv-user__context-text selectable">{envelope.context}</pre>
             </details>
           )}
-          {envelope ? (
-            <div className="cv-user__bubble selectable">{envelope.task}</div>
+          {envelope || row.from === "chief" ? (
+            <ChiefPromptBubble text={envelope ? envelope.task : (row.text ?? "")} />
           ) : (
             <UserBubble row={row} text={row.text ?? ""} />
           )}
@@ -715,6 +717,12 @@ const FailoverRow = memo(
   },
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
 );
+const SessionStartRow = memo(
+  function SessionStartRow({ row }: RowProps) {
+    return row.sessionStart ? <SessionStartNote start={row.sessionStart} /> : null;
+  },
+  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
+);
 const NoticeRow = memo(
   function NoticeRow({ row }: RowProps) {
     return <div className="acpmux-muted">{row.text}</div>;
@@ -810,6 +818,7 @@ const defaultRegistry: NativeRegistry = {
   backgroundTask: BackgroundTaskRow,
   compaction: CompactionRow,
   failover: FailoverRow,
+  sessionStart: SessionStartRow,
   sessionOffer: SessionOfferRow,
   [OFFER_RESULT]: OfferResultRow,
   typing: NoticeRow,
@@ -1028,13 +1037,14 @@ const RowFrame = React.memo(function RowFrame({
 const speaker = (kind: string, t: Translate) =>
   kind === "user" ? t("transcript.you") : kind === "assistant" ? t("transcript.agent") : undefined;
 const rowKind = (row: AcpmuxRow) => (isEditRow(row) ? "editedFiles" : row.kind);
-/// A row drawn as tool rows: tool calls and thoughts, a background task's end, a compaction or a
-/// failover note.
+/// A row drawn as tool rows: tool calls and thoughts, a background task's end, a compaction, a
+/// failover or a session start note.
 const isStepRow = (row: AcpmuxRow | undefined) =>
   row !== undefined &&
   (row.kind === "backgroundTask" ||
     row.kind === "compaction" ||
     row.kind === "failover" ||
+    row.kind === "sessionStart" ||
     (row.kind === "activity" && !isEditRow(row)));
 const rowDomId = (id: string) => `acpmux-row-${encodeURIComponent(id)}`;
 const disclosureControls = (rows: readonly AcpmuxRow[], after: number): string | undefined => {
@@ -2507,7 +2517,7 @@ function DefaultComposerChips({
       }}
       onMode={(modeId) => {
         start();
-        void callNative("chat.mode", { modeId });
+        return callNative("chat.mode", { modeId });
       }}
       onEffort={(configId, value) => {
         start();
@@ -3488,6 +3498,9 @@ function AcpmuxPane() {
   const showAllChats = () => void callNative("action.run", { id: "agentPane.searchChats" }).catch(() => undefined);
   const [shortcuts, setShortcuts] = useState<ShortcutLabels>({});
   const [preview, setPreview] = useState(false);
+  // SSH… opens Connect to Machine; cmux Cloud… opens New Cloud Machine (Lawrence 2026-10-06).
+  const connectMachine = (kind: "ssh" | "cloud") =>
+    void callNative("action.run", { id: kind === "ssh" ? "remote.connect" : "newCloudMachine" }).catch(() => undefined);
   /// The Quick Composer panel (`"surface": "quick"` in the host's ready reply) or a tab's pane.
   const [surface, setSurface] = useState<PaneSurface>("pane");
   const quick = surface === "quick";
@@ -3908,7 +3921,7 @@ function AcpmuxPane() {
             // Previous Turn and Next Turn (Ctrl-Opt-Up, Ctrl-Opt-Down): the thread minimap steps the transcript.
             "previousTurn",
             "nextTurn",
-            // Search Files… (Cmd-P): the composer opens its file search.
+            // Search Files… (the command palette; no default key: Cmd-P is the native Go to): the composer opens its file search.
             "searchFiles",
           ].includes(name)
         ) {
@@ -5678,12 +5691,7 @@ function AcpmuxPane() {
           onQueueLost={(text) => composerHandle.current?.restore(text, [])}
           onProject={chooseProject}
           onNewWorktree={freshChat && !quick && !remoteChat ? startInWorktree : undefined}
-          // SSH… opens Connect to Machine; cmux Cloud… opens New Cloud Machine (Lawrence 2026-10-06).
-          onConnect={(kind) =>
-            void callNative("action.run", { id: kind === "ssh" ? "remote.connect" : "newCloudMachine" }).catch(
-              () => undefined,
-            )
-          }
+          onConnect={connectMachine}
           // A started local chat lists the same folders to move to (dogfood 09); Start Agent's
           // panel lists them before its first prompt (cx-hkat).
           projectChoices={freshChat || (!quick && canMove) ? newTabProjects : undefined}
@@ -5709,6 +5717,7 @@ function AcpmuxPane() {
                   })
           }
           localName={machineName}
+          environments={preview}
           onBrowseFolder={
             canMove
               ? () =>
@@ -5733,7 +5742,7 @@ function AcpmuxPane() {
             if (running) shellRuns.stop(running.id);
             return running !== undefined;
           }}
-          onMode={(modeId) => void callNative("chat.mode", { modeId })}
+          onMode={(modeId) => callNative("chat.mode", { modeId })}
           // Without a folder there is nothing to search; the + menu leaves the item out.
           searchFiles={fileRoot ? searchFiles : undefined}
           capture={captureScreen}
@@ -5889,6 +5898,14 @@ function AcpmuxPane() {
           ) : showNewTab && shownTemplate(newTab) !== "classic" ? (
             <NewTabScreen
               key={newTabGeneration}
+              environments={preview}
+              onConnect={connectMachine}
+              onNewWorktree={(cwd) => {
+                let folder: string | undefined;
+                return newWorktree(callNative, cwd, (used) => {
+                  folder = used;
+                }).then(() => folder);
+              }}
               accessory={<DictationMic dictation={dictation} />}
               dictationField={newTabDictationField}
               notice={<DictationNotice dictation={dictation} />}

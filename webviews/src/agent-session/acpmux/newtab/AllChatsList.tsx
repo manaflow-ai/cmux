@@ -13,6 +13,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { subscribeDeviceChats } from "./deviceChats";
 import { ContextMenu } from "../../../ui/ContextMenu";
+import { pressToOpen } from "../../../ui/pressToOpen";
 import { VirtualList } from "../../../ui/VirtualList";
 import { useT } from "../i18n";
 import { AgentMark, ageLabel } from "../NewTabPage";
@@ -279,8 +280,13 @@ function useSelection(rows: AllChatsRow[], query: string) {
     setSelected([]);
     return false;
   };
+  /// A plain open of `key`: the selection collapses and `key` anchors the next Shift-click.
+  const collapse = (key: string) => {
+    anchor.current = key;
+    setSelected([]);
+  };
   const clear = useCallback(() => setSelected([]), []);
-  return { selected, click, clear };
+  return { selected, click, collapse, clear };
 }
 
 export function AllChatsList({
@@ -427,10 +433,21 @@ export function AllChatsList({
           data-focus-ring="row"
           data-untitled={row.title ? undefined : true}
           data-selected={selection.selected.includes(row.key) ? true : undefined}
-          onClick={(event) => {
-            if (onBring && selection.click(event, row.key)) return;
-            onOpen(row.key);
-          }}
+          // A plain press opens at once; a Cmd/Shift-click selects on the release, and a press on a row
+          // of a multi-selection waits for the release (the Finder rule).
+          {...pressToOpen(
+            () => {
+              selection.collapse(row.key);
+              onOpen(row.key);
+            },
+            {
+              deferPress: () => !!onBring && selection.selected.length > 1 && selection.selected.includes(row.key),
+              onClick: (event) => {
+                if (onBring && selection.click(event, row.key)) return;
+                onOpen(row.key);
+              },
+            },
+          )}
         >
           <span className="nt-all-glyph">
             <AgentMark harness={row.harness} />
@@ -519,7 +536,7 @@ export function AllChatsList({
                   className="nt-all-row"
                   data-focus-ring="row"
                   data-state={chat.state}
-                  onClick={() => onOpenActive?.(chat.id)}
+                  {...pressToOpen(() => onOpenActive?.(chat.id))}
                 >
                   <span className="nt-all-glyph">
                     <AgentMark harness={chat.harness} />

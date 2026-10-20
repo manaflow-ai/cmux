@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '9392cc109f8bc0c8c0f000289c18ad6bb03e6eb1a959c08811fc510fb5f822e0'
+IR_SHA256 = 'a453986b67d167174f384a45b851ba6779b4ecfde280ba17c07ea656ab7e84b0'
 
 
 @dataclass(frozen=True)
@@ -786,6 +786,16 @@ COMMANDS = {
         {
             'conversation': CommandFieldMetadata(None, None),
             'participant_id': CommandFieldMetadata(None, None),
+        },
+    ),
+    'cloud-requests-list': CommandMetadata(
+        'cloud-requests-list',
+        'local-admin',
+        12,
+        'cloud-conversations-v1',
+        ('local-admin',),
+        None,
+        {
         },
     ),
     'cloud-session-clear': CommandMetadata(
@@ -1639,6 +1649,7 @@ COMMANDS = {
         None,
         {
             'machine_metadata': CommandFieldMetadata(12, 'machine-identity-v1'),
+            'revisions': CommandFieldMetadata(12, None),
         },
     ),
     'ids': CommandMetadata(
@@ -2953,14 +2964,17 @@ COMMANDS = {
         ('control', 'frontend', 'local-admin', 'provider-authority'),
         None,
         {
+            'api_revision': CommandFieldMetadata(12, None),
             'capabilities': CommandFieldMetadata(None, None),
             'device_id': CommandFieldMetadata(12, 'shared-sizing-v1'),
             'device_kind': CommandFieldMetadata(12, 'shared-sizing-v1'),
             'device_name': CommandFieldMetadata(12, 'shared-sizing-v1'),
             'display_name': CommandFieldMetadata(12, 'shared-sizing-v1'),
+            'install': CommandFieldMetadata(12, None),
             'kind': CommandFieldMetadata(None, None),
             'name': CommandFieldMetadata(None, None),
             'user_id': CommandFieldMetadata(12, 'shared-sizing-v1'),
+            'version': CommandFieldMetadata(12, None),
         },
     ),
     'set-client-sizing': CommandMetadata(

@@ -4,10 +4,12 @@ Request (u2244): when a site says "we sent a verification email" (or a code),
 cmux shows a small banner on that page with the code, or one button that
 opens the verification link. Opt-in. Like Apple's Security Code AutoFill.
 
-Status: slice 1 shipped (policy, parser, inbox, setting, prompt-bar UI,
-tests). No email source and no page detector are connected yet, so the
-feature does nothing in the app today: see "Not in slice 1" and "Open
-questions".
+Status: slices 1 and 2 shipped behind `browser.verificationAutofill.enabled`
+(off). Slice 2 wires Mail.app (the first source), the page detector, and
+Fill Code / Open Link in WebKit and Chromium tabs. Decisions (2026-10-19):
+Mail.app first; brands that mail from another domain fail closed; the bar
+shows the code. The Settings row (Browser > Passwords) is shown; the
+switch stays off by default.
 
 ## What Apple and Chrome do
 

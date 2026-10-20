@@ -161,12 +161,15 @@ on:
       - .github/workflows/intent-familiar-review.yml
       - .github/review-bot-rules/familiar-intent.md
       - tests/test_cmux_next_checks_workflow.py
+      - tests/test_cmux_next_pr_autofix_push_gate.py
+      - .github/workflows/cmux-next-pr-autofix.yml
       - scripts/ci/run-checks-concurrently.sh
       - tests/test_run_checks_concurrently.py
       - tests/test_cmux_next_release_build_retention.py
       - tests/test_cmux_next_generated_catch_up.py
       - .github/workflows/cmux-next-generated-catch-up.yml
       - tests/test_next_batch.py
+      - tests/test_next_batch_groups.py
       - .github/workflows/cmux-next-batch.yml
       - tests/test_cmux_next_base_autofix_finishes.py
       - .github/workflows/cmux-next-base-autofix.yml
@@ -180,6 +183,9 @@ on:
       - tests/test_cmux_next_stale_pcm_cleanup.sh
       - tests/test_check_app_personalities.sh
       - scripts/lint-ios-package-conventions*
+      - scripts/cmux-next/lint-browser-chrome-icons.py
+      - scripts/icons/**
+      - design/icons/**
       - scripts/lint_swift_namespaces.py
       - scripts/lint-namespace-types-*.txt
       - scripts/swift_source_mask.py
@@ -354,12 +360,15 @@ on:
       - .github/workflows/intent-familiar-review.yml
       - .github/review-bot-rules/familiar-intent.md
       - tests/test_cmux_next_checks_workflow.py
+      - tests/test_cmux_next_pr_autofix_push_gate.py
+      - .github/workflows/cmux-next-pr-autofix.yml
       - scripts/ci/run-checks-concurrently.sh
       - tests/test_run_checks_concurrently.py
       - tests/test_cmux_next_release_build_retention.py
       - tests/test_cmux_next_generated_catch_up.py
       - .github/workflows/cmux-next-generated-catch-up.yml
       - tests/test_next_batch.py
+      - tests/test_next_batch_groups.py
       - .github/workflows/cmux-next-batch.yml
       - tests/test_cmux_next_tree_notify.py
       - tests/test_cmux_next_update_dev_daily.py
@@ -371,6 +380,9 @@ on:
       - tests/test_cmux_next_stale_pcm_cleanup.sh
       - tests/test_check_app_personalities.sh
       - scripts/lint-ios-package-conventions*
+      - scripts/cmux-next/lint-browser-chrome-icons.py
+      - scripts/icons/**
+      - design/icons/**
       - scripts/lint_swift_namespaces.py
       - scripts/lint-namespace-types-*.txt
       - scripts/swift_source_mask.py
@@ -946,7 +958,10 @@ jobs:
     name: cmux-next checks (god files, concurrency, crash safety, l10n)
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
-    # Pull requests into feat-cmux-next run the cheap static checks. The size
+    # Pull requests into feat-cmux-next run the cheap static checks, and so does
+    # every feat-cmux-next push: gh-merge-green excuses a PR's red lint only when
+    # the base's latest push run prints every finding too, so a base red no longer
+    # refuses every PR (2026-10-19). The size
     # cap and crash ratchet are cadence checks: they run on pushes and on the
     # full-ci batched integration PR, not on every contributor PR. God files and types are warn-only
     # (Lawrence 2026-10-10): over the hard ceiling (GODFILES_WARN_SLACK: allowance
@@ -954,8 +969,8 @@ jobs:
     # warning and passes. Other style ratchets warn under a hard ceiling and fail
     # over it: l10n style errors and custom scrollbars (by count).
     # A warning is ratchet debt: an annotation on the PR run (the issue-writing
-    # ratchet-debt job was removed 2026-10-13: it needed a push run, which skips
-    # this job, and never filed an issue). Concurrency, notification
+    # ratchet-debt job was removed 2026-10-13: push runs skipped this job then,
+    # and it never filed an issue). Concurrency, notification
     # centers and crash safety have no warning tier. Each ceiling is set on its
     # own step only: the script tests below expect every hit to fail.
     steps:
@@ -1053,6 +1068,11 @@ jobs:
         id: state-roots
         continue-on-error: true
         run: bash scripts/cmux-next/check-state-roots.sh "$GITHUB_WORKSPACE"
+
+      - name: Dialog buttons show their keys (u2647)
+        id: dialog-key-hints
+        continue-on-error: true
+        run: python3 -I scripts/cmux-next/check-dialog-key-hints.py "$GITHUB_WORKSPACE"
 
       - name: Main-thread concurrency
         id: concurrency
@@ -1218,9 +1238,11 @@ jobs:
             bash scripts/cmux-next/tests/check-scrollbars.test.sh
             bash scripts/cmux-next/tests/check-no-process-scan.test.sh
             bash scripts/cmux-next/tests/check-state-roots.test.sh
+            bash scripts/cmux-next/tests/check-dialog-key-hints.test.sh
             bash scripts/cmux-next/tests/check-test-notification-centers.test.sh
             python3 scripts/cmux-next/tests/count-swift-code-lines.test.py
             bash scripts/cmux-next/tests/check-app-size.test.sh
+            bash scripts/cmux-next/tests/version-surfaces.test.sh
             bash scripts/cmux-next/tests/ratchet-tiers.test.sh
             bash scripts/cmux-next/tests/base-autofix.test.sh
             bash scripts/cmux-next/tests/pr-autofix.test.sh
@@ -1280,11 +1302,23 @@ jobs:
         continue-on-error: true
         run: ./scripts/lint-ios-package-conventions.sh
 
+      # The browser chrome draws Chromium's own icons (design/icons/chromium): the
+      # generated batch is current and no browser control uses an SF Symbol or a
+      # non-Chromium pack icon.
+      - name: Browser chrome icons
+        id: browser-chrome-icons
+        continue-on-error: true
+        run: |
+          python3 scripts/icons/chromium_icons.py --check
+          python3 scripts/icons/build_pack.py --check
+          python3 scripts/cmux-next/lint-browser-chrome-icons.py
+
       - name: Checks job structure
         id: checks-structure
         continue-on-error: true
         run: |
           python3 tests/test_cmux_next_checks_workflow.py
+          python3 tests/test_cmux_next_pr_autofix_push_gate.py
           python3 tests/test_run_checks_concurrently.py
           python3 tests/test_cmux_next_release_build_retention.py
           python3 tests/test_cmux_next_dev_daily_tree_wait.py
@@ -1316,6 +1350,7 @@ jobs:
         run: |
           python3 tests/test_cmux_next_generated_catch_up.py
           python3 tests/test_next_batch.py
+          python3 tests/test_next_batch_groups.py
           python3 tests/test_cmux_next_base_autofix_finishes.py
 
       # The cmux NEXT DEV update script (an unchanged build is left alone; an
@@ -1398,6 +1433,7 @@ jobs:
             ${{ steps.no-swift-closed-history.outcome }}|No Swift closed history (the daemon owns it, plans/cmux-next/reopen-closed.md 9)
             ${{ steps.no-process-scan.outcome }}|No process scanning (holders register themselves, plans/cmux-next/pty-holder.md 4)
             ${{ steps.state-roots.outcome }}|No literal state roots (per-build isolation S7, cx-is1kf.8)
+            ${{ steps.dialog-key-hints.outcome }}|Dialog buttons show their keys (u2647)
             ${{ steps.concurrency.outcome }}|Main-thread concurrency
             ${{ steps.crash-safety.outcome }}|Crash safety
             ${{ steps.test-notification-centers.outcome }}|Tests inject their notification center
@@ -1415,6 +1451,7 @@ jobs:
             ${{ steps.ghostty-resources-bundle.outcome }}|Ghostty resources bundle
             ${{ steps.bundled-terminfo.outcome }}|Bundled terminfo
             ${{ steps.package-conventions.outcome }}|Package conventions lint
+            ${{ steps.browser-chrome-icons.outcome }}|Browser chrome icons
             ${{ steps.capability-text.outcome }}|Capability texts never say update the app
             ${{ steps.checks-structure.outcome }}|Checks job structure
             ${{ steps.tier-routing.outcome }}|Tier routing
