@@ -255,7 +255,7 @@ public final class WindowMaterialView: NSView {
                     let image = await images.image(shown, texture: texture, dark: dark)
                     guard !Task.isCancelled, let self, let image else { return }
                     self.showArt(image)
-                    if fades, let layer = self.artView.layer { Motion.set(layer, "opacity", to: self.artOpacity, fade: .fadeIn, from: 0) }
+                    if fades, let layer = self.artView.layer { Motion.panes.set(layer, "opacity", to: self.artOpacity, fade: .fadeIn, from: 0) }
                 }
             }
         }
@@ -351,8 +351,8 @@ public final class WindowMaterialView: NSView {
         guard placement != artPlacement else { return }
         artPlacement = placement
         if animated, window != nil {
-            Motion.set(layer, "contentsRect", to: NSValue(rect: placement.contentsRect), spring: .move)
-            Motion.animate(.move, in: self) { artView.animator().frame = placement.frame }
+            Motion.panes.set(layer, "contentsRect", to: NSValue(rect: placement.contentsRect), spring: .move)
+            Motion.panes.animate(.move, in: self) { artView.animator().frame = placement.frame }
         } else {
             CATransaction.begin()
             CATransaction.setDisableActions(true)

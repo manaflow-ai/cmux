@@ -67,24 +67,24 @@ public nonisolated struct HoverCardMotion: Equatable, Sendable {
         panel.orderFront(nil)
         if let layer = panel.contentView?.layer {
             let offset = entryVector(for: placement, leading: leading)
-            Motion.set(layer, "sublayerTransform", to: NSValue(caTransform3D: CATransform3DIdentity), spring: entrySpring,
+            Motion.hoverCards.set(layer, "sublayerTransform", to: NSValue(caTransform3D: CATransform3DIdentity), spring: entrySpring,
                        from: NSValue(caTransform3D: CATransform3DMakeTranslation(offset.dx, offset.dy, 0)))
         }
-        Motion.animateTimed(fadeIn, in: panel.contentView) { panel.animator().alphaValue = 1 }
+        Motion.hoverCards.animateTimed(fadeIn, in: panel.contentView) { panel.animator().alphaValue = 1 }
     }
 
     /// A return while the card fades out (the pointer came back): it fades back in from the
     /// alpha it reached, where it is, with no second entrance.
     @MainActor
     public func resume(_ panel: NSWindow) {
-        Motion.animateTimed(fadeIn, in: panel.contentView) { panel.animator().alphaValue = 1 }
+        Motion.hoverCards.animateTimed(fadeIn, in: panel.contentView) { panel.animator().alphaValue = 1 }
     }
 
     /// A hide: `panel` fades out where it is (no slide, no scale), then `completion` runs
     /// (which orders it out).
     @MainActor
     public func exit(_ panel: NSWindow, completion: @escaping @MainActor @Sendable () -> Void) {
-        Motion.animateTimed(fadeOut, in: panel.contentView, { panel.animator().alphaValue = 0 }, completion: completion)
+        Motion.hoverCards.animateTimed(fadeOut, in: panel.contentView, { panel.animator().alphaValue = 0 }, completion: completion)
     }
 
     /// A card's origin (screen coordinates, y up) next to `anchor`, before the screen clamp:

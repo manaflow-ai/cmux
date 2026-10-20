@@ -66,7 +66,7 @@ public final class LaunchReveal {
         for view in views {
             // The model value at once; the fade runs on the layer.
             view.alphaValue = 1
-            if let layer = view.layer { Motion.set(layer, "opacity", to: Float(1), fade: .fadeIn, from: Float(0)) }
+            if let layer = view.layer { Motion.panes.set(layer, "opacity", to: Float(1), fade: .fadeIn, from: Float(0)) }
         }
         for work in waiters.removeValue(forKey: region) ?? [] { work() }
     }
