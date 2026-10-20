@@ -51,6 +51,11 @@ def test_secret_dispatch_jobs_use_branch_restricted_environments_and_ephemeral_r
         job = workflow(name)["jobs"][job_name]
         assert job.get("environment") == environment, f"{name} secrets need {environment}"
 
+    claude_triggers = set(workflow("claude.yml")["on"])
+    assert claude_triggers == {"issue_comment", "issues"}, (
+        "the Claude secret-bearing workflow must stay on trusted default-branch events"
+    )
+
 
 def test_pull_request_target_jobs_never_receive_oidc() -> None:
     checked = 0
