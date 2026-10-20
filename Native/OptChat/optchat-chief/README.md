@@ -49,7 +49,7 @@ settle go into that same call. A pending approval is denied by a newer
 human message, so the turn reaches its next tool boundary. Subagent reports
 follow the same rule. Only chief.stop stops a turn: the runner waits until
 no tool call runs, then sends `session/cancel` every second until the turn
-ends, and the end posts what the turn said and "(turn stopped)".
+ends, and the end posts nothing to the chat or any bridge.
 
 ## Several Chiefs and channels
 
@@ -349,9 +349,19 @@ optchat-chief import-claude-code dry-run|write [--projects DIR] [--mux-home DIR]
                                                            Claude Code transcripts as messages (host stopped)
 optchat-chief memory export --text DIR [--mux-home DIR]    the memory as JSONL day files (read-only; host may run)
 optchat-chief memory import [--mux-home DIR] DIR           an old JSONL home or an export into an empty memory (host stopped)
-optchat-chief memory search [--mux-home DIR] [--limit N] WORDS  messages and summaries holding every word (FTS5)
+optchat-chief memory search [--mux-home DIR] [--limit N] [--json] WORDS  messages and summaries holding every word (FTS5);
+                                                           --json: id, kind, date, snippet and full text per hit
 optchat-chief memory stats [--mux-home DIR]                counts, schema, migration record, backup status
+optchat-chief agent-memory search|get|remember|mcp|sync|sources|config ...
+                                                           long-term memory shared by Codex and Claude Code sessions
 ```
+
+`agent-memory` is a separate home (`~/.cmux/agent-memory`) built from the agents'
+own memory files, with its own MCP server (`cmux-agent-memory`: `memory_search`,
+`memory_get`, `memory_remember`) that cmux registers for agent sessions when
+`agents.memory.enabled` is on. It never touches a Chief's memory, and `mcp`'s
+tool list above is unchanged (section 7.2). Setup, several machines and the
+migration from the leo-workspace script: [cmux-agent-memory](../../../skills/cmux-agent-memory/SKILL.md).
 
 Inside a turn the Chief runs `chief agents ...` (a launcher in
 `$MUX_HOME/optchat/bin`, first on the turn's PATH). A child's final reply of

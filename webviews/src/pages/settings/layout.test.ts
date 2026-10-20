@@ -3,6 +3,7 @@
 // pane under 600 px kept two columns while the sidebar took the stacked layout's 40vh cap and
 // bottom edge: the categories were cut off and the column overlapped them in short panes.
 import { expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
 import { stylesheet } from "./testDom";
 
 type Rule = { selectors: string[]; media: string | null; declarations: Map<string, string> };
@@ -77,4 +78,37 @@ test("a wide pane keeps the sidebar column, which scrolls in a short pane", () =
   expect(computed(".settings", "grid-template-columns", 1000)).toBe("var(--sidebar-width) minmax(0, 1fr)");
   expect(computed(".sidebar", "overflow-y", 1000)).toBe("auto");
   expect(computed(".sidebar", "max-height", 1000) ?? "none").toBe("none");
+});
+
+/** The refined look (mount.tsx always sets it): its rules beat the base narrow block by specificity,
+ *  so the stacked layout must be restated there. Value of `property` on exactly `selector` at `width`. */
+const refinedSheet = readFileSync(new URL("./refined.css", import.meta.url), "utf8");
+function refined(selector: string, property: string, width: number): string | undefined {
+  let value: string | undefined;
+  for (const rule of rules(refinedSheet)) {
+    if (!rule.selectors.includes(`:root[data-settings-look="refined"] ${selector}`) || !rule.declarations.has(property)) continue;
+    if (rule.media) {
+      const max = /max-width:\s*(\d+)px/.exec(rule.media);
+      if (!max || width > Number(max[1])) continue;
+    }
+    value = rule.declarations.get(property);
+  }
+  return value;
+}
+
+test("the refined look stacks a narrow pane too: no side border, no side-cut content card, strip-sized tabs", () => {
+  // macOS 15 tester (2026-10-19): the categories over a narrow Settings pane drew as a column
+  // card: the sidebar kept its right border and 18 px padding, the tabs their 30 px rows, and the
+  // content its left-cut corners and gap, all from the refined rules that outrank the narrow block.
+  expect(refined(".settings > .sidebar", "border-right", 480)).toBe("0");
+  expect(refined(".settings > .sidebar", "border-bottom", 480)).toBe("1px solid var(--polish-edge)");
+  expect(refined(".settings > .sidebar", "padding", 480)).toBe("10px 12px 8px");
+  expect(refined(".settings .section-link", "padding", 480)).toBe("4px 8px");
+  expect(refined(".settings .section-link", "min-height", 480)).toBe("0");
+  expect(refined(".settings > .content", "margin", 480)).toBe("0 6px 6px");
+  expect(refined(".settings > .content", "border-left", 480)).toBe("1px solid var(--polish-edge)");
+  expect(refined(".settings > .content", "border-radius", 480)).toBe("0 0 12px 12px");
+  // A wide pane keeps the column card.
+  expect(refined(".settings > .sidebar", "border-right", 1000)).toBe("1px solid var(--polish-edge)");
+  expect(refined(".settings > .content", "border-radius", 1000)).toBe("0 12px 12px 0");
 });

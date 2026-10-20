@@ -2219,19 +2219,21 @@ export interface CloudOps {
       readonly cursor?: string
     }
   }
-  /** Choose who can find you by email or phone, who may start a conversation with you or add you to one (anyone, teams, nobody), and whether a message request also sends an email. */
+  /** Choose who can find you by email or phone, who may start a conversation with you or add you to one (anyone, teams, nobody), whether a message request also sends an email, and whether people with your company email domain reach you directly (trust_same_domain, default on). */
   readonly "home.settings.set": {
     readonly params: {
       readonly discoverable_by_email?: boolean
       readonly discoverable_by_phone?: boolean
       readonly allow_requests_from?: "anyone" | "teams" | "nobody"
       readonly email_requests?: boolean
+      readonly trust_same_domain?: boolean
     }
     readonly result: {
       readonly discoverable_by_email: boolean
       readonly discoverable_by_phone: boolean
       readonly allow_requests_from: "anyone" | "teams" | "nobody"
       readonly email_requests: boolean
+      readonly trust_same_domain: boolean
     }
   }
   /** Enroll the calling install's machine as a host in the team directory. */

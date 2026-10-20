@@ -1486,12 +1486,17 @@ jobs:
       - name: Require selected verification jobs
         shell: bash
         run: |
+          # Check every selected job, then fail once: a red lint (often a
+          # base clippy red) must not hide whether the Rust tests passed.
+          failed=0
           require_success() {
             local name="$1"
             local result="$2"
-            if [[ "$result" != "success" ]]; then
+            if [[ "$result" == "success" ]]; then
+              echo "$name: success"
+            else
               echo "::error::$name finished with result '$result'" >&2
-              exit 1
+              failed=1
             fi
           }
 
@@ -1517,3 +1522,4 @@ jobs:
             require_success "Chrome CDP smoke" "$CDP_BROWSER_RESULT"
             require_success "binding end-to-end tests" "$BINDINGS_RESULT"
           fi
+          exit "$failed"

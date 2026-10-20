@@ -216,7 +216,17 @@ await requireBrowserLane("agent-pane-mode-keys.test.ts", async () => {
       { timeout: 5_000 },
     );
     // The shield draws like the lock it replaced: in the trigger's own ink
-    // and at its own size, never styled as the trailing chevron.
+    // and at its own size, never styled as the trailing chevron. The plain
+    // footer (the default, #22050) hides the lock beside a shown label, so
+    // the host's `composer` event turns that look off to draw it.
+    await page.evaluate(() =>
+      (window as unknown as { cmuxAcpmuxComposer?: (value: unknown) => void }).cmuxAcpmuxComposer?.({
+        plainFooter: false,
+      }),
+    );
+    await page.waitForFunction(() => !document.querySelector('[data-footer-look="plain"]'), undefined, {
+      timeout: 5_000,
+    });
     const look = await page.locator(".acpmux-access-trigger").evaluate((button) => {
       // The drawn glyph: the svg that carries data-shield, or the one inside it.
       const marked = button.querySelector("[data-shield]")!;
