@@ -142,7 +142,7 @@ await requireBrowserLane("agent-pane-permission-receipt.test.ts", async () => {
   };
   /// The transcript's permission receipts, as their text reads, with the turn's work opened.
   const receipts = async (page: Page) => {
-    const fold = page.locator(".acpmux-scroll button[aria-expanded='false']", { hasText: /Worked for/ });
+    const fold = page.locator(".acpmux-scroll button[aria-expanded='false']", { hasText: /Worked for|stopped after/ });
     if (await fold.count()) await fold.first().click();
     await page.waitForTimeout(200);
     return page
