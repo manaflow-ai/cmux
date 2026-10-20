@@ -254,6 +254,7 @@ pub(super) fn advertised_capabilities(
         chief_registry_resource::CHIEF_PROFILE_WS_CAPABILITY,
         chief_registry_resource::CHIEF_EVENTS_CAPABILITY,
         chief_registry_resource::CHIEF_PROFILE_ADOPT_CAPABILITY,
+        chief_registry_resource::CHIEF_PROFILE_HISTORY_CAPABILITY,
         SCREEN_METADATA_CAPABILITY,
         SCREEN_GROUPS_CAPABILITY,
         NOTIFICATION_SOURCE_CAPABILITY,

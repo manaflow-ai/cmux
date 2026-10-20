@@ -144,6 +144,10 @@ pub enum ResourceOperation {
     ChiefProfileAvatarSet,
     #[serde(rename = "chief.profile.avatar.get")]
     ChiefProfileAvatarGet,
+    #[serde(rename = "chief.profile.history")]
+    ChiefProfileHistory,
+    #[serde(rename = "chief.profile.undo")]
+    ChiefProfileUndo,
     #[serde(rename = "participant.avatar.set")]
     ParticipantAvatarSet,
     #[serde(rename = "participant.avatar.get")]
