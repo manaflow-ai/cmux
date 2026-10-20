@@ -11,6 +11,7 @@ import CmuxNextControl
 import CmuxNextCrashReporting
 import CmuxNextDesign
 import CmuxNextDaemon
+import CmuxNextFeed
 import CmuxNextPalette
 import CmuxNextPages
 import CmuxNextPopups
@@ -82,6 +83,8 @@ final class AppServices {
     private(set) lazy var emptyWorkspaces: EmptyWorkspaceRepair = EmptyWorkspaceRepair(daemon: daemon)  // first read in init (no IUO)
     /// The closed-tab signal and the undo toasts of user closes; set when the tab handlers bind. The daemon owns the closed history (`DaemonClosedHistory`).
     var closedTabs: ClosedTabsFeed?
+    /// Find Work's GitHub reads, with the user's `gh` login (``FindWorkPalettePage``); tests replace it.
+    lazy var findWorkGitHub: any GitHubFeedAPI = GitHubCLIClient(executable: AgentChatPullRequestReader.findGitHubCLI() ?? "/usr/bin/env")
     /// The app-wide "where was I" trail (plans/cmux-next/history.md 4.2).
     private(set) lazy var locationTrail = LocationTrailService(services: self)
     /// The merged history read side and the per-profile visit logs.
@@ -135,6 +138,12 @@ final class AppServices {
         SidebarDocWiring.start(self, layout: service)
         return service
     }()
+    /// Sleepy Mode, the keep-awake screensaver (`palette.sleepyMode`); tests set one with fake seams.
+    lazy var sleepyMode = SleepyModeController(
+        keepAwake: SleepyKeepAwakeActivity(),
+        overlay: SleepyOverlayWindows(workingAgents: { [weak self] in self?.workingAgentTabCount() ?? 0 },
+                                      lockMac: { SleepyMacLock().lock() })
+    )
     /// Each pane's own Hide Tab Bar choice (`PaneTabBarChoices`).
     let paneTabBars = PaneTabBarChoices()
     /// Pane controller mounts and releases in any window (`PaneMounts`).
@@ -326,7 +335,10 @@ final class AppServices {
         cache.onDevToolsChange = { [weak self] key, state, focused in self?.devToolsDidChange(key, state: state, focused: focused) }
         registry.menuKeyEquivalentGate = { [weak self] id in self?.keyRouter.allowsMenuKeyEquivalent(id) ?? true }
         (NSApp as? CmuxApplication)?.keyDownInterceptor = { [weak self] event, window in
-            self?.keyRouter.interceptKeyDown(event, in: window) ?? false
+            guard let self else { return false }
+            // A key on Sleepy Mode's scene only wakes it; no shortcut runs behind the cover.
+            if self.sleepyMode.consumesKeyDown() { return true }
+            return self.keyRouter.interceptKeyDown(event, in: window)
         }
         surfaceInvariant.services = self
         surfaceInvariant.observeWindowOcclusion()
