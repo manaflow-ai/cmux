@@ -1166,10 +1166,36 @@ extension Workspace {
         return binding.retargetingWorkingDirectory(resolvedWorkingDirectory)
     }
     nonisolated static func restorableAgentForSessionRestore(
-        _ restorableAgent: SessionRestorableAgentSnapshot?,
+        _ existingAgent: SessionRestorableAgentSnapshot?,
         resumeBinding: SurfaceResumeBindingSnapshot?
     ) -> SessionRestorableAgentSnapshot? {
-        guard let restorableAgent else { return nil }
+        // Older snapshots can retain the agent-hook binding after the
+        // structured agent payload was lost during a crash or an interrupted
+        // save. Reconstruct only the two built-in resume-session agents from
+        // that binding so the normal `cmux restore` admission path can resume
+        // them. A binding is not enough to revive a custom agent: without its
+        // registration, choosing a launcher would be guesswork.
+        let restorableAgent: SessionRestorableAgentSnapshot
+        if let existingAgent {
+            restorableAgent = existingAgent
+        } else {
+            guard let resumeBinding,
+                  resumeBinding.isAgentHookBinding,
+                  let rawKind = normalizedResumeBindingValue(resumeBinding.kind),
+                  rawKind == RestorableAgentKind.claude.rawValue ||
+                      rawKind == RestorableAgentKind.codex.rawValue,
+                  let kind = RestorableAgentKind(persistedRawValue: rawKind, registration: nil),
+                  let sessionId = normalizedResumeBindingValue(resumeBinding.checkpointId),
+                  SessionSnapshotImportTrust.isSafeSessionID(sessionId) else {
+                return nil
+            }
+            restorableAgent = SessionRestorableAgentSnapshot(
+                kind: kind,
+                sessionId: sessionId,
+                workingDirectory: resumeBinding.cwd,
+                launchCommand: resumeBinding.launchCommand
+            )
+        }
         // Hook-store indexing quarantines rejected non-Claude captures, but a
         // prior build may already have copied one into the persisted session
         // snapshot. Apply the same boundary here before startup or hibernation

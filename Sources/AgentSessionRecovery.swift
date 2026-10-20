@@ -298,6 +298,19 @@ extension AppDelegate {
             )
         }
 
+        func hibernatedPanelOwns(
+            _ panel: TerminalPanel?,
+            _ identity: (kind: String, sessionId: String)
+        ) -> Bool {
+            guard let agent = panel?.agentHibernationState?.agent else { return false }
+            return agent.kind.rawValue == identity.kind &&
+                ManagedAgentSessionIdentity.sessionIDsMatch(
+                    kind: identity.kind,
+                    lhs: agent.sessionId,
+                    rhs: identity.sessionId
+                )
+        }
+
         func matches(
             _ snapshot: SessionRestorableAgentSnapshot,
             _ identity: (kind: String, sessionId: String)
@@ -316,7 +329,14 @@ extension AppDelegate {
             in workspace: Workspace
         ) -> Bool {
             let identity = (kind: snapshot.kind.rawValue, sessionId: snapshot.sessionId)
-            return workspace.restoredAgentHasLiveProcess(snapshot, panelId: panelId) ||
+            // Hibernation deliberately has no live process or in-flight
+            // command. The panel still owns its hibernated session and must
+            // suppress recovery from the hook/journal until the user wakes
+            // it. Match the stored identity so an unrelated stale binding
+            // on a hibernated panel is not suppressed accidentally.
+            let isHibernated = hibernatedPanelOwns(workspace.panels[panelId] as? TerminalPanel, identity)
+            return isHibernated ||
+                workspace.restoredAgentHasLiveProcess(snapshot, panelId: panelId) ||
                 workspace.restoredAgentLifecycle.ownsInFlightRestoredCommand(panelId: panelId) ||
                 hasInFlightClaim(identity)
         }
@@ -331,12 +351,13 @@ extension AppDelegate {
                 sessionId: binding.checkpointId
             ) else { return false }
             let snapshot = workspace.restoredAgentSnapshotsByPanelId[panelId]
+            let isHibernated = hibernatedPanelOwns(workspace.panels[panelId] as? TerminalPanel, identity)
             let live = if let snapshot, matches(snapshot, identity) {
                 workspace.restoredAgentHasLiveProcess(snapshot, panelId: panelId)
             } else {
                 workspace.agentHookBindingHasLiveProcess(panelId: panelId)
             }
-            return live ||
+            return isHibernated || live ||
                 workspace.restoredAgentLifecycle.ownsInFlightRestoredCommand(panelId: panelId) ||
                 workspace.deferredAgentResumeRestoreOwns(binding, panelId: panelId) ||
                 hasInFlightClaim(identity)
@@ -348,7 +369,9 @@ extension AppDelegate {
             in dock: DockSplitStore
         ) -> Bool {
             let identity = (kind: snapshot.kind.rawValue, sessionId: snapshot.sessionId)
-            return dock.restoredAgentHasLiveProcess(panelId: panelId, restoredAgent: snapshot) ||
+            let isHibernated = hibernatedPanelOwns(dock.panels[panelId] as? TerminalPanel, identity)
+            return isHibernated ||
+                dock.restoredAgentHasLiveProcess(panelId: panelId, restoredAgent: snapshot) ||
                 dock.restoredAgentLifecycle.ownsInFlightRestoredCommand(panelId: panelId) ||
                 hasInFlightClaim(identity)
         }
@@ -362,10 +385,31 @@ extension AppDelegate {
                 kind: binding.kind,
                 sessionId: binding.checkpointId
             ) else { return false }
-            return dock.restoredAgentHasLiveProcess(panelId: panelId, restoredAgent: nil) ||
+            let isHibernated = hibernatedPanelOwns(dock.panels[panelId] as? TerminalPanel, identity)
+            return isHibernated ||
+                dock.restoredAgentHasLiveProcess(panelId: panelId, restoredAgent: nil) ||
                 dock.restoredAgentLifecycle.ownsInFlightRestoredCommand(panelId: panelId) ||
                 dock.deferredAgentResumeRestoreOwns(binding, panelId: panelId) ||
                 hasInFlightClaim(identity)
+        }
+
+        func managedBindingCarriedByOtherSurface(
+            _ binding: SurfaceResumeBindingSnapshot,
+            panelId: UUID,
+            in dock: DockSplitStore
+        ) -> Bool {
+            // A Dock keeps the hook binding in this side table when process
+            // detection selects another effective surface binding (usually a
+            // tmux attachment). That side table is still authoritative for
+            // close journaling: the other surface carries this session even
+            // though the hook binding has no locally verifiable PID.
+            guard binding.isAgentHookBinding,
+                  let effective = dock.surfaceResumeBindingsByPanelId[panelId],
+                  !effective.isAgentHookBinding,
+                  identity(kind: binding.kind, sessionId: binding.checkpointId) != nil else {
+                return false
+            }
+            return true
         }
 
         func collect(_ dock: DockSplitStore) {
@@ -390,7 +434,9 @@ extension AppDelegate {
                 }
             }
             for (panelId, binding) in dock.managedAgentResumeBindingsByPanelId
-                where panelId != excludedPanelId && owns(binding, panelId: panelId, in: dock) {
+                where panelId != excludedPanelId &&
+                    (managedBindingCarriedByOtherSurface(binding, panelId: panelId, in: dock) ||
+                        owns(binding, panelId: panelId, in: dock)) {
                 if let checkpointId = binding.checkpointId { ids.insert(checkpointId) }
             }
         }

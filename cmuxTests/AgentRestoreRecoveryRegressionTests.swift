@@ -148,6 +148,16 @@ struct AgentRestoreRecoveryRegressionTests {
         try verifyManagedOnlyProviderRestore(kind: .claude, routed: false)
     }
 
+    @Test("A binding-only Subrouter Codex snapshot still enters restore admission")
+    func bindingOnlySubrouterCodexSnapshotRestores() throws {
+        try verifyBindingOnlySubrouterRestore(kind: .codex)
+    }
+
+    @Test("A binding-only Subrouter Claude snapshot still enters restore admission")
+    func bindingOnlySubrouterClaudeSnapshotRestores() throws {
+        try verifyBindingOnlySubrouterRestore(kind: .claude)
+    }
+
     @Test("An unavailable topology scan retains the exact Codex execution selector")
     func unavailableScanPreservesCodexRestore() throws {
         try verifyCodexRestore(index: .unavailable)
@@ -439,8 +449,8 @@ struct AgentRestoreRecoveryRegressionTests {
             // Routed sessions must use the same cmux restore admission
             // boundary as direct sessions. The provider route is reconstructed
             // from the persisted Subrouter evidence by the agent launcher.
-            #expect(input.contains("cmux restore \(kind.rawValue)"), Comment(rawValue: input))
-            #expect(!input.contains("'sr' '\(kind.rawValue)'"), Comment(rawValue: input))
+            #expect(input.contains("cmux restore \(kind.rawValue) \(sessionID)"), Comment(rawValue: input))
+            #expect(!input.contains("'sr'"), Comment(rawValue: input))
         } else {
             #expect(!input.contains("'sr'"), Comment(rawValue: input))
             #expect(input.contains(sessionID), Comment(rawValue: input))
@@ -449,5 +459,81 @@ struct AgentRestoreRecoveryRegressionTests {
             restored.surfaceResumeBinding(panelId: restoredPanelID) == nil,
             "A managed-only binding must not be reintroduced as a stale compatibility binding"
         )
+    }
+
+    private func verifyBindingOnlySubrouterRestore(
+        kind: ManagedOnlyProviderKind
+    ) throws {
+        let defaultsName = "cmux-binding-only-restore-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: defaultsName))
+        defaults.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
+        defer { defaults.removePersistentDomain(forName: defaultsName) }
+
+        let source = Workspace(agentSessionAutoResumeDefaults: defaults)
+        defer { source.teardownAllPanels() }
+        let sourcePanelID = try #require(source.focusedPanelId)
+        let sessionID = "binding-only-\(kind.rawValue)-\(UUID().uuidString.lowercased())"
+        let cwd = "/tmp/cmux binding-only"
+        let launch: AgentLaunchCommandSnapshot
+        let command: String
+        switch kind {
+        case .codex:
+            launch = AgentLaunchCommandSnapshot(
+                launcher: "codex",
+                arguments: ["codex", "-c", "model_provider=subrouter"],
+                workingDirectory: cwd,
+                capturedAt: 1_800_000_000,
+                source: "agent-hook"
+            )
+            command = "codex -c model_provider=subrouter"
+        case .claude:
+            let marker = "sr claude proxy --resume"
+            launch = AgentLaunchCommandSnapshot(
+                launcher: "claude",
+                arguments: ["claude"],
+                workingDirectory: cwd,
+                environment: [
+                    SubrouterClaudeResumeRouting.environmentKey: marker,
+                    SubrouterClaudeResumeRouting.launchBoundEnvironmentKey: marker,
+                ],
+                capturedAt: 1_800_000_000,
+                source: "agent-hook"
+            )
+            command = "claude --resume \(sessionID)"
+        }
+        let binding = SurfaceResumeBindingSnapshot(
+            name: kind.rawValue.capitalized,
+            kind: kind.rawValue,
+            command: TerminalStartupWorkingDirectoryPrefix.prefix(command, workingDirectory: cwd),
+            cwd: cwd,
+            checkpointId: sessionID,
+            source: "agent-hook",
+            environment: launch.environment,
+            launchCommand: launch,
+            autoResume: true,
+            updatedAt: 1_800_000_000
+        )
+
+        var snapshot = source.sessionSnapshot(includeScrollback: false)
+        let panelIndex = try #require(snapshot.panels.firstIndex { $0.id == sourcePanelID })
+        snapshot.panels[panelIndex].terminal?.agent = nil
+        // This is the legacy shape that caused the regression: the managed
+        // hook binding survived, but the structured agent payload did not.
+        snapshot.panels[panelIndex].terminal?.managedAgentResumeBinding = binding
+        snapshot.panels[panelIndex].terminal?.resumeBinding = nil
+        snapshot.panels[panelIndex].terminal?.wasAgentRunning = false
+
+        let restored = Workspace(
+            agentSessionAutoResumeDefaults: defaults,
+            restorableAgentIndexProvider: { .empty }
+        )
+        defer { restored.teardownAllPanels() }
+        let restoredIDs = restored.restoreSessionSnapshot(snapshot)
+        let restoredPanelID = try #require(restoredIDs[sourcePanelID])
+        let terminal = try #require(restored.terminalPanel(for: restoredPanelID))
+        let input = try #require(terminal.surface.debugInitialInputForTesting())
+
+        #expect(input.contains(" restore \(kind.rawValue) \(sessionID)"), Comment(rawValue: input))
+        #expect(restored.restoredAgentResumeStatesByPanelId[restoredPanelID] == .awaitingAutoResumeCommand)
     }
 }

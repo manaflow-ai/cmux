@@ -312,15 +312,47 @@ extension CMUXCLI {
     }
 
     func sessionsListProviderRoute(agent: String, arguments: [String]) -> String {
-        let lowered = arguments.joined(separator: " ").lowercased()
-        if lowered.contains("subrouter") || lowered.contains("sr claude") || lowered.contains("sr codex") {
-            return "subrouter"
-        }
-        if lowered.contains("claude") || lowered.contains("codex") {
+        switch agent.lowercased() {
+        case "codex":
+            // A live argv is often truncated by the kernel or belongs to a
+            // wrapper. Only an explicit, unambiguous provider assignment is
+            // strong enough to classify it. In particular, do not infer a
+            // route from prompt text or an arbitrary argument containing
+            // “subrouter” or “codex”.
+            switch SubrouterCodexResumeRouting().providerEvidence(in: arguments) {
+            case .provider(let provider) where provider == "subrouter":
+                return "subrouter"
+            case .provider:
+                return "direct"
+            case .absent, .ambiguous:
+                return "unknown"
+            }
+
+        case "claude":
+            // Claude's routed child does not retain a provider assignment in
+            // argv. Recognize only the exact launcher prefix; substring
+            // matches would misclassify prompts and incomplete wrapper argv.
+            let normalized = arguments.map { argument in
+                URL(fileURLWithPath: argument).lastPathComponent.lowercased()
+            }
+            let routedPrefixes = [
+                ["sr", "claude", "proxy", "--resume"],
+                ["subrouter", "claude", "proxy", "--resume"],
+            ]
+            if routedPrefixes.contains(where: { prefix in
+                normalized.starts(with: prefix)
+            }) {
+                return "subrouter"
+            }
+            guard let executable = normalized.first,
+                  executable == "claude" else {
+                return "unknown"
+            }
             return "direct"
+
+        default:
+            return "unknown"
         }
-        _ = agent
-        return "unknown"
     }
 
     func sessionsListVerifiedRuntimeStatus(

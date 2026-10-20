@@ -629,4 +629,58 @@ struct AgentSessionRecoveryAppTests {
         #expect(!open.contains(staleBindingSession))
         #expect(open.contains(inFlightSession))
     }
+
+    /// Hibernation tears down the agent process by design, but the terminal
+    /// still owns the durable session. Recovery must not reopen that session
+    /// from the hook/journal while the panel is asleep.
+    @MainActor
+    @Test
+    func hibernatedRestoredPanelIsOpenForRecoveryDeduplication() throws {
+        let previousApp = AppDelegate.shared
+        let app = AppDelegate()
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        app.tabManager = manager
+        AppDelegate.shared = app
+        defer {
+            app.tabManager = nil
+            manager.finalizeAllWorkspacesForWindowClose()
+            AppDelegate.shared = previousApp
+        }
+
+        let workspace = try #require(manager.selectedWorkspace)
+        let panelId = try #require(workspace.focusedPanelId)
+        let sessionID = "hibernated-open-\(UUID().uuidString.lowercased())"
+        let agent = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: sessionID,
+            workingDirectory: "/tmp",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codex",
+                executablePath: "/usr/local/bin/codex",
+                arguments: ["/usr/local/bin/codex"],
+                workingDirectory: "/tmp",
+                capturedAt: nil,
+                source: "agent-hook"
+            )
+        )
+
+        try #require(workspace.enterAgentHibernation(
+            panelId: panelId,
+            agent: agent,
+            lastActivityAt: Date(timeIntervalSince1970: 0)
+        ))
+        let panel = try #require(workspace.panels[panelId] as? TerminalPanel)
+        #expect(panel.isAgentHibernated)
+        let staleBindingSessionID = "stale-hibernated-binding-\(UUID().uuidString.lowercased())"
+        workspace.surfaceResumeBindingsByPanelId[panelId] = SurfaceResumeBindingSnapshot(
+            name: "Claude Code",
+            kind: "claude",
+            command: "claude --resume \(staleBindingSessionID)",
+            checkpointId: staleBindingSessionID,
+            source: "agent-hook",
+            updatedAt: Date().timeIntervalSince1970
+        )
+        #expect(app.openAgentSessionIdsForRecovery().contains(sessionID))
+        #expect(!app.openAgentSessionIdsForRecovery().contains(staleBindingSessionID))
+    }
 }
