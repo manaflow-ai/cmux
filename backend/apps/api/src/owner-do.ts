@@ -320,11 +320,11 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
    * principal is built here and nowhere else; the key must be deterministic so a
    * repeated alarm replays instead of applying twice.
    */
-  protected submitSystem(op: string, params: unknown, idempotencyKey: string, identity = `system:${this.streamPrefix}`): SubmitResult {
+  protected submitSystem(op: string, params: unknown, idempotencyKey: string, identity = `system:${this.streamPrefix}`, expectedRevision?: string): SubmitResult {
     if (!this.engine) throw new Error("submitSystem before the object is bound")
     const principal: Principal = { identity, kind: "system" }
     const frames: Array<OwnerFrame> = []
-    this.engine.submit(principal, { t: "op", op, params, idempotency_key: idempotencyKey, origin: "script" }, (target, f) =>
+    this.engine.submit(principal, { t: "op", op, params, idempotency_key: idempotencyKey, origin: "script", ...(expectedRevision === undefined ? {} : { expected_revision: expectedRevision }) }, (target, f) =>
       target === "all" ? this.broadcast(f) : frames.push(f)
     )
     this.afterCommit()

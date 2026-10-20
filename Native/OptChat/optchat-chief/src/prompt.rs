@@ -212,7 +212,8 @@ cmux Home, and your final reply of each turn is posted there.
   Each one's report reaches you as a message, \"[id] report\", when it
   finishes. `tell(id, message)` sends a running
   subagent more instructions. Never wait or poll for them.
-- Versions: `cmux version --json` names this `cmux` CLI, the app its
+- Versions: `cmux version --json` (or the `version` tool, which adds
+  your engine) names this `cmux` CLI, the app its
   socket reaches (name, full version with the nightly build, channel,
   bundle id and path, pid), whether the CLI is not the app's own, the update
   state (phase, ready on quit, last check), the bundled acpmux and Chief
@@ -323,7 +324,8 @@ cmux Home, and your final reply of each turn is posted there.
   view and its task, so say in the task what it must do and report. Each one's report reaches you as a message,
   \"[id] report\", when it finishes. `{chief} tell ID \"message\"`
   sends a running subagent more instructions. Never wait or poll for them.
-- Versions: `cmux version --json` names this `cmux` CLI, the app its
+- Versions: `cmux version --json` (or the `version` tool, which adds
+  your engine) names this `cmux` CLI, the app its
   socket reaches (name, full version with the nightly build, channel,
   bundle id and path, pid), whether the CLI is not the app's own, the update
   state (phase, ready on quit, last check), the bundled acpmux and Chief
@@ -379,7 +381,8 @@ report.
 - The `cmux` CLI drives the cmux session of the machine you run on
   (`cmux --help`). Never close or change workspaces the user did not ask
   about.
-- Versions: `cmux version --json` names this `cmux` CLI, the app its
+- Versions: `cmux version --json` (or the `version` tool, which adds
+  your engine) names this `cmux` CLI, the app its
   socket reaches (name, full version with the nightly build, channel,
   bundle id and path, pid), whether the CLI is not the app's own, the update
   state (phase, ready on quit, last check), the bundled acpmux and Chief
@@ -449,7 +452,7 @@ pub fn subagent_blocks(view: &str, task: &str) -> Vec<Value> {
 /// Tool descriptions of section 9's `spawn` and `tell`.
 pub const SPAWN_DESCRIPTION: &str = "Start one subagent per task, in parallel, in the background, in `cwd`; answers their ids at once and, for each, the cmux workspace that shows its chat, its sidebar group and where it is, or that it has none and why. Start each task with a line `Title: <2-5 words>` (its workspace name) and optionally `Group: <sidebar group>`; without them both come from the task. Tell the user only that. Each subagent sees the view and its task. Each one's report reaches you as a message \"[id] report\" when it finishes. Never wait or poll for them. place: cloud runs them on the cloud VM peer (code and tests; Mac builds go to the fleet), local on this Mac (its app, UI, screenshots, computer use); by default, the `control cloud` setting.";
 pub const SPAWN_CWD_DESCRIPTION: &str = "The most specific directory the work is in, on the machine you run on (~ is its home), for example ~/fun/repo: never ~ itself, / or a private folder such as ~/Downloads or ~/Documents, where they would read the user's private files and macOS would ask the user for access; those run in the subagents' own folder. The answer says when it does not exist there.";
-pub const TELL_DESCRIPTION: &str = "Send a message to a subagent; a running one reads it between its tool calls, an idle one runs again; a queued or starting one gets it the moment it can (never tell it again). Its report answers it.";
+pub const TELL_DESCRIPTION: &str = "Send a message to a subagent; a running one reads it between its tool calls, or, when its agent cannot take it mid-turn, its turn is interrupted (context kept) and the message is its next prompt; queue: true waits for the turn instead (low-priority FYIs). An idle one runs again; a queued or starting one gets it the moment it can (never tell it again). Its report answers it.";
 
 /// The `react` tool's description.
 pub const REACT_DESCRIPTION: &str = "React to a user message with a tapback (like, love, laugh, emphasize, question, dislike; ack is a like) or any one emoji, shown on the message at once. Use it instead of a reply that only acknowledges. id: the message's line id.";
@@ -761,6 +764,7 @@ pub const ZOOM_DESCRIPTION: &str = "Open the line id+n of the view into the two 
 /// What zoom adds for subagents (the MCP tool; the native engine has none).
 pub const ZOOM_AGENT_DESCRIPTION: &str = " With a subagent's id (a1) as id, it gives that subagent's whole chat; a long chat comes in pages from character at, saying where to go on.";
 pub const DATE_DESCRIPTION: &str = "The date and time of message id.";
+pub const VERSION_DESCRIPTION: &str = "Which cmux and Chief you run, read-only: the cmux CLI and the app its socket reaches (version with the nightly build, channel, build sha, bundle id and path, pid), whether the CLI is the app's own, the update state (phase, ready on quit, last check), the bundled acpmux and helper stamps, macOS, and this Chief host's version and engine (each role's harness CLI and its version).";
 
 /// A turn's input in the cached layout (spec 5a): the frozen view in its
 /// blocks of 4 lines, the delta's blocks, the turn's `images`, then `tail`
@@ -811,6 +815,33 @@ pub fn input_layout(
 /// with automatic prefix caching (codex), byte-stable the same way.
 pub fn input_blocks(view: &str, delta: &[String], images: &[Value], tail: &str) -> Vec<Value> {
     input_layout("", view, delta, None, images, tail, None).blocks
+}
+
+/// The delta's lines from log index `from` on, as one text (a kept turn
+/// session's next prompt: it holds everything before `from`). None when
+/// there is none, or when a line (`id+n|`) covers ids on both sides of
+/// `from`.
+pub fn delta_from(delta: &[String], from: u64) -> Option<String> {
+    let head = |line: &str| -> Option<(u64, u64)> {
+        let (range, _) = line.split_once('|')?;
+        let (id, n) = range.split_once('+')?;
+        Some((id.parse().ok()?, n.parse().ok()?))
+    };
+    let mut out = String::new();
+    // Whether the line being read (and its continuation lines) is taken.
+    let mut taking = false;
+    for line in delta.iter().flat_map(|b| b.split_inclusive('\n')) {
+        if let Some((id, n)) = head(line) {
+            if id < from && id + n > from {
+                return None;
+            }
+            taking = id >= from;
+        }
+        if taking {
+            out.push_str(line);
+        }
+    }
+    (!out.is_empty()).then_some(out)
 }
 
 /// The index of the delta block that ends at log index `end` (an earlier

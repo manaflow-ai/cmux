@@ -103,7 +103,7 @@ def open_page(engine):
     open(path, "w").write("<!doctype html><title>omnibar bench</title><body style='font:20px -apple-system'>"
                           + "<p>omnibar bench row</p>" * 60)
     url = "file://" + path + "?q=" + "omnibar-latency-" * 6
-    reply = rpc("action.run", {"action": f"openBrowser.{engine}", "args": {"url": url}, "focus": True, "origin": "user"}, timeout=120)
+    reply = rpc("action.run", {"action": f"openBrowser.{engine}", "args": {"url": url}, "focus": True, "origin": "script"}, timeout=120)
     print(f"open {engine}:", json.dumps(reply)[:300], flush=True)
     ok = wait(lambda: "error" not in (rpc("debug.omnibar") or {"error": 1}), 60)
     time.sleep(1.5)  # test harness: let the page finish its first paint

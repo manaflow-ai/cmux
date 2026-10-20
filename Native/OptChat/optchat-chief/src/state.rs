@@ -62,6 +62,10 @@ pub struct HostState {
     /// The turn whose messages are logged but whose reply is not posted yet.
     #[serde(default)]
     pub turn: Option<PendingTurn>,
+    /// The turn session kept for the next turn (`Settings::keep_turn_session`):
+    /// a host that restarts ends it (it knows nothing of its history).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kept_session: Option<String>,
     /// E22: what the last turn answered (message ids): a spawn made after
     /// that turn's end still belongs to it.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -473,6 +477,9 @@ impl PendingTurn {
             .iter()
             .map(|seq| Item {
                 seq: *seq,
+                // This pre-provenance format cannot establish that its
+                // messages were owner-authored, so recovery must ask.
+                requires_approval: true,
                 ..Item::default()
             })
             .collect()
@@ -948,7 +955,7 @@ impl FrozenRecord {
 
 #[cfg(test)]
 mod security_tests {
-    use super::{Item, Resume, SpawnRef};
+    use super::{Item, PendingTurn, Resume, SpawnRef};
 
     #[test]
     fn legacy_pending_turns_require_approval_but_new_owner_records_round_trip() {
@@ -979,5 +986,16 @@ mod security_tests {
         let spawn_again: SpawnRef =
             serde_json::from_slice(&serde_json::to_vec(&spawn).unwrap()).unwrap();
         assert!(!spawn_again.requires_approval);
+
+        let legacy_turn = PendingTurn {
+            seqs: vec![Some(7), None],
+            ..PendingTurn::default()
+        };
+        assert!(
+            legacy_turn
+                .opening()
+                .iter()
+                .all(|item| item.requires_approval)
+        );
     }
 }
