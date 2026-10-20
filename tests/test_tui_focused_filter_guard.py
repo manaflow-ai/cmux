@@ -343,3 +343,24 @@ def test_dogfood_artifacts_never_wait_for_the_side_lane() -> None:
             "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || "
             "'blacksmith-6vcpu-macos-15' }}"
         )
+
+
+def test_hosted_verification_gate_reports_every_selected_job_before_failing() -> None:
+    """A red lint (often a base clippy red) must not hide whether the
+    filtered Rust tests passed: the gate lists each selected job's result
+    and fails once, at the end."""
+    workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    gate = workflow["jobs"]["hosted-verification"]
+    step = next(s for s in gate["steps"] if s.get("name") == "Require selected verification jobs")
+    env = {key: "success" for key, value in gate["env"].items() if key.endswith("_RESULT")}
+    env.update({"MODE": "focused", "TEST_FILTER": "some_test", "LINT_RESULT": "failure",
+                "MACOS_RESULT": "failure", "PATH": "/usr/bin:/bin"})
+    with tempfile.TemporaryDirectory() as tmp:
+        script = Path(tmp) / "gate.sh"
+        script.write_text(step["run"], encoding="utf-8")
+        run = subprocess.run(["bash", str(script)], env=env, capture_output=True, text=True)
+    output = run.stdout + run.stderr
+    assert run.returncode == 1, output
+    assert "lint finished with result 'failure'" in output, output
+    assert "macOS lint and tests finished with result 'failure'" in output, output
+    assert "Rust tests: success" in output, output
