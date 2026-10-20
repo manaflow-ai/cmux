@@ -117,6 +117,24 @@ fn focused_stays_the_daemons_when_the_app_shows_another_sessions_workspace() {
 }
 
 #[test]
+fn workspace_show_of_a_workspace_the_window_does_not_show_is_not_focused() {
+    // `workspace <new> show` right after a create: the daemon default moved
+    // to ws_new, the window still shows Home. A Claude Code proof run read
+    // `"focused": true` here and could not tell whether cmux stole focus.
+    let (socket, app) = fake_app(vec![ok(json!({
+        "topology": {"focus": {"workspace": "ws_home"},
+            "workspaces": [{"id": "ws_home"}, {"id": "ws_new"}]}
+    }))]);
+    let mut stream = UnixStream::connect(&socket).unwrap();
+    let mut reply = json!({"id": "ws_new", "name": "proof", "focused": true});
+    after_daemon_with(&mut stream, &follow_for(ResourceOperation::WorkspaceGet), &mut reply)
+        .unwrap();
+    drop(stream);
+    app.join().unwrap();
+    assert_eq!(reply["focused"], false, "{reply}");
+}
+
+#[test]
 fn only_focus_and_workspace_reads_involve_the_app() {
     assert_eq!(follow_for(ResourceOperation::WorkspaceCreate), Follow::Nothing);
     assert_eq!(follow_for(ResourceOperation::PaneSplit), Follow::Nothing);
