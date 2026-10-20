@@ -223,6 +223,9 @@ export const env = createEnv({
     CMUX_TEAM_INVITE_RATE_LIMIT_ID: z.string().min(1).optional(),
     // Cloud VM firewall rule create and delete, per signed-in user.
     CMUX_VM_FIREWALL_RATE_LIMIT_ID: z.string().min(1).optional(),
+    // Provider-costing Cloud VM creates, forks, restores, Base operations,
+    // and snapshots. Deployed routes fail closed when this rule is absent.
+    CMUX_VM_ALLOCATION_RATE_LIMIT_ID: z.string().min(1).optional(),
     // Native ingress gates run before Stack verification, so provider outages
     // cannot turn reconnect/readiness fan-out into an auth-request storm.
     CMUX_PUSH_RATE_LIMIT_ID: z.string().min(1).optional(),
@@ -494,6 +497,7 @@ export const env = createEnv({
     CMUX_ANALYTICS_RATE_LIMIT_ID: trimEnv(process.env.CMUX_ANALYTICS_RATE_LIMIT_ID),
     CMUX_TEAM_INVITE_RATE_LIMIT_ID: trimEnv(process.env.CMUX_TEAM_INVITE_RATE_LIMIT_ID),
     CMUX_VM_FIREWALL_RATE_LIMIT_ID: trimEnv(process.env.CMUX_VM_FIREWALL_RATE_LIMIT_ID),
+    CMUX_VM_ALLOCATION_RATE_LIMIT_ID: trimEnv(process.env.CMUX_VM_ALLOCATION_RATE_LIMIT_ID),
     CMUX_PUSH_RATE_LIMIT_ID: trimEnv(process.env.CMUX_PUSH_RATE_LIMIT_ID),
     CMUX_DEVICE_REGISTRY_RATE_LIMIT_ID: trimEnv(
       process.env.CMUX_DEVICE_REGISTRY_RATE_LIMIT_ID,

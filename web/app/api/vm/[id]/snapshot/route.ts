@@ -1,12 +1,14 @@
 import {
   jsonResponse,
   resolveVmRouteAccountScope,
+  vmErrorResponse,
   withAuthedVmApiRoute,
 } from "../../../../../services/vms/routeHelpers";
 import { setSpanAttributes } from "../../../../../services/telemetry";
 import { runVmRoute } from "../../../../../services/vms/routeWorkflow";
 import { snapshotVm } from "../../../../../services/vms/workflows";
 import { idempotencyKeyFromRequest, parseOptionalObjectBody } from "../../../../../services/vms/routeInput";
+import { enforceVmAllocationRateLimit } from "../../../../../services/vms/allocationRateLimit";
 
 // Snapshot duration scales with the machine's dirty memory; give it the same
 // long-provisioning budget as create (see app/api/vm/route.ts).
@@ -35,6 +37,23 @@ export async function POST(
       const idempotency = idempotencyKeyFromRequest(request);
       if (!idempotency.ok) return idempotency.response;
       const idempotencyKey = idempotency.key;
+      if (!idempotencyKey) {
+        return vmErrorResponse({
+          error: "vm_idempotency_key_required",
+          status: 400,
+          message: "Idempotency-Key is required for Cloud VM snapshots.",
+          action: "Retry with a stable Idempotency-Key of at most 128 characters.",
+          phase: "snapshot",
+          retryable: false,
+          details: { field: "Idempotency-Key", maxLength: 128 },
+        });
+      }
+      const limited = await enforceVmAllocationRateLimit({
+        request,
+        route: "vm.snapshot",
+        billingTeamId: account.entitlements.billingTeamId,
+      });
+      if (limited) return limited;
       setSpanAttributes(span, { "cmux.vm.id": id, "cmux.snapshot.named": !!name, "cmux.idempotency_key_set": !!idempotencyKey });
       const run = await runVmRoute(snapshotVm({
         userId: user.id,

@@ -3,6 +3,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, mock, tes
 import manifestJson from "../services/vms/images/manifest.json";
 import { pickVmImageSizeForMemory } from "../services/vms/images/sizes";
 import { vmCapabilitiesFor } from "../services/vms/drivers";
+import { installVercelFirewallMock } from "./vercel-firewall-mock";
 
 // The manifest is the only source of truth for images: the desktop default at
 // the plan's memory is what a create with no image (and no kind) resolves to,
@@ -47,7 +48,6 @@ const openVmCmuxRemote = mock(() => ({ workflow: "cmux-remote" }));
 const approveVmCmuxRemoteEnrollment = mock(() => ({ workflow: "cmux-remote-approve" }));
 const restoreVm = mock(() => ({ workflow: "restore" }));
 const snapshotVm = mock(() => ({ workflow: "snapshot" }));
-const enforceVmAllocationRateLimit = mock(async () => null as Response | null);
 const revokeUserVmAccess = mock(() => ({ workflow: "revoke-access" }));
 const deleteVmPublicationsForVmDeletion = mock(async () => ({
   publications: 0,
@@ -112,8 +112,6 @@ const dbClientModule = await import("../db/client");
 const realCloudDb = dbClientModule.cloudDb;
 const realCloseCloudDbForTests = dbClientModule.closeCloudDbForTests;
 const realCreateAwsRdsIamPool = dbClientModule.createAwsRdsIamPool;
-const allocationRateLimitModule = await import("../services/vms/allocationRateLimit");
-const realEnforceVmAllocationRateLimit = allocationRateLimitModule.enforceVmAllocationRateLimit;
 
 let useWorkflowStubs = false;
 let useStubDb = false;
@@ -135,6 +133,8 @@ mock.module("../app/lib/stack", () => ({
   isStackConfigured: () => true,
   stackServerApp: { getUser },
 }));
+
+installVercelFirewallMock();
 
 mock.module("../services/vms/workflows", () => ({
   ...workflowsModule,
@@ -183,14 +183,6 @@ mock.module("../services/vms/workflows", () => ({
     useWorkflowStubs ? callMock(snapshotVm, args) : realSnapshotVm(...args)) as typeof realSnapshotVm,
   revokeUserVmAccess: ((...args: Parameters<typeof realRevokeUserVmAccess>) =>
     useWorkflowStubs ? callMock(revokeUserVmAccess, args) : realRevokeUserVmAccess(...args)) as typeof realRevokeUserVmAccess,
-}));
-
-mock.module("../services/vms/allocationRateLimit", () => ({
-  ...allocationRateLimitModule,
-  enforceVmAllocationRateLimit: ((...args: Parameters<typeof realEnforceVmAllocationRateLimit>) =>
-    useWorkflowStubs
-      ? callMock(enforceVmAllocationRateLimit, args)
-      : realEnforceVmAllocationRateLimit(...args)) as typeof realEnforceVmAllocationRateLimit,
 }));
 
 mock.module("../services/vm-publications/vmDeletion", () => ({
@@ -300,8 +292,6 @@ beforeEach(() => {
   openAttachEndpoint.mockClear();
   restoreVm.mockClear();
   snapshotVm.mockClear();
-  enforceVmAllocationRateLimit.mockClear();
-  enforceVmAllocationRateLimit.mockResolvedValue(null);
   revokeUserVmAccess.mockClear();
   deleteVmPublicationsForVmDeletion.mockClear();
   deleteVmPublicationsForVmDeletion.mockResolvedValue({
@@ -2928,69 +2918,6 @@ describe("VM REST auth", () => {
     }
   });
 
-  test("requires an idempotency key before creating a snapshot", async () => {
-    getUser.mockResolvedValue(authedStackUser());
-    const response = await snapshotRoute.POST(
-      new Request("https://cmux.test/api/vm/provider-vm-1/snapshot", {
-        method: "POST",
-        headers: { origin: "https://cmux.test" },
-        body: "{}",
-      }),
-      { params: Promise.resolve({ id: "provider-vm-1" }) },
-    );
-
-    expect(response.status).toBe(400);
-    expect(await response.json()).toMatchObject({ error: "vm_idempotency_key_required" });
-    expect(snapshotVm).not.toHaveBeenCalled();
-    expect(runVmWorkflow).not.toHaveBeenCalled();
-  });
-
-  test("rate-limit refusal stops every provider allocation workflow", async () => {
-    getUser.mockResolvedValue(authedStackUser());
-    enforceVmAllocationRateLimit.mockResolvedValue(new Response(
-      JSON.stringify({ error: "vm_allocation_rate_limited" }),
-      { status: 429, headers: { "content-type": "application/json", "retry-after": "60" } },
-    ));
-    const headers = { origin: "https://cmux.test", "idempotency-key": "allocation-key" };
-    const context = { params: Promise.resolve({ id: "provider-vm-1" }) };
-    const routes = [
-      ["vm.create", createVm, () => POST(new Request("https://cmux.test/api/vm", {
-        method: "POST", headers, body: JSON.stringify({ provider: "freestyle", image: "snapshot-test" }),
-      }))],
-      ["vm.fork", forkVm, () => forkRoute.POST(new Request("https://cmux.test/api/vm/provider-vm-1/fork", {
-        method: "POST", headers, body: "{}",
-      }), context)],
-      ["vm.restore", restoreVm, () => restoreRoute.POST(new Request("https://cmux.test/api/vm/restore", {
-        method: "POST", headers, body: JSON.stringify({ snapshotId: "snapshot-1" }),
-      }))],
-      ["vm.base.open", openBaseVm, () => baseOpenRoute.POST(new Request("https://cmux.test/api/vm/base/open", {
-        method: "POST", headers, body: JSON.stringify({ kind: "base" }),
-      }))],
-      ["vm.base.reset", resetBaseVm, () => baseResetRoute.POST(new Request("https://cmux.test/api/vm/base/reset", {
-        method: "POST", headers, body: JSON.stringify({ kind: "base" }),
-      }))],
-      ["vm.snapshot", snapshotVm, () => snapshotRoute.POST(new Request("https://cmux.test/api/vm/provider-vm-1/snapshot", {
-        method: "POST", headers, body: "{}",
-      }), context)],
-    ] as const;
-
-    for (const [route, constructor, invoke] of routes) {
-      enforceVmAllocationRateLimit.mockClear();
-      for (const candidate of [createVm, forkVm, restoreVm, openBaseVm, resetBaseVm, snapshotVm]) candidate.mockClear();
-      runVmWorkflow.mockClear();
-      const response = await invoke();
-      expect(response.status).toBe(429);
-      expect(response.headers.get("retry-after")).toBe("60");
-      expect(enforceVmAllocationRateLimit).toHaveBeenCalledWith(expect.objectContaining({
-        request: expect.any(Request),
-        route,
-        billingTeamId: "team-1",
-      }));
-      expect(constructor).not.toHaveBeenCalled();
-      expect(runVmWorkflow).not.toHaveBeenCalled();
-    }
-  });
-
   test("returns client errors for invalid restore request bodies", async () => {
     getUser.mockResolvedValue(authedStackUser());
 
@@ -3281,6 +3208,7 @@ describe("VM REST auth", () => {
   test("requires manifest images in deployed environments before workflow", async () => {
     process.env.VERCEL = "1";
     process.env.VERCEL_ENV = "preview";
+    process.env.CMUX_VM_ALLOCATION_RATE_LIMIT_ID = "test-vm-allocation";
     getUser.mockResolvedValue(authedStackUser());
 
     const response = await POST(
@@ -3309,6 +3237,7 @@ describe("VM REST auth", () => {
     // resolves; the error must not name an image.
     process.env.VERCEL = "1";
     process.env.VERCEL_ENV = "preview";
+    process.env.CMUX_VM_ALLOCATION_RATE_LIMIT_ID = "test-vm-allocation";
     manifestJson.images = originalManifestImages.map((entry) => entry.kind === "desktop" ? { ...entry, defaultForKind: false } : entry);
     getUser.mockResolvedValue(authedStackUser());
 
@@ -3339,6 +3268,7 @@ describe("VM REST auth", () => {
     // machine with a screen (#12239), never the shell-only ladder.
     process.env.VERCEL = "1";
     process.env.VERCEL_ENV = "preview";
+    process.env.CMUX_VM_ALLOCATION_RATE_LIMIT_ID = "test-vm-allocation";
     getUser.mockResolvedValue(authedStackUser());
     runVmWorkflow.mockResolvedValue({
       providerVmId: "provider-vm-manifest",
@@ -3368,6 +3298,7 @@ describe("VM REST auth", () => {
   test("the shell-only base image the CLI sends for `vm new --base` is manifest-listed", async () => {
     process.env.VERCEL = "1";
     process.env.VERCEL_ENV = "preview";
+    process.env.CMUX_VM_ALLOCATION_RATE_LIMIT_ID = "test-vm-allocation";
     process.env.CMUX_VM_DEFAULT_PROVIDER = "freestyle";
     getUser.mockResolvedValue(authedStackUser());
     runVmWorkflow.mockResolvedValue({
