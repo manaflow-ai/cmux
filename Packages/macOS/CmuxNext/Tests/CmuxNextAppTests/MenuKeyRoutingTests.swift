@@ -210,21 +210,40 @@ import CmuxNextFocus
     static func pasteProbe() throws {
         let harness = try Self.harness(userConfig: "")
         defer { harness.close() }
+        func drain(_ text: String) {
+            let deadline = Date().addingTimeInterval(3)
+            while !harness.written.contains(text), Date() < deadline { RunLoop.current.run(until: Date().addingTimeInterval(0.02)) }
+        }
+        let view = harness.session.surfaceView
+        print("PROBE keyWindow=\(String(describing: NSApp.keyWindow)) isFirstResponder=\(view.isFirstResponder) target=\(String(describing: NSApp.target(forAction: #selector(NSText.paste(_:)), to: nil, from: nil)))")
+        // 1. Ghostty's paste path on its own.
+        view.paste(nil)
+        drain("cmdv-probe-text")
+        print("PROBE direct paste written=\(harness.written.debugDescription)")
+        // 2. Cmd-V with an Edit > Paste item that targets the terminal.
+        let before = harness.written
         var trace: [String] = []
         TerminalKeyEquivalent.trace = { trace.append($0) }
         harness.services.keyRouter.trace = { trace.append($0) }
         defer { TerminalKeyEquivalent.trace = nil }
-        let menu = MainMenu.make(registry: harness.services.registry)
+        let item = NSMenuItem(title: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        item.keyEquivalentModifierMask = [.command]
+        item.target = view
         var took = false
-        try Self.withMenu(menu, harness) { () throws in
+        try Self.withMenu(Self.menuBar([item]), harness) { () throws in
             took = try Self.press("v", keyCode: 9, in: harness)
         }
-        let deadline = Date().addingTimeInterval(3)
-        while !harness.written.contains("cmdv-probe-text"), Date() < deadline {
-            RunLoop.current.run(until: Date().addingTimeInterval(0.02))
+        RunLoop.current.run(until: Date().addingTimeInterval(1))
+        print("PROBE targeted menu took=\(took) new=\(String(harness.written.dropFirst(before.count)).debugDescription) trace=\(trace)")
+        // 3. Cmd-V with no menu item for it.
+        let before3 = harness.written
+        trace = []
+        try Self.withMenu(Self.menuBar([]), harness) { () throws in
+            took = try Self.press("v", keyCode: 9, in: harness)
         }
-        print("PROBE took=\(took) written=\(harness.written.debugDescription) trace=\(trace) lastInterception=\(String(describing: harness.services.keyRouter.lastInterception))")
-        #expect(harness.written.contains("cmdv-probe-text"), "Cmd-V wrote \(harness.written.debugDescription); trace \(trace)")
+        RunLoop.current.run(until: Date().addingTimeInterval(1))
+        print("PROBE no menu took=\(took) new=\(String(harness.written.dropFirst(before3.count)).debugDescription) trace=\(trace)")
+        #expect(Bool(false), "probe")
     }
 }
 
