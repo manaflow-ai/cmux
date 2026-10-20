@@ -168,10 +168,13 @@ final class MarkdownLiveShareServer {
         switch route {
         case .page(let token):
             guard let share = shares[token] else { break }
-            let text = (try? String(contentsOf: share.file, encoding: .utf8)) ?? ""
             let events = "/md/\(token)/\(share.name.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? token)/events"
-            let page = renderer.document(text, title: share.name, eventsPath: events)
-            return send(Self.response(200, type: "text/html; charset=utf-8", body: Data(page.utf8)), on: connection, close: true)
+            Task { [weak self, file = share.file, name = share.name] in // one off-main read per page request
+                let text = await Task.detached { (try? String(contentsOf: file, encoding: .utf8)) ?? "" }.value
+                guard let page = self?.renderer.document(text, title: name, eventsPath: events) else { return connection.cancel() }
+                self?.send(Self.response(200, type: "text/html; charset=utf-8", body: Data(page.utf8)), on: connection, close: true)
+            }
+            return
         case .events(let token):
             guard shares[token] != nil else { break }
             shares[token]?.streams[ObjectIdentifier(connection)] = connection
