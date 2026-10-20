@@ -147,6 +147,27 @@ import Testing
         #expect(clicks == 1)
     }
 
+    /// The pet's right-click menu: Chief Pet Settings… closes the reply box and opens the
+    /// settings; Hide Chief Pet hides it (the App turns `home.chiefPetEnabled` off).
+    @Test func rightClickMenuOpensSettingsAndHides() throws {
+        let defaults = Self.defaults()
+        var settings = 0, hides = 0
+        let controller = ChiefPetController(makePanel: { ChiefPetPanel(defaults: defaults) },
+                                            actions: ChiefPetActions(open: { _ in }, send: { _, _ in true },
+                                                                     openSettings: { settings += 1 }, hide: { hides += 1 }))
+        controller.sync(true)
+        let panel = try #require(controller.panel)
+        let menu = panel.contextMenu()
+        #expect(menu.items.map(\.title) == [ChiefPetStrings.settings, ChiefPetStrings.hide])
+        panel.onClick?()
+        #expect(controller.replyPanel?.isVisible == true)
+        for item in menu.items { _ = (item.target as AnyObject?)?.perform(item.action) }
+        #expect(settings == 1)
+        #expect(hides == 1)
+        #expect(controller.replyPanel?.isVisible == false, "the settings come up without the reply box")
+        controller.sync(false)
+    }
+
     @Test func controllerShowsThePetOnlyWhileItIsOn() async {
         let flag = Flag(false)
         let defaults = Self.defaults()

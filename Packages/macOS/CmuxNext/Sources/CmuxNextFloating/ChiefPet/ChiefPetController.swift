@@ -159,6 +159,12 @@ public final class ChiefPetController {
         let made = makePanel()
         if mascot != .initial { made.pet.image = mascot.image }
         made.onClick = { [weak self] in self?.toggleReply() }
+        // The right-click menu: the settings close the reply box first, so they come up alone.
+        made.onSettings = { [weak self] in
+            self?.closeReply()
+            self?.actions.openSettings()
+        }
+        made.onHide = { [weak self] in self?.actions.hide() }
         // With no notices the chevron opens the Chief.
         made.onExpand = { [weak self] in
             guard let self else { return }

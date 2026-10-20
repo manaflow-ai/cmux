@@ -24,6 +24,8 @@ final class HomeHostView: NSView {
     /// toggles it (Chief conversation only).
     private let settings: HomeChiefSettingsPopover
     private var settingsView: HomeChiefSettingsView { settings.content }
+    /// The Chief pet's rows in the popover's Appearance section.
+    private let petRows: HomeChiefPetRows
     private var isChief = false
     private var engineWatch: Task<Void, Never>?
     private var agentsWatch: Task<Void, Never>?
@@ -53,6 +55,7 @@ final class HomeHostView: NSView {
                                               diagrams: service.diagrams)
         control = HomeChiefControl(services: services, conversation: id, muxHome: HomeBrainHost.muxHome(tag: services.environment.tag))
         settings = HomeChiefSettingsPopover(content: HomeChiefSettingsView(muxHome: control.brainHome, source: control.engineSource()))
+        petRows = HomeChiefPetRows(settings: { [weak services] in services?.settings })
         chiefSwitch = HomeChiefSwitch(conversation: conversation, state: { [weak service] in (service?.tabChiefs ?? HomeCloudChiefs(), service?.cloudChief?.mainConversation) },
                                       pick: { [weak service] in service?.hostedChief.pick($0) })
         super.init(frame: .zero)
@@ -60,6 +63,8 @@ final class HomeHostView: NSView {
         transcript.setNamePillHelp(HomeEngineStrings.pillHelp)
         transcript.onNamePill = { [weak self] in self?.toggleChiefSettings() }
         loadAvatar()
+        petRows.install(in: settingsView)
+        Self.live.add(self)
         settingsView.onAvatar = { [weak self, weak service] in
             self?.loadAvatar()
             // The tile avatar is the default Chief's: a named Chief's panel never sets it (cx-327wl).
@@ -225,6 +230,7 @@ final class HomeHostView: NSView {
             engineWatch?.cancel()
             agentsWatch?.cancel()
             shortcutsWatch?.cancel()
+            petRows.stop()
             settings.close()
             if let toggleObserver { NotificationCenter.default.removeObserver(toggleObserver) }
             if let stopObserver { NotificationCenter.default.removeObserver(stopObserver) }
@@ -261,6 +267,17 @@ final class HomeHostView: NSView {
         guard isChief, window != nil, !isHiddenOrHasHiddenAncestor else { return }
         settingsView.refresh()
         settings.show(relativeTo: transcript.namePill, toggles: transcript.namePillToggles)
+    }
+
+    /// Opens (never closes) the Chief's settings under the pill when this view shows the Chief in
+    /// a visible window, bringing that window forward (the Chief pet's Chief Pet Settings…).
+    /// False when it cannot open here.
+    func openChiefSettings() -> Bool {
+        guard isChief, let window, window.isVisible, !window.isMiniaturized, !isHiddenOrHasHiddenAncestor else { return false }
+        window.makeKeyAndOrderFront(nil)
+        if settings.isShown { return true }
+        settingsView.refresh()
+        return settings.show(relativeTo: transcript.namePill, toggles: transcript.namePillToggles)
     }
 
     /// The popover is a child panel of the window, not a subview: Home leaving

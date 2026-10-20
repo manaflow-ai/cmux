@@ -21,4 +21,9 @@ public enum ChiefPetMascot: String, CaseIterable, Sendable {
     }
 
     public var image: NSImage? { Bundle.module.image(forResource: resource) }
+
+    /// The character picker's label beside Show Chief Pet (the Chief Settings popover).
+    public static var pickerTitle: String {
+        String(localized: "chiefPet.mascot.pickerTitle", defaultValue: "Pet Character", table: "ChiefPet", bundle: .module)
+    }
 }

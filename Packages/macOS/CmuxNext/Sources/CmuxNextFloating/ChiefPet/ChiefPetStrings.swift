@@ -26,6 +26,14 @@ enum ChiefPetStrings {
         String(localized: "chiefPet.reply.returnOpens", defaultValue: "Return opens \(title)", table: "ChiefPet", bundle: .module)
     }
 
+    static var settings: String {
+        String(localized: "chiefPet.menu.settings", defaultValue: "Chief Pet Settings…", table: "ChiefPet", bundle: .module)
+    }
+
+    static var hide: String {
+        String(localized: "chiefPet.menu.hide", defaultValue: "Hide Chief Pet", table: "ChiefPet", bundle: .module)
+    }
+
     static var replyTarget: String {
         String(localized: "chiefPet.reply.target", defaultValue: "Send to", table: "ChiefPet", bundle: .module)
     }

@@ -7,15 +7,22 @@ public enum ChiefPetReplyTarget: Equatable {
 }
 
 /// What the App does for the pet: open a target (the Chief's Home, a notice's tab or agent chat),
-/// and send typed text to one (false when it could not).
+/// send typed text to one (false when it could not), and the right-click menu's two items:
+/// open the pet's settings, and hide the pet (`home.chiefPetEnabled` off).
 public struct ChiefPetActions {
     public var open: @MainActor (ChiefPetReplyTarget) -> Void
     public var send: @MainActor (ChiefPetReplyTarget, String) async -> Bool
+    public var openSettings: @MainActor () -> Void
+    public var hide: @MainActor () -> Void
 
     public init(open: @escaping @MainActor (ChiefPetReplyTarget) -> Void,
-                send: @escaping @MainActor (ChiefPetReplyTarget, String) async -> Bool) {
+                send: @escaping @MainActor (ChiefPetReplyTarget, String) async -> Bool,
+                openSettings: @escaping @MainActor () -> Void = {},
+                hide: @escaping @MainActor () -> Void = {}) {
         self.open = open
         self.send = send
+        self.openSettings = openSettings
+        self.hide = hide
     }
 }
 
