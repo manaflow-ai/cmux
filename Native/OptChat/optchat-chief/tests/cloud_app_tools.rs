@@ -170,8 +170,8 @@ fn the_last_known_list_stays_when_the_list_fails_or_loses_the_app() {
     let first = cmux_tool_denials(session.path(), &cli.env());
     assert!(first.contains(&deny), "{first:?}");
     assert!(
-        !first.contains(&"mcp__cmux__app_show_pane".to_owned()),
-        "a Chief tool is kept: {first:?}"
+        first.contains(&"mcp__cmux__app_show_pane".to_owned()),
+        "remote app actions must be denied even when the catalog lists them: {first:?}"
     );
 
     // The Mac is asleep: the list fails. The app tools' denials stay.
