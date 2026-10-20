@@ -118,6 +118,14 @@ class Redial(tv.TV):
             r["browser_rows"] = [e.label for e in rows]
             if rows:
                 sim.tap_el(rows[0])
+                # Leaving the workspace took the toolbar's Back, which walks the
+                # page's history first (to the new tab's about:blank): Forward
+                # brings the bench page back, from the same Mac host's history.
+                time.sleep(2.0)
+                fwd = self.toolbar_button("Forward", "Go Forward")
+                r["forward_after_reopen"] = bool(fwd)
+                if fwd:
+                    sim.tap_el(fwd)
         r["event_at_s"] = round(ev_t - rec_t0, 2)
         try:
             r["meter_timeline"] = self.stream_watch(d, kind, seconds=30)

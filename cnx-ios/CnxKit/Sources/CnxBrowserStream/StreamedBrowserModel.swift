@@ -461,7 +461,6 @@ public final class StreamedBrowserModel: BrowserTabState {
 
     public func navigate(to text: String) {
         guard let target = Self.url(for: text.trimmingCharacters(in: .whitespacesAndNewlines)) else { return }
-        log.notice("browser \(self.tab, privacy: .public): navigate")
         navigating = (target, url)
         url = target
         history = nil

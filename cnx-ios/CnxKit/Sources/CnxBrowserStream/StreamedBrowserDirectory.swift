@@ -31,7 +31,6 @@ public final class StreamedBrowserDirectory {
     public func model(tab: String, url: URL?) -> StreamedBrowserModel? {
         guard let opener else { return nil }
         if let model = models[tab] {
-            if model.url == nil, let url { log.notice("browser \(tab, privacy: .public): model has no address, tab has \(url.absoluteString, privacy: .public)") }
             warmMedia()
             return model
         }
