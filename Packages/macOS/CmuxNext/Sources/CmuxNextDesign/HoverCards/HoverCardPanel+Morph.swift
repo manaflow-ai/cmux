@@ -39,7 +39,7 @@ extension HoverCardPanel {
 
     /// The corner of the card that stays on its target while it resizes (unit, y up).
     private var fixedCorner: CGPoint {
-        switch placement {
+        switch restingPlacement {
         case .above: CGPoint(x: isLeading ? 1 : 0, y: 0)
         case .below, .beside: CGPoint(x: isLeading ? 1 : 0, y: 1)
         // Its edge on the row's middle: the top below the escape slot, the bottom when flipped above it.
@@ -55,7 +55,7 @@ extension HoverCardPanel {
         let rest = cardFrame
         guard abs(previous.width - rest.width) > 0.5 || abs(previous.height - rest.height) > 0.5 else { return false }
         // The same gate as the slide it runs with (`Motion.set`): Reduce Motion or speed off resize at once.
-        guard Motion.animatesMovement, let host, let body, let glassLayer = glass.layer else { return false }
+        guard Motion.hoverCards.animatesMovement, let host, let body, let glassLayer = glass.layer else { return false }
         let corner = fixedCorner
         // The larger card the mask shows a part of, about the fixed corner.
         let big = CGSize(width: max(previous.width, rest.width), height: max(previous.height, rest.height))
@@ -102,7 +102,7 @@ extension HoverCardPanel {
         CATransaction.setCompletionBlock { [weak self] in
             MainActor.assumeIsolated { self?.finishMorph(generation) } // main-proof: CATransaction.h: the completion block is called on the main thread
         }
-        Motion.set(mask, "bounds", to: NSValue(rect: CGRect(origin: .zero, size: rest.size)), spring: .panel, from: NSValue(rect: shownFrom))
+        Motion.hoverCards.set(mask, "bounds", to: NSValue(rect: CGRect(origin: .zero, size: rest.size)), spring: .panel, from: NSValue(rect: shownFrom))
         // The shadow and its cutout follow the visible card (host coordinates, before the slide).
         let cardInHost = glass.frame
         func rounded(_ size: CGSize) -> CGPath {
@@ -117,9 +117,9 @@ extension HoverCardPanel {
             path.addPath(rounded(size))
             return path
         }
-        Motion.set(host.shadowLayer, "shadowPath", to: rounded(rest.size), spring: .panel, from: rounded(previous.size))
+        Motion.hoverCards.set(host.shadowLayer, "shadowPath", to: rounded(rest.size), spring: .panel, from: rounded(previous.size))
         if let cutoutLayer = host.shadowLayer.mask as? CAShapeLayer {
-            Motion.set(cutoutLayer, "path", to: cutout(rest.size), spring: .panel, from: cutout(previous.size))
+            Motion.hoverCards.set(cutoutLayer, "path", to: cutout(rest.size), spring: .panel, from: cutout(previous.size))
         }
         slide(from: offset)
         CATransaction.commit()

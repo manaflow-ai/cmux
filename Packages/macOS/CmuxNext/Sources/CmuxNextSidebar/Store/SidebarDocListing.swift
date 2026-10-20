@@ -128,8 +128,9 @@ extension SidebarDocProjection {
     }
 
     /// A kept group with no open member (Pinned keeps it): its header alone.
-    private static func emptyGroup(_ group: Group) -> SidebarGroup {
-        var made = SidebarGroup(id: GroupID(group.id), name: group.name, isCollapsed: group.collapsed,
+    @MainActor private static func emptyGroup(_ group: Group) -> SidebarGroup {
+        // The confirmed fold (a fold's echo rebuilds no projection, `SidebarDocStore.groupFolds`).
+        var made = SidebarGroup(id: GroupID(group.id), name: group.name, isCollapsed: SidebarDocStore.current?.groupFolds[group.id] ?? group.collapsed,
                                 icon: group.icon.flatMap { WorkspaceIcon.parse($0) }, workspaces: [])
         if let color = group.color, let tint = GroupTint(wire: color) { made.tint = tint }
         return made

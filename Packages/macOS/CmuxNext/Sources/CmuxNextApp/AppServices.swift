@@ -272,6 +272,8 @@ final class AppServices {
     private(set) lazy var browserProfiles = BrowserProfileService(services: self)
     /// Agent chat tabs and their shared acpmux host (New Agent Chat).
     private(set) lazy var agentTabs = AgentTabStore.wired(to: self)
+    /// Which agent chat opened each file, for viewer quotes (viewer-comments-DESIGN.md).
+    private(set) lazy var chatQuoteOpeners = ChatQuoteOpeners()
     /// The device-wide Chats index (nil without acpmux), watched once for every window.
     private(set) lazy var chatsFeed: ChatsFeed? = ChatsFeed.started(for: self)
     /// Relays the Chats index and editor sources into the daemon's project list.
@@ -409,6 +411,9 @@ final class AppServices {
             // A key on Sleepy Mode's scene only wakes it; no shortcut runs behind the cover.
             if self.sleepyMode.consumesKeyDown() { return true }
             return self.keyRouter.interceptKeyDown(event, in: window)
+        }
+        (NSApp as? CmuxApplication)?.actionTargetOverride = { [weak self] action, found in
+            self?.keyRouter.pasteTarget(for: action, found: found, in: NSApp.keyWindow)
         }
         surfaceInvariant.services = self
         surfaceInvariant.observeWindowOcclusion()
