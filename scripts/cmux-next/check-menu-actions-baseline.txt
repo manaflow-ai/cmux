@@ -1,0 +1,28 @@
+# Inline context menu rows allowed per file (scripts/cmux-next/check-menu-actions.py).
+# Lower a count when a row moves to ActionRegistry.makeContextMenu; never add a file.
+1 Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneView+ContextMenu.swift
+1 Packages/macOS/CmuxNext/Sources/CmuxNextApp/BrowserProfiles/BrowserProfileLinkMenu.swift
+1 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/BrowserDownloadsMenu.swift
+3 Packages/macOS/CmuxNext/Sources/CmuxNextApp/MainMenu.swift
+1 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Notifications/Panel/NotificationsPanelController.swift
+1 Packages/macOS/CmuxNext/Sources/CmuxNextApp/PaneToolbar.swift
+1 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Windows/SidebarToggleIconMenu.swift
+1 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Windows/StatusIconSetMenu.swift
+1 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Windows/TitlebarHistoryMenu.swift
+1 Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/UI/BookmarkFolderMenu.swift
+2 Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFDevToolsDivider.swift
+1 Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/UI/AddressField.swift
+1 Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/UI/BrowserChromeView+BackForwardMenu.swift
+1 Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/UI/BrowserDeviceMenu.swift
+1 Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/UI/BrowserFitFrameView.swift
+1 Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/UI/BrowserToolbarButtonsView.swift
+1 Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/UI/ExtensionsMenu.swift
+1 Packages/macOS/CmuxNext/Sources/CmuxNextFileGrid/FileGridView.swift
+1 Packages/macOS/CmuxNext/Sources/CmuxNextFilesUI/FileSidebarView.swift
+2 Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/HomeChiefSettingsView.swift
+1 Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/HomePageMenus.swift
+1 Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageSelectionMenu.swift
+1 Packages/macOS/CmuxNext/Sources/CmuxNextRemoteView/Pane/RemoteHoverToolbar.swift
+2 Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarNoticeCardView.swift
+1 Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarUpdateCardView.swift
+3 Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/TerminalSurfaceView+Pasteboard.swift

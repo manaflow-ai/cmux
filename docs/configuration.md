@@ -172,10 +172,21 @@ Where Cmd-T and the + button put a new tab.
 }
 ```
 
-- `"end"` (default): after the pane's last tab, as in Chrome and Edge.
-- `"afterCurrent"`: right after the selected tab. A selected tab in a tab group puts the new tab after the group; it doesn't join the group.
+- `"afterCurrent"` (default): right after the selected tab. A selected tab in a tab group puts the new tab after the group; it doesn't join the group.
+- `"end"`: after the pane's last tab, as in Chrome and Edge.
+- `"start"`: first, right after the pinned tabs.
 
-**New Tab to the Right** in a tab's right-click menu always puts the new tab right after that tab. Change the setting in **Settings > General > Tabs** or with `cmux settings set tabs.newTabPosition afterCurrent`.
+The setting applies to what you open with Cmd-T and the + button. A script's `cmux tab new` still adds the tab at the end.
+
+To put one new tab in a specific place, whatever the setting, use these commands (Cmd-Shift-P, the CLI, or MCP). They have no default key; you can assign one in **Settings > Keyboard Shortcuts**.
+
+| Command | CLI |
+|---|---|
+| **New Tab After Current Tab** | `cmux tab new-after-current` |
+| **New Tab at Start** | `cmux tab new-at-start` |
+| **New Tab at End** | `cmux tab new-at-end` |
+
+**New Tab to the Right** in a tab's right-click menu always puts the new tab right after that tab. Change the setting in **Settings > General > Tabs** or with `cmux settings set tabs.newTabPosition end`.
 
 ## `tabs.newTabTemplate`
 
@@ -187,12 +198,13 @@ The layout of the New Tab page. The dots at the bottom of the page switch it in 
 }
 ```
 
+- `cards` (the default): one rounded field with the Search and Ask switch (Tab switches), the project and agent chips under it, and three recent chats as tall cards.
 - `default`: one field with agent rows, recent chats as cards, and Tools.
 - `composer`: one large prompt field, with nothing else.
 - `threads`: the field and the recent chats as a list.
 - `console`: a monospace field with a `>` prompt and the recent chats as lines.
 - `classic`: the Terminal, Browser and Agent switch.
-- `terminal`: the `default` screen. New Tab never opens a terminal by itself; pick one on the page or use New Terminal Tab.
+- `terminal`: the `cards` screen. New Tab never opens a terminal by itself; pick one on the page or use New Terminal Tab.
 
 Cmd-T and the + button always open the New Tab page. Change the template in **Settings > General > Tabs** or with `cmux settings set tabs.newTabTemplate console`.
 
@@ -841,6 +853,7 @@ shows the same keys.
       "inlineAutocomplete": true,
       "maxRows": 8,
       "calculator": true,
+      "showFullURLs": false,
       "glass": "off",
       "glassTint": "background",
       "glassTintStrength": 0.35,
@@ -867,6 +880,9 @@ shows the same keys.
   when the text is the start of the host and you typed that address before or visited it
   at least 4 times. Default: `true`.
 - `omnibar.maxRows`: suggestion rows shown, `3` to `15`. Default: `8`.
+- `omnibar.showFullURLs`: show the whole address, with `https://` and `www.`, when you are not
+  editing it (Chrome's "Always Show Full URLs"; the address bar's right-click menu toggles it).
+  Default: `false`.
 - `omnibar.calculator`: show the answer to arithmetic you type (`+ - * / % ^`,
   parentheses) as a row; arrow to it and press Return to copy the answer. Default: `true`.
 
@@ -891,7 +907,7 @@ shows the same keys.
   `1` makes the bar solid. An opaque window with the theme's toolbar color looks the same at any
   value.
 
-Agents (MCP `settings_set`) may change `inlineAutocomplete`, `maxRows`, `calculator` and the look
+Agents (MCP `settings_set`) may change `inlineAutocomplete`, `maxRows`, `calculator`, `showFullURLs` and the look
 keys (`glass`, `glassTint`, `glassTintStrength`, `cornerRadius`, `shadow`, `backgroundOpacity`); the search
 engine and remote suggestions decide what leaves the Mac, so only you change them.
 

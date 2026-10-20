@@ -23,4 +23,12 @@ public nonisolated struct ActionSuggestions: Sendable, Hashable {
     /// Items `sidebar.item.add` puts in the sidebar: the built-ins, plus
     /// `workspace:<id>` and `app:<publisher>/<name>` typed as text.
     public static let sidebarItems = "sidebarItems"
+    /// Every density: the built-ins, then the user's custom ones (the App lists them).
+    public static let densities = "densities"
+    /// The names of this Mac's layout templates (New Workspace from Template's `template`).
+    public static let layoutTemplates = "layoutTemplates"
+    /// Backgrounds a pane may take (`pane.setBackground`): the bundled art, by title.
+    public static let paneBackgrounds = "paneBackgrounds"
+    /// Marker tints a pane may take (`pane.setTint`): the pinned named colors.
+    public static let paneTints = "paneTints"
 }

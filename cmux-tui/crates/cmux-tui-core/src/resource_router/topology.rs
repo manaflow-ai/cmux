@@ -305,11 +305,18 @@ fn dispatch_exact_topology_mutation(
     let mutation = mutation(&request)?;
     let expected_revision = expected_revision(&request.fields)?;
     let report = super::close_value::reports_closed_ids(&request.fields);
+    let mut fields = request.fields;
+    if operation == ResourceOperation::PaneSplit {
+        // A programmatic split (CLI, MCP, SDK, socket) keeps the user's focus
+        // unless it asks, like `tab.create_terminal`; the user's own splits
+        // never come through here (tests/agent-evals/RESULTS.md, mode 1).
+        fields.entry(crate::mux::PANE_SPLIT_FOCUS_FIELD).or_insert(Value::Bool(false));
+    }
     let commit = mux
         .resource_topology_operation(
             operation,
             request.selectors,
-            request.fields,
+            fields,
             expected_revision,
             &mutation,
         )

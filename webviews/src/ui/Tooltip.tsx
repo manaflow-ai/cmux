@@ -29,9 +29,11 @@ export interface TooltipProps {
   side?: "top" | "bottom";
   /** A keyboard shortcut shown after the label in the secondary ink (`⌘T`), as on native tooltips. */
   shortcut?: string;
+  /** Extra classes on the popup (a hover card's own look, as `ui-card`). */
+  className?: string;
 }
 
-export function Tooltip({ label, children, side = "bottom", shortcut }: TooltipProps) {
+export function Tooltip({ label, children, side = "bottom", shortcut, className }: TooltipProps) {
   const container = usePortalContainer();
   const host = usePopupHost();
   const [trigger, setTrigger] = useState<HTMLElement | null>(null);
@@ -43,7 +45,7 @@ export function Tooltip({ label, children, side = "bottom", shortcut }: TooltipP
       <BaseTooltip.Trigger ref={host ? setTrigger : undefined} render={children} />
       <BaseTooltip.Portal container={container}>
         <BaseTooltip.Positioner className="ui-positioner" side={side} sideOffset={6}>
-          <BaseTooltip.Popup ref={host ? setPopup : undefined} className="ui-tooltip">
+          <BaseTooltip.Popup ref={host ? setPopup : undefined} className={cx("ui-tooltip", className)}>
             {shortcut && <span className="ui-tooltip-hint">{shortcut}</span>}
             {label}
           </BaseTooltip.Popup>

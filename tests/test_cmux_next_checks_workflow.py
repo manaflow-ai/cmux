@@ -856,10 +856,29 @@ class SameTreeIsAnEvent(unittest.TestCase):
         uploads = [step for step in route["steps"] if "upload-artifact" in str(step.get("uses", ""))]
         self.assertEqual(len(uploads), 1)
         self.assertTrue(uploads[0]["with"]["name"].startswith("cmux-next-tree-wait-"))
-        # The probe dispatches one cmux-tui artifacts run for a same-repository
-        # PR's unpublished merge tree: a pin ref (contents) and a dispatch (actions).
-        self.assertEqual(route["permissions"].get("actions"), "write")
-        self.assertEqual(route["permissions"].get("contents"), "write")
+        # This job executes checked-out PR scripts, so it can inspect but never
+        # mutate Actions or repository contents.
+        self.assertEqual(route["permissions"].get("actions"), "read")
+        self.assertEqual(route["permissions"].get("contents"), "read")
+
+    def test_untrusted_routing_jobs_have_no_write_token_or_dispatch_switch(self):
+        jobs = self.jobs()
+        route = jobs["path_route"]
+        self.assertEqual(route["permissions"].get("actions"), "read")
+        self.assertEqual(route["permissions"].get("contents"), "read")
+        probes = [step for step in route["steps"] if "pin-cmux-tui.sh probe" in step.get("run", "")]
+        self.assertTrue(probes)
+        self.assertTrue(all(step.get("env", {}).get("CMUX_TUI_TREE_DISPATCH") == "" for step in probes))
+
+        wait = jobs["dev-daily-tree-wait"]
+        self.assertEqual(wait["permissions"].get("actions"), "read")
+        self.assertEqual(wait["permissions"].get("contents"), "read")
+        dispatches = [
+            step.get("env", {}).get("CMUX_TUI_TREE_DISPATCH")
+            for step in wait["steps"]
+            if "wait-dev-daily-tree.sh" in step.get("run", "")
+        ]
+        self.assertEqual(dispatches, [""])
 
     def test_tree_jobs_need_a_ready_tree_and_no_waiter(self):
         jobs = self.jobs()
@@ -884,6 +903,13 @@ class SameTreeIsAnEvent(unittest.TestCase):
             with self.subTest(job=name):
                 self.assertIn("inputs.same_tree_sha == ''", jobs[name]["if"])
 
+    def test_a_feat_cmux_next_push_runs_the_checks(self):
+        # gh-merge-green excuses a PR's red lint only when the base's latest push run
+        # prints every finding too (scripts/ci/base_red_excuse.py); a push that skips
+        # the job leaves nothing to compare, and every base red refuses every PR.
+        condition = " ".join(self.jobs()["checks"]["if"].split())
+        self.assertNotIn("!(github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next')", condition)
+
     def test_an_unavailable_tree_is_red_without_waiting(self):
         gate = self.jobs()["same-tree-cmux-tui"]
         self.assertLessEqual(int(gate["timeout-minutes"]), 5)
@@ -906,36 +932,89 @@ class SameTreeIsAnEvent(unittest.TestCase):
 
 
 class FastTierBuildsLibghosttyVt(unittest.TestCase):
-    def test_the_fast_tier_job_can_build_cmux_tui_core(self):
+    """The fast tier's cargo entries run on Linux (fast-tier-cargo), its Swift and
+    script entries on the Mac (fast-tier): one registry, split by fast-tier.py --kind."""
+
+    def jobs(self) -> dict:
+        return yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+
+    @staticmethod
+    def tier_run(job: dict) -> str:
+        return next(step["run"] for step in job["steps"] if "scripts/cmux-next/fast-tier.py" in step.get("run", ""))
+
+    def test_the_cargo_job_can_build_cmux_tui_core(self):
         """cmux-tui-core's ghostty-vt-sys builds libghostty-vt from the ghostty-next gitlink with
         zig (#20290: `the ghostty-next submodule is empty`), as cmux-tui.yml's jobs do."""
-        job = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["fast-tier"]
+        job = self.jobs()["fast-tier-cargo"]
         self.assertEqual(job["env"]["GHOSTTY_ZIG_SOURCE"], "ghostty-next")
         self.assertEqual(job["env"]["CMUX_GHOSTTY_SRC"], "")
         runs = [step.get("run", "") for step in job["steps"]]
         tier = next(i for i, run in enumerate(runs) if "scripts/cmux-next/fast-tier.py" in run)
-        init = next(i for i, run in enumerate(runs)
-                    if "scripts/ci/init-submodule.sh ghostty-next" in run
-                    or ("git submodule update --init" in run and "ghostty-next" in run))
+        init = next(i for i, run in enumerate(runs) if "scripts/ci/init-submodule.sh ghostty-next" in run)
         zig = next(i for i, run in enumerate(runs) if "scripts/install-zig-ci.sh" in run)
-        self.assertLess(max(init, zig), tier)
+        rust = next(i for i, step in enumerate(job["steps"]) if step.get("uses") == "./.github/actions/setup-cmux-tui-rust")
+        self.assertLess(max(init, zig, rust), tier)
 
-    def test_fast_tier_uses_bounded_ghostty_initialization(self):
-        job = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["fast-tier"]
+    def test_the_cargo_job_runs_on_linux_and_gates_like_the_mac_job(self):
+        jobs = self.jobs()
+        mac, cargo = jobs["fast-tier"], jobs["fast-tier-cargo"]
+        runs_on = cargo["runs-on"]
+        self.assertTrue(runs_on.startswith("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "), runs_on)
+        self.assertIn("github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404'", runs_on)
+        self.assertTrue(runs_on.endswith("'blacksmith-32vcpu-ubuntu-2404' }}"), runs_on)
+        self.assertNotIn("vars.", runs_on, "an ephemeral Linux VM, never a reused mini")
+        self.assertEqual(cargo["if"], mac["if"])
+        self.assertEqual(cargo["needs"], ["push-head-preflight"])
+        self.assertEqual(cargo["concurrency"]["group"], mac["concurrency"]["group"].replace("-fast-tier'", "-fast-tier-cargo'"))
+        self.assertNotEqual(cargo["name"], mac["name"])
+        self.assertEqual(cargo["name"], "cmux-next fast tier (cargo)")
+
+    def test_the_jobs_split_the_registry_by_kind(self):
+        """Every kind runs in exactly one job, so no entry is dropped or run twice."""
+        jobs = self.jobs()
+        kinds = {}
+        for name in ("fast-tier", "fast-tier-cargo"):
+            argv = self.tier_run(jobs[name]).split()
+            kinds[name] = {argv[i + 1] for i, arg in enumerate(argv) if arg == "--kind"}
+        self.assertEqual(kinds, {"fast-tier": {"swift", "script"}, "fast-tier-cargo": {"cargo"}})
+        registry = json.loads((ROOT / "scripts/cmux-next/fast-tier.json").read_text(encoding="utf-8"))
+        self.assertLessEqual({entry["kind"] for entry in registry["entries"]}, kinds["fast-tier"] | kinds["fast-tier-cargo"])
+
+    def test_the_mac_job_builds_no_rust(self):
+        job = self.jobs()["fast-tier"]
+        text = yaml.safe_dump(job)
+        for needle in ("setup-cmux-tui-rust", "install-zig-ci.sh", "init-submodule.sh", "cmux-tui/target",
+                       "GHOSTTY_ZIG_SOURCE", "CMUX_FAST_CARGO"):
+            with self.subTest(needle=needle):
+                self.assertNotIn(needle, text)
+
+    def test_the_cargo_cache_is_written_only_by_feat_cmux_next_pushes(self):
+        steps = self.jobs()["fast-tier-cargo"]["steps"]
+        cache = next(step for step in steps if str(step.get("uses", "")).startswith("Swatinem/rust-cache@"))
+        self.assertEqual(cache["with"]["workspaces"], "cmux-tui -> target")
+        self.assertEqual(cache["with"]["save-if"], "${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}")
+        self.assertLess(steps.index(cache), next(i for i, s in enumerate(steps) if "fast-tier.py" in s.get("run", "")))
+
+    def test_the_cargo_job_uses_bounded_ghostty_initialization(self):
+        job = self.jobs()["fast-tier-cargo"]
         init = next(step for step in job["steps"]
                     if "scripts/ci/init-submodule.sh ghostty-next" in step.get("run", ""))
         self.assertIn("scripts/ci/init-submodule.sh ghostty-next", init["run"])
 
     def test_fast_tier_emits_a_json_timing_receipt(self):
-        job = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["fast-tier"]
-        run = next(step for step in job["steps"] if "scripts/cmux-next/fast-tier.py" in step.get("run", ""))
-        self.assertIn("--receipt", run["run"])
-        upload = next(step for step in job["steps"] if "actions/upload-artifact@" in str(step.get("uses", "")))
-        self.assertEqual(upload.get("if"), "always()")
-        self.assertIn("github.run_attempt", upload["with"]["name"])
+        names = set()
+        for name in ("fast-tier", "fast-tier-cargo"):
+            with self.subTest(job=name):
+                job = self.jobs()[name]
+                self.assertIn("--receipt", self.tier_run(job))
+                upload = next(step for step in job["steps"] if "actions/upload-artifact@" in str(step.get("uses", "")))
+                self.assertEqual(upload.get("if"), "always()")
+                self.assertIn("github.run_attempt", upload["with"]["name"])
+                names.add(upload["with"]["name"])
+        self.assertEqual(len(names), 2, "each job uploads its own receipt artifact")
 
-    def test_fast_tier_reuses_ghostty_next_instead_of_deinitializing_every_submodule(self):
-        job = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["fast-tier"]
+    def test_fast_tier_keeps_build_caches_and_drops_stale_submodules(self):
+        job = self.jobs()["fast-tier"]
         checkouts = [step for step in job["steps"] if str(step.get("uses", "")).startswith("actions/checkout@")]
         self.assertEqual(len(checkouts), 2)
         for checkout in checkouts:
@@ -946,21 +1025,20 @@ class FastTierBuildsLibghosttyVt(unittest.TestCase):
             if "git clean -ffd" in step.get("run", "")
         ]
         self.assertEqual(len(cleanup), 1)
-        reuse = [
+        reset = [
             step for step in job["steps"]
             if "reset-stale-submodules.sh" in step.get("run", "")
         ]
-        self.assertEqual(len(reuse), 1)
-        self.assertIn("--reuse ghostty-next", reuse[0]["run"])
-        self.assertNotIn("--all", reuse[0]["run"])
+        self.assertEqual(len(reset), 1)
+        self.assertEqual(reset[0]["run"].strip(), "scripts/ci/reset-stale-submodules.sh",
+                         "the Swift entries need no submodule: drop them all")
 
 
 SEED_WORKFLOW = WORKFLOW.parent / "cmux-next-fast-tier-seed.yml"
 CACHE_KEY_SCRIPT = ROOT / "scripts/cmux-next/fast-tier-cache-key.sh"
 SEED_DUE_SCRIPT = ROOT / "scripts/cmux-next/fast-tier-seed-due.py"
 FAST_TIER_SCRIPT = ROOT / "scripts/cmux-next/fast-tier.py"
-FAST_CACHE_DIRS = {"swift": "Packages/macOS/CmuxNext/.build", "home": "Packages/Shared/CmuxHomeRender/.build",
-                   "cargo": "cmux-tui/target"}
+FAST_CACHE_DIRS = {"swift": "Packages/macOS/CmuxNext/.build", "home": "Packages/Shared/CmuxHomeRender/.build"}
 FAST_CACHE_MANIFEST = "Packages/macOS/CmuxNext/.build/cmux-fast-tier-input-mtimes.json"
 NEXT_BUCKET = "cmux-ci-cache-next"
 NEXT_PUBLIC_URL = "https://ci-cache-next.cmux.com"
@@ -1023,7 +1101,7 @@ class FastTierStartsWarm(unittest.TestCase):
         self.assertEqual(swift["with"]["key"], "${{ steps.%s.outputs.swift-key }}" % key_id)
         self.assertEqual(swift["with"]["restore-keys"], "${{ steps.%s.outputs.swift-prefix }}" % key_id)
         seed = steps[index_of(steps, lambda s: "cache-matched-key" in json.dumps(s.get("env", {})) and "commit=" in s.get("run", ""))]
-        for name in ("home", "cargo"):
+        for name in ("home",):
             with self.subTest(name=name):
                 step = by_path[FAST_CACHE_DIRS[name]]
                 self.assertEqual(step["with"]["key"], "${{ steps.%s.outputs.%s-prefix }}${{ steps.%s.outputs.commit }}" % (key_id, name, seed["id"]))
@@ -1032,7 +1110,7 @@ class FastTierStartsWarm(unittest.TestCase):
         # The commit is the matched key minus the swift prefix.
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp) / "out"
-            env = dict(os.environ, GITHUB_OUTPUT=str(out), MATCHED="cmux-next-fast-v2-swift-macOS-a-b-c-0123abc", PREFIX="cmux-next-fast-v2-swift-macOS-a-b-c-")
+            env = dict(os.environ, GITHUB_OUTPUT=str(out), MATCHED="cmux-next-fast-v3-swift-macOS-a-b-c-0123abc", PREFIX="cmux-next-fast-v3-swift-macOS-a-b-c-")
             subprocess.run(["bash", "-c", seed["run"]], env=env, check=True)
             self.assertEqual(out.read_text().strip(), "commit=0123abc")
 
@@ -1042,9 +1120,7 @@ class FastTierStartsWarm(unittest.TestCase):
         last_restore = max(i for i, s in enumerate(steps) if is_cache_restore(s))
         replay = index_of(steps, lambda s: "e2e_warm_derived_data.py replay" in s.get("run", ""))
         tier = index_of(steps, lambda s: "scripts/cmux-next/fast-tier.py" in s.get("run", ""))
-        ghostty = index_of(steps, lambda s: "init-submodule.sh ghostty-next" in s.get("run", ""))
         self.assertLess(last_restore, replay, names)
-        self.assertLess(ghostty, replay, "replay sees the same submodule files the seed recorded")
         self.assertLess(replay, tier, names)
         self.assertIn(FAST_CACHE_MANIFEST, steps[replay]["run"])
         self.assertIn(".outputs.commit != ''", steps[replay].get("if", ""))
@@ -1075,9 +1151,9 @@ class FastTierStartsWarm(unittest.TestCase):
         saves = [s for s in steps if is_cache_save(s)]
         key_id = steps[index_of(steps, lambda s: "scripts/cmux-next/fast-tier-cache-key.sh" in s.get("run", ""))]["id"]
         self.assertEqual([s["with"]["path"] for s in saves],
-                         [FAST_CACHE_DIRS["home"], FAST_CACHE_DIRS["cargo"], FAST_CACHE_DIRS["swift"]],
+                         [FAST_CACHE_DIRS["home"], FAST_CACHE_DIRS["swift"]],
                          "the swift archive, whose pointer readers follow, goes last")
-        for name, save in zip(("home", "cargo", "swift"), saves):
+        for name, save in zip(("home", "swift"), saves):
             with self.subTest(name=name):
                 self.assertEqual(save["with"]["key"], "${{ steps.%s.outputs.%s-key }}" % (key_id, name))
                 self.assertEqual(save["with"]["backend"], "r2")
@@ -1085,12 +1161,17 @@ class FastTierStartsWarm(unittest.TestCase):
                 self.assertIn("github.event_name == 'push'", save.get("if", ""))
         record = index_of(steps, lambda s: "e2e_warm_derived_data.py record" in s.get("run", ""))
         tier = index_of(steps, lambda s: "scripts/cmux-next/fast-tier.py" in s.get("run", ""))
-        ghostty = index_of(steps, lambda s: "init-submodule.sh ghostty-next" in s.get("run", ""))
-        self.assertLess(ghostty, record)
         self.assertLess(record, tier)
+        self.assertIn("--kind swift --kind script", steps[tier]["run"], "the seed builds what the Mac fast tier builds")
+        self.assertNotIn("setup-cmux-tui-rust", yaml.safe_dump(build), "nothing restores a Mac cargo seed")
         self.assertLess(tier, steps.index(saves[0]))
         self.assertIn(FAST_CACHE_MANIFEST, steps[record]["run"])
-        self.assertIn("'blacksmith-12vcpu-macos-26'", str(build["runs-on"]))
+        # 6 vCPU, not 12: the 12 vCPU label runs about five jobs at once and the
+        # cascade fills it first, so a seed pinned there sat queued (run
+        # 39351410275, 85+ minutes) while its concurrency group held every later
+        # feat-cmux-next push, and no seed ever landed.
+        self.assertIn("'blacksmith-6vcpu-macos-26'", str(build["runs-on"]))
+        self.assertNotIn("12vcpu", str(build["runs-on"]))
         self.assertIn("needs.due.outputs.due == 'true'", build.get("if", ""))
 
     def test_seed_key_matches_the_fast_tier_key_for_one_tree(self):
@@ -1114,7 +1195,7 @@ class FastTierStartsWarm(unittest.TestCase):
             def keys(**overrides) -> dict[str, str]:
                 env = {k: v for k, v in os.environ.items() if not k.startswith(("GITHUB_", "RUNNER_", "CMUX_FAST_CACHE_"))}
                 env.update({"CMUX_FAST_CACHE_XCODE_VERSION": "Xcode 26.6\nBuild version 17F1",
-                            "CMUX_FAST_CACHE_RUST_VERSION": "rustc 1.95.0", "GITHUB_WORKSPACE": "/Users/runner/_work/cmux/cmux",
+                            "PATH": "/usr/bin:/bin", "GITHUB_WORKSPACE": "/Users/runner/_work/cmux/cmux",
                             "RUNNER_OS": "macOS", "RUNNER_ARCH": "ARM64", "GITHUB_SHA": "abc123"})
                 env.update(overrides)
                 out = subprocess.run(["bash", str(CACHE_KEY_SCRIPT), str(repo)], env=env, check=True, capture_output=True, text=True).stdout
@@ -1124,30 +1205,31 @@ class FastTierStartsWarm(unittest.TestCase):
             self.assertEqual(sorted(base), sorted(f"{d}-{kind}" for d in FAST_CACHE_DIRS for kind in ("prefix", "key")))
             stems = set()
             for name in FAST_CACHE_DIRS:
-                self.assertTrue(base[f"{name}-prefix"].startswith(f"cmux-next-fast-v2-{name}-macOS-ARM64-"), base)
+                self.assertTrue(base[f"{name}-prefix"].startswith(f"cmux-next-fast-v3-{name}-macOS-ARM64-"), base)
                 self.assertEqual(base[f"{name}-key"], base[f"{name}-prefix"] + "abc123")
                 self.assertRegex(base[f"{name}-key"], r"^[A-Za-z0-9._-]+$", "r2-cache.sh's key alphabet")
-                stems.add(base[f"{name}-prefix"].removeprefix(f"cmux-next-fast-v2-{name}-"))
-            self.assertEqual(len(stems), 1, "one stem: home and cargo keys follow the swift seed's commit")
+                stems.add(base[f"{name}-prefix"].removeprefix(f"cmux-next-fast-v3-{name}-"))
+            self.assertEqual(len(stems), 1, "one stem: the home key follows the swift seed's commit")
             prefix = base["swift-prefix"]
             self.assertEqual(keys(GITHUB_SHA="def456")["swift-prefix"], prefix, "a newer commit is a fallback, not a miss")
-            for change in ({"CMUX_FAST_CACHE_XCODE_VERSION": "Xcode 26.7"}, {"CMUX_FAST_CACHE_RUST_VERSION": "rustc 1.96.0"},
-                           {"GITHUB_WORKSPACE": "/Users/runner/work/cmux/cmux"}):
+            for change in ({"CMUX_FAST_CACHE_XCODE_VERSION": "Xcode 26.7"}, {"GITHUB_WORKSPACE": "/Users/runner/work/cmux/cmux"}):
                 with self.subTest(change=change):
                     self.assertNotEqual(keys(**change)["swift-prefix"], prefix)
             (repo / "Packages/macOS/A/Source.swift").write_text("let a = 2\n")
             commit("source", "Packages/macOS/A/Source.swift")
             self.assertEqual(keys()["swift-prefix"], prefix, "a source edit reuses the seed; replay rebuilds what changed")
-            for path, text in (("Packages/macOS/A/Package.resolved", "{\"pins\": []}\n"), ("cmux-tui/Cargo.lock", "version = 5\n")):
-                with self.subTest(path=path):
-                    before = keys()["swift-prefix"]
-                    (repo / path).write_text(text)
-                    commit(path, path)
-                    self.assertNotEqual(keys()["swift-prefix"], before)
             before = keys()["swift-prefix"]
+            (repo / "Packages/macOS/A/Package.resolved").write_text("{\"pins\": []}\n")
+            commit("resolved", "Packages/macOS/A/Package.resolved")
+            self.assertNotEqual(keys()["swift-prefix"], before)
+            # The cargo entries left the Mac: Rust, Cargo and ghostty-next no longer key its seed,
+            # and the script needs no rustc (the Mac job sets up no Rust).
+            before = keys()["swift-prefix"]
+            (repo / "cmux-tui/Cargo.lock").write_text("version = 5\n")
+            commit("lock", "cmux-tui/Cargo.lock")
             git("update-index", "--cacheinfo", "160000,2222222222222222222222222222222222222222,ghostty-next")
             commit("ghostty")
-            self.assertNotEqual(keys()["swift-prefix"], before)
+            self.assertEqual(keys()["swift-prefix"], before)
 
     def test_seed_is_due_only_when_the_newest_seed_is_old(self):
         def due(objects: list[dict], now: str = "2026-10-19T22:00:00Z") -> str:
@@ -1157,15 +1239,15 @@ class FastTierStartsWarm(unittest.TestCase):
                 return subprocess.run([sys.executable, "-I", str(SEED_DUE_SCRIPT), "--minutes", "30", "--now", now,
                                        "--listing", str(listing)], check=True, capture_output=True, text=True).stdout.strip()
 
-        swift = lambda modified, name="cmux-next-fast-v2-swift-macOS-ARM64-a-b-c-abc": {
+        swift = lambda modified, name="cmux-next-fast-v3-swift-macOS-ARM64-a-b-c-abc": {
             "key": f"v1/macOS-ARM64/objects/{name}.tar.zst", "last_modified": modified}
         self.assertEqual(due([]), "due=true")
         self.assertEqual(due([swift("2026-10-19T21:45:00.000Z")]), "due=false")
         self.assertEqual(due([swift("2026-10-19T21:20:00.000Z")]), "due=true")
         self.assertEqual(due([swift("2026-10-19T21:20:00.000Z"), swift("2026-10-19T21:50:00.000Z")]), "due=false")
-        self.assertEqual(due([swift("2026-10-19T21:59:00.000Z", name="cmux-next-fast-v2-cargo-macOS-ARM64-a-b-c-abc")]), "due=true",
+        self.assertEqual(due([swift("2026-10-19T21:59:00.000Z", name="cmux-next-fast-v3-cargo-macOS-ARM64-a-b-c-abc")]), "due=true",
                          "the swift archive is written last; only it marks a finished seed")
-        self.assertEqual(due([{"key": "v1/macOS-ARM64/latest/cmux-next-fast-v2-swift-", "last_modified": "2026-10-19T21:59:00.000Z"}]),
+        self.assertEqual(due([{"key": "v1/macOS-ARM64/latest/cmux-next-fast-v3-swift-", "last_modified": "2026-10-19T21:59:00.000Z"}]),
                          "due=true", "pointers are not archives")
 
     def test_receipt_names_the_seed_a_prefix_restore_picked(self):
@@ -1177,13 +1259,13 @@ class FastTierStartsWarm(unittest.TestCase):
                 {"name": "pass", "kind": "script", "path": "bin/pass.sh", "args": [], "owner": "op-test", "bead": "cx-test"}]}))
             (root / "quarantine.json").write_text('{"entries": []}')
             receipt = root / "receipt.json"
-            env = dict(os.environ, CMUX_FAST_SWIFT_CACHE_KEY="cmux-next-fast-v2-swift-x-new", CMUX_FAST_SWIFT_CACHE_HIT="false",
-                       CMUX_FAST_CACHE_MATCHED_KEY="cmux-next-fast-v2-swift-x-old")
+            env = dict(os.environ, CMUX_FAST_SWIFT_CACHE_KEY="cmux-next-fast-v3-swift-x-new", CMUX_FAST_SWIFT_CACHE_HIT="false",
+                       CMUX_FAST_CACHE_MATCHED_KEY="cmux-next-fast-v3-swift-x-old")
             subprocess.run([sys.executable, "-I", str(FAST_TIER_SCRIPT), "--root", str(root), "--registry", str(root / "registry.json"),
                             "--quarantine", str(root / "quarantine.json"), "--receipt", str(receipt)],
                            env=env, check=True, capture_output=True, text=True)
             cache = json.loads(receipt.read_text())["cache"]
-            self.assertEqual(cache["matched_key"], "cmux-next-fast-v2-swift-x-old")
+            self.assertEqual(cache["matched_key"], "cmux-next-fast-v3-swift-x-old")
             self.assertFalse(cache["swift"]["exact_hit"])
 
 

@@ -92,9 +92,9 @@ await requireBrowserLane("markdown-wide-width-layout.test.ts", async () => {
       const doc = document.querySelector<HTMLElement>(".md-doc")!;
       const pane = document.querySelector<HTMLElement>(".md-scroll")!;
       const style = getComputedStyle(doc);
-      const probe = document.createElement("span");
-      probe.textContent = "0".repeat(100);
-      probe.style.cssText = "position:absolute;visibility:hidden;white-space:pre";
+      // The CSS `ch` unit itself (a run of "0" glyphs can kern differently on some fonts).
+      const probe = document.createElement("div");
+      probe.style.cssText = "position:absolute;visibility:hidden;width:100ch";
       doc.append(probe);
       const ch = probe.getBoundingClientRect().width / 100;
       probe.remove();
@@ -201,6 +201,8 @@ await requireBrowserLane("markdown-wide-width-layout.test.ts", async () => {
         box = await layout(page);
         expect(Math.abs(box.content - (box.paneWidth - 2 * box.padding))).toBeLessThan(2);
         expect(await page.locator(".md-width-input").count()).toBe(1);
+        // A pick closes the preset menu (and only the menu: the popover stays).
+        expect(await page.locator("[role=menuitemradio]").count()).toBe(0);
         await page.click(".md-width-presets button");
         await page.getByRole("menuitemradio", { name: "Comfortable" }).click();
         await page.waitForTimeout(100);

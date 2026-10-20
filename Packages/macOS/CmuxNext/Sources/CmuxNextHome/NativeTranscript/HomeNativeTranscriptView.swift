@@ -2,7 +2,7 @@ public import AppKit
 public import CmuxHomeCore
 public import CmuxHomeRender
 public import CmuxNextDesign
-import MessagesLabHome
+public import MessagesLabHome
 
 /// The Home transcript (plans/cmux-next/home-mac.md): MessagesLabAppKitNative's
 /// own code and motion (`MessagesLabHome`, vendored at the MessagesLab
@@ -59,6 +59,19 @@ public final class HomeNativeTranscriptView: NSView {
         get { transcript.onOpenLink }
         set { transcript.onOpenLink = newValue }
     }
+    /// A press on a link that moved past the drag slop (the pointer's screen point): true when the
+    /// host took it as a link drag (a split or pane drop zone opens it). Nil: the press selects text.
+    public var onDragLink: ((_ url: URL, _ screenPoint: CGPoint) -> Bool)? {
+        get { transcript.onDragLink }
+        set { transcript.onDragLink = newValue }
+    }
+
+    /// Where an attachment opens and what its right-click menu offers (held weakly; the host
+    /// keeps it). Nil: the system opens it.
+    public var fileHost: HomeFileHost? {
+        get { transcript.fileHost }
+        set { transcript.fileHost = newValue }
+    }
     /// The host's shared stop action.
     public var onStop: () -> Void = {} {
         didSet { transcript.onStop = { [weak self] in self?.onStop() } }
@@ -92,10 +105,11 @@ public final class HomeNativeTranscriptView: NSView {
     /// The window's typing hold for the compose field's cursor rects (HomeCursorRectHold).
     private var cursorHold: HomeCursorRectHold?
 
-    public init(store: HomeStore, conversation: ConversationID, me: ParticipantID) {
+    /// - Parameter diagrams: draws Mermaid fences as diagrams (the app's ``OndineMermaidRenderer``); nil keeps them as text.
+    public init(store: HomeStore, conversation: ConversationID, me: ParticipantID, diagrams: (any HomeDiagramRendering)? = nil) {
         HomeReduceMotion.install()
         self.me = me
-        transcript = MessagesLabHomeView(store: store, conversation: conversation, me: me, wake: HomeDemandWake())
+        transcript = MessagesLabHomeView(store: store, conversation: conversation, me: me, wake: HomeDemandWake(), diagrams: diagrams)
         // One binding per shown conversation; it opens the conversation on
         // the store now and `stop()` closes exactly that open, once.
         binding = HomeStoreBinding(store: store, conversation: conversation)
@@ -138,10 +152,25 @@ public final class HomeNativeTranscriptView: NSView {
         }
     }
 
+    /// The hover cards of link chips (``enableLinkPreviews(coordinator:previewer:)``), nil until the host enables them.
+    private(set) var linkPreviews: HomeLinkChipHoverSource?
+
+    /// Link chips get hover cards from the app's one `coordinator`, filled by `previewer`
+    /// (plans/cmux-next/home-link-chips-DESIGN.md). Call once; the source registers while the
+    /// transcript is in a window.
+    public func enableLinkPreviews(coordinator: HoverCardCoordinator, previewer: any HomeLinkPreviewing) {
+        guard linkPreviews == nil else { return }
+        let source = HomeLinkChipHoverSource(transcript: transcript, coordinator: coordinator, previewer: previewer)
+        linkPreviews = source
+        transcript.onPointerMoved = { [weak coordinator] point in coordinator?.pointerMoved(to: point) }
+        if window != nil { coordinator.register(source) }
+    }
+
     /// Stops forwarding (the conversation closed). Once.
     public func stop() {
         guard !stopped else { return }
         stopped = true
+        if let linkPreviews { linkPreviews.coordinator.unregister(linkPreviews) }
         intake?.cancel()
         transcript.stop()
         binding.stop()
@@ -159,11 +188,16 @@ public final class HomeNativeTranscriptView: NSView {
     public func debugClickFirstRunAgent(_ index: Int, pointer: Bool) -> String? { firstRun.debugClickAgent(index, pointer: pointer) }
     #endif
 
-    /// A click on the header's name pill (the Chief's settings sidebar).
+    /// A click on the header's name pill (the Chief's settings popover).
     public var onNamePill: () -> Void {
         get { transcript.onNamePill }
         set { transcript.onNamePill = newValue }
     }
+
+    /// The header's name pill, which the Chief's settings popover opens under.
+    public var namePill: NSView { transcript.namePill }
+    /// The header views that run ``onNamePill`` (the pill and the avatar).
+    public var namePillToggles: [NSView] { transcript.namePillToggles }
 
     /// The header avatar's text; nil shows the conversation's initials.
     public var avatarText: String? {
@@ -180,6 +214,9 @@ public final class HomeNativeTranscriptView: NSView {
     /// The name pill's VoiceOver help.
     public func setNamePillHelp(_ help: String) { transcript.setNamePillHelp(help) }
 
+    /// The header band's height (avatar and name pill), from the top: a control placed under it never covers the name.
+    public var headerHeight: CGFloat { transcript.headerHeight }
+
     /// The primary input (spec/app-screens.md section 3): the message box's
     /// text view. Hosts focus this view, not the transcript.
     public var primaryInput: NSView { transcript.primaryInput }
@@ -187,6 +224,10 @@ public final class HomeNativeTranscriptView: NSView {
     public override func becomeFirstResponder() -> Bool {
         window?.makeFirstResponder(primaryInput) ?? false
     }
+
+    /// The person opened this conversation: the message box takes the keyboard now, or once the
+    /// first page installs it if nothing else took the keyboard in between.
+    public func takeKeyboardOnOpen() { transcript.takeKeyboardOnOpen() }
 
     /// Whether Home getting focus should move the keyboard from `responder`
     /// to ``primaryInput``: yes, unless a text view or field has it, the
@@ -343,6 +384,9 @@ public final class HomeNativeTranscriptView: NSView {
         observers = []
         cursorHold = window.flatMap(HomeCursorRectHold.hold(for:))
         cursorHold?.add(self)
+        if let linkPreviews {
+            if window == nil || stopped { linkPreviews.coordinator.unregister(linkPreviews) } else { linkPreviews.coordinator.register(linkPreviews) }
+        }
         guard let window else { return }
         let nc = NotificationCenter.default
         for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification,

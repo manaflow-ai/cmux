@@ -1,0 +1,280 @@
+#!/usr/bin/env python3
+"""The pre-push hook refuses a push that adds a cmux-next static-check violation.
+
+Each test builds a throwaway repository with the real hook installer, the real
+scripts/cmux-next checks and a small CmuxNext package, then pushes to a bare
+`origin` through the real `git push`, so the installed trusted hook copy is what
+runs. The base already carries a `try!` (base debt): only what a push adds counts.
+"""
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import tempfile
+import unittest
+import git_fixture_env  # disables git auto maintenance
+
+
+SOURCE = Path(__file__).resolve().parents[1]
+INSTALLER = "scripts/install-git-hooks.sh"
+GATE = "scripts/cmux-next/prepush-gate.py"
+AGENT_VARS = ("CMUX_AGENT", "CMUX_REQUIRE_FORMATTERS", "CI", "CLAUDECODE", "CODEX_CI", "CODEX_THREAD_ID",
+              "CODEX_SANDBOX", "CMUX_WEB_LINT_SKIP_REASON", "CMUX_NEXT_CHECKS_SKIP_REASON")
+PKG = "Packages/macOS/CmuxNext"
+# The pinned tools are downloaded once per machine; the fixture HOME must not hide that cache.
+if os.uname().sysname == "Darwin":
+    TOOLS = Path.home() / "Library" / "Caches" / "cmux-lint-tools"
+else:
+    TOOLS = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "cmux-lint-tools"
+TOOLS = Path(os.environ.get("CMUX_LINT_TOOLS_DIR", TOOLS))
+
+PACKAGE = """// swift-tools-version: 6.2
+import PackageDescription
+let uiSwiftSettings: [SwiftSetting] = [.defaultIsolation(MainActor.self)]
+let package = Package(
+    name: "CmuxNext",
+    targets: [
+        .target(name: "CmuxNextApp", swiftSettings: uiSwiftSettings),
+        .target(name: "CmuxNextKit", swiftSettings: uiSwiftSettings),
+    ]
+)
+"""
+APP = """import Foundation
+func start() { ChildSignalDefaults.installAppSignalPolicy() }
+"""
+OLD = """import Foundation
+struct Old {
+    let regex = try! NSRegularExpression(pattern: "a+")
+    func name() -> String { "old" }
+}
+"""
+NEW_WITH_TRY = """import Foundation
+struct Fresh {
+    func load(_ url: URL) -> Data {
+        try! Data(contentsOf: url)
+    }
+}
+"""
+NEW_CLEAN = """import Foundation
+struct Fresh {
+    func load(_ url: URL) async throws -> Data {
+        try await Task.detached { try Data(contentsOf: url) }.value
+    }
+}
+"""
+
+
+class PrePushGateTests(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory(prefix="cmux-prepush-gate-")
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name)
+        self.repo = self.root / "repository"
+        self.origin = self.root / "origin.git"
+        self.global_config = self.root / "gitconfig"
+        self.global_config.write_text("[user]\n\tname = Fixture\n\temail = fixture@example.com\n")
+        self.env = {key: value for key, value in os.environ.items()
+                    if not key.startswith("GIT_") and key not in AGENT_VARS}
+        self.env.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=str(self.global_config),
+                        HOME=str(self.root), CMUX_LINT_TOOLS_DIR=str(TOOLS))
+        git_fixture_env.without_auto_maintenance(self.env)
+
+        subprocess.run(["git", "init", "--quiet", "--bare", "--initial-branch=feat-cmux-next", str(self.origin)],
+                       env=self.env, check=True, capture_output=True)
+        self.repo.mkdir()
+        self.git("init", "--quiet", "--initial-branch=feat-cmux-next")
+        self.git("remote", "add", "origin", str(self.origin))
+        self.copy_sources()
+        self.write(f"{PKG}/Package.swift", PACKAGE)
+        self.write(f"{PKG}/Sources/CmuxNextApp/CmuxNextApp.swift", APP)
+        self.write(f"{PKG}/Sources/CmuxNextKit/Old.swift", OLD)  # base debt: one try! already there
+        self.commit("base")
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+        self.git("fetch", "--quiet", "origin")
+        installed = subprocess.run(["bash", INSTALLER], cwd=self.repo, env=self.env, text=True, capture_output=True)
+        self.assertEqual(installed.returncode, 0, installed.stderr)
+
+    def copy_sources(self):
+        tracked = subprocess.run(["git", "-C", str(SOURCE), "ls-files", "scripts/cmux-next"],
+                                 text=True, capture_output=True, check=True).stdout.split()
+        checks = [p for p in tracked if "/" not in p[len("scripts/cmux-next/"):] or p.startswith("scripts/cmux-next/lint/")]
+        for relative in (
+            "scripts/git-hooks",
+            INSTALLER,
+            "scripts/web_lint_prepush.py",
+            "scripts/web-lint.sh",
+            "scripts/merge-xcstrings.py",
+            "scripts/merge-pbxproj.py",
+            "scripts/merge-baseline.py",
+            "scripts/merge-daemon-capabilities.py",
+            "scripts/ci/merge_main_resolver.py",
+            "scripts/ci/validate_test_execution_registry.py",
+            "scripts/ci/test_execution_registry.py",
+            "scripts/ci/workload_entrypoints.py",
+            "scripts/normalize-pbxproj.py",
+            *checks,
+        ):
+            source, target = SOURCE / relative, self.repo / relative
+            if not source.exists():
+                continue
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if source.is_dir():
+                shutil.copytree(source, target)
+            else:
+                shutil.copyfile(source, target)
+                shutil.copymode(source, target)
+
+    def git(self, *args, check=True):
+        return subprocess.run(["git", "-C", str(self.repo), *args], env=self.env,
+                              text=True, capture_output=True, check=check)
+
+    def write(self, relative, text):
+        path = self.repo / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text)
+
+    def commit(self, message):
+        self.git("add", "-A")
+        self.git("commit", "--quiet", "--no-verify", "-m", message)
+
+    def push(self, **env):
+        return subprocess.run(["git", "-C", str(self.repo), "push", "origin", "feat-cmux-next"],
+                              env={**self.env, **env}, text=True, capture_output=True)
+
+    def remote_head(self):
+        return subprocess.run(["git", "-C", str(self.origin), "rev-parse", "feat-cmux-next"],
+                              env=self.env, text=True, capture_output=True).stdout.strip()
+
+    def test_install_adds_the_gate_to_the_pre_push_hook(self):
+        hooks = Path(self.git("config", "--get", "core.hooksPath").stdout.strip())
+        self.assertTrue((hooks / "cmux_next_prepush_gate.py").is_file())
+
+    def test_push_that_adds_a_try_bang_is_refused(self):
+        before = self.remote_head()
+        self.write(f"{PKG}/Sources/CmuxNextKit/Fresh.swift", NEW_WITH_TRY)
+        self.commit("adds a try!")
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(self.remote_head(), before, "the bad commit must not reach origin")
+        self.assertIn("Fresh.swift", output)
+        self.assertIn("try!", output)
+        self.assertNotIn("Old.swift", output, "base debt in an untouched file must not be reported")
+
+    def test_push_that_touches_a_file_with_old_debt_passes(self):
+        self.write(f"{PKG}/Sources/CmuxNextKit/Old.swift", OLD.replace('"old"', '"renamed"'))
+        self.write(f"{PKG}/Sources/CmuxNextKit/Fresh.swift", NEW_CLEAN)
+        self.commit("edits next to an old try!, adds clean code")
+
+        result = self.push()
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.remote_head(), self.git("rev-parse", "HEAD").stdout.strip())
+
+    def test_branch_checker_changes_are_not_executed_by_the_installed_hook(self):
+        marker = self.root / "branch-checker-ran"
+        self.write(
+            "scripts/cmux-next/check-concurrency.sh",
+            f"#!/bin/bash\necho branch-controlled > {marker}\nexit 0\n",
+        )
+        self.write(f"{PKG}/Sources/CmuxNextKit/Fresh.swift", NEW_CLEAN)
+        self.commit("branch replaces a pre-push checker")
+
+        self.push()
+
+        self.assertFalse(marker.exists(), "the installed trusted hook executed the branch-controlled checker")
+
+    def test_push_from_a_linked_worktree_leaves_the_repository_alone(self):
+        # git runs the hook with GIT_DIR=<repo>/.git/worktrees/<name>: the gate's own temp-tree
+        # git calls must not inherit it (2026-10-19: it set core.bare=true on the shared clone and
+        # staged the deletion of every file in the pushing worktree's index).
+        linked = self.root / "linked"
+        self.git("worktree", "add", "--quiet", "-b", "linked-work", str(linked), "feat-cmux-next")
+        (linked / f"{PKG}/Sources/CmuxNextKit/Fresh.swift").write_text(NEW_CLEAN)
+        run = lambda *args: subprocess.run(["git", "-C", str(linked), *args], env=self.env,
+                                           text=True, capture_output=True)
+        run("add", "-A")
+        run("commit", "--quiet", "--no-verify", "-m", "clean change from a linked worktree")
+
+        result = run("push", "origin", "linked-work:feat-cmux-next")
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.git("config", "--get", "core.bare").stdout.strip(), "false")
+        self.assertEqual(run("diff", "--cached", "--name-only").stdout, "", "the pushing worktree's index must not change")
+        self.assertEqual(self.git("diff", "--cached", "--name-only").stdout, "")
+
+    def test_skip_reason_lets_the_push_through_and_says_so(self):
+        self.write(f"{PKG}/Sources/CmuxNextKit/Fresh.swift", NEW_WITH_TRY)
+        self.commit("adds a try!")
+
+        result = self.push(CMUX_NEXT_CHECKS_SKIP_REASON="fixture: the try! is in a file this push does not touch")
+
+        output = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 0, output)
+        self.assertIn("SKIPPED", output)
+
+    def test_ci_commits_mode_names_the_commit_pushed_with_no_verify(self):
+        self.write(f"{PKG}/Sources/CmuxNextKit/Fresh.swift", NEW_CLEAN)
+        self.commit("clean commit")
+        self.write(f"{PKG}/Sources/CmuxNextKit/Fresh.swift", NEW_WITH_TRY)
+        self.commit("sneaks in a try!")
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+
+        result = subprocess.run(["python3", "-I", GATE, "--commits", "HEAD~2..HEAD"], cwd=self.repo,
+                                env=self.env, text=True, capture_output=True)
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertIn("sneaks in a try!", output)
+        self.assertNotIn("clean commit adds", output)
+        self.assertIn("2 commit(s) checked, 1 add violations", output)
+
+
+    # Ghostty's default split keys (Lawrence 2026-10-20, after 2f3e1f95983 made Cmd-Opt-Left / Right
+    # sidebar keys): the gate refuses a push whose exported keymap gives one to another action.
+    RESERVED = {"reserved": [{"key": "cmd+opt+left", "command": "focusLeft", "ghostty": "goto_split:left"}],
+                "scopedOwners": {"keys": ["codeEditorFocused"]}, "scopedActions": []}
+
+    @staticmethod
+    def surfaces(sidebar_alias):
+        left = {"key": "\uf702", "modifiers": ["opt", "cmd"]}
+        prev = {"id": "prevSidebarTab", "default_shortcut": {"key": "[", "modifiers": ["ctrl", "cmd"]},
+                "default_aliases": [{"keys": [left], "when": None}] if sidebar_alias else []}
+        focus = {"id": "focusLeft", "default_shortcut": left, "default_aliases": []}
+        return {"version": 1, "actions": [focus, prev]}
+
+    def reserved_base(self):
+        import json
+        self.write("schemas/keybindings/ghostty-reserved-keys.json", json.dumps(self.RESERVED))
+        self.write("plans/cmux-next/action-surfaces.json", json.dumps(self.surfaces(False)))
+        self.commit("reserved keys")
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+        self.git("fetch", "--quiet", "origin")
+        self.write("plans/cmux-next/action-surfaces.json", json.dumps(self.surfaces(True)))
+
+    def test_push_that_gives_a_ghostty_key_to_another_action_is_refused_even_with_a_skip_reason(self):
+        self.reserved_base()
+        before = self.remote_head()
+        self.commit("Cmd-Opt-Left selects the previous sidebar item")
+
+        result = self.push(CMUX_NEXT_CHECKS_SKIP_REASON="fixture: unrelated base failure")
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(self.remote_head(), before)
+        self.assertIn("prevSidebarTab takes Ghostty's cmd+opt+left", output)
+        self.assertIn("does not skip", output)
+
+    def test_a_ghostty_defaults_ok_trailer_lets_the_change_through(self):
+        self.reserved_base()
+        self.commit("Cmd-Opt-Left selects the previous sidebar item\n\nGhostty-defaults-OK: \"fixture: yes, rebind it\"")
+
+        result = self.push()
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+
+if __name__ == "__main__":
+    unittest.main()

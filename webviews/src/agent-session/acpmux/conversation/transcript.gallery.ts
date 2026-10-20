@@ -696,7 +696,7 @@ export default agentPaneEntry({
           cmuxAcpmuxBridge?: { command?(name: string): void };
         };
         page.cmuxAcpmuxBridge?.command?.("find");
-        await ctx.waitFor(() => ctx.document.activeElement?.classList.contains("acpmux-find__field") ?? false);
+        await ctx.waitFor(() => ctx.document.activeElement?.classList.contains("find-pill__field") ?? false);
         // A key at a time, as a person types: the play's type inserts its whole text in one task,
         // which ran seven query updates and the fold opening in one frame (cx-ncc.76).
         for (const key of "thought") await ctx.type(key);
@@ -1182,6 +1182,13 @@ export default agentPaneEntry({
         await ctx.type("sk-test-51Hx9", { selector: ".acpmux-secret-card-field" });
         await ctx.click({ role: "button", name: "Provide" });
         await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-secret-card"));
+      },
+      checks: {
+        layoutShiftMax: {
+          value: 0.08,
+          reason:
+            "The card leaves the bottom stack, which lies over the transcript's foot (bottomStack.css): the stack's unpainted wrapper (div.acpmux-dock, the only source) shrinks from its top, 0.062 measured; the composer and the rows do not move.",
+        },
       },
     },
     queued: {

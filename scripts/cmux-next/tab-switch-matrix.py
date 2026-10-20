@@ -37,6 +37,7 @@ parser.add_argument("--idle", type=float, default=5.0)
 parser.add_argument("--budget-ms", type=float, default=16.7, help="end-to-end p90 budget (gate)")
 parser.add_argument("--json", help="write the report here")
 parser.add_argument("--out", default="/tmp")
+parser.add_argument("--profile", default="", help="kind:count scenarios (comma list) whose Ctrl-Tab phase runs under a Time Profiler")
 opts, _unknown = parser.parse_known_args()
 TAG, APP = opts.tag, os.path.abspath(opts.app.rstrip("/"))
 SOCKET = f"/tmp/cmux-debug-{TAG}.sock"
@@ -49,6 +50,7 @@ open(CONFIG, "w").write("{}\n")
 STAGES = ["input", "focus", "strip", "withdraw", "content", "reveal", "stripSync", "view", "present", "record", "apply", "commit"]
 COLORS = ["#c0392b", "#27ae60", "#2980b9", "#8e44ad", "#d35400", "#16a085", "#2c3e50", "#f39c12", "#7f8c8d", "#e84393"]
 ROWS, LAUNCHED = [], []
+PAGE_TABS = []
 app = None
 
 
@@ -128,10 +130,36 @@ def pct(values, q):
     return values[min(len(values) - 1, int(len(values) * q))] if values else None
 
 
+# Each test page notes the first animation frame after it turns visible (epoch ms): the time its own
+# content draws again, which the app's commit (`debug.tab_switch`) does not cover (the page's process
+# commits it). `content_frames` collects them per switch.
+SHOWN_SCRIPT = ("<script>window.__shown=[];document.addEventListener('visibilitychange',()=>{"
+                "if(document.visibilityState==='visible')requestAnimationFrame(()=>"
+                "window.__shown.push(performance.timeOrigin+performance.now()))});</script>")
+
+
 def page_html(index):
     color = COLORS[index % len(COLORS)]
-    return (f"<!doctype html><title>page {index}</title><body style='margin:0;background:{color};color:white;"
+    return (f"<!doctype html><title>page {index}</title>{SHOWN_SCRIPT}<body style='margin:0;background:{color};color:white;"
             f"font:40px -apple-system'>" + f"<p>page {index} row</p>" * 40)
+
+
+def content_frames(tab_ids, sends):
+    """Per switch (epoch ms it was sent), the first page frame after it from any page: ms, or None."""
+    shown = []
+    for tab in tab_ids:
+        reply = rpc("browser.page.eval", {"tab": tab, "script": "JSON.stringify(window.__shown ? window.__shown.splice(0) : [])"}, timeout=10)
+        try:
+            shown += json.loads((reply or {}).get("value") or "[]")
+        except (TypeError, ValueError):
+            pass
+    shown.sort()
+    out = []
+    for index, sent in enumerate(sends):
+        until = sends[index + 1] if index + 1 < len(sends) else sent + 2000
+        first = next((t for t in shown if sent <= t < until), None)
+        out.append(None if first is None else round(first - sent, 2))
+    return out
 
 
 def maker(kind, index):
@@ -178,18 +206,75 @@ def footprint():
             "by_process": {k: {"cpu_percent": round(v[0], 2), "footprint_mb": round(v[1], 1)} for k, v in by_kind.items()}}
 
 
-def time_switches(label, step, count):
+def profile_summary(trace, label):
+    """Heaviest main-thread frames of the app in `trace` (self and inclusive ms)."""
+    import collections, xml.etree.ElementTree as ET
+    xml = trace + ".xml"
+    with open(xml, "w") as handle:
+        subprocess.run(["xcrun", "xctrace", "export", "--input", trace, "--xpath",
+                        '/trace-toc/run[@number="1"]/data/table[@schema="time-profile"]'], stdout=handle, timeout=600)
+    byid, selfw, incl, total = {}, collections.Counter(), collections.Counter(), 0
+    def resolve(e):
+        r = e.get("ref")
+        return byid.get(r, e) if r else e
+    for _, e in ET.iterparse(xml, events=("end",)):
+        if e.get("id"):
+            byid[e.get("id")] = e
+        if e.tag != "row":
+            continue
+        thread = resolve(e.find("thread")) if e.find("thread") is not None else None
+        if thread is None or "Main Thread" not in thread.get("fmt", ""):
+            continue
+        w = e.find("weight"); w = resolve(w) if w is not None else None
+        weight = int(w.text) if w is not None and w.text and w.text.isdigit() else 1000000
+        bt = e.find("backtrace"); bt = resolve(bt) if bt is not None else None
+        if bt is None:
+            continue
+        names = [resolve(f).get("name", "?") for f in bt.findall("frame")]
+        if not names:
+            continue
+        total += weight
+        selfw[names[0]] += weight
+        for n in set(names):
+            incl[n] += weight
+    lines = [f"PROFILE {label} main-thread total_ms={total / 1e6:.1f}"]
+    lines += [f"PROFILE {label} self {w / 1e6:8.1f} ms  {n[:170]}" for n, w in selfw.most_common(30)]
+    lines += [f"PROFILE {label} incl {w / 1e6:8.1f} ms  {n[:170]}" for n, w in incl.most_common(70)]
+    print("\n".join(lines), flush=True)
+    return {"total_ms": round(total / 1e6, 1), "self": [[n, round(w / 1e6, 1)] for n, w in selfw.most_common(30)],
+            "incl": [[n, round(w / 1e6, 1)] for n, w in incl.most_common(70)]}
+
+
+def time_switches(label, step, count, profile=None):
     rpc("debug.frames", {"action": "start"})  # keeps the display link ticking: a commit's frame is the next vsync
     rpc("debug.tab_switch", {"action": "start"})
     rpc("debug.hangs", {"clear": True})
+    recorder = None
+    if profile:
+        recorder = subprocess.Popen(["xcrun", "xctrace", "record", "--template", "Time Profiler", "--attach", str(app.pid),
+                                     "--output", profile, "--no-prompt"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        time.sleep(4)  # test harness: the recorder attaches
     kinds = classify(app.pid, APP)
     start = {pid: usage(pid) for pid in kinds}
     t0 = time.monotonic()
+    sends = []
     for index in range(count):
+        sends.append(time.time() * 1000)
         step(index)
         time.sleep(opts.interval)  # test harness pacing: one switch per interval
     time.sleep(0.8)  # test harness: the last commit lands
     wall = time.monotonic() - t0
+    profiled = None
+    if recorder:
+        recorder.send_signal(signal.SIGINT)
+        try:
+            recorder.wait(timeout=120)
+        except subprocess.TimeoutExpired:
+            recorder.kill()
+        try:
+            profiled = profile_summary(profile, label)
+        except Exception as error:  # a failed export must not lose the timings
+            print(f"profile export failed: {error!r}", flush=True)
     cpu = sum(100.0 * (usage(p)[0] - start[p][0]) / (wall * 1e9) for p in kinds if start.get(p) and usage(p))
     own = rpc("debug.tab_switch", {"action": "stop"}) or {}
     rpc("debug.frames", {"action": "stop"})
@@ -205,19 +290,25 @@ def time_switches(label, step, count):
         for stage in STAGES + ["e2e"]:
             values = [r[stage + "_ms"] for r in rows if stage + "_ms" in r]
             if values:
-                line[stage] = {"p50": round(pct(values, 0.5), 3), "p90": round(pct(values, 0.9), 3), "max": round(max(values), 3)}
+                line[stage] = {"p50": round(pct(values, 0.5), 3), "p90": round(pct(values, 0.9), 3), "p95": round(pct(values, 0.95), 3), "max": round(max(values), 3)}
         late = [r.get("late_vsyncs", 0) for r in rows]
         line["late_switches"] = sum(1 for v in late if v > 0)
         line["late_max"] = max(late) if late else 0
         table[kind] = line
-        cells = " ".join(f"{st}={line[st]['p50']}/{line[st]['p90']}" for st in ("input", "apply", "commit", "e2e") if st in line)
-        print(f"  {label:<14} {kind:<10} n={len(rows):<3} p50/p90 ms: {cells} late={line['late_switches']}/{len(rows)} max={line['late_max']}", flush=True)
+        cells = " ".join(f"{st}={line[st]['p50']}/{line[st]['p90']}/{line[st]['p95']}" for st in ("input", "apply", "commit", "e2e") if st in line)
+        print(f"  {label:<14} {kind:<10} n={len(rows):<3} p50/p90/p95 ms: {cells} late={line['late_switches']}/{len(rows)} max={line['late_max']}", flush=True)
     stalls = {"count": hangs.get("count"), "max_ms": hangs.get("max_ms")}
     for record in (hangs.get("records") or [])[-3:]:
         frames = [f for f in record.get("frames", []) if "CmuxNext" in f or "Ghostty" in f][:8]
         print(f"    stall {record.get('duration_ms', 0):.1f} ms: " + " < ".join(str(f)[:90] for f in frames), flush=True)
-    return {"table": table, "switches": switches, "stalls": stalls, "cpu_percent_during": round(cpu, 1),
-            "timed": len(switches), "asked": count}
+    frames = content_frames(PAGE_TABS, sends) if PAGE_TABS else []
+    got = [f for f in frames if f is not None]
+    content = None
+    if frames:
+        content = {"switches": len(frames), "framed": len(got), "p50": pct(got, 0.5), "p90": pct(got, 0.9), "p95": pct(got, 0.95), "max": max(got) if got else None}
+        print(f"  {label:<14} page content frame: {content}", flush=True)
+    return {"table": table, "switches": switches, "stalls": stalls, "cpu_percent_during": round(cpu, 1), "content_frame_ms": content,
+            "timed": len(switches), "asked": count, "profile": profiled}
 
 
 def scenario(kind, count, baseline):
@@ -246,6 +337,8 @@ def scenario(kind, count, baseline):
             time.sleep(0.4)  # test harness: the page loads before the next tab
     print(f"{name}: {count} tabs made in {time.time() - t0:.1f} s", flush=True)
     total = len(strip_tabs())
+    global PAGE_TABS
+    PAGE_TABS = [t[0] for t in strip_tabs()] if kind in ("chromium", "webkit") else []
     for _ in range(total):  # warm: every tab once
         rpc("debug.key", {"key": "tab", "modifiers": ["control"]})
         time.sleep(0.35 if kind != "terminal" else 0.15)  # test harness: slow warm-up visit
@@ -256,7 +349,11 @@ def scenario(kind, count, baseline):
     print(f"  idle {idle['cpu_percent']}% {idle['footprint_mb']} MB; per hidden tab {per_tab}", flush=True)
     n = min(opts.switches, max(total * 2, 8))
     result = {"kind": kind, "count": count, "tabs": total, "idle": idle, "per_tab": per_tab}
+    profile = os.path.join(opts.out, f"{name}.trace") if f"{kind}:{count}" in opts.profile.split(",") else None
     result["ctrl_tab"] = time_switches("Ctrl-Tab", lambda i: rpc("debug.key", {"key": "tab", "modifiers": ["control"]}), n)
+    if profile:  # a separate pass, so the profiler's cost stays out of the timed numbers
+        result["profile"] = time_switches("Ctrl-Tab profiled", lambda i: rpc("debug.key", {"key": "tab", "modifiers": ["control"]}),
+                                          max(n, 120), profile=profile)["profile"]
     result["cmd_shift_bracket"] = time_switches("Cmd-Shift-]", lambda i: rpc("debug.key", {"key": "]", "modifiers": ["command", "shift"]}), n)
     tabs = [t for t in strip_tabs() if t[2] >= 24]  # clickable: drawn wide enough
     if len(tabs) >= 2:
