@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { DataUrlCache, RecentSet } from "../src/agent-session/acpmux/chips/imageCache";
+import { DataUrlCache } from "../src/agent-session/acpmux/chips/imageCache";
 
 // Reply images keep their loaded data URLs so a row scrolled back into view draws at once. The
 // cache must stay bounded: a long session of screenshots used to keep every one for the life of
@@ -45,15 +45,4 @@ test("the newest image stays even when it alone is over the budget", () => {
   expect(cache.get("huge")).toBeDefined();
   expect(cache.get("small")).toBeUndefined();
   expect(cache.size).toBe(1);
-});
-
-test("RecentSet keeps its newest members", () => {
-  const set = new RecentSet(2);
-  set.add("a");
-  set.add("b");
-  set.add("a");
-  set.add("c");
-  expect(set.has("a")).toBe(true);
-  expect(set.has("b")).toBe(false);
-  expect(set.has("c")).toBe(true);
 });

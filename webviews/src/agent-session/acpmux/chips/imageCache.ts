@@ -51,20 +51,3 @@ export class DataUrlCache {
     }
   }
 }
-
-/// A set that keeps its newest `limit` members, for the sources a reader chose to load.
-export class RecentSet {
-  private readonly members = new Set<string>();
-
-  constructor(private readonly limit: number) {}
-
-  has(value: string): boolean {
-    return this.members.has(value);
-  }
-
-  add(value: string): void {
-    this.members.delete(value);
-    this.members.add(value);
-    if (this.members.size > this.limit) this.members.delete(this.members.values().next().value!);
-  }
-}
