@@ -125,12 +125,13 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
     }
 
     /// The nearest pane on the clicked terminal's right (``TerminalLinkBrowserPlacement``),
-    /// else a new right split; false (a focused-pane tab) when the split has no room.
+    /// else a new right split; false (a focused-pane tab) only when the split has no room.
     private func openBeside(_ url: URL, from tab: ActionTargetRef?) -> Bool {
         guard let services, let source = tab.flatMap({ services.locateTab($0.id) }).flatMap({ services.paneController(for: $0.1) }),
               let content = source.workspace else { return false }
         let beside = TerminalLinkBrowserPlacement().pane(beside: source.layoutPaneID, in: content.layoutModel, frames: content.layoutView.navigationFrames)
-        if let pane = beside.flatMap({ content.panes[$0] }) { return pane.newBrowserTab(url: url) }
+        // A refusal there is already shown (`newBrowserTab`), so the focused pane does not try again.
+        if let pane = beside.flatMap({ content.panes[$0] }) { pane.newBrowserTab(url: url); return true }
         let context = AppActionContext(services: services)
         return (try? BrowserHandlers.splitBrowser(from: source, direction: .right, url: url, byPerson: true, context: context)) != nil
     }

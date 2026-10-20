@@ -20,9 +20,10 @@ public nonisolated struct TerminalLinkResolver {
     public init() {}
 
     /// The target of `text`, or nil when it is no link (a path that exists nowhere, a bogus
-    /// host). Reads the file system: call it off the main thread.
+    /// host). Reads the file system: call it off the main thread. `isTopLevelDomain` defaults to
+    /// the browser's list (`String.isTopLevelDomain`).
     public func resolve(_ text: String, cwd: String?, fileManager: FileManager = .default,
-                        isTopLevelDomain: (String) -> Bool = { $0.isTopLevelDomain }) -> TerminalLinkTarget? {
+                        isTopLevelDomain: ((String) -> Bool)? = nil) -> TerminalLinkTarget? {
         let trimmed = Self.trim(text)
         guard !trimmed.isEmpty, !trimmed.contains("\u{0}") else { return nil }
         if Self.hasScheme(trimmed), let url = URL(string: trimmed) {
@@ -32,7 +33,7 @@ public nonisolated struct TerminalLinkResolver {
         for candidate in Self.candidates(path, cwd: cwd, fileManager: fileManager) {
             if let target = Self.existing(candidate, fileManager: fileManager) { return target }
         }
-        return Self.webURL(trimmed, isTopLevelDomain: isTopLevelDomain).map(TerminalLinkTarget.url)
+        return Self.webURL(trimmed, isTopLevelDomain: isTopLevelDomain ?? { $0.isTopLevelDomain }).map(TerminalLinkTarget.url)
     }
 
     private static let openers: Set<Character> = ["\"", "'", "`", "“", "‘", "<", "[", "{", "("]

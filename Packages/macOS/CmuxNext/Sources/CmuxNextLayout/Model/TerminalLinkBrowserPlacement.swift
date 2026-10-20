@@ -62,14 +62,14 @@ public nonisolated struct TerminalLinkBrowserPlacement {
               let columns = sourceColumnSequence(in: layout),
               let sourceIndex = columns.firstIndex(where: { $0.root.contains(source) }) else { return nil }
         let epsilon: CGFloat = 1.5
-        for column in columns.dropFirst(sourceIndex + 1) {
-            let candidates = column.root.panes.filter { pane in
-                guard let frame = frames[pane] else { return false }
-                return frame.minX >= sourceFrame.maxX - epsilon
-            }
-            if let pane = best(candidates, sourceFrame: sourceFrame, frames: frames) { return pane }
+        // Ranked together, not column by column: `visualColumns` lists a top or bottom dock
+        // band right after the left dock, and a band spans the strip's width, so from a
+        // left-docked source it would win over the strip column at the same height.
+        let candidates = columns.dropFirst(sourceIndex + 1).flatMap(\.root.panes).filter { pane in
+            guard let frame = frames[pane] else { return false }
+            return frame.minX >= sourceFrame.maxX - epsilon
         }
-        return nil
+        return best(candidates, sourceFrame: sourceFrame, frames: frames)
     }
 
     private func sourceColumnSequence(in layout: ScreenLayout) -> [LayoutColumn]? {
