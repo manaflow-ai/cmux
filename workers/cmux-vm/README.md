@@ -11,6 +11,13 @@ resource allowlist). Public ids are opaque (`vm_...`, `snap_...`); the
 ownership table maps them to provider ids for the caller's tenant only, so
 another tenant's resource is always 404.
 
+Response scope names are extensible strings: clients must preserve unfamiliar
+names in key records and permission errors. They do not grant authority.
+Authentication and key creation requests accept only this server's known
+scopes; unknown stored names are dropped. This matches the Rust client's
+existing handling of response enums. Update schema-validating clients before
+enabling server features that introduce new scope names.
+
 A service key (cx-b4h.13; Cloud Chief's is the first) has no tenant. It is
 configured in the Worker secret `CMUX_VM_SERVICE_KEYS` (JSON array of `id`,
 `sha256`, `scopes`, `labels`, optional `teams`; hashes only), names the team it

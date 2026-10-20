@@ -275,6 +275,32 @@ class AppWindowCaptureTests(unittest.TestCase):
         self.assertEqual(manifest["result"], "failed")
         self.assertEqual(manifest["steps"][1]["status"], "failed")
 
+    def test_a_display_step_shoots_the_screen_so_menus_show(self) -> None:
+        # A menu is its own window, so the main window's snapshot leaves it
+        # out; a `display` step's shot comes from the screen, cropped to the window.
+        self.tour.write_text(json.dumps({"title": "Demo", "steps": [
+            {"title": "Launch", "wait": 0},
+            {"title": "Profile menu", "cmux": ["action", "run", "sidebar.profileMenu"], "wait": 0,
+             "display": True},
+        ]}), encoding="utf-8")
+        done, manifest = self.run_tour(screen_route=True)
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertEqual(manifest["capture_mode"], "app window (debug.window_snapshot)")
+        out = self.root / "out/demo"
+        launch, menu = manifest["steps"]
+        self.assertEqual((out / launch["shot"]).read_bytes(), PNG)
+        self.assertNotIn("shot_error", menu)
+        self.assertEqual((out / menu["shot"]).read_bytes(), b"SCREEN")
+
+    def test_display_must_be_true_or_false(self) -> None:
+        self.tour.write_text(json.dumps({"title": "Demo", "steps": [
+            {"title": "Launch", "display": "yes"},
+        ]}), encoding="utf-8")
+        sys.path.insert(0, str(SCRIPT.parent))
+        import tour
+        with self.assertRaisesRegex(tour.TourError, "`display` must be true or false"):
+            tour.load_tour(self.tour)
+
 
 if __name__ == "__main__":
     unittest.main()

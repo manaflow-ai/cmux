@@ -179,6 +179,8 @@ extension SettingsSchema {
         "labs.classicHome",
         // Which Home entries the sidebar shows (looks only; `cmux home enable-channels` runs as an agent writer).
         "home.channelsEnabled",
+        // The floating Chief pet's character (looks only); turning the pet on is the person's.
+        "home.chiefPetMascot",
         "updates.notify",
         "updates.showWhatsNew",
         "announcements.enabled",
@@ -246,6 +248,8 @@ extension SettingsSchema {
         // What a new chat may do without asking: an agent must not widen its own approvals.
         "agents.defaultPermissionMode": .userOnly,
         "computerUse.enabled": .userOnly,
+        // The Chief pet puts agent output over every app and a reply box that types into terminals.
+        "home.chiefPetEnabled": .userOnly,
         "computerUse.driver": .userOnly,
         // How hard cmux pulls the person back from another app: theirs to pick, not an agent's.
         "notifications.dockBounce": .userOnly,
@@ -260,6 +264,8 @@ extension SettingsSchema {
         "phone.allowConnections": .network,
         "phone.startSessions": .network,
         "phone.keepAwake": .userOnly,
+        // Workspace names leave this Mac for the Cloud service: only the person turns it on.
+        "phone.cloudReplica": .privacy,
         "updates.installOnQuit": .destructive,
         "updates.keepPreviousVersions": .destructive,
     ]

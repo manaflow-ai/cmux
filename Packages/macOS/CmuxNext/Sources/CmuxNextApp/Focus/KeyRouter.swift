@@ -113,8 +113,11 @@ final class KeyRouter: BrowserKeyRouting {
         guard keyWindow == .content else { return .panel }
         if Self.belongsToInputMethod(event, facts: facts) { return .deliver }
         guard Self.isChord(event.modifierFlags) else {
-            guard Self.isPrintable(event), Self.mayHavePrimaryInput(focus.resolved) else { return .deliver }
-            if facts.pageInputPending, Self.mayQueueTyping(focus.resolved) { return .typeAhead }
+            // Printable keys, and the keys the primary input claims (a dead key composes where the key
+            // after it goes; Home's history arrows), go to the primary input; only printable keys queue.
+            let printable = Self.isPrintable(event)
+            guard printable || facts.primaryInputClaimsKey, Self.mayHavePrimaryInput(focus.resolved) else { return .deliver }
+            if printable, facts.pageInputPending, Self.mayQueueTyping(focus.resolved) { return .typeAhead }
             return facts.primaryInputReady ? .primaryInput : .deliver
         }
         return decide(event, focus: focus, context: keyContext(for: focus, facts: facts), facts: facts)
