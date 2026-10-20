@@ -110,6 +110,10 @@ enum HomeConversationStrings {
     // MARK: New Chief
 
     static var chiefTitle: String { String(localized: "home.chief.new.title", defaultValue: "New Chief", bundle: .module) }
+    /// A Chief row's preview before its first message (classic cmux's `chief.list.emptyPreview`).
+    static var chiefEmptyPreview: String {
+        String(localized: "home.chief.emptyPreview", defaultValue: "Ask Chief anything", bundle: .module)
+    }
     static var chiefBody: String {
         String(localized: "home.chief.new.body",
                defaultValue: "A Chief is an agent with its own conversation and memory. Chiefs are optional.", bundle: .module)

@@ -27,6 +27,10 @@ final class TopHomePageView: NSView {
     var lines: [HomeConversationLine] { rows.homeLines }
     private(set) var host: HomeHostView?
     private(set) var shown: ConversationID?
+    /// Compose's create is running: another click waits for it (one Chief per click, not per bounce).
+    private var creatingChief = false
+    /// The conversation whose message box takes the keyboard when it shows (compose's new Chief).
+    private var focusOnShow: ConversationID?
     private var rowsObservation: Task<Void, Never>?
     private var selectionObservation: Task<Void, Never>?
     private var chiefObservation: Task<Void, Never>?
@@ -234,7 +238,10 @@ final class TopHomePageView: NSView {
         transcriptColumn.addSubview(view)
         host = view
         services.home.homeDidOpen(asked: true)
-        if window?.firstResponder === window || window?.firstResponder == nil { focusPrimaryInput() }
+        if focusOnShow == id || window?.firstResponder === window || window?.firstResponder == nil {
+            focusOnShow = nil
+            focusPrimaryInput()
+        }
     }
 
     /// A permalink: its conversation, and its message's thread at its branch (any depth).
@@ -279,19 +286,24 @@ final class TopHomePageView: NSView {
     }
 
     /// Compose, as classic cmux's Chief list (ChiefHomeView.newConversation, #21063): another Chief
-    /// at once, named as the Chief is, its conversation shown with the message box focused so the
-    /// person can ask it something; a refusal says why. New Chief… (the sheet) names one first.
+    /// at once, under the next free name ("Chief 2"), its conversation shown with the message box
+    /// focused so the person can ask it something; a refusal says why. New Chief… (the sheet) names
+    /// one first.
     func startChiefConversation() {
-        guard let services else { return }
+        guard !creatingChief, let services else { return }
         let home = services.home, registry = services.registry
+        let taken = home.homeStore.rows.filter { $0.kind == .chief }.map(\.title)
+        creatingChief = true
         // task-owner: one create; ends with the owner's answer
         Task { [weak self] in
-            let outcome = await home.createChief(named: HomeStrings.chiefName)
+            let outcome = await home.createChief(named: HomeChiefName.next(taken: taken))
+            self?.creatingChief = false
             guard case .opened(let id) = outcome else { return registry.refuse(outcome.message ?? "") }
             guard let self else { return }
-            // Shown now when listed; else once the inbox lists it (createChief set pendingSelection).
+            // Its message box takes the keyboard when it shows: now when listed, else once the inbox
+            // lists it (createChief set pendingSelection, which selectionObservation follows).
+            focusOnShow = id
             if home.homeStore.rows.contains(where: { $0.id == id }) { show(id) }
-            focusPrimaryInput()
         }
     }
 
