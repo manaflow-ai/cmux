@@ -18,6 +18,10 @@ final class FieldTextView: NSTextView {
     /// cmux: a drop on the field that the host's intake takes (the paste's
     /// type rule). A plain-text NSTextView would type a dropped file's path.
     var onDropPasteboard: (NSPasteboard) -> Bool = { _ in false }
+    /// cmux: Backspace with the caret at the start of the text and nothing
+    /// selected (Messages takes the last attachment out); true when the host
+    /// removed one.
+    var onDeleteAtStart: () -> Bool = { false }
     /// Marked (IME) text changed. UITextView reports marked text through
     /// `textViewDidChange`, so the draft (and the field height) follows the
     /// composition; NSTextView does not post a text change for it.
@@ -60,6 +64,12 @@ final class FieldTextView: NSTextView {
     override func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
         super.setMarkedText(string, selectedRange: selectedRange, replacementRange: replacementRange)
         onMarkedTextChange()
+    }
+
+    // cmux: Backspace before the first character removes an attachment.
+    override func deleteBackward(_ sender: Any?) {
+        if !hasMarkedText(), selectedRange() == NSRange(location: 0, length: 0), onDeleteAtStart() { return }
+        super.deleteBackward(sender)
     }
 
     override func keyDown(with event: NSEvent) {
@@ -1038,7 +1048,7 @@ final class ComposeView: UIView {
         // 120 Hz, compose-attach-image paste take) and while typing (field-focus-type-take1 and
         // compose-e2e: one frame, the transcript on the same frame); only a send animates it.
         let attachmentsChanged = d.attachments != chips
-        if attachmentsChanged { chips = d.attachments; renderChips(); onAttachmentsChanged?() }
+        if attachmentsChanged { chips = d.attachments; renderChips() }
         text = d.text
         // Only a send that took a draft (a rejected send is not committed: Store.apply).
         if send && hadDraft { emptyAfterSend = d.text.isEmpty && d.attachments.isEmpty }
@@ -1055,6 +1065,9 @@ final class ComposeView: UIView {
         if attachmentsChanged || placed.map({ $0.0 != h || $0.1 != text.isEmpty || $0.2 != strip.height || $0.3 != bounds.size }) ?? true {
             place(height: h)
         }
+        // cmux: told once the field has the attachment row's height, so the host's hover
+        // tracking area (built from fieldRect) covers the pictures.
+        if attachmentsChanged { onAttachmentsChanged?() }
         if h != old && !send {
             onFieldJump?()
         } else if h != old {

@@ -1,6 +1,6 @@
 --- a/Sources/MessagesLabHome/Vendor/appkit-native/Compose.swift
 +++ b/Sources/MessagesLabHome/Vendor/appkit-native/Compose.swift
-@@ -8,6 +8,16 @@
+@@ -8,6 +8,20 @@
      var onSend: () -> Void = {}
      var onEscape: () -> Void = {}
      var onPasteImage: (NSImage) -> Void = { _ in }
@@ -14,23 +14,40 @@
 +    /// cmux: a drop on the field that the host's intake takes (the paste's
 +    /// type rule). A plain-text NSTextView would type a dropped file's path.
 +    var onDropPasteboard: (NSPasteboard) -> Bool = { _ in false }
++    /// cmux: Backspace with the caret at the start of the text and nothing
++    /// selected (Messages takes the last attachment out); true when the host
++    /// removed one.
++    var onDeleteAtStart: () -> Bool = { false }
      /// Marked (IME) text changed. UITextView reports marked text through
      /// `textViewDidChange`, so the draft (and the field height) follows the
      /// composition; NSTextView does not post a text change for it.
-@@ -100,6 +110,12 @@
-         runLoopLog = o
+@@ -52,6 +66,12 @@
+         onMarkedTextChange()
+     }
+ 
++    // cmux: Backspace before the first character removes an attachment.
++    override func deleteBackward(_ sender: Any?) {
++        if !hasMarkedText(), selectedRange() == NSRange(location: 0, length: 0), onDeleteAtStart() { return }
++        super.deleteBackward(sender)
++    }
++
+     override func keyDown(with event: NSEvent) {
+         if Self.caretLog { Self.log("key down \(event.keyCode)"); Self.logRunLoop() }
+         defer { if Self.caretLog { Self.log("key done") } }
+@@ -101,6 +121,12 @@
      }
      var caretSuspended = false { didSet { updateCaret(reset: false) } }
-+
+ 
 +    /// cmux: the caret's colour after a palette change (it was set once, when the field was made).
 +    func recolorCaret() {
 +        caretLayer.backgroundColor = Fixture.caret.cgColor
 +        if !Self.ownCaret, insertionPointColor != .clear { insertionPointColor = Fixture.caret }
 +    }
- 
++
      func installCaret() {
          guard Self.ownCaret else { return }
-@@ -183,11 +199,13 @@
+         insertionPointColor = .clear
+@@ -183,11 +209,13 @@
      /// not depend on the blink's phase at the grab (Messages' still references show it solid).
      static let solidCaret = ProcessInfo.processInfo.arguments.contains("--still-grab")
  
@@ -46,7 +63,7 @@
          let a = CAKeyframeAnimation(keyPath: "opacity")
          a.calculationMode = .discrete
          // One period from the first fade-out: out 1 -> 0 in four steps, off, in 0 -> 1.
-@@ -231,6 +249,7 @@
+@@ -231,6 +259,7 @@
          if DeferredSpellChecker.useAppKit { super.toggleContinuousSpellChecking(sender) } else { spell.enabled.toggle() }
      }
      override func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
@@ -54,14 +71,14 @@
          if !DeferredSpellChecker.useAppKit, item.action == #selector(toggleContinuousSpellChecking(_:)) {
              (item as? NSMenuItem)?.state = spell.enabled ? .on : .off
              return true
-@@ -424,9 +443,27 @@
+@@ -424,8 +453,26 @@
  
      override func paste(_ sender: Any?) {
          let pb = pasteboard
 +        if onPastePasteboard(pb) { return }  // cmux
          if pb.string(forType: .string) == nil, let img = NSImage(pasteboard: pb) { onPasteImage(img); return }
          super.paste(sender)
-     }
++    }
 +
 +    // cmux: files and pictures dropped on the field go to the host's intake
 +    // (Home's type rule, as paste); text drags keep NSTextView's own handling.
@@ -78,11 +95,10 @@
 +        let pb = sender.draggingPasteboard
 +        if acceptsPastePasteboard(pb) { return onDropPasteboard(pb) }
 +        return super.performDragOperation(sender)
-+    }
+     }
  }
  
- /// The caret's view: drawn only, never hit (clicks at the caret reach the text view).
-@@ -835,6 +872,8 @@
+@@ -835,6 +882,8 @@
          if !nativeChrome { renderGlass(); buttons.setNeedsDisplay() }
          renderPlaceholder()
          renderChips()
@@ -91,7 +107,7 @@
      }
  
      /// The "+" button (opens the file picker).
-@@ -940,11 +979,11 @@
+@@ -940,11 +989,11 @@
          fmt.opaque = false
          let ph = placeholder
          placeholderLayer.contents = UIGraphicsImageRenderer(size: CGSize(width: 300, height: 30), format: fmt).image { ctx in
@@ -105,3 +121,22 @@
              // Messages' glyph is ChatKit's AudioMessageEntryViewButton waveform at 20 pt
              // (fitted to the lossless stills): 5 capsules 1.818 pt wide, 3.636 pt apart,
              // 3.613 / 7.25 / 14.522 pt tall; centre 557.5 pt from the left of a 628 pt window.
+@@ -999,7 +1048,7 @@
+         // 120 Hz, compose-attach-image paste take) and while typing (field-focus-type-take1 and
+         // compose-e2e: one frame, the transcript on the same frame); only a send animates it.
+         let attachmentsChanged = d.attachments != chips
+-        if attachmentsChanged { chips = d.attachments; renderChips(); onAttachmentsChanged?() }
++        if attachmentsChanged { chips = d.attachments; renderChips() }
+         text = d.text
+         // Only a send that took a draft (a rejected send is not committed: Store.apply).
+         if send && hadDraft { emptyAfterSend = d.text.isEmpty && d.attachments.isEmpty }
+@@ -1016,6 +1065,9 @@
+         if attachmentsChanged || placed.map({ $0.0 != h || $0.1 != text.isEmpty || $0.2 != strip.height || $0.3 != bounds.size }) ?? true {
+             place(height: h)
+         }
++        // cmux: told once the field has the attachment row's height, so the host's hover
++        // tracking area (built from fieldRect) covers the pictures.
++        if attachmentsChanged { onAttachmentsChanged?() }
+         if h != old && !send {
+             onFieldJump?()
+         } else if h != old {

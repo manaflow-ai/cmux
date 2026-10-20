@@ -448,6 +448,12 @@ final class ChatController: NSObject, NSTextViewDelegate {
         tv.view.acceptsPastePasteboard = { [weak self] pb in self?.intents?.acceptsAttachments(from: pb) ?? false }
         tv.view.onDropPasteboard = { [weak self] pb in self?.takeDrop(pb) ?? false }
         tv.view.onPasteImage = { _ in }
+        // Backspace before the first character takes the last attachment out (Messages).
+        tv.view.onDeleteAtStart = { [weak self] in
+            guard let self, let last = self.store?.state.ui.draft.attachments.last else { return false }
+            self.dispatch(.removeDraftAttachment(last.id))
+            return true
+        }
         tv.view.onMarkedTextChange = { [weak self] in
             guard let self, let demo = self.demo, let store = self.store else { return }
             let s = demo.compose.textView.view.string
