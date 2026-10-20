@@ -101,7 +101,7 @@ fn receiver_owner_reply_refuses_bad_time_keys_and_expired_roundtrip() {
             "issuer_time_ms" => body["value"][field] = 0.into(),
             "remaining_ms" => body["value"][field] = 30_001.into(),
             "private_keyset" => {
-                body["value"]["keyset"]["keys"]["test-k1"]["d"] = "must-not-enter-owner".into()
+                body["value"]["keyset"]["keys"]["test-k1"]["d"] = "must-not-enter-owner".into();
             }
             "false" => body["ok"] = false.into(),
             _ => unreachable!(),

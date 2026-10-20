@@ -105,7 +105,7 @@ fn check_directory(path: &Path, uid: u32) -> io::Result<()> {
 fn check_peer(stream: &UnixStream, uid: u32) -> io::Result<()> {
     // SAFETY: ucred is a plain initialized output buffer with its exact length.
     let mut peer = unsafe { std::mem::zeroed::<libc::ucred>() };
-    let mut len = std::mem::size_of_val(&peer) as libc::socklen_t;
+    let mut len = size_of_val(&peer) as libc::socklen_t;
     // SAFETY: both output pointers are live and sized for SO_PEERCRED.
     let result = unsafe {
         libc::getsockopt(
@@ -119,7 +119,7 @@ fn check_peer(stream: &UnixStream, uid: u32) -> io::Result<()> {
     if result != 0 {
         return Err(io::Error::last_os_error());
     }
-    if len as usize != std::mem::size_of_val(&peer) || peer.uid != uid || peer.pid <= 0 {
+    if len as usize != size_of_val(&peer) || peer.uid != uid || peer.pid <= 0 {
         return Err(io::ErrorKind::PermissionDenied.into());
     }
     Ok(())
@@ -171,7 +171,7 @@ fn connect(path: &Path, deadline: Instant) -> io::Result<UnixStream> {
                 continue;
             }
             let mut error: libc::c_int = 0;
-            let mut len = std::mem::size_of_val(&error) as libc::socklen_t;
+            let mut len = size_of_val(&error) as libc::socklen_t;
             // SAFETY: error and len are correctly sized live output buffers.
             if unsafe {
                 libc::getsockopt(

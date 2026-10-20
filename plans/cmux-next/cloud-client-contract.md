@@ -196,6 +196,8 @@ A Native receiver must supply its configured issuer, current host/epoch/team, re
 
 The CloudDO projection and original-credential VM agent read are implemented. The owned listener, protected key bootstrap and live policy-driver composition remain follow-ups; these contracts activate no serving role.
 
+The receiving authority writer installs its authenticated keyset, generated policy and issuer-time calibration together. It retains the same verifier and replay history across refreshes. Refresh attempts are local capabilities tied to one owner and intent; invalidation cancels pending publication, and stale replies or failures cannot replace or clear newer authority. The Linux consumer authenticates the fixed root-owned agent socket and original public VM self identity before publishing. Its full request deadline covers connect and response body; lease accounting caps by both root remaining time and the full socket round trip without charging root work twice. No wall-clock fallback or team-stream scope is added.
+
 Cache rules for `cmux link`:
 1. Cache the `connect_info` result by host id for at most 300 s or until a
    `cloud.machine.upsert` with a higher `revision` arrives (key rotation, epoch change, VPC change,

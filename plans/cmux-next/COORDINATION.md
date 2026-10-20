@@ -7,3 +7,7 @@ the backend lane records the VM-only surface exemption and runtime follow-up.
 
 Verified receiving streams share the token verifier's bounded authority leases;
 policy/key changes and expiry cancel both SSH copies and daemon handoffs.
+
+The VM receiver authority owner publishes keys, policy and issuer time in one
+step. Protected agent reads are fenced by owner/intent so stale replies and
+failures cannot reopen or clear newer authority.
