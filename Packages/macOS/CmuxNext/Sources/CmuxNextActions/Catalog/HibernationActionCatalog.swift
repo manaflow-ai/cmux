@@ -14,6 +14,18 @@ nonisolated enum HibernationActionCatalog: ActionCatalogGroup {
             setting("browser.hibernation.aggressive", title: t("action.hibernation.aggressive", "Hibernate Hidden Tabs After 10 Minutes"),
                     symbol: "moon.fill", keywords: ["browser", "hibernation", "memory", "saver", "discard", "sleep", "aggressive"],
                     cli: "settings use-aggressive-tab-hibernation"),
+            setting("browser.keepNeighborTabsAwake.0", title: t("action.neighborTabs.off", "Don't Keep Neighbor Tabs Awake"),
+                    symbol: "rectangle.stack", keywords: neighborKeywords + ["off", "disable"],
+                    cli: "settings keep-no-neighbor-tabs-awake"),
+            setting("browser.keepNeighborTabsAwake.1", title: t("action.neighborTabs.one", "Keep 1 Neighbor Tab Awake on Each Side"),
+                    symbol: "rectangle.stack.fill", keywords: neighborKeywords + ["1", "one"],
+                    cli: "settings keep-1-neighbor-tab-awake"),
+            setting("browser.keepNeighborTabsAwake.2", title: t("action.neighborTabs.two", "Keep 2 Neighbor Tabs Awake on Each Side"),
+                    symbol: "rectangle.stack.fill", keywords: neighborKeywords + ["2", "two"],
+                    cli: "settings keep-2-neighbor-tabs-awake"),
+            setting("browser.keepNeighborTabsAwake.3", title: t("action.neighborTabs.three", "Keep 3 Neighbor Tabs Awake on Each Side"),
+                    symbol: "rectangle.stack.fill", keywords: neighborKeywords + ["3", "three"],
+                    cli: "settings keep-3-neighbor-tabs-awake"),
             ActionDescriptor(
                 id: "hibernateTab", title: t("action.hibernateTab", "Hibernate Tab"),
                 keywords: ["tab", "browser", "hibernate", "sleep", "discard", "memory", "saver"], category: .tab, symbol: "moon.zzz",
@@ -26,6 +38,8 @@ nonisolated enum HibernationActionCatalog: ActionCatalogGroup {
             ),
         ]
     }
+
+    private static let neighborKeywords = ["browser", "tabs", "neighbor", "adjacent", "warm", "preload", "instant", "switch", "hibernation", "freeze"]
 
     private static func setting(_ id: ActionID, title: String, symbol: String, keywords: [String], cli: String) -> ActionDescriptor {
         ActionDescriptor(id: id, title: title, keywords: keywords, category: .settings, symbol: symbol, surfaces: [.palette], cliName: cli)
