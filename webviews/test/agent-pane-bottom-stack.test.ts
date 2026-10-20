@@ -277,8 +277,10 @@ await requireBrowserLane("agent-pane-bottom-stack.test.ts", async () => {
     const page = await open(480);
     const drawn = await layout(page);
     expectStacked(drawn);
-    // What shows of it above the stack.
-    expect(drawn.stack.top - drawn.transcript.top).toBeGreaterThanOrEqual(96);
+    // What shows of it above the stack: 96 px, less the 32 px the split's quiet row under the card
+    // takes from it (bottomStack.css), never under 64.
+    const split = await page.locator(".acpmux-composer-foot").count();
+    expect(drawn.stack.top - drawn.transcript.top).toBeGreaterThanOrEqual(split ? 64 : 96);
     expect(drawn.queueScrolls).toBe(true);
     await page.close();
   });

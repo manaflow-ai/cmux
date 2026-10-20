@@ -609,5 +609,17 @@
     "arguments": [
       1
     ]
+  },
+  "home.engine.toolCalls": {
+    "source": "%lld tool calls",
+    "arguments": [
+      1
+    ]
+  },
+  "home.engine.toolFailures": {
+    "source": "%lld failed",
+    "arguments": [
+      1
+    ]
   }
 }

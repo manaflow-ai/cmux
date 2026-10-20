@@ -83,6 +83,8 @@ await requireBrowserLane("composer-quiet-chips.test.ts", async () => {
   // A chip is named by its label, or by a selector (one that starts with ".").
   const STAGES = [
     { entry: "agent-pane.new-tab", variant: "reasoning-chip", chips: ["Model", "Effort"] },
+    // The Default template's stage layout: the same chips in the footer under the box.
+    { entry: "agent-pane.new-tab", variant: "reasoning-chip-stage", chips: ["Model", "Effort"] },
     { entry: "agent-pane.composer", variant: "new-chat-reasoning", chips: ["Effort"] },
     // The bolt on, so its resting look is asserted; + and the mode chip open menus.
     { entry: "agent-pane.composer", variant: "quiet-chips", chips: [BAR.plus, BAR.mode] },

@@ -75,6 +75,11 @@ final class SidebarListView: NSView {
     /// Rows kept invisible while a lifted view stands in for them.
     var suppressed: Set<SidebarRowKey> = []
     var openingRows: [SidebarRowKey: CFTimeInterval] = [:] // Rows still opening their slot, by start time.
+    /// Whether the pointer is over the list's visible rows now (`showModelChange` holds a change then).
+    /// Tests inject an answer; the default asks the window where its pointer is.
+    var pointerIsOverList: @MainActor (SidebarListView) -> Bool = { $0.pointerIsOverVisibleRows }
+    /// A model change held while the pointer was over the list; it shows when the pointer leaves (`releaseHeldModelChange`).
+    var holdsModelChange = false
     /// Row patches held while a drag, its settle or its card's landing runs (`SidebarRowHold`).
     var rowHold = SidebarRowHold()
     /// Workspaces a pin drop took to the band: out of the list until its card lands (cx-odqn).
@@ -140,6 +145,8 @@ final class SidebarListView: NSView {
         groupEditing.wire()
         // A row content change configures its one row (SidebarRowIndex), never reloads the list.
         model.onRowsPatched = { [weak self] rows in self?.patchRows(rows) }
+        // A group's fold splices that group's rows (SidebarListView+Fold), never reloads the list.
+        model.onGroupFolded = { [weak self] group in self?.foldGroup(group) }
         // A close's successor is the next row drawn here (FocusAfterClose.workspace).
         model.drawnWorkspaceOrder = { [weak self] in self?.visibleWorkspaceOrder ?? [] }
         // A refused change: a settling drop lets go and the rows spring back.
@@ -238,6 +245,7 @@ final class SidebarListView: NSView {
     override func mouseMoved(with event: NSEvent) { updateHover(event.locationInWindow) }
     override func mouseEntered(with event: NSEvent) { updateHover(event.locationInWindow) }
     override func mouseExited(with event: NSEvent) {
+        releaseHeldModelChange()
         setHovered(nil)
         hoverCards.pointerMoved(to: window.map { $0.convertPoint(toScreen: event.locationInWindow) })
     }
@@ -255,7 +263,20 @@ final class SidebarListView: NSView {
         guard drag == nil, let window else { return setHovered(nil) }
         let point = convert(windowPoint ?? window.convertPoint(fromScreen: hoverCards.currentPointer()), from: nil)
         guard visibleRect.contains(point) else { return setHovered(nil) }
-        setHovered(displayed.row(at: point.y)?.key)
+        setHovered(hoverHit(at: point)?.key)
+    }
+    /// The row the pointer at `point` hovers (`SidebarLayout.hoverRow`). The
+    /// hover pill sits inside the drawn fill: `Metrics.space1` in from its top
+    /// and bottom, corners rounded `Metrics.space1` more (Leo 2026-10-19).
+    func hoverHit(at point: CGPoint) -> SidebarRow? {
+        displayed.hoverRow(at: point, current: hoveredKey, frame: frame(for:),
+                           cornerRadius: SidebarStyle.rowCornerRadius + Metrics.space1, inset: Metrics.space1)
+    }
+    /// The row a click at `point` acts on: the hovered row when the pointer
+    /// hovers one, so a click never lands on a row other than the lit one;
+    /// otherwise the row whose tile holds `point` (clicks split the gap).
+    func clickHit(at point: CGPoint) -> SidebarRow? {
+        hoverHit(at: point) ?? displayed.row(at: point.y)
     }
     func setHovered(_ key: SidebarRowKey?) {
         guard key != hoveredKey else { return }

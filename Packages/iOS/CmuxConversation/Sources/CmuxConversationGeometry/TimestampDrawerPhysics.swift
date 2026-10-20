@@ -158,6 +158,7 @@ public struct TimestampDrawerPhysics: Sendable, Equatable {
 /// bubbles for this geometry, until the ink ends 17 pt inside the edge
 /// (frame 16.4 pt). iOS 27 fades it in as the square of the reveal; iOS 26
 /// draws it opaque.
+// lint:allow namespace-type -- vendored CmuxConversation snapshot
 public enum TimestampDrawerLabelGeometry {
     public static let restOutset: CGFloat = 0
     public static let trailingInset: CGFloat = 16.4
@@ -184,6 +185,7 @@ public enum TimestampDrawerLabelGeometry {
 /// typing bubble (the user's report from a real iPhone; ChatKit only gives
 /// label rows the drawer layout when they use the contact-image layout).
 /// Centered rows (dates, notices, system events) never move.
+// lint:allow namespace-type -- vendored CmuxConversation snapshot
 public enum TimestampDrawerRows {
     public static func travel(isOutgoing: Bool, inAvatarTranscript: Bool, reveal: CGFloat) -> CGFloat {
         isOutgoing || inAvatarTranscript ? reveal : 0

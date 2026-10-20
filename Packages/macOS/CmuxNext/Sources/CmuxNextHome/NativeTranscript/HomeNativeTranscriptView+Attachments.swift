@@ -50,22 +50,15 @@ extension HomeNativeTranscriptView {
         attach(urls.map { .file($0) })
     }
 
-    /// Opens the file picker as a sheet (the attach button, `home.attachFiles`).
+    /// Opens the file picker as a sheet (the attach button, `home.attachFiles`), in the
+    /// click's own turn and from the panel made ahead (`HomeAttachmentPanel`).
     public func pickFiles() {
         guard let window, attachmentPreparer != nil else { return }
-        let panel = NSOpenPanel()
-        panel.allowsMultipleSelection = true
-        panel.canChooseDirectories = false
-        panel.canChooseFiles = true
-        panel.prompt = HomeStrings.attachPrompt
-        panel.allowedContentTypes = HomeComposerCheck.pickerTypes
-        // task-owner: the sheet belongs to the window; the task ends when it closes
-        Task { [weak self] in
-            let response = await panel.beginSheetModal(for: window)
+        HomeAttachmentPanel.present(for: window) { [weak self] urls in
             // Chosen or cancelled, the person goes back to typing in the box.
             defer { self?.transcript.focusPrimaryInputForTyping() }
-            guard response == .OK else { return }
-            self?.handlePicked(panel.urls)
+            guard let urls else { return }
+            self?.handlePicked(urls)
         }
     }
 
@@ -142,8 +135,9 @@ extension HomeNativeTranscriptView {
         showNotice(HomeStrings.unanswered)
     }
 
-    /// Returns when every attachment given so far is in the draft (tests).
-    func attachmentsReady() async {
+    /// Returns when every attachment given so far is in the draft (each one copied into the
+    /// blob cache, so its source file may go): tests, and design mode's temp files.
+    public func attachmentsReady() async {
         while let current = intake {
             await current.value
             if intake == current { return }

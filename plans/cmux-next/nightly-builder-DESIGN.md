@@ -99,6 +99,38 @@ Status from anywhere on the tailnet:
 ssh cmux22 'python3 ~/nightly-builder/nightly_builder.py status'
 ```
 
+## Blacksmith paths (2026-10-20 09:35 UTC)
+
+A build records its paths in the shipped bytes (Swift `#file`, SwiftPM and
+cargo registry paths, panic messages). The byte-parity reference is a
+Blacksmith macOS build: user `runner`, `HOME=/Users/runner`, workspace
+`/Users/runner/_work/cmux/cmux`, `RUNNER_TEMP=/Users/runner/_work/_temp`,
+`CARGO_HOME=/Users/runner/.cargo`. So the runner on cmux22 now uses the same
+paths, as real directories:
+
+- `/Users/runner` is a real directory owned by `cmux` (made with sudo, mode
+  755), with `Library/{Caches,Logs,Preferences}` and `.cache`. The runner
+  still runs as `cmux` from `~/actions-runner-nightly-next`.
+- `.runner` `workFolder` is `/Users/runner/_work` (was `_work`). The runner
+  resolves it as an absolute path, so the workspace and `RUNNER_TEMP` are
+  under `/Users/runner/_work`, with no link in the path.
+- The runner's `.env` sets `HOME=/Users/runner`, and its `PATH` names
+  `/Users/runner/.cargo/bin`. Every `$HOME` path of a job (`CARGO_HOME`,
+  `RUSTUP_HOME`, Go, Bun, Zig, SwiftPM and Xcode caches, and
+  `nightly_build_state.py`'s `~/Library/Caches/cmux-nightly-next`) is then
+  under `/Users/runner`. The first build after the move downloads its
+  toolchains again.
+- `~/actions-runner-nightly-next/_work` is a link to `/Users/runner/_work`
+  only so that the watch loop's `_work/_temp` cleanup keeps working. Jobs do
+  not use that link. The old folder is `_work.old-20261020`; the old files are
+  `.runner.bak-20261020` and `.env.bak-20261020`.
+- The admission hook, both LaunchAgents, the runner name and its labels did
+  not change.
+
+Rollback: `launchctl bootout gui/$(id -u)/ai.manaflow.nightly-builder.runner`,
+restore `.runner` and `.env` from the `.bak-20261020` copies, replace the
+`_work` link with `_work.old-20261020`, then `launchctl bootstrap` the plist.
+
 ## Fallback
 
 The GitHub-hosted path is the fallback with no extra switch: a retry
@@ -115,3 +147,10 @@ double-publish.
   intended: it is the only check before a build is shipped.
 - Hosted helper, variant and signing jobs (about 30 min of the path) stay on
   GitHub-hosted runners, where signing secrets are allowed.
+- cmux22 builds every head cold. `scripts/ci/nightly_build_state.py`
+  keeps the compilation cache only for a runner name that matches
+  `*-glaeda` or `*-glaeda-N`, and `cmux22-nightly-next` does not match.
+  Run 39396919366 on cmux22: 425 compile cache misses and 1 hit, `xcodebuild`
+  505 s, job 17.8 min. Run 39374887542 on cmux15: 21 misses, `xcodebuild`
+  254 s, job 11.6 min. cmux22 did not swap during a build (swap 0 MB,
+  75 % memory free by `memory_pressure`, load 17 on 12 cores).

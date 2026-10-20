@@ -5,6 +5,7 @@ import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextHomeEngine
 import CmuxNextOnboarding
 import CmuxNextSettings
 import Observation
@@ -40,9 +41,8 @@ enum AgentHandlers {
         ChiefInspectorHandlers.bind(into: registry, context: context)
         AddHarnessHandler.bind(into: registry, context: context)
         AgentHarnessHandlers.bind(into: registry, context: context)
-        registry.bind("home.toggleChiefSettings", run: { _ in
-            NotificationCenter.default.post(name: HomeHostView.toggleSettings, object: nil)
-        })
+        // Only the front window's Home answers (`HomeChiefSettingsPopover.toggleTarget`).
+        registry.bind("home.toggleChiefSettings", run: { _ in NotificationCenter.default.post(name: HomeHostView.toggleSettings, object: HomeChiefSettingsPopover.frontToggleTarget) })
         registry.bind(HomeChiefControl.stopAction, run: { _ in
             NotificationCenter.default.post(name: HomeChiefControl.stopNotification, object: nil)
         })
@@ -307,6 +307,10 @@ enum AgentHandlers {
             guard path.hasPrefix("/") else { throw ActionFailure(message: MiscHandlerStrings.pathNotAbsolute(path)) }
             guard let url = AgentPaneFileOpen.resolve(path) else { throw ActionFailure(message: MiscHandlerStrings.fileNotFound(path)) }
             guard let pane = context.paneController(invocation) else { return }
+            // `cmux open` run from an agent chat: a quote from the file's viewer goes back to that chat.
+            if let session = invocation.callerAgentSession, let chat = context.services.agentTabs.tab(showing: session) {
+                context.services.chatQuoteOpeners.noteOpened(url, byAgentTab: chat)
+            }
             if let reason = context.services.viewers.openFile(url, in: pane, userChose: invocation.origin == .user) { throw ActionFailure(message: reason) }
             return
         }

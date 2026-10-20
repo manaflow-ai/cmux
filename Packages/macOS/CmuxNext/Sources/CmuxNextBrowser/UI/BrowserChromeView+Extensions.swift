@@ -189,7 +189,7 @@ extension BrowserChromeView {
     static var toolbarMetrics: BrowserToolbarLayout.Metrics {
         BrowserToolbarLayout.Metrics(
             button: OmnibarStyle.buttonSize, navigationSpacing: OmnibarStyle.buttonSpacing,
-            extensionSpacing: BrowserMetrics.buttonSpacing, inset: OmnibarStyle.toolbarInset,
+            extensionSpacing: OmnibarStyle.buttonSpacing, inset: OmnibarStyle.toolbarInset,
             margin: OmnibarStyle.barMargin, preferredAddress: Metrics.tabMaxWidth,
             minimumAddress: BrowserMetrics.minimumAddressWidth
         )
