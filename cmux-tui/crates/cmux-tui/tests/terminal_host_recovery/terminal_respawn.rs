@@ -329,10 +329,12 @@ fn an_unadoptable_host_that_dies_without_a_record_is_respawned() {
     assert_eq!(lines[0]["cause"], "unadoptable_host_ended");
 }
 
-/// c. An agent session the terminal ran is typed on the new prompt for the
-/// user to resume; it does not run.
+/// c. An agent session the terminal ran resumes by itself in the new shell
+/// (#22292): its resume command is typed and run, so an agent in a
+/// workspace nobody opened yet runs again at launch, not once its tab is
+/// shown and someone presses Return.
 #[test]
-fn a_respawned_terminal_offers_its_agent_session_for_resume_without_running_it() {
+fn a_respawned_terminal_resumes_its_agent_session() {
     let _exclusive = exclusive_process_test();
     let harness = RecoveryHarness::start("respawn-agent");
     let (terminal_id, incarnation, surface) = start_default_shell(&harness, "agent");
@@ -388,10 +390,19 @@ fn a_respawned_terminal_offers_its_agent_session_for_resume_without_running_it()
         assert!(Instant::now() < deadline, "no resume offer: {}", screen(&harness, surface));
         std::thread::sleep(Duration::from_millis(50));
     }
-    std::thread::sleep(Duration::from_secs(1));
-    let text = screen(&harness, surface);
-    assert!(!text.contains("not found"), "the resume command ran: {text}");
-    assert!(after_marker(&text).trim_end().ends_with(command), "not on the prompt line: {text}");
+    // It ran: the shell answered it (this host has no `claude`, so it
+    // reports the command missing) and the command is no longer waiting at
+    // the end of the prompt line.
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
+    loop {
+        let text = screen(&harness, surface);
+        let tail = after_marker(&text);
+        if !tail.trim_end().ends_with(command) && tail.contains(command) {
+            break;
+        }
+        assert!(Instant::now() < deadline, "the resume command did not run: {text}");
+        std::thread::sleep(Duration::from_millis(50));
+    }
     let lines = wait_for_respawn_lines(&harness, &terminal_id, 1);
     assert_eq!(lines.first().map(|line| line["prefilled"].clone()), Some("harness".into()));
 }
