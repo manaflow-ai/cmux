@@ -77,6 +77,26 @@ final class FakeOpener: BrowserStreamOpening, @unchecked Sendable {
         #expect(second.tabs == ["s2", "s1"])
     }
 
+    /// A link that came up while the app was in the background opens the
+    /// shown tab when the app comes back.
+    @Test func theShownTabOpensWhenTheAppComesBack() async throws {
+        let directory = StreamedBrowserDirectory()
+        let first = FakeOpener()
+        directory.opener = { first }
+        let a = try #require(directory.model(tab: "s1", url: nil))
+        await show(a, on: first)
+        directory.setAppActive(false)
+        await dropLink(first, ["s1"])
+        let second = FakeOpener()
+        directory.opener = { second }
+        directory.linkChanged()
+        await settle()
+        #expect(second.tabs.isEmpty)
+        directory.setAppActive(true)
+        await until { second.tabs == ["s1"] }
+        #expect(second.tabs == ["s1"])
+    }
+
     @Test func tabsTheMacNoLongerListsAreDropped() async throws {
         let directory = StreamedBrowserDirectory()
         let first = FakeOpener()

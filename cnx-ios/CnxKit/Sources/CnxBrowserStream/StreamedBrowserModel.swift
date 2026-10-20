@@ -200,10 +200,10 @@ public final class StreamedBrowserModel: BrowserTabState {
         let before = self.visible
         onScreen = visible
         visibilityChanged(from: before)
-        if visible, !before { reconnect() }
     }
 
-    /// The app went to the background or came back.
+    /// The app went to the background or came back (a page shown when the
+    /// app comes back opens if its stream dropped meanwhile).
     public func setAppActive(_ active: Bool) {
         let before = visible
         appActive = active
@@ -221,6 +221,8 @@ public final class StreamedBrowserModel: BrowserTabState {
         guard visible != before else { return }
         connection?.setVisible(visible)
         if welcomed { send(wire.visibility(visible)) }
+        // Shown again (on screen, app active) with its stream gone: open it.
+        if visible { reconnect() }
     }
 
     /// The link changed or the page was shown: a dropped stream comes back.
