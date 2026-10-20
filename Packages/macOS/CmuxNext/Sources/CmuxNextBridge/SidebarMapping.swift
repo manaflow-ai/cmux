@@ -181,13 +181,17 @@ public struct SidebarMapping {
     /// while every pane shows a page. A Home, page or app tab gives no name
     /// (`WorkspaceAutoNameReader.front`), so it is passed over too.
     public func workTab(_ workspace: WorkspaceModel, selectedTab: (PaneModel) -> String?) -> TabModel? {
-        let panes = workspace.screens.flatMap(\.panes).filter { !$0.tabs.isEmpty }.sorted { $0.focusedAt > $1.focusedAt }
-        for pane in panes {
-            let tab = selected(pane, selectedTab: selectedTab)
-            let named = tab.agentSession != nil || (tab.kind != .conversation && tab.page == nil && tab.appTab == nil)
-            if tab.kind != .browser, named { return tab }
+        // One pass: the newest eligible pane, the first stored one on a tie (as `frontTab`).
+        var work: (tab: TabModel, focusedAt: UInt64)?
+        for screen in workspace.screens {
+            for pane in screen.panes where !pane.tabs.isEmpty {
+                if let work, pane.focusedAt <= work.focusedAt { continue }
+                let tab = selected(pane, selectedTab: selectedTab)
+                let named = tab.agentSession != nil || (tab.kind != .conversation && tab.page == nil && tab.appTab == nil)
+                if tab.kind != .browser, named { work = (tab, pane.focusedAt) }
+            }
         }
-        return nil
+        return work?.tab
     }
 
     /// The tab `pane` shows: the window's selection, else the daemon's default tab.
