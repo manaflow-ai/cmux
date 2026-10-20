@@ -43,7 +43,15 @@ public final class SidebarModel {
     /// scroll reveal, cx-ml98q).
     @ObservationIgnored public private(set) var userMoveRevision: UInt64?
     /// The user moved rows: the structural set that shows the move may reveal the active row.
-    public func noteUserMove() { userMoveRevision = sectionsRevision }
+    public func noteUserMove() {
+        userMoveRevision = sectionsRevision
+        noteUserIntent()
+    }
+    /// When this app's user last asked for a sidebar change (`noteUserIntent`): only a change
+    /// that follows within `userIntentWindow` moves rows on a spring (calm-sidebar-movement).
+    @ObservationIgnored var userIntentAt: ContinuousClock.Instant?
+    /// The clock `noteUserIntent` reads; tests inject a fixed instant.
+    @ObservationIgnored public var userIntentClock: @MainActor () -> ContinuousClock.Instant = { .now }
     /// True once: at the first structural set after the user's move.
     public func takeUserMove() -> Bool {
         guard let mark = userMoveRevision, mark != sectionsRevision else { return false }

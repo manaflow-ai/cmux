@@ -21,6 +21,11 @@ public final class OverlaySurfaceView: NSView {
     public let isInteractive: Bool
     private var materialView: NSView?
     private var tintView: NSView?
+    /// How the glass is tinted: the theme's tint, or the shared neutral glass
+    /// (``FloatingGlassStyle``) with its rim.
+    public let tone: OverlayTone
+    /// The neutral glass's specular rim; nil for the theme tone and on the opaque material.
+    public private(set) var rimView: GlassRimView?
     private let reduceTransparency: ReduceTransparency
     /// Pins one material (tests, `debug.drop_highlight`); nil follows this Mac.
     public var materialOverride: OverlayMaterial? {
@@ -43,9 +48,11 @@ public final class OverlaySurfaceView: NSView {
 
     /// `material` pins one material (tests, previews); nil follows
     /// `reduceTransparency` on this Mac.
+    /// `tone` picks the theme tint (default) or the shared neutral glass with a rim.
     public init(material: OverlayMaterial? = nil, interactive: Bool = false,
                 cornerRadius: CGFloat = Metrics.panelCornerRadius,
-                reduceTransparency: ReduceTransparency = .shared) {
+                reduceTransparency: ReduceTransparency = .shared, tone: OverlayTone = .theme) {
+        self.tone = tone
         materialOverride = material
         isInteractive = interactive
         self.cornerRadius = cornerRadius
@@ -136,6 +143,7 @@ public final class OverlaySurfaceView: NSView {
         // Below any view a caller added on the surface itself (the floating chat's grip).
         addSubview(view, positioned: .below, relativeTo: nil)
         materialView = view
+        installRim()
         if let focused, let window = focused.window { window.makeFirstResponder(focused) }
         applyShape()
         applyTheme()
@@ -145,7 +153,23 @@ public final class OverlaySurfaceView: NSView {
         ThemeRepaint.request(content, roots: { () -> [NSView] in [content] }, scope: nil, animated: false, layout: true, lazy: false)
     }
 
+    /// The neutral tone's rim, above the material and the content; none on the opaque material.
+    private func installRim() {
+        guard let style = tone.style, material != .opaque else {
+            rimView?.removeFromSuperview()
+            rimView = nil
+            return
+        }
+        let rim = rimView ?? GlassRimView(cornerRadius: cornerRadius, look: style.look(isDark: themeTokens.isDark))
+        rim.frame = bounds
+        rim.autoresizingMask = [.width, .height]
+        rim.removeFromSuperview()
+        addSubview(rim)
+        rimView = rim
+    }
+
     private func applyShape() {
+        rimView?.cornerRadius = cornerRadius
         if let glass = materialView as? GlassPanelView {
             glass.cornerRadius = cornerRadius
         } else if let layer = materialView?.layer {
@@ -159,13 +183,16 @@ public final class OverlaySurfaceView: NSView {
     /// Theme colors: the glass tint, or the fallback's Ghostty-derived fill
     /// and hairline. Never an accent color.
     public func applyTheme() {
+        let look = tone.style?.look(isDark: themeTokens.isDark)
+        rimView?.look = look ?? rimView?.look ?? FloatingGlassStyle.dialog.look(isDark: true)
         performWithTheme {
             switch material {
             case .liquidGlass:
-                (materialView as? GlassPanelView)?.tintColor = overlayTint
+                (materialView as? GlassPanelView)?.tintColor = look?.veil.nsColor ?? overlayTint
             case .vibrancy:
-                tintView?.layer?.backgroundColor = overlayTint.cgColor
-                materialView?.layer?.borderColor = Palette.separator.cgColor
+                tintView?.layer?.backgroundColor = (look?.veil.nsColor ?? overlayTint).cgColor
+                // The neutral glass's rim replaces the hairline.
+                materialView?.layer?.borderColor = look == nil ? Palette.separator.cgColor : NSColor.clear.cgColor
             case .opaque:
                 materialView?.layer?.backgroundColor = Palette.popupSurface.cgColor
                 materialView?.layer?.borderColor = Borders.color(Palette.separator).cgColor

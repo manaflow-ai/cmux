@@ -3990,6 +3990,48 @@ jobs:
           if-no-files-found: error
           retention-days: 3
 
+      # The smokes leave daemons of the shipped bundle running (the app keeps
+      # its cmux-tui and acpmux daemons by design). On a hosted runner the
+      # runner then spends 3 to 5 minutes in "Cleaning up orphan processes"
+      # before the job ends (run 39395352101: two `cmux` orphans,
+      # 09:27:36-09:31:01). List what is left, then stop the daemons of this
+      # job's bundle through their own commands. Ephemeral runner only.
+      - name: Stop the daemons the smokes left
+        if: always() && env.TRACK == 'nightly-next'
+        continue-on-error: true
+        timeout-minutes: 2
+        run: |
+          set -uo pipefail
+          echo "cmux processes left by the smokes:"
+          ps -axww -o pid=,ppid=,lstart=,args= | grep -i cmux | grep -v grep || true
+          app="$GITHUB_WORKSPACE/$CHANNEL_APP_PATH"
+          bin="$app/Contents/Resources/bin"
+          [ -d "$bin" ] || exit 0
+          # shellcheck source=/dev/null
+          source scripts/lib/stop-cmux-tui-owners.sh
+          cmux_stop_cmux_tui_owners "$(cd -P "$bin" && pwd)"
+          # The DMG smoke's owners ran from the detached mount, so ask each
+          # remaining owner to stop through its socket with this bundle's
+          # cmux-tui; SIGTERM only that exact PID if the request fails.
+          ps -axww -o pid= -o args= | while read -r pid args; do
+            case "$args" in
+              */Contents/Resources/bin/cmux-tui\ --headless\ *) ;;
+              *) continue ;;
+            esac
+            socket="$(printf '%s\n' "$args" | sed -nE 's/.* --socket ([^ ]+).*/\1/p')"
+            if [ -n "$socket" ] && "$bin/cmux-tui" --socket "$socket" server stop --end-terminals >/dev/null 2>&1; then
+              continue
+            fi
+            kill -TERM "$pid" 2>/dev/null || true
+          done
+          # `cmux acp` finds the bundle's own acpmux build home (a bare
+          # `acpmux` would use ~/.acpmux). The DMG app has the same bundle id.
+          if [ -x "$bin/cmux" ]; then
+            "$bin/cmux" acp daemon shutdown --end-agents >/dev/null 2>&1 || true
+          fi
+          echo "cmux processes after the stop:"
+          ps -axww -o pid=,ppid=,args= | grep -i cmux | grep -v grep || true
+
 
   # nightly-next continuation. A build whose notarization wait ran out left a
   # recovery artifact (build-sign-notarize-nightly). Each later published
@@ -4624,6 +4666,16 @@ jobs:
           # text; cx-lntk). The app shows the same lines from the signed notes.
           if [ "$NIGHTLY_TRACK" = nightly-next ] && [ -n "$PUBLISHED_SHA" ] && [ "$PUBLISHED_SHA" != "$NOTES_HEAD" ]; then
             ./scripts/cmux-next/fetch-release-notes-span.sh origin "$NOTES_HEAD" nightly-next "$PUBLISHED_SHA"
+            # The changelog gate (2026-10-20, Lawrence: "the change log needs to be better at all
+            # times"): before any asset uploads, the span's notes must give the update card real
+            # What's New entries. A span with none fails here instead of shipping a card that says
+            # only "What's new in this build"; sign-release-notes builds the same notes later.
+            gate_dir="$(mktemp -d)"
+            python3 scripts/cmux-next/release-notes.py build --build "$NIGHTLY_BUILD" \
+              --short "1.0.0-nightly.$NIGHTLY_BUILD" --date "$(date -u +%Y-%m-%d)" \
+              --head "$NOTES_HEAD" --since "$PUBLISHED_SHA" --out "$gate_dir" >/dev/null
+            python3 scripts/cmux-next/release-notes.py check --notes "$gate_dir/$NIGHTLY_BUILD.json"
+            rm -rf "$gate_dir"
             python3 scripts/cmux-next/release-notes.py appcast --head "$NOTES_HEAD" --since "$PUBLISHED_SHA" \
               --appcasts nightly-out --build "$NIGHTLY_BUILD" --feeds "${feeds[@]}"
             # The GitHub release body lists the same span's PRs (the two release
