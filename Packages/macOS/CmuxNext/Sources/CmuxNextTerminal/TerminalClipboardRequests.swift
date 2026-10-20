@@ -84,14 +84,43 @@ final class TerminalClipboardRequests {
 
     /// OSC 52 write when `clipboard-write = ask`.
     func confirmWrite(items: [TerminalClipboardItem], location: TerminalPasteboardLocation) {
-        guard let view, view.window != nil, !view.isHiddenOrHasHiddenAncestor else { return }
+        guard let view else { return }
+        let scope: CmuxDialogScope = if view.window != nil, !view.isHiddenOrHasHiddenAncestor {
+            .tab(view)
+        } else if let window = view.window {
+            .window(window)
+        } else {
+            .app
+        }
         let text = items.first(where: { $0.mime.hasPrefix("text/plain") })?.text ?? items.first?.text ?? ""
         let spec = Self.spec(String(localized: "terminal.clipboard.write.title", defaultValue: "Allow a program to change the clipboard?", bundle: .module),
                              String(localized: "terminal.clipboard.write.message", defaultValue: "A program running in this terminal wants to copy text to the clipboard.", bundle: .module),
                              preview: text)
-        CmuxDialogCenter.shared.present(spec, in: .tab(view)) { answer in
+        CmuxDialogCenter.shared.present(spec, in: scope) { answer in
             guard answer.button == "allow" else { return }
             TerminalPasteboard.write(items, to: location)
+        }
+    }
+
+    /// Routes every program-originated write through the session's provenance
+    /// policy. Ghostty's own `ask` setting and every untrusted session show the
+    /// same confirmation; only a focused, proven-local program writes silently.
+    func write(items: [TerminalClipboardItem], location: TerminalPasteboardLocation, requiresConfirmation: Bool) {
+        if requiresConfirmation {
+            confirmWrite(items: items, location: location)
+            return
+        }
+        guard let session = view?.session, let delegate = session.delegate else {
+            confirmWrite(items: items, location: location)
+            return
+        }
+        Task { [weak self, weak session] in
+            guard let self, let session else { return }
+            if await delegate.terminalSessionAllowsClipboardWrite(session) {
+                TerminalPasteboard.write(items, to: location)
+            } else {
+                confirmWrite(items: items, location: location)
+            }
         }
     }
 

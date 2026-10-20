@@ -33,7 +33,15 @@ if [[ "$dir" == *$'\n'* ]]; then
   exit 2
 fi
 
-namespace="v1/${RUNNER_OS:-$(uname -s)}-${RUNNER_ARCH:-$(uname -m)}"
+# CI_CACHE_R2_NAMESPACE names a platform-independent cache (for example
+# `any` for built web bundles that a Linux job saves and a Mac restores);
+# otherwise the namespace is the runner's OS and architecture.
+platform="${CI_CACHE_R2_NAMESPACE:-${RUNNER_OS:-$(uname -s)}-${RUNNER_ARCH:-$(uname -m)}}"
+if ! valid_name "$platform"; then
+  echo "r2-cache: namespace has characters outside [A-Za-z0-9._-]: $platform" >&2
+  exit 2
+fi
+namespace="v1/$platform"
 set_output() { if [[ -n "${GITHUB_OUTPUT:-}" ]]; then echo "$1=$2" >> "$GITHUB_OUTPUT"; fi; }
 
 fetch() { # <relative object path> <destination file>

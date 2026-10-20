@@ -111,7 +111,12 @@ def read_marker(api: Api, artifact: dict, key: str) -> dict | None:
             return None
     elif dev_daily is not False:
         return None
-    if marker.get("origin") == "push":
+    if marker.get("origin") in ("push", "dispatch"):
+        if dev_daily and marker.get("origin") != "push":
+            return None
+        # A dispatch may run on a tag; a push marker names a branch.
+        if marker.get("ref_kind", "heads") not in (("heads", "tags") if marker["origin"] == "dispatch" else ("heads",)):
+            return None
         return marker if REF.match(str(marker.get("branch", ""))) else None
     if marker.get("origin") == "pull_request":
         if not re.fullmatch(r"[0-9]{1,9}", str(marker.get("pr", ""))):
@@ -124,8 +129,9 @@ def read_marker(api: Api, artifact: dict, key: str) -> dict | None:
 
 def dispatch_refs(marker: dict, repo: str) -> list[str]:
     """Where cmux-next.yml runs: the push's branch; a pull request's head
-    branch (its checks then show on the pull request) and then its base."""
-    if marker["origin"] == "push":
+    branch (its checks then show on the pull request) and then its base.
+    A dispatch on a branch runs there again, like a push."""
+    if marker["origin"] in ("push", "dispatch"):
         return [marker["branch"]]
     refs = []
     head_ref = str(marker.get("head_ref", ""))
@@ -136,12 +142,15 @@ def dispatch_refs(marker: dict, repo: str) -> list[str]:
 
 
 def is_current(api: Api, repo: str, marker: dict) -> bool:
-    if marker["origin"] == "push":
+    if marker["origin"] in ("push", "dispatch"):
         # A scheduled DEV build owns an immutable SHA. Its tree may finish
         # after feat-cmux-next advances, so the branch pointer is not an
         # admission signal for this marker. same-tree mode checks out the
         # recorded SHA and the publisher's source gate verifies it again.
         if marker.get("dev_daily"):
+            return True
+        # A tag has no head to move on (and is not a branch to look up).
+        if marker.get("ref_kind") == "tags":
             return True
         head = api.get(f"repos/{repo}/git/ref/heads/{marker['branch']}")
         return head.get("object", {}).get("sha") == marker["sha"]
