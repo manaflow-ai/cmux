@@ -127,7 +127,6 @@ open class HomeDockSwitchView: NSView {
     /// Switches to `target` (the other view when nil) with `selection`, else the current selection
     /// handed over. Two quick switches run in order, so the last one wins. A view that may not show
     /// (`HomeDockMode.isEnabled`: Channels while it is off) is not switched to; callers refuse first.
-    /// Either way, a switch that opens a selection hands the keyboard to the shown view's primary input.
     public func switchTo(_ target: HomeDockMode?, selection given: HomeDockSelection? = nil) {
         let previous = switching
         // task-owner: one switch; a page answer is bounded by the subclass's selection deadline.
@@ -137,12 +136,7 @@ open class HomeDockSwitchView: NSView {
             let target = target ?? mode.other
             guard target.isEnabled else { return }
             guard target != mode else {
-                // A conversation opened in the view already shown: its message box takes the
-                // keyboard, as after a switch (Lawrence 2026-10-20).
-                if let given {
-                    open(given)
-                    focusPrimaryInput()
-                }
+                if let given { open(given) }
                 return
             }
             var selection = given

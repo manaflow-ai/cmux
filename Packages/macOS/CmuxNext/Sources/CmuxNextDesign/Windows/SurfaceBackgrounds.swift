@@ -81,13 +81,9 @@ public nonisolated struct SurfaceBackgrounds: Hashable, Sendable {
     /// - Parameter kind: The surface.
     /// - Parameter tokens: The theme tokens of the surface's scope (its
     ///   background color, `background-opacity` and blur).
-    /// - Parameter windowTint: The tint the window shows under the surface
-    ///   (``WindowBackdrop/tintOpacity``); over a background picture that is
-    ///   the picture's tint, not `background-opacity`. nil reads the tokens'
-    ///   own (no picture).
-    public func fill(for kind: SurfaceKind, tokens: ThemeTokens, windowTint: Double? = nil) -> ThemeRGB? {
+    public func fill(for kind: SurfaceKind, tokens: ThemeTokens) -> ThemeRGB? {
         guard let override = overrides[kind], !override.isEmpty else { return nil }
-        let window = windowTint ?? WindowBackdrop(tokens).tintOpacity
+        let window = WindowBackdrop(tokens).tintOpacity
         if let color = override.color {
             return color.withAlpha(color.alpha * (override.opacity ?? window))
         }
@@ -101,8 +97,8 @@ public nonisolated struct SurfaceBackgrounds: Hashable, Sendable {
     /// `fill(for:tokens:)` laid over an opaque `base`, for owners that
     /// must paint an opaque color (a docked column hides what scrolls under
     /// it); `base` itself without an override.
-    public func opaqueFill(for kind: SurfaceKind, tokens: ThemeTokens, base: ThemeRGB, windowTint: Double? = nil) -> ThemeRGB {
-        guard let fill = fill(for: kind, tokens: tokens, windowTint: windowTint) else { return base }
+    public func opaqueFill(for kind: SurfaceKind, tokens: ThemeTokens, base: ThemeRGB) -> ThemeRGB {
+        guard let fill = fill(for: kind, tokens: tokens) else { return base }
         return fill.composited(over: base.withAlpha(1))
     }
 

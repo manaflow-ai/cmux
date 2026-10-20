@@ -99,9 +99,8 @@ public nonisolated struct WindowBackdrop: Equatable, Sendable {
     /// - Parameter tokens: The theme tokens of the view's scope.
     /// - Parameter reduceTransparency: The user's Reduce Transparency setting.
     /// - Parameter art: Bundled art below the window's material and tint.
-    /// - Parameter tintOpacity: The tint over art the user chose (`ThemeScope.backdropTintOpacity`:
-    ///   a workspace's own, else the window Opacity), replacing the work's; at most
-    ///   ``maximumWorkspaceTint``, and the legibility floor still applies.
+    /// - Parameter tintOpacity: A workspace's own tint over art (`ThemeScope.backdropTintOpacity`),
+    ///   replacing the work's and the window's; the legibility floor still applies.
     public init(_ tokens: ThemeTokens, reduceTransparency: Bool = false, art: BackdropArt? = nil,
                 selection: BackdropSelection? = nil, tuning: AppearanceTuning = .identity,
                 texture: BackdropTexture = .default, tintOpacity workspaceTint: Double? = nil) {

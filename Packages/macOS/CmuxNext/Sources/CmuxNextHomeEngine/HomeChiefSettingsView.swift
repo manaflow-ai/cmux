@@ -69,10 +69,6 @@ public final class HomeChiefSettingsView: NSView {
     var source: any HomeChiefEngineSource
     /// Renames the Chief conversation (the daemon's set-title op).
     public var onRename: (String) -> Void = { _ in }
-    /// Where Choose Picture… and Use Default Picture write, and for which Chief: the daemon's
-    /// registry for a Chief of this Mac (set by the header view); nil writes this panel's
-    /// mux home's files (a cloud Chief).
-    public var pictureStore: (avatars: HomeChiefAvatars, chief: String)?
     /// The Chief's avatar changed on disk (its picture): read it again.
     public var onAvatar: () -> Void = {}
     /// Show Memory: runs "Chief: Open Memory Inspector".
@@ -254,32 +250,22 @@ public final class HomeChiefSettingsView: NSView {
         panel.canChooseDirectories = false
         let use = { [weak self] (response: NSApplication.ModalResponse) in
             guard response == .OK, let url = panel.url else { return }
-            self?.usePicture(url)
+            self?.usePicture { try $0.writePicture(from: url) }
         }
         if let window = pictureWindow() ?? window { panel.beginSheetModal(for: window, completionHandler: use) } else { use(panel.runModal()) }
     }
 
     @objc func useDefaultPicture() {
-        usePicture(nil)
+        usePicture { $0.clearPicture() }
     }
 
-    /// Makes `source` the shown Chief's picture (nil: the default again) through
-    /// ``pictureStore`` (the daemon's registry for a Chief of this Mac, else its files),
-    /// then has the header (and this panel's avatar) read it; a picture that could not be
-    /// used says so.
-    func usePicture(_ source: URL?) {
-        let store = pictureStore ?? (avatars: HomeChiefAvatars(muxHome: muxHome), chief: HomeChiefAvatars.defaultChief)
-        // task-owner: one picture write (registry or files), then the header reads it
+    /// Writes the picture off the main actor, then has the header (and this
+    /// panel's avatar) read it; a picture that could not be used says so.
+    func usePicture(_ write: @escaping @Sendable (HomeChiefFiles) throws -> Void) {
+        let files = HomeChiefFiles(muxHome: muxHome)
+        // task-owner: one file write off the main actor, then the header reads it
         Task { [weak self] in
-            let written: Bool
-            do {
-                if let source { try await store.avatars.setPicture(from: source, chief: store.chief) } else {
-                    try await store.avatars.clearPicture(chief: store.chief)
-                }
-                written = true
-            } catch {
-                written = false
-            }
+            let written = await Task.detached { (try? write(files)) != nil }.value
             guard let self else { return }
             failure.stringValue = written ? "" : HomeEngineStrings.pictureUnreadable
             failure.isHidden = written

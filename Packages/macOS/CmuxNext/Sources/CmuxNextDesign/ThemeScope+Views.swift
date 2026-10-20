@@ -44,21 +44,17 @@ enum ThemeScopeRegistry {
 /// against the app theme.
 @MainActor
 enum ThemeContext {
-    /// The scopes running color code, innermost last, with the tokens read once at push.
-    private static var stack: [(scope: ThemeScope, tokens: ThemeTokens)] = []
+    private static var stack: [(tokens: ThemeTokens, selection: BackdropSelection?)] = []
 
     static var active: ThemeTokens? { stack.last?.tokens }
-    /// The active scope (nil outside one): its surfaces and its tint over art are what its
-    /// surfaces' owners paint against.
-    static var activeScope: ThemeScope? { stack.last?.scope }
     /// The active scope's background image (inherited from the app), or
     /// the app's outside a scope: with an image the window is see-through
     /// at any `background-opacity` (`WindowBackdrop`).
     static var activeBackdropSelection: BackdropSelection? {
-        (stack.last?.scope ?? ThemeScope.app).backdropSelection
+        stack.last.map(\.selection) ?? ThemeScope.app.backdropSelection
     }
 
-    static func push(_ scope: ThemeScope) { stack.append((scope, scope.tokens)) }
+    static func push(_ tokens: ThemeTokens, selection: BackdropSelection?) { stack.append((tokens, selection)) }
     static func pop() { stack.removeLast() }
 }
 
@@ -86,7 +82,7 @@ extension NSView {
     /// `layout`).
     public func performWithTheme<T>(_ body: () -> T) -> T {
         let scope = themeScope
-        ThemeContext.push(scope)
+        ThemeContext.push(scope.tokens, selection: scope.backdropSelection)
         defer { ThemeContext.pop() }
         var result: T?
         effectiveAppearance.performAsCurrentDrawingAppearance { result = body() }

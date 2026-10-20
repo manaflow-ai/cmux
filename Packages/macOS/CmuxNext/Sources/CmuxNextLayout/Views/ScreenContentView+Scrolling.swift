@@ -26,17 +26,14 @@ extension ScreenContentView {
             scrollState = ColumnScrollState()
             settleCarried()
             applyPresentation()
-            // Resetting the camera can start a carried pane off screen. Keep its spring
-            // ticking while this workspace stays visible (Lucas 2026-10-19).
-            return hasMotion || rowsNeedFrames
+            return rowsNeedFrames
         }
         scrollState.mode = mode
         let effects = scrollState.reduce(.sync(strip, focused: focused, source: source, animated: animate, reveals: reveals,
                                                anchor: ScreenDividers(screen: self).dragAnchorColumn))
         settleCarried()
         if effects.snapped && showsScrollbarOnSnap { scrollbarFlash = true }
-        let needsFrames = apply(effects)
-        return needsFrames || hasMotion || rowsNeedFrames
+        return apply(effects) || rowsNeedFrames
     }
 
     /// Centers the column holding `pane` once, or with `reveal` scrolls it the least into view (cx-27j7). Returns true if the spring needs frames.

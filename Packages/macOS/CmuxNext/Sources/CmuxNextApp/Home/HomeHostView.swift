@@ -301,33 +301,13 @@ final class HomeHostView: NSView {
         }
     }
 
-    /// Where this Chief's picture is kept: the daemon's Chief registry for a Chief of this Mac
-    /// (the store the profile and chiefs tools write); nil for a cloud Chief (its files).
-    private func pictureStore() -> (avatars: HomeChiefAvatars, chief: String)? {
-        guard !control.isCloud else { return nil }
-        let avatars = HomeChiefAvatars(muxHome: HomeBrainHost.muxHome(tag: control.services.environment.tag),
-                                       registry: DaemonChiefAvatarRegistry(connection: control.connection))
-        return (avatars, HomeChiefAvatars.chiefID(named: control.named))
-    }
-
-    /// The header avatar of the Chief shown here: its registry picture, else its profile's text.
+    /// The header avatar of the Chief shown here (its own mux home's profile).
     private func loadAvatar() {
         let home = control.brainHome
         let files = HomeChiefFiles(muxHome: home)
-        let store = pictureStore()
-        settingsView.pictureStore = store
-        // task-owner: one avatar read (registry, else files off the main actor); ends when it is shown
+        // task-owner: one profile read off the main actor; ends when it is shown
         Task { [weak self] in
-            let avatar: (text: String?, picture: Data?)
-            if let store {
-                switch await store.avatars.read(chief: store.chief) {
-                case .picture(let url)?: avatar = (nil, await Task.detached { try? Data(contentsOf: url) }.value)
-                case .text(let text)?: avatar = (text, nil)
-                case nil: avatar = (nil, nil)
-                }
-            } else {
-                avatar = await Task.detached { files.headerAvatar() }.value
-            }
+            let avatar = await Task.detached { files.headerAvatar() }.value
             // A read for the Chief shown before (the conversation's Chief came in since) is dropped.
             guard let self, control.brainHome == home else { return }
             let picture = avatar.picture.flatMap(NSImage.init(data:))
