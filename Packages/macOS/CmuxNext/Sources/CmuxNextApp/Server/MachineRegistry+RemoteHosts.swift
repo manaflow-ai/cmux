@@ -11,9 +11,9 @@ final class AppRemoteHostRegistry: RemoteHostRegistry {
     private let machines: MachineRegistry
     private let paths: SSHPaths
 
-    init(machines: MachineRegistry, paths: SSHPaths) {
+    init(machines: MachineRegistry, bundleID: String?) {
         self.machines = machines
-        self.paths = paths
+        paths = SSHPaths.standard(bundleID: bundleID)
     }
 
     var remoteHosts: [any RemoteHostSession] { machines.servers.filter(\.reach.isTailnetHost) }

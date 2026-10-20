@@ -67,7 +67,7 @@ final class AppServices {
     /// Remote hosts on the private network (`cmux host list`) in the sidebar, and this Mac's
     /// own Remote Hosting setting (`cmux host enable`), through the bundled CLI.
     private(set) lazy var remoteHosts = RemoteHostSource.bundled(registry: AppRemoteHostRegistry(
-        machines: machines, paths: SSHPaths.standard(bundleID: environment.launch.bundleID)))
+        machines: machines, bundleID: environment.launch.bundleID))
     private(set) lazy var remoteHosting = RemoteHostingFollower.bundled(
         session: environment.daemonSession, owner: [.release, .nightly].contains(environment.launch.build.kind))
     let mobile = MobileHostService(displayName: { await MacName().computerName() })  // phone access; the account layer starts it
