@@ -6,8 +6,8 @@
 set -euo pipefail
 here=${0:a:h}
 kit=${here:h:h}/CmuxMobileKit
-host=${CmuxMobileKIT_TEST_HOST:-mini-cmux11s-mac-mini}
-dir=${CmuxMobileKIT_TEST_DIR:-termqa-test}  # one per concurrent agent
+host=${CMUX_MOBILE_KIT_TEST_HOST:-mini-cmux11s-mac-mini}
+dir=${CMUX_MOBILE_KIT_TEST_DIR:-termqa-test}  # one per concurrent agent
 ssh $host "mkdir -p ~/${dir}/cmux-next-ios/CmuxMobileKit"
 rsync -a --delete $kit/Sources $kit/Tests $kit/Package.swift ${host}:${dir}/cmux-next-ios/CmuxMobileKit/
 ssh $host "mkdir -p ~/${dir}/cmux-next-ios/CmuxMobileKit && cd ~/${dir}/cmux-next-ios/CmuxMobileKit && find Sources Tests -name '*.swift' -exec touch {} + && swift test --filter '${1:?filter}' 2>&1 | grep -E 'error:|✘|failed|passed after|Test run with|issue' | tail -${2:-40}"
