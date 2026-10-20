@@ -49,6 +49,7 @@ import { HarnessesScreen } from "./harnesses/HarnessesScreen";
 import { openHarnessesPage, registerHarnessesPage, useHarnessesPage } from "./harnesses/harnessesPage";
 import { injectedNewTabContext, useEarlyNewTabContext, useNewTabAdoption, useNewTabPlaces } from "./newtab/adoption";
 import { heldPick, withDraftFolder } from "./newtab/draftFolder";
+import { rememberRecentFolders } from "./newtab/recentProject";
 import { StyleSwitch } from "./newtab/StyleSwitch";
 import { pageStyle, pickNewTabStyle, screenTemplate, shownTemplate } from "./newtab/templates";
 import { newTabPageSubmit } from "./newtab/pageSubmit";
@@ -2874,8 +2875,10 @@ function AcpmuxPane() {
     handoff.target.sessionId === snapshot.sessionId &&
     ["draft", "starting"].includes(handoff.state) &&
     !snapshot.handoff?.receipt;
-  const handoffLoading = !!snapshot.sessionId && !!snapshot.canHandoff && !snapshot.handoff?.ready;
-  const freshChat = !reviewing && !handoffLoading && isNewChat(snapshot, newSession);
+  // Until the chat's handoff is read the pane draws no review (reviews are rare): the composer and
+  // a new chat's hero stay, and a review that arrives takes their place (Leo 2026-10-19: the
+  // composer left for the read on every open, switch and reconnect).
+  const freshChat = !reviewing && isNewChat(snapshot, newSession);
   /// The chat's start folder (startFolder.tsx): the host's folder for a new chat or the user's
   /// pick, for every start of this new chat (the agent row, a harness pick, the first Send).
   /// Undefined: the host fills the chat's folder (the workspace's agent-home folder).
@@ -4182,6 +4185,9 @@ function AcpmuxPane() {
             const summary = next.summary;
             const started = summary?.model !== undefined && startedSessions.delete(summary.sessionId);
             harnessProfiles.observe(summary, started);
+            // The next New Tab page names the project used last on its first frame
+            // (newtab/recentProject.ts); the mock daemon's chats are not the app's.
+            if (!mock) rememberRecentFolders(next);
             setSnapshot((previous) => {
               if (
                 next.canHandoff &&
@@ -5113,6 +5119,12 @@ function AcpmuxPane() {
   }, [freshChat, onNewTab, newTabGeneration, loadNewTabProjects]);
   // A started local chat moves to another folder in place; a Cloud chat's folder is a label.
   const canMove = Boolean(snapshot.sessionId) && composerSnapshot.summary?.hostKind !== "cloud";
+  // The daemon has not listed the chats to this page yet and none are known (newtab/recentProject.ts).
+  const newTabChatsPending =
+    !composerSnapshot.listedSessions &&
+    composerSnapshot.sessions.length === 0 &&
+    composerSnapshot.connection !== "disconnected" &&
+    composerSnapshot.connection !== "debug";
   // The folders the host lists as projects (no chat folders): the most recent project is one of them.
   // The daemon's list (removals win) once it has answered, else the page's own.
   const newTabKnownProjects = useMemo(
@@ -5411,7 +5423,7 @@ function AcpmuxPane() {
         : {})}
     />
   );
-  const composer = !reviewing && !handoffLoading && (
+  const composer = !reviewing && (
     <>
       <PullRequestDock key={snapshot.sessionId} rows={snapshot.rows} sessionId={snapshot.sessionId} />
       {recapCard.recap && (
@@ -5864,6 +5876,8 @@ function AcpmuxPane() {
               inputToken={newTab.inputToken}
               {...(newTab.cwd ? { cwd: newTab.cwd } : {})}
               {...(startFolder ? { startCwd: startFolder } : {})}
+              {...(!handshaken ? { startPending: true } : {})}
+              {...(newTabChatsPending ? { chatsPending: true } : {})}
               {...((newTab.host ?? machineName) ? { machineName: (newTab.host ?? machineName)! } : {})}
               projects={newTabProjects}
               onBrowseProject={() =>
