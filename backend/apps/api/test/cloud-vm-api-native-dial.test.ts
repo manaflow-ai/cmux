@@ -1,3 +1,4 @@
+import { decodeJwt } from "jose"
 import type { Principal } from "@cmux/ownership"
 import { describe, expect, it } from "vitest"
 import { authorizeNativeDial, recheckNativeDial, type NativeDialDeps } from "../src/cloud-native-dial.ts"
@@ -28,16 +29,17 @@ const fixture = async () => {
       network: { state: "confirmed", tenant: TENANT, mesh: MESH, device: DEVICE, confirmed_at: Date.now(), install_grant: GRANT } }
   } }
   let currentKey: JsonWebKey | null = jwk
+  let incarnation = 1, grantExpiresAt: number | null = null
   let services: ReadonlyArray<string> = ["daemon", "ssh"]
   let policy: Record<string, unknown> = { tenantId: TENANT, meshId: MESH, deviceId: DEVICE, wgPublicKey: wg, installPublicKey: point, aclVersion: 1, policyDigest: "a".repeat(64), peers: [],
     vms: [{ kind: "vm", id: VM, address: target.network.ipv4, allow: [{ protocol: "tcp", port: 22 }, { protocol: "tcp", port: 4100 }] }] }
   let onRead: (() => void) | undefined
   let reads = 0
   const used = new Set<string>()
-  const deps: NativeDialDeps = {
+  const deps: NativeDialDeps = Object.assign({
     team: TEAM, project: "project", origin: ORIGIN, state: () => state, rows: undefined,
     tenant: async () => ({ team: TEAM, project: "project", tenant: TENANT }), key: async () => currentKey, allowed: () => services, now: Date.now,
-    http: async (request) => {
+    http: async (request: Request) => {
       expect(request.url).toBe(`${ORIGIN}/v1/devices/${DEVICE}/signed/overlay-policy`)
       expect(request.method).toBe("POST"); expect(request.redirect).toBe("manual")
       expect(request.headers.has("authorization")).toBe(false); expect(request.headers.has("cookie")).toBe(false)
@@ -49,7 +51,7 @@ const fixture = async () => {
       used.add(proof.nonce); reads++; onRead?.()
       return Response.json(policy)
     }
-  }
+  }, { identity: async () => currentKey ? { key: currentKey, kind: "mac", expires_at: grantExpiresAt, authority_version: String(incarnation).padStart(64, "0") } : null })
   const proof = async () => {
     const signedAt = Date.now(), nonce = btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(16)))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")
     const message = ["cmux-mesh-v1", "overlay-policy", DEVICE, "", point, "", String(signedAt), nonce].join("\n")
@@ -58,6 +60,7 @@ const fixture = async () => {
   }
   return { deps, proof, reads: () => reads, authorize: async (requested = ["daemon", "ssh"]) => authorizeNativeDial(deps, principal, target, await proof(), requested),
     policy: () => policy, setPolicy: (value: Record<string, unknown>) => { policy = value },
+    renewAuthority: () => { incarnation++ }, limitGrant: (expires: number) => { grantExpiresAt = expires },
     revoke: () => { currentKey = null }, leave: () => { state = { ...state, members: {} } },
     legacy: () => { const host = state.hosts![HOST]!; if (host.network?.state !== "confirmed") throw new Error("missing binding"); const { install_grant: _old, ...network } = host.network; state = { ...state, hosts: { [HOST]: { ...host, network } } } },
     retarget: () => { const host = state.hosts![HOST]!; state = { ...state, hosts: { [HOST]: { ...host, wg_public_key: btoa("0".repeat(32)) } } } },
@@ -154,4 +157,38 @@ describe("Native policy in the actual link-token minter", () => {
     expect(await f.mint(await f.proof())).toMatchObject({ ok: false, code: "auth.forbidden" })
     expect(f.audit).toHaveLength(0)
   })
+})
+
+
+it("refuses a new authority incarnation with the same key and grant during the signed policy read", async () => {
+  const f = await fixture()
+  f.onRead(f.renewAuthority)
+  expect(await f.authorize()).toMatchObject({ ok: false, code: "auth.forbidden" })
+})
+
+it("invalidates an earlier permit when unchanged admission values have a new incarnation", async () => {
+  const f = await fixture(), read = await f.authorize()
+  expect(read.ok).toBe(true)
+  if (!read.ok) throw new Error(read.code)
+  f.renewAuthority()
+  expect(await recheckNativeDial(f.deps, principal, read.permit)).toBe(false)
+})
+
+it("signs the checked Native identity and its opaque incarnation into the actual Cloud token", async () => {
+  const f = await mintFixture(), answer = await f.mint(await f.proof())
+  expect(answer.ok).toBe(true)
+  if (!answer.ok) throw new Error(answer.code)
+  const claims = decodeJwt((answer.value as { token: string }).token)
+  expect(claims.network).toMatchObject({ version: 1, tenant: TENANT, mesh: MESH, device: DEVICE, host: HOST, user: USER, wg_public_key: wg, acl_version: 1, authority_version: expect.stringMatching(/^[0-9a-f]{64}$/) })
+  expect(JSON.stringify(claims)).not.toContain(GRANT)
+})
+
+it("never mints a Native credential beyond its original grant expiry", async () => {
+  const f = await mintFixture(), expires = Date.now() + 10_000
+  f.limitGrant(expires)
+  const answer = await f.mint(await f.proof())
+  expect(answer.ok).toBe(true)
+  if (!answer.ok) throw new Error(answer.code)
+  const claims = decodeJwt((answer.value as { token: string }).token)
+  expect(Number(claims.exp) * 1000).toBeLessThanOrEqual(expires)
 })
