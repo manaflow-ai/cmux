@@ -36,7 +36,7 @@ describe("Run failure stage", () => {
     expect(runFailureDetail(undefined)).toBe("");
   });
 
-  test("leaves control-flow errors unlabelled so the worker still recognizes them", async () => {
+  test("keeps a control-flow error's class so the worker still recognizes it", async () => {
     class Pending extends Error {}
     const error = await labelRunStage("vm-create", async () => { throw new Pending("later"); }).catch((caught) => caught);
     expect(error).toBeInstanceOf(Pending);
