@@ -5,7 +5,8 @@
 //! - its turn ended: "<chat> finished" with the reply's last line, or
 //!   "<chat> failed" (level error) when the turn failed;
 //! - it waits for the person (a permission or a question): "<chat> needs
-//!   input" with what it asks;
+//!   input" with what it asks, and again for each ask that comes while it
+//!   already waits;
 //! - its agent went away mid-turn: "<chat> stopped responding" (error).
 //!
 //! The app shows them like any tab notification (a banner unless that tab is
@@ -255,6 +256,8 @@ struct Chat {
     notified_turn: Option<String>,
     last_message: String,
     last_seq: u64,
+    /// The permissions and questions it waits on (acpmux `pendingPermissions`).
+    pending: u64,
 }
 
 struct Notice {
@@ -295,6 +298,7 @@ impl Chat {
             notified_turn: None,
             last_message: summary["lastMessage"]["text"].as_str().unwrap_or_default().to_owned(),
             last_seq: summary["lastSeq"].as_u64().unwrap_or(0),
+            pending: summary["pendingPermissions"].as_u64().unwrap_or(0),
         })
     }
 
@@ -338,7 +342,10 @@ impl Chat {
             }
         }
         let was = before.map_or("", |chat| chat.indicator.as_str());
-        if self.indicator == "input" && was != "input" {
+        // A new ask while the chat already waits (a second permission, a subagent's question)
+        // notifies too; one answered while another still waits does not.
+        let asks_more = before.is_some_and(|chat| self.pending > chat.pending);
+        if self.indicator == "input" && (was != "input" || asks_more) {
             notices.push(Notice {
                 // The record it waits on: the same key while it still waits.
                 key: format!("input-{}", self.last_seq),
@@ -370,4 +377,50 @@ fn short(text: &str, max: usize) -> String {
     let mut cut = text.chars().take(max - 1).collect::<String>();
     cut.push('…');
     cut
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A chat of `title` with `pending` asks open, as acpmux summarizes it at `seq`.
+    fn chat(indicator: &str, pending: u64, seq: u64) -> Chat {
+        Chat::of(&json!({
+            "sessionId": "chat-1",
+            "title": "Review",
+            "indicator": indicator,
+            "pendingPermissions": pending,
+            "lastSeq": seq,
+            "lastMessage": {"text": "Run npm test?"},
+        }))
+        .expect("a local chat")
+    }
+
+    fn keys(notices: &[Notice]) -> Vec<&str> {
+        notices.iter().map(|notice| notice.key.as_str()).collect()
+    }
+
+    #[test]
+    fn a_chat_that_starts_waiting_notifies_once() {
+        let working = chat("working", 0, 8);
+        let mut waiting = chat("input", 1, 10);
+        assert_eq!(keys(&waiting.notices(Some(&working))), ["input-10"]);
+        // Still the same ask: nothing new.
+        let mut later = chat("input", 1, 11);
+        assert!(later.notices(Some(&waiting)).is_empty());
+    }
+
+    #[test]
+    fn a_second_ask_while_the_chat_waits_notifies_again() {
+        let first = chat("input", 1, 10);
+        let mut second = chat("input", 2, 12);
+        assert_eq!(keys(&second.notices(Some(&first))), ["input-12"]);
+    }
+
+    #[test]
+    fn an_ask_answered_while_another_still_waits_posts_nothing() {
+        let both = chat("input", 2, 12);
+        let mut one = chat("input", 1, 14);
+        assert!(one.notices(Some(&both)).is_empty());
+    }
 }
