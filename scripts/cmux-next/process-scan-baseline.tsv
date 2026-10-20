@@ -42,3 +42,4 @@ Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPanePersonInput.swift	1	k
 Packages/macOS/CmuxComputerUseHelper/Sources/CmuxCuaHelperCore/PeerInspector.swift	1	remove	cx-t2sqm.11 (walks the peer's ancestors; decision D5)
 cmux-tui/crates/cmux-server/src/health/mod.rs	1	keep	reads the system route table under /proc/net, not processes
 cmux-tui/crates/cmux-tui-platform/src/platform/codex_daemon.rs	4	keep	this process's own parents, at most 2, no enumeration: a Codex hook refuses the route its shared app-server daemon inherited (#20757)
+cmux-tui/crates/cmux-tui-platform/src/platform/job_launch.rs	3	keep	one pid: the foreground job of a PTY this daemon holds (tcgetpgrp), read once when an agent session starts for its flags and account dir (#22199)
