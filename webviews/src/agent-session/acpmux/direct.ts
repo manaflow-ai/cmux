@@ -50,6 +50,7 @@ import { BOOKMARKS_KIND, bookmarksHeard } from "./threadMinimap/bookmarks";
 import { type StartMode, startModeChanged } from "./startMode";
 import { sameSessionStart, sessionStartOf } from "./conversation/sessionStart";
 import { reduceAgentPair } from "./conversation/agentPairs";
+import { AskTracker, type PendingEntry } from "./needsYou/asks";
 
 export type AcpmuxHostConfig = {
   protocolVersion: number;
@@ -709,6 +710,17 @@ export class AcpmuxDirectClient {
   private waitingPermissions = new Map<string, AcpmuxPermission>();
   private pendingSecret?: AcpmuxSecretAsk;
   private groupedPermissions = new Map<string, AcpmuxPermission>();
+  /// Every chat's open permission requests, for the Needs you list (needsYou/asks.ts).
+  private readonly asks = new AskTracker(
+    (sessionId) =>
+      this.request("_acpmux/info", { sessionId }).then((info: any) =>
+        Array.isArray(info?.pending) ? (info.pending as PendingEntry[]) : undefined,
+      ),
+    permissionFromMessage,
+    () => this.emitInFrame("asks"),
+  );
+  /// The session list the tracker last compared counts against.
+  private askedSessions?: readonly Session[];
   /// The turn's open permission questions, and the edits that wait on one (cx-p5fgx): an edit
   /// is "pending" from its question, or from arriving while one is open, until it completes.
   private openQuestions = new Set<string>();
@@ -1181,7 +1193,10 @@ export class AcpmuxDirectClient {
         msg: { method: "session/update", params: { update: notification.params?.update } },
       });
     } else if (isNotification(notification, "_acpmux/session_changed")) this.sessionChanged(notification.params);
-    else if (isNotification(notification, "_acpmux/permission_pending")) this.applyPermission(notification.params);
+    else if (isNotification(notification, "_acpmux/permission_pending")) {
+      this.asks.pending(notification.params);
+      this.applyPermission(notification.params);
+    }
     else if (notification.method === "_acpmux/lagged") this.resyncAfterLag(notification.params);
     // A profile change may pin or free a harness's mode, which changes a new chat's start mode too.
     else if (notification.method === "_acpmux/harnesses_changed") {
@@ -1663,6 +1678,7 @@ export class AcpmuxDirectClient {
     // Only a purge carries the id alone; every other change carries the whole summary.
     const session = params?.session as SessionSummary | undefined;
     if (params?.kind === "purged" && session?.sessionId) {
+      this.asks.forget(session.sessionId);
       this.sessionPages.purgedSession(session.sessionId);
       this.sessions = this.sessions.filter((item) => item.sessionId !== session.sessionId);
       if (session.sessionId === this.selectedSessionId && this.handoff.state.busy !== "discarding")
@@ -1671,6 +1687,7 @@ export class AcpmuxDirectClient {
       return;
     }
     if (!session?.sessionId) return;
+    this.asks.session(session, typeof params?.kind === "string" ? params.kind : undefined);
     this.sessionPages.changedSession(session);
     this.sessions = [...this.sessions.filter((item) => item.sessionId !== session.sessionId), session];
     if (session.sessionId === this.selectedSessionId) {
@@ -2397,6 +2414,11 @@ export class AcpmuxDirectClient {
     this.shownSessionId = this.selectedSessionId;
     // This snapshot carries every event so far, so a snapshot waiting for the frame has nothing left.
     this.frameSnapshot = undefined;
+    // A new session list (the watch's page, a reread): chats whose counts moved are read again.
+    if (this.askedSessions !== this.sessions) {
+      this.askedSessions = this.sessions;
+      this.asks.sessions(this.sessions);
+    }
     const summary = this.summary;
     const effort = (summary?.configOptions ?? []).find(
       (option: any) => option.category === "thought_level" || option.id === "reasoning_effort",
@@ -2469,6 +2491,7 @@ export class AcpmuxDirectClient {
         ? { permissionsWaiting: this.waitingPermissions.size }
         : {}),
       secret: this.pendingSecret,
+      asks: this.asks.list(),
       catalog: [],
       commands: this.commands,
       canLoadOlder: !this.historyExhausted && (this.firstSeq ?? 1) > 1,
@@ -3022,8 +3045,14 @@ export class AcpmuxDirectClient {
   /// `answers` carries a question's harness-shaped answers (question/model.ts `reply`). An option
   /// pick first takes a gesture ticket for this prompt and option (`transport.gesture`): the host
   /// signs an allow for another machine's agent daemon only for that exact pick (cx-0q7o).
-  async permission(permissionId: string, optionId?: string, answers?: Record<string, unknown>): Promise<void> {
-    const sessionId = this.actingSessionId;
+  async permission(
+    permissionId: string,
+    optionId?: string,
+    answers?: Record<string, unknown>,
+    /// Another chat's ask (the Needs you list); the shown chat's by default.
+    session?: string,
+  ): Promise<void> {
+    const sessionId = session ?? this.actingSessionId;
     if (!sessionId) return;
     const ticket =
       optionId === undefined || answers !== undefined
@@ -3406,10 +3435,11 @@ export class AcpmuxDirectClient {
   }
   /// Asks a side question about the open session (`/btw`). acpmux answers it in a throwaway copy
   /// of the chat (`_acpmux/ask`), so the chat never holds it. Resolves to the answer's text.
-  async ask(question: string): Promise<string> {
-    if (!this.actingSessionId) return "";
+  async ask(question: string, session?: string): Promise<string> {
+    const sessionId = session ?? this.actingSessionId;
+    if (!sessionId) return "";
     const result = await this.request("_acpmux/ask", {
-      sessionId: this.actingSessionId,
+      sessionId,
       text: question,
     });
     return typeof result?.text === "string" ? result.text : "";

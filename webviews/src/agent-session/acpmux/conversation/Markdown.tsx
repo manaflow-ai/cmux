@@ -8,6 +8,7 @@
 import { Fragment, memo, useId, useMemo, useRef, type ReactNode } from "react";
 import { useT } from "../i18n";
 import { appHref, safeHref } from "../model";
+import { needsYouTarget, openNeedsYou } from "../needsYou/links";
 import { CodeBlock } from "./CodeBlock";
 import { DiagramBlock, isChart } from "./DiagramBlock";
 import { canRender, RenderCard } from "./RenderCard";
@@ -454,7 +455,17 @@ export function renderInline(source: string, outer: InlineOptions = {}): ReactNo
       const linked = /^[a-z][\w+.-]*:\/\/session\/([\w-]+)$/i.exec(lm[2])?.[1];
       const named = linked ? opts.started?.mentions.find((mention) => mention.sessionId === linked) : undefined;
       const app = href ? undefined : appHref(lm[2]);
-      if (named) out.push(<StartedSessionChip key={k++} mention={named} text={lm[1]} onOpen={opts.started!.open} />);
+      // An agent pointing at an open ask (`cmux://needs-you/<permissionId>`, needsYou/links.ts):
+      // a chip that opens the header's Needs you list on it, so the ask is never restated.
+      const ask = href ? undefined : needsYouTarget(lm[2]);
+      if (ask)
+        out.push(
+          <button key={k++} type="button" className="cv-link is-needs-you" onClick={() => openNeedsYou(ask)}>
+            <span className="acpmux-needs-you-dot" aria-hidden="true" />
+            {renderInline(lm[1], labelOpts)}
+          </button>,
+        );
+      else if (named) out.push(<StartedSessionChip key={k++} mention={named} text={lm[1]} onOpen={opts.started!.open} />);
       else if (path) out.push(<PathChip key={k++} path={path} label={renderInline(lm[1], labelOpts)} />);
       else if (app)
         // A cmux app link: a plain anchor, so the click takes the host's link path (opened in the app).

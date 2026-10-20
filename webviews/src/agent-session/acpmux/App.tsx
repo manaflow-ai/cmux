@@ -208,6 +208,9 @@ import { renderCall } from "./conversation/renderCall";
 import { DateLine } from "./conversation/DateLine";
 import { ShortcutsContext, readShortcuts, type ShortcutLabels } from "./shortcuts";
 import { FALLBACK_LINK_SCHEME, revealTurnWhenShown, setLinkScheme } from "./links";
+import { NeedsYouButton } from "./needsYou/NeedsYou";
+import { NeedsYouPill, type TranscriptNeedsYou } from "./needsYou/JumpPill";
+import { useNeedsYou } from "./needsYou/useNeedsYou";
 import { copyText, copyTextResult } from "./conversation/clipboard";
 import { lastCodeBlock } from "./conversation/lastCodeBlock";
 import { hasTranscriptCopyText, transcriptRangeText } from "./conversation/transcriptCopy";
@@ -1365,15 +1368,19 @@ function JumpToLatest({
   working,
   onJump,
   lift,
+  needsYou,
 }: {
   shown: boolean;
   working: boolean;
+  /// Open asks (needsYou/JumpPill.ts): the button becomes the Needs your input pill.
+  needsYou?: TranscriptNeedsYou;
   /// The bottom stack's height over the transcript's foot: the button sits above it.
   lift: number;
   /// `focused`: the button had keyboard focus, which it loses when it hides at the latest message.
   onJump: (focused: boolean) => void;
 }) {
   const t = useT();
+  if (needsYou && needsYou.count > 0) return <NeedsYouPill {...needsYou} shown={shown} lift={lift} onJump={onJump} />;
   const label = t(working ? "transcript.jumpLatestWorking" : "transcript.jumpLatest");
   return (
     <button
@@ -1433,6 +1440,7 @@ export function VirtualTranscript({
   reveal,
   working = false,
   jumpButton = false,
+  needsYou,
   dock,
   focusComposer,
   openAt,
@@ -1453,6 +1461,8 @@ export function VirtualTranscript({
   working?: boolean;
   /// Draw Jump to latest: the chat's own stage only, which positions it above the composer.
   jumpButton?: boolean;
+  /// Open asks: Jump to latest becomes the Needs your input pill (needsYou/JumpPill.tsx).
+  needsYou?: TranscriptNeedsYou;
   /// The chat's bottom stack, laid over the transcript's foot (bottomStack.css): the view runs under
   /// it, the scrollbar's track to the pane's bottom as in the Claude and Codex apps, and its end sits
   /// above it. Its height is room under the last row, followed as it changes before the frame paints.
@@ -2633,7 +2643,19 @@ export function VirtualTranscript({
           </div>
         </TranscriptContext>
       </div>
-      {jumpButton && <JumpToLatest shown={behind} working={working} onJump={jumpToLatest} lift={dockSpace} />}
+      {jumpButton && (
+        <JumpToLatest
+          // The pill also shows at the latest message while asks wait in other chats: it cycles to them.
+          shown={behind || (needsYou?.elsewhere ?? 0) > 0}
+          working={working}
+          onJump={(focused) => {
+            if (behind) jumpToLatest(focused);
+            if (needsYou && needsYou.count > 0) needsYou.next(behind);
+          }}
+          lift={dockSpace}
+          needsYou={needsYou}
+        />
+      )}
     </>
   );
 }
@@ -4734,11 +4756,13 @@ function AcpmuxPane() {
           "chat.queue.edit": ({ promptId, ...edit }) => client.editQueued(String(promptId), edit as QueueEdit),
           "chat.secret": ({ secretId, value }) =>
             client.secret(String(secretId), typeof value === "string" ? value : undefined),
-          "chat.permission": ({ permissionId, optionId, answers }) =>
+          "chat.permission": ({ permissionId, optionId, answers, sessionId }) =>
             client.permission(
               String(permissionId),
               optionId === undefined || optionId === null ? undefined : String(optionId),
               answers && typeof answers === "object" ? (answers as Record<string, unknown>) : undefined,
+              // The Needs you list answers asks of other chats too.
+              typeof sessionId === "string" && sessionId ? sessionId : undefined,
             ),
           "chat.permission_group.respond": ({ groupId, revision, decision }) =>
             client.permissionGroup(String(groupId), Number(revision), decision as PermissionDecision),
@@ -5274,6 +5298,12 @@ function AcpmuxPane() {
         .then(setFloatingState)
         .catch(() => undefined);
   }, [quick]);
+  // Needs you (needsYou/): the header's badge and list, and the transcript's Needs your input pill.
+  const needsYou = useNeedsYou({
+    snapshot,
+    callNative,
+    ask: (question, sessionId) => directClient.current?.ask(question, sessionId) ?? Promise.resolve(""),
+  });
   const lastForkSeq = latestForkSeq(snapshot.rows);
   const sideChat = sideChatRow(
     // Quick Chat's panel is not a tab: there is no split to open beside it.
@@ -5664,6 +5694,7 @@ function AcpmuxPane() {
                                       working={snapshot.isWorking}
                                       // Its stage positions Jump to latest; the Quick Composer's panel has no room for it.
                                       jumpButton={!quick}
+                                      needsYou={needsYou.pill}
                                       focusComposer={() => composerHandle.current?.focus()}
                                       // Quick Chat's panel stacks its composer below the transcript.
                                       dock={quick ? undefined : dock}
@@ -6463,6 +6494,12 @@ function AcpmuxPane() {
                         {snapshot.summary?.enforcement ? handoffLabels.nativePolicy : handoffLabels.unverified}
                       </span>
                     )}
+                    <NeedsYouButton
+                      items={needsYou.items}
+                      mode={needsYou.mode}
+                      actions={needsYou.actions}
+                      githubRepository={githubRepository}
+                    />
                     <ChatHeaderTools
                       tabTools={!quick}
                       // A new chat's picked folder too: New Worktree names its branch before the first prompt.

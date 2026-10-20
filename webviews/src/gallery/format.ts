@@ -159,6 +159,9 @@ export type AgentPaneVariant = VariantBase & {
   /** The in-session status toggle (Debug Settings `agent.sessionStatus`, off by default) on, as the
    *  app's `sessionStatus` push sends it: the live plan card and the recap card. */
   sessionStatus?: boolean;
+  /** `<html data-*>` attributes the app sets at document start for Debug Settings choices
+   *  (AgentPaneTunables `documentAttributes`), by name without `data-`: `{ "needs-you": "off" }`. */
+  documentAttributes?: Record<string, string>;
 };
 
 /** The markdown editor page (src/pages/markdown) on an in-page cmuxPage host. */

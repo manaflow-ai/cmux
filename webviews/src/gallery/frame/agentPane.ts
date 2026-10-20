@@ -80,6 +80,9 @@ export async function mountAgentPane(state: AgentPaneVariant, context: StageCont
     },
   };
   document.documentElement.dataset.cmuxWebviewKind = "acpmux-agent-session";
+  // Before the pane's scripts run, as AgentPaneTunables.documentScript sets them in the app.
+  for (const [name, value] of Object.entries(state.documentAttributes ?? {}))
+    document.documentElement.setAttribute(`data-${name}`, value);
   await import("virtual:cmux-gallery/agent-pane.css");
   await import("katex/dist/katex.min.css");
   await import("../../agent-session/acpmux/main");

@@ -1,0 +1,395 @@
+/* Needs you (needsYou/NeedsYou.tsx, JumpPill.tsx): the header badge, its pinned list, and the
+   chat's Needs your input pill. One mark says "this needs you" everywhere: the blue dot the
+   window sidebar draws for a workspace that waits on you (the sidebar's input mark, the badge, the
+   pill). */
+.acpmux-shell,
+.ui-positioner {
+  --acpmux-needs-you-mark: rgb(57 130 245); /* theme-fixed: the sidebar's unread dot on every theme (Palette.notificationBlue) */
+}
+
+.acpmux-needs-you-dot {
+  flex: none;
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--acpmux-needs-you-mark);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--acpmux-needs-you-mark) 18%, transparent);
+}
+.acpmux-session-mark-input,
+.acpmux-session-preview-status.acpmux-session-mark-input {
+  color: var(--acpmux-needs-you-mark);
+}
+.acpmux-session-mark .acpmux-needs-you-dot {
+  width: 7px;
+  height: 7px;
+  box-shadow: none;
+}
+
+/* The badge: the header's tool button, widened by the count while asks are open. */
+.acpmux-header-tool.acpmux-needs-you-button[data-count] {
+  width: auto;
+  gap: 5px;
+  padding: 0 7px 0 6px;
+}
+.acpmux-needs-you-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--text-detail);
+  font-weight: var(--weight-emphasis, 600);
+  font-variant-numeric: tabular-nums;
+}
+.acpmux-needs-you-count .acpmux-needs-you-dot {
+  width: 6px;
+  height: 6px;
+  box-shadow: none;
+}
+
+/* The pinned list: the shared popup surface, as wide as a card. */
+.acpmux-needs-you {
+  width: 380px;
+  max-width: calc(100vw - 24px);
+  max-height: min(560px, 75vh);
+  overflow: auto;
+  box-sizing: border-box;
+  padding: 0;
+  border: 0;
+  border-radius: var(--ui-popup-radius);
+  background: var(--surface-popup);
+  box-shadow: var(--acpmux-popup-elevation);
+  transform-origin: var(--transform-origin);
+  color: var(--agent-text);
+  font-size: var(--text-control);
+  line-height: 18px;
+  outline: none;
+  overscroll-behavior: contain;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .acpmux-needs-you {
+    animation: ui-popup-open var(--ui-popup-open) ease-out;
+  }
+}
+.acpmux-needs-you-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 12px 8px;
+  background: var(--surface-popup);
+  border-bottom: var(--cmux-hairline, 0.5px) solid var(--agent-border);
+  color: var(--agent-muted);
+}
+.acpmux-needs-you-title {
+  color: var(--agent-text);
+  font-weight: var(--weight-emphasis, 600);
+}
+.acpmux-needs-you-total {
+  margin-left: auto;
+  min-width: 18px;
+  padding: 0 6px;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--acpmux-needs-you-mark) 16%, transparent);
+  color: var(--acpmux-needs-you-mark);
+  font-size: var(--text-caption);
+  font-weight: var(--weight-emphasis, 600);
+  line-height: 18px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.acpmux-needs-you-note {
+  margin: 8px 12px 0;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+}
+.acpmux-needs-you-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 28px 16px 30px;
+  color: var(--agent-muted);
+}
+.acpmux-needs-you-list {
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+}
+.acpmux-needs-you-item {
+  padding: 9px 8px 10px;
+  border-radius: 8px;
+}
+.acpmux-needs-you-item + .acpmux-needs-you-item {
+  margin-top: 2px;
+}
+.acpmux-needs-you-item:hover {
+  background: color-mix(in srgb, var(--agent-text) 4%, transparent);
+}
+.acpmux-needs-you-item[data-focused] {
+  background: color-mix(in srgb, var(--acpmux-needs-you-mark) 10%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--acpmux-needs-you-mark) 35%, transparent);
+}
+.acpmux-needs-you-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+  white-space: nowrap;
+}
+.acpmux-needs-you-avatar {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--agent-text) 8%, transparent);
+  object-fit: cover;
+}
+.acpmux-needs-you-avatar.is-chief {
+  background: color-mix(in srgb, var(--agent-text) 6%, transparent);
+}
+.acpmux-needs-you-who {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--agent-text);
+  font-weight: var(--weight-emphasis, 600);
+}
+.acpmux-needs-you-via {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.acpmux-needs-you-kind {
+  flex: none;
+  padding: 0 6px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--agent-text) 7%, transparent);
+  font-size: var(--text-caption);
+  line-height: 16px;
+}
+.acpmux-needs-you-item[data-kind="approval"] .acpmux-needs-you-kind,
+.acpmux-needs-you-item[data-kind="decision"] .acpmux-needs-you-kind,
+.acpmux-needs-you-item[data-kind="verify"] .acpmux-needs-you-kind {
+  background: color-mix(in srgb, var(--acpmux-needs-you-mark) 14%, transparent);
+  color: var(--acpmux-needs-you-mark);
+}
+.acpmux-needs-you-age {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+.acpmux-needs-you-go {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  margin-left: auto;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  color: var(--agent-muted);
+  cursor: default;
+}
+.acpmux-needs-you-go:hover {
+  background: var(--acpmux-menu-hover, color-mix(in srgb, var(--agent-text) 10%, transparent));
+  color: var(--agent-text);
+}
+.acpmux-needs-you-go:focus-visible,
+.acpmux-needs-you-answer:focus-visible,
+.acpmux-needs-you-ask-about:focus-visible,
+.acpmux-needs-you-side-send:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: 1px;
+}
+.acpmux-needs-you-ask {
+  margin: 6px 0 0 24px;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  color: var(--agent-text);
+}
+.acpmux-needs-you-panel[data-mode="compact"] .acpmux-needs-you-ask {
+  -webkit-line-clamp: 1;
+}
+.acpmux-needs-you-detail {
+  margin: 2px 0 0 24px;
+  overflow: hidden;
+  color: var(--agent-soft, var(--agent-muted));
+  font-size: var(--text-caption);
+  line-height: 16px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+/* A command: as the ask's card shows one. */
+.acpmux-needs-you-detail[data-code] {
+  margin-top: 4px;
+  padding: 4px 7px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--agent-text) 6%, transparent);
+  font-family: var(--font-mono, ui-monospace, monospace);
+}
+.acpmux-needs-you-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 0 0 24px;
+}
+.acpmux-needs-you-answer,
+.acpmux-needs-you-ask-about,
+.acpmux-needs-you-side-send {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  max-width: 100%;
+  padding: 0 10px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 12px;
+  background: var(--acpmux-pill-fill, color-mix(in srgb, var(--agent-text) 6%, transparent));
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-pill-edge, color-mix(in srgb, var(--agent-text) 24%, transparent));
+  color: var(--agent-text);
+  font: inherit;
+  font-size: var(--text-detail);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  cursor: default;
+}
+.acpmux-needs-you-answer:hover:not(:disabled),
+.acpmux-needs-you-ask-about:hover,
+.acpmux-needs-you-side-send:hover:not(:disabled) {
+  background: var(--acpmux-pill-hover, color-mix(in srgb, var(--agent-text) 11%, transparent));
+}
+.acpmux-needs-you-answer[data-tone="allow"] {
+  background: var(--agent-text);
+  box-shadow: none;
+  color: var(--acpmux-send-ink, var(--agent-page-bg));
+  font-weight: var(--weight-emphasis, 600);
+}
+.acpmux-needs-you-answer[data-tone="allow"]:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--agent-text) 86%, var(--agent-page-bg));
+}
+.acpmux-needs-you-answer:disabled,
+.acpmux-needs-you-side-send:disabled {
+  opacity: 0.55;
+}
+.acpmux-needs-you-answer[aria-busy="true"] {
+  opacity: 0.8;
+}
+.acpmux-needs-you-ask-about {
+  margin-left: auto;
+  background: none;
+  box-shadow: none;
+  color: var(--agent-muted);
+  padding: 0 6px;
+}
+.acpmux-needs-you-ask-about[aria-expanded="true"] {
+  color: var(--agent-text);
+}
+.acpmux-needs-you-error {
+  margin: 6px 0 0 24px;
+  color: var(--agent-danger, var(--agent-text));
+  font-size: var(--text-detail);
+}
+.acpmux-needs-you-side {
+  margin: 8px 0 0 24px;
+  padding: 8px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--agent-text) 5%, transparent);
+}
+.acpmux-needs-you-side-turn + .acpmux-needs-you-side-turn,
+.acpmux-needs-you-side-turn + .acpmux-needs-you-side-form {
+  margin-top: 8px;
+}
+.acpmux-needs-you-side-q {
+  margin: 0;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+}
+.acpmux-needs-you-side-a {
+  margin-top: 4px;
+  font-size: var(--text-detail);
+  line-height: 17px;
+}
+.acpmux-needs-you-side-status {
+  margin: 4px 0 0;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+}
+.acpmux-needs-you-side-form {
+  display: flex;
+  gap: 6px;
+}
+.acpmux-needs-you-side-field {
+  flex: 1;
+  min-width: 0;
+  height: 26px;
+  box-sizing: border-box;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 13px;
+  outline: none;
+  background: var(--acpmux-composer-bg, color-mix(in srgb, var(--agent-text) 8%, transparent));
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge, var(--agent-border));
+  color: var(--agent-text);
+  caret-color: var(--cmux-caret, var(--agent-text));
+  font: inherit;
+  font-size: var(--text-detail);
+}
+.acpmux-needs-you-side-field:focus {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--agent-text) 40%, transparent);
+}
+
+/* The Needs your input pill: Jump to latest's glass, widened to a capsule in the composer's look,
+   a little larger than Claude's (Leo 2026-10-20). */
+.acpmux-jump-latest.acpmux-needs-you-pill {
+  display: inline-flex;
+  gap: 8px;
+  width: auto;
+  height: 34px;
+  padding: 0 12px 0 13px;
+  border-radius: 17px;
+  background-color: color-mix(in srgb, var(--acpmux-composer-bg, var(--agent-page-bg)) 82%, transparent);
+  box-shadow:
+    inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge, color-mix(in srgb, var(--agent-text) 18%, transparent)),
+    var(--elevation-2);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  font-size: var(--text-control);
+  font-weight: var(--weight-emphasis, 600);
+  white-space: nowrap;
+}
+.acpmux-jump-latest.acpmux-needs-you-pill:hover {
+  background-color: var(--acpmux-composer-hover, color-mix(in srgb, var(--agent-page-bg) 60%, var(--agent-text) 6%));
+}
+.acpmux-needs-you-pill__chevron {
+  flex: none;
+  color: var(--agent-muted);
+}
+
+/* A reply's `cmux://needs-you/<id>` link (conversation/Markdown.tsx): the dot, then its text. */
+.cv-link.is-needs-you {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  cursor: default;
+}
+.cv-link.is-needs-you .acpmux-needs-you-dot {
+  width: 6px;
+  height: 6px;
+  box-shadow: none;
+}

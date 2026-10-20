@@ -1,6 +1,7 @@
 import { editedPaths } from "./toolPaths";
 import type { PermissionClientState } from "./permissions/protocol";
 import type { AgentQuestion } from "./question/model";
+import type { WatchedAsk } from "./needsYou/model";
 import type { PermissionDecision } from "./permissions/record";
 import type { HandoffClientState } from "./handoff/client";
 import type { Enforcement } from "./handoff/protocol";
@@ -365,6 +366,9 @@ export type AcpmuxSnapshot = {
   /// How many more asks wait behind `permission`, answered one at a time; absent when none do.
   permissionsWaiting?: number;
   secret?: AcpmuxSecretAsk;
+  /// Every chat's open permission requests, for the Needs you list (needsYou/asks.ts); the same
+  /// array until one comes or goes.
+  asks?: WatchedAsk[];
   /** `unavailable`: why acpmux will not run that model (its backend refused it), or that harness
    * (its launcher check or its model probe failed). */
   catalog: {

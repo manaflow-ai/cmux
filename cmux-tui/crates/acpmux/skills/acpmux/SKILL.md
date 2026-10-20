@@ -110,6 +110,11 @@ acpmux session rules NAME '{"autoDeny": ["rm -rf"], "ask": ["execute"]}'
 acpmux run --on-permission deny|fail …       # never hang a script on a prompt (fail = exit 5)
 ```
 
+`acpmux pending --json` gives each request a `needsYou` link
+(`cmux://needs-you/<permissionId>`). Put it in a reply to point the user at an
+open ask instead of restating it; cmux draws it as a chip that opens the ask in
+its Needs you list.
+
 `--policy ask` sends every request to a human or to you; the other policies
 answer locally. Rules sit above the policy and match tool kind, title, and
 name, case-insensitively. File writes a harness delegates to acpmux (ACP
