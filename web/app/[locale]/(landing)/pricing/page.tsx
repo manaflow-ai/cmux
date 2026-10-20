@@ -267,12 +267,16 @@ function PricingContent({
     yearly: t("pro.annual.yearly"),
     monthly: t("monthly"),
     perMonth: t("perMonth"),
+    annualPeriod: t("perMonthBilledYearly"),
   };
   const proCheckoutHrefs = {
     month: proCheckoutHref,
     year: withCheckoutInterval(proCheckoutURL, "year"),
   };
-  const teamCheckoutHref = withCheckoutInterval(teamCheckoutURL, "month");
+  const teamCheckoutHrefs = {
+    month: withCheckoutInterval(teamCheckoutURL, "month"),
+    year: withCheckoutInterval(teamCheckoutURL, "year"),
+  };
   const maxComparePrice = `$${MAX_PRICING_USD.month.billedAmount} ${t("perMonth")}`;
   const teamMonthlyComparePrice = t("teamMonthlyComparePrice", {
     monthly: TEAM_PRICING_USD.month.monthlyEquivalent,
@@ -370,7 +374,7 @@ function PricingContent({
         name={t("pro.name")}
         surface="public_pricing"
         monthlyOnly={isGo}
-        initialInterval={query.interval === "month" ? "month" : "year"}
+        initialInterval={query.interval === "year" ? "year" : "month"}
         labels={proAnnualLabelSet}
         checkoutHrefs={proCheckoutHrefs}
         requiresSignIn={!pending && !snapshot.authenticated}
@@ -399,7 +403,7 @@ function PricingContent({
         pricing={MAX_PRICING_USD}
         surface="public_pricing"
         monthlyOnly={false}
-        initialInterval={query.interval === "month" ? "month" : "year"}
+        initialInterval={query.interval === "year" ? "year" : "month"}
         labels={proAnnualLabelSet}
         checkoutHrefs={{
           month: withCheckoutInterval(maxCheckoutHref, "month"),
@@ -484,7 +488,7 @@ function PricingContent({
         ),
         team: (
           <PricingCheckoutButton
-            href={teamCheckoutHref}
+            href={teamCheckoutHrefs.month}
             requiresSignIn={!pending && !snapshot.authenticated}
             location="pricing_compare_header"
             plan="team"
@@ -510,22 +514,24 @@ function PricingContent({
       columns="two"
     >
       {/* Team */}
-      <PlanCard
+      <ProPlanCard
         name={t("team.name")}
-        price={`$${TEAM_PRICING_USD.month.billedAmount}`}
-        period={t("perUserMonth")}
+        plan="team"
+        pricing={TEAM_PRICING_USD}
+        surface="public_pricing"
+        initialInterval={query.interval === "year" ? "year" : "month"}
+        labels={{
+          ...proAnnualLabelSet,
+          monthlyPeriod: t("perUserMonth"),
+          annualPeriod: t("perUserMonthBilledYearly"),
+        }}
+        checkoutHrefs={teamCheckoutHrefs}
+        requiresSignIn={!pending && !snapshot.authenticated}
+        ctaLabel={t("team.cta")}
       >
-        <PricingCheckoutButton
-          href={teamCheckoutHref}
-          requiresSignIn={!pending && !snapshot.authenticated}
-          location="pricing_page"
-          plan="team"
-        >
-          {t("team.cta")}
-        </PricingCheckoutButton>
         <p className="mt-5 text-sm font-medium">{t("team.featuresLead")}</p>
         <FeatureList items={teamFeatures} />
-      </PlanCard>
+      </ProPlanCard>
 
       {/* Enterprise */}
       <PlanCard name={t("enterprise.name")} price={t("enterprise.price")}>

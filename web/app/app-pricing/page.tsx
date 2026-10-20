@@ -10,24 +10,26 @@ import {
   resolveProPlanStatus,
 } from "../../services/billing/pro";
 import { isGoPlanEnabled } from "../../services/billing/goPlanFlag";
-import { PricingView } from "../components/pricing-checkout";
+import {
+  PricingIntervalProvider,
+  PricingView,
+} from "../components/pricing-checkout";
+import { billingInterval } from "../../services/billing/plans";
 import { AppPricingContent, type AppPlanSnapshot } from "./pricing-content";
 import { AppPricingFallback, unknownPlan } from "./pricing-fallback";
 
 const ANONYMOUS_IF_EXISTS = "anonymous-if-exists[deprecated]" as const;
 type PricingQuery = Record<string, string | string[] | undefined>;
 
-export default function AppPricingPage({
+export default async function AppPricingPage({
   searchParams,
 }: {
   searchParams: Promise<PricingQuery>;
 }) {
   return (
-    <PricingView surface="app_pricing">
-      <Suspense fallback={<AppPricingFallback />}>
-        <RequestPricing searchParams={searchParams} />
-      </Suspense>
-    </PricingView>
+    <Suspense fallback={<AppPricingFallback />}>
+      <RequestPricing searchParams={searchParams} />
+    </Suspense>
   );
 }
 
@@ -49,6 +51,7 @@ async function RequestPricing({
     goPlanEnabled: false,
     pending: true,
   };
+  const initialInterval = billingInterval(firstParam(params.interval));
   const personalize = (
     section: "individual" | "team" | "comparison" | "banner",
   ) => (
@@ -61,16 +64,25 @@ async function RequestPricing({
     </Suspense>
   );
   return (
-    <AppPricingContent
-      {...fallback}
-      personalization={{
-        individual: personalize("individual"),
-        team: personalize("team"),
-        comparison: personalize("comparison"),
-        banner: personalize("banner"),
-      }}
-    />
+    <PricingView surface="app_pricing" interval={initialInterval}>
+      <PricingIntervalProvider initialInterval={initialInterval}>
+        <AppPricingContent
+          {...fallback}
+          personalization={{
+            individual: personalize("individual"),
+            team: personalize("team"),
+            comparison: personalize("comparison"),
+            banner: personalize("banner"),
+          }}
+        />
+      </PricingIntervalProvider>
+    </PricingView>
   );
+}
+
+function firstParam(value: string | string[] | undefined): string | null {
+  if (Array.isArray(value)) return value[0] ?? null;
+  return value ?? null;
 }
 
 const pricingState = cache(async () => {

@@ -473,6 +473,9 @@
         "free": "免費",
         "pro": "Pro"
       },
+      "max": {
+        "upsell": "Max 包含最多 5 台共享 80 vCPU 和 160 GB 記憶體的 Cloud VM，價格為每月 200 美元或每年 1,920 美元（折合每月 160 美元）。"
+      },
       "teamPanel": {
         "notFound": "無法使用此團隊。你可能已退出該團隊，或該團隊已被刪除。",
         "unavailable": "無法載入團隊帳單，請稍後再試。",
@@ -5296,7 +5299,64 @@
     "billingUnavailable": "目前無法使用結算功能。請稍後再試。",
     "signedOutNotice": "你尚未登入。登入後可查看目前方案或恢復既有購買。",
     "signedOutSignIn": "登入",
-    "manageInAppStore": "在 App Store 中管理"
+    "manageInAppStore": "在 App Store 中管理",
+    "billingPeriod": "計費週期",
+    "monthly": "按月",
+    "annual": "按年",
+    "perMonthBilledYearly": "/月，按年計費",
+    "perUserMonthBilledYearly": "/使用者/月，按年計費",
+    "saveAnnual": "省下 {discount}%",
+    "annualComparePrice": "${monthly}/月",
+    "teamMonthlyComparePrice": "${monthly}/使用者/月",
+    "teamAnnualComparePrice": "${monthly}/使用者/月",
+    "pro": {
+      "annual": {
+        "yearly": "按年"
+      }
+    },
+    "max": {
+      "annual": {
+        "yearly": "按年"
+      }
+    },
+    "billingAnnualUnavailable": "此方案不支援按年計費。請在下方選擇按月計費的方案。",
+    "faq": {
+      "items": [
+        {
+          "q": "Is the terminal really free?",
+          "a": "Yes. The macOS app is open source and free forever. Local agents run with your own API keys at no cost to you. Cloud VMs are part of the paid plans."
+        },
+        {
+          "q": "What are Cloud VMs?",
+          "a": "Persistent Linux machines in the cloud: pets, not cattle. Following the Zen of cmux, a machine is a primitive, not a managed solution: it keeps its files, installed tools, and state, and what you build on it is yours. Agents clone repositories, run commands, and open pull requests there without touching your Mac. Pro includes up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM. One VM can use up to 16 GB RAM / 8 vCPU; the 24 GB / 12 vCPU and 32 GB / 16 vCPU sizes require Max. Team includes the same allowance for each paid seat, in one pool shared across the team."
+        },
+        {
+          "q": "Max 有哪些額外功能？",
+          "a": "Max 價格為每月 200 美元或每年 1,920 美元（折合每月 160 美元）。它包含 Pro 的全部功能，以及最多 5 台共享 80 vCPU 和 160 GB 記憶體的 Cloud VM。"
+        },
+        {
+          "q": "What is cmux Vault?",
+          "a": "Vault backs up every terminal session to the cloud and lets you search across all of them, with unlimited history across your machines. Free keeps history locally on each machine; Pro adds cloud backup and search.",
+          "vault": true
+        },
+        {
+          "q": "Do I still need Tailscale for the iOS app?",
+          "a": "No. The iOS app pairs with your Mac over the built-in cmux iroh network. You can also bring your own networking, like Tailscale. Enterprise can self-host."
+        },
+        {
+          "q": "計費方式是什麼？",
+          "a": "付費方案按月或按年計費。Pro 為每月 50 美元或每年 550 美元，Max 為每月 200 美元或每年 1,920 美元（折合每月 160 美元），Team 為每位使用者每月 60 美元或每年 660 美元。"
+        },
+        {
+          "q": "Can I self-host the cloud?",
+          "a": "Yes, on Enterprise. Run agent execution on your own infrastructure or fully air-gapped, so source code never leaves your network."
+        },
+        {
+          "q": "有團隊方案嗎？",
+          "a": "有。Team 為每位使用者每月 60 美元或每年 660 美元，提供團隊統一帳單和優先支援。"
+        }
+      ]
+    }
   },
   "platforms": {
     "macos": "macOS",

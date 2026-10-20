@@ -41,7 +41,10 @@ import {
   type CompareRow,
   type FaqItem,
 } from "../components/pricing-shared";
-import { PricingCheckoutButton } from "../components/pricing-checkout";
+import {
+  PricingCheckoutButton,
+  PricingIntervalSelector,
+} from "../components/pricing-checkout";
 import { ProPlanCard } from "../components/pro-plan-card";
 import {
   MAX_PRICING_USD,
@@ -132,14 +135,12 @@ export function AppPricingContent({
     yearly: pricing.pro.annual.yearly,
     monthly: pricing.monthly,
     perMonth: pricing.perMonth,
+    annualPeriod: pricing.perMonthBilledYearly,
   };
-  const teamCheckoutHref = appPricingCheckoutURL(
-    "team",
-    requestOrigin,
-    cmuxScheme,
-    "month",
-    attribution,
-  );
+  const teamCheckoutHrefs = {
+    month: appPricingCheckoutURL("team", requestOrigin, cmuxScheme, "month", attribution),
+    year: appPricingCheckoutURL("team", requestOrigin, cmuxScheme, "year", attribution),
+  };
   // The checkout endpoint decides whether this is a new purchase or a switch
   // of an existing subscription. Pro access alone does not mean a Stripe
   // customer exists (an operator grant has none).
@@ -351,26 +352,28 @@ export function AppPricingContent({
       description={pricing.categories.business.description}
       columns="two"
     >
-      <PlanCard
+      <ProPlanCard
         name={pricing.team.name}
-        price={`$${TEAM_PRICING_USD.month.billedAmount}`}
-        period={pricing.perUserMonth}
-      >
-        {appStorePaymentGated ? (
+        plan="team"
+        pricing={TEAM_PRICING_USD}
+        surface="app_pricing"
+        initialInterval={firstParam(params.interval) === "month" ? "month" : "year"}
+        labels={{
+          ...proAnnualLabelSet,
+          monthlyPeriod: pricing.perUserMonth,
+          annualPeriod: pricing.perUserMonthBilledYearly,
+        }}
+        checkoutHrefs={teamCheckoutHrefs}
+        location="app_pricing"
+        requiresSignIn={!pending && !snapshot.authenticated}
+        ctaLabel={pricing.team.cta}
+        action={appStorePaymentGated ? (
           <DisabledButton>{pricing.billingUnavailable}</DisabledButton>
-        ) : (
-          <PricingCheckoutButton
-            href={teamCheckoutHref}
-            requiresSignIn={!pending && !snapshot.authenticated}
-            location="app_pricing"
-            plan="team"
-          >
-            {pricing.team.cta}
-          </PricingCheckoutButton>
-        )}
+        ) : undefined}
+      >
         <p className="mt-5 text-sm font-medium">{pricing.team.featuresLead}</p>
         <FeatureList items={pricing.team.features} />
-      </PlanCard>
+      </ProPlanCard>
 
       <PlanCard name={pricing.enterprise.name} price={pricing.enterprise.price}>
         {appStorePaymentGated ? (
@@ -415,6 +418,13 @@ export function AppPricingContent({
             <h1 className="text-2xl font-medium tracking-tight">
               {pricing.title}
             </h1>
+
+            <PricingIntervalSelector
+              billingPeriodLabel={pricing.billingPeriod}
+              monthlyLabel={pricing.monthly}
+              annualLabel={pricing.annual}
+              surface="app_pricing"
+            />
 
             <PricingAudienceSelector
               individualLabel={pricing.audience.individual}

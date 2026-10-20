@@ -8,6 +8,7 @@ import { locales } from "../i18n/routing";
 import {
   LEGACY_PRICE_LOOKUP_KEYS,
   MAX_BILLING_INTERVALS,
+  TEAM_BILLING_INTERVALS,
   MAX_PRICING_USD,
   PRO_PRICING_USD,
   TEAM_PRICING_USD,
@@ -21,7 +22,7 @@ import {
 } from "../services/vms/entitlements";
 
 describe("pricing plans", () => {
-  test("prices Pro at $50/mo or $480/yr", () => {
+  test("prices Pro at $50/mo or $550/yr", () => {
     expect(PRO_PRICING_USD).toEqual({
       month: {
         billedAmount: 50,
@@ -30,25 +31,31 @@ describe("pricing plans", () => {
         lookupKey: "cmux-pro-monthly-50",
       },
       year: {
-        billedAmount: 480,
-        monthlyEquivalent: 40,
-        discountPercent: 20,
-        lookupKey: "cmux-pro-yearly-480",
+        billedAmount: 550,
+        monthlyEquivalent: 45.83,
+        discountPercent: 8.33,
+        lookupKey: "cmux-pro-yearly-550",
       },
     });
   });
 
-  test("prices Team at $60/user/mo without a new annual offer", () => {
+  test("prices Team at $60/user/mo or $660/user/yr", () => {
     expect(TEAM_PRICING_USD.month).toEqual({
       billedAmount: 60,
       monthlyEquivalent: 60,
       discountPercent: 0,
       lookupKey: "cmux-team-monthly-60",
     });
-    expect("year" in TEAM_PRICING_USD).toBe(false);
+    expect(TEAM_PRICING_USD.year).toEqual({
+      billedAmount: 660,
+      monthlyEquivalent: 55,
+      discountPercent: 8.33,
+      lookupKey: "cmux-team-yearly-660",
+    });
+    expect(TEAM_BILLING_INTERVALS).toEqual(["month", "year"]);
   });
 
-  test("prices Max at $200/mo or $1,920/yr with the same 20% discount", () => {
+  test("prices Max at $200/mo or $1,920/yr", () => {
     expect(MAX_PRICING_USD).toEqual({
       month: {
         billedAmount: 200,
@@ -57,7 +64,7 @@ describe("pricing plans", () => {
         lookupKey: "cmux-max-monthly-200",
       },
       year: {
-        billedAmount: 1920,
+        billedAmount: 1_920,
         monthlyEquivalent: 160,
         discountPercent: 20,
         lookupKey: "cmux-max-yearly-1920",
@@ -72,6 +79,7 @@ describe("pricing plans", () => {
       PRO_PRICING_USD.year,
       MAX_PRICING_USD.month,
       TEAM_PRICING_USD.month,
+      TEAM_PRICING_USD.year,
     ];
     for (const price of current) {
       expect(price.lookupKey.endsWith(`-${price.billedAmount}`)).toBe(true);
@@ -81,6 +89,7 @@ describe("pricing plans", () => {
       "cmux-pro-monthly",
       "cmux-pro-yearly",
       "cmux-pro-yearly-288",
+      "cmux-pro-yearly-480",
       "cmux-team-monthly",
       "cmux-team-yearly-336",
       "cmux-team-yearly-576",

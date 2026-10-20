@@ -78,7 +78,7 @@ export async function resolveProPrice(interval: BillingInterval): Promise<string
   return resolvePlanPrice(
     PRO_PRICING_USD[interval],
     interval,
-    interval === "year" ? env.STRIPE_PRO_YEARLY_480_PRICE_ID : env.STRIPE_PRO_MONTHLY_50_PRICE_ID,
+    interval === "year" ? env.STRIPE_PRO_YEARLY_550_PRICE_ID : env.STRIPE_PRO_MONTHLY_50_PRICE_ID,
     resolvedProPriceIds,
     "pro",
   );
@@ -106,8 +106,13 @@ export async function resolveGoPrice(): Promise<string> {
 }
 
 export async function resolveTeamPrice(interval: BillingInterval): Promise<string> {
-  if (interval !== "month") throw new Error("Annual billing is unavailable for new subscriptions");
-  return resolvePlanPrice(TEAM_PRICING_USD.month, interval, env.STRIPE_TEAM_MONTHLY_60_PRICE_ID, resolvedTeamPriceIds, "team");
+  return resolvePlanPrice(
+    TEAM_PRICING_USD[interval],
+    interval,
+    interval === "year" ? env.STRIPE_TEAM_YEARLY_660_PRICE_ID : env.STRIPE_TEAM_MONTHLY_60_PRICE_ID,
+    resolvedTeamPriceIds,
+    "team",
+  );
 }
 
 /**

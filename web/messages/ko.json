@@ -473,6 +473,9 @@
         "free": "무료",
         "pro": "Pro"
       },
+      "max": {
+        "upsell": "Max는 80 vCPU와 160GB RAM을 공유하는 Cloud VM 최대 5대를 월 $200 또는 연 $1,920(월 환산 $160)에 제공합니다."
+      },
       "teamPanel": {
         "notFound": "이 팀을 사용할 수 없습니다. 팀에서 나갔거나 팀이 삭제되었을 수 있습니다.",
         "unavailable": "팀 결제 정보를 불러올 수 없습니다. 잠시 후 다시 시도하세요.",
@@ -5294,7 +5297,64 @@
     "billingUnavailable": "지금은 결제를 사용할 수 없습니다. 나중에 다시 시도해 주세요.",
     "signedOutNotice": "로그인되어 있지 않습니다. 로그인하여 현재 요금제를 확인하거나 기존 구매를 복원하세요.",
     "signedOutSignIn": "로그인",
-    "manageInAppStore": "App Store에서 관리"
+    "manageInAppStore": "App Store에서 관리",
+    "billingPeriod": "청구 주기",
+    "monthly": "월간",
+    "annual": "연간",
+    "perMonthBilledYearly": "/월, 연간 청구",
+    "perUserMonthBilledYearly": "/사용자/월, 연간 청구",
+    "saveAnnual": "{discount}% 절약",
+    "annualComparePrice": "${monthly}/월",
+    "teamMonthlyComparePrice": "${monthly}/사용자/월",
+    "teamAnnualComparePrice": "${monthly}/사용자/월",
+    "pro": {
+      "annual": {
+        "yearly": "연간"
+      }
+    },
+    "max": {
+      "annual": {
+        "yearly": "연간"
+      }
+    },
+    "billingAnnualUnavailable": "이 요금제는 연간 청구를 지원하지 않습니다. 아래에서 월간 요금제를 선택하세요.",
+    "faq": {
+      "items": [
+        {
+          "q": "Is the terminal really free?",
+          "a": "Yes. The macOS app is open source and free forever. Local agents run with your own API keys at no cost to you. Cloud VMs are part of the paid plans."
+        },
+        {
+          "q": "What are Cloud VMs?",
+          "a": "Persistent Linux machines in the cloud: pets, not cattle. Following the Zen of cmux, a machine is a primitive, not a managed solution: it keeps its files, installed tools, and state, and what you build on it is yours. Agents clone repositories, run commands, and open pull requests there without touching your Mac. Pro includes up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM. One VM can use up to 16 GB RAM / 8 vCPU; the 24 GB / 12 vCPU and 32 GB / 16 vCPU sizes require Max. Team includes the same allowance for each paid seat, in one pool shared across the team."
+        },
+        {
+          "q": "Max에는 무엇이 추가되나요?",
+          "a": "Max는 월 $200 또는 연 $1,920(월 환산 $160)입니다. Pro의 모든 기능과 80 vCPU 및 160GB RAM을 공유하는 Cloud VM 최대 5대를 제공합니다."
+        },
+        {
+          "q": "What is cmux Vault?",
+          "a": "Vault backs up every terminal session to the cloud and lets you search across all of them, with unlimited history across your machines. Free keeps history locally on each machine; Pro adds cloud backup and search.",
+          "vault": true
+        },
+        {
+          "q": "Do I still need Tailscale for the iOS app?",
+          "a": "No. The iOS app pairs with your Mac over the built-in cmux iroh network. You can also bring your own networking, like Tailscale. Enterprise can self-host."
+        },
+        {
+          "q": "청구는 어떻게 이루어지나요?",
+          "a": "유료 요금제는 월간 또는 연간으로 청구됩니다. Pro는 월 $50 또는 연 $550, Max는 월 $200 또는 연 $1,920(월 환산 $160), Team은 사용자당 월 $60 또는 연 $660입니다."
+        },
+        {
+          "q": "Can I self-host the cloud?",
+          "a": "Yes, on Enterprise. Run agent execution on your own infrastructure or fully air-gapped, so source code never leaves your network."
+        },
+        {
+          "q": "팀 요금제가 있나요?",
+          "a": "예. Team은 사용자당 월 $60 또는 연 $660이며 팀 통합 청구와 우선 지원을 제공합니다."
+        }
+      ]
+    }
   },
   "platforms": {
     "macos": "macOS",

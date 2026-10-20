@@ -473,6 +473,9 @@
         "free": "Besplatno",
         "pro": "Pro"
       },
+      "max": {
+        "upsell": "Max uključuje do 5 Cloud VM-ova koji dijele 80 vCPU i 160 GB RAM-a, za 200 $ mjesečno ili 1.920 $ godišnje (160 $ mjesečno)."
+      },
       "teamPanel": {
         "notFound": "Ovaj tim nije dostupan. Možda ste ga napustili ili je izbrisan.",
         "unavailable": "Naplatu tima nije moguće učitati. Pokušajte ponovo uskoro.",
@@ -5297,7 +5300,64 @@
     "billingUnavailable": "Naplata trenutno nije dostupna. Pokušajte ponovo kasnije.",
     "signedOutNotice": "Niste prijavljeni. Prijavite se da vidite trenutni plan ili vratite postojeću kupovinu.",
     "signedOutSignIn": "Prijavite se",
-    "manageInAppStore": "Upravljajte u App Storeu"
+    "manageInAppStore": "Upravljajte u App Storeu",
+    "billingPeriod": "Obračunski period",
+    "monthly": "Mjesečno",
+    "annual": "Godišnje",
+    "perMonthBilledYearly": "/mj., naplaćuje se godišnje",
+    "perUserMonthBilledYearly": "/korisniku/mj., naplaćuje se godišnje",
+    "saveAnnual": "Uštedite {discount}%",
+    "annualComparePrice": "${monthly}/mj.",
+    "teamMonthlyComparePrice": "${monthly}/korisniku/mj.",
+    "teamAnnualComparePrice": "${monthly}/korisniku/mj.",
+    "pro": {
+      "annual": {
+        "yearly": "Godišnje"
+      }
+    },
+    "max": {
+      "annual": {
+        "yearly": "Godišnje"
+      }
+    },
+    "billingAnnualUnavailable": "Godišnja naplata nije dostupna za ovaj plan. Odaberite mjesečni plan u nastavku.",
+    "faq": {
+      "items": [
+        {
+          "q": "Is the terminal really free?",
+          "a": "Yes. The macOS app is open source and free forever. Local agents run with your own API keys at no cost to you. Cloud VMs are part of the paid plans."
+        },
+        {
+          "q": "What are Cloud VMs?",
+          "a": "Persistent Linux machines in the cloud: pets, not cattle. Following the Zen of cmux, a machine is a primitive, not a managed solution: it keeps its files, installed tools, and state, and what you build on it is yours. Agents clone repositories, run commands, and open pull requests there without touching your Mac. Pro includes up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM. One VM can use up to 16 GB RAM / 8 vCPU; the 24 GB / 12 vCPU and 32 GB / 16 vCPU sizes require Max. Team includes the same allowance for each paid seat, in one pool shared across the team."
+        },
+        {
+          "q": "Šta Max dodaje?",
+          "a": "Max košta 200 $ mjesečno ili 1.920 $ godišnje (ekvivalent 160 $ mjesečno). Uključuje sve iz Pro plana i do 5 Cloud VM-ova koji dijele 80 vCPU i 160 GB RAM-a."
+        },
+        {
+          "q": "What is cmux Vault?",
+          "a": "Vault backs up every terminal session to the cloud and lets you search across all of them, with unlimited history across your machines. Free keeps history locally on each machine; Pro adds cloud backup and search.",
+          "vault": true
+        },
+        {
+          "q": "Do I still need Tailscale for the iOS app?",
+          "a": "No. The iOS app pairs with your Mac over the built-in cmux iroh network. You can also bring your own networking, like Tailscale. Enterprise can self-host."
+        },
+        {
+          "q": "Kako funkcioniše naplata?",
+          "a": "Plaćeni planovi se naplaćuju mjesečno ili godišnje. Pro košta 50 $ mjesečno ili 550 $ godišnje, Max 200 $ mjesečno ili 1.920 $ godišnje (160 $ mjesečno), a Team 60 $ po korisniku mjesečno ili 660 $ po korisniku godišnje."
+        },
+        {
+          "q": "Can I self-host the cloud?",
+          "a": "Yes, on Enterprise. Run agent execution on your own infrastructure or fully air-gapped, so source code never leaves your network."
+        },
+        {
+          "q": "Imate li timski plan?",
+          "a": "Da. Team košta 60 $ po korisniku mjesečno ili 660 $ po korisniku godišnje, uz objedinjenu naplatu i prioritetnu podršku."
+        }
+      ]
+    }
   },
   "platforms": {
     "macos": "macOS",

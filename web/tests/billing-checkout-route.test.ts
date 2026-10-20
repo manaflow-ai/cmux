@@ -68,7 +68,9 @@ const resolveProPrice = mock(async (interval: unknown) =>
 const resolveTeamPrice = mock(async (interval: unknown) =>
   interval === "month" ? "price_team_month" : "price_team_year",
 );
-const resolveMaxPrice = mock(async (interval: unknown) => interval === "year" ? "price_max_year" : "price_max_month");
+const resolveMaxPrice = mock(async (interval: unknown) =>
+  interval === "year" ? "price_max_year" : "price_max_month",
+);
 const resolveGoPrice = mock(async () => "price_go_month");
 const stripeLimit = mock(async () => []);
 let useStubDb = false;
@@ -158,6 +160,13 @@ mock.module("../services/analytics/stripeBilling", () => ({
   captureBillingCheckoutStarted,
 }));
 
+const actualServerEventsModule = await import("../services/analytics/serverEvents");
+const captureServerEvent = mock(async (): Promise<void> => undefined);
+mock.module("../services/analytics/serverEvents", () => ({
+  ...actualServerEventsModule,
+  captureServerEvent,
+}));
+
 const realVmAuth = await import("../services/vms/auth");
 const verifyCheckoutUser = mock(async () => ({ id: SIGNED_IN_USER_ID, isAnonymous: false }));
 mock.module("../services/vms/auth", () => ({ ...realVmAuth, verifyRequest: verifyCheckoutUser }));
@@ -172,9 +181,9 @@ afterAll(() => {
 });
 
 describe("billing checkout route", () => {
-  test.each(["go", "team"])("refuses a new annual %s checkout without creating Stripe state", async (plan) => {
+  test("refuses a new annual Go checkout without creating Stripe state", async () => {
     stripeConfigured = true;
-    const response = await GET(new NextRequest(`https://cmux.test/api/billing/checkout?plan=${plan}&interval=year`));
+    const response = await GET(new NextRequest("https://cmux.test/api/billing/checkout?plan=go&interval=year"));
     expect(response.headers.get("location")).toBe("https://cmux.test/pricing?billing=annual_unavailable");
     expect(createStripeSession).not.toHaveBeenCalled();
     expect(createStripeCustomer).not.toHaveBeenCalled();
@@ -247,6 +256,7 @@ describe("billing checkout route", () => {
     resolveGoPrice.mockClear();
     resolveTeamPrice.mockClear();
     captureBillingCheckoutStarted.mockClear();
+    captureServerEvent.mockClear();
     stripeLimit.mockClear();
     stripeLimit.mockResolvedValue([]);
   });
@@ -706,7 +716,7 @@ describe("billing checkout route", () => {
     });
   });
 
-  test("creates a yearly Max checkout at the annual price", async () => {
+  test("creates a yearly Max checkout", async () => {
     stripeConfigured = true;
     userResponses = [{ ...signedInUser, clientReadOnlyMetadata: {} }];
 
@@ -717,11 +727,12 @@ describe("billing checkout route", () => {
     expect(response.headers.get("location")).toBe("https://checkout.stripe.com/c/session");
     expect(resolveMaxPrice).toHaveBeenCalledWith("year");
     expect(createdStripeSessions[0]).toMatchObject({
+      mode: "subscription",
       line_items: [{ price: "price_max_year", quantity: 1 }],
       metadata: expect.objectContaining({ plan: "max", billingInterval: "year" }),
-      subscription_data: { metadata: expect.objectContaining({ billingInterval: "year" }) },
     });
   });
+
 
   test("a dashboard checkout records a validated returnTo and cancels back to it", async () => {
     stripeConfigured = true;
@@ -1051,6 +1062,57 @@ describe("billing checkout route", () => {
       signedIn: true,
       existingStripeCustomer: false,
     });
+  });
+
+  test("creates a yearly Team checkout at the annual price", async () => {
+    stripeConfigured = true;
+    signedInUser.selectedTeam = teamCustomer;
+    userResponses = [signedInUser];
+
+    const response = await GET(
+      new NextRequest("https://cmux.test/api/billing/checkout?plan=team&interval=year"),
+    );
+
+    expect(response.headers.get("location")).toBe("https://checkout.stripe.com/c/session");
+    expect(resolveTeamPrice).toHaveBeenCalledWith("year");
+    expect(createdStripeSessions[0]).toMatchObject({
+      line_items: [{ price: "price_team_year", quantity: 2 }],
+      metadata: expect.objectContaining({ plan: "team", billingInterval: "year" }),
+      subscription_data: { metadata: expect.objectContaining({ billingInterval: "year" }) },
+      cancel_url: "https://cmux.test/pricing?billing=cancelled&interval=year",
+    });
+  });
+
+  test("records the selected annual interval when an existing Team goes to the portal", async () => {
+    stripeConfigured = true;
+    signedInUser.selectedTeam = teamCustomer;
+    stripeCustomerRows = [{ id: "cus_team" }];
+    stripeActiveSubscriptionRows = [{
+      id: "sub_team",
+      status: "active",
+      cancelAtPeriodEnd: false,
+      plan: "team",
+      scope: "team",
+      stackTeamId: TEAM_ID,
+    }];
+    userResponses = [signedInUser];
+
+    const response = await GET(
+      new NextRequest("https://cmux.test/api/billing/checkout?plan=team&interval=year"),
+    );
+
+    expect(response.headers.get("location")).toBe(
+      "https://cmux.test/api/billing/portal?scope=team",
+    );
+    expect(captureServerEvent).toHaveBeenCalledWith(expect.objectContaining({
+      event: "cmux_billing_checkout_routed",
+      properties: expect.objectContaining({
+        requested_plan: "team",
+        decision: "manage_billing",
+        billing_interval: "year",
+      }),
+    }));
+    expect(createStripeSession).not.toHaveBeenCalled();
   });
 
   test("records monthly Team checkout metadata", async () => {

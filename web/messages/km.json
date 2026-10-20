@@ -473,6 +473,9 @@
         "free": "ឥតគិតថ្លៃ",
         "pro": "Pro"
       },
+      "max": {
+        "upsell": "Max រួមបញ្ចូល Cloud VM រហូតដល់ 5 ដែលចែករំលែក 80 vCPU និង RAM 160 GB ក្នុងតម្លៃ $200 ក្នុងមួយខែ ឬ $1,920 ក្នុងមួយឆ្នាំ។"
+      },
       "teamPanel": {
         "notFound": "ក្រុមនេះមិនអាចប្រើបានទេ។ អ្នកប្រហែលជាបានចាកចេញពីក្រុម ឬក្រុមត្រូវបានលុប។",
         "unavailable": "មិនអាចផ្ទុកការទូទាត់របស់ក្រុមបានទេ។ សូមព្យាយាមម្តងទៀតបន្តិចទៀត។",
@@ -5295,7 +5298,64 @@
     "billingUnavailable": "ការទូទាត់មិនអាចប្រើបាននៅពេលនេះទេ។ សូមព្យាយាមម្តងទៀតនៅពេលក្រោយ។",
     "signedOutNotice": "អ្នកមិនទាន់បានចូលទេ។ ចូលដើម្បីមើលគម្រោងបច្ចុប្បន្នរបស់អ្នក ឬស្ដារការទិញដែលមានស្រាប់។",
     "signedOutSignIn": "ចូល",
-    "manageInAppStore": "គ្រប់គ្រងនៅក្នុង App Store"
+    "manageInAppStore": "គ្រប់គ្រងនៅក្នុង App Store",
+    "billingPeriod": "រយៈពេលវិក្កយបត្រ",
+    "monthly": "ប្រចាំខែ",
+    "annual": "ប្រចាំឆ្នាំ",
+    "perMonthBilledYearly": "/ខែ គិតថ្លៃប្រចាំឆ្នាំ",
+    "perUserMonthBilledYearly": "/អ្នកប្រើ/ខែ គិតថ្លៃប្រចាំឆ្នាំ",
+    "saveAnnual": "សន្សំ {discount}%",
+    "annualComparePrice": "${monthly}/ខែ",
+    "teamMonthlyComparePrice": "${monthly}/អ្នកប្រើ/ខែ",
+    "teamAnnualComparePrice": "${monthly}/អ្នកប្រើ/ខែ",
+    "pro": {
+      "annual": {
+        "yearly": "ប្រចាំឆ្នាំ"
+      }
+    },
+    "max": {
+      "annual": {
+        "yearly": "ប្រចាំឆ្នាំ"
+      }
+    },
+    "billingAnnualUnavailable": "ការគិតថ្លៃប្រចាំឆ្នាំមិនមានសម្រាប់គម្រោងនេះទេ។ សូមជ្រើសរើសគម្រោងប្រចាំខែខាងក្រោម។",
+    "faq": {
+      "items": [
+        {
+          "q": "Is the terminal really free?",
+          "a": "Yes. The macOS app is open source and free forever. Local agents run with your own API keys at no cost to you. Cloud VMs are part of the paid plans."
+        },
+        {
+          "q": "What are Cloud VMs?",
+          "a": "Persistent Linux machines in the cloud: pets, not cattle. Following the Zen of cmux, a machine is a primitive, not a managed solution: it keeps its files, installed tools, and state, and what you build on it is yours. Agents clone repositories, run commands, and open pull requests there without touching your Mac. Pro includes up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM. One VM can use up to 16 GB RAM / 8 vCPU; the 24 GB / 12 vCPU and 32 GB / 16 vCPU sizes require Max. Team includes the same allowance for each paid seat, in one pool shared across the team."
+        },
+        {
+          "q": "Max ផ្តល់អ្វីបន្ថែម?",
+          "a": "Max មានតម្លៃ $200 ក្នុងមួយខែ ឬ $1,920 ក្នុងមួយឆ្នាំ (ស្មើ $160 ក្នុងមួយខែ)។ វារួមបញ្ចូលអ្វីៗទាំងអស់ក្នុង Pro និង Cloud VM រហូតដល់ 5 ដែលចែករំលែក 80 vCPU និង RAM 160 GB។"
+        },
+        {
+          "q": "What is cmux Vault?",
+          "a": "Vault backs up every terminal session to the cloud and lets you search across all of them, with unlimited history across your machines. Free keeps history locally on each machine; Pro adds cloud backup and search.",
+          "vault": true
+        },
+        {
+          "q": "Do I still need Tailscale for the iOS app?",
+          "a": "No. The iOS app pairs with your Mac over the built-in cmux iroh network. You can also bring your own networking, like Tailscale. Enterprise can self-host."
+        },
+        {
+          "q": "ការទូទាត់ដំណើរការយ៉ាងដូចម្តេច?",
+          "a": "គម្រោងបង់ប្រាក់ត្រូវបានគិតថ្លៃប្រចាំខែ ឬប្រចាំឆ្នាំ។ Pro មានតម្លៃ $50 ក្នុងមួយខែ ឬ $550 ក្នុងមួយឆ្នាំ Max $200 ក្នុងមួយខែ ឬ $1,920 ក្នុងមួយឆ្នាំ ហើយ Team $60 ក្នុងមួយអ្នកប្រើក្នុងមួយខែ ឬ $660 ក្នុងមួយអ្នកប្រើក្នុងមួយឆ្នាំ។"
+        },
+        {
+          "q": "Can I self-host the cloud?",
+          "a": "Yes, on Enterprise. Run agent execution on your own infrastructure or fully air-gapped, so source code never leaves your network."
+        },
+        {
+          "q": "តើមានគម្រោងសម្រាប់ក្រុមទេ?",
+          "a": "មាន។ Team មានតម្លៃ $60 ក្នុងមួយអ្នកប្រើក្នុងមួយខែ ឬ $660 ក្នុងមួយអ្នកប្រើក្នុងមួយឆ្នាំ ជាមួយការគិតថ្លៃកណ្តាល និងជំនួយអាទិភាព។"
+        }
+      ]
+    }
   },
   "platforms": {
     "macos": "macOS",

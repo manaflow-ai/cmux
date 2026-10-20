@@ -473,6 +473,9 @@
         "free": "Gratis",
         "pro": "Pro"
       },
+      "max": {
+        "upsell": "Max inkluderer op til 5 Cloud VM’er, der deler 80 vCPU og 160 GB RAM, til $200 om måneden eller $1.920 om året ($160 om måneden)."
+      },
       "teamPanel": {
         "notFound": "Dette team er ikke tilgængeligt. Du har måske forladt det, eller det er blevet slettet.",
         "unavailable": "Teamets fakturering kunne ikke indlæses. Prøv igen om lidt.",
@@ -5294,7 +5297,64 @@
     "billingUnavailable": "Betaling er ikke tilgængelig lige nu. Prøv igen senere.",
     "signedOutNotice": "Du er ikke logget ind. Log ind for at se dit nuværende abonnement eller gendanne et tidligere køb.",
     "signedOutSignIn": "Log ind",
-    "manageInAppStore": "Administrer i App Store"
+    "manageInAppStore": "Administrer i App Store",
+    "billingPeriod": "Faktureringsperiode",
+    "monthly": "Månedligt",
+    "annual": "Årligt",
+    "perMonthBilledYearly": "/md., faktureres årligt",
+    "perUserMonthBilledYearly": "/bruger/md., faktureres årligt",
+    "saveAnnual": "Spar {discount}%",
+    "annualComparePrice": "${monthly}/md.",
+    "teamMonthlyComparePrice": "${monthly}/bruger/md.",
+    "teamAnnualComparePrice": "${monthly}/bruger/md.",
+    "pro": {
+      "annual": {
+        "yearly": "Årligt"
+      }
+    },
+    "max": {
+      "annual": {
+        "yearly": "Årligt"
+      }
+    },
+    "billingAnnualUnavailable": "Årlig fakturering er ikke tilgængelig for denne plan. Vælg en månedlig plan nedenfor.",
+    "faq": {
+      "items": [
+        {
+          "q": "Is the terminal really free?",
+          "a": "Yes. The macOS app is open source and free forever. Local agents run with your own API keys at no cost to you. Cloud VMs are part of the paid plans."
+        },
+        {
+          "q": "What are Cloud VMs?",
+          "a": "Persistent Linux machines in the cloud: pets, not cattle. Following the Zen of cmux, a machine is a primitive, not a managed solution: it keeps its files, installed tools, and state, and what you build on it is yours. Agents clone repositories, run commands, and open pull requests there without touching your Mac. Pro includes up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM. One VM can use up to 16 GB RAM / 8 vCPU; the 24 GB / 12 vCPU and 32 GB / 16 vCPU sizes require Max. Team includes the same allowance for each paid seat, in one pool shared across the team."
+        },
+        {
+          "q": "Hvad får jeg med Max?",
+          "a": "Max koster $200 om måneden eller $1.920 om året (svarende til $160 om måneden). Det omfatter alt i Pro og op til 5 Cloud VM’er, der deler 80 vCPU og 160 GB RAM."
+        },
+        {
+          "q": "What is cmux Vault?",
+          "a": "Vault backs up every terminal session to the cloud and lets you search across all of them, with unlimited history across your machines. Free keeps history locally on each machine; Pro adds cloud backup and search.",
+          "vault": true
+        },
+        {
+          "q": "Do I still need Tailscale for the iOS app?",
+          "a": "No. The iOS app pairs with your Mac over the built-in cmux iroh network. You can also bring your own networking, like Tailscale. Enterprise can self-host."
+        },
+        {
+          "q": "Hvordan fungerer faktureringen?",
+          "a": "Betalte planer faktureres månedligt eller årligt. Pro koster $50 om måneden eller $550 om året, Max $200 om måneden eller $1.920 om året ($160 om måneden), og Team $60 pr. bruger om måneden eller $660 pr. bruger om året."
+        },
+        {
+          "q": "Can I self-host the cloud?",
+          "a": "Yes, on Enterprise. Run agent execution on your own infrastructure or fully air-gapped, so source code never leaves your network."
+        },
+        {
+          "q": "Har I en teamplan?",
+          "a": "Ja. Team koster $60 pr. bruger om måneden eller $660 pr. bruger om året med samlet fakturering og prioriteret support."
+        }
+      ]
+    }
   },
   "platforms": {
     "macos": "macOS",

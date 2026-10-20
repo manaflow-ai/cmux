@@ -473,6 +473,9 @@
         "free": "ฟรี",
         "pro": "Pro"
       },
+      "max": {
+        "upsell": "Max รวม Cloud VM สูงสุด 5 เครื่องที่ใช้ร่วมกัน 80 vCPU และ RAM 160 GB ราคา $200 ต่อเดือน หรือ $1,920 ต่อปี ($160 ต่อเดือน)"
+      },
       "teamPanel": {
         "notFound": "ทีมนี้ไม่พร้อมใช้งาน คุณอาจออกจากทีมไปแล้ว หรือทีมถูกลบแล้ว",
         "unavailable": "โหลดข้อมูลการเรียกเก็บเงินของทีมไม่ได้ โปรดลองอีกครั้งในอีกสักครู่",
@@ -5302,7 +5305,64 @@
     "billingUnavailable": "การเรียกเก็บเงินยังไม่พร้อมใช้งานในตอนนี้ โปรดลองอีกครั้งภายหลัง",
     "signedOutNotice": "คุณยังไม่ได้ลงชื่อเข้าใช้ ลงชื่อเข้าใช้เพื่อดูแผนปัจจุบันหรือกู้คืนการซื้อที่มีอยู่",
     "signedOutSignIn": "ลงชื่อเข้าใช้",
-    "manageInAppStore": "จัดการใน App Store"
+    "manageInAppStore": "จัดการใน App Store",
+    "billingPeriod": "รอบการเรียกเก็บเงิน",
+    "monthly": "รายเดือน",
+    "annual": "รายปี",
+    "perMonthBilledYearly": "/เดือน เรียกเก็บรายปี",
+    "perUserMonthBilledYearly": "/ผู้ใช้/เดือน เรียกเก็บรายปี",
+    "saveAnnual": "ประหยัด {discount}%",
+    "annualComparePrice": "${monthly}/เดือน",
+    "teamMonthlyComparePrice": "${monthly}/ผู้ใช้/เดือน",
+    "teamAnnualComparePrice": "${monthly}/ผู้ใช้/เดือน",
+    "pro": {
+      "annual": {
+        "yearly": "รายปี"
+      }
+    },
+    "max": {
+      "annual": {
+        "yearly": "รายปี"
+      }
+    },
+    "billingAnnualUnavailable": "แผนนี้ไม่รองรับการเรียกเก็บเงินรายปี โปรดเลือกแพ็กเกจรายเดือนด้านล่าง",
+    "faq": {
+      "items": [
+        {
+          "q": "Is the terminal really free?",
+          "a": "Yes. The macOS app is open source and free forever. Local agents run with your own API keys at no cost to you. Cloud VMs are part of the paid plans."
+        },
+        {
+          "q": "What are Cloud VMs?",
+          "a": "Persistent Linux machines in the cloud: pets, not cattle. Following the Zen of cmux, a machine is a primitive, not a managed solution: it keeps its files, installed tools, and state, and what you build on it is yours. Agents clone repositories, run commands, and open pull requests there without touching your Mac. Pro includes up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM. One VM can use up to 16 GB RAM / 8 vCPU; the 24 GB / 12 vCPU and 32 GB / 16 vCPU sizes require Max. Team includes the same allowance for each paid seat, in one pool shared across the team."
+        },
+        {
+          "q": "Max เพิ่มอะไรบ้าง?",
+          "a": "Max ราคา $200 ต่อเดือน หรือ $1,920 ต่อปี (เทียบเท่า $160 ต่อเดือน) รวมทุกอย่างใน Pro และ Cloud VM สูงสุด 5 เครื่องที่ใช้ร่วมกัน 80 vCPU และ RAM 160 GB"
+        },
+        {
+          "q": "What is cmux Vault?",
+          "a": "Vault backs up every terminal session to the cloud and lets you search across all of them, with unlimited history across your machines. Free keeps history locally on each machine; Pro adds cloud backup and search.",
+          "vault": true
+        },
+        {
+          "q": "Do I still need Tailscale for the iOS app?",
+          "a": "No. The iOS app pairs with your Mac over the built-in cmux iroh network. You can also bring your own networking, like Tailscale. Enterprise can self-host."
+        },
+        {
+          "q": "การเรียกเก็บเงินทำงานอย่างไร?",
+          "a": "แพ็กเกจแบบชำระเงินเรียกเก็บรายเดือนหรือรายปี Pro ราคา $50 ต่อเดือนหรือ $550 ต่อปี Max $200 ต่อเดือนหรือ $1,920 ต่อปี ($160 ต่อเดือน) และ Team $60 ต่อผู้ใช้ต่อเดือนหรือ $660 ต่อผู้ใช้ต่อปี"
+        },
+        {
+          "q": "Can I self-host the cloud?",
+          "a": "Yes, on Enterprise. Run agent execution on your own infrastructure or fully air-gapped, so source code never leaves your network."
+        },
+        {
+          "q": "มีแพ็กเกจสำหรับทีมหรือไม่?",
+          "a": "มี Team ราคา $60 ต่อผู้ใช้ต่อเดือนหรือ $660 ต่อผู้ใช้ต่อปี พร้อมการเรียกเก็บเงินรวมและการสนับสนุนลำดับความสำคัญ"
+        }
+      ]
+    }
   },
   "platforms": {
     "macos": "macOS",

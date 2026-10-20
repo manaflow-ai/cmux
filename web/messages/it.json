@@ -473,6 +473,9 @@
         "free": "Gratis",
         "pro": "Pro"
       },
+      "max": {
+        "upsell": "Max include fino a 5 Cloud VM che condividono 80 vCPU e 160 GB di RAM, a 200 $ al mese o 1.920 $ all’anno (160 $ al mese)."
+      },
       "teamPanel": {
         "notFound": "Questo team non è disponibile. Potresti averlo lasciato, oppure è stato eliminato.",
         "unavailable": "Impossibile caricare la fatturazione del team. Riprova tra poco.",
@@ -5297,7 +5300,64 @@
     "billingUnavailable": "La fatturazione non è disponibile al momento. Riprova più tardi.",
     "signedOutNotice": "Non hai effettuato l'accesso. Accedi per vedere il piano attuale o ripristinare un acquisto esistente.",
     "signedOutSignIn": "Accedi",
-    "manageInAppStore": "Gestisci nell’App Store"
+    "manageInAppStore": "Gestisci nell’App Store",
+    "billingPeriod": "Periodo di fatturazione",
+    "monthly": "Mensile",
+    "annual": "Annuale",
+    "perMonthBilledYearly": "/mese, fatturato annualmente",
+    "perUserMonthBilledYearly": "/utente/mese, fatturato annualmente",
+    "saveAnnual": "Risparmia il {discount}%",
+    "annualComparePrice": "${monthly}/mese",
+    "teamMonthlyComparePrice": "${monthly}/utente/mese",
+    "teamAnnualComparePrice": "${monthly}/utente/mese",
+    "pro": {
+      "annual": {
+        "yearly": "Annuale"
+      }
+    },
+    "max": {
+      "annual": {
+        "yearly": "Annuale"
+      }
+    },
+    "billingAnnualUnavailable": "La fatturazione annuale non è disponibile per questo piano. Scegli un piano mensile qui sotto.",
+    "faq": {
+      "items": [
+        {
+          "q": "Is the terminal really free?",
+          "a": "Yes. The macOS app is open source and free forever. Local agents run with your own API keys at no cost to you. Cloud VMs are part of the paid plans."
+        },
+        {
+          "q": "What are Cloud VMs?",
+          "a": "Persistent Linux machines in the cloud: pets, not cattle. Following the Zen of cmux, a machine is a primitive, not a managed solution: it keeps its files, installed tools, and state, and what you build on it is yours. Agents clone repositories, run commands, and open pull requests there without touching your Mac. Pro includes up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM. One VM can use up to 16 GB RAM / 8 vCPU; the 24 GB / 12 vCPU and 32 GB / 16 vCPU sizes require Max. Team includes the same allowance for each paid seat, in one pool shared across the team."
+        },
+        {
+          "q": "Cosa aggiunge Max?",
+          "a": "Max costa 200 $ al mese o 1.920 $ all’anno (160 $ al mese). Include tutto ciò che offre Pro e fino a 5 Cloud VM che condividono 80 vCPU e 160 GB di RAM."
+        },
+        {
+          "q": "What is cmux Vault?",
+          "a": "Vault backs up every terminal session to the cloud and lets you search across all of them, with unlimited history across your machines. Free keeps history locally on each machine; Pro adds cloud backup and search.",
+          "vault": true
+        },
+        {
+          "q": "Do I still need Tailscale for the iOS app?",
+          "a": "No. The iOS app pairs with your Mac over the built-in cmux iroh network. You can also bring your own networking, like Tailscale. Enterprise can self-host."
+        },
+        {
+          "q": "Come funziona la fatturazione?",
+          "a": "I piani a pagamento vengono fatturati mensilmente o annualmente. Pro costa 50 $ al mese o 550 $ all’anno, Max 200 $ al mese o 1.920 $ all’anno (160 $ al mese), e Team 60 $ per utente al mese o 660 $ per utente all’anno."
+        },
+        {
+          "q": "Can I self-host the cloud?",
+          "a": "Yes, on Enterprise. Run agent execution on your own infrastructure or fully air-gapped, so source code never leaves your network."
+        },
+        {
+          "q": "Avete un piano per i team?",
+          "a": "Sì. Team costa 60 $ per utente al mese o 660 $ per utente all’anno, con fatturazione centralizzata e supporto prioritario."
+        }
+      ]
+    }
   },
   "platforms": {
     "macos": "macOS",

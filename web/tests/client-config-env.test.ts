@@ -91,10 +91,11 @@ describe("client config env validation", () => {
     // deployment must fail loudly rather than sell at the old amount.
     const retired = [
       ["STRIPE_PRO_MONTHLY_PRICE_ID", "STRIPE_PRO_MONTHLY_50_PRICE_ID"],
-      ["STRIPE_PRO_YEARLY_PRICE_ID", "STRIPE_PRO_YEARLY_480_PRICE_ID"],
-      ["STRIPE_PRO_YEARLY_288_PRICE_ID", "STRIPE_PRO_YEARLY_480_PRICE_ID"],
+      ["STRIPE_PRO_YEARLY_PRICE_ID", "STRIPE_PRO_YEARLY_550_PRICE_ID"],
+      ["STRIPE_PRO_YEARLY_288_PRICE_ID", "STRIPE_PRO_YEARLY_550_PRICE_ID"],
       ["STRIPE_TEAM_MONTHLY_PRICE_ID", "STRIPE_TEAM_MONTHLY_60_PRICE_ID"],
-      ["STRIPE_TEAM_YEARLY_PRICE_ID", "STRIPE_TEAM_YEARLY_576_PRICE_ID"],
+      ["STRIPE_TEAM_YEARLY_PRICE_ID", "STRIPE_TEAM_YEARLY_660_PRICE_ID"],
+      ["STRIPE_TEAM_YEARLY_576_PRICE_ID", "STRIPE_TEAM_YEARLY_660_PRICE_ID"],
     ] as const;
     for (const [name, replacement] of retired) {
       const result = await importEnv({
@@ -107,18 +108,24 @@ describe("client config env validation", () => {
     }
   });
 
-  test("accepts the current Stripe price overrides", async () => {
-    const result = await importEnv({
+  test("rejects retired Pro annual price names while accepting current overrides", async () => {
+    const retired = await importEnv({
+      ...requiredEnv,
+      STRIPE_PRO_YEARLY_480_PRICE_ID: "price_pro_480",
+    });
+    expectRejected(retired);
+    expect(retired.stderr).toContain("STRIPE_PRO_YEARLY_480_PRICE_ID is retired; use STRIPE_PRO_YEARLY_550_PRICE_ID");
+
+    const current = await importEnv({
       ...requiredEnv,
       STRIPE_PRO_MONTHLY_50_PRICE_ID: "price_pro_50",
-      STRIPE_PRO_YEARLY_480_PRICE_ID: "price_pro_480",
+      STRIPE_PRO_YEARLY_550_PRICE_ID: "price_pro_550",
       STRIPE_MAX_MONTHLY_200_PRICE_ID: "price_max_200",
       STRIPE_MAX_YEARLY_1920_PRICE_ID: "price_max_1920",
       STRIPE_TEAM_MONTHLY_60_PRICE_ID: "price_team_60",
-      STRIPE_TEAM_YEARLY_576_PRICE_ID: "price_team_576",
+      STRIPE_TEAM_YEARLY_660_PRICE_ID: "price_team_660",
     });
-
-    expect(result.status).toBe(0);
+    expect(current.status).toBe(0);
   });
 
   test("allows explicit Vercel production deployments with all rate-limit ids unset", async () => {
