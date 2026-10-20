@@ -46315,9 +46315,11 @@ struct CMUXTermMain {
         // so macOS does not add helper launches to Dock recents.
         let cliApplicationPolicy = CLIApplicationPolicy(application: .shared)
         guard cliApplicationPolicy.apply() else {
-            CMUXCLIOutput.writeStandardError(
-                "Error: failed to hide the bundled CLI from macOS application surfaces.\n"
+            let message = String(
+                localized: "cli.applicationPolicy.error",
+                defaultValue: "Failed to hide the bundled CLI from macOS application surfaces."
             )
+            CMUXCLIOutput.writeStandardError(message + "\n")
             exit(1)
         }
 #endif
