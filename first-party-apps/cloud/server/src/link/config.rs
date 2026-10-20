@@ -213,7 +213,7 @@ impl<C: ControlPlane> Server<C> {
         let attach = self.attach_mut();
         let base_changed = attach.remember_host_paths(paths.clone());
         if attach.native_link.is_some() {
-            attach.link = LinkConfig::Ready(paths.clone());
+            attach.link = LinkConfig::Ready(paths);
             // Global hub changes cannot respawn a Native carrier through another transport.
             if base_changed {
                 attach.supervisor.disconnect_all("the host link configuration changed");
