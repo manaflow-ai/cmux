@@ -1733,12 +1733,49 @@ jobs:
           fi
 
       - name: Checkout build ref
-        if: inputs.nightly_next_unsigned_run == ''
+        if: inputs.nightly_next_unsigned_run == '' && !(runner.environment == 'self-hosted' && needs.decide.outputs.track == 'nightly-next')
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
           ref: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
           submodules: recursive
+
+      # The dedicated nightly-next builder keeps its checkout. actions/checkout
+      # fetches each commit at depth 1, which sends the whole tree again (118 s
+      # on cmux22, run 39440747033). A fetch without a depth limit, with a ref
+      # on the commit the workspace holds, sends only the new objects (2 s).
+      # The clean keeps the three Rust target directories the rust-cache step
+      # restores on a hosted runner, at the same paths, so cargo rebuilds only
+      # what changed and nothing is downloaded or uploaded.
+      - name: Checkout build ref (warm nightly-next builder)
+        if: inputs.nightly_next_unsigned_run == '' && runner.environment == 'self-hosted' && needs.decide.outputs.track == 'nightly-next'
+        env:
+          BUILD_SHA: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
+          REPO_URL: ${{ github.server_url }}/${{ github.repository }}.git
+        run: |
+          set -euo pipefail
+          [[ "$BUILD_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "bad build sha: $BUILD_SHA" >&2; exit 1; }
+          cd "$GITHUB_WORKSPACE"
+          [ -d .git ] || git init -q .
+          git config gc.auto 0
+          if git remote get-url origin >/dev/null 2>&1; then git remote set-url origin "$REPO_URL"; else git remote add origin "$REPO_URL"; fi
+          # The negotiation tells the server what the workspace has only
+          # through refs; a detached HEAD alone makes it send the whole tree.
+          if git rev-parse -q --verify HEAD >/dev/null; then
+            git update-ref refs/remotes/origin/nightly-warm-base HEAD
+          fi
+          started=$SECONDS
+          git -c protocol.version=2 fetch --no-tags --no-recurse-submodules origin "$BUILD_SHA"
+          echo "fetched $BUILD_SHA in $((SECONDS - started)) s"
+          git checkout -q --force --detach "$BUILD_SHA"
+          git update-ref refs/remotes/origin/nightly-warm-base "$BUILD_SHA"
+          git clean -ffdxq -e /cmux-tui/target/ -e /Native/OptChat/optchat-chief/target/ -e /cnx-ios/rust/target/
+          git reset -q --hard "$BUILD_SHA"
+          git submodule sync -q --recursive
+          git -c protocol.version=2 submodule update --init --force --depth=1 --recursive
+          git submodule foreach -q --recursive git config --local gc.auto 0
+          test "$(git rev-parse HEAD)" = "$BUILD_SHA"
+          git status --short | head -20
 
       - name: Select Xcode
         if: inputs.nightly_next_unsigned_run == ''
@@ -1863,7 +1900,7 @@ jobs:
       # serial build path (2026-10-09). Their target dirs keep the dependency
       # builds between nightly-next runs; cargo still rebuilds what changed.
       - name: Restore the acpmux and OptChat Chief dependency builds (cmux-next)
-        if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.track == 'nightly-next')
+        if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.track == 'nightly-next') && runner.environment != 'self-hosted'
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: |
@@ -2218,6 +2255,23 @@ jobs:
             echo "Xcode compilation cache is empty; skipping cache save"
           fi
           echo "save=${save}" >> "$GITHUB_OUTPUT"
+
+      # The warm builder keeps the Rust target directories (above). Cargo
+      # never deletes old artifacts, so start them over above 30 GiB.
+      - name: Bound the kept Rust target directories (warm nightly-next builder)
+        if: always() && inputs.nightly_next_unsigned_run == '' && runner.environment == 'self-hosted' && needs.decide.outputs.track == 'nightly-next'
+        run: |
+          set -euo pipefail
+          dirs=(cmux-tui/target Native/OptChat/optchat-chief/target cnx-ios/rust/target)
+          kib=0
+          for d in "${dirs[@]}"; do
+            [ -d "$d" ] && kib=$((kib + $(du -sk "$d" | awk '{print $1}')))
+          done
+          echo "kept Rust target directories: $((kib / 1024)) MiB"
+          if [ "$kib" -gt $((30 * 1024 * 1024)) ]; then
+            echo "above 30 GiB: removing them; the next build compiles the helpers again"
+            rm -rf "${dirs[@]}"
+          fi
 
       - name: Save Xcode compilation cache
         if: inputs.nightly_next_unsigned_run == '' && needs.decide.outputs.track != 'nightly-next' && steps.compilation-cache-restore.outputs.cache-hit != 'true' && steps.compilation-cache-bound.outputs.save == 'true'
