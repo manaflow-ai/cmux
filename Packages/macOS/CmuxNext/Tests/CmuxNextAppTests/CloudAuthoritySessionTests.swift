@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+@testable import CmuxNextApp
 @testable import CmuxNextCloud
 
 @MainActor

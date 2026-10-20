@@ -21,13 +21,18 @@ final class CloudAuthoritySessionTestWorld {
         fence: { [weak self] in self?.fence() ?? Task {} },
         start: { [weak self] in await self?.start($0) }, retire: { [weak self] _ in await self?.retire() })
 
-    lazy var authority = CloudAuthoritySession(capability: base.observed, initial: { [base] in try await base.scopes.bind() },
-        current: { [weak self] in self?.lifecycle.isCurrent($0) == true },
-        lost: { [weak self] identity, restart in
-            guard let self else { return }
-            self.losses += 1; self.loss.continuation.yield(self.losses)
-            _ = self.lifecycle.authorityChanged(identity, restart: restart)
-        }, make: { [wire] in wire.make($0) })
+    lazy var authority = makeAuthority()
+
+    private func makeAuthority() -> CloudAuthoritySession {
+        let scopes = base.scopes, wire = wire
+        return CloudAuthoritySession(capability: base.observed, initial: { try await scopes.bind() },
+            current: { [weak self] in self?.lifecycle.isCurrent($0) == true },
+            lost: { [weak self] identity, restart in
+                guard let self else { return }
+                self.losses += 1; self.loss.continuation.yield(self.losses)
+                _ = self.lifecycle.authorityChanged(identity, restart: restart)
+            }, make: { wire.make($0) })
+    }
 
     init(root: URL) {
         base = CloudObservedAuthorityTestWorld(root: root)
