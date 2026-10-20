@@ -72,6 +72,32 @@ import Testing
         #expect(body.lines.contains("Ports: :3000"), "\(body.lines)")
     }
 
+    /// One card (a361, 2026-10-20): a group's card is the coordinator's one card window, the same
+    /// one `presentOwned` shows the update highlights in. An owned card morphs the group card into
+    /// itself in that window; no second window opens.
+    @Test func aGroupCardSharesTheOneCardWindowWithOwnedCards() async throws {
+        let clock = ManualClock()
+        let (list, window, coordinator, header) = Self.sidebar(clock: clock)
+        defer { Self.tearDown(list, window, coordinator) }
+        Self.rest(list, on: header)
+        try await clock.waitForSleeper()
+        clock.advance(by: DesignSettings.shared.groupHoverCard.delay + .milliseconds(50))
+        try await Self.settle { coordinator.machine.shownTarget != nil }
+        let groupTarget = WorkspaceHoverCardController.targetID(Self.groupID)
+        #expect(coordinator.isShowing(groupTarget))
+        let cardWindow = try #require(coordinator.cardWindow)
+
+        let owned = HoverTargetID("test:owned")
+        let body = HoverCardBody(view: NSView(frame: NSRect(x: 0, y: 0, width: 120, height: 40)), placement: .beside,
+                                 themeAnchor: list, applyTheme: {})
+        coordinator.presentOwned(owned, body: body, anchor: try #require(list.hoverCardAnchor(forGroup: Self.groupID)),
+                                 parent: window, interactive: false) {}
+        #expect(coordinator.cardWindow === cardWindow, "the owned card opened a second window")
+        #expect(coordinator.isShowingOwned(owned))
+        #expect(!coordinator.isShowing(groupTarget), "the group card and the owned card both show")
+        coordinator.endOwned(owned)
+    }
+
     /// "For a while": a group waits its own delay, longer than a row's, so a rest that would open a
     /// workspace card opens no group card yet.
     @Test func aGroupWaitsLongerThanARow() async throws {
