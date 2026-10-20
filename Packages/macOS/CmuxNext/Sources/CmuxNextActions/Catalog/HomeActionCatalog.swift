@@ -16,6 +16,8 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
         return all.map { descriptor in
             var descriptor = descriptor
             descriptor.waitsForResult = waits.contains(descriptor.id)
+            // `home.chiefPetEnabled` is a user-only setting: only a person turns the pet on.
+            descriptor.isPersonOnly = descriptor.id == "home.toggleChiefPet"
             return descriptor
         }
     }
@@ -79,6 +81,17 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                 keywords: ["home", "channels", "slack", "threads", "disable", "hide", "sidebar"],
                 category: .window, symbol: "number", surfaces: [.palette], cliName: "home disable-channels",
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
+            ),
+            // The Chief pet (`home.chiefPetEnabled`, off by default): Leo 2026-10-19, the toggle "ought to be a
+            // hell of a lot more obvious" than Settings > Home. View > Show Chief Pet and the palette row read as
+            // the change they make (Hide Chief Pet while it shows); the empty Chief conversation offers it too.
+            ActionDescriptor(
+                id: "home.toggleChiefPet", title: t("action.home.toggleChiefPet", "Show Chief Pet"),
+                keywords: ["chief", "pet", "mascot", "floating", "companion", "show", "hide", "toggle", "buddy", "notifications"],
+                category: .window, symbol: "pawprint", surfaces: [.palette, .menu],
+                mainMenu: .view,
+                // No CLI verb: the setting is user-only, so a script or agent run would be refused.
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
             ),
             ActionDescriptor(
                 id: "home.attachFiles", title: t("action.home.attachFiles", "Attach Files…"),
@@ -240,6 +253,18 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                 category: .window, symbol: "bubble.left.and.text.bubble.right", surfaces: [.palette, .keyboard],
                 arguments: [Self.conversation, Self.replies(isRequired: true)],
                 cliName: "chat replies",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noTargetSurface)
+            ),
+            // Pin or unpin a conversation in the Home sidebar's pinned grid (pinning-DESIGN.md): the
+            // row's Pin/Unpin, a tile dragged out of the grid, the palette, `cmux home pin-unpin` and
+            // MCP run it. `pinned` sets the state; without it the action toggles.
+            ActionDescriptor(
+                id: "home.togglePin", title: t("action.home.togglePin", "Pin/Unpin Conversation"),
+                keywords: ["home", "pin", "unpin", "pinned", "favorite", "top", "conversation", "chief", "dm", "group"],
+                category: .window, symbol: "pin", surfaces: [.palette, .keyboard],
+                arguments: [Self.conversation,
+                            ActionArgument(name: "pinned", title: t("argument.home.pinned", "Pinned"), kind: .bool, isRequired: false)],
+                cliName: "home pin-unpin",
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noTargetSurface)
             ),
             // `cmux home send --conversation <id> --text "…"`: a message as me, in a DM or group.

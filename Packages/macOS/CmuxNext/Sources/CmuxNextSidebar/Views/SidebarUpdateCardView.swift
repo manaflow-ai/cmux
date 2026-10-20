@@ -98,7 +98,7 @@ final class SidebarUpdateCardView: NSView {
     /// Shows and hides the card with its entrance and exit (``SidebarCardTransition``).
     private(set) lazy var presence = SidebarCardPresence(self, policy: motionPolicy)
     /// The motion settings the card's transitions follow (`Motion.policy`; tests set their own before the first card).
-    var motionPolicy: @MainActor () -> MotionPolicy = { Motion.policy }
+    var motionPolicy: @MainActor () -> MotionPolicy = { Motion.overlays.policy }
     /// The card plays its exit: the slot keeps it in place until it has gone.
     var isLeaving: Bool { presence.isLeaving }
 

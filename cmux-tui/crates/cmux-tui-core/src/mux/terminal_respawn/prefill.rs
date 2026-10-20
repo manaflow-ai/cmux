@@ -1,5 +1,8 @@
 //! The command a respawned terminal types on its new prompt (cx-6so.49
 //! L2):
+//! - the resume command a person set for the terminal (`resume-command`,
+//!   `terminal_resume_store`), typed without a newline: their own choice
+//!   wins over anything the daemon would offer;
 //! - the agent session it last ran, when its harness is known:
 //!   `claude --resume <id>` or `codex resume <id>`, typed and run (#22292):
 //!   an agent in a workspace nobody opened yet runs again at launch. The
@@ -88,6 +91,15 @@ impl Mux {
         terminal_id: &str,
         record: Option<&StoredRelaunch>,
     ) -> Option<Prefill> {
+        match self.terminal_resume_command(terminal_id) {
+            Ok(Some(text)) => return Some(Prefill { kind: Prefilled::Resume, text }),
+            Ok(None) => {}
+            Err(error) => {
+                eprintln!(
+                    "cmux-tui: could not read the resume command of {terminal_id}: {error:#}"
+                );
+            }
+        }
         let record = record?;
         if let Some(text) = record
             .agent
@@ -102,6 +114,24 @@ impl Mux {
         let argv = self.terminal_respawns.argv(terminal_id).or_else(|| record.argv.clone())?;
         let text = shell_quoted(&argv)?;
         Some(Prefill { kind: Prefilled::Command, text })
+    }
+}
+
+impl Mux {
+    /// Set (`Some`) or clear (`None`) the resume command of one hosted
+    /// terminal (`terminal_id` is the stable host id) and return the stored
+    /// command. A respawn of the terminal types it on the new prompt.
+    pub fn set_terminal_resume_command(
+        &self,
+        terminal_id: &str,
+        command: Option<&str>,
+    ) -> anyhow::Result<Option<String>> {
+        self.workspace_registry.lock().unwrap().set_terminal_resume_command(terminal_id, command)
+    }
+
+    /// The resume command of one hosted terminal, if one is set.
+    pub fn terminal_resume_command(&self, terminal_id: &str) -> anyhow::Result<Option<String>> {
+        self.workspace_registry.lock().unwrap().terminal_resume_command(terminal_id)
     }
 }
 
@@ -153,6 +183,8 @@ mod tests {
         assert_eq!(agent.input(), b"claude --resume abc\r");
         let command = Prefill { kind: Prefilled::Command, text: "npm run dev".into() };
         assert_eq!(command.input(), b"npm run dev");
+        let resume = Prefill { kind: Prefilled::Resume, text: "npm run dev".into() };
+        assert_eq!(resume.input(), b"npm run dev", "a person's resume command waits for Return");
     }
 
     #[test]

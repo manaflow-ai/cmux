@@ -89,7 +89,16 @@ fn run(program: &str, args: &[&str], limit: Duration) -> Option<String> {
 
 /// The tailnet peers this machine sees (names and online state).
 fn tailnet() -> Value {
-    let Some(text) = run("tailscale", &["status", "--json"], Duration::from_secs(8)) else {
+    // A non-login shell (ssh, launchd) often lacks Homebrew's or the app's bin.
+    let found = [
+        "tailscale",
+        "/opt/homebrew/bin/tailscale",
+        "/usr/local/bin/tailscale",
+        "/Applications/Tailscale.app/Contents/MacOS/Tailscale",
+    ]
+    .into_iter()
+    .find_map(|bin| run(bin, &["status", "--json"], Duration::from_secs(8)));
+    let Some(text) = found else {
         return json!({"available": false});
     };
     let v: Value = serde_json::from_str(&text).unwrap_or(Value::Null);

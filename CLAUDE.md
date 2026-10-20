@@ -77,6 +77,18 @@ Swift/Rust builds and tests stay on the fleet.
   `Thread.sleep`, `.wait()`, `readDataToEndOfFile()`, `waitUntilExit()` or `NSWorkspace.shared.open`.
 - No `try!`: throw or handle a typed error.
 - Fonts come from `TypeScale` or `Typography`, never a literal size.
+- Every animation goes through a motion gate with a category: `Motion.<category>.animate(...)`,
+  `.set(...)`, `.duration(...)`, `.animation(...)` (`sidebar`, `tabs`, `panes`, `overlays`,
+  `hoverCards`, `home`, `cursor`, `indicators`, `feedback`, `web`; for a new area, add a
+  `MotionCategory` case with its setting, action and strings). The gate obeys the master switch
+  `ui.animations.enabled`, the category's `ui.animations.<category>`, `ui.animationSpeed` and
+  Reduce Motion, so a person can turn all animation or one area off. Code must work with no
+  animation at all: the change applies in one frame and completions still run. No raw
+  `NSAnimationContext`, `withAnimation`, `.animation(...)`, `CABasicAnimation`, `animator()` outside
+  a gate group, window `animationBehavior` or SwiftUI transition; a reviewed exception says
+  `// motion: allow <how it still obeys the switches>`. App web pages get this from the shared
+  `WebTheme` bootstrap (`data-cmux-motion`); do not bypass it. `check-motion.sh` enforces this;
+  see [motion-DESIGN.md](plans/cmux-next/motion-DESIGN.md).
 - Dialogs use the standard key-hint components (`CmuxDialogSpec`, `CmuxDialogActionButton`,
   `ThemedBezelButton.keyHint`, web `ui/DialogButton`), never `NSAlert`, `.alert` or `.confirmationDialog`.
 - An escape comment (`// concurrency-allow:`, `// crash-allow:`, `dialog-keys-exempt:`)
@@ -168,16 +180,20 @@ Do not edit `CHANGELOG.md` in feature PRs; release tooling owns it.
 - Before opening a PR and before merging, check it against [REVIEW.md](REVIEW.md) (draft),
   the mistakes our review history keeps catching.
 - Before merging, use a [review subagent](skills/cmux-review/SKILL.md), correctness
-  first; a second model is not a review gate. Into `main`, wait for checks relevant to the
-  change; into `feat-cmux-next`, pending checks don't hold it (below). Disclose skipped verification on the PR. `main` is nightly: fix forward,
-  do not revert.
-- Into `main`, app/runtime/UI merges require the user’s explicit approval after dogfood **or a direct merge directive**
-  (`merge`, `merge it`, `auto-merge`; not `finish`, `lgtm` or `ship it`). Into `feat-cmux-next`, the
-  `ready-to-land` label after your review is the hand-off (below). Follow
+  first; a second model is not a review gate. Disclose skipped verification on the PR.
+  `main` is nightly: fix forward, do not revert.
+- On either branch, a PR merges when an independent review subagent passes it and it causes no
+  red of its own; base reds, flakes and pending checks don't hold it. Don't wait for a person.
+  Ship risky user-visible behavior behind a setting or Debug toggle and fix a bad default in the
+  next nightly. Only the `risk:high` tier, the take-back hold (above) and merge freezes hold a
+  reviewed PR. On `main`, `gh-merge-green` still waits for the checks it requires; never get around it
+  with `--override` or the API merge path. Into `feat-cmux-next`, the `ready-to-land`
+  label after your review is the hand-off (below). Follow
   [dogfood, re-dogfood and merge receipts](skills/cmux-review/SKILL.md#dogfood-and-merge).
   Notify with `cmux notify` when a socket is available.
-- A red on every PR is a base red: fix it first in its own PR, which lands at once. Two fixes that
-  are each red on the other's red get combined into one PR. A base lint red also skips the tests
+- A red base (it doesn't compile, or CI is red on every PR) is priority zero: fix it directly in
+  its own PR, which lands at once; don't note it and leave it for an owner. Two fixes that are
+  each red on the other's red get combined into one PR. A base lint red also skips the tests
   after it in the same job (#22197), which is why it goes first.
 - Classify each non-green check on the current head before changing source: a changed-file
   defect (fix it), a base finding (the same check red at the base tip or on several unrelated PRs
