@@ -24,8 +24,8 @@ const YOURS = "yours";
 /** `appearance.backgroundBlur`: the window's Material, drawn in the card beside Opacity. */
 export const MATERIAL_KEY = "appearance.backgroundBlur";
 export const BACKDROP_ROWS: ReadonlySet<string> = new Set([BACKGROUND_KEY, BACKGROUND_OPACITY_KEY, MATERIAL_KEY]);
-/** How long the pointer rests on a tile before the window shows it: sweeping across the grid
- * previews nothing, so it fetches no full-size art. */
+/** How long the pointer or keyboard focus rests on a tile before the window shows it: sweeping
+ * or tabbing across the grid previews nothing, so it fetches no full-size art. */
 const PREVIEW_DWELL_MS = 150;
 
 /** Over a picture the window at 100% shows the work's own tint instead (the theme's opacity is
@@ -72,8 +72,8 @@ function BackdropThumb({ src }: { src: string }) {
   return <img className="backdrop-thumb" alt="" src={src} onError={() => setFailed(src)} />;
 }
 
-/** Change Background… (`?focus=appearance.background`) lands on the saved tile. Focusing it previews
- * the saved background, so nothing changes. */
+/** Change Background… (`?focus=appearance.background`) lands on the saved tile. Focus resting on it
+ * previews the saved background after the dwell, so nothing changes. */
 function revealTile(tile: HTMLElement | null): void {
   tile?.scrollIntoView?.({ block: "center" });
   tile?.focus();
@@ -85,7 +85,7 @@ export function useBackdropsShown(): boolean {
 }
 
 /**
- * Change Background… (cx-t2x.4): the art picker. Resting on a tile, or focusing it, shows that
+ * Change Background… (cx-t2x.4): the art picker. Resting on a tile with the pointer or focus shows that
  * background in every window without writing it; a click keeps it; leaving restores the saved one.
  * Below the art, the Opacity slider previews the glass over it the same way. Plain glass ("None")
  * stays the default. Opened for a workspace, This Workspace makes the tiles choose that
@@ -198,7 +198,7 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
         onClick={() => void (pending ? store.openWallpaperSettings() : choose(id))}
         onPointerEnter={pending ? undefined : () => preview(id, PREVIEW_DWELL_MS)}
         onPointerLeave={pending ? undefined : endPreview}
-        onFocus={(event) => !pending && event.currentTarget.matches(":focus-visible") && preview(id, 0)}
+        onFocus={(event) => !pending && event.currentTarget.matches(":focus-visible") && preview(id, PREVIEW_DWELL_MS)}
         onBlur={pending ? undefined : endPreview}
       >
         {id === "none" || id === FOLLOW_ID ? (
