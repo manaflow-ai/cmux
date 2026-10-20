@@ -15,16 +15,21 @@ const socket = (user: string, authority?: string) => {
   return { ws, closes }
 }
 
+const admit = async (gate: CloudSocketAuthority) => {
+  const response = await gate.admit("team", "user", (version) => new Response(version))
+  return response ? response.text() : null
+}
+
 describe("Cloud socket authority races", () => {
   it("a notice during a held admission refuses the old answer", async () => {
     const held = deferred<ReturnType<typeof member>>()
     let reads = 0
     const gate = new CloudSocketAuthority(() => ++reads === 1 ? held.promise : Promise.resolve(member(B)), () => [])
-    const admission = gate.admit("team", "user")
+    const admission = admit(gate)
     await gate.changed("team", "user")
     held.resolve(member(A))
     expect(await admission).toBeNull()
-    expect(await gate.admit("team", "user")).toBe(B)
+    expect(await admit(gate)).toBe(B)
   })
 
   it("a newer notice owns the result when two authority reads complete out of order", async () => {
@@ -47,7 +52,7 @@ describe("Cloud socket authority races", () => {
     let reads = 0
     const gate = new CloudSocketAuthority(() => ++reads === 1 ? held.promise : Promise.resolve(member(B)), () => sockets)
     const notice = gate.changed("team", "user")
-    expect(await gate.admit("team", "user")).toBe(B)
+    expect(await admit(gate)).toBe(B)
     sockets.push(fresh.ws)
     held.resolve(member(A))
     await notice
@@ -62,7 +67,7 @@ describe("Cloud socket authority races", () => {
     await expect(gate.changed("team", "user")).rejects.toThrow("offline")
     expect(affected.closes).toHaveLength(1)
     expect(other.closes).toEqual([])
-    expect(await gate.admit("team", "user")).toBeNull()
+    expect(await admit(gate)).toBeNull()
     unavailable = false
     await gate.changed("team", "user")
     expect(affected.closes).toHaveLength(1)
@@ -71,7 +76,7 @@ describe("Cloud socket authority races", () => {
   it("invalid authority refuses admission and closes idle authority without acknowledging success", async () => {
     const old = socket("user", A)
     const gate = new CloudSocketAuthority(async () => member("malformed"), () => [old.ws])
-    expect(await gate.admit("team", "user")).toBeNull()
+    expect(await admit(gate)).toBeNull()
     await expect(gate.changed("team", "user")).rejects.toThrow("team authority is unavailable")
     expect(old.closes).toHaveLength(1)
   })
@@ -88,7 +93,7 @@ describe("Cloud socket authority races", () => {
   it.each([null, { role: "guest", authority_version: B }])("missing or resource-less membership closes every affected connection: %j", async (membership) => {
     const old = socket("user", A)
     const gate = new CloudSocketAuthority(async () => membership, () => [old.ws])
-    expect(await gate.admit("team", "user")).toBeNull()
+    expect(await admit(gate)).toBeNull()
     await gate.changed("team", "user")
     expect(old.closes).toHaveLength(1)
   })

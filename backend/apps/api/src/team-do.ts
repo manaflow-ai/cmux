@@ -7,7 +7,7 @@ import type { Env } from "./env.ts"
 import { OwnerDO, type ReadResult } from "./owner-do.ts"
 import { teamRead, teamVmAccountsFence, withAiSpend } from "./team-reads.ts"
 import { can, firstOwner, homeCoMembersOf, roleOf, TABLE_MEMBER, TEAM_PRIVATE_TABLES } from "./domains/team-members.ts"
-import { teamAuthorityVersion } from "./domains/team-authority.ts"
+import { teamAuthorityVersion, type TeamCloudAuthority } from "./domains/team-authority.ts"
 import { integrationSyncPending, releasePending, sliceHash, type IntegrationFields } from "./domains/team-integration-sync.ts"
 import { runSyncPending, runSyncPush } from "./domains/team-run-sync.ts"
 import { cloudPolicyOf, currentPolicy, integrationSlice } from "./domains/team-policy.ts"
@@ -637,6 +637,22 @@ export class TeamDO extends OwnerDO<TeamState> {
     const engine = this.isBound(entity) ? this.bind(entity) : undefined
     if (!engine || (engine.currentSeq === 0 && !engine.currentState.team && currentPolicy(engine.currentState).version === 0)) return teamAuthorityVersion(entity, user, "owner", "personal", 0)
     return (await this.membership(entity, user))?.authority_version ?? null
+  }
+  /** Ordered current views for CloudDO's bounded policy fanout; reads never create a team. */
+  async cloudAuthorities(entity: string, users: ReadonlyArray<string>): Promise<ReadonlyArray<TeamCloudAuthority>> {
+    if (!Array.isArray(users) || users.length > 128 || users.some((user) => typeof user !== "string" || !user || user.length > 128)) {
+      throw new Error("invalid Cloud authority batch")
+    }
+    return Promise.all(users.map(async (user) => {
+      try {
+        if (entity === personalTeamIdFor(user)) {
+          const authority_version = await this.personalScopeAuthority(entity, user)
+          return authority_version ? { role: "owner", authority_version } : null
+        }
+        const member = await this.membership(entity, user)
+        return member ? { role: member.role, authority_version: member.authority_version } : null
+      } catch { return { unavailable: true as const } }
+    }))
   }
   async memberRole(entity: string, user: string): Promise<string | null> { return (await this.membership(entity, user))?.role ?? null } // team selection (x-cmux-team)
   async noOwner(entity: string): Promise<boolean> { return this.isBound(entity) && noOwnerOf(this.bind(entity).currentState) } // RPC from TeamVmDO's team_vm.status (review P2-3)
