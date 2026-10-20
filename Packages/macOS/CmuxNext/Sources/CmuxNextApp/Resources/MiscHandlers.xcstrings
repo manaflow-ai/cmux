@@ -15000,6 +15000,402 @@
           }
         }
       }
+    },
+    "handlers.appearance.badProperty": {
+      "comment": "Refusal: appearance set or reset was given no valid scope or property.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Name a scope (window, workspace, pane or tab) and a property (theme, background, tint or opacity)."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حدّد نطاقًا (window أو workspace أو pane أو tab) وخاصية (theme أو background أو tint أو opacity)."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Navedite opseg (window, workspace, pane ili tab) i svojstvo (theme, background, tint ili opacity)."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Angiv et omfang (window, workspace, pane eller tab) og en egenskab (theme, background, tint eller opacity)."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gib einen Bereich (window, workspace, pane oder tab) und eine Eigenschaft (theme, background, tint oder opacity) an."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indica un ámbito (window, workspace, pane o tab) y una propiedad (theme, background, tint u opacity)."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indiquez une portée (window, workspace, pane ou tab) et une propriété (theme, background, tint ou opacity)."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indica un ambito (window, workspace, pane o tab) e una proprietà (theme, background, tint o opacity)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "範囲（window、workspace、pane、tab）とプロパティ（theme、background、tint、opacity）を指定してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បញ្ជាក់វិសាលភាព (window, workspace, pane ឬ tab) និងលក្ខណៈ (theme, background, tint ឬ opacity)។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "범위(window, workspace, pane, tab)와 속성(theme, background, tint, opacity)을 지정하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Angi et omfang (window, workspace, pane eller tab) og en egenskap (theme, background, tint eller opacity)."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Podaj zakres (window, workspace, pane lub tab) i właściwość (theme, background, tint lub opacity)."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Informe um escopo (window, workspace, pane ou tab) e uma propriedade (theme, background, tint ou opacity)."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Укажите область (window, workspace, pane или tab) и свойство (theme, background, tint или opacity)."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ระบุขอบเขต (window, workspace, pane หรือ tab) และคุณสมบัติ (theme, background, tint หรือ opacity)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir kapsam (window, workspace, pane veya tab) ve bir özellik (theme, background, tint veya opacity) belirtin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вкажіть область (window, workspace, pane або tab) і властивість (theme, background, tint або opacity)."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hãy nêu phạm vi (window, workspace, pane hoặc tab) và thuộc tính (theme, background, tint hoặc opacity)."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请指定范围（window、workspace、pane 或 tab）和属性（theme、background、tint 或 opacity）。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請指定範圍（window、workspace、pane 或 tab）和屬性（theme、background、tint 或 opacity）。"
+          }
+        }
+      }
+    },
+    "handlers.appearance.notAtLevel": {
+      "comment": "Refusal: the property cannot be set at the chosen scope (for example a background on a tab).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That property cannot be set at that scope."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يمكن تعيين هذه الخاصية في هذا النطاق."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "To svojstvo se ne može postaviti u tom opsegu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den egenskab kan ikke angives i det omfang."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Eigenschaft lässt sich in diesem Bereich nicht festlegen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esa propiedad no se puede establecer en ese ámbito."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette propriété ne peut pas être définie à cette portée."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quella proprietà non si può impostare in quell'ambito."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そのプロパティはその範囲では設定できません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនអាចកំណត់លក្ខណៈនោះក្នុងវិសាលភាពនោះបានទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "해당 속성은 그 범위에서 설정할 수 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den egenskapen kan ikke angis i det omfanget."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tej właściwości nie można ustawić w tym zakresie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Essa propriedade não pode ser definida nesse escopo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Это свойство нельзя задать в этой области."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตั้งคุณสมบัตินั้นในขอบเขตนี้ไม่ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu özellik bu kapsamda ayarlanamaz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цю властивість не можна задати в цій області."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không thể đặt thuộc tính đó ở phạm vi này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法在该范围设置该属性。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法在該範圍設定該屬性。"
+          }
+        }
+      }
+    },
+    "handlers.appearance.badValue": {
+      "comment": "Refusal: the value is not valid for the appearance property.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not a value of that property."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ليست قيمة لهذه الخاصية."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nije vrijednost tog svojstva."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ikke en værdi for den egenskab."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kein Wert dieser Eigenschaft."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No es un valor de esa propiedad."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce n'est pas une valeur de cette propriété."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non è un valore di quella proprietà."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そのプロパティの値ではありません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនមែនជាតម្លៃនៃលក្ខណៈនោះទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "해당 속성의 값이 아닙니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ikke en verdi for den egenskapen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "To nie jest wartość tej właściwości."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não é um valor dessa propriedade."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Это не значение этого свойства."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่ใช่ค่าของคุณสมบัตินั้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu özelliğin bir değeri değil."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Це не значення цієї властивості."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không phải giá trị của thuộc tính đó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不是该属性的值。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不是該屬性的值。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

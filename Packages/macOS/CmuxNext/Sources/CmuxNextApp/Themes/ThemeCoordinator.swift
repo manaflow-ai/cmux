@@ -40,10 +40,9 @@ final class ThemeCoordinator {
     let workspaceBackgrounds: WorkspaceBackgroundStore
     /// Each workspace's own glass tint over art, as text ("0.6").
     let workspaceOpacities: WorkspaceBackgroundStore
-    /// Each pane's own background (`ThemeCoordinator+PaneBackgrounds`), keyed by pane resource id.
-    let paneBackgrounds: WorkspaceBackgroundStore
-    /// Each pane's marker tint (`PaneTint.id`), keyed by pane resource id.
-    let paneTints: WorkspaceBackgroundStore
+    /// Every window, workspace, pane and tab value the other stores do not keep
+    /// (`ThemeCoordinator+AppearanceScopes`), keyed `<level>:<id>|<property>`.
+    let appearanceScopes: WorkspaceBackgroundStore
     /// A workspace background the picker shows without saving it; the inner nil follows the app's.
     var backgroundPreview: (workspace: String, value: String?)?
     /// A workspace tint the picker's slider shows without saving it; nil follows the work's.
@@ -56,18 +55,16 @@ final class ThemeCoordinator {
     private let applies = ThemeApplyLedger()
 
     init(services: AppServices, terminalThemes: TerminalThemeStore, workspaceBackgrounds: WorkspaceBackgroundStore? = nil,
-         workspaceOpacities: WorkspaceBackgroundStore? = nil, paneBackgrounds: WorkspaceBackgroundStore? = nil,
-         paneTints: WorkspaceBackgroundStore? = nil) {
+         workspaceOpacities: WorkspaceBackgroundStore? = nil,
+         appearanceScopes: WorkspaceBackgroundStore? = nil) {
         self.services = services
         self.terminalThemes = terminalThemes
         self.workspaceBackgrounds = workspaceBackgrounds
             ?? .forApplication(bundleIdentifier: services.environment.launch.bundleID)
         self.workspaceOpacities = workspaceOpacities
             ?? .forApplication(bundleIdentifier: services.environment.launch.bundleID, file: "workspace-background-opacity.json")
-        self.paneBackgrounds = paneBackgrounds
-            ?? .forApplication(bundleIdentifier: services.environment.launch.bundleID, file: "pane-backgrounds.json")
-        self.paneTints = paneTints
-            ?? .forApplication(bundleIdentifier: services.environment.launch.bundleID, file: "pane-tints.json")
+        self.appearanceScopes = appearanceScopes
+            ?? .forApplication(bundleIdentifier: services.environment.launch.bundleID, file: "appearance-scopes.json")
         resolver.onChange = { [weak self] in
             self?.apply(forceSurfaces: true)
             self?.applyChromeTheme()
@@ -156,9 +153,8 @@ final class ThemeCoordinator {
         let workspaceBackgrounds = self.workspaceBackgrounds, workspaceOpacities = self.workspaceOpacities
         Task { await workspaceBackgrounds.load() }
         Task { await workspaceOpacities.load() }
-        let paneBackgrounds = self.paneBackgrounds, paneTints = self.paneTints
-        Task { await paneBackgrounds.load() }
-        Task { await paneTints.load() }
+        let appearanceScopes = self.appearanceScopes
+        Task { await appearanceScopes.load() }
         dayObservers = observeDayChanges()
         Task { [weak self] in
             await terminalThemes.load()
@@ -174,7 +170,7 @@ final class ThemeCoordinator {
                 store.profiles.map(\.theme) + store.personal.workspaces.map(\.theme)
                     + [String(describing: store.personal.terminalThemes), String(describing: terminalThemes.themes),
                        String(describing: workspaceBackgrounds.backgrounds), String(describing: workspaceOpacities.backgrounds),
-                       String(describing: paneBackgrounds.backgrounds), String(describing: paneTints.backgrounds),
+                       String(describing: appearanceScopes.backgrounds),
                        String(store.identity?.supports(DaemonCapabilities.shared.personalTerminals) ?? false)]
             }) {
                 self?.migrateTerminalThemes()
@@ -188,6 +184,7 @@ final class ThemeCoordinator {
     /// A window opened or switched room: its room and its shown workspace take their themes.
     func windowDidChange(_ controller: WindowController) {
         setTheme(of: controller.themeScope, to: roomTheme(controller.state.profileID))
+        applyWindowBackground(controller)
         if let content = controller.content { contentDidShow(content) }
     }
 
@@ -301,7 +298,7 @@ final class ThemeCoordinator {
         // A pane's own background and tint (the pane's Appearance folder checks them).
         if action == "pane.setBackground" || action == "pane.setTint" {
             guard let pane = paneForChoice(target) else { return nil }
-            return action == "pane.setBackground" ? paneBackground(pane) ?? "inherit" : paneTint(pane)?.id ?? "none"
+            return action == "pane.setBackground" ? ownValue(.background, of: .pane(pane)) ?? "inherit" : ownValue(.tint, of: .pane(pane)) ?? "none"
         }
         guard let resolved = previewTarget?(action, target) else { return nil }
         let current: String? = switch resolved {

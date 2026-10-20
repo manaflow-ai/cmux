@@ -36,6 +36,46 @@ nonisolated enum PaneBackgroundActionCatalog: ActionCatalogGroup {
                     ActionSurfaceCatalog.p(.pane, .identity, 106, folder: .appearance),
                 ])
             ),
+            ActionDescriptor(
+                id: "workspace.setTint",
+                title: text("action.workspace.setTint", "Set Workspace Tint…"),
+                keywords: ["workspace", "tint", "color", "colour", "marker", "prod", "project"],
+                category: .workspace, symbol: "paintpalette", surfaces: [.palette, .contextMenu],
+                arguments: [CatalogArgument.paneTintChoice], targets: [.workspace], cliName: "workspace set-tint",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenus: [
+                    ActionSurfaceCatalog.p(.workspaceRow, .identity, 110, .choices, folder: .appearance),
+                ])
+            ),
+            ActionDescriptor(
+                id: "tab.setTint",
+                title: text("action.tab.setTint", "Set Tab Tint…"),
+                keywords: ["tab", "tint", "color", "colour", "marker", "agent", "terminal"],
+                category: .terminal, symbol: "paintpalette", surfaces: [.palette, .contextMenu],
+                arguments: [CatalogArgument.paneTintChoice], targets: [.tab], cliName: "tab set-tint",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenus: [
+                    ActionSurfaceCatalog.p(.tab, .identity, 207, .choices, folder: .options),
+                ])
+            ),
+            // The one generic path every level and property shares (appearance-scopes-DESIGN.md);
+            // menus offer its common values through the rows above.
+            ActionDescriptor(
+                id: "appearance.set",
+                title: text("action.appearance.set", "Set Appearance…"),
+                keywords: ["appearance", "theme", "background", "wallpaper", "tint", "opacity", "window", "workspace", "pane", "tab"],
+                category: .settings, symbol: "paintbrush", surfaces: [.palette],
+                arguments: [CatalogArgument.appearanceScope, CatalogArgument.appearanceProperty, CatalogArgument.appearanceValue],
+                targets: [.tab, .pane, .workspace], cliName: "appearance set",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .familyMember)
+            ),
+            ActionDescriptor(
+                id: "appearance.reset",
+                title: text("action.appearance.reset", "Reset Appearance to Inherited"),
+                keywords: ["appearance", "reset", "inherit", "inherited", "theme", "background", "tint"],
+                category: .settings, symbol: "arrow.uturn.backward", surfaces: [.palette],
+                arguments: [CatalogArgument.appearanceScope, CatalogArgument.appearanceProperty.optional],
+                targets: [.tab, .pane, .workspace], cliName: "appearance reset",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .familyMember)
+            ),
         ]
     }
 
@@ -82,5 +122,32 @@ nonisolated extension CatalogArgument {
         ]
         return ActionArgument(name: "color", title: t("argument.paneTint", "Tint"), kind: .string,
                               suggestions: ActionSuggestions(source: ActionSuggestions.paneTints, pinned: pinned))
+    }
+
+    /// Which level `appearance.set` and `appearance.reset` act on.
+    static var appearanceScope: ActionArgument {
+        let t = PaneBackgroundActionCatalog.text
+        return ActionArgument(name: "scope", title: t("argument.appearanceScope", "Scope"), kind: .enumeration([
+            ActionEnumCase(value: "window", title: t("argument.value.appearanceScope.window", "Window")),
+            ActionEnumCase(value: "workspace", title: t("argument.value.appearanceScope.workspace", "Workspace")),
+            ActionEnumCase(value: "pane", title: t("argument.value.appearanceScope.pane", "Pane")),
+            ActionEnumCase(value: "tab", title: t("argument.value.appearanceScope.tab", "Tab")),
+        ]))
+    }
+
+    /// Which property `appearance.set` and `appearance.reset` change; reset without one resets all.
+    static var appearanceProperty: ActionArgument {
+        let t = PaneBackgroundActionCatalog.text
+        return ActionArgument(name: "property", title: t("argument.appearanceProperty", "Property"), kind: .enumeration([
+            ActionEnumCase(value: "theme", title: t("argument.value.appearanceProperty.theme", "Theme")),
+            ActionEnumCase(value: "background", title: t("argument.value.appearanceProperty.background", "Background")),
+            ActionEnumCase(value: "tint", title: t("argument.value.appearanceProperty.tint", "Tint")),
+            ActionEnumCase(value: "opacity", title: t("argument.value.appearanceProperty.opacity", "Opacity")),
+        ]))
+    }
+
+    /// The value `appearance.set` gives the property (its own vocabulary).
+    static var appearanceValue: ActionArgument {
+        ActionArgument(name: "value", title: PaneBackgroundActionCatalog.text("argument.appearanceValue", "Value"), kind: .string)
     }
 }

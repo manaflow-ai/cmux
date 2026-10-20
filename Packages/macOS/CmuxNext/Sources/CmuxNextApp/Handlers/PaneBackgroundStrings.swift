@@ -14,4 +14,16 @@ struct PaneBackgroundStrings {
                defaultValue: "This pane cannot keep its own background: its session is too old. Update cmux on that machine.",
                table: "MiscHandlers", bundle: .module)
     }
+    static var badProperty: String {
+        String(localized: "handlers.appearance.badProperty",
+               defaultValue: "Name a scope (window, workspace, pane or tab) and a property (theme, background, tint or opacity).",
+               table: "MiscHandlers", bundle: .module)
+    }
+    static var notAtLevel: String {
+        String(localized: "handlers.appearance.notAtLevel", defaultValue: "That property cannot be set at that scope.",
+               table: "MiscHandlers", bundle: .module)
+    }
+    static var badValue: String {
+        String(localized: "handlers.appearance.badValue", defaultValue: "Not a value of that property.", table: "MiscHandlers", bundle: .module)
+    }
 }

@@ -40,7 +40,7 @@ extension ThemeCoordinator {
             NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
                 Task { @MainActor in
                     guard let self, self.workspaceBackgrounds.backgrounds.values.contains(BackdropSelectionSetting.dailyID)
-                          || self.paneBackgrounds.backgrounds.values.contains(BackdropSelectionSetting.dailyID) else { return }
+                          || self.appearanceScopes.backgrounds.values.contains(BackdropSelectionSetting.dailyID) else { return }
                     self.apply()
                 }
             }

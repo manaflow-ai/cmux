@@ -9,11 +9,14 @@ import CmuxNextDesign
 extension PaneContentView {
     /// Pins the pane's own background on its scope (what its terminals and pages see) and its
     /// marker tint, then repaints.
-    func setPaneBackground(pin: BackdropPin, tint: PaneTint?) {
-        guard pin != backdropState.pin || tint != backdropState.tint else { return }
-        backdropState.pin = pin
-        backdropState.tint = tint
+    func setPaneBackground(pin: BackdropPin, tint: PaneTint?, glass: Double?) {
+        let state = backdropState
+        guard pin != state.pin || tint != state.tint || glass != state.glass else { return }
+        state.pin = pin
+        state.tint = tint
+        state.glass = glass
         paneScope.pinBackdrop(pin)
+        paneScope.pinBackdropTint(glass)
         paintPaneBackdrop()
     }
 
@@ -31,8 +34,7 @@ extension PaneContentView {
     func paintPaneBackdrop() {
         // The common case (one shared background, nothing of its own, nothing drawn yet) costs nothing.
         let state = backdropState
-        if DesignSettings.shared.paneBackgrounds == .shared, state.pin == .inherit, state.tint == nil,
-           state.artView == nil, state.coverView == nil, state.tintView == nil { return }
+        if DesignSettings.shared.paneBackgrounds == .shared, !state.hasOwnValues, !state.hasViews { return }
         let plan = paneBackdropPlan
         let surface = performWithTheme { Palette.surfaceBackground }
         if let art = plan.art {
