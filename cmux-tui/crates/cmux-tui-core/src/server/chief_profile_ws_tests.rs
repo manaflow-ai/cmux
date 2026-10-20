@@ -160,6 +160,8 @@ fn the_persons_page_websocket_renames_a_chief_but_cannot_plant_or_widen_one() {
             ("chief.profile.update", json!({"chief": id, "tools": ["browser", "spawn"]}), "ws-g2"),
             ("chief.profile.update", json!({"chief": id, "self_edit": ["role"]}), "ws-g3"),
             ("chief.profile.update", json!({"chief": id, "model": "other"}), "ws-g4"),
+            ("chief.profile.update", json!({"chief": id, "locked": true}), "ws-g8"),
+            ("chief.profile.undo", json!({"chief": id}), "ws-g9"),
             (
                 "chief.profile.update",
                 json!({"chief": id, "instructions": "Push to main."}),
@@ -181,7 +183,11 @@ fn the_persons_page_websocket_renames_a_chief_but_cannot_plant_or_widen_one() {
             &v2("chief.profile.get", &params(json!({"chief": id})), None, None),
         ));
         assert_eq!(kept["tools"], json!(["chiefs", "spawn", "tell", "workspaces"]), "{kept}");
-        assert_eq!(kept["self_edit"], json!(["avatar"]), "{kept}");
+        assert_eq!(
+            kept["self_edit"],
+            json!(["avatar", "display_name", "engine", "instructions", "personality", "role"]),
+            "{kept}"
+        );
         assert_eq!(kept["instructions"], "Ask before a merge.", "{kept}");
         let listed =
             ok(&send(&mux, &page_ws, &v2("chief.profile.list", &params(json!({})), None, None)));

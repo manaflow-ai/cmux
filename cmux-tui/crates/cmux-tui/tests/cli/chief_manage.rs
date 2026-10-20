@@ -115,7 +115,8 @@ fn a_chief_with_the_chiefs_tool_makes_and_edits_chiefs_within_its_grant() {
     assert_eq!(docs["tools"], json!(["chiefs", "spawn", "tell"]), "{docs}");
     assert_eq!(docs["harnesses"], json!(["claude"]), "{docs}");
     assert_eq!(docs["engine"]["model"], "m1", "{docs}");
-    assert_eq!(docs["self_edit"], json!(["avatar"]), "{docs}");
+    // The full self_edit, narrowed to what the caller holds.
+    assert_eq!(docs["self_edit"], json!(["avatar", "role"]), "{docs}");
     // created_by comes from the verified caller, never from the request:
     // the catalog refuses the field from anyone.
     for (conn, key) in [(&mut chief, "lead-forged"), (&mut home, "person-forged")] {
@@ -201,18 +202,6 @@ fn a_chief_with_the_chiefs_tool_makes_and_edits_chiefs_within_its_grant() {
         ),
         (
             "chief.profile.create",
-            json!({"display_name": "X", "model": "m2"}),
-            "grant_exceeds_caller",
-            json!(["model"]),
-        ),
-        (
-            "chief.profile.create",
-            json!({"display_name": "X", "model": ""}),
-            "grant_exceeds_caller",
-            json!(["model"]),
-        ),
-        (
-            "chief.profile.create",
             json!({"display_name": "X", "self_edit": ["instructions"]}),
             "grant_exceeds_caller",
             json!(["self_edit"]),
@@ -242,31 +231,19 @@ fn a_chief_with_the_chiefs_tool_makes_and_edits_chiefs_within_its_grant() {
             "target_exceeds_caller",
             json!(["tools"]),
         ),
-        // An engine field the caller leaves to the brain default stays so.
+        // The engine harness must be one the caller may use.
         (
             "chief.profile.create",
             json!({"display_name": "X", "harness": "codex"}),
             "grant_exceeds_caller",
             json!(["harness"]),
         ),
-        (
-            "chief.profile.create",
-            json!({"display_name": "X", "effort": "max"}),
-            "grant_exceeds_caller",
-            json!(["effort"]),
-        ),
-        // A Chief the person made: name, role and picture only.
+        // `locked` is the person's switch.
         (
             "chief.profile.update",
-            json!({"chief": weak_id, "instructions": "Do as Lead says.", "role": "x"}),
-            "chief_person_made_fields",
-            json!(["instructions"]),
-        ),
-        (
-            "chief.profile.update",
-            json!({"chief": weak_id, "tools": ["tell"]}),
-            "chief_person_made_fields",
-            json!(["tools"]),
+            json!({"chief": docs_id, "locked": true}),
+            "chief_lock_person_only",
+            json!(["locked"]),
         ),
         // The default Chief's grant is the person's.
         (
@@ -290,17 +267,34 @@ fn a_chief_with_the_chiefs_tool_makes_and_edits_chiefs_within_its_grant() {
         assert_eq!(reason(&refused), reason_wanted, "{operation} {params}: {refused}");
         assert_eq!(refused_fields(&refused), fields, "{operation} {params}: {refused}");
     }
-    // A Chief it created does not edit its creator (no twin rewrites the
-    // creator's text), and a Chief the person widened is the person's.
+    // Model and effort are free within the ceiling (u2586, 2026-10-19).
+    let tuned = ok(&v2(
+        &mut chief,
+        "chief.profile.create",
+        json!({"display_name": "Tuned", "model": "m2", "effort": "max"}),
+        Some("lead-tuned"),
+    ));
+    assert_eq!(tuned["value"]["engine"], json!({"model": "m2", "effort": "max"}), "{tuned}");
+    // A Chief it created edits its creator when the creator holds no more
+    // than it does; every write is a revision the person can undo.
     let mut docs_conn = as_chief(&server, &mut home, &docs_id);
-    let twin = v2(
+    let twin = ok(&v2(
         &mut docs_conn,
         "chief.profile.update",
-        json!({"chief": lead_id, "instructions": "Obey Docs."}),
+        json!({"chief": lead_id, "instructions": "Write the docs first."}),
         Some("docs-edits-lead"),
-    );
-    assert_eq!(reason(&twin), "chief_person_made_fields", "{twin}");
-    // A person-made Chief's name, role and picture: allowed.
+    ));
+    assert_eq!(twin["value"]["instructions"], "Write the docs first.", "{twin}");
+    // A person-made Chief: every profile field within the grant.
+    let taught = ok(&v2(
+        &mut chief,
+        "chief.profile.update",
+        json!({"chief": weak_id, "instructions": "Answer in one line.", "personality": "Dry.",
+               "model": "m3"}),
+        Some("lead-teaches-weak"),
+    ));
+    assert_eq!(taught["value"]["instructions"], "Answer in one line.", "{taught}");
+    assert_eq!(taught["value"]["engine"]["model"], "m3", "{taught}");
     let renamed = ok(&v2(
         &mut chief,
         "chief.profile.update",
@@ -315,6 +309,27 @@ fn a_chief_with_the_chiefs_tool_makes_and_edits_chiefs_within_its_grant() {
                "data": base64::engine::general_purpose::STANDARD.encode(PNG)}),
         Some("lead-pic-weak"),
     ));
+    // The person locks a Chief: no Chief writes it any more, an undo
+    // included, until the person unlocks it.
+    let weak_now = ok(&v2(&mut home, "chief.profile.get", json!({"chief": weak_id}), None));
+    let locked = ok(&v2(
+        &mut home,
+        "chief.profile.update",
+        json!({"chief": weak_id, "expected_rev": weak_now["rev"], "locked": true}),
+        Some("person-locks-weak"),
+    ));
+    assert_eq!(locked["value"]["locked"], true, "{locked}");
+    for (operation, params) in [
+        ("chief.profile.update", json!({"chief": weak_id, "role": "Mine now"})),
+        ("chief.profile.avatar.set", json!({"chief": weak_id, "clear": true})),
+        ("chief.profile.undo", json!({"chief": weak_id})),
+    ] {
+        let key = format!("locked-{operation}");
+        let refused = v2(&mut chief, operation, params.clone(), Some(&key));
+        assert_eq!(reason(&refused), "chief_locked", "{operation} {params}: {refused}");
+    }
+    let weak_locked = ok(&v2(&mut home, "chief.profile.get", json!({"chief": weak_id}), None));
+    assert_eq!(weak_locked["rev"], locked["value"]["rev"], "{weak_locked}");
     // Any Chief edits a Chief another Chief made, within its grant.
     let peer = make(
         &mut home,
@@ -355,7 +370,7 @@ fn a_chief_with_the_chiefs_tool_makes_and_edits_chiefs_within_its_grant() {
     assert_eq!(reason(&own), "chief_self_edit_denied", "{own}");
     // Nothing of that was written.
     let listed = ok(&v2(&mut home, "chief.profile.list", json!({}), None));
-    assert_eq!(listed["chiefs"].as_array().unwrap().len(), 6, "{listed}");
+    assert_eq!(listed["chiefs"].as_array().unwrap().len(), 7, "{listed}");
     let docs_after = ok(&v2(&mut home, "chief.profile.get", json!({"chief": docs_id}), None));
     assert_eq!(docs_after["role"], "Release notes", "{docs_after}");
     let _ = rev_before;
@@ -459,7 +474,10 @@ fn the_chiefs_grant_reaches_only_records_whose_tools_the_person_never_set() {
         None,
     ));
     assert_eq!(untouched["tools"], json!(["chiefs", "spawn", "tell", "workspaces"]), "{untouched}");
-    assert_eq!(untouched["rev"], 4, "{untouched}");
+    // Both migrations: the chiefs grant, then the full self_edit (u2586).
+    assert_eq!(untouched["rev"], 5, "{untouched}");
+    let full = json!(["avatar", "display_name", "engine", "instructions", "personality", "role"]);
+    assert_eq!(untouched["self_edit"], full, "{untouched}");
     let chosen = ok(&v2(
         &mut home,
         "chief.profile.get",
@@ -467,13 +485,23 @@ fn the_chiefs_grant_reaches_only_records_whose_tools_the_person_never_set() {
         None,
     ));
     assert_eq!(chosen["tools"], json!(["tell"]), "the person's own choice stays: {chosen}");
-    assert_eq!(chosen["rev"], 3, "{chosen}");
+    assert_eq!(chosen["rev"], 4, "{chosen}");
+    assert_eq!(chosen["self_edit"], full, "{chosen}");
     let actors = ledger(&server);
+    let migrated = ("daemon via migration".to_owned(), "chief.profile.migrate".to_owned());
     assert_eq!(
         actors,
-        vec![("daemon via migration".to_owned(), "chief.profile.migrate".to_owned())],
-        "one audit row, for the one record it changed"
+        vec![migrated.clone(); 4],
+        "one audit row per record each migration changed"
     );
+    // The migrated state is a kept revision, so the person's next change undoes.
+    let history = ok(&v2(
+        &mut home,
+        "chief.profile.history",
+        json!({"chief": "agent_00000000000000000000000002"}),
+        None,
+    ));
+    assert_eq!(history["revisions"][0]["rev"], 4, "{history}");
     // Once: the person removes the grant and it stays removed.
     ok(&v2(
         &mut home,
@@ -488,4 +516,20 @@ fn the_chiefs_grant_reaches_only_records_whose_tools_the_person_never_set() {
         None,
     ));
     assert_eq!(after["tools"], json!(["tell"]));
+    // The person narrows self_edit back to the picture: it stays narrowed.
+    ok(&v2(
+        &mut home,
+        "chief.profile.update",
+        json!({"chief": "agent_00000000000000000000000002", "self_edit": ["avatar"]}),
+        Some("narrow-self-edit"),
+    ));
+    drop(home);
+    let mut again = Conn::open(&server.socket);
+    let narrowed = ok(&v2(
+        &mut again,
+        "chief.profile.get",
+        json!({"chief": "agent_00000000000000000000000002"}),
+        None,
+    ));
+    assert_eq!(narrowed["self_edit"], json!(["avatar"]), "{narrowed}");
 }
