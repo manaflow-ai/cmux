@@ -167,5 +167,26 @@ import Testing
         await Self.wait { h.keyboardInBox }
         let ok11 = h.keyboardInBox
         #expect(ok11, "Return left the keyboard on \(h.responderName)")
+
+        // Lawrence 2026-10-20: every switch the person makes lands in the new chat's box; a switch
+        // that did not come from them (a conversation the inbox lists later, a background agent)
+        // never takes the keyboard from where they put it.
+        let elsewhere = NSTextField(frame: NSRect(x: 0, y: 0, width: 80, height: 22))
+        h.page.addSubview(elsewhere)
+        defer { elsewhere.removeFromSuperview() }
+        h.window.makeFirstResponder(elsewhere)
+        let editor = h.window.firstResponder
+        h.page.show(ConversationID(Self.rows[2]))
+        await Self.wait(.milliseconds(500)) { h.box != nil && h.page.shown?.rawValue == Self.rows[2] }
+        for _ in 0..<20 { await Task.yield() }
+        let ok12 = Self.same(h.window.firstResponder, editor)
+        #expect(ok12, "a background switch moved the keyboard to \(h.responderName)")
+
+        // The previous/next conversation keys (home.previousConversation / nextConversation) and
+        // `home.openConversation` (palette, CLI, MCP) run `open`: the box takes the keyboard.
+        h.page.open(ConversationID(Self.rows[0]))
+        await Self.wait { h.keyboardInBox && h.page.shown?.rawValue == Self.rows[0] }
+        let ok13 = h.keyboardInBox
+        #expect(ok13, "open left the keyboard on \(h.responderName)")
     }
 }
