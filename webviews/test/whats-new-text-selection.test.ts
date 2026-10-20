@@ -17,7 +17,12 @@ import { requireBrowserLane } from "./support/requireBrowserLane";
 await requireBrowserLane("whats-new-text-selection.test.ts", async () => {
   setDefaultTimeout(120_000);
   const source = path.resolve(import.meta.dir, "../src");
-  const css = ["pages/shared/pageBase.css", "pages/changelog/updateSurfaces.css", "pages/changelog/surface.css"]
+  const css = [
+    "pages/shared/desktop.css",
+    "pages/shared/pageBase.css",
+    "pages/changelog/updateSurfaces.css",
+    "pages/changelog/surface.css",
+  ]
     .map((file) => fs.readFileSync(path.join(source, file), "utf8"))
     .join("\n")
     .replace(/^@import .*$/gm, "");
@@ -66,6 +71,13 @@ await requireBrowserLane("whats-new-text-selection.test.ts", async () => {
         category: "new",
       },
       { id: "scroll", title: "Wide tables scroll sideways", summary: null, category: "improved" },
+      {
+        id: "long",
+        title:
+          "Workspace groups you can see at a glance, with colored labels, icons and pins that keep a group together across every window you open",
+        summary: null,
+        category: "new",
+      },
     ],
     moreCount: 4,
     changelog: { from: "1.0.0-nightly.3801702344901", to: "1.0.0-nightly.3845050428001" },
@@ -83,10 +95,10 @@ await requireBrowserLane("whats-new-text-selection.test.ts", async () => {
       });
       afterAll(async () => browser?.close());
 
-      async function open(kind: "ready" | "updated"): Promise<Page> {
+      async function open(kind: "ready" | "updated", width?: number): Promise<Page> {
         const page = await browser.newPage({ viewport: { width: 420, height: 400 } });
         await page.setContent(
-          `<!doctype html><html style="--page-text:#ddd;--page-text-2:#aaa;--page-text-3:#888"><head><style>${css}</style></head><body><div id="root"></div></body></html>`,
+          `<!doctype html><html style="--page-text:#ddd;--page-text-2:#aaa;--page-text-3:#888"><head><style>${css}</style></head><body><div id="root"${width ? ` style="width:${width}px"` : ""}></div></body></html>`,
         );
         await page.addScriptTag({ content: script });
         await page.evaluate(([k, d]) => (window as any).mount(k, d), [kind, data] as const);
@@ -134,6 +146,26 @@ await requireBrowserLane("whats-new-text-selection.test.ts", async () => {
         expect(await calls(page)).toEqual({ openChangelog: 1, dismiss: 1 });
         // A click on a button selects nothing.
         expect(await selection(page)).toBe("");
+        await page.close();
+      });
+
+      // Design #2 "Readable" (u4466 follow-up: "improve design of that too"): in the sidebar's card
+      // a change title wraps onto a second line instead of being cut with an ellipsis, so it can be
+      // read and selected whole; a very long one stops at two lines.
+      test("in a sidebar-wide card a long change wraps to two lines, never cut on one", async () => {
+        const page = await open("updated", 244);
+        const rows = page.locator(".wn-card-changes li");
+        const metrics = (index: number) =>
+          rows.nth(index).evaluate((li) => ({
+            height: li.getBoundingClientRect().height,
+            line: parseFloat(getComputedStyle(li).lineHeight),
+          }));
+        const short = await metrics(1);
+        const long = await metrics(2);
+        // One line for a short title; two lines (not one, not three) for the long one.
+        expect(short.height).toBeLessThan(short.line * 1.5 + 4);
+        expect(long.height).toBeGreaterThan(long.line * 1.5);
+        expect(long.height).toBeLessThan(long.line * 2.5 + 4);
         await page.close();
       });
 
