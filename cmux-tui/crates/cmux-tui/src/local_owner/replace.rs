@@ -21,9 +21,11 @@
 //!
 //! The caller decides when an owner is stuck: an owner also holds connections
 //! unanswered while it restores its session (up to `RESTORE_DEADLINE`), and
-//! this probe cannot tell the two apart. The app offers the option only after
-//! a plain ensure has failed (`server.restore_timeout` or no answer), so the
-//! restore bound has passed. Replacing a slow restore costs restore time, not
+//! this probe cannot tell the two apart. Nor can it tell a wedged owner at its
+//! connection limit from a healthy one whose clients all stay connected. The
+//! app offers the option only after a plain ensure has failed
+//! (`server.restore_timeout`, `server.unavailable`, `server.busy` or no
+//! answer), so the restore bound or the busy bound has passed. Replacing a slow restore costs restore time, not
 //! terminals: the hosts survive and the next owner adopts them.
 //!
 //! Stop: SIGTERM and SIGCONT (a stopped process acts on SIGTERM only after it
@@ -179,7 +181,10 @@ fn unresponsive(
 ) -> bool {
     let deadline = Instant::now() + PROBE_DEADLINE;
     loop {
-        match probe(stream, deadline) {
+        // A re-ask after a refusal near the deadline still gets its answer
+        // read, so a slot freed at the end keeps the owner.
+        let read_until = deadline.max(Instant::now() + super::BUSY_POLL_INTERVAL);
+        match probe(stream, read_until) {
             Probe::Answered => return false,
             Probe::Silent => return true,
             Probe::Refused if Instant::now() >= deadline => return true,
