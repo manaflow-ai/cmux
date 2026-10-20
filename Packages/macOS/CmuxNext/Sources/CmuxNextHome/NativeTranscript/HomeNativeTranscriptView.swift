@@ -420,7 +420,7 @@ public final class HomeNativeTranscriptView: NSView {
     /// The header band's fade in or out, in seconds. Reduce Motion keeps it, at the crossfade length
     /// (motion.md rule 7): turned off there, the band appeared and left in one frame.
     static func headerFadeDuration(shown: Bool) -> TimeInterval {
-        Motion.duration(shown ? .fadeIn : .fadeOut)
+        Motion.home.duration(shown ? .fadeIn : .fadeOut)
     }
 
     /// The theme's palettes (key and non-key window) for the MessagesLab

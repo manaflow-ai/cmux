@@ -57,7 +57,7 @@ public extension WindowOverlayHost {
         for view in views {
             view.wantsLayer = true
             guard let layer = view.layer else { continue }
-            Motion.set(layer, "opacity", to: Float(1), fade: .fadeIn, from: Float(0))
+            Motion.overlays.set(layer, "opacity", to: Float(1), fade: .fadeIn, from: Float(0))
         }
     }
 
@@ -166,7 +166,7 @@ extension WindowOverlayHost {
     private func fadeOut(_ views: [NSView], content: NSView) {
         fadingOut += 1
         let parents = (views + [content]).map { ($0, $0.superview) }
-        Motion.animate(.fadeOut, in: views.first, {
+        Motion.overlays.animate(.fadeOut, in: views.first, {
             views.forEach { $0.animator().alphaValue = 0 }
         }, completion: { [weak self] in
             guard let self else { return }

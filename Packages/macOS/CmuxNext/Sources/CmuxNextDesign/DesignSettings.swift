@@ -69,6 +69,23 @@ public final class DesignSettings {
             NotificationCenter.default.post(name: Motion.speedDidChange, object: nil)
         }
     }
+    /// `ui.animations.enabled`, the master motion switch: false makes every
+    /// animation in the app instant, whatever the category switches say
+    /// (``MotionGate``). Posts `Motion.speedDidChange` like the speed.
+    public var animationsEnabled = true {
+        didSet {
+            guard animationsEnabled != oldValue else { return }
+            NotificationCenter.default.post(name: Motion.speedDidChange, object: nil)
+        }
+    }
+    /// The categories whose `ui.animations.<category>` is false: their
+    /// animations are instant (``MotionCategory``). Posts `Motion.speedDidChange`.
+    public var disabledAnimationCategories: Set<MotionCategory> = [] {
+        didSet {
+            guard disabledAnimationCategories != oldValue else { return }
+            NotificationCenter.default.post(name: Motion.speedDidChange, object: nil)
+        }
+    }
     /// `appearance.colorTransition.*`: how theme and color changes animate (``ColorTransition``;
     /// read it resolved through `ColorTransition.current`). Web pages take a new value with their
     /// next theme payload.

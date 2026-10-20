@@ -180,7 +180,7 @@ final class SidebarRegionView: NSView {
         layoutResult = Self.layout(shown, width: width)
         if layoutResult.height != height { onHeightChange?() }
         guard animated else { return apply(shown) }
-        Motion.animate(.move, in: self, {
+        Motion.sidebar.animate(.move, in: self, {
             self.animatesFrames = true
             self.apply(shown)
             self.animatesFrames = false
