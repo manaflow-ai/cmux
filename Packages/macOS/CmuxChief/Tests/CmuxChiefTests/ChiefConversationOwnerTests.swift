@@ -1,4 +1,4 @@
-import CmuxChief
+@testable import CmuxChief
 import CmuxHomeCore
 import CryptoKit
 import Foundation
