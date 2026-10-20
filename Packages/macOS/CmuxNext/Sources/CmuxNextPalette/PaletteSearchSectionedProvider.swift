@@ -1,17 +1,20 @@
 /// One of Search's providers (plans/cmux-next/sidebar-search.md): it passes
 /// another provider's rows through under its own id, shows them only once the
-/// user types (the empty query is Recent), and puts them in ``section``: always
+/// user types (the empty query is Recent) unless asked to (the Chats & agents
+/// scope lists its chats at once), and puts them in ``section``: always
 /// (`replacesSections`, so the catalog's per-category sections read as one
 /// Commands block) or only for rows with no section of their own.
 final class PaletteSearchSectionedProvider: PaletteProvider {
     let id: String
-    let showsItemsForEmptyQuery = false
+    let showsItemsForEmptyQuery: Bool
     private let base: any PaletteProvider
     private let section: PaletteSection?
     private let replacesSections: Bool
 
-    init(_ base: any PaletteProvider, id: String? = nil, section: PaletteSection?, replacesSections: Bool = false) {
+    init(_ base: any PaletteProvider, id: String? = nil, section: PaletteSection?, replacesSections: Bool = false,
+         showsItemsForEmptyQuery: Bool = false) {
         self.base = base
+        self.showsItemsForEmptyQuery = showsItemsForEmptyQuery
         self.id = id ?? base.id
         self.section = section
         self.replacesSections = replacesSections

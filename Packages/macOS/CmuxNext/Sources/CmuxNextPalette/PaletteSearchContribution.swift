@@ -15,6 +15,9 @@ public struct PaletteSearchContribution {
     public var title: String
     /// The section's order among Search's sections when they keep their order (empty query).
     public var order: Int
+    /// Whether the rows are chats or agent sessions: they also make up the Chats & agents scope
+    /// (Cmd-Shift-A, `search.chats`).
+    public var searchesChats: Bool
     /// Makes the page each time Search opens; nil when it has nothing now.
     public var page: @MainActor () -> PalettePageSpec?
 
@@ -22,11 +25,14 @@ public struct PaletteSearchContribution {
     ///   - id: Stable id of the contribution.
     ///   - title: Section title for rows that carry none.
     ///   - order: Section order.
+    ///   - searchesChats: True for chats and agent sessions (the Chats & agents scope lists them too).
     ///   - page: Makes the page whose providers join Search.
-    public init(id: String, title: String, order: Int, page: @escaping @MainActor () -> PalettePageSpec?) {
+    public init(id: String, title: String, order: Int, searchesChats: Bool = false,
+                page: @escaping @MainActor () -> PalettePageSpec?) {
         self.id = id
         self.title = title
         self.order = order
+        self.searchesChats = searchesChats
         self.page = page
     }
 }

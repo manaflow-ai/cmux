@@ -53,6 +53,11 @@ nonisolated enum PaletteStrings {
     static var sectionPanes: String { String(localized: "palette.section.panes", defaultValue: "Panes", bundle: .module) }
     /// The Search scope's title (the sidebar's Search button) and its field's placeholder.
     static var searchEverythingTitle: String { String(localized: "palette.scope.search", defaultValue: "Search", bundle: .module) }
+    /// The Chats & agents chip (Cmd-Shift-A, `search.chats`) on top of Search.
+    static var chatsAndAgentsTitle: String { String(localized: "palette.scope.chats", defaultValue: "Chats & agents", bundle: .module) }
+    static var chatsAndAgentsPlaceholder: String {
+        String(localized: "palette.placeholder.chatsAndAgents", defaultValue: "Search chats and agents…", bundle: .module)
+    }
     static var searchEverythingPlaceholder: String {
         String(localized: "palette.placeholder.searchEverything", defaultValue: "Search workspaces, tabs, history, chats, settings and commands…", bundle: .module)
     }
