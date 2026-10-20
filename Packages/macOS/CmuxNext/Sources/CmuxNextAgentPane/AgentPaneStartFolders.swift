@@ -129,15 +129,16 @@ public final class AgentPaneStartFolders {
     }
 
     /// A project folder the person picked (hq#2569 item 1): their click on it makes it a root of
-    /// this pane, so the chat's start there passes the relay without spending the Send's gesture,
-    /// which the chat's first prompt needs. A pick with no gesture behind it (page script) grants
-    /// nothing, and a folder that is already a root spends nothing.
+    /// this pane, so the chat's start there passes the relay. The gesture it spends (often the
+    /// Send's own) goes on to the chat's first prompt (``AgentPaneTransport/grantPicked(_:)``). A
+    /// pick with no gesture behind it (page script) grants nothing, and a folder that is already a
+    /// root spends nothing.
     private static func grantPicked(_ path: String, transport: AgentPaneTransport) async {
         // The store's spelling is not always the canonical one the relay compares (a symlink).
         guard let folder = await Task.detached(operation: { AcpmuxPathPolicy.canonical(path) }).value,
               !transport.addedRoots.contains(folder), !transport.roots().contains(folder),
               transport.gestures.consume() else { return }
-        transport.grant(folder)
+        transport.grantPicked(folder)
     }
 
     /// The home folder the user picked: asked about first; the answer (on its click) makes it a
@@ -146,7 +147,7 @@ public final class AgentPaneStartFolders {
         if transport.addedRoots.contains(home) { return AgentPaneReply.success(["status": "ok", "cwd": home]) }
         guard confirm else { return AgentPaneReply.success(["status": "confirm", "reason": "home", "cwd": home]) }
         guard transport.gestures.consume() else { return AgentPaneModel.transportFailure(.gestureRequired) }
-        transport.grant(home)
+        transport.grantPicked(home)
         return AgentPaneReply.success(["status": "ok", "cwd": home])
     }
 }

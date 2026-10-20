@@ -53,7 +53,11 @@ impl Hub {
             session_id: session_id.clone(),
             program: std_cmd.get_program().to_string_lossy().into_owned(),
             args: std_cmd.get_args().map(|a| a.to_string_lossy().into_owned()).collect(),
-            env: crate::agent::command_env(&cmd),
+            env: if draft.remote_origin {
+                crate::agent::command_env_cleared(&cmd)
+            } else {
+                crate::agent::command_env(&cmd)
+            },
             cwd: draft.cwd.clone(),
             codex_bridge: !claude && crate::codex_app_server::is_profile_launch(&profile.argv),
             translator,

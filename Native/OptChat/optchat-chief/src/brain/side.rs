@@ -47,7 +47,14 @@ impl Brain {
                     reason: "local".into(),
                 }]);
             }
-            Change::ReadCursor { .. } | Change::MessageUpdated { .. } => {}
+            // An answer to an approval card the Chief posted here (G9: a
+            // side conversation's turn asks in that conversation).
+            Change::MessageUpdated { message } => {
+                if message.author == self.settings.membership.participant {
+                    self.answer_card(&conversation, &message);
+                }
+            }
+            Change::ReadCursor { .. } => {}
         }
     }
 
