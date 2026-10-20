@@ -20,11 +20,17 @@ use serde::{Deserialize, Serialize};
 use crate::dial::Service;
 use crate::keyset::Keyset;
 use crate::stamp::LinkPeer;
+use crate::stream_lease::{LeaseControl, StreamLease};
 use crate::token::{Expected, TokenRefused, TokenVerifier, VerifiedToken};
+
+#[path = "native_streams.rs"]
+mod streams;
+use streams::{reconcile_streams, stream_deadline, wake_streams};
 
 const MAX_TOKEN_BYTES: usize = 8192;
 const MAX_PEERS: usize = 128;
 const MAX_REPLAY: usize = 4096;
+const MAX_STREAMS: usize = 4096;
 const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
 
 /// The nine signed fields defined by the backend's NativeLinkBinding schema.
@@ -60,6 +66,9 @@ pub struct NativePolicy {
     pub host: String,
     pub epoch: u64,
     pub team: String,
+    /// Opaque receiving-generation stamp, including the VM's original
+    /// authority and destination keys. Renewal timestamps are not a stamp.
+    pub authority_version: String,
     pub peers: Vec<NativePeer>,
     pub checked_at_ms: u64,
     pub expires_at_ms: u64,
@@ -84,6 +93,23 @@ struct State {
     clock_high_water: u64,
     // Retained across policy/key replacement and revocation. Never evict a live jti.
     spent: BTreeMap<String, u64>,
+    streams: Vec<StreamAuthority>,
+}
+
+/// Captured under the same lock as signature, current-policy and replay checks.
+/// Matching only install/user after verification would let a replacement grant
+/// adopt an older stream during the admission-to-handoff race.
+struct StreamAuthority {
+    issuer: String,
+    host: String,
+    epoch: u64,
+    team: String,
+    authority_version: String,
+    peer: NativePeer,
+    service: Service,
+    kid: String,
+    signing_key: [u8; 32],
+    lease: LeaseControl,
 }
 
 /// Signature, current-authority and atomic single-use checks for one owned host.
@@ -156,6 +182,11 @@ impl NativePolicy {
             && self.issuer.bytes().all(|b| b.is_ascii_graphic())
             && id(&self.host, "host_")
             && id(&self.team, "team_")
+            && self.authority_version.len() == 64
+            && self
+                .authority_version
+                .bytes()
+                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
             && self.epoch > 0
             && self.epoch <= MAX_SAFE_INTEGER
             && self.checked_at_ms > 0
@@ -211,6 +242,7 @@ impl NativeTokenVerifier {
                 last_policy_check: None,
                 clock_high_water: 0,
                 spent: BTreeMap::new(),
+                streams: Vec::new(),
             }),
             clock: Arc::new(clock),
             replay_capacity,
@@ -238,8 +270,7 @@ impl NativeTokenVerifier {
     /// Out-of-order responses and expired snapshots are refused; the owner must
     /// call `clear_authority` when a refresh fails or authority is invalidated.
     pub fn replace_authority(&self, policy: NativePolicy) -> Result<(), TokenRefused> {
-        let mut state = self.state.lock().map_err(|_| TokenRefused::Invalid)?;
-        let now = self.sample(&mut state)?;
+        let (mut state, now) = self.current()?;
         if !policy.valid(now)
             || state.last_policy_check.is_some_and(|old| policy.checked_at_ms <= old)
         {
@@ -247,13 +278,20 @@ impl NativeTokenVerifier {
         }
         state.last_policy_check = Some(policy.checked_at_ms);
         state.policy = Some(policy);
+        let wake = reconcile_streams(&mut state, Some(now));
+        drop(state);
+        wake_streams(wake);
         Ok(())
     }
 
-    /// Immediately refuse new streams; retain replay and response-order fences.
+    /// Immediately revoke existing leases and refuse new streams; retain replay
+    /// and response-order fences.
     pub fn clear_authority(&self) {
         if let Ok(mut state) = self.state.lock() {
             state.policy = None;
+            let wake = reconcile_streams(&mut state, None);
+            drop(state);
+            wake_streams(wake);
         }
     }
 
@@ -262,8 +300,33 @@ impl NativeTokenVerifier {
         if !valid_keys(&keys) {
             return Err(TokenRefused::Invalid);
         }
-        self.state.lock().map_err(|_| TokenRefused::Invalid)?.keys = keys;
+        let mut state = self.state.lock().map_err(|_| TokenRefused::Invalid)?;
+        state.keys = keys;
+        let now = self.sample(&mut state).ok();
+        if now.is_none() {
+            state.policy = None;
+        }
+        let wake = reconcile_streams(&mut state, now);
+        drop(state);
+        wake_streams(wake);
         Ok(())
+    }
+
+    /// Clock trust is shared by admission and already open streams. Observing
+    /// its loss clears authority until a fresh snapshot arrives; it cannot
+    /// silently recover an old lease when the wall clock catches up.
+    fn current(&self) -> Result<(std::sync::MutexGuard<'_, State>, ReceiverTime), TokenRefused> {
+        let mut state = self.state.lock().map_err(|_| TokenRefused::Invalid)?;
+        match self.sample(&mut state) {
+            Ok(now) => Ok((state, now)),
+            Err(error) => {
+                state.policy = None;
+                let wake = reconcile_streams(&mut state, None);
+                drop(state);
+                wake_streams(wake);
+                Err(error)
+            }
+        }
     }
 
     fn sample(&self, state: &mut State) -> Result<ReceiverTime, TokenRefused> {
@@ -281,10 +344,13 @@ impl TokenVerifier for NativeTokenVerifier {
         if token.is_empty() || token.len() > MAX_TOKEN_BYTES {
             return Err(TokenRefused::Invalid);
         }
-        let mut state = self.state.lock().map_err(|_| TokenRefused::Invalid)?;
-        let now = self.sample(&mut state)?;
+        let (mut state, now) = self.current()?;
         let policy = state.policy.as_ref().ok_or(TokenRefused::NoVerifier)?;
         if !policy.valid(now) {
+            state.policy = None;
+            let wake = reconcile_streams(&mut state, None);
+            drop(state);
+            wake_streams(wake);
             return Err(TokenRefused::Expired);
         }
         if expected.host != policy.host || expected.epoch != policy.epoch {
@@ -354,9 +420,24 @@ impl TokenVerifier for NativeTokenVerifier {
         if !c.svc.contains(&expected.service) || !peer.services.contains(&expected.service) {
             return Err(TokenRefused::ServiceNotAllowed);
         }
+        let deadline = stream_deadline(policy, now).ok_or(TokenRefused::Expired)?;
+        let (lease, control) = StreamLease::controlled(deadline);
+        let authority = StreamAuthority {
+            issuer: policy.issuer.clone(),
+            host: policy.host.clone(),
+            epoch: policy.epoch,
+            team: policy.team.clone(),
+            authority_version: policy.authority_version.clone(),
+            peer: peer.clone(),
+            service: expected.service,
+            kid: header.kid,
+            signing_key: *key,
+            lease: control,
+        };
         let verified = VerifiedToken {
             peer: LinkPeer { install: c.sub, user: c.network.user, team: c.team },
             issued_at_ms: c.iat.checked_mul(1000).ok_or(TokenRefused::Invalid)?,
+            lease: Some(lease),
         };
         state.spent.retain(|_, exp| *exp > now.unix_ms / 1000);
         if state.spent.contains_key(&c.jti) {
@@ -365,8 +446,21 @@ impl TokenVerifier for NativeTokenVerifier {
         if state.spent.len() >= self.replay_capacity {
             return Err(TokenRefused::ReplayCapacity);
         }
+        state.streams.retain(|stream| stream.lease.deadline().is_some());
+        if state.streams.len() >= MAX_STREAMS {
+            return Err(TokenRefused::Invalid);
+        }
         state.spent.insert(c.jti, c.exp);
+        state.streams.push(authority);
         Ok(verified)
+    }
+}
+
+impl Drop for NativeTokenVerifier {
+    fn drop(&mut self) {
+        let state = self.state.get_mut().unwrap_or_else(std::sync::PoisonError::into_inner);
+        state.policy = None;
+        wake_streams(reconcile_streams(state, None));
     }
 }
 

@@ -42,6 +42,8 @@ pub(super) enum HostRefused {
     AddressMismatch,
     /// The host's sshd did not accept the connection.
     SshUnavailable,
+    /// The authority owner revoked this stream, vanished, or its lease expired.
+    Authority,
 }
 
 /// Check the hello of `stream` (from the session with `peer_key`, overlay
@@ -75,29 +77,54 @@ where
     if peer_addr.ip() != IpAddr::V6(overlay_address(&peer.install)) {
         return Err(HostRefused::AddressMismatch);
     }
-    match hello.service {
-        Service::Daemon => {
-            // The verifier accepted a control-plane token for this stream:
-            // the entry records it as the install's good check.
-            hand_to_entry(
-                stream,
-                &peer,
-                Some(StampCheck::LinkToken { issued_at_ms: verified.issued_at_ms }),
-                me.session_socket,
-            )
-            .await
-            .map_err(HostRefused::Inbound)
+    let mut lease = verified.lease.ok_or(HostRefused::Authority)?;
+    let authority_ended = async {
+        loop {
+            let Some(deadline) = lease.deadline() else { return };
+            let deadline = tokio::time::Instant::from_std(deadline);
+            if deadline <= tokio::time::Instant::now() {
+                return;
+            }
+            tokio::select! {
+                biased;
+                ()=lease.changed()=>{},
+                ()=tokio::time::sleep_until(deadline)=>return,
+            }
         }
-        Service::Ssh => {
-            let mut sshd = tokio::net::TcpStream::connect(me.sshd)
+    };
+    // Authority is checked before the first poll of the connect/handoff and
+    // throughout the byte copy. Dropping that future closes both endpoints;
+    // an accepted JWT cannot leave an independently authorized tunnel behind.
+    let work = async {
+        match hello.service {
+            Service::Daemon => {
+                // The verifier accepted a control-plane token for this stream:
+                // the entry records it as the install's good check.
+                hand_to_entry(
+                    stream,
+                    &peer,
+                    Some(StampCheck::LinkToken { issued_at_ms: verified.issued_at_ms }),
+                    me.session_socket,
+                )
                 .await
-                .map_err(|_| HostRefused::SshUnavailable)?;
-            let _ = tokio::io::copy_bidirectional(&mut stream, &mut sshd).await;
-            Ok(())
+                .map_err(HostRefused::Inbound)
+            }
+            Service::Ssh => {
+                let mut sshd = tokio::net::TcpStream::connect(me.sshd)
+                    .await
+                    .map_err(|_| HostRefused::SshUnavailable)?;
+                let _ = tokio::io::copy_bidirectional(&mut stream, &mut sshd).await;
+                Ok(())
+            }
+            // A Cloud host has no owner session: its owner reaches it through the
+            // token-checked daemon entry.
+            Service::OwnerSession => Err(HostRefused::Inbound(InboundRefused::BadHello)),
         }
-        // A Cloud host has no owner session: its owner reaches it through the
-        // token-checked daemon entry.
-        Service::OwnerSession => Err(HostRefused::Inbound(InboundRefused::BadHello)),
+    };
+    tokio::select! {
+        biased;
+        ()=authority_ended=>Err(HostRefused::Authority),
+        result=work=>result,
     }
 }
 
@@ -108,3 +135,7 @@ mod tests;
 #[cfg(test)]
 #[path = "host_native_token_tests.rs"]
 mod native_token_tests;
+
+#[cfg(test)]
+#[path = "host_stream_lifetime_tests.rs"]
+mod stream_lifetime_tests;

@@ -65,6 +65,9 @@ pub struct VerifiedToken {
     pub peer: LinkPeer,
     /// Unix milliseconds, converted from the verified JWT `iat` with checked arithmetic.
     pub issued_at_ms: u64,
+    /// Live authority of this authenticated stream, acquired atomically with
+    /// token verification. Missing authority never opens a receiving stream.
+    pub lease: Option<crate::stream_lease::StreamLease>,
 }
 
 /// The default: no token is valid.

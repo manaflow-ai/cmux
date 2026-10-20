@@ -68,6 +68,7 @@ impl ReceiverSnapshot {
             host: p.host.clone(),
             epoch: p.epoch as u64,
             team: p.team.clone(),
+            authority_version: p.authority_version.clone(),
             checked_at_ms: p.checked_at as u64,
             expires_at_ms: p.expires_at as u64,
             request_started: self.started,
