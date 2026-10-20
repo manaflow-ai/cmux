@@ -150,12 +150,18 @@ extension TextLayout {
         let line = CTLineCreateWithAttributedString(attr.attributedSubstring(from: range))
         let ns = text as NSString
         var out: [HomeLinkChipSpan] = []
-        for r in runs {
+        for (n, r) in runs.enumerated() {
             guard let kind = r.chipKind, let link = r.link else { continue }
             let lo = max(r.start, range.location), hi = min(r.start + r.length, range.location + range.length)
             guard hi > lo else { continue }
             let x0 = CTLineGetOffsetForStringIndex(line, lo - range.location, nil)
-            let x1 = CTLineGetOffsetForStringIndex(line, hi - range.location, nil)
+            var x1 = CTLineGetOffsetForStringIndex(line, hi - range.location, nil)
+            // The chip's end on this line: Core Text's offset there leaves out the last
+            // character's kern (the trailing pad, HomeLinkChip.reserve), the pill takes it.
+            let next = runs[checked: n + 1]
+            if hi == r.start + r.length, next.map({ $0.link != link || $0.start != hi }) ?? true {
+                x1 += HomeLinkChip.trailingPad
+            }
             let icon = lo == r.start && r.start < ns.length && ns.character(at: r.start) == 0xA0
             // Runs of one chip (a bold word in a label) join into one part.
             if let last = out.last, last.link == link, abs(last.x1 - x0) < 0.5 {
