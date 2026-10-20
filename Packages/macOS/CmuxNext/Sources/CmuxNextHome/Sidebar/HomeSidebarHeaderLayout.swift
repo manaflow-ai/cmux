@@ -53,7 +53,7 @@ public struct HomeSidebarHeaderLayout: Equatable, Sendable {
         let full = 3 * Self.side + 2 * Self.gap + 2 * Self.inset
         let inset = width >= full ? Self.inset : Self.tightInset
         let gap = width >= full ? Self.gap : Self.tightGap
-        let side = width >= full ? Self.side : max(Self.minimumSide, ((width - 2 * inset - 2 * gap) / 3).rounded(.down))
+        let side = width >= full ? Self.side : min(Self.side, max(Self.minimumSide, ((width - 2 * inset - 2 * gap) / 3).rounded(.down)))
         let y = ((Self.band - side) / 2).rounded()
         compose = CGRect(x: width - inset - side, y: y, width: side, height: side)
         filter = CGRect(x: compose.minX - gap - side, y: y, width: side, height: side)

@@ -6,6 +6,18 @@ public import AppKit
 public final class CmuxSidebarSearchField: NSSearchField {
     /// True when the field takes the keyboard, false when its edit ends.
     public var onEditingChange: ((Bool) -> Void)?
+    /// The text changed (typing, the cancel button, a host's `stringValue`): a host whose layout
+    /// depends on an empty field re-lays out.
+    public var onTextChange: (() -> Void)?
+
+    public override var stringValue: String {
+        didSet { onTextChange?() }
+    }
+
+    public override func textDidChange(_ notification: Notification) {
+        super.textDidChange(notification)
+        onTextChange?()
+    }
 
     public override func becomeFirstResponder() -> Bool {
         let became = super.becomeFirstResponder()

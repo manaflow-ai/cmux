@@ -16,7 +16,7 @@ struct HomeSidebarHeaderTests {
         let h = HomeSidebarHeaderLayout(width: width, searchOpen: false)
         let items = [h.searchButton ?? h.search, h.filter, h.compose]
         #expect(Set(items.map(\.midY)).count == 1, "the row wraps at \(width)")
-        #expect(items.allSatisfy { $0.height >= HomeSidebarHeaderLayout.minimumSide && $0.height <= HomeSidebarHeaderLayout.band })
+        #expect(items.allSatisfy { $0.height >= HomeSidebarHeaderLayout.minimumSide && $0.height <= HomeSidebarHeaderLayout.side })
         #expect(items.allSatisfy { $0.minX >= 0 && $0.maxX <= width }, "the row overflows \(width)")
         for (a, b) in zip(items, items.dropFirst()) {
             #expect(a.maxX <= b.minX, "items overlap at \(width)")
@@ -30,6 +30,16 @@ struct HomeSidebarHeaderTests {
             #expect(h.search.width >= HomeSidebarHeaderLayout.minimumField)
         }
         #expect(h.listTop == HomeSidebarHeaderLayout.band)
+    }
+
+    /// Narrowing the list never makes a button bigger (no 34 pt buttons just under the full row).
+    @Test func theButtonsNeverGrowAsTheListNarrows() {
+        var previous = CGFloat.infinity
+        for width in stride(from: CGFloat(480), through: 76, by: -1) {
+            let side = HomeSidebarHeaderLayout(width: width, searchOpen: false).compose.height
+            #expect(side <= previous, "the buttons grow from \(previous) to \(side) at \(width)")
+            previous = side
+        }
     }
 
     @Test func onlyTheSearchFieldGrowsWithTheWidth() {

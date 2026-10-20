@@ -47,7 +47,7 @@ public final class HomeSidebarView: NSView {
                                         identifier: "cmux.home.sidebar.searchButton")
     /// The search field's capsule: a quiet fill and the composer's hairline rim, stepped toward
     /// the text while the field edits (the composer's focus, #22114), never AppKit's blue ring.
-    let searchCapsule = NSView()
+    let searchCapsule = HomeSearchCapsule()
     /// The header's frames at the last layout (tests, `debug.home.sidebar_fixture`).
     public private(set) var header = HomeSidebarHeaderLayout(width: 320, searchOpen: false)
     /// A quiet line under the list (`HomeSidebarModel.note`).
@@ -182,6 +182,9 @@ public final class HomeSidebarView: NSView {
         field.font = .systemFont(ofSize: NSFont.systemFontSize)
         field.setAccessibilityIdentifier("cmux.home.sidebar.search")
         field.onEditingChange = { [weak self] _ in self?.searchEditingChanged() }
+        // An emptied field (its cancel button) closes a collapsed search that no longer edits.
+        field.onTextChange = { [weak self] in self?.list.headerView.needsLayout = true }
+        searchCapsule.onClick = { [weak self] in self?.openSearch() }
         compose.target = self
         compose.action = #selector(newMessage)
         compose.contextMenu = { [weak self] in self?.composeMenu() }
@@ -269,6 +272,7 @@ public final class HomeSidebarView: NSView {
         }
     }
 
+    #if DEBUG
     /// Screenshots: true gives the search field the keyboard (a collapsed search opens), false
     /// ends the search and takes the keyboard back.
     public func debugSearch(_ open: Bool) {
@@ -280,9 +284,12 @@ public final class HomeSidebarView: NSView {
         }
         list.headerView.needsLayout = true
     }
+    #endif
 
     /// The collapsed search's icon: the field opens over the row with the keyboard.
     @objc func openSearch() {
+        // An edit already under way keeps its caret and selection.
+        guard !list.searchField.isEditing else { return }
         window?.makeFirstResponder(list.searchField)
     }
 
@@ -305,6 +312,13 @@ public final class HomeSidebarView: NSView {
         noteLabel.frame = NSRect(x: 14, y: 8, width: max(0, bounds.width - 28), height: 16)
     }
 
+}
+
+/// The search field's capsule: a click on its rim, outside the field, still gives the field the keyboard.
+final class HomeSearchCapsule: NSView {
+    var onClick: () -> Void = {}
+    override var mouseDownCanMoveWindow: Bool { false }
+    override func mouseDown(with event: NSEvent) { onClick() }
 }
 
 /// Empty header space that is titlebar: it drags the window, and a double-click runs the user's titlebar action.
