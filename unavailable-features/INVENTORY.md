@@ -29,7 +29,7 @@ Status column: `todo`, `done <sha>`, `skip (<owner>)`.
 | 1 | Clear Browser History | `palette.browserClearHistory` | cmux-next keeps no browser history store yet (stale: `HistoryService.clearPages` exists) | Handlers/BrowserHandlers.swift | S | todo |
 | 2 | Restart CLI Listener | `palette.restartSocketListener` | needs app capability `control-socket-restart` | Handlers/SettingsHandlers.swift | S | todo |
 | 3 | Open All Workspace PR Links | `palette.openWorkspacePullRequests` | needs app capability `github-integration` | Handlers/WorkspaceHandlers.swift | S | todo |
-| 4 | Move whole column (multi-pane) | `moveColumnLeft/Right` refusal | Moving a whole column is not available yet | Handlers/ColumnHandlers.swift | S | done 6b106fc0a6a |
+| 4 | Move whole column (multi-pane) | `moveColumnLeft/Right` refusal | Moving a whole column is not available yet | Handlers/ColumnHandlers.swift | S | done 31c23ce112e |
 | 5 | Toggle Match Terminal Background | `palette.toggleMatchTerminalBackground` | needs app capability `match-terminal-background` | Handlers/SidebarHandlers.swift | S | todo |
 | 6 | Enable/Disable cmux Browser | `palette.enableBrowser`, `palette.disableBrowser` | the cmux browser is always on | Handlers/BrowserHandlers.swift | S | done 60440702d7a |
 | 7 | Toggle Omnibar | `palette.browserToggleOmnibar` | The address bar cannot be hidden yet | Handlers/BrowserHandlers.swift | S | todo |
