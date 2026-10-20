@@ -438,7 +438,8 @@ mark {
 .row-control .select .ui-select-button {
   /* One width per row style: a popup never resizes with its selected label (which ellipsizes),
      so the controls around it stay put. */
-  width: 180px;
+  width: var(--row-popup-width);
+  max-width: 100%;
 }
 
 /* An unset row's effective value: the thumb and field sit on it, dimmed, and a badge under the
