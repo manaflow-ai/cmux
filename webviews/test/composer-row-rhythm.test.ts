@@ -265,14 +265,23 @@ await requireBrowserLane("composer-row-rhythm.test.ts", async () => {
             }),
           );
           console.log(
-            JSON.stringify({ width, scheme, row: rowName, inGroup: list(inGroup), betweenGroups: list(betweenGroups), insides }),
+            JSON.stringify({
+              width,
+              scheme,
+              row: rowName,
+              inGroup: list(inGroup),
+              betweenGroups: list(betweenGroups),
+              insides,
+            }),
           );
-          if (spread(inGroup.map(({ gap }) => gap)) > 1) problems.push(`${rowName}: uneven gaps inside groups: ${list(inGroup)}`);
+          if (spread(inGroup.map(({ gap }) => gap)) > 1)
+            problems.push(`${rowName}: uneven gaps inside groups: ${list(inGroup)}`);
           if (spread(betweenGroups.map(({ gap }) => gap)) > 1)
             problems.push(`${rowName}: uneven gaps between groups: ${list(betweenGroups)}`);
           const tight = Math.max(0, ...inGroup.map(({ gap }) => gap));
           for (const { between, gap } of betweenGroups)
-            if (gap <= tight + 1) problems.push(`${rowName}: ${between} ${gap.toFixed(1)} is not wider than the in-group gap`);
+            if (gap <= tight + 1)
+              problems.push(`${rowName}: ${between} ${gap.toFixed(1)} is not wider than the in-group gap`);
           for (const key of ["lead", "trail", "iconGap", "chevronGap"] as const) {
             const values = insides.flatMap((inside) => (inside[key] === undefined ? [] : [inside[key]!]));
             if (spread(values) > 1)
