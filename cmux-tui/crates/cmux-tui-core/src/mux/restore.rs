@@ -149,15 +149,21 @@ pub(super) fn restore_resource_state(
         let id = pane_slots[&pane.public_id];
         let pane_tabs = tabs_by_pane.get(&pane.public_id).map(Vec::as_slice).unwrap_or_default();
         let tabs = pane_tabs.iter().map(|tab| tab_slots[&tab.public_id]).collect::<Vec<_>>();
+        // F8 (pane-active-tab-DESIGN.md): an active tab that is not one of the
+        // pane's tabs heals to its first tab; it never fails the whole restore.
         let active_tab = match pane.active_tab.as_ref() {
-            Some(active) => {
-                pane_tabs.iter().position(|tab| &tab.public_id == active).ok_or_else(|| {
-                    anyhow::anyhow!("pane {} has unknown active tab {}", pane.public_id, active)
-                })?
+            Some(active) => pane_tabs.iter().position(|tab| &tab.public_id == active),
+            None => None,
+        }
+        .unwrap_or_else(|| {
+            if !pane_tabs.is_empty() {
+                eprintln!(
+                    "cmux-tui: restore: pane {} active tab {:?} is not one of its tabs; the first tab is active",
+                    pane.public_id, pane.active_tab
+                );
             }
-            None if pane_tabs.is_empty() => 0,
-            None => anyhow::bail!("pane {} has tabs but no active tab", pane.public_id),
-        };
+            0
+        });
         anyhow::ensure!(
             panes
                 .insert(

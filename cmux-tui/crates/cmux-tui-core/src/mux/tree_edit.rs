@@ -488,11 +488,8 @@ pub(super) fn remove_surface(
     };
     let pane = state.panes.get_mut(&pane_id).expect("pane_of returned live id");
     let idx = pane.tabs.iter().position(|id| *id == target).expect("tab in pane");
-    pane.tabs.remove(idx);
+    pane.remove_tab_at(idx);
     if !pane.tabs.is_empty() {
-        if pane.active_tab >= idx && pane.active_tab > 0 {
-            pane.active_tab -= 1;
-        }
         fence_layout_undo_for_tab_membership(state, &[pane_id]);
         return (removed, false);
     }
@@ -612,10 +609,7 @@ pub(super) fn move_tab_in_state(
         let Some(old_idx) = source.tabs.iter().position(|id| *id == surface) else {
             return (false, false);
         };
-        source.tabs.remove(old_idx);
-        if !source.tabs.is_empty() && source.active_tab >= old_idx && source.active_tab > 0 {
-            source.active_tab -= 1;
-        }
+        source.remove_tab_at(old_idx);
     }
 
     let topology_changed = state.panes.get(&source_pane).is_some_and(|pane| pane.tabs.is_empty());

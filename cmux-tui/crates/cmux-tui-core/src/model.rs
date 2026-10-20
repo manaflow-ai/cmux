@@ -428,6 +428,28 @@ impl Pane {
     pub fn active_surface(&self) -> Option<SurfaceId> {
         self.tabs.get(self.active_tab).copied()
     }
+
+    /// Removes the tab at `index` and keeps the active index valid by the one
+    /// successor rule (`active_after_removal`). Returns the removed tab; the
+    /// caller removes the pane when it is now empty (I1).
+    pub(crate) fn remove_tab_at(&mut self, index: usize) -> SurfaceId {
+        let removed = self.tabs.remove(index);
+        self.active_tab = active_after_removal(self.active_tab, index, self.tabs.len());
+        removed
+    }
+}
+
+/// The active index after the tab at `removed` left a pane whose active index
+/// was `active`, leaving `len` tabs (plans/cmux-next/pane-active-tab-DESIGN.md
+/// I6, close-focus.md): the active tab stays active; when it is the one that
+/// left, the next tab (now at `removed`), else the previous one. 0 for an
+/// empty pane. The one rule for closes, moves out, drags and durable records.
+pub(crate) fn active_after_removal(active: usize, removed: usize, len: usize) -> usize {
+    if len == 0 {
+        return 0;
+    }
+    let kept = if active > removed { active - 1 } else { active };
+    kept.min(len - 1)
 }
 
 /// One split-tree of panes. A workspace can hold many screens; exactly

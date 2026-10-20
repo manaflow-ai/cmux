@@ -311,12 +311,14 @@ impl Mux {
                     source_record.active_tab = Some(tab_id.clone());
                     target_record = source_record.clone();
                 } else {
+                    // The same rule memory applies (`move_tab_in_state`): the old index on the
+                    // shortened list named the active tab's right neighbor (F10).
                     source_record.active_tab = source_order
-                        .get(
-                            state.panes[&source_pane]
-                                .active_tab
-                                .min(source_order.len().saturating_sub(1)),
-                        )
+                        .get(crate::model::active_after_removal(
+                            state.panes[&source_pane].active_tab,
+                            old_index,
+                            source_order.len(),
+                        ))
                         .cloned();
                     target_record.active_tab = Some(tab_id.clone());
                 }

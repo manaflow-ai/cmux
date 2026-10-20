@@ -161,11 +161,11 @@ impl Mux {
                     .context("source tab disappeared")?;
                 source_tabs.remove(old_index);
                 let source_empty = source_tabs.is_empty();
-                let source_active = if state.panes[&source_pane].active_tab >= old_index {
-                    state.panes[&source_pane].active_tab.saturating_sub(1)
-                } else {
-                    state.panes[&source_pane].active_tab
-                };
+                let source_active = crate::model::active_after_removal(
+                    state.panes[&source_pane].active_tab,
+                    old_index,
+                    source_tabs.len(),
+                );
                 source_record.active_tab = source_tabs
                     .get(source_active)
                     .map(|id| state.resource_indexes.tab_ids[id].clone());

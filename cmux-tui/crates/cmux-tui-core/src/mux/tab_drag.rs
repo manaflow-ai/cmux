@@ -864,10 +864,7 @@ pub(super) fn restore_dragged_tab(
             .iter()
             .position(|candidate| *candidate == restore.surface)
             .expect("checked tab membership");
-        pane.tabs.remove(old);
-        if !pane.tabs.is_empty() && pane.active_tab >= old && pane.active_tab > 0 {
-            pane.active_tab -= 1;
-        }
+        pane.remove_tab_at(old);
     }
     if restore.created_pane == Some(current) {
         state.remove_pane(current);
