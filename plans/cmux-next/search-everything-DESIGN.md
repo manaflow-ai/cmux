@@ -251,4 +251,70 @@ a bounded channel and drops to backfill when full), a257 (Memory Inspector: Chie
 
 ## 10. UI (owned by the Search-everything UI agent)
 
-(UI agent writes this section: mocks, window layout, keyboard, scope chip, empty state.)
+Mocks: `plans/cmux-next/search-everything-gallery/index.html` (5 live looks, light and dark,
+type in any of them). Recommended: look A.
+
+### 10.1 One window, built on the palette's `search` scope
+
+- The window is the palette panel on the `search` scope (a247, plans/cmux-next/sidebar-search.md).
+  No second panel, field or ranker. Cmd+P opens `palette.open {scope: search}`; Cmd+Shift+A opens
+  the same with the chip "Chats & agents" (daemon scopes `["chat", "chief"]`); the sidebar button
+  opens it anchored. Cmd+Shift+P stays the command list. Old Cmd+P (Go to) rows are all inside
+  Search, so nothing is lost; `palette.goToTab` / `tab.search` stay as aliases for scripts.
+- Backspace on an empty field, or the chip's x, removes the chip and searches everything with the
+  query kept.
+
+### 10.2 Layout (look A)
+
+- Field row: scope chip (if any), query, a small "ms" readout in DEBUG builds only.
+- Source chips row under the field: All, Terminal, Chats & agents, Chief, Files, Tabs, Web,
+  Settings, Commands, each with its live hit count. Tab / Shift+Tab move between them, Cmd+1..9
+  pick one. A chip is the same thing as a scope (it sets the daemon `scopes` and filters app rows).
+- Left: one list ranked across all sources (the engine's "Top hit" row first, under "Best match",
+  then "More"). Not grouped: grouping (look B) lets a weak section sit above the best hit, and
+  section order jumps while typing. Inside a single source chip the list is flat.
+- Row: source icon (colored tile), title with highlights, place (workspace, terminal, line
+  number, harness), and one snippet line with the matched words marked (`highlights` UTF-16
+  ranges from the hit). Right edge: age, or the shortcut for a command.
+- Right: preview of the selected row (`listWithDetail`, palette-scopes 3.3), loaded lazily:
+  - scrollback / command: about 6 lines around the hit with line numbers, the hit line marked;
+    Return jumps the terminal to that line and flashes it.
+  - screen (old full-screen TUI frame): the saved frame text, monospaced, words marked; Return
+    opens the frame read-only, Cmd+Return goes to the live terminal.
+  - chat / chief: the message as a bubble with the one before and after; Return opens the chat
+    scrolled to that message.
+  - file: lines around the hit; Return opens it at the line.
+  - setting, command, tab, page: key/value rows and the row's actions.
+- Footer: key hints (arrows, Return, Cmd+Return split, Tab source, Cmd+K actions) and the count.
+
+### 10.3 Ordering in the merged list
+
+App rows (actions, settings, workspaces, tabs; palette ranker, instant) and daemon hits
+(streamed) are merged by a normalized score: each list's scores are mapped to 0..1 by match class
+(exact title > word-start title > title anywhere > content word-start > content anywhere), then
+recency and frecency (engine 7.3) break ties. Rule that stops the list jumping: rows already shown
+above the selected row never move when a later daemon batch arrives; new hits insert below it.
+
+### 10.4 Empty state
+
+Recent searches (last 5 queries, from the daemon frecency file) and Recent places (palette
+frecency over all kinds), plus one hint line with the prefixes: `>` commands, `@` chats and agents,
+`#` files, `/` settings, `!` terminal output.
+
+### 10.5 Speed and motion
+
+- Every keystroke paints app rows from the in-memory snapshot in under 16 ms (palette ranker, off
+  main); daemon hits arrive in later batches. The query is cancelled on each keystroke
+  (`search.cancel`).
+- Until the daemon serves `search-v1`, the app uses a stub source (no rows, no error) so the
+  window ships on its own.
+- Reduce Motion: no fades or slides; selection and preview change instantly.
+
+### 10.6 UI plan
+
+1. Mocks and this section (done).
+2. Daemon search source in the palette (`PaletteQueryProvider`, a247 phase 2): async,
+   generation-tagged, cancelled per keystroke, stubbed until `search.query` exists.
+3. Cmd+P and Cmd+Shift+A open the `search` scope (Chats & agents chip for Cmd+Shift+A).
+4. Source chips row and the preview pane.
+5. Strings in all 21 locales; failing-first tests for each step on the Mac minis.
