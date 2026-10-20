@@ -9,10 +9,10 @@
 //! folds only the records after it.
 
 use super::*;
-use std::path::PathBuf;
+use std::path::Path;
 
 fn list_agent_session_ids(mux: &Arc<Mux>) -> Vec<String> {
-    let mut fields = serde_json::Map::new();
+    let mut fields = Map::new();
     fields.insert("kinds".into(), serde_json::json!(["agent"]));
     let listed = crate::history_ops::list_for_test(mux, &fields).expect("history list answers");
     listed["entries"]
@@ -40,7 +40,7 @@ fn seal_whole_journal(mux: &Mux, key: &str) -> Vec<String> {
 
 /// Makes every listed segment undecodable: a read that inflates any of them
 /// fails, so a fold that still reads them is visible.
-fn make_segments_undecodable(root: &PathBuf, session: &str, segments: &[String]) {
+fn make_segments_undecodable(root: &Path, session: &str, segments: &[String]) {
     let registry = WorkspaceRegistry::open(root, session).unwrap();
     let database = registry.session_journal_database_path().unwrap();
     drop(registry);
