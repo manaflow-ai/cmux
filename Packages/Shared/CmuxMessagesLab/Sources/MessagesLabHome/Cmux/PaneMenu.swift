@@ -69,7 +69,7 @@ extension ChatController {
             }
             // cmux: the host's file menu (Open in Right Pane, Open With, Reveal, Copy Path, Quick
             // Look, Share); without a host, Open in Default App.
-            let resolve: @MainActor () async -> URL? = { [weak self] in await self?.intents?.attachmentFile(ref.messageId, a.id) }
+            let resolve: @MainActor @Sendable () async -> URL? = { [weak self] in await self?.intents?.attachmentFile(ref.messageId, a.id) }
             HomeAttachmentOpen.menuItems(name: a.fileName, host: fileHost, resolve: resolve) { [weak self] in
                 self?.intents?.openAttachment(ref.messageId, a.id)
             }.forEach(menu.addItem)

@@ -32,7 +32,7 @@ final class HomeFileActions: HomeFileHost {
         }
     }
 
-    func menuItems(forFileNamed name: String, resolve: @escaping @MainActor () async -> URL?) -> [NSMenuItem] {
+    func menuItems(forFileNamed name: String, resolve: @escaping @MainActor @Sendable () async -> URL?) -> [NSMenuItem] {
         menu.items(forFileNamed: name, resolve: resolve)
     }
 

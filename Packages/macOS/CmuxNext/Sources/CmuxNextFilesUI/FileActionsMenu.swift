@@ -60,7 +60,7 @@ public final class FileActionsMenu {
     ///   - resolve: the file on disk, fetched when a row runs; nil does nothing.
     /// - Returns: the rows, with separators, to append to a context menu.
     public func items(forFileNamed name: String, isDirectory: Bool = false, includeOpen: Bool = true,
-                      resolve: @escaping @MainActor () async -> URL?) -> [NSMenuItem] {
+                      resolve: @escaping @MainActor @Sendable () async -> URL?) -> [NSMenuItem] {
         var rows: [NSMenuItem] = []
         let open = actions.openInCmux, reveal = actions.revealInFiles
         if includeOpen {
@@ -77,7 +77,7 @@ public final class FileActionsMenu {
     }
 
     /// Share…: the system share picker for the file, at the pointer.
-    public func shareItem(resolve: @escaping @MainActor () async -> URL?) -> NSMenuItem {
+    public func shareItem(resolve: @escaping @MainActor @Sendable () async -> URL?) -> NSMenuItem {
         menuRow(FileActionStrings.share, "square.and.arrow.up") { Self.run(resolve) { Self.share($0) } }
     }
 
@@ -89,7 +89,7 @@ public final class FileActionsMenu {
     ///   - isDirectory: the item is a folder or package.
     ///   - resolve: the file on disk, fetched when a row runs.
     public func openWithItem(forFileNamed name: String, isDirectory: Bool = false,
-                             resolve: @escaping @MainActor () async -> URL?) -> NSMenuItem {
+                             resolve: @escaping @MainActor @Sendable () async -> URL?) -> NSMenuItem {
         let row = NSMenuItem(title: FileActionStrings.openWith, action: nil, keyEquivalent: "")
         row.image = NSImage(systemSymbolName: "arrow.up.forward.app", accessibilityDescription: nil)
         let submenu = NSMenu(title: FileActionStrings.openWith)
@@ -118,7 +118,7 @@ public final class FileActionsMenu {
         return row
     }
 
-    private static func run(_ resolve: @escaping @MainActor () async -> URL?, _ action: @escaping @MainActor (URL) -> Void) {
+    private static func run(_ resolve: @escaping @MainActor @Sendable () async -> URL?, _ action: @escaping @MainActor (URL) -> Void) {
         // task-owner: one resolve (a Home attachment may download); ends when the action runs
         Task { @MainActor in if let file = await resolve() { action(file) } }
     }

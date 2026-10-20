@@ -11,5 +11,5 @@ public protocol HomeFileHost: AnyObject {
 
     /// The menu rows for a file named `name`. `resolve` fetches the local copy when a row runs
     /// (the rows are built from the name alone, so the menu shows at once).
-    @MainActor func menuItems(forFileNamed name: String, resolve: @escaping @MainActor () async -> URL?) -> [NSMenuItem]
+    @MainActor func menuItems(forFileNamed name: String, resolve: @escaping @MainActor @Sendable () async -> URL?) -> [NSMenuItem]
 }

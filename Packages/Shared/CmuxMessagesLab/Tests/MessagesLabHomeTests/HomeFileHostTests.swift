@@ -12,7 +12,7 @@ import Testing
         var opened: [URL] = []
         var menuNames: [String] = []
         func open(_ file: URL) { opened.append(file) }
-        func menuItems(forFileNamed name: String, resolve: @escaping @MainActor () async -> URL?) -> [NSMenuItem] {
+        func menuItems(forFileNamed name: String, resolve: @escaping @MainActor @Sendable () async -> URL?) -> [NSMenuItem] {
             menuNames.append(name)
             return [NSMenuItem(title: "Open in Right Pane", action: nil, keyEquivalent: ""),
                     NSMenuItem(title: "Open With", action: nil, keyEquivalent: "")]
@@ -41,6 +41,8 @@ import Testing
     }
 
     @Test func withoutAHostTheMenuKeepsOpenInDefaultApp() {
+        // MenuAction draws its icon with the app's appearance.
+        _ = NSApplication.shared
         let items = HomeAttachmentOpen.menuItems(name: "index.html", host: nil, resolve: { nil }, fallback: {})
         #expect(items.count == 1)
         #expect((items.first as? MenuAction)?.label == CmuxStrings.openInDefaultApp)
