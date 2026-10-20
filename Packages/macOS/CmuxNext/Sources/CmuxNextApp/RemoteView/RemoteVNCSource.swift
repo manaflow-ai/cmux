@@ -157,7 +157,10 @@ final class RemoteVNCInputSink: RemoteViewInputSink {
     private let drain: Task<Void, Never>
 
     init(source: RemoteVNCSource) {
-        let (stream, queue) = AsyncStream.makeStream(of: RemoteInputEvent.self)
+        // Far more than a live session ever queues (pointer moves at display rate drain as fast
+        // as they come). Only a stalled connection fills it: then the oldest events go, so the
+        // remote still gets the latest pointer position and the key and button ups that follow.
+        let (stream, queue) = AsyncStream.makeStream(of: RemoteInputEvent.self, bufferingPolicy: .bufferingNewest(1_024))
         self.queue = queue
         drain = Task.detached { [weak source] in
             var scroll = RemoteVNCScroll()

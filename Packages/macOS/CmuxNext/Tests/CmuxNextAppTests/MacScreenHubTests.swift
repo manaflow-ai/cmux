@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDevices
 @testable import CmuxNextMacScreen
+import CmuxNextWakeups
 import CmuxScreenKit
 import CryptoKit
 import Foundation
@@ -345,23 +346,27 @@ struct MacScreenHubViewerTests {
 
     /// A dropped stream waits before telling the hub "failed", so a host's
     /// cause (signed_out, sharing_off) that is on its way wins at the hub too.
-    @Test func aDroppedStreamWaitsBeforeEndingAsFailed() async {
+    @Test func aDroppedStreamWaitsBeforeEndingAsFailed() async throws {
         let hub = testHub()
         let viewer = MacScreenHubViewer(deviceID: hostID) { hub }
         let ends = CallLog()
         viewer.endSession = { _, id, reason in ends.items.append("\(id) \(reason)") }
-        viewer.failureGrace = .milliseconds(30)
+        let clock = ManualClock()
+        viewer.failureEnd = DemandTimer(owner: "test.mac-screen.hub-failure-grace", clock: clock)
         viewer.phase = .streaming(sessionID: "s1", scope: .view)
         viewer.streamFailed()
         #expect(ends.items.isEmpty)
         viewer.revoked(reason: "signed_out")
-        await viewer.failureEnd?.value
+        #expect(!viewer.failureEnd.isScheduled)
         #expect(ends.items.isEmpty)
         #expect(viewer.phase == .revoked(reason: "signed_out"))
         // No push comes: the hub hears "failed" after the grace.
         viewer.phase = .streaming(sessionID: "s2", scope: .view)
         viewer.streamFailed()
-        await viewer.failureEnd?.value
+        try await clock.waitForSleeper()
+        #expect(ends.items.isEmpty)
+        clock.advance(by: viewer.failureGrace)
+        for _ in 0..<500 where ends.items.isEmpty { await Task.yield() }
         #expect(ends.items == ["s2 failed"])
     }
 
@@ -452,16 +457,19 @@ struct MacScreenHubViewerTests {
     }
 
     /// The viewer gives up with the hub: a request nobody answers ends at the five-minute expiry.
-    @Test func anUnansweredRequestExpires() async {
+    @Test func anUnansweredRequestExpires() async throws {
         let hub = testHub()
         let viewer = MacScreenHubViewer(deviceID: hostID) { hub }
         let ends = CallLog()
         viewer.endSession = { _, id, reason in ends.items.append("\(id) \(reason)") }
-        viewer.approvalTimeout = .milliseconds(20)
+        let clock = ManualClock()
+        viewer.approvalExpiry = DemandTimer(owner: "test.mac-screen.hub-request-expiry", clock: clock)
         viewer.phase = .requesting(.view)
         viewer.requestAnswered(.success(HubSession(id: "s1", state: .pending, scope: .view)), scope: .view, hub: hub)
         #expect(viewer.phase == .waitingForApproval(sessionID: "s1", scope: .view))
-        await viewer.approvalExpiry?.value
+        try await clock.waitForSleeper()
+        clock.advance(by: viewer.approvalTimeout)
+        for _ in 0..<500 where viewer.phase != .ended(reason: "expired") { await Task.yield() }
         #expect(viewer.phase == .ended(reason: "expired"))
         #expect(ends.items == ["s1 expired"])
     }

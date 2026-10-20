@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 import CmuxNextRemoteView
 import CmuxVNC
 import CmuxVNCDemoServer
@@ -92,28 +93,24 @@ final class RemoteVNCSession {
         guard !prompting else { return }
         prompting = true
         let saved = store.credentials(for: endpoint)
-        let alert = NSAlert()
-        alert.messageText = RemoteVNCStrings.signInTitle(record.host)
-        alert.informativeText = RemoteVNCStrings.signInMessage
-        alert.addButton(withTitle: RemoteVNCStrings.connect)
-        alert.addButton(withTitle: RemoteVNCStrings.cancel)
-        let user = NSTextField(string: saved?.username ?? "")
-        user.placeholderString = RemoteVNCStrings.userPlaceholder
-        user.focusRingType = .none
-        let password = NSSecureTextField(string: "")
-        password.placeholderString = RemoteVNCStrings.passwordPlaceholder
-        password.focusRingType = .none
-        let stack = NSStackView(views: [user, password])
-        stack.orientation = .vertical
-        stack.spacing = 8
-        stack.frame = NSRect(x: 0, y: 0, width: 260, height: 54)
-        alert.accessoryView = stack
-        alert.window.initialFirstResponder = saved?.username == nil ? user : password
-        let finish: (NSApplication.ModalResponse) -> Void = { [weak self] response in
+        let spec = CmuxDialogSpec(
+            title: RemoteVNCStrings.signInTitle(record.host),
+            lines: [RemoteVNCStrings.signInMessage],
+            fields: [
+                .text(id: Self.userField, label: nil, initial: saved?.username ?? "",
+                      placeholder: RemoteVNCStrings.userPlaceholder, secure: false),
+                .text(id: Self.passwordField, label: nil, initial: "",
+                      placeholder: RemoteVNCStrings.passwordPlaceholder, secure: true),
+            ],
+            buttons: [.cancel(RemoteVNCStrings.cancel),
+                      CmuxDialogButton(id: Self.connectButton, title: RemoteVNCStrings.connect, role: .default)],
+            identifier: "remote.vnc.signIn")
+        let scope: CmuxDialogScope = window.map { .window($0) } ?? .app
+        CmuxDialogCenter.shared.present(spec, in: scope) { [weak self] answer in
             guard let self else { return }
             prompting = false
-            let credentials = VNCCredentials(username: user.stringValue, password: password.stringValue)
-            guard response == .alertFirstButtonReturn, credentials.password != nil else {
+            let credentials = VNCCredentials(username: answer.text(Self.userField), password: answer.text(Self.passwordField))
+            guard answer.button == Self.connectButton, !answer.isDismissal, credentials.password != nil else {
                 // Cancel keeps the sign-in card.
                 source.republishStatus()
                 return
@@ -122,12 +119,11 @@ final class RemoteVNCSession {
             let store = store, endpoint = endpoint
             source.connect(to: endpoint, credentials: credentials) { store.save(credentials, for: endpoint) }
         }
-        if let window {
-            alert.beginSheetModal(for: window, completionHandler: finish)
-        } else {
-            finish(alert.runModal())
-        }
     }
+
+    private static let userField = "user"
+    private static let passwordField = "password"
+    private static let connectButton = "connect"
 }
 
 /// Strings of the VNC sign-in sheet (Resources/Remote.xcstrings).

@@ -1,4 +1,5 @@
 public import CmuxNextDevices
+import CmuxNextWakeups
 import CmuxScreenKit
 import Foundation
 public import Observation
@@ -58,7 +59,7 @@ public final class MacScreenHubViewer {
 
     /// Asks the host for a session (Connect, Try Again, a scope on the home page).
     public func request(_ scope: SessionScope) {
-        failureEnd?.cancel()
+        failureEnd.cancel()
         failedWhileOffline = false
         cancelPending(endingSession: true)
         stopStream()
@@ -160,8 +161,8 @@ public final class MacScreenHubViewer {
     /// How long a dropped stream waits for the hub's reason before telling it "failed":
     /// the host's cause (signed_out, sharing_off) often follows its stream's end.
     @ObservationIgnored var failureGrace: Duration = .seconds(3)
-    /// The pending "failed" end (tests wait on it).
-    @ObservationIgnored private(set) var failureEnd: Task<Void, Never>?
+    /// The pending "failed" end; tests give it a manual clock.
+    @ObservationIgnored var failureEnd = DemandTimer(owner: "mac-screen.hub-failure-grace")
     /// The stream failed while this Mac's own hub link was down: the card keeps saying so after it returns.
     @ObservationIgnored private(set) var failedWhileOffline = false
 
@@ -175,13 +176,10 @@ public final class MacScreenHubViewer {
         phase = .streamFailed(sessionID: id, scope: scope)
         failedWhileOffline = !hubConnected
         guard let hub = hub() else { return }
-        let grace = failureGrace, end = endSession
-        failureEnd?.cancel()
-        // task-owner: one delayed /end for this failed session; a push for it cancels it
-        failureEnd = Task { [weak self] in
-            try? await Task.sleep(for: grace) // wait for the hub's own reason
-            guard !Task.isCancelled, let self, phase.sessionID == id else { return }
-            await end(hub, id, MacScreenHubReason.failed.rawValue)
+        // One delayed /end for this failed session (the wait for the hub's own reason); a push for it cancels it.
+        failureEnd.schedule(after: failureGrace) { @MainActor [weak self] in
+            guard let self, phase.sessionID == id else { return }
+            await endSession(hub, id, MacScreenHubReason.failed.rawValue)
         }
     }
 
@@ -197,18 +195,15 @@ public final class MacScreenHubViewer {
 
     /// How long a request may wait for the host (PROTOCOL.md: requests expire after 5 min).
     @ObservationIgnored var approvalTimeout: Duration = .seconds(300)
-    /// The running expiry of the request on screen (tests wait on it).
-    @ObservationIgnored private(set) var approvalExpiry: Task<Void, Never>?
+    /// The running expiry of the request on screen; tests give it a manual clock.
+    @ObservationIgnored var approvalExpiry = DemandTimer(owner: "mac-screen.hub-request-expiry")
 
     /// The host never answered: past the hub's expiry the request ends here
     /// too, with the expired card, instead of waiting for a host that may never act.
     private func scheduleExpiry(_ id: String, hub: DeviceHub?) {
-        approvalExpiry?.cancel()
-        let timeout = approvalTimeout
-        // task-owner: one expiry per waiting request; a decision, a cancel or a new request cancels it
-        approvalExpiry = Task { [weak self] in
-            try? await Task.sleep(for: timeout) // the protocol's request lifetime
-            guard !Task.isCancelled, let self, case let .waitingForApproval(waiting, _) = phase, waiting == id else { return }
+        // One expiry per waiting request (the protocol's request lifetime); a decision, a cancel or a new request cancels it.
+        approvalExpiry.schedule(after: approvalTimeout) { @MainActor [weak self] in
+            guard let self, case let .waitingForApproval(waiting, _) = phase, waiting == id else { return }
             if let hub { await endSession(hub, id, "expired") }
             if case .waitingForApproval(id, _) = phase { phase = .ended(reason: "expired") }
         }
@@ -217,7 +212,7 @@ public final class MacScreenHubViewer {
     private func cancelPending(endingSession: Bool) {
         requestTask?.cancel()
         requestTask = nil
-        approvalExpiry?.cancel()
+        approvalExpiry.cancel()
         pendingSignaling = nil
         if endingSession, phase.isPending, let id = phase.sessionID, let hub = hub() {
             end(id, reason: MacScreenHubReason.viewerDisconnected.rawValue, on: hub)
@@ -245,7 +240,7 @@ public final class MacScreenHubViewer {
     /// The session is approved: its signaling goes to the stream.
     func accept(_ ticket: SessionTicket) {
         // The request's answer may still be out: it finds this session running and changes nothing.
-        approvalExpiry?.cancel()
+        approvalExpiry.cancel()
         guard let hub = hub() else { return }
         do {
             pendingSignaling = try makeSignaling(ticket, hub)
@@ -268,17 +263,17 @@ public final class MacScreenHubViewer {
         default: scope = lastScope
         }
         requestTask?.cancel()
-        approvalExpiry?.cancel()
+        approvalExpiry.cancel()
         pendingSignaling = nil
         phase = .declined(scope)
     }
 
     /// `session.revoked`: end now, and say why.
     func revoked(reason: String?) {
-        failureEnd?.cancel()
+        failureEnd.cancel()
         if keepsFailedCard(reason) { return }
         requestTask?.cancel()
-        approvalExpiry?.cancel()
+        approvalExpiry.cancel()
         pendingSignaling = nil
         stopStream()
         phase = .revoked(reason: reason)
@@ -286,10 +281,10 @@ public final class MacScreenHubViewer {
 
     /// `session.ended`.
     func ended(reason: String?) {
-        failureEnd?.cancel()
+        failureEnd.cancel()
         if keepsFailedCard(reason) { return }
         requestTask?.cancel()
-        approvalExpiry?.cancel()
+        approvalExpiry.cancel()
         pendingSignaling = nil
         stopStream()
         if case .revoked = phase { return }
@@ -310,7 +305,7 @@ public final class MacScreenHubViewer {
     func hubGone(reason: String = MacScreenHubReason.signedOut.rawValue) {
         guard phase.isPending || phase.streamingScope != nil else { return }
         requestTask?.cancel()
-        approvalExpiry?.cancel()
+        approvalExpiry.cancel()
         pendingSignaling = nil
         stopStream()
         phase = .ended(reason: reason)
@@ -338,7 +333,7 @@ public final class MacScreenHubViewer {
     /// short hub drop leaves a live stream alone, and a stall may recover.
     private func endIfHostGone() {
         guard !hostOnline, stalled, phase.streamingScope != nil else { return }
-        failureEnd?.cancel()
+        failureEnd.cancel()
         stalled = false
         stopStream()
         phase = .ended(reason: "peer_offline")
