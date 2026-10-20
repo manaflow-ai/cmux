@@ -52,6 +52,14 @@ import Testing
 
     private struct GitFailed: Error { let message: String }
 
+    private func executableGitHelper(_ name: String) throws -> (path: String, marker: String) {
+        let path = root.appending(path: name).path
+        let marker = path + ".ran"
+        try "#!/bin/sh\n: > \"$0.ran\"\nexit 0\n".write(toFile: path, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: path)
+        return (path, marker)
+    }
+
     private func read(_ name: String) async -> MarkdownFileLocation {
         await MarkdownFileLocationReader(home: home).read(work.appending(path: name))
     }
@@ -105,5 +113,69 @@ import Testing
         let location = await MarkdownFileLocationReader(home: home).read(loose.appending(path: "notes.md"))
         #expect(location.git == nil)
         #expect(location.displayPath == "~/loose/notes.md")
+    }
+
+    /// Opening a document is a read, not permission for repository-selected programs to run.
+    @Test func openingMarkdownDoesNotRunConfiguredGitPrograms() async throws {
+        defer { cleanUp() }
+
+        let fsmonitor = try executableGitHelper("fsmonitor")
+        try Self.git(["config", "core.fsmonitor", fsmonitor.path], in: work)
+        _ = await read("README.md")
+        #expect(!FileManager.default.fileExists(atPath: fsmonitor.marker))
+        try Self.git(["config", "--unset", "core.fsmonitor"], in: work)
+
+        try Data("# Readme\nchanged\n".utf8).write(to: work.appending(path: "README.md"))
+        try Data("README.md diff=hostile filter=hostile\n".utf8).write(to: work.appending(path: ".gitattributes"))
+        try Self.git(["add", "README.md", ".gitattributes"], in: work)
+        try Self.git(["commit", "-q", "-m", "second"], in: work)
+
+        let external = try executableGitHelper("external-diff")
+        try Self.git(["config", "diff.external", external.path], in: work)
+        try Self.git(["config", "diff.trustExitCode", "true"], in: work)
+        _ = await read("README.md")
+        #expect(!FileManager.default.fileExists(atPath: external.marker))
+        try Self.git(["config", "--unset", "diff.external"], in: work)
+
+        let textconv = try executableGitHelper("textconv")
+        try Self.git(["config", "diff.hostile.textconv", textconv.path], in: work)
+        _ = await read("README.md")
+        #expect(!FileManager.default.fileExists(atPath: textconv.marker))
+
+        let clean = try executableGitHelper("clean-filter")
+        try Self.git(["config", "filter.hostile.clean", clean.path], in: work)
+        try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: 978_307_200)],
+                                              ofItemAtPath: work.appending(path: "README.md").path)
+        _ = await read("README.md")
+        #expect(!FileManager.default.fileExists(atPath: clean.marker))
+    }
+
+    /// A nested Git directory may redirect its worktree to an outer repository. The reader must
+    /// confine the repository it actually queries, not only the one beside the opened file.
+    @Test func redirectedWorktreeDoesNotRunTheOuterRepositorysFilter() async throws {
+        defer { cleanUp() }
+        let outer = root.appending(path: "outer", directoryHint: .isDirectory)
+        let nested = outer.appending(path: "nested", directoryHint: .isDirectory)
+        let file = nested.appending(path: "README.md")
+        try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: true)
+        try Self.git(["init", "-q", "-b", "main"], in: outer)
+        try Self.git(["config", "user.email", "t@example.com"], in: outer)
+        try Self.git(["config", "user.name", "T"], in: outer)
+        try Data("# Outer\n".utf8).write(to: file)
+        try Self.git(["add", "nested/README.md"], in: outer)
+        try Self.git(["commit", "-q", "-m", "outer"], in: outer)
+
+        try Self.git(["init", "-q"], in: nested)
+        try Self.git(["config", "core.worktree", outer.path], in: nested)
+        try Data("nested/README.md filter=hostile\n".utf8)
+            .write(to: outer.appending(path: ".git/info/attributes"))
+        let clean = try executableGitHelper("outer-clean-filter")
+        try Self.git(["config", "filter.hostile.clean", clean.path], in: outer)
+        try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: 978_307_200)],
+                                              ofItemAtPath: file.path)
+
+        let location = await MarkdownFileLocationReader(home: home).read(file)
+        #expect(location.git?.root == outer.path)
+        #expect(!FileManager.default.fileExists(atPath: clean.marker))
     }
 }
