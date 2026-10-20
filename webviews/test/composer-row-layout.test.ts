@@ -190,7 +190,10 @@ await requireBrowserLane("composer-row-layout.test.ts", async () => {
   });
 
   const row = async (variant: string, width: number) => {
-    const page = await browser!.newPage({ viewport: { width, height: 300 } });
+    // 340 px tall: the split's quiet row (32 px) under the box must fit with a queued prompt's row
+    // above it. At 300 px the dock is already at its floor (the transcript keeps its 96 px), so the
+    // queued card ran 13 px past the pane's bottom; agent-pane-bottom-stack covers that short pane.
+    const page = await browser!.newPage({ viewport: { width, height: 340 } });
     await page.goto(stageURL(variant));
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
     await page.locator(".acpmux-effort .acpmux-picker-button").waitFor();

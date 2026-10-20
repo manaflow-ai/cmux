@@ -154,7 +154,17 @@ def measure(app_pid: int, bundle: str, label: str, seconds: float, during=None):
               f"wakeups_per_s={entry['wakeups_per_s']} footprint_mb={round(entry['footprint_mb'], 1)}")
     print(f"PERF-POWER-TOTAL {label} mw={total['mw']} cpu_pct={total['cpu_pct']} wakeups_per_s={total['wakeups_per_s']} "
           f"footprint_mb={round(total['footprint_mb'], 1)} powermetrics={json.dumps(pm_result)}", flush=True)
+    app_mw = result["kinds"].get("app", {}).get("mw", 0.0)
+    if not during and app_mw > IDLE_APP_MW_GUARD:
+        # An idle app above the guard (20 hidden tabs once read 2.6 to 4.4 mW against 0.24): keep its stacks.
+        out = os.path.abspath(f"app-{label}.sample")
+        subprocess.run(["sample", str(app_pid), "10", "-mayDie", "-file", out], capture_output=True, timeout=60)
+        print(f"PERF-POWER-GUARD {label} app_mw={app_mw} above {IDLE_APP_MW_GUARD}: sample {out}", flush=True)
     return result
+
+
+# App energy (mW) above which an idle scenario samples the app's stacks (msg 2654).
+IDLE_APP_MW_GUARD = 1.0
 
 
 def wipe_state(bundle: str):

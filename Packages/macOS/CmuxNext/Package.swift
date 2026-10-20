@@ -66,11 +66,11 @@ import PackageDescription
 //     tab or its front tab, and the one-time rename; pure rules; the App supplies its pages and the rename command)
 //   CmuxNextAgentActivity -> Design (Agent activity pane: computer use sessions, timeline, prototype layouts;
 //     a projection of the CUA host; no daemon; the App supplies the source; plans/cmux-next/computer-use.md)
-//   CmuxNextFileGrid -> system frameworks only (the shared file grid core: listing, scanner,
-//     FSEvents watcher, thumbnail cache, drag out and drop in, Quick Look, file commands; the
-//     Screenshots pane uses it now and the full Finder pane reuses it)
-//   CmuxNextScreenshots -> FileGrid (the Screenshots pane: source detection for macOS and the
-//     screenshot tools, the live model and the pane view; no daemon; the App supplies the workspace)
+//   CmuxNextFileGrid -> system frameworks only (the thumbnail grid: tiles, thumbnail cache, drag
+//     out, drop reading, Quick Look and the command menu; it reads and changes no files)
+//   CmuxNextScreenshots -> FileGrid, Files (the Screenshots pane: source detection for macOS and the
+//     screenshot tools, reading, watching and file operations through CmuxNextFiles, the live model
+//     and the pane view; no daemon; the App supplies the workspace)
 //   CmuxNextAgentLanes -> AgentActivity, Bridge, Sidebar, Wakeups (the acpmux `_acpmux/watch` feed for turn
 //     states and lanes, and the sidebar's Lanes item; cx-v9k2f)
 //   CmuxNextApps -> Design, Icons, Wakeups (app platform: manifest model, scene store + native renderer, JavaScriptCore
@@ -194,6 +194,7 @@ let package = Package(
                 "CmuxNextVSCodeServer",
                 "CmuxNextKeepAwake",
                 "CmuxNextChromiumWarmup",
+                "CmuxNextChromiumRuntime",
                 "CmuxNextPhoneAccess",
                 "CmuxNextPhone",
                 "CmuxNextPopups",
@@ -212,6 +213,7 @@ let package = Package(
                 "CmuxNextFocusUI",
                 "CmuxNextComputerUse",
                 "CmuxNextAgentQuestion",
+                "CmuxNextAgentPermissions",
                 "CmuxNextDaemonRecovery",
                 .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
                 .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
@@ -415,6 +417,21 @@ let package = Package(
             resources: [
                 .process("Resources"),
             ],
+            swiftSettings: uiSwiftSettings
+        ),
+        // Agent permission requests (plans/cmux-next/agent-permissions-DESIGN.md): the request
+        // store, the reason check, computer use onboarding flow, the card, panel and mock TCC probe.
+        .target(
+            name: "CmuxNextAgentPermissions",
+            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextWakeups"],
+            resources: [
+                .process("Resources"),
+            ],
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextAgentPermissionsTests",
+            dependencies: ["CmuxNextAgentPermissions"],
             swiftSettings: uiSwiftSettings
         ),
         .target(
@@ -655,6 +672,19 @@ let package = Package(
         // Chromium warm start: maps the framework and runs CefInitialize and the
         // spare window at idle moments once a Chromium tab is likely. The App
         // supplies the signals (AppServices+Chromium).
+        // Chromium on demand (plans/cmux-next/bundle-size-DESIGN.md section 6):
+        // download, verify and install the pinned Chromium runtime pack. A leaf
+        // service: Foundation, Security, Network and CryptoKit only; the App
+        // feeds its state to CmuxNextBrowser's CEFRuntimeSource.
+        .target(
+            name: "CmuxNextChromiumRuntime",
+            swiftSettings: daemonSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextChromiumRuntimeTests",
+            dependencies: ["CmuxNextChromiumRuntime"],
+            swiftSettings: daemonSwiftSettings
+        ),
         .target(
             name: "CmuxNextChromiumWarmup",
             dependencies: ["CmuxNextBrowser", "CmuxNextWakeups"],
@@ -720,9 +750,8 @@ let package = Package(
             ],
             swiftSettings: uiSwiftSettings
         ),
-        // The file grid core: a newest-first listing, folder scanner, FSEvents watcher, thumbnail
-        // cache, drag out / drop in, Quick Look and the file commands. System frameworks only, so
-        // the Screenshots pane and the later Finder pane share it.
+        // The thumbnail grid: tiles, the thumbnail cache, drag out, drop reading, Quick Look and the
+        // command menu. It reads and changes no files (CmuxNextFiles does). System frameworks only.
         .target(
             name: "CmuxNextFileGrid",
             resources: [
@@ -733,7 +762,7 @@ let package = Package(
         // The Screenshots pane (cmux://screenshots): macOS and screenshot-tool folders, live.
         .target(
             name: "CmuxNextScreenshots",
-            dependencies: ["CmuxNextFileGrid"],
+            dependencies: ["CmuxNextFileGrid", "CmuxNextFiles"],
             resources: [
                 .process("Resources/Localizable.xcstrings"),
             ],
@@ -741,7 +770,7 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxNextScreenshotsTests",
-            dependencies: ["CmuxNextFileGrid", "CmuxNextScreenshots"],
+            dependencies: ["CmuxNextFileGrid", "CmuxNextFiles", "CmuxNextScreenshots"],
             swiftSettings: uiSwiftSettings
         ),
         // The acpmux watch feed (turn states and lanes) and the sidebar's Lanes item (cx-v9k2f).
@@ -1208,7 +1237,7 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxNextAppTests",
-            dependencies: ["CmuxNextCompat", "CmuxNextVSCodeServer", "CmuxNextFileGrid", "CmuxNextScreenshots", "CmuxNextTerminalGeometry", "CmuxNextRemote", "CmuxNextWakeups", "CmuxNextNowPlaying", "CmuxNextFloating", "CmuxNextLayout", "CmuxNextTasks", "CmuxNextAgentCursor", "CmuxNextTabs", "CmuxNextProcessEnvironment", "CmuxNextApp", "CmuxNextApps", "CmuxNextCookieImport", "CmuxNextAgentLanes", "CmuxNextBrowserHistory", "CmuxNextCrashReporting", "CmuxNextDiff", "CmuxNextFeed", "CmuxNextActions", "CmuxNextHistory", "CmuxNextCopyMode",
+            dependencies: ["CmuxNextCompat", "CmuxNextChromiumRuntime", "CmuxNextVSCodeServer", "CmuxNextFileGrid", "CmuxNextFiles", "CmuxNextScreenshots", "CmuxNextTerminalGeometry", "CmuxNextRemote", "CmuxNextWakeups", "CmuxNextNowPlaying", "CmuxNextFloating", "CmuxNextLayout", "CmuxNextTasks", "CmuxNextAgentCursor", "CmuxNextTabs", "CmuxNextProcessEnvironment", "CmuxNextApp", "CmuxNextApps", "CmuxNextCookieImport", "CmuxNextAgentLanes", "CmuxNextBrowserHistory", "CmuxNextCrashReporting", "CmuxNextDiff", "CmuxNextFeed", "CmuxNextActions", "CmuxNextHistory", "CmuxNextCopyMode",
                            "CmuxNextWorkspaceNaming",
                            "CmuxNextComputerUse", "CmuxNextDaemon", "CmuxNextDaemonRecovery", "CmuxNextDaemonService", "CmuxNextRemoteLocalhostService", "CmuxNextFocus", "CmuxNextFocusUI", "CmuxNextHome", "CmuxNextHomeEngine", "CmuxNextHostedChief", .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
                            .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),

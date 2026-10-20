@@ -34,7 +34,7 @@ mod update_notice;
 
 pub(crate) use agent_wrapper::AgentWrapperMessages;
 pub(crate) use agents_doctor::AgentsDoctorMessages;
-pub(crate) use app_control::AppControlMessages;
+pub(crate) use app_control::{AppControlMessages, VersionLabels};
 pub(crate) use attach::AttachMessages;
 pub(crate) use browser::BrowserMessages;
 pub(crate) use cli_connection::CliConnectionMessages;

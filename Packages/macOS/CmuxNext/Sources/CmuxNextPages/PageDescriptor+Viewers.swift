@@ -51,13 +51,18 @@ public nonisolated struct MarkdownPageCommand {
     public static let save = "save"
     /// Inserts or edits a link at the selection (Cmd-K, `markdownLink`).
     public static let link = "link"
+    /// Forgets every table's column widths in the open file (`markdownResetTableWidths`).
+    public static let resetTableWidths = "resetTableWidths"
+    /// Forgets the column widths of the table the user right-clicked (the page's context menu).
+    public static let resetContextTableWidths = "resetContextTableWidths"
 
-    public static let all: Set<String> = [zoomIn, zoomOut, zoomReset, save, link]
+    public static let all: Set<String> = [zoomIn, zoomOut, zoomReset, save, link, resetTableWidths, resetContextTableWidths]
 
     /// The page command each markdown action sends; back and forward are the shared page commands.
     public static let forAction: [String: String] = [
         "markdownZoomIn": zoomIn, "markdownZoomOut": zoomOut, "markdownZoomReset": zoomReset, "markdownSave": save,
         "markdownLink": link, "markdownBack": "back", "markdownForward": "forward",
+        "markdownResetTableWidths": resetTableWidths,
     ]
 }
 

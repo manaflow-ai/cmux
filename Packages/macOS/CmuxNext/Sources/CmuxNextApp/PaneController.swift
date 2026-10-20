@@ -367,6 +367,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         DebugTabSwitch.mark(self, "content")
         if let content { DebugTabSwitch.kind(self, content.switchKind) }
         currentTabKey = key
+        services.themes.applyPaneBackground(self) // a tab's own tint (no work while nothing is set)
         if let key, content != nil { BenchSpans.measure("switch.present") { services.cache.present(key, by: self, presence: presence) } }
         DebugTabSwitch.mark(self, "reveal")
         if view.stripView.window != nil { BenchSpans.measure("switch.strip") { view.stripView.syncFromModel() } } // strip + content: one transaction (L4)
