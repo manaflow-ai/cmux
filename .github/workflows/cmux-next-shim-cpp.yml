@@ -8,8 +8,12 @@ name: cmux-next CEF shim C++ tests
 # scripts/cmux-next/test-shim-downloads-cpp.sh,
 # scripts/cmux-next/test-password-reveal-relay-cpp.sh and
 # scripts/cmux-next/test-local-file-handoff-cpp.sh compile their cases with
-# one clang++ call each and run them. The shim itself is built only by the
-# app build, so this is the one check that runs these cases on every change.
+# one clang++ call each and run them. So do the agent URL rule, the per-profile
+# proxy values, the DevTools message id scanner and the cmux-page:// path rules.
+# Every scripts/cmux-next/test-*-cpp.sh runs here. The shim itself is built only
+# by the app build, so this is the one check that runs these cases on every
+# change. Each step runs even when an earlier one failed, so one red case does
+# not hide the others.
 # Pushes run only on feat-cmux-next and main (plus pull requests); a side
 # branch runs it with `gh workflow run cmux-next-shim-cpp.yml --ref <branch>`.
 
@@ -25,9 +29,15 @@ on:
       - schemas/local-file-handoff/vectors.json
       - scripts/cmux-next/test-local-file-scope-cpp.sh
       - schemas/local-file-scope/vectors.json
+      - scripts/cmux-next/test-agent-url-policy-cpp.sh
+      - schemas/agent-url-policy/vectors.json
+      - scripts/cmux-next/test-context-proxy-cpp.sh
+      - scripts/cmux-next/test-shim-devtools-id-cpp.sh
+      - scripts/cmux-next/test-cmux-page-path-cpp.sh
       - .github/workflows/cmux-next-shim-cpp.yml
   push:
     branches:
+      - feat-cmux-next
       - main
     paths:
       - Packages/macOS/CmuxNext/CEFShim/**
@@ -39,6 +49,11 @@ on:
       - schemas/local-file-handoff/vectors.json
       - scripts/cmux-next/test-local-file-scope-cpp.sh
       - schemas/local-file-scope/vectors.json
+      - scripts/cmux-next/test-agent-url-policy-cpp.sh
+      - schemas/agent-url-policy/vectors.json
+      - scripts/cmux-next/test-context-proxy-cpp.sh
+      - scripts/cmux-next/test-shim-devtools-id-cpp.sh
+      - scripts/cmux-next/test-cmux-page-path-cpp.sh
       - .github/workflows/cmux-next-shim-cpp.yml
   workflow_dispatch:
 
@@ -63,12 +78,29 @@ jobs:
       - name: Download tokens, URL schemes and pending popups
         run: ./scripts/cmux-next/test-shim-downloads-cpp.sh
       - name: Password reveal relay zeroes its copy
+        if: ${{ !cancelled() }}
         run: ./scripts/cmux-next/test-password-reveal-relay-cpp.sh
       - name: Feature-list switches merge with CEF's own lists
+        if: ${{ !cancelled() }}
         run: ./scripts/cmux-next/test-shim-switches-cpp.sh
       - name: Sign-in session callbacks end only their own session
+        if: ${{ !cancelled() }}
         run: ./scripts/cmux-next/test-auth-callback-policy-cpp.sh
       - name: Local file handoff (shared vectors)
+        if: ${{ !cancelled() }}
         run: ./scripts/cmux-next/test-local-file-handoff-cpp.sh
       - name: Local file pages load files from their own folder only (shared vectors)
+        if: ${{ !cancelled() }}
         run: ./scripts/cmux-next/test-local-file-scope-cpp.sh
+      - name: Agent URL refusal (shared vectors)
+        if: ${{ !cancelled() }}
+        run: ./scripts/cmux-next/test-agent-url-policy-cpp.sh
+      - name: Remote machine profiles send all traffic to the app's proxy
+        if: ${{ !cancelled() }}
+        run: ./scripts/cmux-next/test-context-proxy-cpp.sh
+      - name: DevTools message id scanner
+        if: ${{ !cancelled() }}
+        run: ./scripts/cmux-next/test-shim-devtools-id-cpp.sh
+      - name: cmux-page:// paths, MIME types and ids
+        if: ${{ !cancelled() }}
+        run: ./scripts/cmux-next/test-cmux-page-path-cpp.sh

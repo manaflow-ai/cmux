@@ -12,7 +12,11 @@ public import Foundation
 /// - `cmux.settings.backdrop.image.remove {id}`: deletes one of the folder's own images, never
 ///   the background in use (`cmux.settings.backdrop.in_use`); `{bytes}`.
 /// - `cmux.settings.backdrop.image.reveal {id?}`: shows the image, or the folder, in Finder.
-/// - `cmux.settings.backdrop.image.usage`: `{bytes}` the folder's own images take.
+/// - `cmux.settings.backdrop.image.usage`: `{bytes, folder}`: what the folder's own images take, and
+///   the folder (Shuffle Your Images is `folder:` it).
+/// - `cmux.settings.backdrop.image.folder`: Shuffle a Folder…: the person picks a folder in the cmux
+///   picker and the background shuffles its pictures (`folder:<absolute path>`); `{id}`, nil when
+///   they left it. They chose it, so the write is theirs.
 ///
 /// Errors carry ``BackdropUserImages/ImportError`` codes, which the page words.
 @MainActor
@@ -24,16 +28,21 @@ public final class BackdropImagesPageProvider: PageProvider {
     private let use: @MainActor (URL) async throws -> String
     private let reveal: @MainActor ([URL]) -> Void
     private let inUse: @MainActor () -> BackdropSelection?
+    private let settings: SettingsController?
+    private let pickFolder: (@MainActor () async -> URL?)?
 
     /// `use` copies a file into the folder and makes it the background, returning its id (the
     /// picker's own path, so a link is checked and written as a picked file is).
     /// `inUse` is the background the app shows now, which remove refuses.
     public init(images: BackdropUserImages, use: @escaping @MainActor (URL) async throws -> String,
                 inUse: @escaping @MainActor () -> BackdropSelection? = { nil },
+                settings: SettingsController? = nil, pickFolder: (@MainActor () async -> URL?)? = nil,
                 reveal: @escaping @MainActor ([URL]) -> Void = { NSWorkspace.shared.revealInBackground($0) }) {
         self.images = images
         self.use = use
         self.inUse = inUse
+        self.settings = settings
+        self.pickFolder = pickFolder
         self.reveal = reveal
     }
 
@@ -70,6 +79,12 @@ public final class BackdropImagesPageProvider: PageProvider {
             return .object([:])
         case Self.prefix + "usage":
             return try await usage()
+        case Self.prefix + "folder":
+            guard let settings, let pickFolder else { throw PageError(code: "cmux.page.unavailable", message: "no settings or folder picker") }
+            guard let folder = await pickFolder() else { return ["id": .null] }
+            let id = BackdropSelectionSetting.folderPrefix + folder.standardizedFileURL.path
+            try await settings.setSetting(at: BackdropSelectionSetting().configPath, to: .string(id), by: .user)
+            return ["id": .string(id)]
         default:
             throw PageError.unknownOp(op)
         }
@@ -86,7 +101,7 @@ public final class BackdropImagesPageProvider: PageProvider {
     private func usage() async throws -> JSONValue {
         let images = images
         let bytes = await Task.detached { images.usage() }.value
-        return ["bytes": .number(Double(bytes))]
+        return ["bytes": .number(Double(bytes)), "folder": .string(images.folder.path)]
     }
 
     private static func error(_ refused: BackdropUserImages.ImportError) -> PageError {
