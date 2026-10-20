@@ -15,6 +15,7 @@ import CmuxNextPalette
 import CmuxNextPages
 import CmuxNextPopups
 import CmuxNextBrowserImport
+import CmuxNextPhone
 import CmuxNextPhoneAccess
 import CmuxNextSettings
 import CmuxNextSidebar
@@ -25,7 +26,7 @@ import os
 /// Process-wide services the window controllers share. Model state is not
 /// here: the daemon owns it, windows own their local state.
 final class AppServices {
-    let environment: AppEnvironment
+    let environment: AppEnvironment; let agentPaneEnvironment: [String: String]?
     /// Each window's last sidebar, drawn before the daemon answers.
     let sidebarSnapshots: SidebarSnapshotStore
     /// Launch load-in by region; tests inject one with their own clock.
@@ -99,6 +100,8 @@ final class AppServices {
     private(set) lazy var agentCursorVisibility = AgentCursorWiring.makeVisibility(services: self)
     /// `cmux://agent-activity`: the computer use sessions page.
     private(set) lazy var agentActivityPage = AgentActivityPageService(services: self)
+    /// `cmux://screenshots`: the Screenshots pane (its detection, thumbnail cache and pages).
+    private(set) lazy var screenshotsPage = ScreenshotsPageService(services: self)
     private(set) lazy var remoteViewPages = RemoteViewPageService()
     /// Bookmarks of every browser profile (plans/cmux-next/bookmarks.md).
     private(set) lazy var bookmarks = BookmarkService(services: self)
@@ -109,6 +112,13 @@ final class AppServices {
     private(set) lazy var sidebarCustomization = SidebarCustomizationService(client: apps.client) { [weak self] in self?.apps.presence.isPresented($0) == true }
     /// The Tasks page and its mirror of the local Tasks owner (plans/cmux-next/tasks.md).
     private(set) lazy var tasks = TasksPageService(services: self)
+    /// Phone tabs: simulators and real iPhones, recordings, feedback to Chief (plans/cmux-next/phone.md).
+    private(set) lazy var phones: PhoneService = {
+        let folder = SidebarSnapshotFile.buildDirectory(launch: environment.launch).appending(path: "phone", directoryHint: .isDirectory)
+        return PhoneService(backend: XcodePhoneBackend(), recordings: folder.appending(path: "recordings", directoryHint: .isDirectory),
+                            scratch: FileManager.default.temporaryDirectory.appending(path: "cmux-phone", directoryHint: .isDirectory))
+    }()
+    private(set) lazy var phoneFeedback = PhoneChiefFeedback(home: home)
     /// The viewers' recents, the cmux picker, the diff, markdown and editor tabs (R89, S4, S6, S7).
     private(set) lazy var viewers = ViewerService(services: self)
     /// The cmux server menu bar item (DEV and NIGHTLY prototype; plans/cmux-next/server.md 14).
@@ -190,6 +200,8 @@ final class AppServices {
     let popups: BrowserPopupWindows
     /// The link-hint session (`f`, `F`) on a focused Chromium page.
     let linkHints = LinkHintController()
+    /// Toggle React Grab on a page; the library is fetched once per run (`ReactGrabScriptLoader`).
+    let reactGrab = ReactGrab(scripts: ReactGrabScriptLoader())
     /// Click by Hint over the whole window (`hints.show`, Cmd-J).
     let windowHints = WindowHintController()
     /// Browser profiles: records, the new-tab cascade, each tab's store.
@@ -224,7 +236,7 @@ final class AppServices {
     private(set) lazy var sessionTransfer = SessionTransferService(services: self)
     /// - Parameter launchReveal: The launch load-in the windows' sidebars
     ///   hold for; the app-wide one by default.
-    init(environment: AppEnvironment, launchReveal: LaunchReveal = .shared) {
+    init(environment: AppEnvironment, launchReveal: LaunchReveal = .shared, agentPaneEnvironment: [String: String]? = nil) {
         DaemonService.launchMark = { DebugTimings.markLaunch($0) }  // before any daemon service starts
         // Before any connection: a build with the sidebar document orders rows from it only (placement-shift-v1).
         DaemonCapabilities.echoesPlacementShift = SidebarMirror.isLinked
@@ -233,7 +245,7 @@ final class AppServices {
         let contextMenus = BrowserContextMenuBuilder.shared
         self.contextMenus = contextMenus
         popups = BrowserPopupWindows(contextMenus: contextMenus)
-        self.environment = environment
+        self.environment = environment; self.agentPaneEnvironment = agentPaneEnvironment
         crashRecovery = CrashRecoveryService(bundleID: environment.launch.bundleID, marksRun: environment.marksRun)
         // After the run marker's handlers: Sentry calls them after its report.
         crashReporting = AppCrashReporting(environment: environment)

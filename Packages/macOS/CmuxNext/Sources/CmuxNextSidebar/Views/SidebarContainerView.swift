@@ -53,8 +53,12 @@ public final class SidebarContainerView: NSView {
     public var side: SidebarSide = .left {
         didSet { if side != oldValue { applySide() } }
     }
-    /// The panel and handle pins of each side (`applySide`).
+    /// The panel pins of each side (`applySide`).
     var sidePins: [SidebarSide: [NSLayoutConstraint]] = [:]
+    /// The handle's pins (`mountHandle`), rebuilt when it moves or the band changes.
+    var handleConstraints: [NSLayoutConstraint] = []
+    /// The band the handle is pinned to now.
+    var mountedBand: SidebarResizeBand?
 
     /// Dragging the resize edge narrower than this hides the sidebar
     /// (there is no intermediate width below `Metrics.sidebarMinWidth`).
@@ -77,7 +81,6 @@ public final class SidebarContainerView: NSView {
         panel.addSubview(sidebarView)
         clip.addSubview(panel)
         addSubview(clip)
-        addSubview(handle)
         NSLayoutConstraint.activate([
             widthConstraint,
             panelWidth,
@@ -91,14 +94,12 @@ public final class SidebarContainerView: NSView {
             clip.bottomAnchor.constraint(equalTo: bottomAnchor),
             panel.topAnchor.constraint(equalTo: clip.topAnchor),
             panel.bottomAnchor.constraint(equalTo: clip.bottomAnchor),
-            handle.topAnchor.constraint(equalTo: topAnchor),
-            handle.bottomAnchor.constraint(equalTo: bottomAnchor),
-            handle.widthAnchor.constraint(equalToConstant: Metrics.dividerHitWidth),
         ])
-        sidePins = Self.pins(panel: panel, clip: clip, handle: handle, in: self)
+        sidePins = Self.pins(panel: panel, clip: clip)
         NSLayoutConstraint.activate(sidePins[side] ?? [])
+        mountHandle()
         panel.isHidden = model.isHidden
-        handle.isHidden = model.isHidden
+        syncHandleVisibility()
         handle.restingLineWidth = Metrics.sidebarBorderWidth
         handle.onDrag = { [weak self] phase in self?.handleDrag(phase) }
         observe()
@@ -123,6 +124,40 @@ public final class SidebarContainerView: NSView {
     override public func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         applySurfaceFill()
+    }
+
+    /// The handle follows into the new superview (`mountHandle`).
+    override public func viewWillMove(toSuperview newSuperview: NSView?) {
+        super.viewWillMove(toSuperview: newSuperview)
+        if newSuperview == nil, handle.superview !== self {
+            NSLayoutConstraint.deactivate(handleConstraints)
+            handle.removeFromSuperview()
+        }
+    }
+
+    override public func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        mountHandle()
+    }
+
+    // The handle sits in the superview, not under this view: it hides and fades with it here.
+    override public func viewDidHide() {
+        super.viewDidHide()
+        syncHandleVisibility()
+    }
+
+    override public func viewDidUnhide() {
+        super.viewDidUnhide()
+        syncHandleVisibility()
+    }
+
+    override public var alphaValue: CGFloat {
+        didSet { handle.alphaValue = alphaValue }
+    }
+
+    /// The handle shows while the sidebar is shown and this view is not hidden.
+    private func syncHandleVisibility() {
+        handle.isHidden = model.isHidden || isHiddenOrHasHiddenAncestor
     }
 
     /// Clear over the window's backdrop, or the user's sidebar background
@@ -197,14 +232,15 @@ public final class SidebarContainerView: NSView {
     private func observe() {
         let model = model
         observation = Task { [weak self] in
-            for await (_, _, defaultWidth, border, _) in ObservationStream({
+            for await (_, _, defaultWidth, border, _, _) in ObservationStream({
                 // The default width token is tracked so a settings change
                 // resizes live. The collapse prototype is tracked here too,
                 // so Debug Settings retargets an in-flight transition.
                 (model.presentation, model.width, Metrics.sidebarWidth, Metrics.sidebarBorderWidth,
-                 SidebarTunables.collapseMotion.value)
+                 SidebarTunables.collapseMotion.value, [Metrics.dividerHitWidth, Metrics.mainPaneGutter])
             }) {
                 self?.handle.restingLineWidth = border
+                if let self, self.resizeBand != self.mountedBand { self.mountHandle() }
                 self?.followDefaultWidth(defaultWidth)
                 self?.apply()
             }
@@ -249,7 +285,7 @@ public final class SidebarContainerView: NSView {
         panelWidth.constant = model.width
         panel.isHidden = model.isHidden
         panel.alphaValue = 1
-        handle.isHidden = model.isHidden
+        syncHandleVisibility()
     }
 
     /// Animates to the model's presentation with the appear / disappear tokens (instant with
@@ -260,7 +296,7 @@ public final class SidebarContainerView: NSView {
         let target = model.displayWidth
         let collapseMotion = SidebarTunables.collapseMotion.value
         panelWidth.constant = model.width
-        handle.isHidden = hidden
+        syncHandleVisibility()
         if handle.isDragging, !hidden {
             targetWidth = target
             targetCollapseMotion = collapseMotion
