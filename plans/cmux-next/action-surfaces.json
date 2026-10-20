@@ -1817,7 +1817,7 @@
       "title_table" : "ActionCatalog"
     },
     {
-      "cli" : "liveInput",
+      "cli" : "offered",
       "cli_name" : "workspace toggle-checklist-item-complete",
       "context_menu" : "noTargetSurface",
       "context_menus" : [
@@ -1835,7 +1835,7 @@
       },
       "id" : "toggleChecklistItemComplete",
       "main_menu" : null,
-      "mcp" : "liveInput",
+      "mcp" : "offered",
       "palette" : "offered",
       "palette_section" : {
         "id" : "category.workspace",
@@ -18080,7 +18080,7 @@
       "title_table" : "ActionCatalog"
     },
     {
-      "cli" : "liveInput",
+      "cli" : "offered",
       "cli_name" : "sidebar edit-checklist-item",
       "context_menu" : "noTargetSurface",
       "context_menus" : [
@@ -18093,7 +18093,7 @@
       "default_shortcut" : null,
       "id" : "checklistEditItem",
       "main_menu" : null,
-      "mcp" : "liveInput",
+      "mcp" : "offered",
       "palette" : "offered",
       "palette_section" : {
         "id" : "category.sidebar",
@@ -18108,7 +18108,7 @@
       "title_table" : "ActionCatalog"
     },
     {
-      "cli" : "liveInput",
+      "cli" : "offered",
       "cli_name" : "sidebar mark-checklist-item-in-progress",
       "context_menu" : "noTargetSurface",
       "context_menus" : [
@@ -18121,7 +18121,7 @@
       "default_shortcut" : null,
       "id" : "checklistMarkInProgress",
       "main_menu" : null,
-      "mcp" : "liveInput",
+      "mcp" : "offered",
       "palette" : "offered",
       "palette_section" : {
         "id" : "category.sidebar",
@@ -18136,7 +18136,7 @@
       "title_table" : "ActionCatalog"
     },
     {
-      "cli" : "liveInput",
+      "cli" : "offered",
       "cli_name" : "sidebar complete-checklist-item",
       "context_menu" : "noTargetSurface",
       "context_menus" : [
@@ -18149,7 +18149,7 @@
       "default_shortcut" : null,
       "id" : "checklistCompleteItem",
       "main_menu" : null,
-      "mcp" : "liveInput",
+      "mcp" : "offered",
       "palette" : "offered",
       "palette_section" : {
         "id" : "category.sidebar",
@@ -18164,7 +18164,7 @@
       "title_table" : "ActionCatalog"
     },
     {
-      "cli" : "liveInput",
+      "cli" : "offered",
       "cli_name" : "sidebar remove-checklist-item",
       "context_menu" : "noTargetSurface",
       "context_menus" : [
@@ -18177,7 +18177,7 @@
       "default_shortcut" : null,
       "id" : "checklistRemoveItem",
       "main_menu" : null,
-      "mcp" : "liveInput",
+      "mcp" : "offered",
       "palette" : "offered",
       "palette_section" : {
         "id" : "category.sidebar",
@@ -18192,7 +18192,7 @@
       "title_table" : "ActionCatalog"
     },
     {
-      "cli" : "liveInput",
+      "cli" : "offered",
       "cli_name" : "sidebar open-checklist-as-pane",
       "context_menu" : "noTargetSurface",
       "context_menus" : [
@@ -18205,7 +18205,7 @@
       "default_shortcut" : null,
       "id" : "checklistOpenAsPane",
       "main_menu" : null,
-      "mcp" : "liveInput",
+      "mcp" : "offered",
       "palette" : "offered",
       "palette_section" : {
         "id" : "category.sidebar",
@@ -18220,7 +18220,7 @@
       "title_table" : "ActionCatalog"
     },
     {
-      "cli" : "liveInput",
+      "cli" : "offered",
       "cli_name" : "sidebar attach-images-to-checklist-item",
       "context_menu" : "noTargetSurface",
       "context_menus" : [
@@ -18233,7 +18233,7 @@
       "default_shortcut" : null,
       "id" : "checklistAttachImages",
       "main_menu" : null,
-      "mcp" : "liveInput",
+      "mcp" : "offered",
       "palette" : "offered",
       "palette_section" : {
         "id" : "category.sidebar",
