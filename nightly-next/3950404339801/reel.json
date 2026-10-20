@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "build": "3950404339801",
+  "notes": "notes/3950404339801.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 22263,
+      "title": "cmux NEXT: workspace groups pin in the sidebar and keep their place",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21623,
+      "title": "fix(agent-pane): show the whole todo list, as Claude's check/spinner card",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22019,
+      "title": "test(agent-pane): streamed text never redraws the agents pill",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22297,
+      "title": "cmux-next: tab drops match bonsplit (#22287)",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22034,
+      "title": "Claude Code's cross-session messages and task notifications render cleanly",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22407,
+      "title": "acpmux: a second Claude or Codex account as a route with an account home",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
