@@ -141,6 +141,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
                 group("settings.group.sessions"),
                 // Whether agent sessions may start sub-sessions, how many and how deep.
                 group("settings.group.subsessions"),
+                // The Chief pet floating over every app, and its character.
+                group("settings.group.chiefPet"),
             ],
             // Harnesses lists every harness; Your Agents (BRING-YOUR-OWN-HARNESS) adds, checks and
             // removes the ones you added.
