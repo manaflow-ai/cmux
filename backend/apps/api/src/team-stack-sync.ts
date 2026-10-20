@@ -251,6 +251,8 @@ export class StackTeamSync {
       if (ev.type === "team.deleted") return commit("team.stack_mirror", { team: deps.team, stack_team: ev.stack_team, deleted: true }) ?? "team_deleted"
       return schedule(deps.sql, ev, attempt, Date.now()) ? "team_missing_recheck" : "team_missing_dropped"
     }
+    // A cmux VM personal tenant is a private Stack team behind one personal owner: never a cmux team (team-vm-api-personal.ts).
+    if (team.vm_personal_tenant === true) return "vm_personal_tenant_ignored"
     const missing = () => (schedule(deps.sql, ev, attempt, Date.now()) ? "team_missing_recheck" : "team_missing_dropped")
     // Members are read before the mirror commit: a team not mirrored here yet whose Stack members are all
     // anonymous is a cmux.com visitor's sign-up personal team (StackMember.anonymous) and is never mirrored.

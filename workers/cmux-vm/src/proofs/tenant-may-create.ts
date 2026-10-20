@@ -79,7 +79,15 @@ export const tenantMayCreate = <C, const K extends "vm" | "snapshot">(
     if (!(yield* entitlements.mayCreate(tenantId, kind))) return { _tag: "not_entitled" };
     const policy = yield* TenantPolicy;
     if (resume !== undefined && kind === "vm") {
-      const reservationId = yield* (yield* TenantLimits).creationReservation(tenantId, resume.key, resume.vmId);
+      const limits = yield* TenantLimits;
+      let reservationId = yield* limits.creationReservation(tenantId, resume.key, resume.vmId);
+      if (reservationId === null) {
+        // A provider-rejected send freed its slot; retrying the same intent takes one again under quota.
+        const limit = policy.maxVms(tenantId);
+        const readmit = yield* limits.readmitCreation(tenantId, resume.key, resume.vmId, limit, yield* (yield* OwnershipStore).countLive(tenantId, "vm"));
+        if (readmit === "over_quota") return { _tag: "over_quota", limit };
+        if (readmit === "readmitted") reservationId = yield* limits.creationReservation(tenantId, resume.key, resume.vmId);
+      }
       if (reservationId === null) return yield* Effect.fail(new EntitlementUnavailable({ cause: "the retained allocation has no quota reservation" }));
       const TenantMayCreate = defineProof(`TenantMayCreate:${kind}`);
       const proof: TenantMayCreate<C, K> = Object.freeze({ ...TenantMayCreate.prove(caller), reservationId });
