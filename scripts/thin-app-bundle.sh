@@ -60,6 +60,9 @@ while IFS= read -r -d '' path; do
   chmod --reference="$path" "$tmp" 2>/dev/null || chmod "$(stat -f '%Lp' "$path")" "$tmp"
   mv -f "$tmp" "$path"
   thinned=$((thinned + 1))
-done < <(find "$APP_PATH" -path "$APP_PATH/Contents/Resources/bin/cmux-tui-ssh" -prune -o -type f -print0)
+# Only files that start with a Mach-O or fat magic reach `file`
+# (list-macho-candidates.py); every other file was skipped by the loop anyway.
+done < <(find "$APP_PATH" -path "$APP_PATH/Contents/Resources/bin/cmux-tui-ssh" -prune -o -type f -print0 \
+  | python3 "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/list-macho-candidates.py")
 
 echo "thinned $thinned fat Mach-O files to $ARCH in $APP_PATH ($kept already $ARCH-only)"

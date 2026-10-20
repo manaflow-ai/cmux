@@ -2908,7 +2908,10 @@ jobs:
           done
           if [ "$NIGHTLY_VARIANT" != "universal" ]; then
             # No fat Mach-O may survive thinning anywhere in the bundle.
-            fat="$(find "$APP" -type f -exec sh -c 'file -b "$1" | grep -q "Mach-O universal" && echo "$1"' _ {} \;)"
+            # Only files with a Mach-O or fat magic reach `file` (one process
+            # each); the per-file scan of the whole bundle took 90 s.
+            fat="$(find "$APP" -type f -print0 | python3 scripts/list-macho-candidates.py \
+              | xargs -0 -I{} sh -c 'if file -b "$1" | grep -q "Mach-O universal"; then echo "$1"; fi' _ {})"
             if [ -n "$fat" ]; then
               echo "Fat Mach-O files remain after thinning:" >&2
               echo "$fat" >&2
