@@ -182,6 +182,10 @@ fn open_read_only(path: &Path) -> Option<rusqlite::Connection> {
     let flags =
         rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX;
     let connection = rusqlite::Connection::open_with_flags(path, flags).ok()?;
+    let _ = connection.set_limit(
+        rusqlite::limits::Limit::SQLITE_LIMIT_LENGTH,
+        i32::try_from(MAX_SOURCE_FILE_BYTES).ok()?,
+    );
     connection.busy_timeout(std::time::Duration::from_millis(200)).ok()?;
     Some(connection)
 }
