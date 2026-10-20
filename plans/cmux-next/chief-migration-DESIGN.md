@@ -1,6 +1,6 @@
 # Moving a Chief between hosts
 
-Status: design + phase 1 (checkpoint format, home-to-home move over SSH), 2026-10-20.
+Status: design + phases 1 and 3 (checkpoint, SSH and cloud targets, the Chief moving itself), 2026-10-20.
 Owner lane: a283 ("Chief moves between hosts"). Related: optchat.md section 3 (placements),
 cloud-chief-vm.md section 5 (placement handoff), remote-hosts.md (tailnet hosts),
 cloud-subagents-DESIGN.md (acpmux peers on a VM), the Hosted Chief copy
@@ -25,9 +25,13 @@ A Chief home (`~/.cmux/chief/<name>`, cmux-tui `cli/chief/home.rs`) is self-cont
 | Memory: log, tree, host state (subagent ids, cursors, `control cap` and `control cloud PEER` settings as `host/*` rows) | `optchat/memory.sqlite3` | SQLite (WAL) | yes, as a consistent copy |
 | Memory text export (git, backup remote) | `optchat/chat/` | files + `.git` | yes |
 | Person profile, instructions, avatar, profile, engine, settings | `optchat/person.md`, `AGENTS.md`, `avatar.png`, `profile.json`, `engine.json`, `settings.json`, `chief-settings.json`, `backup-allow.txt` | files | yes |
-| Conversation owner (the Home chat, other Chiefs, attachments) | `tui/<session dir>/conversations.sqlite3`, `chiefs.sqlite3`, `attachments/`, `apps.json`, `identity` | SQLite + files | yes; the session dir is renamed (section 3) |
+| Conversation owner (the Home chat, other Chiefs and their tool grants, attachments) | `tui/<session dir>/conversations.sqlite3`, `chiefs.sqlite3`, `attachments/`, `apps.json`, `identity`, `settings/` | SQLite + files | yes; the session dir is renamed (section 3) |
+| The daemon session's workspace registry and launch snapshot (workspaces, live terminals) | `tui/<session dir>/workspace-registry.sqlite3`, `launch-snapshot.json`, `tui/machine-id`, `tui/resource-effect-pepper` | SQLite + files | never: bound to the session name (the registry refuses another) and to the source's live terminals; the target's daemon starts its own (as cmux-tui `build_adopt/chief.rs`) |
 | Subagent transcripts and registry | `acpmux/sessions/`, `acpmux/chat-index/`, `acpmux/presets/`, `acpmux/config.json`, `acpmux/trust.json`, `acpmux/attachments/`, `acpmux/mailbox/` | files | yes (`--without-transcripts` skips `sessions/`) |
-| Agent token, adopted list, migration record | `agent-token`, `adopted.json`, `migration.json` | files | yes |
+| Adopted list, migration record | `adopted.json`, `migration.json` | files | yes |
+| Agent token | `agent-token` | file | never: each home mints its own |
+| Backup repository id | `optchat/backup-id` | file | written by restore: the backup keeps pushing to `manaflow-ai/chief-memory-<source id>` |
+| What the Chief reaches | `optchat/reach-source.json` | file | written by restore from the manifest: names only (section 6a) |
 | Sockets, locks, pids, logs, traces, caches, launchers, per-session Claude/Codex config, login env | `*.sock`, `*.lock`, `*.pid`, `*.log`, `optchat/traces`, `optchat/claude`, `compactor-*`, `turn-codex`, `session`, `bin`, `codex`, `acpmux/run`, `acpmux/live-models`, `acpmux/login-env.json`, `acpmux/router`, `acpmux/hosts` | machine-local | never: the target rebuilds them; login env and router stay per machine |
 
 The machine-local list is a denylist in code (`migrate::LOCAL_NAMES`, `LOCAL_SUFFIXES`,
@@ -77,8 +81,10 @@ Two names derive from the home's absolute path and change on a new machine:
   `tui/<session_storage_component(name)>` (`cmux-tui-core` workspace_registry.rs);
 - the acpmux preset tag `home_id(root)` (optchat-chief paths.rs).
 
-Restore renames `tui/<source dir>` to the directory the target root derives, and the host
-rebuilds presets on start. `migrate::session_dir_for(root)` reimplements both hashes; a test
+Restore renames `tui/<source dir>` to the directory the target root derives, rewrites the old
+home path to the new one in the restored `*.json`, `*.toml` and `*.md` files (presets, settings),
+and the host rebuilds presets on start. The memory backup's repository id also derives from the
+path, so restore writes `optchat/backup-id` and the host uses it (`migrate::backup_id`). `migrate::session_dir_for(root)` reimplements both hashes; a test
 pins them to a real home (`/Users/lawrence/.cmux/chief/default` ->
 `cmux-chief-2e448bc2-5091cba499ba5899`).
 
@@ -139,6 +145,45 @@ back (a move in reverse). The source copy is kept until `move --forget-source`.
   them as acpmux peers (a242: `OPTCHAT_SUBAGENT_PEER`), and their reports reach the moved Chief.
   Phase 2.
 - Finished subagents move as transcripts, so `zoom("aN")` keeps working.
+
+## 6a. Reach, permissions and credentials
+
+"After a move the Chief can still run code on every machine it could before" splits in three:
+
+- **Grants and permissions inside the Chief** move with it: the Chief record's tool grant and
+  harnesses (`chiefs.sqlite3`), acpmux `config.json`, `trust.json`, presets, run-time settings
+  (`control cap`, `control cloud PEER` as `host/*` rows in the memory database).
+- **Reach** (which machines answer) is the target machine's, not the Chief's. The checkpoint
+  records it by name only (`migrate_reach.rs`): SSH host aliases from `~/.ssh/config` (name,
+  HostName, User; never IdentityFile or keys), tailnet peers, the fleet controller, the model
+  route URL, and credential kinds (`ssh_keys` file names, `gh_login` yes/no). On the target,
+  `optchat-chief move reach` (MCP `move {action: reach}`) probes each one from there and lists
+  what does not answer as blockers.
+- **Credentials never move in a checkpoint**: no SSH private key, GitHub login, cloud session or
+  API token is read or copied. A target needs its own (its own SSH key authorized on the hosts,
+  `gh auth login`, Tailscale identity for the fleet). A cloud move takes the person's session
+  token from `CMUX_CLOUD_SESSION_TOKEN` or a 0600 file, never prints it, and does not store it.
+
+## 6b. The Chief moves itself
+
+The Chief has a `move` tool (MCP, `mcp.rs`): `dry_run` checks the target and answers at once;
+a real move runs `optchat-chief move --detach`, a process outside the turn (setsid) that waits
+until the turn has ended (`turn.start`/`turn.end` in the trace), stops the host (`--stop-host`),
+moves, and writes `state/move.json`. `status`, `reach` and `rollback` are actions of the same
+tool. The tool description tells the Chief to dry-run first, say goodbye in the same turn, and
+pass missing credentials to the person as blockers.
+
+An SSH target with no optchat-chief that knows the format gets this binary installed at
+`~/.cmux/bin/optchat-chief` when its OS and CPU match; otherwise `--remote-bin` names one.
+
+## 6c. Per-target status and gaps (2026-10-20)
+
+| Target | Carries | Proven | Gaps |
+| --- | --- | --- | --- |
+| Mac to Mac mini (`ssh:cmux-lawrence`) | memory, conversations, Chiefs and grants, settings, transcripts | tests (local and stand-in SSH); a real throwaway move with the earlier build (session-name bug found and fixed since) | Home does not switch to the moved Chief (Swift); the mini's own Chief brain install is separate (`~/.cmux/brains/chief`); workspaces and terminals of the old session do not move |
+| Mac mini to cloud Linux VM (Freestyle `chief-subagents-1`) | same | Linux build passes all move tests | the tailnet ACL lets the Mac reach `tag:agent-cloud`, not the minis, so a mini-to-VM move needs a relay through the Mac; the VM reaches only the fleet controller and sr2 (no minis, no GitHub credential) |
+| Linux VM to the Durable-Object Cloud Chief (`cloud:staging`) | conversation history (person and Chief messages), memory text export, then the brain on | real staging move of a throwaway Chief: 2 history and 6 memory messages, a turn answered the code word and its earlier host, and ran `uname` in a cloud sandbox; rollback turned the brain off | production needs a production session token and production hands are off (`HANDS_ENABLED` unset); no export back from the DO memory (rollback keeps what the cloud learned there); reactions, attachments and subagent transcripts do not move into the DO (transcripts would go to R2); hands and grants must be set up on the account |
+| Any target | | | a running subagent is not handed over (the move waits for the Chief's turn, not for subagents); `--subagents leave` through acpmux peers is phase 2 |
 
 ## 7. Home after a move
 

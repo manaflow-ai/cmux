@@ -609,7 +609,7 @@ pub fn first_turn(
     let before = api
         .read(
             "conversation.history",
-            json!({"id": conversation, "limit": 1}),
+            json!({"conversation": conversation, "limit": 1}),
         )
         .ok()
         .and_then(|v| {
@@ -619,10 +619,11 @@ pub fn first_turn(
                 .and_then(|m| m["seq"].as_u64())
         })
         .unwrap_or(0);
+    let key = format!("chief-move-turn-{}", crate::migrate::now_millis());
     api.op(
         "message.send",
-        json!({"conversation": conversation, "body": text}),
-        &format!("chief-move-turn-{}", crate::migrate::now_millis()),
+        json!({"conversation": conversation, "client_msg_id": key, "parts": [{"type": "text", "text": text}]}),
+        &key,
     )?;
     let deadline = std::time::Instant::now() + wait;
     while std::time::Instant::now() < deadline {
@@ -631,7 +632,7 @@ pub fn first_turn(
         std::thread::sleep(Duration::from_secs(3));
         let Ok(history) = api.read(
             "conversation.history",
-            json!({"id": conversation, "limit": 20}),
+            json!({"conversation": conversation, "limit": 20}),
         ) else {
             continue;
         };
