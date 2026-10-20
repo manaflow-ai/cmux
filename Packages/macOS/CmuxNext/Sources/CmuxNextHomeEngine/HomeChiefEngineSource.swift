@@ -18,7 +18,7 @@ public nonisolated protocol HomeChiefEngineSource: Sendable {
 }
 
 extension HomeChiefEngineSource {
-    public var choosesHarness: Bool { true }
+    public nonisolated var choosesHarness: Bool { true }
 }
 
 /// This Mac's brain. It reads its mux home's files (engine.json, profile,
