@@ -52,6 +52,7 @@ extension SidebarListViewComponents {
         apply(layout, animated: animated)
         let target = after.settle(from: before, offset: offset, focused: previousActive, newFocus: active,
                                   padding: SidebarLayout.revealPadding, userMoved: userMoved)
+        if revealTopForSelection() { return }
         if abs(target - clip.bounds.minY) > 0.25 { scrollClip(to: target, animated: animated && active.map { before.item($0) == nil } != true) }
     }
     func scrollClip(to y: CGFloat, animated: Bool) {
