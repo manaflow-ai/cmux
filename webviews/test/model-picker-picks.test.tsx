@@ -68,9 +68,11 @@ beforeAll(() => {
   host = dom.window.document.getElementById("root")!;
 });
 
-afterEach(() => {
+afterEach(async () => {
   act(() => root?.unmount());
   root = undefined;
+  const { setComposerSettings } = await import("../src/agent-session/acpmux/composerSettings");
+  setComposerSettings({ harnessSwitch: false });
   host.replaceChildren();
   dom.window.localStorage.clear();
   remembered = [];
@@ -93,6 +95,8 @@ async function mount(start: {
   turnCount?: number;
   /// acpmux's session list (the sidebar's Chats).
   sessions?: import("../src/agent-session/acpmux/model").AcpmuxSnapshot["sessions"];
+  /// Add harness…: each click is counted.
+  onAddAgent?: () => void;
 }) {
   const { createRoot } = await import("react-dom/client");
   const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
@@ -164,6 +168,7 @@ async function mount(start: {
           setState({ sessionId: `s${session}`, harness, model: model ?? "default", effort: "medium" });
         }}
         showPlan={false}
+        {...(start.onAddAgent ? { onAddAgent: start.onAddAgent } : {})}
       />
     );
   }
@@ -238,19 +243,25 @@ test("before its first message, a row of another provider starts that provider o
 // Codex session in the tab, and picking Claude again started a bare `claude` one that was signed
 // out; the chat itself left the sidebar. Once a chat has a message its harness is fixed: the picker
 // lists that harness's models only, and crossing to another is Continue in…, never a pick.
+// Leo 2026-10-19: the menu still drew a rail of that one harness and then offered Add harness…; a
+// started chat's menu is search, its harness's models and More models, as in Claude Code.
 test("a started chat's picker lists only its own harness, and no pick or search leaves it", async () => {
+  let added = 0;
   const { sent } = await mount({
     harness: "claude-sr",
     turnCount: 1,
     extra: [{ id: "claude-sr", name: "Claude Code (subrouter)", family: "claude" }],
+    onAddAgent: () => (added += 1),
   });
   await act(async () => {
     host.querySelector<HTMLButtonElement>('[data-menu="Model"]')!.click();
   });
-  const tabs = [...host.querySelectorAll<HTMLButtonElement>(".acpmux-mp-harness")].map(
-    (button) => button.title.split(" · ")[0],
-  );
-  expect(tabs.filter((name) => name !== "Starred")).toEqual(["Claude Code"]);
+  const menu = host.querySelector<HTMLElement>(".acpmux-mp")!;
+  expect(menu.querySelector(".acpmux-mp-rail-scroll")).toBeNull();
+  expect(menu.querySelector(".acpmux-mp-harness")).toBeNull();
+  expect(menu.querySelector(".acpmux-mp-add-harness")).toBeNull();
+  expect(rows().length).toBeGreaterThan(0);
+  expect(menu.querySelector(".acpmux-mp-older")).not.toBeNull();
   const search = host.querySelector<HTMLInputElement>('.acpmux-mp input[role="combobox"]')!;
   await act(async () => {
     Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")!.set!.call(search, "gpt");
@@ -261,6 +272,43 @@ test("a started chat's picker lists only its own harness, and no pick or search 
     search.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
   });
   expect(sent).toEqual([]);
+  expect(added).toBe(0);
+});
+
+test("before its first message, the picker's rail lists every installed harness and Add harness…", async () => {
+  let added = 0;
+  await mount({ harness: "codex", onAddAgent: () => (added += 1) });
+  await act(async () => {
+    host.querySelector<HTMLButtonElement>('[data-menu="Model"]')!.click();
+  });
+  const tabs = [...host.querySelectorAll<HTMLButtonElement>(".acpmux-mp-harness")].map(
+    (button) => button.title.split(" · ")[0],
+  );
+  expect(tabs).toContain("Claude Code");
+  expect(tabs).toContain("Codex");
+  expect(host.querySelector(".acpmux-mp-rail-scroll [aria-label='Starred']")).not.toBeNull();
+  const add = host.querySelector<HTMLButtonElement>(".acpmux-mp-add-harness")!;
+  expect(add).not.toBeNull();
+  await act(async () => add.click());
+  expect(added).toBe(1);
+});
+
+// Debug Settings' "Allow switching harness in a started chat" (off by default): on, a started
+// chat's rail lists every harness, never its own alone, and a pick there starts that harness.
+test("with the started-chat harness switch on, the rail lists every harness and a pick crosses", async () => {
+  const { setComposerSettings } = await import("../src/agent-session/acpmux/composerSettings");
+  setComposerSettings({ harnessSwitch: true });
+  const { sent } = await mount({ harness: "claude", turnCount: 1, onAddAgent: () => undefined });
+  await openOn("Codex");
+  const tabs = [...host.querySelectorAll<HTMLButtonElement>(".acpmux-mp-harness")].map(
+    (button) => button.title.split(" · ")[0],
+  );
+  expect(tabs.length).toBeGreaterThan(1);
+  expect(tabs).toContain("Claude Code");
+  expect(host.querySelector(".acpmux-mp-add-harness")).not.toBeNull();
+  const astra = rows().find((row) => row.dataset.key === "model:gpt-6-astra")!;
+  await act(async () => astra.click());
+  expect(sent).toEqual([{ method: "harness", value: "codex/gpt-6-astra" }]);
 });
 
 // The same report: from a Codex chat with no message yet, picking Claude started bare `claude`,

@@ -17,6 +17,9 @@ extension SessionSettings {
     /// `phone.keepAwake`: Idle system sleep stays off while phone access is on and the listener runs (KeepAwakeService). A sleeping Mac is unreachable until it wakes.
     public nonisolated static let phoneKeepAwakePath = ["phone", "keepAwake"]
     public nonisolated static let phoneKeepAwakeDefault: PhoneKeepAwakeSetting = .pluggedIn
+    /// `phone.cloudReplica`: On: the daemon publishes a narrow copy of this Mac's workspace list to the Cloud service (cloud-host-replica-v1, plans/cmux-next/object-sync/DESIGN.md phase 3), so a phone reads it while the Mac is offline and renames through it while the Mac is online. Off: the copy is deleted (replica.purge) and nothing is published. Opt-in until the default is decided (#13742).
+    public nonisolated static let cloudReplicaPath = ["phone", "cloudReplica"]
+    public nonisolated static let cloudReplicaDefault = false
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
@@ -51,7 +54,7 @@ nonisolated enum SessionSettingsSchema {
                 section: .machines,
                 group: group,
                 title: SettingsText.keyed("settings.phone.allowConnections", "Let Your Phone Use This Mac"),
-                help: SettingsText.keyed("settings.phone.allowConnections.help", "So your phone can find this Mac, cmux registers with its servers this Mac's name, device ID and platform, the app's bundle ID, version and build channel, the Mac's relay address and connection key, and your account and team IDs. Workspace names, folders, full paths and terminal output go only over the encrypted link to your phone. None of that, and no branch name or repo URL, is sent to cmux servers."),
+                help: SettingsText.keyed("settings.phone.allowConnections.help", "So your phone can find this Mac, cmux registers with its servers this Mac's name, device ID and platform, the app's bundle ID, version and build channel, the Mac's relay address and connection key, and your account and team IDs. Workspace names, folders, full paths and terminal output go only over the encrypted link to your phone. None of that, and no branch name or repo URL, is sent to cmux servers. Exception: while “Show This Mac's Workspaces on Your Phone While It's Off” is on, cmux servers store each workspace's ID, resource ID, short ID, name, name revision, group, color, icon, pinned state, unread mark, unread count and whether it is active."),
                 kind: .toggle,
                 default: .bool(SessionSettings.allowConnectionsDefault),
                 keywords: ["iphone", "ios", "mobile", "remote", "phone", "pair", "privacy"]
@@ -79,6 +82,16 @@ nonisolated enum SessionSettingsSchema {
                 ]),
                 default: .string(SessionSettings.phoneKeepAwakeDefault.rawValue),
                 keywords: ["sleep", "awake", "iphone", "remote", "battery", "power"]
+            ),
+            SettingDescriptor(
+                SessionSettings.cloudReplicaPath,
+                section: .machines,
+                group: group,
+                title: SettingsText.keyed("settings.phone.cloudReplica", "Show This Mac's Workspaces on Your Phone While It's Off"),
+                help: SettingsText.keyed("settings.phone.cloudReplica.help", "cmux stores this Mac's workspace names, colors and unread counts so your phone can show them while the Mac is off. A workspace name can be a folder's name. No paths, tab titles or terminal output. Turning this off deletes the copy."),
+                kind: .toggle,
+                default: .bool(SessionSettings.cloudReplicaDefault),
+                keywords: ["iphone", "mobile", "phone", "cloud", "offline", "workspaces", "sync", "privacy"]
             ),
         ]
     }
