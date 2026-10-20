@@ -167,6 +167,29 @@ Object.assign(variants, {
     ],
     note: "Change Background…: the art picker and its Opacity slider on Appearance, with a public-safe sample thumbnail.",
   }),
+  // Leo, 10-19: Appearance's floating Undo, Redo and Reset, after a background pick (Undo names it).
+  "appearance-undo-bar": variant("appearance", {
+    host: {
+      ...host,
+      derived: { "appearance.backgroundOpacity": 1 },
+      backdrops: [{ id: "starryNight", title: "Sample night", attribution: "Gallery sample thumbnail" }],
+    },
+    steps: [
+      wait('[data-card="backdrop"]'),
+      click('[data-card="backdrop"] .backdrop-tile[aria-label="Shuffle Daily"]'),
+      wait("[data-appearance-bar] [data-undo]:not([disabled])"),
+      { selector: "[data-appearance-bar] [data-undo]", action: "focus" },
+    ],
+    note: "Appearance's floating bar at the bottom right after picking Shuffle Daily: Undo names the step, Redo waits, Reset offers Restore How It Was or Reset to Defaults.",
+  }),
+  // Unset surface rows rest on the window's values, dimmed under an "Inherits window" badge.
+  "surfaces-inherit-window": variant("appearance", {
+    focus: "appearance.surfaces.sidebar.opacity",
+    options: { values: { "appearance.backgroundOpacity": 0.8 } },
+    host: { ...host, derived: { "appearance.backgroundOpacity": 0.8 } },
+    steps: [wait(row("appearance.surfaces.sidebar.opacity"))],
+    note: "Surfaces: each unset opacity rests on the window's 80% and each unset color on the window's color, dimmed with an Inherits window badge; no row reads a truncated default label.",
+  }),
   "backdrops-pending": variant("appearance", {
     options: { values: { "appearance.background": "system:/S/Sonoma.heic" } },
     host: {
