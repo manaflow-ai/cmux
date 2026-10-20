@@ -358,7 +358,7 @@ const driverResult = (state: CloudState, params: unknown, ctx: ReduceContext): R
   const rev = state.rev + 1
   const machine = machineRow(ctx.rows, l.machine)
   const pending = withoutPending(state, r.key)
-  const retainedCapture = l.transport === "vm-api" && l.op === "snapshot" && !r.ok && r.snapshot_outcome !== "deleted"
+  const retainedCapture = l.transport === "vm-api" && l.op === "snapshot" && !r.ok && r.snapshot_outcome === undefined
   if (retainedCapture) {
     const attempts = l.attempts + 1
     const error = { code: r.error?.code ?? "cloud.provider.unavailable", message: r.error?.message ?? "snapshot capture is still being confirmed" }

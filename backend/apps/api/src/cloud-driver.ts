@@ -9,6 +9,7 @@ import { redactReason } from "./cloud-redact.ts"
 import { createBody, type EdgeTlsRule } from "./cloud-driver-body.ts"
 import { freestyleExecStdin, type GuestExecResult } from "./cloud-driver-exec.ts"
 import { vmApiSettings } from "./cloud-vm-api-config.ts"
+import { VmApiSnapshotOutcome } from "./cloud-vm-api-snapshot.ts"
 export { createBody, type EdgeTlsRule } from "./cloud-driver-body.ts"
 
 /**
@@ -265,15 +266,22 @@ export class GuardedCloudDriver {
     this.guardSnapshot(slug)
     const resumed = await this.raw.resumeSnapshot?.(slug, tag, true)
     if (resumed) return resumed
-    const vm = await this.raw.find(vmName)
-    if (!vm) throw new DriverError("cloud.provider.vm_missing", "snapshot: no VM under the recorded name", true)
-    if (!ours(vm.tag, tag)) throw new DriverError("cloud.provider.name_conflict", "the name belongs to another VM", true)
-    const existing = await this.raw.findSnapshot(slug)
-    if (existing) {
-      if (existing.sourceVmId !== vm.id) throw new DriverError("cloud.provider.name_conflict", "the snapshot name belongs to another snapshot", true)
-      return { id: existing.id }
+    try {
+      const vm = await this.raw.find(vmName)
+      if (!vm) throw new DriverError("cloud.provider.vm_missing", "snapshot: no VM under the recorded name", true)
+      if (!ours(vm.tag, tag)) throw new DriverError("cloud.provider.name_conflict", "the name belongs to another VM", true)
+      const existing = await this.raw.findSnapshot(slug)
+      if (existing) {
+        if (existing.sourceVmId !== vm.id) throw new DriverError("cloud.provider.name_conflict", "the snapshot name belongs to another snapshot", true)
+        return { id: existing.id }
+      }
+      return await this.raw.createSnapshot(vm.id, slug, tag)
+    } catch (e) {
+      // The VM API verified no capture under the key (null, not undefined): a final error before
+      // its send is settled, so Cloud may release the saved slot instead of retaining it.
+      if (resumed === null && e instanceof DriverError && e.final && !(e instanceof VmApiSnapshotOutcome)) throw new VmApiSnapshotOutcome("absent", e.message, e.code)
+      throw e
     }
-    return this.raw.createSnapshot(vm.id, slug, tag)
   }
 
   /** Deletes the snapshot under our recorded `slug`; none there is success. */
