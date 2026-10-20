@@ -36,12 +36,13 @@ pub(super) fn peer_permission_pending(session_id: &str, rec: &EventRecord, peer:
 
 /// A record as `_acpmux/event` sends it.
 pub fn event_value(session_id: &str, rec: &EventRecord) -> Value {
-    json!({
-        "sessionId": session_id,
-        "seq": rec.seq,
-        "at": rec.at,
-        "dir": rec.dir,
-        "kind": rec.kind,
-        "msg": rec.msg,
-    })
+    let event = crate::protocol::events::SessionEvent {
+        session_id: session_id.to_owned(),
+        seq: rec.seq,
+        at: rec.at,
+        dir: rec.dir.clone(),
+        kind: rec.kind.clone(),
+        msg: rec.msg.clone(),
+    };
+    serde_json::to_value(event).unwrap_or(Value::Null)
 }
