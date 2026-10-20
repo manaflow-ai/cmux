@@ -412,6 +412,7 @@ MODEL_BY_PATH = {
     'commands/page-credential/request': models.PageCredentialRequest,
     'commands/pairing-response/request': models.PairingResponseRequest,
     'commands/pane-neighbor/request': models.PaneNeighborRequest,
+    'commands/park-tabs/request': models.ParkTabsRequest,
     'commands/paste-image/request': models.PasteImageRequest,
     'commands/paste-image/result': models.PasteImageResult,
     'commands/pin-workspace/request': models.PinWorkspaceRequest,
