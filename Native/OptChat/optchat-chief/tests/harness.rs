@@ -661,6 +661,14 @@ fn a_codex_turn_preset_carries_the_chiefs_turn_cache_key() {
         claude.env.get("SUBROUTER_SESSION_KEY").map(String::as_str),
         Some(format!("optchat-{id}-turn").as_str())
     );
+    // acpmux sends that key as X-Subrouter-Session on every route (sr2 too).
+    assert_eq!(
+        claude
+            .env
+            .get("SUBROUTER_SESSION_HEADER")
+            .map(String::as_str),
+        Some("1")
+    );
     assert_eq!(
         turn_preset(&paths, &home, "pi", Family::Other, false, "SYS"),
         None

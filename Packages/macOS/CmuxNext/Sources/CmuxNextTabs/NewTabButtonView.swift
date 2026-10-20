@@ -35,6 +35,7 @@ final class NewTabButtonView: NSView {
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
         setAccessibilityLabel(Strings.axNewTab)
+        setAccessibilityIdentifier("cmux.tabs.newTab")
     }
 
     @available(*, unavailable)

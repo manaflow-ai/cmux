@@ -10,6 +10,7 @@
 pub mod exit;
 
 mod config;
+mod creation_history;
 mod error;
 mod output;
 mod prompt;
@@ -78,6 +79,9 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Command {
+    /// Inspect or reconcile an original VM creation without allocating another VM
+    #[command(subcommand)]
+    Creation(CreationCommand),
     /// Create a VM
     Create(CreateArgs),
     /// Grow an existing VM to at least the requested resources
@@ -114,6 +118,50 @@ enum Command {
     /// Read guest file metadata without starting the VM
     #[command(subcommand)]
     File(FileCommand),
+}
+
+#[derive(Subcommand, Debug)]
+enum CreationCommand {
+    /// Discover server-issued handles after a lost create response
+    List(CreationListArgs),
+    /// Read retained creation intent and ownership without provider I/O
+    Get(CreationArgs),
+    /// Recover the original allocation; never creates, starts or grows a VM
+    Reconcile(CreationArgs),
+    /// Fence a pending creation and delete its verified allocation (requires confirmation)
+    Cancel(CreationCancelArgs),
+}
+
+#[derive(Args, Debug)]
+struct CreationCancelArgs {
+    #[arg(long)]
+    idempotency_key: String,
+    /// Confirm cancellation without an interactive prompt
+    #[arg(long)]
+    yes: bool,
+}
+
+#[derive(Args, Debug)]
+struct CreationArgs {
+    /// The original creation's idempotency key
+    #[arg(long)]
+    idempotency_key: String,
+}
+
+#[derive(Args, Debug)]
+struct CreationListArgs {
+    /// List pending server-issued work newest first, without scanning completed history
+    #[arg(long)]
+    pending: bool,
+    /// Backfill pages to advance before returning a resumable cursor (default 32)
+    #[arg(long, requires = "pending", value_parser = clap::value_parser!(u32).range(1..=128))]
+    index_pages: Option<u32>,
+    /// Page size (1-100)
+    #[arg(long, value_parser = clap::value_parser!(u32).range(1..=100))]
+    limit: Option<u32>,
+    /// Continue from a previous page's opaque cursor
+    #[arg(long)]
+    cursor: Option<String>,
 }
 
 #[derive(Subcommand, Debug)]
@@ -502,6 +550,56 @@ async fn dispatch(
                 )));
             }
             out.vm(&response)
+        }
+        Command::Creation(command) => {
+            let body = match command {
+                CreationCommand::List(args) => {
+                    let page = creation_history::fetch(
+                        client,
+                        args.cursor,
+                        args.limit,
+                        args.pending,
+                        args.index_pages.unwrap_or(32),
+                    )
+                    .await?;
+                    return out.creation_list(&page, args.pending, args.index_pages);
+                }
+                CreationCommand::Get(args) => {
+                    let key = parse_key::<types::VmCreationsGetVmCreationIdempotencyKey>(
+                        &args.idempotency_key,
+                    )?;
+                    fetch_body(client.vm_creations_get_vm_creation(&key, None)).await?
+                }
+                CreationCommand::Cancel(args) => {
+                    let key = parse_key::<types::VmCreationsCancelVmCreationIdempotencyKey>(
+                        &args.idempotency_key,
+                    )?;
+                    if !args.yes {
+                        if !prompt.is_interactive() {
+                            return Err(CliError::usage(
+                                "creation cancel requires --yes without a terminal",
+                            ));
+                        }
+                        let answer = prompt.ask("Cancel this pending VM creation and delete its allocation? Type cancel to confirm: ")
+                            .map_err(|e| CliError::cancelled(format!("could not read confirmation: {e}")))?;
+                        if answer.trim() != "cancel" {
+                            return Err(CliError::cancelled(
+                                "creation cancellation was not confirmed",
+                            ));
+                        }
+                    }
+                    return out.creation_cancellation(
+                        &fetch_body(client.vm_creations_cancel_vm_creation(&key, None)).await?,
+                    );
+                }
+                CreationCommand::Reconcile(args) => {
+                    let key = parse_key::<types::VmCreationsReconcileVmCreationIdempotencyKey>(
+                        &args.idempotency_key,
+                    )?;
+                    fetch_body(client.vm_creations_reconcile_vm_creation(&key, None)).await?
+                }
+            };
+            out.creation(&body)
         }
         Command::Image(ImageCommand::List) => {
             let images = fetch_body(client.vms_list_vm_images(None)).await?;
