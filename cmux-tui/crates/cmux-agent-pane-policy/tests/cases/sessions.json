@@ -419,5 +419,37 @@
    "a"
   ],
   "refused": true
+ },
+ {
+  "name": "agent_pair_resume for the chat in scope passes",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 5,
+   "method": "_acpmux/agent_pair_resume",
+   "params": {
+    "sessionId": "a",
+    "peerSessionId": "b"
+   }
+  },
+  "sessions": [
+   "a"
+  ],
+  "refused": false
+ },
+ {
+  "name": "agent_pair_resume for another chat is refused, even naming the chat in scope as its peer",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 5,
+   "method": "_acpmux/agent_pair_resume",
+   "params": {
+    "sessionId": "b",
+    "peerSessionId": "a"
+   }
+  },
+  "sessions": [
+   "a"
+  ],
+  "refused": true
  }
 ]

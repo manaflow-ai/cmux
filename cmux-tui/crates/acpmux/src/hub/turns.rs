@@ -85,7 +85,7 @@ impl Hub {
         mut opts: PromptOptions,
     ) -> Result<Value, RpcError> {
         let Some(prompt_id) = opts.prompt_id.clone() else {
-            return self.run_prompt(session, blocks, client, steer, opts).await;
+            return self.prompt_unless_held(session, blocks, client, steer, opts).await;
         };
         let duplicate = |v: Value| json!({"sessionId": session.id, "promptId": prompt_id, "duplicate": true, "queued": false, "turnId": v.pointer("/_meta/acpmux/turnId")});
         let seen = {
@@ -142,7 +142,7 @@ impl Hub {
             let accepted = accepted.clone();
             opts.on_accepted = Some(Box::new(move |_| accepted.store(true, Ordering::SeqCst)));
         }
-        let result = self.run_prompt(session, blocks, client, steer, opts).await;
+        let result = self.prompt_unless_held(session, blocks, client, steer, opts).await;
         if !accepted.load(Ordering::SeqCst) {
             session.prompts.lock().unwrap().retain(|(id, _)| *id != prompt_id);
         }
