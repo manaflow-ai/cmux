@@ -213,6 +213,10 @@ impl Table {
     pub fn check_stall(&mut self, now: Instant) -> bool {
         let Some(id) = self.current else { return false };
         let since = self.current_since.unwrap_or(now);
+        let Some(rank) = self.route(id).map(|r| r.rank) else { return false };
+        // Only a route with a floor below it stalls away: the floor (the
+        // tunnel) carries on whatever its feedback says.
+        let _ = rank;
         let fallback = self.routes.iter().any(|r| r.id != id && r.alive() && *r.health.borrow());
         let Some(route) = self.route_mut(id) else { return false };
         let state = *route.state.borrow();
@@ -375,6 +379,24 @@ mod tests {
         f.table.decide(true, now);
         f.table.remove(f.webrtc);
         assert!(!f.table.check_stall(now + Duration::from_secs(5)));
+    }
+
+    #[test]
+    fn the_floor_never_stalls_away_while_the_preferred_route_backs_off() {
+        let mut f = fixture();
+        let start = Instant::now();
+        f.table.decide(true, start);
+        f.webrtc_state.send_replace(state(600_000));
+        let t = start + Duration::from_millis(600);
+        assert!(f.table.check_stall(t));
+        f.table.decide(true, t);
+        assert_eq!(f.table.current, Some(f.wg));
+        // The tunnel is slow to answer too (a backed-up TURN over TLS stream),
+        // but it is the floor: it stays usable.
+        f._wg_state.send_replace(state(900_000));
+        let later = t + Duration::from_millis(700);
+        assert!(!f.table.check_stall(later));
+        assert_eq!(f.table.target(later), Some(f.wg));
     }
 
     #[test]
