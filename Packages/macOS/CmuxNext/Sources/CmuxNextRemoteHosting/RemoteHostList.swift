@@ -16,7 +16,7 @@ public struct RemoteHostList: Equatable, Sendable {
     /// `cmux host list --json --all` through `cli`: the hosts that answered the probe and the
     /// other eligible peers with why (offline ones included), except this machine; nil when the
     /// CLI is missing, fails (the private network is off) or prints something else.
-    public static func read(cli: URL?) async -> RemoteHostList? {
+    public nonisolated static func read(cli: URL?) async -> RemoteHostList? {
         guard let cli,
               let result = try? await ProcessRunner.run(executable: cli, arguments: ["host", "list", "--json", "--all"], environment: nil,
                                                         timeout: .seconds(15), clock: ContinuousClock()),
@@ -27,7 +27,7 @@ public struct RemoteHostList: Equatable, Sendable {
     /// A `cmux host list --json --all` reply
     /// (`{"hosts":[{"name",…}],"not_hosts":[{"name","reason"}],"self":…}`); nil when the reply
     /// has no `hosts` array.
-    public static func parse(_ data: Data) -> RemoteHostList? {
+    public nonisolated static func parse(_ data: Data) -> RemoteHostList? {
         guard let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
               let hosts = object["hosts"] as? [Any] else { return nil }
         let me = (object["self"] as? String)?.lowercased()

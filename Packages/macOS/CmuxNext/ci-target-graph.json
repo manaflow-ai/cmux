@@ -233,6 +233,7 @@
         "CmuxNextProcessEnvironment",
         "CmuxNextRemote",
         "CmuxNextRemoteBrowser",
+        "CmuxNextRemoteHosting",
         "CmuxNextRemoteLocalhost",
         "CmuxNextRemoteLocalhostService",
         "CmuxNextRemoteView",
@@ -1109,6 +1110,18 @@
         "CmuxNextCompat",
         "CmuxNextDesign",
         "CmuxNextRemoteView"
+      ],
+      "packages": []
+    },
+    "CmuxNextRemoteHosting": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextRemoteHosting",
+      "targets": [
+        "CmuxNextCompat",
+        "CmuxNextDaemon",
+        "CmuxNextDaemonService",
+        "CmuxNextRemote",
+        "CmuxNextSettings"
       ],
       "packages": []
     },

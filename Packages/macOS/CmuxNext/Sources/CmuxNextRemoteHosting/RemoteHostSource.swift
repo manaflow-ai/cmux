@@ -46,6 +46,9 @@ public final class RemoteHostSource {
         return RemoteHostSource(registry: registry, cli: cli, list: { await RemoteHostList.read(cli: cli) })
     }
 
+    /// The header tooltip of a remote host that is not connected (``RemoteHostStrings/dialFailure(_:)``).
+    public nonisolated static func dialFailure(_ reason: String) -> String { RemoteHostStrings.dialFailure(reason) }
+
     /// The hosts this source shows.
     private var hosts: [any RemoteHostSession] { registry.remoteHosts }
 

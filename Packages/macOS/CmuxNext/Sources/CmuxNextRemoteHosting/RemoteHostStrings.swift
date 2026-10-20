@@ -3,11 +3,11 @@ import Foundation
 /// Remote hosts (plans/cmux-next/remote-hosts.md): the sidebar's reasons for a
 /// host that does not connect and the Settings status line of Remote Hosting.
 /// Never names the network's vendor ("your private network").
-public enum RemoteHostStrings {
+nonisolated enum RemoteHostStrings {
     /// The header tooltip of a remote host that is not connected; `reason` is the
     /// connection's error, ending in the dial's `error_code`, or the reason `cmux host
     /// list --all` gave (`offline`, `not serving`, `no answer`, an `error_code`).
-    public static func dialFailure(_ reason: String) -> String {
+    static func dialFailure(_ reason: String) -> String {
         let code = reason.split(separator: ":").last.map { $0.trimmingCharacters(in: .whitespaces) } ?? ""
         switch code {
         case "not_allowed":
