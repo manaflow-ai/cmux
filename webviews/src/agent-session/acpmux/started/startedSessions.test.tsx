@@ -83,6 +83,14 @@ describe("startedPullRequests", () => {
     ).toEqual({ count: 2, tone: "unknown", number: 22092, repo: "cmux" });
     expect(startedPullRequests(child("none"))).toBeUndefined();
   });
+
+  test("a branch PR whose number more than one recorded repository has names no repository", () => {
+    const entry = child("two", {
+      pullRequests: ["https://github.com/o/alpha/pull/7", "https://github.com/o/beta/pull/7"],
+      pullRequest: { number: 7, title: "x", state: "open" },
+    });
+    expect(startedPullRequests(entry)).toEqual({ count: 2, tone: "open", number: 7 });
+  });
 });
 
 describe("withStartedSessions", () => {
@@ -154,6 +162,21 @@ describe("withStartedSessions", () => {
     expect(shown.at(-1)?.kind).toBe(STARTED_SESSIONS);
   });
 
+  test("a running turn with only its card so far draws the thinking line and the card", () => {
+    const rows = withStartedSessions([row("u1", 10, "user")], [started("x", 20)]);
+    const shown = turnView(rows, new Set(), { working: true });
+    expect(shown.map((r) => r.kind).filter((kind) => kind !== "date")).toEqual(["user", "thinking", STARTED_SESSIONS]);
+  });
+
+  test("with Codex runs, a card after the running call leaves that call in flight", () => {
+    const activity: AcpmuxRow = { ...row("act", 20, "activity"), items: [] };
+    const rows = withStartedSessions([row("u1", 10, "user"), activity], [started("x", 30)]);
+    const shown = turnView(rows, new Set(), { working: true, liveRuns: true });
+    const act = shown.find((r) => r.id === "act");
+    expect(act?.inFlight).toBe(true);
+    expect(act?.settled).toBeUndefined();
+  });
+
   test("returns the rows as they are with no started chats", () => {
     const rows = [row("u1", 10, "user")];
     expect(withStartedSessions(rows, [])).toBe(rows);
@@ -185,6 +208,21 @@ describe("name chips", () => {
     expect(texts).toContain("sess-1");
     expect(texts).toContain("sess-2");
     expect(texts).not.toContain("Fix");
+  });
+
+  test("a title two chats share stays text; their session ids still name each", () => {
+    const twins = [
+      { sessionId: "twin-1", title: "Triage the failing tests", state: "running" as const, named: true },
+      { sessionId: "twin-2", title: "Triage the failing tests", state: "idle" as const, named: true },
+    ];
+    const mentions = sessionMentions(twins);
+    expect(mentions.map((m) => m.text).sort()).toEqual(["twin-1", "twin-2"]);
+    expect(splitMentions("Triage the failing tests", mentions)).toEqual(["Triage the failing tests"]);
+    const html = renderToStaticMarkup(
+      <>{renderInline("`Triage the failing tests` and twin-2", { started: { mentions, open: () => undefined } })}</>,
+    );
+    expect(html.match(/acpmux-started-chip/g)?.length).toBe(1);
+    expect(html).toContain(">twin-2</button>");
   });
 
   test("a title standing in for a missing one (first prompt, New chat) is never a mention", () => {
