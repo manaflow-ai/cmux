@@ -50,6 +50,7 @@ import { openHarnessesPage, registerHarnessesPage, useHarnessesPage } from "./ha
 import { injectedNewTabContext, useEarlyNewTabContext, useNewTabAdoption, useNewTabPlaces } from "./newtab/adoption";
 import { heldPick, withDraftFolder } from "./newtab/draftFolder";
 import { rememberRecentFolders } from "./newtab/recentProject";
+import { publishWarmNewTab, shownNewTabSessions, useWarmNewTabSessions } from "./newtab/warmSnapshot";
 import { StyleSwitch } from "./newtab/StyleSwitch";
 import { pageStyle, pickNewTabStyle, screenTemplate, shownTemplate } from "./newtab/templates";
 import { newTabPageSubmit } from "./newtab/pageSubmit";
@@ -3448,8 +3449,20 @@ function AcpmuxPane() {
   };
   const [registry, setRegistry] = useState<NativeRegistry>(defaultRegistry);
   const [newTab, setNewTab] = useState<NewTabHost | undefined>(injectedNewTabContext);
+  // Only a New Tab page posts the chats it hears for the next one (newtab/warmSnapshot.ts).
+  const showsNewTabRef = useRef(newTab !== undefined);
+  showsNewTabRef.current = newTab !== undefined;
   // A prewarmed spare page gets its real context when Cmd-T adopts it; the generation remounts the screen.
-  const newTabGeneration = useNewTabAdoption(setNewTab);
+  // The spare's own handshake named the spare's start folder: the adopting tab's folder replaces it
+  // (the host names a folder below home, AgentPaneStartFolders), so Cmd-T on a spare names the tab's
+  // project on its first frame instead of "Choose folder".
+  const adoptNewTab = useCallback((host: NewTabHost) => {
+    setNewTab(host);
+    const cwd = host.cwd;
+    const named = cwd && !isAgentHome(cwd) && !/^\/(?:(?:Users|home)(?:\/[^/]+)?)?\/?$/.test(cwd) ? cwd : undefined;
+    setProjectDraft(named);
+  }, []);
+  const newTabGeneration = useNewTabAdoption(adoptNewTab);
   useNewTabPlaces(setNewTab);
   const earlyNewTab = useEarlyNewTabContext(callNative, setNewTab);
   // Agent chats live in the window's one sidebar (Projects and Recents); the pane opens what it picks.
@@ -4187,7 +4200,15 @@ function AcpmuxPane() {
             harnessProfiles.observe(summary, started);
             // The next New Tab page names the project used last on its first frame
             // (newtab/recentProject.ts); the mock daemon's chats are not the app's.
-            if (!mock) rememberRecentFolders(next);
+            if (!mock) {
+              rememberRecentFolders(next);
+              // The next New Tab page's first frame lists these chats (newtab/warmSnapshot.ts).
+              publishWarmNewTab(
+                next,
+                (warm) => void postNative("newTab.warm", { warm }).catch(() => undefined),
+                showsNewTabRef.current,
+              );
+            }
             setSnapshot((previous) => {
               if (
                 next.canHandoff &&
@@ -5119,8 +5140,17 @@ function AcpmuxPane() {
   }, [freshChat, onNewTab, newTabGeneration, loadNewTabProjects]);
   // A started local chat moves to another folder in place; a Cloud chat's folder is a label.
   const canMove = Boolean(snapshot.sessionId) && composerSnapshot.summary?.hostKind !== "cloud";
+  // The chats the page's context carried, while its own list has not arrived (newtab/warmSnapshot.ts):
+  // the first frame lists what a page of this Mac listed last, and the live list changes rows in place.
+  const warmSessions = useWarmNewTabSessions();
+  const carriedSessions = shownNewTabSessions(composerSnapshot, warmSessions);
+  const newTabSnapshot = useMemo(
+    () => (carriedSessions ? { ...composerSnapshot, sessions: carriedSessions } : composerSnapshot),
+    [composerSnapshot, carriedSessions],
+  );
   // The daemon has not listed the chats to this page yet and none are known (newtab/recentProject.ts).
   const newTabChatsPending =
+    !carriedSessions &&
     !composerSnapshot.listedSessions &&
     composerSnapshot.sessions.length === 0 &&
     composerSnapshot.connection !== "disconnected" &&
@@ -5864,7 +5894,7 @@ function AcpmuxPane() {
               notice={<DictationNotice dictation={dictation} />}
               template={screenTemplate(shownTemplate(newTab))}
               {...(newTab.widgets ? { widgets: true } : {})}
-              snapshot={composerSnapshot}
+              snapshot={newTabSnapshot}
               omnibar={newTab.omnibar}
               location={newTab.location}
               lastAgent={newTab.lastAgent}

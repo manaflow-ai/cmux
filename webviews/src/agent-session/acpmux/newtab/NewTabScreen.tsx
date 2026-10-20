@@ -136,6 +136,7 @@ function homeOrAbove(cwd: string | undefined): boolean {
 
 /// How long the folder chip holds its place for a daemon that has not listed the chats yet.
 const RESERVE_MS = 2_000;
+const NO_DEVICE_CHATS: ReturnType<typeof useDeviceChats> = [];
 
 /// The new tab screen, variant B (plans/cmux-next/new-tab.md): the project and model pickers on
 /// top, then one field that reads what is typed (`!` a shell command, an address, or a prompt for
@@ -283,7 +284,17 @@ export function NewTabScreen(props: Props) {
   const { plainFooter } = useComposerSettings();
   // A press outside an open chip menu only closes it (menuPressGuard.ts).
   useMenuPressGuard();
-  const device = useDeviceChats();
+  const pushed = useDeviceChats();
+  // Before the daemon lists the chats, the device chats wait with them (at most RESERVE_MS): a cold
+  // page fills its list once, not the device chats first and the chats above them after.
+  const [chatsReserveOver, setChatsReserveOver] = useState(false);
+  const holdChats = props.chatsPending === true && !chatsReserveOver;
+  useEffect(() => {
+    if (!holdChats) return;
+    const timer = setTimeout(() => setChatsReserveOver(true), RESERVE_MS);
+    return () => clearTimeout(timer);
+  }, [holdChats]);
+  const device = holdChats ? NO_DEVICE_CHATS : pushed;
   const closed = useRecentlyClosed();
   // Ages read the shared clock (clock.ts): every page shows the same age and changes it together.
   const clock = useMinuteClock();
