@@ -60,9 +60,8 @@ extension SidebarListViewComponents {
             model.send(.selectTab(workspace: workspace, tab: tab))
         case let .item(item):
             SidebarGroupKeys(list: self).setFocus(nil)
-            // An item that only changes the view (Home, the App Store, a pinned workspace, tab or space:
-            // `LayoutItemRef.activatesOnPress`) switches at once, as a workspace row does; the press can still drag
-            // the row. Any other item runs on mouse-up (as a band item), so a press meant as a move never runs it.
+            // An item opens at once, as a workspace row does (`LayoutItemRef.activatesOnPress`); the press can
+            // still drag the row. A new-tab launcher runs on mouse-up, so a press meant as a move makes no tab.
             let id = LayoutItemID(item)
             if model.listedItem(id)?.ref.activatesOnPress == true {
                 press.activatedOnPress = true

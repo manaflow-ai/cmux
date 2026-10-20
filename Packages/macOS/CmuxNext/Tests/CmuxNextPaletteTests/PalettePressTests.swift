@@ -37,18 +37,10 @@ struct PalettePressTests {
                                   clickCount: 1, pressure: type == .leftMouseUp ? 0 : 1)!
     }
 
-    /// Hands the press `events` in order, as the window's queue would during a drag.
-    private func feed(_ table: PaletteTableView, _ events: [NSEvent]) {
-        var queue = events
-        table.pressEvents = { queue.isEmpty ? nil : queue.removeFirst() }
-    }
-
     @Test func pressRunsTheRowUnderThePointerAtOnce() {
         let (window, table) = table()
         var ran: [Int] = []
         table.onClick = { ran.append($0) }
-        // No following events: a press that still waits for its release has already run the row.
-        feed(table, [])
         table.mouseDown(with: event(.leftMouseDown, row: 1, in: table, window: window))
         #expect(ran == [1])
     }
@@ -57,9 +49,9 @@ struct PalettePressTests {
         let (window, table) = table()
         var ran: [Int] = []
         table.onClick = { ran.append($0) }
-        feed(table, [event(.leftMouseDragged, row: 2, in: table, window: window),
-                     event(.leftMouseUp, row: 2, in: table, window: window)])
         table.mouseDown(with: event(.leftMouseDown, row: 0, in: table, window: window))
+        table.mouseDragged(with: event(.leftMouseDragged, row: 2, in: table, window: window))
+        table.mouseUp(with: event(.leftMouseUp, row: 2, in: table, window: window))
         #expect(ran == [0])
     }
 
@@ -77,7 +69,6 @@ struct PalettePressTests {
         scroll.reflectScrolledClipView(scroll.contentView)
         var ran: [Int] = []
         table.onClick = { ran.append($0) }
-        feed(table, [])
         table.mouseDown(with: event(.leftMouseDown, row: 2, in: table, window: window))
         #expect(!table.visibleRect.contains(table.rect(ofRow: 2)))
         #expect(ran.isEmpty)
@@ -87,7 +78,6 @@ struct PalettePressTests {
         let (window, table) = table()
         var ran: [Int] = []
         table.onClick = { ran.append($0) }
-        feed(table, [])
         table.mouseDown(with: event(.leftMouseDown, row: -1, in: table, window: window))
         #expect(ran.isEmpty)
     }
