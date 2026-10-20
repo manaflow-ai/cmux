@@ -129,3 +129,26 @@ pub(super) fn fork_a_child_for_tests() {
         }
     }
 }
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn daemon_lock_refuses_a_symlink() {
+        let dir = std::env::temp_dir().join(format!(
+            "acpmux-lock-link-{}-{}",
+            std::process::id(),
+            uuid::Uuid::now_v7()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let target = dir.join("outside");
+        let lock = dir.join("daemon.lock");
+        std::fs::write(&target, "outside").unwrap();
+        std::os::unix::fs::symlink(&target, &lock).unwrap();
+
+        assert!(acquire_lock(&lock).is_err(), "the daemon locked through a symlink");
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "outside");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}

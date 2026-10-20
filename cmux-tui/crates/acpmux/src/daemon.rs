@@ -840,6 +840,29 @@ fn open_daemon_log(path: &std::path::Path) -> Result<std::fs::File> {
     Ok(log)
 }
 
+#[cfg(all(test, unix))]
+mod state_file_tests {
+    use super::*;
+
+    #[test]
+    fn daemon_log_refuses_a_symlink() {
+        let dir = std::env::temp_dir().join(format!(
+            "acpmux-log-link-{}-{}",
+            std::process::id(),
+            uuid::Uuid::now_v7()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let target = dir.join("outside");
+        let log = dir.join("daemon.log");
+        std::fs::write(&target, "outside").unwrap();
+        std::os::unix::fs::symlink(&target, &log).unwrap();
+
+        assert!(open_daemon_log(&log).is_err(), "the daemon opened a linked log");
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "outside");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
 /// Start `<exe> [prefix] daemon run --ready-fd N` in its own session and
 /// return the read end of its readiness pipe. With `key`, the daemon also
 /// gets `--person-key-fd M`, one end of a socket pair: the key is written

@@ -117,6 +117,28 @@ fn a_launcher_failure_does_not_repeat_its_full_argv() {
     assert!(!error.contains(SENTINEL), "launcher failure exposed its argv: {error}");
 }
 
+#[cfg(unix)]
+#[test]
+fn config_load_refuses_a_symlinked_state_file() {
+    use std::os::unix::fs::symlink;
+
+    let dir = std::env::temp_dir().join(format!(
+        "acpmux-config-link-{}-{}",
+        std::process::id(),
+        uuid::Uuid::now_v7()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    let target = dir.join("target.json");
+    let config = dir.join("config.json");
+    std::fs::write(&target, "{}").unwrap();
+    symlink(&target, &config).unwrap();
+
+    let error = Config::load_from_with(&config, &ProfileSources::none())
+        .expect_err("a linked config loaded");
+    assert!(error.to_string().contains("config.json"), "{error:#}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// Creates an executable (0755) script without this process ever holding a
 /// write descriptor for it.
 ///
