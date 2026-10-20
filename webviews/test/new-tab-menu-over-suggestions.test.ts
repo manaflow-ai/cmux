@@ -122,13 +122,18 @@ await requireBrowserLane("new-tab-menu-over-suggestions.test.ts", async () => {
     },
   ];
   const withQuery = (query: string, more: string) => `${query ? `${query}&` : "?"}${more}`;
-  // Threads keeps the composer at the top of the page, where the short window's menus open down over
-  // the suggestions. Default (the harness's unset template) is the stage layout: the composer at the
-  // foot, its suggestions open above it, so a menu need not reach them; where one does, a press on
-  // its rows still reaches the menu.
+  // Default (the harness's unset template) is the stage layout: the composer at the foot, where all
+  // three menus reach over its suggestions (CI on #22119 measured 2 to 3 rows each). Threads keeps
+  // the composer at the top of the page: the model menu reaches over the suggestions there; the
+  // effort and access menus open clear of them (0 rows), so only their presses are checked.
   const MENUS_ON: ((typeof MENUS)[number] & { mustOverlap: boolean })[] = [
-    ...MENUS.map((entry) => ({ ...entry, query: withQuery(entry.query, "template=threads"), mustOverlap: true })),
-    ...MENUS.map((entry) => ({ ...entry, name: `${entry.name} (Default, stage)`, mustOverlap: false })),
+    ...MENUS.map((entry) => ({ ...entry, name: `${entry.name} (Default, stage)`, mustOverlap: true })),
+    ...MENUS.map((entry) => ({
+      ...entry,
+      name: `${entry.name} (Threads)`,
+      query: withQuery(entry.query, "template=threads"),
+      mustOverlap: entry.name === "model",
+    })),
   ];
 
   // Cards, the app's default page, draws Claude Code's split: the chips sit in the quiet row under
