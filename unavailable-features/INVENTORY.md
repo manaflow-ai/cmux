@@ -31,7 +31,7 @@ Status column: `todo`, `done <sha>`, `skip (<owner>)`.
 | 3 | Open All Workspace PR Links | `palette.openWorkspacePullRequests` | needs app capability `github-integration` | Handlers/WorkspaceHandlers.swift | S | todo |
 | 4 | Move whole column (multi-pane) | `moveColumnLeft/Right` refusal | Moving a whole column is not available yet | Handlers/ColumnHandlers.swift | S | todo |
 | 5 | Toggle Match Terminal Background | `palette.toggleMatchTerminalBackground` | needs app capability `match-terminal-background` | Handlers/SidebarHandlers.swift | S | todo |
-| 6 | Enable/Disable cmux Browser | `palette.enableBrowser`, `palette.disableBrowser` | the cmux browser is always on | Handlers/BrowserHandlers.swift | S | todo |
+| 6 | Enable/Disable cmux Browser | `palette.enableBrowser`, `palette.disableBrowser` | the cmux browser is always on | Handlers/BrowserHandlers.swift | S | done 60440702d7a |
 | 7 | Toggle Omnibar | `palette.browserToggleOmnibar` | The address bar cannot be hidden yet | Handlers/BrowserHandlers.swift | S | todo |
 | 8 | Feature Flags | `help.featureFlags` | needs app capability `feature-flags` | Handlers/SettingsHandlers.swift | S | todo |
 | 9 | Mark agent chat unread | `palette.toggleTabUnread` on a read agent chat | Marking as unread is not available yet | Handlers/TabHandlers+More.swift | S | todo |
