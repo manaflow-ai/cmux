@@ -15,7 +15,11 @@ export type AcpmuxSessionEntry = {
   status?: string;
   model?: string;
   cwd?: string;
+  /** acpmux's last write to the session: any logged record, a warm, resume or stop of its agent too. */
   updatedAt?: number;
+  /** When the person or the agent last did something in the chat (`activityAt`): what the chat
+   *  lists sort and label by, so warming, resuming or stopping an agent moves no row. */
+  activityAt?: number;
   pendingPermissions?: number;
   unread?: boolean;
   /** The status dot acpmux decided (`SessionSummary.indicator`, cx-zlox); absent for none. */
@@ -139,6 +143,7 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
     model: text(session.model),
     cwd: typeof session.cwd === "string" ? session.cwd : undefined,
     updatedAt: typeof session.updatedAt === "number" ? session.updatedAt : undefined,
+    activityAt: summaryActivityAt(session),
     pendingPermissions: Number.isFinite(pending) ? pending : 0,
     unread: session.unread === true,
     indicator: INDICATORS.includes(session.indicator) ? session.indicator : undefined,
@@ -171,6 +176,30 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
     lifecycleReceipt: lifecycleReceipt(session.lifecycleReceipt),
   };
 }
+
+const time = (value: unknown) => (typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined);
+
+/** When the person or the agent last did something in a chat, from acpmux's session summary.
+ *  `updatedAt` moves on every record acpmux logs, a pane warming or resuming the chat's agent and
+ *  the idle pool stopping it included, so it is activity only while a turn runs. A chat waiting on
+ *  the person counts from when it began to wait; any other from when its last turn ended, or, with
+ *  no turn ended here (adopted, or never answered), from when it was made: it never jumps to now. */
+export function summaryActivityAt(session: Record<string, any>): number | undefined {
+  const updated = time(session.updatedAt);
+  if (session.status === "running") return updated;
+  // A turn that never ended on a chat no longer running (disconnected, unreachable) counts from its
+  // start, so retries to reach the agent move nothing.
+  if (session.turn && typeof session.turn === "object") return time(session.turn.startedAt) ?? updated;
+  const waiting = time(session.inputSince);
+  if (waiting !== undefined) return waiting;
+  if (session.status === "waiting" || Number(session.pendingPermissions) > 0) return updated;
+  return time(session.lastTurn?.endedAt) ?? time(session.createdAt) ?? updated;
+}
+
+/** The time a chat list sorts and labels an entry by: its activity, or for an entry cut by an
+ *  older producer (gallery fixtures), its `updatedAt`. */
+export const activityTime = (entry: Pick<AcpmuxSessionEntry, "activityAt" | "updatedAt">) =>
+  entry.activityAt ?? entry.updatedAt;
 
 /** Reuses a direct-client entry while retaining compatibility with raw summary fixtures/callers. */
 export function normalizedSessionEntry(session: Record<string, any> & { sessionId: string }): AcpmuxSessionEntry {
@@ -282,7 +311,7 @@ export function homePath(path: string): string {
 
 /** Newest first. */
 function byRecency(sessions: AcpmuxSessionEntry[]): AcpmuxSessionEntry[] {
-  return [...sessions].sort((left, right) => (right.updatedAt ?? 0) - (left.updatedAt ?? 0));
+  return [...sessions].sort((left, right) => (activityTime(right) ?? 0) - (activityTime(left) ?? 0));
 }
 
 /** A stable newest-first view for ungrouped sidebar sections. */
