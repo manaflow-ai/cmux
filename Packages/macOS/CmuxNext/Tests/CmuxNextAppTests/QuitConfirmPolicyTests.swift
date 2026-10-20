@@ -47,9 +47,20 @@ struct QuitConfirmPolicyTests {
         #expect(QuitPolicy.decide(.interactive, behavior: .ask, confirm: .always, facts: Self.busy, alreadyAsked: true) == .quit(.keep))
     }
 
-    @Test func aRememberedEndIsTheDefaultButton() throws {
+    /// "When Quitting" set to End Sessions: the dialog confirms that choice
+    /// (Quit, the default button, ends them) instead of offering Keep.
+    @Test func aRememberedEndIsWhatQuitDoes() throws {
         let prompt = try #require(asks(QuitPolicy.decide(.interactive, behavior: .endKeepLayout, confirm: .always, facts: Self.idle)))
         #expect(prompt.defaultChoice == .endKeepLayout)
+        let content = QuitAlertContent.main(prompt)
+        #expect(content.title == QuitStrings.title)
+        #expect(content.buttons == [.quit, .cancel])
+    }
+
+    /// A held Cmd-Q repeats: a repeat must not answer the dialog it opened.
+    @Test func aKeyRepeatDoesNotAnswerTheDialog() {
+        #expect(!QuitCoordinator.answersDefault(isKeyRepeat: true))
+        #expect(QuitCoordinator.answersDefault(isKeyRepeat: false))
     }
 
     /// "Don't ask again" in the dialog turns the confirmation off as well as

@@ -3,7 +3,7 @@ import Testing
 
 /// `app.confirmQuit`, the key classic cmux reads from the same cmux.json:
 /// "always", "dirty-only" or "never". Unset, cmux NEXT does not ask (Lawrence
-/// 2026-10-07); a classic `true`/`false` reads as "always"/"never".
+/// 2026-10-07). Like classic, it takes strings only.
 struct ConfirmQuitSettingTests {
     private func snapshot(_ value: JSONValue?) -> CmuxConfigSnapshot {
         let root: JSONValue = value.map { .object(["app": .object(["confirmQuit": $0])]) } ?? .object([:])
@@ -22,9 +22,13 @@ struct ConfirmQuitSettingTests {
         #expect(snapshot("never").confirmQuit == .never)
     }
 
-    @Test func classicBooleansAreRead() {
-        #expect(snapshot(true).confirmQuit == .always)
-        #expect(snapshot(false).confirmQuit == .never)
+    /// Classic's boolean fallback is another key (`app.warnBeforeQuit`); a
+    /// boolean here is refused, as the Settings window refuses it.
+    @Test func aBooleanIsRefused() {
+        let parsed = snapshot(true)
+        #expect(parsed.confirmQuit == .never)
+        #expect(parsed.diagnostics.contains { $0.path == "app.confirmQuit" })
+        #expect(SettingsSchema.descriptor(for: ConfirmQuitMode.configPath).map { $0.accepts(true) } == false)
     }
 
     @Test func aBadValueNeverAsksWithADiagnostic() {

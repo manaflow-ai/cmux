@@ -60,7 +60,7 @@ public nonisolated enum ConfirmQuitMode: String, Sendable, Hashable, CaseIterabl
 }
 
 /// `app.confirmQuit` in cmux.json: "always", "dirty-only" or "never"
-/// (default). Classic's older `true`/`false` reads as "always"/"never".
+/// (default), strings only, as in classic.
 extension ConfirmQuitMode {
     public static let configPath = ["app", "confirmQuit"]
     public static let fallback: ConfirmQuitMode = .never
@@ -69,7 +69,6 @@ extension ConfirmQuitMode {
     /// default plus a diagnostic.
     static func parse(_ root: JSONValue) -> (ConfirmQuitMode, SettingsDiagnostic?) {
         guard let value = root.value(at: configPath) else { return (fallback, nil) }
-        if let flag = value.boolValue { return (flag ? .always : .never, nil) }
         guard let text = value.stringValue, let mode = ConfirmQuitMode(rawValue: text) else {
             let choices = allCases.map { "\"\($0.rawValue)\"" }.joined(separator: ", ")
             return (fallback, SettingsDiagnostic(kind: .invalidValue, path: "app.confirmQuit", message: "expected one of \(choices)"))

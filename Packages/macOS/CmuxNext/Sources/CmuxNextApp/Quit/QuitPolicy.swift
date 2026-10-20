@@ -63,7 +63,8 @@ enum QuitPolicy {
             busiest: busiest(facts.programs),
             incognitoPrograms: facts.incognitoPrograms,
             remoteSessions: facts.remoteSessions,
-            offersSessionChoice: confirms,
+            // With a remembered choice the dialog only confirms it (Quit and Cancel).
+            offersSessionChoice: confirms && remembered == nil,
             defaultChoice: remembered ?? .keep,
             agents: facts.agents?.live,
             agentsInTurn: facts.agents?.inTurn ?? 0,
