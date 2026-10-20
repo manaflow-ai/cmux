@@ -23,7 +23,7 @@ import re
 import sys
 
 
-TOUR_ORDER = ("new-tab", "agent-pane", "now-playing", "pinned-tabs", "hover-card", "update-card", "chief-settings", "glass", "home", "core")
+TOUR_ORDER = ("new-tab", "agent-pane", "now-playing", "pinned-tabs", "hover-card", "update-card", "chief-settings", "glass", "home", "files-dialogs", "core")
 UI_ROOTS = (
     re.compile(r"^(?:Packages/macOS/CmuxNext/Sources|webviews/(?:src|apps)|agent-chat/(?:src|app|components?)/)"),
     re.compile(r"^(?:Packages/macOS/CmuxNext/(?:Resources|Tests?)/|webviews/|agent-chat/)"),
@@ -47,6 +47,8 @@ CHIEF_SETTINGS = re.compile(r"(?:HomeChiefSettings|HomeHostView|HomeEngineString
 GLASS = re.compile(r"(?:theme|glass|backdrop|WindowBackground|SurfaceBackground|TerminalHostView|cmux-themes|composerStates\.css)", re.IGNORECASE)
 # Home's conversation list column: its header, rows and width (the home tour's widths, light and dark).
 HOME = re.compile(r"(?:MessagesLabSidebar|CmuxNextHome/Sidebar/|HomeSidebar|TopHomePage)")
+# The Files pane's and the file grid's cmux dialogs (debug.dialog fixtures), the grid's tiles.
+FILES_DIALOGS = re.compile(r"(?:CmuxNextFilesUI/|CmuxNextFileGrid/|CmuxNextScreenshots/|AppFileGridWorkspace|Control/DebugDialog)")
 # Webview code: the gallery advisory run captures it on Linux (glass and themes excepted).
 WEBVIEW = re.compile(r"^webviews/")
 # Webview code that talks to the app or the daemon: the gallery's mock providers never run it.
@@ -88,6 +90,8 @@ def tours_for_path(path: str) -> list[str]:
         selected.append("glass")
     if HOME.search(normalized):
         selected.append("home")
+    if FILES_DIALOGS.search(normalized):
+        selected.append("files-dialogs")
     if not selected:
         selected.append("core")
     return selected

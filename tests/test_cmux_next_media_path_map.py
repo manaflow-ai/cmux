@@ -50,6 +50,15 @@ class TourFilePathTests(unittest.TestCase):
         self.assertEqual(path_map.tours_for_path("webviews/src/pages/changelog/updateSurfaces.css"), [])
         self.assertTrue(path_map.is_gallery_path("webviews/src/pages/changelog/updateSurfaces.css"))
 
+    def test_files_and_grid_dialogs_route_to_their_tour(self) -> None:
+        for path in ("Packages/macOS/CmuxNext/Sources/CmuxNextFilesUI/FilesPrompts.swift",
+                     "Packages/macOS/CmuxNext/Sources/CmuxNextFileGrid/FileGridActions.swift",
+                     "Packages/macOS/CmuxNext/Sources/CmuxNextScreenshots/ScreenshotsView.swift",
+                     "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Screenshots/AppFileGridWorkspace.swift",
+                     "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/DebugDialog.swift"):
+            with self.subTest(path=path):
+                self.assertEqual(path_map.tours_for_path(path), ["files-dialogs"])
+
     def test_the_home_list_routes_to_the_home_tour(self) -> None:
         for path in ("Packages/macOS/CmuxNext/Sources/CmuxNextHome/Sidebar/HomeSidebarView.swift",
                      "Packages/Shared/CmuxMessagesLab/Sources/MessagesLabSidebar/Vendor/appkit-native/SidebarView.swift",

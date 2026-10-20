@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextAgentPane
 import CmuxNextDesign
+import CmuxNextFilesUI
 import CmuxNextSettings
 
 #if DEBUG
@@ -9,7 +10,9 @@ import CmuxNextSettings
 /// - `{}` lists the open dialogs (id, title, lines, origin, scope, visible,
 ///   buttons, field values, frame in window coordinates).
 /// - `{open: "confirm" | "text" | "credentials" | "save" | "choice", scope: "window" | "app", origin?}`
-///   shows a fixture (screenshots, latency) and returns its id.
+///   shows a fixture (screenshots, latency) and returns its id. `files.conflict`, `files.delete`,
+///   `files.goTo`, `filegrid.rename` and `filegrid.error` are the Files and file-grid dialogs
+///   themselves (their own spec builders), so nothing needs a real conflict or failure to show them.
 /// - `{id?, set: {field: string | bool}}`, `{id?, key: "return" | "escape" | "tab" | "shift-tab" | "cmd-<c>"}`,
 ///   `{id?, press: "<button>"}`, `{id?, dismiss: true}` act on dialog `id`
 ///   (default: the newest visible one).
@@ -128,6 +131,13 @@ enum DebugDialog {
                 .check(id: "remember", title: "Don't ask again", on: false),
             ], buttons: [.cancel(), CmuxDialogButton(id: "select", title: "Select", role: .default)],
             identifier: "cmux.dialog.fixture.choice"),
+            "files.conflict": FilesDialogs.conflict(name: "notes.md"),
+            "files.delete": FilesDialogs.deleteImmediately(count: 3),
+            "files.goTo": FilesDialogs.goToFolder(initial: "~/Downloads"),
+            "filegrid.rename": AppFileGridWorkspace.renameSpec(title: "Rename", initial: "Screenshot 2026-10-20.png",
+                                                               confirm: "Rename", cancel: "Cancel"),
+            "filegrid.error": AppFileGridWorkspace.errorSpec("“Screenshot.png” couldn’t be moved to the Trash.",
+                                                             detail: "You don’t have permission to access it."),
         ]
     }
 }

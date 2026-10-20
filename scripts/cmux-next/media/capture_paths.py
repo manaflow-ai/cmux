@@ -31,6 +31,7 @@ TOUR_FILES = {
     "update-card": TOURS / "update-card.json",
     "chief-settings": TOURS / "chief-settings.json",
     "glass": TOURS / "glass.json",
+    "files-dialogs": TOURS / "files-dialogs.json",
     "core": TOURS / "core.json",
 }
 

@@ -1,0 +1,28 @@
+{
+  "title": "Files and file-grid dialogs (u2647: every button shows its key)",
+  "steps": [
+    {"title": "Launch", "wait": 2},
+    {"title": "Files: a taken name (Stop Esc, Skip Cmd-S, Replace Cmd-R, Keep Both Return)",
+     "rpc": {"method": "debug.dialog", "params": {"open": "files.conflict"}}, "wait": 1.5,
+     "optional": "the Files dialog fixtures are DEBUG only and new in #22362"},
+    {"title": "Close it", "rpc": {"method": "debug.dialog", "params": {"dismiss": true}}, "shot": false, "wait": 0.5},
+    {"title": "Files: Delete Immediately (Delete Cmd-D, Cancel Esc)",
+     "rpc": {"method": "debug.dialog", "params": {"open": "files.delete"}}, "wait": 1.5,
+     "optional": "the Files dialog fixtures are DEBUG only and new in #22362"},
+    {"title": "Close it", "rpc": {"method": "debug.dialog", "params": {"dismiss": true}}, "shot": false, "wait": 0.5},
+    {"title": "Files: Go to Folder (Go Return, Cancel Esc)",
+     "rpc": {"method": "debug.dialog", "params": {"open": "files.goTo"}}, "wait": 1.5,
+     "optional": "the Files dialog fixtures are DEBUG only and new in #22362"},
+    {"title": "Close it", "rpc": {"method": "debug.dialog", "params": {"dismiss": true}}, "shot": false, "wait": 0.5},
+    {"title": "File grid: Rename (Rename Return, Cancel Esc)",
+     "rpc": {"method": "debug.dialog", "params": {"open": "filegrid.rename"}}, "wait": 1.5,
+     "optional": "the file-grid dialog fixtures are DEBUG only and new in #22362"},
+    {"title": "Close it", "rpc": {"method": "debug.dialog", "params": {"dismiss": true}}, "shot": false, "wait": 0.5},
+    {"title": "File grid: a command failed (OK Return)",
+     "rpc": {"method": "debug.dialog", "params": {"open": "filegrid.error"}}, "wait": 1.5,
+     "optional": "the file-grid dialog fixtures are DEBUG only and new in #22362"},
+    {"title": "Close it", "rpc": {"method": "debug.dialog", "params": {"dismiss": true}}, "shot": false, "wait": 0.5},
+    {"title": "Sleepy Mode: the moon sized as an image", "cmux": ["action", "run", "palette.sleepyMode"], "wait": 2,
+     "optional": "Sleepy Mode may not be reachable through action run"}
+  ]
+}

@@ -1,11 +1,13 @@
 import AppKit
 import CmuxNextCompat
+import CmuxNextDesign
 import CmuxNextFileGrid
 import Foundation
 
 /// How file grids open, reveal and trash files in the app: opens and
 /// reveals run off the main thread (cx-050n, `NSWorkspace+Background`), so
-/// a slow Launch Services lookup never stalls the window.
+/// a slow Launch Services lookup never stalls the window. Its questions and
+/// errors are cmux dialogs, which show their keys (u2647).
 @MainActor
 final class AppFileGridWorkspace: FileGridWorkspace {
     private let workspace: NSWorkspace
@@ -24,5 +26,28 @@ final class AppFileGridWorkspace: FileGridWorkspace {
 
     func recycle(_ urls: [URL]) async throws {
         _ = try await workspace.recycle(urls)
+    }
+
+    func askName(title: String, initial: String, confirm: String, cancel: String, in window: NSWindow?) async -> String? {
+        let spec = Self.renameSpec(title: title, initial: initial, confirm: confirm, cancel: cancel)
+        let answer = await CmuxDialogCenter.shared.present(spec, in: window.map(CmuxDialogScope.window) ?? .app)
+        return answer.button == "rename" ? answer.text("name") : nil
+    }
+
+    func report(_ message: String, detail: String?, in window: NSWindow?) {
+        CmuxDialogCenter.shared.present(Self.errorSpec(message, detail: detail),
+                                        in: window.map(CmuxDialogScope.window) ?? .app) { _ in }
+    }
+
+    /// The grid's Rename dialog (also the `debug.dialog` fixture `filegrid.rename`).
+    static func renameSpec(title: String, initial: String, confirm: String, cancel: String) -> CmuxDialogSpec {
+        CmuxDialogSpec(title: title, fields: [.text("name", initial: initial)],
+                       buttons: [.cancel(cancel), CmuxDialogButton(id: "rename", title: confirm, role: .default)],
+                       identifier: "cmux.filegrid.rename")
+    }
+
+    /// A failed grid command (also the `debug.dialog` fixture `filegrid.error`).
+    static func errorSpec(_ message: String, detail: String?) -> CmuxDialogSpec {
+        CmuxDialogSpec(title: message, lines: detail.map { [$0] } ?? [], buttons: [.ok()], identifier: "cmux.filegrid.error")
     }
 }

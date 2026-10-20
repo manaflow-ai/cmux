@@ -59,35 +59,17 @@ public struct FileGridActions {
         }
     }
 
-    /// Asks for a new name in a sheet (the name without its extension preselected, as Finder does)
-    /// and renames the file.
+    /// Asks for a new name in the workspace's dialog and renames the file.
     ///
     /// - Parameters:
     ///   - item: the file.
-    ///   - window: the sheet's window; without one the alert runs as a panel.
+    ///   - window: the window the dialog blocks; nil for none.
     public func rename(_ item: FileGridItem, in window: NSWindow?) async {
-        let alert = NSAlert()
-        alert.messageText = FileGridStrings.renameTitle
-        alert.addButton(withTitle: FileGridStrings.renameConfirm)
-        alert.addButton(withTitle: FileGridStrings.cancel)
-        let field = NSTextField(string: item.name)
-        field.frame = CGRect(x: 0, y: 0, width: 280, height: 24)
-        alert.accessoryView = field
-        alert.layout()
-        alert.window.initialFirstResponder = field
-        let baseLength = (item.name as NSString).deletingPathExtension.utf16.count
-        let response: NSApplication.ModalResponse
-        if let window {
-            async let answer = alert.beginSheetModal(for: window)
-            alert.window.makeFirstResponder(field)
-            field.currentEditor()?.selectedRange = NSRange(location: 0, length: baseLength)
-            response = await answer
-        } else {
-            response = alert.runModal()
-        }
-        guard response == .alertFirstButtonReturn else { return }
+        guard let name = await workspace.askName(title: FileGridStrings.renameTitle, initial: item.name,
+                                                 confirm: FileGridStrings.renameConfirm, cancel: FileGridStrings.cancel,
+                                                 in: window) else { return }
         do {
-            let target = try naming.renamed(item.url, to: field.stringValue)
+            let target = try naming.renamed(item.url, to: name)
             guard target != item.url else { return }
             try FileManager().moveItem(at: item.url, to: target)
         } catch let refusal as FileGridNaming.Refusal {
@@ -98,13 +80,11 @@ public struct FileGridActions {
     }
 
     private func show(_ error: any Error, in window: NSWindow?) {
-        let alert = NSAlert(error: error)
-        if let window { alert.beginSheetModal(for: window) } else { alert.runModal() }
+        let error = error as NSError
+        workspace.report(error.localizedDescription, detail: error.localizedRecoverySuggestion, in: window)
     }
 
     private func showMessage(_ text: String, in window: NSWindow?) {
-        let alert = NSAlert()
-        alert.messageText = text
-        if let window { alert.beginSheetModal(for: window) } else { alert.runModal() }
+        workspace.report(text, detail: nil, in: window)
     }
 }
