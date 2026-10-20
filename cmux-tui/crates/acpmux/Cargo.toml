@@ -1,6 +1,6 @@
 [package]
 name = "acpmux"
-version = "0.1.0"
+version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 description = "tmux for ACP agents: a session multiplexer daemon with CLI and TUI"

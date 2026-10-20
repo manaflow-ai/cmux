@@ -11,10 +11,12 @@ import { setAgentDiffColors } from "./diffColors";
 import { setDeviceChats } from "./newtab/deviceChats";
 import { setToolCards } from "./toolCards/toolCardStore";
 import { setRecentlyClosed } from "./newtab/recentlyClosed";
+import { setNowPlaying } from "./newtab/nowPlaying";
 import { setHeaderState } from "./header/headerState";
 import { setTabRow } from "./header/tabRow";
 import { setFloatingState } from "./floatingState";
 import { configureNativeSidebarPreviewVariant } from "./sidebarPreview";
+import { setSessionStatus } from "./sessionStatus";
 
 export const HOST_EVENTS = "cmux.agent.host.events";
 /// NewTabPage's FOCUS_LOCATION_EVENT, kept here so the transport does not load the new tab page.
@@ -84,6 +86,9 @@ export function applyHostEvent(event: HostEvent): void {
       return bridge?.applyPreview?.(event.value === true);
     case "sidebarPreviewVariant":
       return configureNativeSidebarPreviewVariant(event.value);
+    case "sessionStatus":
+      // Direct, like editedFiles: a push before the chat mounts is kept.
+      return setSessionStatus(event.value);
     case "editedFiles":
       // Direct, not through window.cmuxAcpmuxEditedFiles: an event that arrives before the card
       // module loads still sets the value the card then reads.
@@ -97,6 +102,9 @@ export function applyHostEvent(event: HostEvent): void {
       return setDeviceChats(event.value);
     case "recentlyClosed":
       return setRecentlyClosed(event.value);
+    case "nowPlaying":
+      // Direct, like recentlyClosed: a push before the New Tab screen mounts is kept.
+      return setNowPlaying(event.value);
     case "toolCards":
       // Direct, like deviceChats: a push before the chat mounts is kept.
       return setToolCards(event.value);

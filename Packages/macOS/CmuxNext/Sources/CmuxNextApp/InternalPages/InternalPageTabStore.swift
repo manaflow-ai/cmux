@@ -211,14 +211,15 @@ final class InternalPageTabStore {
         pane.services.registry.track(Task { @MainActor [weak self, weak pane] () -> ActionWorkFailure? in
             do {
                 let (created, sequence) = try await create(handle, daemon, page.rawValue, route, transaction)
-                self?.storeTabCreated(provisional.id, as: created.key, surface: created.surface)
+                // Closed first (CancelledCreation): nothing moves to the store's tab, nothing is reported.
+                if !store.creations.wasCancelled(transaction) { self?.storeTabCreated(provisional.id, as: created.key, surface: created.surface) }
                 // The store's tab replaces the provisional one in one step, never beside it.
                 ProvisionalTab.created(transaction, surface: created.surface, in: store)
                 if let sequence { store.noteSettled(transaction, at: sequence) } else { store.noteSettledAtNextSnapshot(transaction) }
-                onCreated?(created.surface)
+                if !store.creations.wasCancelled(transaction) { onCreated?(created.surface) }
             } catch {
                 daemon.logger.error("new-conversation-tab (page) failed: \(String(describing: error), privacy: .public)")
-                self?.keepAsLocalTab(provisional.id, key: key, page: page, in: pane, store: store, window: window)
+                if !store.creations.wasCancelled(transaction) { self?.keepAsLocalTab(provisional.id, key: key, page: page, in: pane, store: store, window: window) }
                 store.rejectIntent(transaction)
             }
             return nil

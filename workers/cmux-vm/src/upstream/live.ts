@@ -7,11 +7,20 @@
  * composition root src/index.ts import this module.
  */
 import { Effect, Layer, Redacted, Schema } from "effect";
+import { initialNetworkBody } from "./initial-network.ts";
+import { makeUpstreamHttp } from "./live-http.ts";
+import { makeHttpsProxies } from "./live-https-proxies.ts";
+import { makeRetireVm } from "./live-retire.ts";
+import { makeStatFile } from "./live-file-stat.ts";
+import { vmInstanceIdentity } from "./live-identity.ts";
+import { makeDurableCreate } from "./live-create.ts";
+import { vmImageEvidenceOf } from "../proofs/vm-image.ts";
 import { UpstreamId } from "../lib/ids.ts";
 import type { Environment } from "../policy.ts";
 import { upstreamIdOf, type TenantOwnsResource } from "../proofs/tenant-owns-resource.ts";
 import {
   UpstreamClient,
+  resourceFloorsReached,
   UpstreamError,
   UpstreamVm,
   type FileRead,
@@ -23,6 +32,7 @@ import { upstreamName } from "./naming.ts";
 
 const CreatedVm = Schema.Struct({ id: UpstreamId, ...UpstreamVm.fields });
 const CreatedSnapshot = Schema.Struct({ snapshotId: UpstreamId });
+const ImageSnapshot = Schema.Struct({ id: UpstreamId });
 const DirListing = Schema.Struct({
   entries: Schema.Array(Schema.Struct({ name: Schema.String, kind: Schema.String })),
 });
@@ -198,36 +208,65 @@ export function makeUpstreamClient(config: UpstreamConfig): UpstreamClientServic
   const discardSnapshot = (id: UpstreamId) => deleteById("discardSnapshot", `/v5/snapshots/${encodeURIComponent(id)}`).pipe(Effect.ignore);
 
   return {
+    ...vmInstanceIdentity,
+    resizeVm: (_vm, { owns }, size) => Effect.flatMap(idOf(owns), (id) => Effect.gen(function* () {
+      const current = yield* getVmById("resizeVm", id);
+      if (size.diskMib !== undefined && size.diskMib > current.resources.storage && current.state !== "running") {
+        return yield* Effect.fail(new UpstreamError({ operation: "resizeVm", status: 409 }));
+      }
+      return yield* growVm(id, current, size).pipe(
+        Effect.flatMap((grown) => resourceFloorsReached(grown, size) ? Effect.succeed(grown) : Effect.fail(new UpstreamError({ operation: "resizeVm", status: null }))),
+        // An error can follow an applied or partially applied resize. Confirm before reporting failure.
+        Effect.catchAll((error) => getVmById("resizeVm", id).pipe(
+          Effect.catchAll(() => Effect.fail(error)),
+          Effect.flatMap((latest) => resourceFloorsReached(latest, size) ? Effect.succeed(latest) : Effect.fail(error)),
+        )),
+      );
+    })),
+    ...makeHttpsProxies(makeUpstreamHttp(config)),
+    ...makeRetireVm(makeUpstreamHttp(config)),
+    ...makeStatFile(makeUpstreamHttp(config)),
     getVm: (_vm, { owns }) => Effect.flatMap(idOf(owns), (id) => getVmById("getVm", id)),
 
     getVmForWrite: (_vm, { owns }) => Effect.flatMap(idOf(owns), (id) => getVmById("getVm", id)),
 
-    createVm: (caller, spec, { source }) => {
+    createVm: (caller, spec, proofs) => {
+      const { source, network, image } = proofs;
+      if (spec.journal) return makeDurableCreate(config, baseImageFor)(caller, spec, proofs);
       const sourceIdOf: Effect.Effect<UpstreamId | null> = source === undefined ? Effect.succeed(null) : idOf(source.owns);
-      return Effect.flatMap(sourceIdOf, (sourceId) => {
-      const tenantId = caller.value.tenantId;
-      const metadata: Record<string, string> = { cmux_id: spec.cmuxId, cmux_env: spec.environment };
-      // Stack team ids fit; the display name carries the tenant id regardless.
-      if (tenantId.length <= METADATA_VALUE_MAX) metadata["cmux_tenant"] = tenantId;
-      const body = {
-        displayName: upstreamName(config.environment, tenantId, spec.cmuxId),
-        idleTimeoutSeconds: spec.idleTimeoutSeconds,
-        ...(spec.maxRunSeconds === undefined ? {} : { maxRunSeconds: spec.maxRunSeconds }),
-        ...(spec.autoDeleteSeconds === undefined ? {} : { autoDeleteSeconds: spec.autoDeleteSeconds }),
-        metadata,
-        // Nothing implicit: no inbound and no outbound rules until networking endpoints add them.
-        firewall: { rules: [] },
-        ...(sourceId !== null
-          ? { snapshotId: sourceId }
-          : baseImageFor(spec.size) === null
-            ? {}
-            : { snapshotId: baseImageFor(spec.size) }),
-      };
-      return send("createVm", "/v5/vms", { method: "POST", json: body, timeoutMs: SLOW_TIMEOUT_MS }).pipe(
-        Effect.flatMap(json("createVm", CreatedVm)),
-        Effect.map(({ id, ...vm }) => ({ upstreamId: id, vm, discard: discardVm(id), grow: (size: SizeRequest) => growVm(id, vm, size) })),
-      );
-      });
+      return Effect.flatMap(sourceIdOf, (sourceId) => Effect.gen(function* () {
+        const imageId = image === undefined ? null : vmImageEvidenceOf(image).snapshotId;
+        if (sourceId !== null && imageId !== null) return yield* Effect.fail(new UpstreamError({ operation: "createVm", status: 400 }));
+        if (imageId !== null) {
+          const checked = yield* send("verifyBootImage", `/v5/snapshots/${encodeURIComponent(imageId)}`, { method: "GET" }).pipe(
+            Effect.flatMap(json("verifyBootImage", ImageSnapshot)),
+          );
+          // A mutable slug may resolve successfully, but is not an immutable approval.
+          if (checked.id !== imageId) return yield* Effect.fail(new UpstreamError({ operation: "verifyBootImage", status: null }));
+        }
+        const tenantId = caller.value.tenantId;
+        const metadata: Record<string, string> = { cmux_id: spec.cmuxId, cmux_env: spec.environment };
+        // Stack team ids fit; the display name carries the tenant id regardless.
+        if (tenantId.length <= METADATA_VALUE_MAX) metadata["cmux_tenant"] = tenantId;
+        const body = {
+          displayName: upstreamName(config.environment, tenantId, spec.cmuxId),
+          idleTimeoutSeconds: spec.idleTimeoutSeconds,
+          ...(spec.maxRunSeconds === undefined ? {} : { maxRunSeconds: spec.maxRunSeconds }),
+          ...(spec.autoDeleteSeconds === undefined ? {} : { autoDeleteSeconds: spec.autoDeleteSeconds }),
+          metadata,
+          // Omitted policy retains the existing no-network default.
+          ...initialNetworkBody(network),
+          ...(sourceId !== null
+            ? { snapshotId: sourceId }
+            : imageId !== null ? { snapshotId: imageId } : baseImageFor(spec.size) === null
+              ? {}
+              : { snapshotId: baseImageFor(spec.size) }),
+        };
+        return yield* send("createVm", "/v5/vms", { method: "POST", json: body, timeoutMs: SLOW_TIMEOUT_MS }).pipe(
+          Effect.flatMap(json("createVm", CreatedVm)),
+          Effect.map(({ id, ...vm }) => ({ upstreamId: id, vm, discard: discardVm(id), grow: (size: SizeRequest) => growVm(id, vm, size) })),
+        );
+      }));
     },
 
     startVm: (_vm, { owns }) => Effect.flatMap(idOf(owns), (id) => vmAction("startVm", id, "start")),

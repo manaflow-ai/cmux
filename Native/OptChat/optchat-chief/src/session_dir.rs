@@ -275,6 +275,15 @@ pub const CHIEF_CMUX_TOOLS: [&str; 15] = [
 /// turn's cache mark: 1,440 of its 2,905 uncached tokens, every turn.
 pub const TURN_TOOL_SERVERS: (&str, &str) = ("ACPMUX_AGENT_TOOL_SERVERS", "cmux");
 
+/// The turn presets' env that limits acpmux's `cmux` MCP server to
+/// `CHIEF_CMUX_TOOLS` (acpmux `agent_tools::MCP_TOOLS_ENV`).
+pub const TURN_TOOLS_ENV: &str = "CMUX_MCP_TOOLS";
+
+/// The code-mode tools of `cmux mcp serve`: a script reaches every cmux
+/// tool, so a turn always denies them, even when the server did not get
+/// `TURN_TOOLS_ENV`.
+const CODE_MODE_TOOLS: [&str; 2] = ["cmux_exec", "cmux_docs"];
+
 /// Deny rules for the other agent tool servers, the second guard for an
 /// acpmux without `TURN_TOOL_SERVERS` (their tools leave the list; their
 /// instructions stay).
@@ -327,9 +336,12 @@ pub fn cmux_tool_names(env: &BTreeMap<String, String>) -> Option<(Vec<String>, b
 
 /// Deny rules (`mcp__cmux__<name>`) for every name not in `CHIEF_CMUX_TOOLS`.
 fn deny_rules(names: Vec<String>) -> Vec<String> {
-    names
-        .into_iter()
-        .filter(|name| !CHIEF_CMUX_TOOLS.contains(&name.as_str()))
+    CODE_MODE_TOOLS
+        .iter()
+        .map(|name| (*name).to_owned())
+        .chain(names.into_iter().filter(|name| {
+            !CHIEF_CMUX_TOOLS.contains(&name.as_str()) && !CODE_MODE_TOOLS.contains(&name.as_str())
+        }))
         .map(|name| format!("mcp__cmux__{name}"))
         .collect()
 }
@@ -340,16 +352,17 @@ fn deny_rules(names: Vec<String>) -> Vec<String> {
 const PENDING: &str = "cmux-tools-pending.json";
 
 /// Deny rules for every cmux MCP tool of `env`'s CLI not in
-/// `CHIEF_CMUX_TOOLS`. When the list cannot be read, none: the turn keeps
-/// every tool (behind ToolSearch) and host.log says so. When the app's
+/// `CHIEF_CMUX_TOOLS`. When the list cannot be read, only the code-mode
+/// tools: the turn keeps every other tool (behind ToolSearch) and host.log
+/// says so. When the app's
 /// action tools were not in the list, `session` gets the pending marker.
 pub fn cmux_tool_denials(session: &Path, env: &BTreeMap<String, String>) -> Vec<String> {
     let pending = session.join(".claude").join(PENDING);
     let Some((names, app)) = cmux_tool_names(env) else {
         crate::log::log(
-            "reading the cmux MCP tool list (cmux --json mcp tools) failed; Chief turns keep every cmux tool",
+            "reading the cmux MCP tool list (cmux --json mcp tools) failed; Chief turns keep every cmux tool but cmux_exec and cmux_docs",
         );
-        return Vec::new();
+        return deny_rules(Vec::new());
     };
     if app {
         let _ = std::fs::remove_file(&pending);
@@ -508,8 +521,55 @@ pub fn write(paths: &Paths, setup: &SessionSetup) -> io::Result<()> {
     let chief = paths.bin.join("chief");
     write_if_changed(&chief, launcher(setup).as_bytes())?;
     std::fs::set_permissions(&chief, std::fs::Permissions::from_mode(0o755))?;
+    let claude = paths.bin.join("claude");
+    write_if_changed(&claude, CLAUDE_SHIM.as_bytes())?;
+    std::fs::set_permissions(&claude, std::fs::Permissions::from_mode(0o755))?;
     Ok(())
 }
+
+/// Variables a Claude harness plants in its own process env that must not
+/// reach a `claude` started from its shell: a subrouter account's Claude
+/// home (`CLAUDE_CONFIG_DIR`, whose settings name a dead local base URL,
+/// `http://127.0.0.1:1`), the harness's route and credentials, and the
+/// nested-session markers.
+pub const CLAUDE_SHIM_DROPPED_ENV: [&str; 8] = [
+    "CLAUDE_CONFIG_DIR",
+    "ANTHROPIC_BASE_URL",
+    "ANTHROPIC_AUTH_TOKEN",
+    "ANTHROPIC_API_KEY",
+    "ANTHROPIC_CUSTOM_HEADERS",
+    "CLAUDECODE",
+    "CLAUDE_CODE_ENTRYPOINT",
+    "CLAUDE_CODE_SSE_PORT",
+];
+
+/// `bin/claude`, first on the PATH of the Chief's turn and subagent
+/// sessions: a background agent a session starts with `claude` (no
+/// terminal) runs the user's own Claude CLI (the next `claude` on PATH)
+/// with the user's own config: `~/.claude/settings.json`, which Claude
+/// Code re-reads while it runs, and the user's login. Without it such an
+/// agent inherited the session's `CLAUDE_CONFIG_DIR` (a subrouter account's
+/// home) and retried a dead base URL until it timed out (a103,
+/// 2026-10-19). `CHIEF_KEEP_CLAUDE_ENV=1` keeps the inherited variables.
+pub const CLAUDE_SHIM: &str = r#"#!/bin/sh
+# optchat-chief: run the user's own Claude CLI with the user's own config
+# (session_dir.rs CLAUDE_SHIM).
+self_dir=$(cd "$(dirname "$0")" && pwd -P)
+PATH=$(printf '%s' "$PATH" | tr ':' '
+' | while IFS= read -r d; do
+  [ -n "$d" ] && [ "$(cd "$d" 2>/dev/null && pwd -P)" != "$self_dir" ] && printf '%s:' "$d"
+done)
+PATH=${PATH%:}
+export PATH
+if [ "${CHIEF_KEEP_CLAUDE_ENV:-}" != 1 ]; then
+  unset CLAUDE_CONFIG_DIR ANTHROPIC_BASE_URL ANTHROPIC_AUTH_TOKEN ANTHROPIC_API_KEY ANTHROPIC_CUSTOM_HEADERS CLAUDECODE CLAUDE_CODE_ENTRYPOINT CLAUDE_CODE_SSE_PORT
+fi
+if ! command -v claude >/dev/null 2>&1; then
+  echo "claude: not found on PATH (after the Chief's own bin)" >&2
+  exit 127
+fi
+exec claude "$@"
+"#;
 
 /// Writes every subagent's working directory (section 9): `.mcp.json`
 /// (zoom and date), the turn's project settings (no Task/Agent, no hooks,

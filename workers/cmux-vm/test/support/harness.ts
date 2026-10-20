@@ -13,11 +13,13 @@ import { makeMemoryWebhookDeliveryStore } from "../../src/db/identity.ts";
 import { ApiKeyStore, AuditStore, OwnershipStore, type ApiKeyRecord, type OwnedResource } from "../../src/db/stores.ts";
 import type { Scope } from "../../src/domain/scopes.ts";
 import { newApiKeyId, newSnapshotId, newVmId, TenantId, UpstreamId, UserId, type SnapshotId, type VmId } from "../../src/lib/ids.ts";
-import { memoryLimitsLayer } from "../../src/limits/service.ts";
+import { memoryLimitsLayer, type TenantLimits } from "../../src/limits/service.ts";
+import { StoreError } from "../../src/db/sql.ts";
 import { tenantPolicyLayer } from "../../src/policy.ts";
 import { Entitlements } from "../../src/proofs/tenant-may-create.ts";
 import { UpstreamClient } from "../../src/upstream/client.ts";
 import { makeUpstreamClient } from "../../src/upstream/live.ts";
+import { parseVmImages, VmImages } from "../../src/upstream/live-images.ts";
 import { makeFakeUpstream } from "./fake-upstream.ts";
 import { makeS3aFakes } from "./s3a-fakes.ts";
 import { TeamAdmin } from "../../src/auth/team-admin.ts";
@@ -31,6 +33,10 @@ const UPSTREAM_URL = "https://upstream.test";
 const UPSTREAM_KEY = "upstream-test-key";
 
 export interface HarnessOptions {
+  readonly limits?: Layer.Layer<TenantLimits>;
+  /** Operator-approved image configuration, as supplied to the Worker. */
+  readonly bootImages?: string;
+  readonly httpsProxyOrigins?: ReadonlyArray<string>;
   /** The deployment environment; every tenant is dev/test outside production. */
   readonly environment?: "local" | "staging" | "production";
   /** Tenants treated as dev/test in production. */
@@ -75,6 +81,7 @@ interface StoredKey extends ApiKeyRecord {
 
 export async function makeHarness(options: HarnessOptions = {}) {
   const resources: OwnedResource[] = [];
+  const recordFault = { before: 0, after: 0 };
   const keys: StoredKey[] = [];
   /** Service keys (cx-b4h.13), as parsed from the CMUX_VM_SERVICE_KEYS secret. */
   const serviceKeys: Array<{
@@ -85,9 +92,12 @@ export async function makeHarness(options: HarnessOptions = {}) {
     readonly teams: ReadonlyArray<string> | null;
   }> = [];
   const members = new Map<string, Set<string>>();
+  /** Stack server_metadata per team, as the server API returns it. */
+  const stackMetadata = new Map<string, unknown>();
   /** Team admins (Stack team_admin), per tenant. */
   const admins = new Map<string, Set<string>>();
   const upstream = makeFakeUpstream(UPSTREAM_KEY);
+  const upstreamClient = makeUpstreamClient({ baseUrl: UPSTREAM_URL, apiKey: Redacted.make(UPSTREAM_KEY), environment: "local", fetch: upstream.fetch });
   const upstreamRequests = upstream.calls;
   const audit: AuditRow[] = [];
   /** Tenants whose plan allows creating VMs. */
@@ -112,7 +122,7 @@ export async function makeHarness(options: HarnessOptions = {}) {
     const user = url.searchParams.get("user_id") ?? "";
     stackMembershipCalls.push(user);
     if (stackFailing.has(user)) return Response.json({ message: "injected failure" }, { status: 500 });
-    const items = [...members].filter(([, users]) => users.has(user)).map(([team]) => ({ id: team }));
+    const items = [...members].filter(([, users]) => users.has(user)).map(([team]) => ({ id: team, server_metadata: stackMetadata.get(team) ?? null }));
     return Response.json({ items });
   };
   const membershipCache = makeMemoryMembershipCache();
@@ -123,16 +133,27 @@ export async function makeHarness(options: HarnessOptions = {}) {
   const getKey = createLocalJWKSet({ keys: [jwk] });
 
   const ownership = Layer.succeed(OwnershipStore, {
+    allocationStatus: (tenantId, cmuxId) => Effect.sync(() => {
+      const row = resources.find((r) => r.tenantId === tenantId && r.kind === "vm" && r.cmuxId === cmuxId);
+      return !row ? "absent" as const : deleted.has(cmuxId) ? "deleted" as const : "live" as const;
+    }),
     find: (tenantId, kind, cmuxId) =>
       Effect.sync(() =>
         Option.fromNullable(resources.find((row) => row.tenantId === tenantId && row.kind === kind && row.cmuxId === cmuxId && live(row))),
       ),
-    record: (resource) => Effect.sync(() => void resources.push({ ...resource, createdAt: nextCreatedAt(resource.createdAt) })),
+    record: (resource) => Effect.gen(function* () {
+      if (resource.kind === "vm" && recordFault.before > 0) { recordFault.before--; return yield* Effect.fail(new StoreError({ operation: "ownership.record", cause: "injected before commit" })); }
+      const existing = resources.find((r) => r.cmuxId === resource.cmuxId);
+      if (existing && (existing.tenantId !== resource.tenantId || existing.kind !== resource.kind || existing.upstreamId !== resource.upstreamId || deleted.has(existing.cmuxId))) return yield* Effect.fail(new StoreError({ operation: "ownership.record", cause: "allocation identity conflict" }));
+      if (!existing) resources.push({ ...resource, createdAt: nextCreatedAt(resource.createdAt) });
+      if (resource.kind === "vm" && recordFault.after > 0) { recordFault.after--; return yield* Effect.fail(new StoreError({ operation: "ownership.record", cause: "injected lost commit reply" })); }
+    }),
     // Mirrors the SQL: tenant and kind, live rows, newest first by (created_at, cmux_id), keyset after a position.
     listPage: (tenantId, kind, page) =>
       Effect.sync(() =>
         resources
           .filter((row) => row.tenantId === tenantId && row.kind === kind && live(row))
+          .filter((row) => page.createdBy === undefined || row.createdBy === page.createdBy)
           .filter((row) => page.only === null || page.only.has(row.cmuxId))
           .filter((row) => page.labels === null || Object.entries(page.labels).every(([key, value]) => row.labels[key] === value))
           .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime() || (a.cmuxId < b.cmuxId ? 1 : -1))
@@ -149,6 +170,10 @@ export async function makeHarness(options: HarnessOptions = {}) {
       Effect.sync(() => {
         if (resources.some((row) => row.tenantId === tenantId && row.kind === kind && row.cmuxId === cmuxId)) deleted.add(cmuxId);
       }),
+    findDeleted: (tenantId, kind, cmuxId) =>
+      Effect.sync(() =>
+        Option.fromNullable(resources.find((row) => row.tenantId === tenantId && row.kind === kind && row.cmuxId === cmuxId && !live(row))),
+      ),
   });
 
   const auditStore = Layer.succeed(AuditStore, {
@@ -159,6 +184,7 @@ export async function makeHarness(options: HarnessOptions = {}) {
   });
 
   const policy = tenantPolicyLayer({
+    ...(options.httpsProxyOrigins === undefined ? {} : { httpsProxyOrigins: options.httpsProxyOrigins }),
     environment: options.environment ?? "local",
     ...(options.devTestTenants === undefined ? {} : { devTestTenantIds: options.devTestTenants }),
     ...(options.maxVms === undefined ? {} : { maxVms: options.maxVms }),
@@ -193,6 +219,7 @@ export async function makeHarness(options: HarnessOptions = {}) {
   const upstreamFetch = async (request: Request): Promise<Response> =>
     (await mesh.upstream(request)) ?? (await s3a.upstream(request)) ?? upstream.fetch(request);
 
+  let configuredImages = parseVmImages(options.bootImages).images;
   const services = Layer.mergeAll(
     ownership,
     apiKeys,
@@ -211,11 +238,12 @@ export async function makeHarness(options: HarnessOptions = {}) {
     }),
     auditStore,
     policy,
+    Layer.succeed(VmImages, { get images() { return configuredImages; } }),
     entitlements,
-    memoryLimitsLayer(),
+    options.limits ?? memoryLimitsLayer(),
     Layer.succeed(
       UpstreamClient,
-      makeUpstreamClient({ baseUrl: UPSTREAM_URL, apiKey: Redacted.make(UPSTREAM_KEY), environment: "local", fetch: upstream.fetch }),
+      upstreamClient,
     ),
     Layer.succeed(SessionVerifier, makeStackSessionVerifier({ apiUrl: STACK_API_URL, projectId: STACK_PROJECT_ID, getKey })),
     // The real membership client and shared positive cache (mesh M4), over a fake Stack teams API.
@@ -291,10 +319,16 @@ export async function makeHarness(options: HarnessOptions = {}) {
     /** Every upstream call, in order. */
     upstreamRequests,
     resources,
+    recordFault,
+    setProviderConfig(baseUrl = UPSTREAM_URL, apiKey = UPSTREAM_KEY) {
+      Object.assign(upstreamClient, makeUpstreamClient({ baseUrl, apiKey: Redacted.make(apiKey), environment: "local", fetch: upstream.fetch }));
+    },
     /** Whether the ownership row for `cmuxId` is marked deleted. */
     isDeleted: (cmuxId: string) => deleted.has(cmuxId),
     audit,
     /** Whether `tenant`'s plan allows creating VMs (team_alpha and team_bravo do by default). */
+    /** Simulates a redeployed operator catalog while retaining the tenant ledger. */
+    setBootImages(raw: string) { configuredImages = parseVmImages(raw).images; },
     setBilling(tenant: string, allowed: boolean) {
       if (allowed) billed.add(tenant);
       else billed.delete(tenant);
@@ -433,6 +467,10 @@ export async function makeHarness(options: HarnessOptions = {}) {
           body,
         }),
       );
+    },
+    /** Sets a team's Stack server_metadata (for example the cmux VM personal-tenant marker). */
+    setStackMetadata(tenant: string, metadata: unknown) {
+      stackMetadata.set(tenant, metadata);
     },
     addMember(tenant: string, user: string) {
       const set = members.get(tenant) ?? new Set<string>();

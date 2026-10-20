@@ -8,6 +8,9 @@ import { fireAlarm } from "./setup/alarm.ts"
  * tool step (spec 7), instead of waiting for the turn to end (parity run 2026-10-16: "12 x 12" was
  * answered 155 s later, by a second turn). One run answers both; its one reply answers the later
  * message. Fake model (SLOW streams over a few seconds), real Worker boundary.
+ * Several messages that arrive during one model call all join the next call (pi steering mode "all"):
+ * the u16 rerun of 2026-10-19 had 4-7 model calls for a burst of 8 notes, one per steered message,
+ * each reading the whole view again.
  */const testEnv = env as unknown as Record<string, any>
 const worker = (exports as unknown as { default: Fetcher }).default
 const sessionToken = async (sub: string) =>
@@ -50,5 +53,32 @@ describe("a message sent while a Cloud Chief turn runs joins that turn", { timeo
     const replies = (await history(token, chief.main_conversation)).filter((m) => m.author === chief.id)
     expect(replies).toHaveLength(1)
     expect(replies[0].parts[0].text).toContain("12 x 12")
+  })
+
+  it("several messages that come during one model call all join the next call, not one call each", async () => {
+    const token = await sessionToken("brain-steer-all")
+    const user = (await op(token, "user.ensure", {})).value.id as string
+    const chief = (await op(token, "chief.create", { display_name: "Steer All Chief" }, "chief-steer-all")).value as { id: string; main_conversation: string }
+    const userDO = testEnv.USER_DO.get(testEnv.USER_DO.idFromName(user))
+    let on = { status: 0, json: {} as any }
+    for (let i = 0; i < 20 && on.status !== 200; i++) [await fireAlarm(userDO), (on = await http("PUT", `/v1/chiefs/${chief.id}/brain`, token, { enabled: true }))]
+    const conv = testEnv.CONVERSATION_DO.get(testEnv.CONVERSATION_DO.idFromName(chief.main_conversation))
+    const runs = async () => (await http("GET", `/v1/chiefs/${chief.id}/runs?conversation=${chief.main_conversation}`, token)).json.value.runs as Array<any>
+    const send = async (key: string, text: string) => expect((await op(token, "message.send", { conversation: chief.main_conversation, client_msg_id: key, parts: [{ type: "text", text }] }, key)).ok).toBe(true)
+    // A long slow answer (about 7 s of fake streaming), so all three notes come during that one call.
+    await send("a0", `SLOW tell me about ${"releases ".repeat(100)}`)
+    for (let i = 0; i < 300 && !(await runs()).some((r) => r.status === "running"); i++) [await fireAlarm(conv), await new Promise((r) => setTimeout(r, 20))]
+    // Three notes, each its own wake (and its own steer), while the slow call streams.
+    for (const k of ["a1", "a2", "a3"]) {
+      await send(k, `note ${k}`)
+      for (let i = 0; i < 5; i++) [await fireAlarm(conv), await new Promise((r) => setTimeout(r, 20))]
+    }
+    for (let i = 0; i < 400 && !(await history(token, chief.main_conversation)).some((m) => m.author === chief.id); i++) [await fireAlarm(conv), await new Promise((r) => setTimeout(r, 20))]
+    for (let i = 0; i < 50; i++) [await fireAlarm(conv), await new Promise((r) => setTimeout(r, 20))]
+    const all = await runs()
+    expect(all.map((r) => r.status), JSON.stringify(all.map((r) => ({ id: r.id, s: r.status, a: r.answers })))).toEqual(["done"])
+    expect(all[0].answers).toHaveLength(4)
+    // The slow call, then one call that read all three notes.
+    expect(all[0].usage?.calls, JSON.stringify(all[0].usage)).toBe(2)
   })
 })
