@@ -1,5 +1,6 @@
 import Darwin
 public import Foundation
+import UniformTypeIdentifiers
 
 /// The page's requests for what a reply links to (decisions D4, D5, D6). Every value comes from
 /// untrusted reply text, so each method has fixed param keys (any other key is refused, like
@@ -112,7 +113,7 @@ public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
     }
 
     /// A file's text for `link.readPath`: at most ``maximumBytes`` (``truncated`` past that), and
-    /// no text for a binary file (a NUL in its first 8 KiB), which the page opens in a tab instead.
+    /// no text for known non-text types or a NUL in the first 8 KiB. Those open in a tab instead.
     struct FileText: Sendable {
         static let maximumBytes = 1 << 20
         let text: String?
@@ -128,13 +129,21 @@ public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
             defer { try? handle.close() }
             var info = stat()
             guard fstat(descriptor, &info) == 0, (info.st_mode & S_IFMT) == S_IFREG else { return nil }
+            let size = Int(clamping: info.st_size)
+            let nonText: [UTType] = [.image, .pdf, .audiovisualContent, .archive, .executable, .font]
+            if let type = UTType(filenameExtension: URL(fileURLWithPath: path).pathExtension.lowercased()),
+               nonText.contains(where: { type.conforms(to: $0) }) {
+                text = nil
+                bytes = size
+                truncated = false
+                return
+            }
             let body: Data
             do {
                 body = try handle.read(upToCount: Self.maximumBytes + 1) ?? Data()
             } catch {
                 return nil
             }
-            let size = Int(clamping: info.st_size)
             bytes = max(size, body.count)
             truncated = body.count > Self.maximumBytes
             let kept = body.prefix(Self.maximumBytes)
