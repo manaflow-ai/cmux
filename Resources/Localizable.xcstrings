@@ -658346,6 +658346,65 @@
           }
         }
       }
+    },
+    "cli.applicationPolicy.error": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to hide the bundled CLI from macOS application surfaces."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر إخفاء واجهة سطر الأوامر المضمّنة عن واجهات تطبيقات macOS."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die gebündelte CLI konnte nicht aus den macOS-Anwendungsoberflächen ausgeblendet werden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo ocultar la CLI incluida de las superficies de aplicaciones de macOS."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de masquer la CLI intégrée des surfaces d’application de macOS."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "バンドルされた CLI を macOS のアプリケーション表示から隠せませんでした。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "번들 CLI를 macOS 앱 표면에서 숨기지 못했습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法将内置 CLI 从 macOS 应用界面中隐藏。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法將內建 CLI 從 macOS 應用程式介面中隱藏。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

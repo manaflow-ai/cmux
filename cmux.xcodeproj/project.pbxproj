@@ -665,6 +665,8 @@
 		A0DD6EEA0656443ED94D975D /* CLIAgentHibernationTargetTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2B6FD335AD1A538E8DBB23D /* CLIAgentHibernationTargetTests.swift */; };
 		AE55A6E50000000000000005 /* CLIAgentMessageCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE55A6E50000000000000006 /* CLIAgentMessageCommandTests.swift */; };
 		9758A0000000000000000004 /* CLIAmpLifecycleIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9758A0000000000000000003 /* CLIAmpLifecycleIntegrationTests.swift */; };
+		C0DE19225000000000000001 /* CLIApplicationPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE19225000000000000002 /* CLIApplicationPolicy.swift */; };
+		C0DE19225000000000000003 /* CLIApplicationPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE19225000000000000002 /* CLIApplicationPolicy.swift */; };
 		A5D4120DA1B2C3D4E5F60718 /* CLIAuthAliasTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D4120EA1B2C3D4E5F60718 /* CLIAuthAliasTests.swift */; };
 		805500000000000000000001 /* CLIBrowserEvalOutputTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 805500000000000000000002 /* CLIBrowserEvalOutputTests.swift */; };
 		C0DE1274600000000000000B /* CLICallerWorkspaceDefaultTests+PullRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE1274600000000000000C /* CLICallerWorkspaceDefaultTests+PullRequest.swift */; };
@@ -5436,6 +5438,7 @@
 		A2B6FD335AD1A538E8DBB23D /* CLIAgentHibernationTargetTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CLIAgentHibernationTargetTests.swift"; sourceTree = "<group>"; };
 		AE55A6E50000000000000006 /* CLIAgentMessageCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIAgentMessageCommandTests.swift; sourceTree = "<group>"; };
 		9758A0000000000000000003 /* CLIAmpLifecycleIntegrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIAmpLifecycleIntegrationTests.swift; sourceTree = "<group>"; };
+		C0DE19225000000000000002 /* CLIApplicationPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIApplicationPolicy.swift; sourceTree = "<group>"; };
 		A5D4120EA1B2C3D4E5F60718 /* CLIAuthAliasTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIAuthAliasTests.swift; sourceTree = "<group>"; };
 		805500000000000000000002 /* CLIBrowserEvalOutputTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIBrowserEvalOutputTests.swift; sourceTree = "<group>"; };
 		C0DE1274600000000000000C /* CLICallerWorkspaceDefaultTests+PullRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CLICallerWorkspaceDefaultTests+PullRequest.swift"; sourceTree = "<group>"; };
@@ -12480,6 +12483,7 @@
 				C1A900000000000000000001 /* Commands */,
 				805500000000000000000003 /* BrowserValueTextFormatter.swift */,
 				B9000001A1B2C3D4E5F60719 /* cmux.swift */,
+				C0DE19225000000000000002 /* CLIApplicationPolicy.swift */,
 				C0DE18477000000000000002 /* RemoteTmuxInvocation.swift */,
 				D7AB12048000000000000002 /* CMUXCLI+RemoteWorkingDirectory.swift */,
 				C2538002A1B2C3D4E5F60719 /* CMUXCLI+TerminalCreation.swift */,
@@ -14826,6 +14830,7 @@
 				C117570000000000000000C1 /* ClaudeHookSessionStoreRecoveryTests.swift in Sources */,
 				C1175700000000000000003A /* ClaudeWrapperResumeEnvironmentTests.swift in Sources */,
 				AE55A6E50000000000000005 /* CLIAgentMessageCommandTests.swift in Sources */,
+				C0DE19225000000000000001 /* CLIApplicationPolicy.swift in Sources */,
 				C11757000000000000000042 /* CLIChildEnvironment.swift in Sources */,
 				C11757000000000000000028 /* CLIClaudeHookTimeoutRegressionTests.swift in Sources */,
 				C11757000000000000000029 /* CLICoderouterBootstrapTests.swift in Sources */,
@@ -17646,6 +17651,7 @@
 				D3AD00000000000000000002 /* ClaudeHookSessionStore+CodexTurnAdmission.swift in Sources */,
 				89930005AABBCCDDEEFF0001 /* ClaudeHookSessionStore+SupersededCleanup.swift in Sources */,
 				89930004AABBCCDDEEFF0001 /* ClaudeHookSessionStoreFile.swift in Sources */,
+				C0DE19225000000000000003 /* CLIApplicationPolicy.swift in Sources */,
 				C11218000000000000000052 /* CLIError.swift in Sources */,
 				C11218000000000000000054 /* CLIError.swift in Sources */,
 				B900004AA1B2C3D4E5F60719 /* CLISocketPathResolver.swift in Sources */,
