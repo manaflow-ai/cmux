@@ -241,7 +241,8 @@ enum HomeMapping {
 
     static func participants(_ summary: ConversationSummary?, me: ParticipantID) -> [Participant] {
         var out = (summary?.participants ?? []).map {
-            Participant(id: $0.id.rawValue, displayName: $0.displayName, isMe: $0.id == me, avatar: .monogram($0.initials))
+            // The name a person reads (never an internal id): a group transcript shows it over their bubbles.
+            Participant(id: $0.id.rawValue, displayName: $0.visibleName, isMe: $0.id == me, avatar: .monogram($0.initials))
         }
         if !out.contains(where: \.isMe) { out.append(Participant(id: me.rawValue, displayName: "", isMe: true, avatar: nil)) }
         return out
