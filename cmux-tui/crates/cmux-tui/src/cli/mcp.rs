@@ -153,6 +153,22 @@ pub(super) trait Backend {
         tick: Duration,
         on_wake: &mut dyn FnMut(Option<&Value>) -> bool,
     ) -> Result<(), CallFailure>;
+
+    /// A `cmux agents chat` verb: the daemon (agent messages, workspaces)
+    /// and acpmux (chats) together. A backend without both runs none.
+    fn chat(
+        &self,
+        _command: &super::agents::chat::ChatCommand,
+        _idempotency_key: Option<&str>,
+        _origin: &str,
+    ) -> Result<Value, CallFailure> {
+        Err(CallFailure {
+            kind: FailureKind::NotRun,
+            error: json!({"code": "chat.unavailable", "message": "this backend reaches no chats",
+                          "details": {}, "retryable": false}),
+            idempotency_key: None,
+        })
+    }
 }
 
 /// The CLI's transport, with the CLI's global options.
@@ -218,6 +234,15 @@ impl Backend for LiveBackend {
         mutation: bool,
     ) -> Result<Value, CallFailure> {
         transport::browser_host(request.method, request.params, request.timeout, mutation)
+    }
+
+    fn chat(
+        &self,
+        command: &super::agents::chat::ChatCommand,
+        idempotency_key: Option<&str>,
+        origin: &str,
+    ) -> Result<Value, CallFailure> {
+        super::agents::chat::run(&self.global, command, idempotency_key, origin)
     }
 }
 

@@ -171,6 +171,13 @@ extension AppActions {
     }
 
     private static func moveWorkspace(_ services: AppServices, _ invocation: ActionInvocation, by offset: Int) {
+        // A person's Move Up/Down on one of several selected rows moves them as one block, as Cmd-Opt-Up/Down does.
+        if invocation.origin == .user, let workspace = scope(services, invocation).workspace,
+           let sidebar = services.windows.registry.value.owner(of: workspace.id).flatMap(services.windows.controller(for:))?.sidebar.model,
+           case let id = SidebarWorkspaceID(workspace.id), sidebar.actionTargets(for: id).count > 1 {
+            sidebar.moveActionTargets(of: id, offset < 0 ? .up : .down)
+            return
+        }
         if services.machines.local.store.personal.isLoaded { return movePersonalWorkspace(services, invocation, by: offset) }
         let store = services.activeDaemon.store
         guard let workspace = scope(services, invocation).workspace, let key = workspace.key,

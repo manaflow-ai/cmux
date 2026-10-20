@@ -238,6 +238,13 @@ public final class SidebarModel {
     /// Selected ids in visual order.
     public var orderedSelection: [WorkspaceID] { SidebarEdits.treeOrder(selection, in: sections) }
 
+    /// What a row verb on `id` (Close, Pin, Duplicate, Move Up/Down, from its menu or a key) acts
+    /// on: the whole selection, in row order, when `id` is one of two or more selected rows;
+    /// otherwise `id` alone.
+    public func actionTargets(for id: WorkspaceID) -> [WorkspaceID] {
+        selection.count > 1 && selection.contains(id) ? orderedSelection : [id]
+    }
+
     /// What a close of `id` from its menu or a key closes: the selected rows that can close
     /// (`canClose`), in row order, when `id` is one of two or more of them; otherwise `id` alone.
     public func closeTargets(for id: WorkspaceID) -> [WorkspaceID] {
@@ -274,7 +281,7 @@ public final class SidebarModel {
         case let .switchProfile(id):
             activeProfileID = id
         case .activateItem, .installUpdate, .setAutomaticUpdates, .openUpdateLink, .openUpdateChanges, .dropOnLayoutSection, .noticeAction, .dismissNotice,
-             .openWhatsNew, .dismissUpdated, .nowPlaying:
+             .openWhatsNew, .dismissUpdated, .nowPlaying, .hideNowPlayingCard, .toggleWorkspaceAudio:
             break
         case let .layout(op):
             if case .success(let next) = SidebarLayoutReducer.reduce(layout, op) { layout = next }
@@ -459,8 +466,18 @@ public final class SidebarModel {
     /// boundary or while filtering.
     @discardableResult
     public func moveSelection(_ direction: KeyboardReorder.Direction) -> Bool {
-        guard !locksReorder else { return false }
-        let ids = orderedSelection
+        move(orderedSelection, direction)
+    }
+
+    /// Move Up/Down on row `id`: moves ``actionTargets(for:)`` one slot as one block, as
+    /// Cmd-Opt-Up/Down does. Returns false at a boundary or while reordering is locked.
+    @discardableResult
+    public func moveActionTargets(of id: WorkspaceID, _ direction: KeyboardReorder.Direction) -> Bool {
+        move(actionTargets(for: id), direction)
+    }
+
+    private func move(_ ids: [WorkspaceID], _ direction: KeyboardReorder.Direction) -> Bool {
+        guard !locksReorder, !ids.isEmpty else { return false }
         if isFiltering, let docDrag {
             guard docDrag.keyboardMove(ids, up: direction == .up, model: self) else { return false }
             noteUserMove()

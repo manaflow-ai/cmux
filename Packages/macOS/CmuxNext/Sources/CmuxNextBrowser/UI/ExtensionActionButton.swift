@@ -56,7 +56,7 @@ final class ExtensionActionButton: NSButton, PointerHoverReporting {
             icon.size = NSSize(width: size, height: size)
             image = icon
         } else {
-            let icon = NSImage.icon(.extension, size: .iconRowSize(forLabelPointSize: OmnibarStyle.buttonSymbolSize))
+            let icon = NSImage.icon(.browserToolbarExtensions, size: OmnibarStyle.toolbarIconSize)
             icon.accessibilityDescription = action.name
             image = icon
         }

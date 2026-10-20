@@ -47,6 +47,16 @@ public nonisolated struct CmuxDialogKeys {
         }
     }
 
+    /// The key that presses `button` in a dialog showing `spec`, the inverse of
+    /// ``action(for:modifiers:in:)``: Return for the default button, Escape for the
+    /// cancel button, else Command plus the button's `key`; nil when no key presses it.
+    public static func hint(for button: CmuxDialogButton, in spec: CmuxDialogSpec) -> CmuxDialogKeyHint? {
+        if spec.defaultButton?.id == button.id { return .return }
+        if spec.cancelButton?.id == button.id { return .escape }
+        guard let key = button.key, spec.buttons.first(where: { $0.key == key })?.id == button.id else { return nil }
+        return .command(key)
+    }
+
     /// The control after (or before) `current` among `count` controls,
     /// wrapping at both ends; with none focused, the first (or last).
     public static func focus(after current: Int?, count: Int, backward: Bool) -> Int? {

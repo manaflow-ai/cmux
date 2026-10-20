@@ -36,6 +36,17 @@ export type AcpmuxCompaction = {
 /// acpmux moved the chat onto its fallback harness after a usage limit (a `failover` record).
 export type AcpmuxFailover = { from: string; to: string };
 
+/// What the chat's agent runs on, from its own start line (Claude Code's system/init, acpmux's
+/// `session_info_update._meta.claude`): drawn once, where the session started
+/// (conversation/SessionStartNote.tsx). `harness` and `cwd` are the chat's when the line came.
+export type AcpmuxSessionStart = {
+  agent: "claude";
+  version: string;
+  model?: string;
+  harness?: string;
+  cwd?: string;
+};
+
 export type QueuedPrompt = { id: string; prompt: string; next?: boolean };
 /// An image a prompt sent: `_acpmux/attachment {sessionId, id}` reads its bytes back.
 export type PromptImage = { id: string; mimeType: string; name?: string };
@@ -60,6 +71,8 @@ export type AcpmuxRow = {
   compaction?: AcpmuxCompaction;
   /// A failover row's harnesses.
   failover?: AcpmuxFailover;
+  /// A session start row's agent, version, model, route and folder.
+  sessionStart?: AcpmuxSessionStart;
   /// A suggested tasks card's offers (offer/SuggestedTasks.tsx): the offers of one group, in the
   /// order the agent made them, or one offer made without a group.
   offers?: AcpmuxSessionOffer[];
@@ -71,6 +84,9 @@ export type AcpmuxRow = {
   checkpoint?: SummaryCheckpoint;
   /// A sent prompt's images, as acpmux names them in its user_message (hub/prompt_images.rs).
   images?: PromptImage[];
+  /// Who sent a prompt that the reader did not type here: `chief` for the Chief's task, tell,
+  /// steer or restart message to a subagent (its `user_message` promptId `optchat-<kind>:…`).
+  from?: "chief";
   /// The originating prompt row, so Retry can restore image/PDF attachments.
   retryRowId?: string;
   retryAttachments?: ComposerAttachment[];
@@ -232,6 +248,8 @@ export type AcpmuxSnapshot = {
   sessions: AcpmuxSessionEntry[];
   /** Connected peer names advertised by the acpmux daemon, including peers without chats yet. */
   peers?: string[];
+  /// Each peer's transport by name: `ssh` for an `ssh://` peer, `cloud` for any other (environments.ts).
+  peerKinds?: Record<string, "ssh" | "cloud">;
   /// The open chat is a fork: the seq of its `forked` event, where the copied history ends (cx-ncc.61).
   forkedAtSeq?: number;
   summary?: {
@@ -287,6 +305,9 @@ export type AcpmuxSnapshot = {
   /// wire to a chat on another machine lists `acp.trust.set` (cx-1bhjj); acpmux never lists it,
   /// so a remote browser still cannot answer.
   answersTrust?: boolean;
+  /// The client has read the daemon's chat list once: `sessions` is the daemon's, not the empty
+  /// list a connection starts with (newtab/chatStore.ts publishes only such a list).
+  listedSessions?: true;
   sessionId?: string;
   isWorking: boolean;
   /// This computer's clock minus the session's, for a session on a peer (SSH, Cloud) whose
@@ -481,7 +502,8 @@ function fallbackRowHeight(row: AcpmuxRow, width: number): number {
   // The 20px date line with 8px above it.
   if (row.kind === DATE) return 36;
   // The preview card: its 58px head over the thumbnail, and 6px below (PreviewCard.tsx).
-  if (row.kind === PREVIEW) return 58 + PREVIEW_FRAME_HEIGHT + 6 + 8;
+  // A gallery stage's live frame is taller (previewFrameHeight).
+  if (row.kind === PREVIEW) return 58 + (row.text ? previewFrameHeight(row.text) : PREVIEW_FRAME_HEIGHT) + 6 + 8;
   // The render card: its 36px head over the frame before it reports a height, and 6px below.
   if (row.kind === RENDER) return 36 + RENDER_FRAME_MIN_HEIGHT + 6;
   // Card padding and border, title, button row.
@@ -493,6 +515,8 @@ function fallbackRowHeight(row: AcpmuxRow, width: number): number {
     const started = row.offers.filter((offer) => offer.outcome === "accepted").length;
     return 8 + 8 + 28 + open * 84 + started * 30;
   }
+  // A session start: its facts line, and the compaction note under it until it is dismissed.
+  if (row.kind === "sessionStart") return 37 + 44;
   // The plan's 20px progress line over its 22px items, inside 8px margins (conversation/PlanList.tsx).
   if (row.kind === "plan" && row.plan) return 24 + 20 + row.plan.length * 22;
   if (
@@ -623,7 +647,8 @@ function lexIncrementally(entry: PreparedRow, text: string): void {
 function measuredRowHeight(row: AcpmuxRow, width: number, cache: Map<string, PreparedRow>): number {
   // A task's result is one 26px line, however long the prompt that brought it (offer/SuggestedTasks.tsx).
   if (row.received) return 26 + 16;
-  if (!row.text) return fallbackRowHeight(row, width);
+  // A preview row's text is its address, not prose: the card's height is fixed.
+  if (!row.text || row.kind === PREVIEW) return fallbackRowHeight(row, width);
   let entry = cache.get(row.id);
   if (!entry) {
     entry = { text: "", blocks: [], closedBlocks: [], closedEnd: 0, lexedLength: 0, prepared: new Map() };
@@ -773,7 +798,7 @@ export function scrollLeadRanges(
 import { layout, prepare, type PreparedText } from "@chenglou/pretext";
 import { lexer, type Token, type Tokens } from "marked";
 import { isFoldedRun } from "./conversation/toolRunSummary";
-import { PREVIEW_FRAME_HEIGHT } from "./conversation/previewUrl";
+import { PREVIEW_FRAME_HEIGHT, previewFrameHeight } from "./conversation/previewUrl";
 import { RENDER_FRAME_MIN_HEIGHT } from "./conversation/renderCall";
 import { DATE, isFoldedCopy, PREVIEW, RENDER, THINKING, WORKED, WORKING } from "./conversation/turns";
 import type { AcpmuxSessionEntry } from "./sessionList";

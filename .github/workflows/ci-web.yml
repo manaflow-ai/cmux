@@ -12,6 +12,12 @@ on:
       agent_session_web:
         required: true
         type: string
+      # A push's event.before (cmux-next-web.yml): subareas route from the whole push, not
+      # only its last commit. Empty on pull requests, which route from the merge commit.
+      push_base:
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -36,10 +42,18 @@ jobs:
           fetch-depth: 2
           persist-credentials: false
 
+      # The push base is not in a depth-2 clone; fetch it alone (an unknown one runs everything).
+      - name: Fetch the push base
+        if: ${{ inputs.push_base != '' }}
+        env:
+          PUSH_BASE: ${{ inputs.push_base }}
+        run: git fetch --no-tags --depth=1 origin "$PUSH_BASE" || echo "::warning title=web routing::push base $PUSH_BASE is not fetchable; every web subarea runs"
+
       - name: Classify web subareas
         id: scope
         env:
           EVENT_NAME: ${{ github.event_name }}
+          WEB_SUBAREAS_BASE: ${{ inputs.push_base }}
         run: python3 scripts/ci/web_subareas.py route
 
   web-typecheck:
@@ -241,14 +255,17 @@ jobs:
     needs: web-subarea-scope
     if: ${{ inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}
     # `bun test` grows memory across the suite and was SIGKILLed (exit 137) on the
-    # 4 vCPU runner (run 37666132324), so this job takes the 8 vCPU size, which
-    # has twice the memory. Fork pull requests run the same suite on it.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-8vcpu-ubuntu-2404' }}
+    # 4 vCPU runner (run 37666132324). The 32 vCPU size has the memory and runs
+    # 32 files and 8 dev-server files at once (run-webviews-tests.sh). Fork pull
+    # requests run the same suite on the hosted runner.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-32vcpu-ubuntu-2404' }}
     # The 10-minute siblings in this workflow, plus the browser engines and the
-    # browser-lane suites they run. The full suite grew to 22 min in one process;
-    # two deterministic file shards keep per-file isolation while shortening the
-    # critical path. Keep the existing cap until hosted timing proves a tighter
-    # bound for the shard with the longer browser files.
+    # browser-lane suites they run. The full suite grew to 22 min in one process.
+    # Deterministic file shards keep per-file isolation. Each shard warms one
+    # Vite cache per dev-server config, cold, so many small shards each paid
+    # that warm-up and ran their dev-server files two at a time: 12 shards on
+    # 8 vCPU took 14.3 min (run 39347314726), barely under 2 shards' 15.5.
+    # Fewer, wider shards share each warm cache across more files.
     timeout-minutes: 40
     name: react-apps-check (${{ matrix.shard }})
     strategy:
@@ -256,9 +273,13 @@ jobs:
       matrix:
         include:
           - shard: 1
-            shard_count: 2
+            shard_count: 4
           - shard: 2
-            shard_count: 2
+            shard_count: 4
+          - shard: 3
+            shard_count: 4
+          - shard: 4
+            shard_count: 4
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -309,17 +330,35 @@ jobs:
       - name: Build the web bundles
         run: ./scripts/cmux-next/build-web-bundles.sh --force
 
+      # The checks below are gates, not builds: each records its outcome and the
+      # last step fails the job on any of them, so a lint, format, budget or
+      # compiler miss does not hide the webview test results. A failed bundle
+      # build or engine install still stops everything after it.
       # ci-guards runs this on main; feat-cmux-next PRs skip ci-guards.
+      # The checks from here to the engines do not depend on the shard, so
+      # they run once, on shard 1: one red check, not one per shard.
       - name: Generated bundle merge driver
+        id: merge-driver
+        if: matrix.shard == 1
+        continue-on-error: true
         run: python3 tests/test_install_git_hooks.py
 
       - name: Check diff viewer eager JS budget
+        id: eager-js-budget
+        if: matrix.shard == 1
+        continue-on-error: true
         run: node ./scripts/check-webviews-diff-budget.mjs
 
       - name: Verify React Compiler for webviews
+        id: react-compiler
+        if: matrix.shard == 1
+        continue-on-error: true
         run: ./scripts/check-webviews-react-compiler.mjs
 
       - name: Check webviews (Oxlint, Oxfmt, type check)
+        id: webviews-check
+        if: matrix.shard == 1
+        continue-on-error: true
         working-directory: webviews
         run: bun run check
 
@@ -330,7 +369,9 @@ jobs:
         run: ./node_modules/.bin/playwright install --with-deps --only-shell chromium webkit
 
       - name: Check PR-scoped webview rules
+        id: pr-scoped-rules
         if: matrix.shard == 1
+        continue-on-error: true
         run: python3 scripts/tests/test_pr_scoped_webviews_checks.py
 
       # One bun process per test file with a per-file timeout: a single
@@ -341,6 +382,30 @@ jobs:
           CMUX_WEB_TEST_SHARD: ${{ matrix.shard }}
           CMUX_WEB_TEST_SHARD_COUNT: ${{ matrix.shard_count }}
         run: ../scripts/ci/run-webviews-tests.sh
+
+      - name: Fail on the gate checks
+        if: ${{ !cancelled() }}
+        env:
+          MERGE_DRIVER: ${{ steps.merge-driver.outcome }}
+          EAGER_JS_BUDGET: ${{ steps.eager-js-budget.outcome }}
+          REACT_COMPILER: ${{ steps.react-compiler.outcome }}
+          WEBVIEWS_CHECK: ${{ steps.webviews-check.outcome }}
+          PR_SCOPED_RULES: ${{ steps.pr-scoped-rules.outcome }}
+        run: |
+          failed=0
+          for gate in \
+            "MERGE_DRIVER|Generated bundle merge driver" \
+            "EAGER_JS_BUDGET|Check diff viewer eager JS budget" \
+            "REACT_COMPILER|Verify React Compiler for webviews" \
+            "WEBVIEWS_CHECK|Check webviews (Oxlint, Oxfmt, type check)" \
+            "PR_SCOPED_RULES|Check PR-scoped webview rules"; do
+            var="${gate%%|*}"
+            if [ "${!var}" = "failure" ]; then
+              echo "::error::Gate failed; see the step '${gate#*|}'."
+              failed=1
+            fi
+          done
+          exit "$failed"
 
   # React Doctor is independent of the per-file browser tests. Keep it on its
   # own required lane so the long-running shard 1 does not serialize this
@@ -442,11 +507,18 @@ jobs:
         working-directory: webviews
         run: bun install --frozen-lockfile
 
-      - name: Check Rust sidecar
+      # Format and clippy are gates: a miss is recorded and fails the job in the
+      # last step, so it no longer hides the cargo tests and checks below.
+      - name: Lint Rust sidecar (fmt, clippy)
+        id: sidecar-lint
+        continue-on-error: true
         run: |
           ./scripts/run-diff-sidecar-cargo.sh fmt --manifest-path Native/DiffSidecar/Cargo.toml --all --check
           ./scripts/run-diff-sidecar-cargo.sh clippy --manifest-path Native/DiffSidecar/Cargo.toml --all-targets --locked --no-default-features -- -D warnings
           ./scripts/run-diff-sidecar-cargo.sh clippy --manifest-path Native/DiffSidecar/Cargo.toml --all-targets --all-features --locked -- -D warnings
+
+      - name: Test Rust sidecar
+        run: |
           ./scripts/run-diff-sidecar-cargo.sh test --manifest-path Native/DiffSidecar/Cargo.toml --all-targets --locked --no-default-features
           ./scripts/run-diff-sidecar-cargo.sh test --manifest-path Native/DiffSidecar/Cargo.toml --all-targets --all-features --locked
 
@@ -457,6 +529,12 @@ jobs:
         env:
           CMUX_DIFF_WEB_BENCH_ITERATIONS: "10"
         run: ./scripts/benchmark-diff-viewer.sh
+
+      - name: Fail on the Rust sidecar lint
+        if: ${{ !cancelled() && steps.sidecar-lint.outcome == 'failure' }}
+        run: |
+          echo "::error::Rust sidecar fmt or clippy failed; see the step 'Lint Rust sidecar (fmt, clippy)'."
+          exit 1
 
   web-db-migrations:
     needs: web-subarea-scope

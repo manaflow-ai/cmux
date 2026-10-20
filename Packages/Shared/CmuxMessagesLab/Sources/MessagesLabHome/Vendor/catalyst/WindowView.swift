@@ -1513,7 +1513,14 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         for case let cell as RowCell in collection.visibleCells {
             if let b = map[cell.key] { cell.renameRow(to: b) }
         }
+        onRowsRenamed(map)
     }
+
+    /// cmux: rows renamed in place (a stream's final message took its rows), old key -> new key; the
+    /// transcript selection follows (TranscriptSelection.renameRows).
+    var onRowsRenamed: ([String: String]) -> Void = { _ in }
+    /// cmux: a cell was configured for a row (decorate); the transcript selection draws its part in it.
+    var onCellDecorated: (RowCell) -> Void = { _ in }
 
     /// Live container motions: (displacement, spring, begin, end, rows it covered). A row that
     /// shows up while one runs (inserted later, or outside its band) gets the opposite motion,
@@ -1886,7 +1893,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
             cell.setConnector(top: nil, bottom: 0, mirrored: false)
         }
         step(1)
-        defer { CustomRows.host?.decorated(cell) }
+        defer { CustomRows.host?.decorated(cell); onCellDecorated(cell) }
         for e in ledger.live(r.spec.key) where !cell.applied.contains(e.id) {
             cell.applied.insert(e.id)
             // The previous receipt text is drawn once, when its fade starts on this cell.

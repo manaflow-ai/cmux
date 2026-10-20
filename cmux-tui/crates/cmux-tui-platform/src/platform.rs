@@ -1368,5 +1368,8 @@ fn restrict_permissions(_path: &Path, _mode: u32) -> std::io::Result<()> {
     Ok(())
 }
 
+mod codex_daemon;
+pub use codex_daemon::descends_from_codex_app_server_daemon;
+
 #[cfg(test)]
 mod tests;

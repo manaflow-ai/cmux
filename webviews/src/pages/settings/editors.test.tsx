@@ -35,6 +35,7 @@ function editorProblem(row: SchemaRow, control: Element): string | null {
     case "color":
       return has('input[type="color"]') && has("input.hex") ? null : "no swatch + hex field";
     case "theme":
+      return has("[data-theme-picker]") ? null : "no theme picker";
     case "font_family":
       return has("button.domain-button") ? null : "no searchable list";
     case "sound":
@@ -57,6 +58,7 @@ function editorProblem(row: SchemaRow, control: Element): string | null {
           ? null
           : "no token field";
     case "number_list":
+      return has("input.token-input") ? null : "no number token field";
     case "string_map":
       return "a kind the cmux-next page never renders";
   }
@@ -71,6 +73,12 @@ describe("editors", () => {
         // The Theme section draws appearance.theme as its theme picker.
         if (row.key === "appearance.theme" || row.key === "appearance.appTheme") {
           if (!page.container.querySelector("[data-theme-picker]")) failures.push(`${row.key}: no theme picker`);
+          continue;
+        }
+        // The Theme section draws appearance.accent as its swatch popup.
+        if (row.key === "appearance.accent") {
+          if (!page.container.querySelector('[data-card="theme"] [data-accent-picker]'))
+            failures.push(`${row.key}: no accent picker`);
           continue;
         }
         // Change Background…'s art picker draws appearance.background as its tiles.
@@ -161,6 +169,20 @@ describe("editors", () => {
     await changeValue(field, "500");
     await fire(field, "keydown", { key: "Enter" });
     expect(ops(page.provider, "cmux.settings.set")).toEqual([{ key: "terminal.fontSize", value: 96 }]);
+  });
+
+  test("a number list adds a number in range on Return and refuses one outside it", async () => {
+    page = await renderPage({ path: "/settings/editor" });
+    const row = () => rowElement(page!.container, "editor.rulers");
+    const field = () => row().querySelector<HTMLInputElement>("input.token-input")!;
+    await changeValue(field(), "5000");
+    await fire(field(), "keydown", { key: "Enter" });
+    expect(ops(page.provider, "cmux.settings.set")).toEqual([]);
+    expect(row().querySelector("[role=alert]")).not.toBeNull();
+    await changeValue(field(), "80");
+    await fire(field(), "keydown", { key: "Enter" });
+    expect(ops(page.provider, "cmux.settings.set")).toEqual([{ key: "editor.rulers", value: [80] }]);
+    expect(row().querySelector("[role=alert]")).toBeNull();
   });
 
   test("a managed row shows its value, a disabled control and a localized lock line", async () => {
