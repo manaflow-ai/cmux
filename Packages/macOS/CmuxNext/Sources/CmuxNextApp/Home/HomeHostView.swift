@@ -42,6 +42,8 @@ final class HomeHostView: NSView {
     private var isWorking = false
     /// Where this Chief runs and its other host, for the settings card (no floating switch over the chat).
     private var hostWatch: Task<Void, Never>?
+    /// Where attachments open and their right-click menu (the transcript holds it weakly).
+    private var fileActions: HomeFileActions?
 
     init(services: AppServices, conversation: String) {
         let service = services.home
@@ -100,7 +102,15 @@ final class HomeHostView: NSView {
         let registry = services.registry
         transcript.onStop = { _ = registry.perform(HomeChiefControl.stopAction, invocation: ActionInvocation(origin: .user)) }
         // A cmux app link (a workspace, pane, tab, chat or Chief subagent): opened here, through link.open.
-        transcript.onAppLink = { [weak services] url in if let services { CmuxAppLinks.open(url, services: services) } }
+        // An attachment or a path link opens in cmux on the right of Home, never in Finder (a
+        // folder in a Files tab); right-click has Open With (HomeFileActions).
+        let fileActions = HomeFileActions(services: services)
+        self.fileActions = fileActions
+        transcript.fileHost = fileActions
+        transcript.onAppLink = { [weak services, weak fileActions] url in
+            if url.isFileURL, url.path.hasPrefix("/") { fileActions?.open(URL(fileURLWithPath: url.path)); return }
+            if let services { CmuxAppLinks.open(url, services: services) }
+        }
         // A link chip's hover card: the app's one coordinator, the target's live facts.
         transcript.enableLinkPreviews(coordinator: services.hoverCards, previewer: HomeLinkPreviewProvider(services: services))
         // Beside the pane showing this chat (the Home dock's: the first pane on its right), never the focused pane.

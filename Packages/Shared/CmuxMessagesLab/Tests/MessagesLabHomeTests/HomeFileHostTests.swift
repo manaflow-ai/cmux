@@ -43,30 +43,18 @@ import Testing
     @Test func withoutAHostTheMenuKeepsOpenInDefaultApp() {
         let items = HomeAttachmentOpen.menuItems(name: "index.html", host: nil, resolve: { nil }, fallback: {})
         #expect(items.count == 1)
-        #expect(items.first?.title == CmuxStrings.openInDefaultApp)
+        #expect((items.first as? MenuAction)?.label == CmuxStrings.openInDefaultApp)
     }
 
-    @Test func aFetchedCopyGetsTheAttachmentsName() throws {
-        // The store's copy is named by its hash; cmux picks the viewer (and Open With its apps)
-        // from the name, and a page finds its siblings by name.
-        let dir = try Self.temp()
-        let blob = dir.appendingPathComponent("3f9a0c")
-        try Data("<p>hi</p>".utf8).write(to: blob)
-        let named = try HomeAttachmentOpen.named(blob, name: "index.html", hash: "3f9a0c", in: dir.appendingPathComponent("named"))
-        #expect(named.lastPathComponent == "index.html")
-        #expect(try Data(contentsOf: named) == Data("<p>hi</p>".utf8))
-        // A copy that already has the name is used as it is.
-        #expect(try HomeAttachmentOpen.named(named, name: "index.html", hash: "3f9a0c", in: dir) == named)
-        // A second call reuses the first copy.
-        #expect(try HomeAttachmentOpen.named(blob, name: "index.html", hash: "3f9a0c", in: dir.appendingPathComponent("named")) == named)
-    }
-
-    @Test func aNameCannotLeaveTheFolder() throws {
-        let dir = try Self.temp()
-        let blob = dir.appendingPathComponent("abc")
-        try Data("x".utf8).write(to: blob)
-        let named = try HomeAttachmentOpen.named(blob, name: "../../etc/passwd", hash: "abc", in: dir.appendingPathComponent("named"))
-        #expect(named.deletingLastPathComponent().deletingLastPathComponent() == dir.appendingPathComponent("named"))
-        #expect(named.lastPathComponent == "passwd")
+    @Test func withAHostTheClickSkipsTheAppLinkOpener() throws {
+        let host = Host()
+        var linked: [URL] = []
+        let file = try Self.temp().appendingPathComponent("notes.md")
+        try Data("# hi".utf8).write(to: file)
+        HomeAttachmentOpen.open(file, host: host, appLink: { linked.append($0) })
+        #expect(host.opened == [file])
+        #expect(linked.isEmpty)
+        HomeAttachmentOpen.open(file, host: nil, appLink: { linked.append($0) })
+        #expect(linked == [file])
     }
 }

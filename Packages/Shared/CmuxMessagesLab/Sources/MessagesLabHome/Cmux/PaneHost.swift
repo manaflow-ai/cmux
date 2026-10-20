@@ -326,6 +326,9 @@ final class ChatController: NSObject, NSTextViewDelegate {
     /// event monitor tracks the rest), with no text selection, click or tapback hold here. Nil (or
     /// false): the press selects text as before.
     var onDragLink: ((_ url: URL, _ screenPoint: CGPoint) -> Bool)?
+    /// cmux: where attachments open and what their right-click menu offers (HomeFileHost); nil
+    /// keeps the system open.
+    weak var fileHost: HomeFileHost?
     /// cmux: one-shot wake-ups on the host's timer (CmuxNext: DemandTimer).
     let wake: ChatWakeScheduler
     private var wakeAt = Double.infinity
