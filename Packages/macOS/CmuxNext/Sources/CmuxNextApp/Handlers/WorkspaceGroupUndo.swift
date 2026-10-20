@@ -23,7 +23,7 @@ enum WorkspaceGroupUndo {
                        toast: Bool = true) throws {
         let group = try context.group(invocation)
         let sidebar = try context.sidebar()
-        let id = CmuxNextSidebar.GroupID(group.id.rawValue)
+        let id = WorkspaceGroupHandlers.sidebarID(group)
         let restore = SidebarGroupRestore.capture(id, in: sidebar.model.sections)
         sidebar.handle(.ungroup(id))
         guard invocation.origin == .user, let restore, let window = context.activeWindow?.window else { return }

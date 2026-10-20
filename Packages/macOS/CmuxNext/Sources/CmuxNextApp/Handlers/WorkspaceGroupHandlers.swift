@@ -160,7 +160,7 @@ enum WorkspaceGroupHandlers {
 
     /// The group's sidebar id: on the sidebar document its group item (`itm_g_<id>` for a group
     /// from the personal store), else its personal id.
-    private static func sidebarID(_ group: WorkspaceGroupModel) -> CmuxNextSidebar.GroupID {
+    static func sidebarID(_ group: WorkspaceGroupModel) -> CmuxNextSidebar.GroupID {
         CmuxNextSidebar.GroupID(SidebarDocStore.activeRecords?.groupItem(personal: group.id.rawValue) ?? group.id.rawValue)
     }
 
@@ -199,7 +199,7 @@ enum WorkspaceGroupHandlers {
         for step in 1...groups.count {
             let index = (start + offset * step + groups.count * 2) % groups.count
             let target = groups[index]
-            if let workspace = sidebar.model.group(CmuxNextSidebar.GroupID(target.id.rawValue)).flatMap(WorkspaceGroupFocus.firstWorkspace) {
+            if let workspace = sidebar.model.group(sidebarID(target)).flatMap(WorkspaceGroupFocus.firstWorkspace) {
                 context.services.windows.show(workspaceID: workspace.rawValue, in: window.state)
                 return
             }
