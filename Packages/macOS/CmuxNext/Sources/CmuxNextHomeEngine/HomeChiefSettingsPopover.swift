@@ -13,8 +13,6 @@ public final class HomeChiefSettingsPopover {
     private let popup = NativePopupHost(panel: NativePopupPanel(identifier: "cmux.home.chiefSettings"))
     private let card: OverlaySurfaceView
     private weak var anchor: NSView?
-    /// The timestamp of the event that last dismissed the card.
-    private var dismissStamp: TimeInterval?
 
     public init(content: HomeChiefSettingsView) {
         self.content = content
@@ -27,7 +25,6 @@ public final class HomeChiefSettingsPopover {
         card = Glass.makeOverlayPanel(content: body, cornerRadius: PopupStyle.standard.cornerRadius)
         popup.panel.adoptPopupStyle(card: card)
         popup.onDismiss = { [weak self] in
-            self?.dismissStamp = NSApp.currentEvent?.timestamp
             self?.content.commitEditing()
         }
         content.onResize = { [weak self] in self?.resize() }
@@ -38,25 +35,22 @@ public final class HomeChiefSettingsPopover {
     /// The popover is on screen and not closing.
     public var isShown: Bool { popup.isShown }
 
-    /// The event being handled is the press that just dismissed the card (a
-    /// click on the header avatar, which also toggles it): it must not reopen it.
-    public var closedByCurrentEvent: Bool {
-        guard let dismissStamp, let now = NSApp.currentEvent?.timestamp else { return false }
-        return now == dismissStamp
-    }
-
-    /// Opens the card under `anchor` (the name pill), in its theme. Returns
+    /// Opens the card under `anchor` (the name pill), in its theme. A press on
+    /// one of `toggles` (the pill, the header avatar) closes it through the
+    /// toggle, not the click monitor, so that press never reopens it. Returns
     /// false when it cannot show (no visible window).
     @discardableResult
-    public func show(relativeTo anchor: NSView) -> Bool {
+    public func show(relativeTo anchor: NSView, toggles: [NSView]) -> Bool {
         guard let window = anchor.window else { return false }
         self.anchor = anchor
         popup.panel.adoptThemeScope(of: anchor)
         card.applyTheme()
-        // A press on the pill toggles the card: the pill closes it, not the click monitor.
-        popup.keepsOpen = { [weak anchor] event in
-            guard let anchor, event.window === anchor.window else { return false }
-            return anchor.bounds.contains(anchor.convert(event.locationInWindow, from: nil))
+        let toggles = toggles.map { WeakView(view: $0) }
+        popup.keepsOpen = { event in
+            toggles.contains { toggle in
+                guard let view = toggle.view, !view.isHiddenOrHasHiddenAncestor, event.window === view.window else { return false }
+                return view.bounds.contains(view.convert(event.locationInWindow, from: nil))
+            }
         }
         let rect = window.convertToScreen(anchor.convert(CmuxPopoverAnchor.rect(in: anchor), to: nil))
         return popup.show(size: size(), anchor: rect, in: window, preferred: .below, makeKey: true) != nil
@@ -81,4 +75,9 @@ public final class HomeChiefSettingsPopover {
         let fitting = content.fittingSize
         return CGSize(width: HomeChiefSettingsView.width, height: ceil(fitting.height))
     }
+}
+
+/// A view the popover's click rule reads without keeping it alive.
+private struct WeakView {
+    weak var view: NSView?
 }

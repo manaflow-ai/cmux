@@ -247,10 +247,22 @@ final class HomeHostView: NSView {
     /// settings open under the pill, or close again. Only over the Chief.
     func toggleChiefSettings() {
         if settings.isShown { return settings.close() }
-        // The press that just closed it (on the header avatar) does not open it again.
-        guard !settings.closedByCurrentEvent, isChief, window != nil, !isHiddenOrHasHiddenAncestor else { return }
+        guard isChief, window != nil, !isHiddenOrHasHiddenAncestor else { return }
         settingsView.refresh()
-        settings.show(relativeTo: transcript.namePill)
+        settings.show(relativeTo: transcript.namePill, toggles: transcript.namePillToggles)
+    }
+
+    /// The popover is a child panel of the window, not a subview: Home leaving
+    /// its window (a tab or workspace switch, Cmd-W) or hiding closes it, so it
+    /// never stays over the next pane.
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        super.viewWillMove(toWindow: newWindow)
+        if newWindow !== window { settings.close() }
+    }
+
+    override func viewDidHide() {
+        super.viewDidHide()
+        settings.close()
     }
 
     /// The shared stop action reached this view: only the Home in the key

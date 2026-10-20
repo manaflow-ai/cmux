@@ -16,18 +16,29 @@ import Testing
         snapshot.efforts = ["low", "high"]
         snapshot.effective = ChiefEngineReport.Engine(harness: "claude", model: "claude-opus-5-5", effort: "high")
         let titles = HomeChiefEngineTitles(snapshot)
-        #expect(titles.defaultHarness == "Default (claude)")
+        #expect(titles.defaultHarness == Self.named("claude"))
         // The model shows by the name acpmux offers, and acpmux's own "default" is not an item.
-        #expect(titles.defaultModel == "Default (Opus 5.5)")
+        #expect(titles.defaultModel == Self.named("Opus 5.5"))
         #expect(titles.models.map(\.value) == ["claude-opus-5-5"])
-        #expect(titles.defaultEffort == "Default (high)")
+        #expect(titles.defaultEffort == Self.named("high"))
+    }
+
+    /// The effective engine includes the owner's choice, so a chosen field's
+    /// Default cannot say what it would run: it stays plain beside the choice.
+    @Test func aChosenFieldsDefaultStaysPlain() {
+        var snapshot = HomeChiefSnapshot(harness: nil, model: "claude-opus-5-5", effort: nil, avatar: nil, turns: [])
+        snapshot.models = [ChiefEngineReport.Model(id: "claude-opus-5-5", name: "Opus 5.5")]
+        snapshot.effective = ChiefEngineReport.Engine(harness: "claude", model: "claude-opus-5-5", effort: "high")
+        let titles = HomeChiefEngineTitles(snapshot)
+        #expect(titles.defaultModel == HomeEngineStrings.defaultValue)
+        #expect(titles.defaultHarness == Self.named("claude"))
     }
 
     @Test func defaultStaysPlainUntilTheBrainAnswers() {
         let titles = HomeChiefEngineTitles(HomeChiefSnapshot(harness: nil, model: nil, effort: nil, avatar: nil, turns: []))
-        #expect(titles.defaultHarness == "Default")
-        #expect(titles.defaultModel == "Default")
-        #expect(HomeChiefEngineTitles.titled("default") == "Default")
+        #expect(titles.defaultHarness == HomeEngineStrings.defaultValue)
+        #expect(titles.defaultModel == HomeEngineStrings.defaultValue)
+        #expect(HomeChiefEngineTitles.titled("default") == HomeEngineStrings.defaultValue)
     }
 
     @Test func aReplyWithNoTextHasNoEmptyQuotes() throws {
@@ -39,12 +50,30 @@ import Testing
         #expect(HomeEngineStrings.reply(text) == "\u{201C}Done.\u{201D} claude")
     }
 
-    @Test func diagnosticsStartClosedAndTheNameIsTheOnlyField() {
+    @Test func diagnosticsStartClosedAndTheNameIsTheOnlyField() throws {
         let view = HomeChiefSettingsView(muxHome: FileManager.default.temporaryDirectory, source: OfflineChief())
         #expect(!view.showsDiagnostics)
-        #expect(Self.editableFields(in: view).map { $0.accessibilityLabel() } == ["Name"])
+        let fields = Self.editableFields(in: view)
+        #expect(fields.map { $0.accessibilityLabel() } == [HomeEngineStrings.name])
+        view.frame.size = view.fittingSize
         view.layoutSubtreeIfNeeded()
         #expect(view.fittingSize.width == HomeChiefSettingsView.width)
+        // The name field runs from beside the avatar to the card's trailing inset.
+        let box = try #require(fields.first?.superview)
+        let trailing = view.convert(box.bounds, from: box).maxX
+        #expect(abs(trailing - (HomeChiefSettingsView.width - HomeChiefSettingsView.inset)) < 1)
+    }
+
+    @Test func leavingAnUnchangedNameRenamesNothing() {
+        let view = HomeChiefSettingsView(muxHome: FileManager.default.temporaryDirectory, source: OfflineChief())
+        var renamed: [String] = []
+        view.onRename = { renamed.append($0) }
+        view.setName("Chief")
+        view.renamed()
+        view.nameField.stringValue = "  Ada  "
+        view.renamed()
+        view.renamed()
+        #expect(renamed == ["Ada"])
     }
 
     @Test func appearanceRowsGrowTheCard() {
@@ -58,6 +87,8 @@ import Testing
         #expect(view.fittingSize.height > before)
         #expect(resized == 1)
     }
+
+    static func named(_ value: String) -> String { String(format: HomeEngineStrings.defaultNamedFormat, value) }
 
     static func editableFields(in view: NSView) -> [NSTextField] {
         var found: [NSTextField] = []

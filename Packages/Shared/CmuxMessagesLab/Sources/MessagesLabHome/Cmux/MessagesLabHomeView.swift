@@ -158,6 +158,8 @@ public final class MessagesLabHomeView: NSView {
 
     /// The header's name pill: the view a popover from it anchors to.
     public var namePill: NSView { controller.host.paneHeader.pill }
+    /// The header views a click on which runs ``onNamePill``: the pill and the avatar.
+    public var namePillToggles: [NSView] { [controller.host.paneHeader.pill, controller.host.paneHeader.avatar] }
 
     /// The header avatar's text (one or two characters, an emoji); nil
     /// shows the conversation's initials.

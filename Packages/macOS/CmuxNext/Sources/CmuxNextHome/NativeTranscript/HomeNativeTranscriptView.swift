@@ -163,6 +163,8 @@ public final class HomeNativeTranscriptView: NSView {
 
     /// The header's name pill, which the Chief's settings popover opens under.
     public var namePill: NSView { transcript.namePill }
+    /// The header views that run ``onNamePill`` (the pill and the avatar).
+    public var namePillToggles: [NSView] { transcript.namePillToggles }
 
     /// The header avatar's text; nil shows the conversation's initials.
     public var avatarText: String? {

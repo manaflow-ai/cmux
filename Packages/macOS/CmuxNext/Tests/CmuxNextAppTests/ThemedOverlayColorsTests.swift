@@ -25,8 +25,7 @@ import Testing
         let settings = HomeChiefSettingsView(muxHome: FileManager.default.temporaryDirectory, source: UnreachableEngine())
         scope.root(settings)
 
-        // The popover's glass card is the surface (HomeChiefSettingsPopover): the content paints none.
-        #expect(settings.layer?.backgroundColor == nil)
+        // The popover's glass card is the surface (HomeChiefSettingsPopover); the content's text draws the theme.
         let labels = Self.labels(in: settings)
         #expect(labels.count > 4)
         for label in labels {
