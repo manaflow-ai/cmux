@@ -265,6 +265,49 @@ class FormatPostEditTests(unittest.TestCase):
         self.assertIn("another agent is installing", stderr)
         self.assertTrue(lock.exists())
 
+    def test_a_taken_over_hook_leaves_its_successors_lock_alone(self):
+        # The install outlives the takeover age: a successor takes the lock over
+        # mid-install (simulated by the fake bun), and the first hook's exit must
+        # not remove the successor's lock.
+        self.webviews(installed=("0.9.0", "0.60.0"))
+        lock = self.repo / ".git/cmux-format-install-webviews.lock"
+        self.tool(self.bin / "bun", FAKE_BUN + 'printf "%s\\n" "$SUCCESSOR_PID" > "$LOCK/pid"\n')
+        self.env.update(LOCK=str(lock), SUCCESSOR_PID=str(os.getpid()))
+        path = self.edit("webviews/src/stale.ts")
+        returncode, stdout, stderr = self.run_hook("claude", path)
+        self.assert_hook_ok("claude", returncode, stdout)
+        self.assertTrue(self.bun_log.exists(), stderr)
+        self.assertTrue(lock.is_dir(), "the successor's lock survives the first hook's exit")
+        self.assertEqual((lock / "pid").read_text().strip(), str(os.getpid()))
+
+    def test_a_held_lock_with_an_empty_pid_is_released(self):
+        # A hook stopped between mkdir and writing its PID leaves an empty PID file;
+        # that lock is still its own to release.
+        self.webviews(installed=("0.9.0", "0.60.0"))
+        lock = self.repo / ".git/cmux-format-install-webviews.lock"
+        self.tool(self.bin / "bun", FAKE_BUN + ': > "$LOCK/pid"\n')
+        self.env.update(LOCK=str(lock))
+        path = self.edit("webviews/src/stale.ts")
+        returncode, stdout, stderr = self.run_hook("claude", path)
+        self.assert_hook_ok("claude", returncode, stdout)
+        self.assertTrue(self.bun_log.exists(), stderr)
+        self.assertFalse(lock.exists(), stderr)
+
+    def test_a_stale_lock_is_moved_aside_and_leaves_nothing_behind(self):
+        self.webviews(installed=("0.9.0", "0.60.0"))
+        self.tool(self.bin / "bun", FAKE_BUN)
+        dead = subprocess.Popen(["true"])
+        dead.wait()
+        lock = self.repo / ".git/cmux-format-install-webviews.lock"
+        lock.mkdir()
+        (lock / "pid").write_text(f"{dead.pid}\n")
+        path = self.edit("webviews/src/stale.ts")
+        returncode, stdout, stderr = self.run_hook("claude", path)
+        self.assert_hook_ok("claude", returncode, stdout)
+        self.assertTrue(self.bun_log.exists(), stderr)
+        leftovers = sorted(p.name for p in (self.repo / ".git").glob("cmux-format-install-*"))
+        self.assertEqual(leftovers, [], stderr)
+
     def test_current_webviews_packages_are_not_reinstalled(self):
         self.webviews()
         self.tool(self.bin / "bun", FAKE_BUN)
