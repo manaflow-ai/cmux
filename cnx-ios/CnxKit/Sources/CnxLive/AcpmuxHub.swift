@@ -314,22 +314,28 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         Task {
             do {
                 switch intent {
-                case .prompt(let text, let attachments, let steer):
+                case .prompt(let text, let attachments, let steer, let promptID, let resend):
                     let blocks: [JSONValue]
                     do {
                         blocks = try await self.promptBlocks(text: text, attachments: attachments, hub: hub)
                     } catch {
-                        self.emit(.promptNotSent(text: text, attachments: attachments, reason: AcpmuxSessionSource.message(error)))
+                        self.emit(.promptNotSent(text: text, attachments: attachments, promptID: promptID,
+                                                 reason: AcpmuxSessionSource.message(error)))
                         return
                     }
-                    let meta: JSONValue = .object(["acpmux": .object(["promptId": .string(UUID().uuidString.lowercased()), "steer": .bool(steer)])])
+                    // acpmux runs each promptId once; `resend` also checks the session log.
+                    let meta: JSONValue = .object(["acpmux": .object([
+                        "promptId": .string(promptID), "steer": .bool(steer), "resend": .bool(resend),
+                    ])])
                     do {
                         _ = try await hub.request("session/prompt", .object([
                             "sessionId": session, "prompt": .array(blocks), "_meta": meta,
                         ]))
                     } catch let error as LinkError {
-                        // Never reached the Mac: the draft comes back.
-                        self.emit(.promptNotSent(text: text, attachments: attachments, reason: AcpmuxSessionSource.message(error)))
+                        // Maybe never reached the Mac: the draft comes back with its id, so a resend
+                        // runs at most once, and it leaves again if the transcript shows it ran.
+                        self.emit(.promptNotSent(text: text, attachments: attachments, promptID: promptID,
+                                                 reason: AcpmuxSessionSource.message(error)))
                     }
                 case .cancel:
                     try await hub.notify("session/cancel", .object(["sessionId": session]))

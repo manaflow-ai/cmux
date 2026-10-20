@@ -81,6 +81,14 @@ struct ChatComposer: View {
         }
         .onAppear { if expandOnAppear { expand() } }
         // A prompt that never reached the agent comes back to the composer.
+        // A returned prompt the Mac turned out to have run: out of the composer again,
+        // unless the person already changed it.
+        .onChange(of: store.withdrawnDraft) { _, draft in
+            guard let draft else { return }
+            store.withdrawnDraft = nil
+            if trimmed == draft.text.trimmingCharacters(in: .whitespacesAndNewlines) { text = "" }
+            attachments.removeAll { own in draft.attachments.contains { $0.id == own.id } }
+        }
         .onChange(of: store.returnedDraft) { _, draft in
             guard let draft else { return }
             store.returnedDraft = nil

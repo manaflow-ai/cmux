@@ -62,7 +62,8 @@ public enum AgentSessionEvent: Hashable, Sendable {
     case clientError(String)
     /// A prompt that never reached the agent (an attachment upload failed, the
     /// link was down): the composer gets the draft back with the reason.
-    case promptNotSent(text: String, attachments: [AgentAttachment], reason: String)
+    /// `promptID` is the prompt's acpmux id: sent again with it, the Mac runs it at most once.
+    case promptNotSent(text: String, attachments: [AgentAttachment], promptID: String, reason: String)
     /// `_meta.acpmux.subagents`: a subagent started or changed state.
     case subagent(AgentSubagentChange)
     /// An update from a subagent's own session (`_meta.acpmux.subagent`).
@@ -76,7 +77,9 @@ public enum AgentSessionEvent: Hashable, Sendable {
 /// `session/prompt`, `session/cancel`, `_acpmux/permission_respond`, `session/set_model`,
 /// `session/set_mode`, `session/set_config_option`, `_acpmux/queue_remove`, `_acpmux/queue_edit`.
 public enum AgentClientIntent: Hashable, Sendable {
-    case prompt(text: String, attachments: [AgentAttachment], steer: Bool)
+    /// `promptID`: `_meta.acpmux.promptId`, which acpmux runs once; `resend`: the same prompt
+    /// sent again after its reply was lost (acpmux also looks for the id in the session log).
+    case prompt(text: String, attachments: [AgentAttachment], steer: Bool, promptID: String, resend: Bool)
     case cancel
     case respondPermission(permissionId: String, optionId: String?)
     case answerQuestion(questionId: String, answer: AgentQuestionAnswer)

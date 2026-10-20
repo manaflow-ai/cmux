@@ -193,7 +193,14 @@ public final class AgentChatStore {
         public var id = UUID()
         public var text: String
         public var attachments: [AgentAttachment]
+        /// The prompt's acpmux id: sending the same text again reuses it, so the Mac runs it once.
+        public var promptID: String?
     }
+    /// A returned draft the Mac turned out to have run (its prompt id showed up in the
+    /// transcript after the link came back): the composer takes it out again (then clears this).
+    public var withdrawnDraft: ReturnedDraft?
+    /// The last returned prompt still waiting for a resend: its text and id.
+    private var resendable: (text: String, promptID: String)?
     /// Bumps on every streamed change (follow-mode scroll keys off it).
     public private(set) var revision = 0
     private var currentMessageID: String?
@@ -253,7 +260,22 @@ public final class AgentChatStore {
             let deny = options.first { $0.kind == .rejectOnce } ?? options.first { !$0.isAllow }
             respond(to: permission.request, option: deny)
         }
-        source.send(.prompt(text: text, attachments: attachments, steer: steer))
+        // The same prompt sent again after its reply was lost keeps its id: acpmux runs it once.
+        let resend = resendable.flatMap { $0.text == text ? $0.promptID : nil }
+        resendable = nil
+        source.send(.prompt(text: text, attachments: attachments, steer: steer,
+                            promptID: resend ?? UUID().uuidString.lowercased(), resend: resend != nil))
+    }
+
+    /// The Mac shows `promptID` ran (or queued): a draft returned for it goes away, and it is
+    /// never sent again under that id.
+    private func reached(_ promptID: String) {
+        guard let pending = resendable, pending.promptID == promptID else { return }
+        resendable = nil
+        let draft = returnedDraft?.promptID == promptID ? returnedDraft : nil
+        if draft != nil { returnedDraft = nil }
+        withdrawnDraft = draft ?? ReturnedDraft(text: pending.text, attachments: [], promptID: promptID)
+        if clientError != nil { clientError = nil }
     }
 
     public func cancel() { source.send(.cancel) }
@@ -303,12 +325,14 @@ public final class AgentChatStore {
     func apply(_ event: AgentSessionEvent) {
         revision &+= 1
         switch event {
-        case .userMessage(let text, _, let turnId, let attachments, let at):
+        case .userMessage(let text, let promptId, let turnId, let attachments, let at):
             currentMessageID = nil
+            reached(promptId)
             if !turns.contains(where: { $0.id == turnId }) {
                 turns.append(AgentTurn(id: turnId, prompt: text, attachments: attachments, promptAt: at))
             }
         case .queued(let text, let promptId, _):
+            reached(promptId)
             queue.append(QueuedPrompt(id: promptId, text: text))
         case .dequeued(let promptId):
             queue.removeAll { $0.id == promptId }
@@ -403,9 +427,10 @@ public final class AgentChatStore {
         case .clientError(let message):
             approvingOptionID = nil
             clientError = message
-        case .promptNotSent(let text, let attachments, let reason):
+        case .promptNotSent(let text, let attachments, let promptID, let reason):
             clientError = reason
-            returnedDraft = ReturnedDraft(text: text, attachments: attachments)
+            returnedDraft = ReturnedDraft(text: text, attachments: attachments, promptID: promptID)
+            resendable = (text, promptID)
         case .subagent(let change):
             applySubagent(change)
         case .batch(let events):
