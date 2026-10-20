@@ -113,6 +113,10 @@ and render-server field animation, blurred header and native scrolling.
   disc while paused), `CmuxStrings` (Resources/CmuxHome.xcstrings),
   `HomeLinkPreviews` (which links may fetch a preview), `HomeLinkSend` (the
   preview a send attaches),
+  `HomeDiagramRowProvider` (closed ```` ```mermaid ```` fences as drawn custom
+  rows, `Part.custom` kind `cmux.mermaid`: sized by the injected
+  `HomeDiagramRendering` before the image, a refused source stays text;
+  `HomeMapping.parts` splits only while it is registered),
   `HomeMarkdown` (an agent's Markdown as MessagesLab text and style runs;
   people's text stays plain), `HomeFlightRecorder` (the flight recorder's
   policy, log folder and Save Last 10 Seconds, plus the helpers it calls from
