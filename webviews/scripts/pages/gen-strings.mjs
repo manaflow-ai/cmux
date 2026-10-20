@@ -9,6 +9,9 @@
 // build write them from the checkout's catalogs, so two branches never carry competing copies.
 //   node scripts/pages/gen-strings.mjs                # write every page; a missing translation fails
 //   node scripts/pages/gen-strings.mjs --best-effort  # write anyway, warn (bun install's postinstall)
+//   CMUX_STRINGS_BEST_EFFORT=1 node scripts/pages/gen-strings.mjs  # the same for writes, never for --check
+//     (the Mac export jobs, whose bundles only host the export tests: a stale schema must not stop the job
+//     that regenerates it; and the gallery host, where a missing translation must not fail a preview)
 //   node scripts/pages/gen-strings.mjs --if-stale     # only pages whose inputs are newer (test preload)
 //   node scripts/pages/gen-strings.mjs --check        # fail when a written table differs
 //   node scripts/pages/gen-strings.mjs settings       # only the named pages
@@ -463,9 +466,10 @@ export function writeStrings({
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  const bestEffort = process.argv.includes("--best-effort");
+  const check = process.argv.includes("--check");
+  const bestEffort = process.argv.includes("--best-effort") || (!check && process.env.CMUX_STRINGS_BEST_EFFORT === "1");
   const failed = writeStrings({
-    check: process.argv.includes("--check"),
+    check,
     bestEffort,
     ifStale: process.argv.includes("--if-stale"),
     only: process.argv.slice(2).filter((arg) => !arg.startsWith("--")),

@@ -205,7 +205,12 @@ jobs:
         if: steps.web-bundle-cache.outputs.cache-hit == 'true'
         run: scripts/cmux-next/build-web-bundles.sh --from web-bundles-out
 
+      # These bundles only host the export tests and are never shipped or cached, so a missing
+      # translation is a warning here: a stale settings schema must not stop the job that
+      # regenerates it (the deadlock after #22577).
       - name: Build the web bundles
+        env:
+          CMUX_STRINGS_BEST_EFFORT: "1"
         run: scripts/cmux-next/build-web-bundles.sh
 
       # A catalog that does not build is the pull request's own red elsewhere;

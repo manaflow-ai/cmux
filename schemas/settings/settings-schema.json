@@ -9002,8 +9002,8 @@
         },
         {
           "title" : {
-            "key" : "settings.choice.shufflePaintings",
-            "text" : "Shuffle Paintings"
+            "key" : "settings.choice.shuffleDaily",
+            "text" : "Shuffle Daily"
           },
           "value" : "daily"
         },
