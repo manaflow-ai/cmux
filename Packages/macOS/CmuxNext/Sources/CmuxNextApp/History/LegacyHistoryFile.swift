@@ -47,7 +47,7 @@ final class LegacyHistoryFile: @unchecked Sendable, Equatable {
         self.identity = identity
     }
 
-    deinit {
+    nonisolated deinit {
         Darwin.close(parentDescriptor)
     }
 
