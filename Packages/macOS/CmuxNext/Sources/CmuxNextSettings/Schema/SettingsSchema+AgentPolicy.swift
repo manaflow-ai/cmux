@@ -159,6 +159,7 @@ extension SettingsSchema {
         "browser.hibernationExclusions",
         "browser.hibernatePinnedTabs",
         "browser.freezeHiddenTabs",
+        "browser.keepNeighborTabsAwake",
         "notifications.dismissal",
         "notifications.timeoutSeconds",
         "notifications.sources.agent.dismissal",
