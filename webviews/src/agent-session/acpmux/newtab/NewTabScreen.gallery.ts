@@ -273,8 +273,8 @@ export default agentPaneEntry({
       },
     },
     "stage-layout": {
-      note: "The default layout (Leo 2026-10-19, Claude Code desktop's new-session screen): the composer at the foot with the plain footer (folder and mode left, model and effort right); over it, centered, the environment card (this project checked, the other projects, Choose environment) and the suggested actions card (the chats that need you, then New terminal, New browser tab, New chat); the recent chats under them.",
-      ready: newTab({ projects: WIDGET_PROJECTS }),
+      note: "The Default template's layout (Leo 2026-10-19, Claude Code desktop's new-session screen): the composer at the foot with the plain footer (folder and mode left, model and effort right); over it, centered, the environment card (this project checked, the other projects, Choose environment) and the suggested actions card (the chats that need you, then New terminal, New browser tab, New chat); the recent chats under them.",
+      ready: newTab({ template: "default", projects: WIDGET_PROJECTS }),
       snapshot: noChat(widgetSessions()),
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".nt-stage .nt-env") !== null);
@@ -286,7 +286,7 @@ export default agentPaneEntry({
     },
     "stage-hover": {
       note: "A pointer over a chat that needs you: its hover card floats over the page, offset from the row, solid, never over the row's own text.",
-      ready: newTab({ projects: WIDGET_PROJECTS }),
+      ready: newTab({ template: "default", projects: WIDGET_PROJECTS }),
       snapshot: noChat(widgetSessions()),
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelectorAll(".nt-suggest-chat").length > 0);
