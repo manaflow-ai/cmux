@@ -85,7 +85,9 @@ struct ActiveTeamTests {
         #expect(!active.isSwitching)
     }
 
-    @Test func aSecondSwitchWhileOneIsSavingIsRefused() async throws {
+    @Test func theLastSwitchWinsWhileOneIsSaving() async throws {
+        // Rapid switches (the palette's chooser, the CLI, a second window): the newest choice is the
+        // team cmux ends in, including a switch back to the team the first save is leaving.
         let source = Source(teams: ["a", "b", "c"], selected: "a")
         source.holdSaves = true
         let active = ActiveTeam(source: source)
@@ -93,14 +95,14 @@ struct ActiveTeamTests {
         for _ in 0..<100 where source.heldCount == 0 { await Task.yield() }
         #expect(source.heldCount == 1)
         #expect(active.isSwitching)
-        let second = Task { try await active.select("c") }
-        for _ in 0..<100 { await Task.yield() }
+        try await active.select("c")
+        try await active.select("a")
         #expect(active.isSwitching, "the first save is still in progress")
+        source.holdSaves = false
         source.releaseSaves()
-        await #expect(throws: ActiveTeam.Refusal.switching) { try await second.value }
         try await first.value
-        #expect(active.id == "b")
-        #expect(source.saved == ["b"])
+        #expect(active.id == "a", "the newest choice wins")
+        #expect(source.saved == ["b", "a"], "a choice replaced before its turn is never saved")
         #expect(!active.isSwitching)
     }
 
