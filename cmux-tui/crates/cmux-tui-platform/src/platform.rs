@@ -958,6 +958,15 @@ pub fn foreground_job_name(pid: u32) -> Option<String> {
     (!base.is_empty()).then_some(base)
 }
 
+/// Whether the terminal's own PTY child `pid` (its shell) holds the
+/// terminal's foreground: no job it started (a program from its startup
+/// files: tmux, ssh, a REPL) does. False when the lookup fails.
+pub fn shell_holds_foreground(pid: u32) -> bool {
+    foreground_process_group(pid).is_some_and(|leader| {
+        leader == pid || crate::kinfo_proc::login_session_shell(pid, leader)
+    })
+}
+
 #[cfg(target_os = "linux")]
 fn process_name(pid: u32) -> Option<String> {
     // argv[0]'s basename beats /proc/<pid>/comm: comm truncates to 15
@@ -1370,6 +1379,8 @@ fn restrict_permissions(_path: &Path, _mode: u32) -> std::io::Result<()> {
 
 mod codex_daemon;
 pub use codex_daemon::descends_from_codex_app_server_daemon;
+mod job_launch;
+pub use job_launch::{JobLaunch, foreground_job_launch};
 
 #[cfg(test)]
 mod tests;

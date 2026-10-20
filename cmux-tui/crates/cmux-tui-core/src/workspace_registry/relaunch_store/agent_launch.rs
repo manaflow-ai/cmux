@@ -1,0 +1,555 @@
+//! How the agent CLI a terminal ran was started, kept in the relaunch record
+//! with its session so a respawn after the terminal's host died (a reboot)
+//! starts it the way classic cmux does: the same flags and the same account.
+//!
+//! - `args`: the CLI's flags, from `CMUX_TUI_AGENT_ARGS` (the cmux `claude`
+//!   and `codex` shims set it to the arguments they were given) or else the
+//!   process's argv after the program word. Dropped: what picks or starts a
+//!   session (`--resume <id>`, `--continue`, `codex resume <id>`), prompts,
+//!   an unknown flag together with the word after it (it may take a value),
+//!   inline configuration (`--settings '{...}'`, codex `-c key=value`) and
+//!   any flag or value with a secret word or a token prefix in it. Any other
+//!   credential-looking argument drops all of them ([`stored_argv`]). A
+//!   non-interactive run (`claude -p`, a codex subcommand, `--version`) has
+//!   no launch.
+//! - `env`: the harness's account directory only (`CLAUDE_CONFIG_DIR` for
+//!   Claude Code, `CODEX_HOME` for Codex), an absolute path. Never a token
+//!   or key: the CLI reads its sign-in from that directory.
+
+use std::path::Path;
+
+use super::{TOKEN_PREFIXES, names_secret, stored_argv};
+
+/// The variable the cmux `claude` and `codex` shims set on the CLI they start
+/// to the arguments they were given, as a JSON array of strings.
+pub(crate) const SHIM_ARGS_ENV: &str = "CMUX_TUI_AGENT_ARGS";
+
+/// The environment keys read from an agent's process.
+pub(crate) const AGENT_JOB_ENV_KEYS: &[&str] = &["CLAUDE_CONFIG_DIR", "CODEX_HOME", SHIM_ARGS_ENV];
+
+/// What an agent CLI was started with.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub(crate) struct AgentLaunch {
+    pub args: Vec<String>,
+    pub env: Vec<(String, String)>,
+}
+
+/// The account directory variable of a resumable harness.
+pub(crate) fn account_env_key(harness: &str) -> Option<&'static str> {
+    match harness {
+        "claude" => Some("CLAUDE_CONFIG_DIR"),
+        "codex" => Some("CODEX_HOME"),
+        _ => None,
+    }
+}
+
+/// The launch of `harness` from its process's `argv` and `env` (the keys of
+/// [`AGENT_JOB_ENV_KEYS`] it has). `None` when the process is not that
+/// harness's CLI or is not an interactive session of it.
+pub(crate) fn agent_launch_from_job(
+    harness: &str,
+    argv: &[String],
+    env: &[(String, String)],
+) -> Option<AgentLaunch> {
+    let account_key = account_env_key(harness)?;
+    let args = session_free(harness, &harness_args(harness, argv, env)?)?;
+    let args = stored_args(harness, args);
+    let value = |key: &str| env.iter().find(|(name, _)| name == key).map(|(_, value)| value);
+    let env = value(account_key)
+        .filter(|dir| Path::new(dir.as_str()).is_absolute() && !dir.chars().any(char::is_control))
+        .map(|dir| vec![(account_key.to_string(), dir.clone())])
+        .unwrap_or_default();
+    Some(AgentLaunch { args, env })
+}
+
+/// Whether the process is `harness`'s CLI run without an interactive session
+/// (`claude -p`, `codex exec`, a subcommand): a session it reports cannot be
+/// resumed. False for an interactive run, another program, or another harness.
+pub(crate) fn job_is_non_interactive(
+    harness: &str,
+    argv: &[String],
+    env: &[(String, String)],
+) -> bool {
+    account_env_key(harness).is_some()
+        && harness_args(harness, argv, env)
+            .is_some_and(|args| session_free(harness, &args).is_none())
+}
+
+/// The arguments the harness's CLI got: the shim's (`CMUX_TUI_AGENT_ARGS`),
+/// else its argv after the program word. `None` when the process is not that
+/// CLI: it must be in both cases, as the shim's variable is inherited by
+/// everything the CLI starts.
+fn harness_args(harness: &str, argv: &[String], env: &[(String, String)]) -> Option<Vec<String>> {
+    let at = argv.iter().position(|argument| is_program(harness, argument))?;
+    let given = env
+        .iter()
+        .find(|(name, _)| name == SHIM_ARGS_ENV)
+        .and_then(|(_, json)| serde_json::from_str::<Vec<String>>(json).ok());
+    Some(given.unwrap_or_else(|| argv[at + 1..].to_vec()))
+}
+
+/// The arguments of a stored launch as read back: filtered again as on write.
+pub(crate) fn kept_agent_args(harness: &str, args: &[String]) -> Vec<String> {
+    session_free(harness, args).map(|args| stored_args(harness, args)).unwrap_or_default()
+}
+
+/// Whether `args` turn off the CLI's approval prompts. A resume with them is
+/// typed, never run: the person confirms it.
+pub(crate) fn bypasses_approvals(args: &[String]) -> bool {
+    args.iter().any(|argument| {
+        let flag = argument.split('=').next().unwrap_or(argument);
+        matches!(
+            flag,
+            "--dangerously-skip-permissions"
+                | "--allow-dangerously-skip-permissions"
+                | "--dangerously-bypass-approvals-and-sandbox"
+                | "--yolo"
+                | "--full-auto"
+        ) || (flag == "--permission-mode" && argument.contains("bypassPermissions"))
+            || argument == "bypassPermissions"
+            || argument == "danger-full-access"
+            || argument.ends_with("=danger-full-access")
+            || argument == "never"
+            || argument.ends_with("=never")
+    })
+}
+
+/// `args` as stored: all of them only when none looks like a credential
+/// (the terminal command rule, [`stored_argv`]).
+fn stored_args(harness: &str, args: Vec<String>) -> Vec<String> {
+    let mut line = vec![harness.to_string()];
+    line.extend(args);
+    stored_argv(&line).map(|line| line[1..].to_vec()).unwrap_or_default()
+}
+
+/// Whether `argument` names the harness's program: `claude`, `codex`, or the
+/// JS entry an npm install runs under `node` (`.../claude-code/cli.js`,
+/// `.../codex.js`).
+fn is_program(harness: &str, argument: &str) -> bool {
+    let name = Path::new(argument).file_name().and_then(|name| name.to_str()).unwrap_or_default();
+    name == harness
+        || name == format!("{harness}.js")
+        || (harness == "claude" && name == "cli.js" && argument.contains("claude-code"))
+}
+
+/// How a flag of the CLI takes values.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Takes {
+    /// No value: `--dangerously-skip-permissions`.
+    Nothing,
+    /// The next argument (unless given as `--flag=value`).
+    One,
+    /// Every following argument up to the next flag: `--add-dir a b`.
+    Many,
+}
+
+/// How `flag` of `harness` takes values; `None` for a flag this list does
+/// not know.
+fn takes(harness: &str, flag: &str) -> Option<Takes> {
+    let found = |nothing: &[&str], one: &[&str], many: &[&str]| {
+        if nothing.contains(&flag) {
+            Some(Takes::Nothing)
+        } else if one.contains(&flag) {
+            Some(Takes::One)
+        } else if many.contains(&flag) {
+            Some(Takes::Many)
+        } else {
+            None
+        }
+    };
+    match harness {
+        "claude" => found(
+            &[
+                "--dangerously-skip-permissions",
+                "--allow-dangerously-skip-permissions",
+                "--verbose",
+                "--ide",
+                "--strict-mcp-config",
+                "--chrome",
+                "--no-chrome",
+                "--disable-slash-commands",
+            ],
+            &[
+                "--model",
+                "--permission-mode",
+                "--settings",
+                "--setting-sources",
+                "--append-system-prompt",
+                "--system-prompt",
+                "--agents",
+                "--agent",
+                "--fallback-model",
+                "--debug-file",
+                "--effort",
+                "--permission-prompt-tool",
+            ],
+            &[
+                "--add-dir",
+                "--mcp-config",
+                "--allowedTools",
+                "--allowed-tools",
+                "--disallowedTools",
+                "--disallowed-tools",
+                "--plugin-dir",
+                "--betas",
+            ],
+        ),
+        "codex" => found(
+            &[
+                "--dangerously-bypass-approvals-and-sandbox",
+                "--yolo",
+                "--full-auto",
+                "--search",
+                "--oss",
+                "--no-alt-screen",
+            ],
+            &[
+                "-m",
+                "--model",
+                "-c",
+                "--config",
+                "-p",
+                "--profile",
+                "-s",
+                "--sandbox",
+                "-a",
+                "--ask-for-approval",
+                "-C",
+                "--cd",
+                "--enable",
+                "--disable",
+                "--local-provider",
+            ],
+            &["-i", "--image", "--add-dir"],
+        ),
+        _ => None,
+    }
+}
+
+/// Whether the value of `flag` is inline configuration (JSON for Claude
+/// Code's `--settings`, `--mcp-config` and `--agents`, TOML for Codex's
+/// `-c`), which can hold a credential that no shape check finds: never kept.
+fn inline_config(harness: &str, flag: &str, value: &str) -> bool {
+    match harness {
+        "claude" => {
+            matches!(flag, "--settings" | "--mcp-config" | "--agents")
+                && matches!(value.trim_start().chars().next(), Some('{' | '['))
+        }
+        "codex" => matches!(flag, "-c" | "--config"),
+        _ => false,
+    }
+}
+
+/// Whether one argument may hold a credential anywhere in it: a secret word
+/// ([`names_secret`]) or a token prefix at any position.
+fn holds_secret(argument: &str) -> bool {
+    names_secret(argument) || TOKEN_PREFIXES.iter().any(|prefix| argument.contains(prefix))
+}
+
+/// `args` without what picks or starts a session, without prompts, inline
+/// configuration or a credential-looking flag or value; `None` when they do
+/// not start an interactive session (a subcommand, `-p`, `--version`).
+fn session_free(harness: &str, args: &[String]) -> Option<Vec<String>> {
+    let mut kept = Vec::with_capacity(args.len());
+    let mut index = 0;
+    let mut first_word = true;
+    while index < args.len() {
+        let argument = args[index].as_str();
+        index += 1;
+        if argument == "--" {
+            break; // Everything after `--` is a prompt.
+        }
+        if !argument.starts_with('-') || argument == "-" {
+            if first_word {
+                first_word = false;
+                match (harness, argument) {
+                    // `codex resume <id>` or `codex resume --last`: the session is picked anew.
+                    ("codex", "resume") => {
+                        if args.get(index).is_some_and(|next| !next.starts_with('-')) {
+                            index += 1;
+                        }
+                        continue;
+                    }
+                    // Codex: no subcommand, or `resume`. A first word may be a
+                    // subcommand this list does not know.
+                    ("codex", _) => return None,
+                    (
+                        "claude",
+                        "mcp" | "config" | "doctor" | "update" | "install" | "migrate-installer"
+                        | "setup-token" | "plugin" | "plugins",
+                    ) => return None,
+                    _ => {}
+                }
+            }
+            continue; // A prompt.
+        }
+        let (flag, inline) = match argument.split_once('=') {
+            Some((flag, value)) if flag.starts_with("--") => (flag, Some(value)),
+            _ => (argument, None),
+        };
+        match (harness, flag) {
+            ("claude", "-p" | "--print" | "-v" | "--version" | "-h" | "--help")
+            | ("codex", "-V" | "--version" | "-h" | "--help") => return None,
+            ("claude", "--resume" | "-r" | "--session-id" | "--from-pr") => {
+                if inline.is_none() && args.get(index).is_some_and(|next| !next.starts_with('-')) {
+                    index += 1;
+                }
+                continue;
+            }
+            ("claude", "--continue" | "-c" | "--fork-session") | ("codex", "--last" | "--all") => {
+                continue;
+            }
+            _ => {}
+        }
+        let mut values = Vec::new();
+        match (takes(harness, flag), inline) {
+            (Some(Takes::Nothing), _) => {}
+            (Some(_), Some(value)) => values.push(value.to_string()),
+            (Some(Takes::One), None) => {
+                if let Some(value) = args.get(index) {
+                    values.push(value.clone());
+                    index += 1;
+                }
+            }
+            (Some(Takes::Many), None) => {
+                while let Some(value) = args.get(index).filter(|value| !value.starts_with('-')) {
+                    values.push(value.clone());
+                    index += 1;
+                }
+            }
+            (None, Some(_)) => {}
+            (None, None) => {
+                // An unknown flag that took a value would take the next word
+                // of the resume command instead: drop it with that value. One
+                // followed by a flag (or nothing) is a boolean and is kept.
+                if args.get(index).is_some_and(|next| !next.starts_with('-')) {
+                    index += 1;
+                    continue;
+                }
+            }
+        }
+        if holds_secret(flag)
+            || values.iter().any(|value| holds_secret(value) || inline_config(harness, flag, value))
+        {
+            continue;
+        }
+        match inline {
+            Some(_) => kept.push(argument.to_string()),
+            None => {
+                kept.push(argument.to_string());
+                kept.extend(values);
+            }
+        }
+    }
+    Some(kept)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn strings(values: &[&str]) -> Vec<String> {
+        values.iter().map(|value| value.to_string()).collect()
+    }
+
+    fn env(pairs: &[(&str, &str)]) -> Vec<(String, String)> {
+        pairs.iter().map(|(key, value)| (key.to_string(), value.to_string())).collect()
+    }
+
+    #[test]
+    fn claude_keeps_flags_and_account_and_drops_session_and_prompt() {
+        let launch = agent_launch_from_job(
+            "claude",
+            &strings(&[
+                "/opt/homebrew/bin/claude",
+                "--dangerously-skip-permissions",
+                "--model",
+                "opus",
+                "--resume",
+                "old-id",
+                "--continue",
+                "fix the bug",
+            ]),
+            &env(&[("CLAUDE_CONFIG_DIR", "/Users/a/.claude-work"), ("CODEX_HOME", "/x")]),
+        )
+        .unwrap();
+        assert_eq!(launch.args, strings(&["--dangerously-skip-permissions", "--model", "opus"]));
+        assert_eq!(launch.env, env(&[("CLAUDE_CONFIG_DIR", "/Users/a/.claude-work")]));
+    }
+
+    #[test]
+    fn the_shims_arguments_win_over_the_injected_argv() {
+        let args = r#"["--model","sonnet","--settings","/Users/a/s.json"]"#;
+        let launch = agent_launch_from_job(
+            "claude",
+            &strings(&["claude", "--settings", "/cache/hooks-123.json", "--model", "sonnet"]),
+            &env(&[(SHIM_ARGS_ENV, args)]),
+        )
+        .unwrap();
+        assert_eq!(launch.args, strings(&["--model", "sonnet", "--settings", "/Users/a/s.json"]));
+        assert!(launch.env.is_empty());
+    }
+
+    #[test]
+    fn node_installs_and_wrappers_find_the_program_word() {
+        let npm = strings(&[
+            "node",
+            "/usr/lib/node_modules/@anthropic-ai/claude-code/cli.js",
+            "--verbose",
+        ]);
+        assert_eq!(
+            agent_launch_from_job("claude", &npm, &[]).unwrap().args,
+            strings(&["--verbose"])
+        );
+        let wrapped = strings(&["python3", "/tmp/fake.py", "codex", "-m", "gpt-5.5"]);
+        assert_eq!(
+            agent_launch_from_job("codex", &wrapped, &[]).unwrap().args,
+            strings(&["-m", "gpt-5.5"])
+        );
+        assert!(agent_launch_from_job("claude", &strings(&["zsh", "-l"]), &[]).is_none());
+        assert!(agent_launch_from_job("opencode", &strings(&["opencode"]), &[]).is_none());
+    }
+
+    #[test]
+    fn codex_resume_and_non_interactive_runs() {
+        let resumed = strings(&[
+            "codex",
+            "resume",
+            "abc",
+            "--dangerously-bypass-approvals-and-sandbox",
+            "-m",
+            "gpt",
+        ]);
+        assert_eq!(
+            agent_launch_from_job("codex", &resumed, &[]).unwrap().args,
+            strings(&["--dangerously-bypass-approvals-and-sandbox", "-m", "gpt"])
+        );
+        assert!(
+            agent_launch_from_job("codex", &strings(&["codex", "exec", "do it"]), &[]).is_none()
+        );
+        assert!(agent_launch_from_job("claude", &strings(&["claude", "-p", "hi"]), &[]).is_none());
+    }
+
+    /// A non-interactive run of the harness (`claude -p`, `codex exec`) has
+    /// no session to resume; an interactive one, another program, or a
+    /// process that could not be read says nothing.
+    #[test]
+    fn a_non_interactive_run_is_told_apart_from_an_unknown_process() {
+        let non_interactive = |harness: &str, argv: &[&str]| {
+            job_is_non_interactive(harness, &strings(argv), &[])
+        };
+        assert!(non_interactive("claude", &["claude", "-p", "hi"]));
+        assert!(non_interactive("claude", &["/bin/sh", "/tmp/x/claude", "--print", "hi"]));
+        assert!(non_interactive("codex", &["codex", "exec", "do it"]));
+        assert!(non_interactive("claude", &["claude", "mcp", "list"]));
+        assert!(!non_interactive("claude", &["claude", "--model", "opus"]));
+        assert!(!non_interactive("codex", &["codex", "resume", "abc"]));
+        assert!(!non_interactive("claude", &["zsh", "-l"]));
+        assert!(!non_interactive("opencode", &["opencode", "run", "x"]));
+        // The shim's arguments are the CLI's own.
+        let shim = env(&[(SHIM_ARGS_ENV, r#"["-p","hi"]"#)]);
+        assert!(job_is_non_interactive("claude", &strings(&["claude", "-p", "hi"]), &shim));
+    }
+
+    #[test]
+    fn a_credential_drops_the_flags_and_a_relative_account_is_not_kept() {
+        let launch = agent_launch_from_job(
+            "claude",
+            &strings(&["claude", "--model", "opus", "--api-key", "sk-ant-123"]),
+            &env(&[("CLAUDE_CONFIG_DIR", "relative/dir")]),
+        )
+        .unwrap();
+        assert_eq!(launch.args, strings(&["--model", "opus"]));
+        assert!(launch.env.is_empty());
+    }
+
+    #[test]
+    fn an_unknown_flag_goes_with_its_value_and_lists_keep_every_value() {
+        let launch = agent_launch_from_job(
+            "claude",
+            &strings(&[
+                "claude",
+                "--output-format",
+                "stream-json",
+                "--add-dir",
+                "a",
+                "b",
+                "--verbose",
+                "--max-turns",
+                "3",
+                "--model",
+                "opus",
+                "--some-switch",
+            ]),
+            &[],
+        )
+        .unwrap();
+        assert_eq!(
+            launch.args,
+            strings(&["--add-dir", "a", "b", "--verbose", "--model", "opus", "--some-switch"])
+        );
+    }
+
+    #[test]
+    fn inline_configuration_and_secrets_anywhere_are_dropped() {
+        let claude = agent_launch_from_job(
+            "claude",
+            &strings(&[
+                "claude",
+                "--settings",
+                r#"{"env":{"ANTHROPIC_BASE_URL":"x"}}"#,
+                "--mcp-config",
+                "/p/mcp.json",
+                "--append-system-prompt",
+                "use ghp_abc for it",
+                "--model",
+                "opus",
+            ]),
+            &[],
+        )
+        .unwrap();
+        assert_eq!(claude.args, strings(&["--mcp-config", "/p/mcp.json", "--model", "opus"]));
+        let codex = agent_launch_from_job(
+            "codex",
+            &strings(&[
+                "codex",
+                "-c",
+                "mcp_servers.x.env={API=\"1\"}",
+                "--config=a=b",
+                "-m",
+                "gpt",
+            ]),
+            &[],
+        )
+        .unwrap();
+        assert_eq!(codex.args, strings(&["-m", "gpt"]));
+    }
+
+    #[test]
+    fn codex_runs_only_without_a_subcommand_or_as_resume() {
+        assert!(agent_launch_from_job("codex", &strings(&["codex", "cloud"]), &[]).is_none());
+        assert!(agent_launch_from_job("codex", &strings(&["codex", "fix it"]), &[]).is_none());
+        assert!(
+            agent_launch_from_job("claude", &strings(&["claude", "mcp", "list"]), &[]).is_none()
+        );
+        let plain = agent_launch_from_job("codex", &strings(&["codex", "-m", "gpt"]), &[]).unwrap();
+        assert_eq!(plain.args, strings(&["-m", "gpt"]));
+    }
+
+    #[test]
+    fn the_shims_arguments_need_the_harness_process() {
+        let args = r#"["--model","opus"]"#;
+        let other = strings(&["node", "/usr/lib/node_modules/some-tool/index.js"]);
+        assert!(agent_launch_from_job("claude", &other, &env(&[(SHIM_ARGS_ENV, args)])).is_none());
+    }
+
+    #[test]
+    fn approval_bypasses_are_recognized() {
+        assert!(bypasses_approvals(&strings(&["--dangerously-skip-permissions"])));
+        assert!(bypasses_approvals(&strings(&["--permission-mode", "bypassPermissions"])));
+        assert!(bypasses_approvals(&strings(&["--dangerously-bypass-approvals-and-sandbox"])));
+        assert!(bypasses_approvals(&strings(&["-s", "danger-full-access"])));
+        assert!(bypasses_approvals(&strings(&["-a", "never"])));
+        assert!(!bypasses_approvals(&strings(&["--model", "opus", "-a", "on-request"])));
+    }
+}
