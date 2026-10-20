@@ -333,7 +333,89 @@ def scenario_old_head_prunes_with_the_lock():
         shutil.rmtree(locks, ignore_errors=True)
 
 
+def load_script():
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("prune_media_derived_data", SCRIPT)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def run_in_process(root, keep_others, start_free_gib, min_free_gib, dir_gib=9):
+    """Runs main() with a fake free-space reading: each media dir removed frees dir_gib.
+    pr-3-base is open in a process, as in the other scenarios."""
+    module = load_script()
+    before = set(os.listdir(root))
+    module.free_gib = lambda _root: start_free_gib + dir_gib * len(before - set(os.listdir(root)))
+    module.open_paths = lambda: [os.path.join(root, "cmux-ci-media-pr-3-base", "Build", "Products", "Debug", "app.bin")]
+    argv = ["prune", "--root", root, "--keep-tag", "ci-media-pr-9-base", "--keep-tag", "ci-media-pr-9-head",
+            "--keep-others", str(keep_others), "--min-free-gib", str(min_free_gib)]
+    saved = sys.argv
+    sys.argv = argv
+    try:
+        code = module.main()
+    except SystemExit as exit_:
+        code = exit_.code
+    finally:
+        sys.argv = saved
+    return code
+
+
+def scenario_prune_to_floor():
+    """Ten of nineteen failed tours on 2026-10-19/20 built the base, then failed
+    the head on reload.sh's 40 GiB floor with 18-39 GiB free (job 118404351489:
+    39 GiB). Below --min-free-gib the prune keeps removing idle, unheld media
+    dirs past --keep-others, oldest first, until the floor is met."""
+    with tempfile.TemporaryDirectory() as root, tempfile.TemporaryDirectory() as outside:
+        build_tree(root, outside)
+        code = run_in_process(root, keep_others=4, start_free_gib=30, min_free_gib=52)
+        names = remaining(root)
+        _check(code == 0, "the floor pass exits 0")
+        _check("cmux-ci-media-pr-1-base" not in names and "cmux-ci-media-pr-1-head" not in names,
+               "the cap still removes the oldest idle pair")
+        _check("cmux-ci-media-pr-2-base" not in names, "below the floor the next oldest idle dir goes too")
+        _check("cmux-ci-media-pr-2-head" in names, "the prune stops once the floor is met")
+        expect_kept_everywhere(root, outside, names)
+    with tempfile.TemporaryDirectory() as root, tempfile.TemporaryDirectory() as outside:
+        build_tree(root, outside)
+        code = run_in_process(root, keep_others=6, start_free_gib=100, min_free_gib=52)
+        _check(code == 0 and "cmux-ci-media-pr-1-base" in remaining(root),
+               "above the floor and under the cap nothing is removed")
+    with tempfile.TemporaryDirectory() as root, tempfile.TemporaryDirectory() as outside:
+        build_tree(root, outside)
+        code = run_in_process(root, keep_others=6, start_free_gib=5, min_free_gib=52)
+        names = remaining(root)
+        _check(code == 0, "a floor it cannot reach still exits 0")
+        for name in ["cmux-ci-media-pr-1-base", "cmux-ci-media-pr-1-head",
+                     "cmux-ci-media-pr-2-base", "cmux-ci-media-pr-2-head"]:
+            _check(name not in names, f"below the floor, under the cap, idle {name} is removed")
+        expect_kept_everywhere(root, outside, names)
+
+
+def scenario_workflow_floor():
+    """The tour's floor covers reload.sh's own floor plus what the base build
+    adds before the head build checks it (a cold build adds ~10.6 GiB)."""
+    import re
+
+    step, _, _ = workflow_step()
+    reload_text = open(os.path.join(ROOT, "scripts", "reload.sh")).read()
+    reload_floor = int(re.search(r'CMUX_NEXT_MIN_FREE_GIB:-(\d+)', reload_text).group(1))
+    match = re.search(r"--min-free-gib\s+(\d+)", step["run"]) if step else None
+    _check(match is not None, "the prune step passes --min-free-gib")
+    if match:
+        _check(int(match.group(1)) >= reload_floor + 11,
+               f"--min-free-gib {match.group(1)} covers reload.sh's {reload_floor} GiB floor plus one build")
+    # A head branched after the tag lock but before --min-free-gib has a prune
+    # that refuses the flag; the hold step must take the run's copy then.
+    hold = {st.get("name"): st for st in yaml.safe_load(open(WORKFLOW))["jobs"]["tour"]["steps"]}.get("Hold this tour's tag")
+    _check(hold is not None and "--min-free-gib" in hold["run"],
+           "the hold step takes the run's prune when the head's has no --min-free-gib")
+
+
 def main():
+    scenario_prune_to_floor()
+    scenario_workflow_floor()
     scenario_keep_four()
     scenario_keep_zero()
     scenario_held_tag()
