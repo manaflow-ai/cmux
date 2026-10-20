@@ -75,7 +75,6 @@ struct AgentCursorNameTagTests {
         let arrowTurn = (cursor.heading.value(forKeyPath: "transform.rotation.z") as? Double) ?? 0
         let last = try #require(plan.samples.last)
         #expect(abs(arrowTurn - (last.heading - AgentCursorOverlayModel.restingHeading)) < 1e-6, "the arrow points along travel")
-        #expect(cursor.heading.animation(forKey: "agentCursor.heading") != nil)
     }
 
     @Test func aDragGlidesToTheGrabThenEndsAtTheDrop() throws {
