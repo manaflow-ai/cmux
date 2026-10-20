@@ -4,12 +4,64 @@ use cmux_link::dial::Service;
 use cmux_link::token::{DenyAllTokens, Expected, TokenRefused, TokenVerifier};
 use serde_json::Value;
 
+#[path = "native_token_security/mod.rs"]
+mod security;
+
 fn fixture() -> Value {
     serde_json::from_str(include_str!("../../../../schemas/link-token/native.json")).unwrap()
 }
 
 fn receiver() -> Box<dyn TokenVerifier> {
-    Box::new(DenyAllTokens)
+    Box::new(configured().0)
+}
+
+type TestClock = std::sync::Arc<std::sync::Mutex<cmux_link::native_token::ReceiverTime>>;
+
+fn configured() -> (cmux_link::native_token::NativeTokenVerifier, TestClock) {
+    use cmux_link::native_token::*;
+    let f = fixture();
+    let time = std::sync::Arc::new(std::sync::Mutex::new(ReceiverTime {
+        unix_ms: 1_792_000_010_000,
+        monotonic: std::time::Instant::now(),
+    }));
+    let clock = time.clone();
+    let receiver =
+        NativeTokenVerifier::new(keys(), move || Some(*clock.lock().unwrap()), 2).unwrap();
+    receiver.replace_authority(policy(&f, *time.lock().unwrap())).unwrap();
+    (receiver, time)
+}
+
+fn keys() -> cmux_link::keyset::Keyset {
+    let f = fixture();
+    cmux_link::keyset::Keyset {
+        version: "0000000000000001".into(),
+        keys: [(
+            f["kid"].as_str().unwrap().into(),
+            URL_SAFE_NO_PAD.decode(f["public_key"].as_str().unwrap()).unwrap().try_into().unwrap(),
+        )]
+        .into(),
+    }
+}
+
+fn policy(
+    f: &Value,
+    time: cmux_link::native_token::ReceiverTime,
+) -> cmux_link::native_token::NativePolicy {
+    use cmux_link::native_token::*;
+    NativePolicy {
+        issuer: f["claims"]["iss"].as_str().unwrap().into(),
+        host: f["claims"]["aud"].as_str().unwrap().into(),
+        epoch: 4,
+        team: f["claims"]["team"].as_str().unwrap().into(),
+        checked_at_ms: time.unix_ms,
+        expires_at_ms: time.unix_ms + 30_000,
+        request_started: time.monotonic,
+        peers: vec![NativePeer {
+            install: f["claims"]["sub"].as_str().unwrap().into(),
+            binding: serde_json::from_value(f["claims"]["network"].clone()).unwrap(),
+            services: vec![Service::Daemon, Service::Ssh],
+        }],
+    }
 }
 
 fn expected(service: Service) -> Expected<'static> {

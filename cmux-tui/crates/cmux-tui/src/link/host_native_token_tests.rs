@@ -1,11 +1,88 @@
 //! The actual inbound service path consumes backend-signed tokens and stamps their signed time.
 use super::*;
-use cmux_link::token::DenyAllTokens;
+use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use serde_json::Value;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 
 fn receiver() -> Box<dyn TokenVerifier> {
-    Box::new(DenyAllTokens)
+    use cmux_link::native_token::*;
+    let f: Value =
+        serde_json::from_str(include_str!("../../../../../schemas/link-token/native.json"))
+            .unwrap();
+    let now = ReceiverTime { unix_ms: 1_792_000_010_000, monotonic: std::time::Instant::now() };
+    let keys = cmux_link::keyset::Keyset {
+        version: "0000000000000001".into(),
+        keys: [(
+            f["kid"].as_str().unwrap().into(),
+            URL_SAFE_NO_PAD.decode(f["public_key"].as_str().unwrap()).unwrap().try_into().unwrap(),
+        )]
+        .into(),
+    };
+    let verifier = NativeTokenVerifier::new(keys, move || Some(now), 16).unwrap();
+    verifier
+        .replace_authority(NativePolicy {
+            issuer: f["claims"]["iss"].as_str().unwrap().into(),
+            host: f["claims"]["aud"].as_str().unwrap().into(),
+            epoch: 4,
+            team: f["claims"]["team"].as_str().unwrap().into(),
+            checked_at_ms: now.unix_ms,
+            expires_at_ms: now.unix_ms + 30_000,
+            request_started: now.monotonic,
+            peers: vec![NativePeer {
+                install: f["claims"]["sub"].as_str().unwrap().into(),
+                binding: serde_json::from_value(f["claims"]["network"].clone()).unwrap(),
+                services: vec![Service::Daemon, Service::Ssh],
+            }],
+        })
+        .unwrap();
+    Box::new(verifier)
+}
+
+#[tokio::test]
+async fn native_token_receiver_inbound_refuses_another_key_address_or_host_epoch() {
+    let f: Value =
+        serde_json::from_str(include_str!("../../../../../schemas/link-token/native.json"))
+            .unwrap();
+    let directory = cmux_unix_socket::short_test_dir("nativejwtdeny");
+    let session = directory.path().join("s.sock");
+    for case in ["key", "address", "host", "epoch"] {
+        let (mut client, inbound) = tokio::io::duplex(16 * 1024);
+        client
+            .write_all(
+                format!(
+                    "{}\n",
+                    serde_json::json!({"service":"daemon", "epoch":4, "link_token":f["token"]})
+                )
+                .as_bytes(),
+            )
+            .await
+            .unwrap();
+        let me = HostIdentity {
+            host: if case == "host" {
+                "host_00000000000000000003"
+            } else {
+                f["claims"]["aud"].as_str().unwrap()
+            },
+            epoch: if case == "epoch" { 5 } else { 4 },
+            session_socket: &session,
+            sshd: "127.0.0.1:1".parse().unwrap(),
+        };
+        let install = if case == "address" {
+            "inst_00000000000000000003"
+        } else {
+            f["claims"]["sub"].as_str().unwrap()
+        };
+        let source = SocketAddr::new(IpAddr::V6(overlay_address(install)), 40000);
+        let key = if case == "key" { [5; 32] } else { [b'a'; 32] };
+        let verifier = receiver();
+        let result = serve_host_inbound(inbound, key, source, &*verifier, &me).await;
+        let expected = match case {
+            "address" => HostRefused::AddressMismatch,
+            "epoch" => HostRefused::StaleEpoch,
+            _ => HostRefused::Token,
+        };
+        assert_eq!(result, Err(expected), "{case}");
+    }
 }
 
 #[tokio::test]
@@ -36,10 +113,8 @@ async fn native_token_receiver_daemon_stamps_backend_identity_and_signed_time() 
         sshd: "127.0.0.1:1".parse().unwrap(),
     };
     let verifier = receiver();
-    let source = std::net::SocketAddr::new(
-        std::net::IpAddr::V6(overlay_address(f["claims"]["sub"].as_str().unwrap())),
-        40000,
-    );
+    let source =
+        SocketAddr::new(IpAddr::V6(overlay_address(f["claims"]["sub"].as_str().unwrap())), 40000);
     let serve = async {
         serve_host_inbound(inbound, [b'a'; 32], source, &*verifier, &me)
             .await
@@ -93,10 +168,8 @@ async fn native_token_receiver_ssh_reaches_only_the_loopback_service() {
         .await
         .unwrap();
     let verifier = receiver();
-    let source = std::net::SocketAddr::new(
-        std::net::IpAddr::V6(overlay_address(f["claims"]["sub"].as_str().unwrap())),
-        40000,
-    );
+    let source =
+        SocketAddr::new(IpAddr::V6(overlay_address(f["claims"]["sub"].as_str().unwrap())), 40000);
     let serve = async {
         serve_host_inbound(inbound, [b'a'; 32], source, &*verifier, &me)
             .await

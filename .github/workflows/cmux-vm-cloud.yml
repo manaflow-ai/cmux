@@ -4,9 +4,9 @@ name: cmux VM Cloud adapter
 on:
   push:
     branches: ["codex/vm-api-cloud-*"]
-    paths: ["backend/**", "libs/vm-instance-identity/**", "workers/cmux-vm/sdk/**", "workers/cmux-vm/src/**", ".github/workflows/cmux-vm-cloud.yml"]
+    paths: ["backend/**", "schemas/link-token/**", "libs/vm-instance-identity/**", "workers/cmux-vm/sdk/**", "workers/cmux-vm/src/**", ".github/workflows/cmux-vm-cloud.yml"]
   pull_request:
-    paths: ["workers/cmux-vm/sdk/**", "workers/cmux-vm/src/**", "libs/vm-instance-identity/**", "backend/apps/api/src/cloud-vm-api*", "backend/apps/api/src/team-vm-api*", "backend/apps/api/test/cloud-vm-api*", "backend/apps/api/test/team-vm-api*", ".github/workflows/cmux-vm-cloud.yml"]
+    paths: ["schemas/link-token/**", "workers/cmux-vm/sdk/**", "workers/cmux-vm/src/**", "libs/vm-instance-identity/**", "backend/apps/api/src/cloud-vm-api*", "backend/apps/api/src/team-vm-api*", "backend/apps/api/test/cloud-vm-api*", "backend/apps/api/test/team-vm-api*", ".github/workflows/cmux-vm-cloud.yml"]
 permissions:
   contents: read
 concurrency:
@@ -47,6 +47,12 @@ jobs:
           name: cmux-native-link-token-vector
           path: schemas/link-token/native.json
           retention-days: 7
+      - name: Native receiver fixture drift
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        working-directory: .
+        run: |
+          git ls-files --error-unmatch schemas/link-token/native.json
+          git diff --exit-code -- schemas/link-token/native.json
       - name: Protocol catalog and generated client drift
         id: catalog
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}

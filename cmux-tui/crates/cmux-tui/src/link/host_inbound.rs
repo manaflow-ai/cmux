@@ -1,8 +1,8 @@
 //! A stream that reaches a Cloud host's link (overlay TCP 4100): the hello
 //! must carry a link token that the host's [`TokenVerifier`] accepts for
 //! this host, its current epoch, the requested service and the WireGuard
-//! key the stream came from (cloud-client-contract.md 1.7). Until a token
-//! format ships, the host uses `DenyAllTokens` and serves nothing.
+//! key the stream came from (cloud-client-contract.md 1.7). Production remains
+//! deny-all until the supervised listener and live authority owner are composed.
 //!
 //! `daemon` goes to the session's remote entry, stamped with the peer the
 //! token names; `ssh` goes to the host's sshd on loopback (scp, sftp and

@@ -33,6 +33,7 @@ pub mod connect_info;
 pub mod dial;
 pub mod entry_path;
 pub mod keyset;
+pub mod native_token;
 pub mod overlay_addr;
 pub mod owner_session;
 pub mod pairing;
