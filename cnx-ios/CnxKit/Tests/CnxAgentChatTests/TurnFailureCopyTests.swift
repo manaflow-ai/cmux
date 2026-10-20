@@ -64,4 +64,17 @@ import Testing
         store.apply(.retrying(attempt: 3, maxAttempts: 10, status: nil))
         #expect(store.turns.last?.retry == nil)
     }
+
+    /// Full verify D4: the account refusing the chat's model reads as a sentence, never raw JSON.
+    @Test func aModelTheAccountLacksIsPlain() {
+        let raw = #"{"type":"error","status":400,"error":{"type":"invalid_request_error","message":"The 'gpt-6.1-sol' model is not supported when using Codex with a ChatGPT account."}}"#
+        let copy = TurnFailureCopy(message: raw, harness: "codex", harnessName: "Codex")
+        #expect(copy.kind == .modelUnavailable)
+        #expect(copy.sentence == "Codex can't use this model with the Mac's account. Pick another model.")
+        #expect(copy.detail == raw)
+        #expect(!TurnFailureCopy.plain(raw, harness: "codex", harnessName: "Codex").contains("{"))
+        // Plain text stays as it is.
+        #expect(TurnFailureCopy.plain("Already answered.") == "Already answered.")
+    }
 }
+
