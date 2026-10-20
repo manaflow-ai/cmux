@@ -44,10 +44,6 @@
   display: flex;
   flex: 0 1 auto;
   flex-flow: column nowrap;
-  /* In a pane too short for the queue's last row and the whole card (its box and, with Claude Code's
-     split, the quiet row under it), what does not fit spills over the transcript above, never past
-     the pane's bottom: the card keeps its place whether or not prompts are queued. */
-  justify-content: flex-end;
   min-height: 0;
 }
 .acpmux-dock > .acpmux-composer > * {
