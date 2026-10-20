@@ -109,9 +109,9 @@ do not share state; no grouping, no offline view.
 | R1 | groups nest inside a remote group (host > project > branch) | sidebar doc accepts `group` under `group` up to depth 3; refuses depth 4 (`nesting`), a cycle (`invalid_target`), and a subtree with workspaces of two machines (`cross_machine`) |
 | R2 | moving a group moves its whole subtree | `move` of a parent group to another section carries children and grandchildren |
 | R3 | closing the last workspace removes empty ancestors (machine sections only) | `close` cascades up through empty groups, never into a pinned/custom section |
-| R4 | flat rows carry depth | `view` rows of a grandchild have `depth` 3 and `parent` = its own group |
+| R4 | flat rows carry depth | `view` rows: top-level group depth 0, its subgroup 1, the next 2, a workspace in that one 3; `parent` = its own group; a collapsed group hides its whole subtree; a text filter shows the path of groups to a match |
 | R5 | one action makes a remote group | `remote.group.new` (palette "New Remote Group…", sidebar `+` menu, CLI `cmux remote group new <host>`, MCP) connects or reuses the host and returns its section id |
-| R6 | new workspaces inherit the host | `workspace.group.newWorkspace` on a group in a machine section creates on that machine (already true for top-level groups; extended to nested groups) |
+| R6 | new workspaces inherit the host | `workspaceGroup.newWorkspace` creates on the machine all the group's members run on (`GroupSpawnHost`), and refuses with "machine not connected" when that host is offline; before slice 1 it always created on this Mac |
 | R7 | health on the header | header shows `Connected`, `Reconnecting…`, `Offline since HH:MM`, `Sign-in needed` from `MachineRegistry` link state |
 | R8 | motion | nested expand/collapse and reorders go through the motion gate category `sidebar` (a274) |
 | R9 | 21 locales | every new string in `Localizable.xcstrings` for all 21 locales |
@@ -131,7 +131,9 @@ already has `Item.parent` and view rows with `depth`. Change:
 - `reduce.rs close`: an emptied group is removed, then its parent if emptied, up the chain.
 - `check.rs repair`: nested rows deeper than the limit, or forming a cycle, are lifted to the
   top level of their section (repair never deletes).
-- `view.rs`: depth = number of group ancestors + 1 for any row in a group.
+- `view.rs`: a row's depth is its number of group ancestors (top level 0).
+- `accept.rs`: drag acceptance uses the same depth rule and treats a dragged group's whole
+  subtree as `self`.
 
 Old daemons refuse nested groups with `nesting`; clients gate the "New Subgroup" UI on the
 daemon capability `sidebar.nested_groups` so a newer app against an older home daemon degrades
@@ -195,7 +197,7 @@ Three layouts were mocked (gallery in Home's right pane,
 
 | Slice | Work | Done when |
 | --- | --- | --- |
-| 1 | design + teardown + mocks; nested groups in the sidebar document (Rust), failing-first tests | reducer tests R1-R4 green on the fleet |
+| 1 (landed) | design + teardown + mocks; nested groups in the sidebar document (Rust); group "New Workspace" inherits the host (R6); failing-first tests | reducer tests R1-R4 and `GroupSpawnHostTests` red before, green after, on the fleet |
 | 2 | Swift: render nested groups from doc rows (indent, collapse per group), "New Subgroup" in group menu, capability gate | tagged app shows host > project > branch |
 | 3 | `remote.group.new` action (palette, `+` menu, CLI, MCP, 21 locales) | one action from nothing to a usable remote group on a Mac mini |
 | 4 | header health line and reconnect menu; offline refusal message | killing the host listener shows Offline, restoring it reconnects |
