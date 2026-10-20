@@ -21,10 +21,18 @@ enum OmnibarStyle {
     static func chromeGap(scale: CGFloat) -> CGFloat { PaneChromeMetrics.current.tabGap(scale: scale) }
     /// Space the toolbar leaves above the omnibar. The tab strip above
     /// already ends `chromeGap` below its pills (`PaneChromeMetrics`), so
-    /// the omnibar starts at the toolbar's top edge.
-    static let toolbarTopPadding: CGFloat = 0
-    /// Toolbar row: the bar, then `chromeGap` down to the page.
-    static func toolbarHeight(scale: CGFloat) -> CGFloat { toolbarTopPadding + barHeight + chromeGap(scale: scale) }
+    /// the omnibar starts at the toolbar's top edge, unless the pane is
+    /// outlined (`layout.paneSeparation` borders: Panes, Card Outlined). The
+    /// outline's top line runs along the strip's bottom, so the bar starts
+    /// one `chromeGap` below that line, as the page starts one below the bar
+    /// (Lawrence 2026-10-19: the space above the omnibar row equals the
+    /// space below it).
+    static func toolbarTopPadding(scale: CGFloat) -> CGFloat {
+        guard Metrics.paneBorder == .subtle else { return 0 }
+        return (Metrics.paneBorderWidth ?? 1 / max(scale, 1)) + chromeGap(scale: scale)
+    }
+    /// Toolbar row: the top padding, the bar, then `chromeGap` down to the page.
+    static func toolbarHeight(scale: CGFloat) -> CGFloat { toolbarTopPadding(scale: scale) + barHeight + chromeGap(scale: scale) }
     /// Horizontal interior margin: the pane's chrome line, so the first
     /// button's hover shape starts where the tab pills above it start and
     /// its glyph near the tabs' icons (`Metrics.paneChromeInset`).

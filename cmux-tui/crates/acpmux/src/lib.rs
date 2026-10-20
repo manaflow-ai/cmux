@@ -79,6 +79,7 @@ pub mod stats;
 pub mod store;
 pub mod subagents;
 pub mod subsession_mcp;
+pub mod subsession_worktree;
 pub mod transcript;
 pub mod trust;
 pub mod tui;

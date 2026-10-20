@@ -508,6 +508,22 @@ Enter), `hover`, `source` (keyboard or mouse), `pointer` (last pointer location 
 - A search engine switch re-queries and keeps an arrowed row.
 - Enter with modifiers reports `.open(url, disposition)`, and the page stays. The chrome calls
   `onOpenURL` (the App must wire it; until then, the current tab loads the URL).
+- Every commit (Enter with or without modifiers, a row click, Paste and Go, an extension
+  keyword) hands the keyboard back to the page once (`onReturnFocusToPage`); the omnibar
+  never keeps focus after Enter (Lawrence 2026-10-19, u2573).
+- Control-Enter adds `www.` and `.com` to a typed host without a dot (`example`,
+  `google/maps`); other text commits as Enter does (Chromium's desired TLD).
+- A leading `?` forces a search for the rest of the text.
+- Scheme-less private and intranet addresses load over `http`, never `https`: private,
+  CGNAT/tailnet and link-local IPv4, unique-local IPv6, `.local`, `.internal`, `.lan`,
+  `.home.arpa` and other non-unique names, and a single label with a port or path
+  (`devbox:8080`, `router/`). A single word alone still searches.
+- The card's rows change their text in place while the user types (Chromium
+  `OmniboxResultView::SetMatch`); typing never rebuilds the card's views.
+- Dragging the page-info chip drags the page out as a link (URL, text, title as
+  `public.url-name`) while the field is not focused.
+
+Chrome comparison, behavior by behavior: plans/cmux-next/omnibar-parity/PARITY.md.
 
 ### Selection and focus
 

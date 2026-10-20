@@ -18,8 +18,12 @@ import {
 import { PictureCrop } from "./PictureCrop";
 import type { HomeSheets } from "./sheets";
 import {
+  CHIEF_BACKENDS,
   CHIEF_HARNESSES,
   CHIEF_TOOLS,
+  chiefBackend,
+  chiefBackendLabel,
+  DEFAULT_CHIEF_BACKEND,
   DEFAULT_CHIEF_TOOLS,
   type HomeChief,
   type HomeChiefGrant,
@@ -53,6 +57,9 @@ export function ChiefSheet({ sheets, strings, chief, picture, grants }: ChiefShe
     harnesses: chief && chief.harnesses.length > 0 ? chief.harnesses : [...CHIEF_HARNESSES],
   };
   const [grant, setGrant] = useState<HomeChiefGrant>(startGrant);
+  // The engine a new Chief starts on. An existing Chief's engine changes only in its settings in
+  // the app (`cmux chief engine`), so the edit sheet shows it and does not send it.
+  const [backend, setBackend] = useState<string>(DEFAULT_CHIEF_BACKEND);
   // A GIF ready to send, null to go back to the default picture, undefined for no change.
   const [image, setImage] = useState<(PreparedPicture & { url: string }) | null | undefined>();
   // A still being placed in the circle; it is drawn at its crop when the sheet saves.
@@ -131,7 +138,7 @@ export function ChiefSheet({ sheets, strings, chief, picture, grants }: ChiefShe
     const changed = grants && grantChanged ? grantChange : undefined;
     const done = chief
       ? sheets.updateChief(chief, profile, changed, sent)
-      : sheets.createChief(profile, changed, sent ?? undefined).then(Boolean);
+      : sheets.createChief(profile, changed, sent ?? undefined, backend).then(Boolean);
     void done.finally(() => setBusy(false));
   };
   const shownPicture = image === null ? undefined : (image?.url ?? picture);
@@ -239,6 +246,38 @@ export function ChiefSheet({ sheets, strings, chief, picture, grants }: ChiefShe
           />
         )}
       </div>
+      {chief ? (
+        <div className="lg-form-field">
+          <span className="lg-form-label">{t("chief.field.backend")}</span>
+          <span className="lg-chief-backend">{chiefBackendLabel(t, chief.engine?.harness)}</span>
+          <span className="lg-form-note">{t("chief.backend.changeInSettings")}</span>
+        </div>
+      ) : (
+        <label className="lg-form-field">
+          <span className="lg-form-label">{t("chief.field.backend")}</span>
+          <select
+            className="hc-link-field lg-chief-backend-select"
+            aria-label={t("chief.field.backend")}
+            value={backend}
+            disabled={locked}
+            onChange={(event) => setBackend(event.target.value)}
+          >
+            {CHIEF_BACKENDS.map((option) => (
+              <option key={option.id} value={option.id}>
+                {t(option.label)}
+              </option>
+            ))}
+          </select>
+          {chiefBackend(backend) === "unii" && (
+            <span className="lg-form-note">
+              {/* The command stays as typed in every language: the catalog holds its place, %@. */}
+              {t("chief.backend.uniiNote")
+                .split("%@")
+                .flatMap((part, index) => (index === 0 ? [part] : [<code key={index}>unii login</code>, part]))}
+            </span>
+          )}
+        </label>
+      )}
       <label className="lg-form-field">
         <span className="lg-form-label">{t("chief.field.personality")}</span>
         <textarea

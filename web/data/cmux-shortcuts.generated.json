@@ -7531,40 +7531,6 @@
           "aliases": []
         },
         {
-          "id": "agentPane.searchFiles",
-          "title": {
-            "en": "Search Files…",
-            "ar": "البحث في الملفات…",
-            "bs": "Pretraži datoteke…",
-            "da": "Søg i filer…",
-            "de": "Dateien durchsuchen…",
-            "es": "Buscar archivos…",
-            "fr": "Rechercher des fichiers…",
-            "it": "Cerca file…",
-            "ja": "ファイルを検索…",
-            "km": "ស្វែងរកឯកសារ…",
-            "ko": "파일 검색…",
-            "no": "Søk i filer…",
-            "pl": "Szukaj plików…",
-            "pt-BR": "Buscar arquivos…",
-            "ru": "Поиск файлов…",
-            "th": "ค้นหาไฟล์…",
-            "tr": "Dosyalarda ara…",
-            "uk": "Пошук файлів…",
-            "vi": "Tìm tệp…",
-            "zh-CN": "搜索文件…",
-            "zh-TW": "搜尋檔案…"
-          },
-          "shortcut": {
-            "key": "p",
-            "modifiers": [
-              "cmd"
-            ]
-          },
-          "chord": null,
-          "aliases": []
-        },
-        {
           "id": "agentPane.copyLastCodeBlock",
           "title": {
             "en": "Copy Last Code Block",

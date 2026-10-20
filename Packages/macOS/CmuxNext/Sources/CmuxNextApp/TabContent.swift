@@ -44,6 +44,19 @@ enum TabContent {
         }
     }
 
+    /// The kind a timed tab switch reports (`debug.tab_switch`).
+    @MainActor var switchKind: String {
+        switch self {
+        case .terminal: "terminal"
+        case .browser(let entry): entry.tab.engineKind == .cef ? "chromium" : "webkit"
+        case .agent: "agent"
+        case .page: "page"
+        case .placeholder: "placeholder"
+        case .notice: "notice"
+        case .conversation: "conversation"
+        }
+    }
+
     /// A Ghostty terminal (it is ready on its first frame, not when shown).
     var isTerminal: Bool {
         if case .terminal = self { true } else { false }

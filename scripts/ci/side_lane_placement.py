@@ -33,11 +33,20 @@ contains(' <key> ') matches whole keys only:
   when a light pool has no online GUI runner. GUI jobs always use this label
   when the run is trusted, so a headless AWS side runner cannot receive a GUI
   suite;
+- `session_runner`: the owned pool's session label (pr_runner_pool.session_label(),
+  glaeda#1530) while an online runner carries it, else `gui_runner`. Jobs that
+  need a logged-in session but not the console gui token (daemon tests,
+  generated files) take it, so they run beside a console GUI job; until the
+  fleet carries the label they keep the gui label;
 - `watch`: "false" when every job took its fallback, so the run uploads no
-  owned-pool-watch marker; "true" otherwise.
+  owned-pool-watch marker; "true" otherwise;
+- `blacksmith_12_jobs`, `blacksmith_6_jobs` and `retry_runner`: the jobs no idle
+  mini took that Blacksmith 12 vCPU, then 6 vCPU, has a free slot for now, and
+  the Blacksmith label of the bot's overflow attempt (next_macos_cascade.py).
 """
 from __future__ import annotations
 
+import datetime as dt
 import importlib.util
 import os
 import sys
@@ -57,6 +66,18 @@ def _picker():
 pool = _picker()
 
 
+def _cascade():
+    path = Path(__file__).with_name("next_macos_cascade.py")
+    spec = importlib.util.spec_from_file_location("next_macos_cascade", path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules.setdefault("next_macos_cascade", module)
+    spec.loader.exec_module(module)
+    return module
+
+
+cascade = _cascade()
+
+
 def route_label(label: str, runners: Sequence[Mapping[str, Any]] | None) -> str:
     """Use the side label while online, otherwise its owned pool label."""
     if runners is None:
@@ -67,13 +88,13 @@ def route_label(label: str, runners: Sequence[Mapping[str, Any]] | None) -> str:
     return pool.pool_label(label)
 
 
-def gui_route_label(label: str, runners: Sequence[Mapping[str, Any]] | None) -> str:
-    """Return a live GUI-token label paired with a side or pool label.
+def _live_role_label(label: str, runners: Sequence[Mapping[str, Any]] | None, role) -> str:
+    """The first online `role` label (pr_runner_pool.gui_label or session_label) for an owned side label.
 
-    An empty live runner list is meaningful: the picker must not synthesize a
-    label that no online runner carries, or GUI jobs wait forever on a dead
-    queue. An unreadable runner listing also keeps the output empty so the
-    workflow's known fallback can choose the generic route.
+    The light minis run no GUI or session runner, so a light lane borrows the
+    std minis' before the workflow's Blacksmith fallback: on 2026-10-18 every
+    glaeda-gui-light job sampled waited for a runner until the rescue moved its
+    run to Blacksmith while the std GUI runners sat idle.
     """
     if not label.startswith(pool.SIDE_PREFIX) or not pool.persistent(label):
         return ""
@@ -84,20 +105,37 @@ def gui_route_label(label: str, runners: Sequence[Mapping[str, Any]] | None) -> 
         return ""
     if runners is None:
         return ""
-    # The light minis run no GUI runner, so a light lane's GUI suites borrow the
-    # std minis' GUI runners before the workflow's Blacksmith fallback: on
-    # 2026-10-18 every glaeda-gui-light job sampled waited for a runner until
-    # the rescue moved its run to Blacksmith while the std GUI runners sat idle.
-    candidates = [pool.gui_label(owned)]
+    candidates = [role(owned)]
     parts = owned.split("-")
     if pool.LIGHT_CLASS in parts:
         parts[parts.index(pool.LIGHT_CLASS)] = "std"
-        candidates.append(pool.gui_label("-".join(parts)))
-    for gui in candidates:
-        if gui and any(runner.get("status") == "online" and gui in pool.runner_labels(runner)
-                       for runner in runners):
-            return gui
+        candidates.append(role("-".join(parts)))
+    for candidate in candidates:
+        if candidate and any(runner.get("status") == "online" and candidate in pool.runner_labels(runner)
+                             for runner in runners):
+            return candidate
     return ""
+
+
+def gui_route_label(label: str, runners: Sequence[Mapping[str, Any]] | None) -> str:
+    """Return a live GUI-token label paired with a side or pool label.
+
+    An empty live runner list is meaningful: the picker must not synthesize a
+    label that no online runner carries, or GUI jobs wait forever on a dead
+    queue. An unreadable runner listing also keeps the output empty so the
+    workflow's known fallback can choose the generic route.
+    """
+    return _live_role_label(label, runners, pool.gui_label)
+
+
+def session_route_label(label: str, runners: Sequence[Mapping[str, Any]] | None) -> str:
+    """Return a live session label paired with a side label, else gui_route_label().
+
+    Before the fleet carries the session label (glaeda#1530's rollout) no online
+    runner has it, so this is exactly the gui route and the session jobs keep
+    today's label; it moves them once one online runner carries it.
+    """
+    return _live_role_label(label, runners, pool.session_label) or gui_route_label(label, runners)
 
 
 def decide(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None,
@@ -138,6 +176,7 @@ def main(env: Mapping[str, str] = os.environ) -> int:
     label = (env.get("SIDE_LABEL") or "").strip()
     route = route_label(label, runners)
     gui_route = gui_route_label(label, runners)
+    session_route = session_route_label(label, runners)
     if route and route != label:
         why += f"; no online side runner, routing jobs on `{route}`"
     print(f"side-lane placement: {why}")
@@ -146,11 +185,17 @@ def main(env: Mapping[str, str] = os.environ) -> int:
     if output:
         with open(output, "a", encoding="utf-8") as handle:
             handle.write(f"owned_jobs={delimited(owned)}\nfallback_jobs={delimited(fallback)}\n"
-                         f"runner={route}\ngui_runner={gui_route}\nwatch={watch}\n")
+                         f"runner={route}\ngui_runner={gui_route}\nsession_runner={session_route}\n"
+                         f"watch={watch}\n")
     summary = env.get("GITHUB_STEP_SUMMARY")
     if summary:
         with open(summary, "a", encoding="utf-8") as handle:
             handle.write(f"### macOS placement\n\n{why}\n")
+    # The jobs no idle mini took: Blacksmith 12 vCPU, then 6 vCPU, while each has a free slot now.
+    live, waiting = cascade.read(env, pool, now=dt.datetime.now(dt.timezone.utc))
+    placed = cascade.place(env, owned, live, waiting)
+    print(f"macOS cascade: {placed.why}")
+    cascade.write(placed, env)
     return 0
 
 
