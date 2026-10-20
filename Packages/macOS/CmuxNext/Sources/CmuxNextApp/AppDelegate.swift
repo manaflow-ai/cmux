@@ -27,6 +27,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var services: AppServices?
     private var settings: SettingsController?
     private let control = AppControl()
+    private let mouseSideButtons = MouseSideButtons()
     private var cloudContext: Task<Void, Never>?
     /// OSC 52 clipboard reads on the local daemon (`TerminalClipboardReadService`).
     var daemonPrompts: DaemonPrompts?
@@ -172,14 +173,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return event?.type == .keyDown ? event?.timestamp : nil
         }
         services.iconPicker.onOpened = { DebugTimings.iconPickerOpened($0) }
-        services.browserProfiles.load(directory: BrowserProfileService.defaultDirectory(bundleID: services.environment.launch.bundleID),
-                                      importStore: services.onboarding.importStore)
+        let profilesDirectory = BrowserProfileService.defaultDirectory(bundleID: services.environment.launch.bundleID)
+        services.browserProfiles.load(directory: profilesDirectory, importStore: services.onboarding.importStore)
         services.home.start()
+        mouseSideButtons.start { [weak services] in _ = services?.registry.perform($0 == .back ? "focusHistoryBack" : "focusHistoryForward") }
         services.keybindingsFile.start()
-        services.bookmarks.start(directory: BrowserProfileService.defaultDirectory(bundleID: services.environment.launch.bundleID),
-                                 importStore: services.onboarding.importStore)
-        services.history.start(supportDirectory: BrowserProfileService.defaultDirectory(bundleID: services.environment.launch.bundleID)
-            .deletingLastPathComponent())
+        services.bookmarks.start(directory: profilesDirectory, importStore: services.onboarding.importStore)
+        services.history.start(supportDirectory: profilesDirectory.deletingLastPathComponent())
         // cmux-page:// first-party pages for Chromium, before any window can start it.
         FirstPartyPageSchemes.install()
         services.windows.restoreWhenLoaded()
