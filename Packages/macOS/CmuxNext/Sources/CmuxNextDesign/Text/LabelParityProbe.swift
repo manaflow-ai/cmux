@@ -32,9 +32,15 @@ public struct LabelParityProbe {
     private enum Factory: String, CaseIterable { case label, wrapping, font }
 
     private static let texts = ["", "Hi", "Workspace notes 0123 quick brown fox jumps over the lazy dog again",
-                                "line one\nline two is longer"]
+                                "line one\nline two is longer",
+                                // Spaces before a line break, right-to-left text that wraps (a fallback font), cx-8w027.26.1.
+                                "short   \nthe next line of this label is longer",
+                                "\u{05E9}\u{05DC}\u{05D5}\u{05DD} \u{05E2}\u{05D5}\u{05DC}\u{05DD} \u{05D6}\u{05D4}\u{05D5} \u{05D8}\u{05E7}\u{05E1}\u{05D8} \u{05D0}\u{05E8}\u{05D5}\u{05DA} \u{05DE}\u{05D0}\u{05D5}\u{05D3} \u{05DC}\u{05D1}\u{05D3}\u{05D9}\u{05E7}\u{05D4} \u{05E9}\u{05DC} \u{05EA}\u{05D5}\u{05D5}\u{05D9}\u{05D5}\u{05EA}",
+                                // Fallback fonts in a Latin line (emoji, CJK).
+                                "Deploy \u{1F680} build \u{2705} done \u{6F22}\u{5B57} notes"]
     private static let fonts: [(String, NSFont)] = [
-        ("13r", .systemFont(ofSize: 13)), ("11r", .systemFont(ofSize: 11)), ("12m", .systemFont(ofSize: 12, weight: .medium)),
+        ("13r", .systemFont(ofSize: TypeScale.body)), ("11r", .systemFont(ofSize: TypeScale.caption)),
+        ("12m", .systemFont(ofSize: TypeScale.detail, weight: .medium)),
         ("10.5r", .systemFont(ofSize: 10.5)),
     ]
     private static let lineCounts: [Int?] = [nil, 1, 2, 0]

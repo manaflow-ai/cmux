@@ -161,6 +161,10 @@ pub struct Row {
 #[derive(Debug)]
 pub struct Schema {
     pub version: u64,
+    /// SHA-256 of the rows as compact JSON, lowercase hex: an opaque id a
+    /// client compares to tell it renders the schema the owner validates.
+    /// Computed here, not committed: a committed hash line changed in every
+    /// settings pull request, so no two of them merged (#21946).
     pub schema_hash: String,
     pub sections: Vec<Section>,
     pub rows: Vec<Row>,
@@ -171,7 +175,6 @@ pub struct Schema {
 #[derive(Deserialize)]
 struct Document {
     version: u64,
-    schema_hash: String,
     sections: Vec<Section>,
     rows: Vec<Value>,
 }
@@ -202,6 +205,13 @@ struct RawRow {
     refuses: Vec<Value>,
 }
 
+/// SHA-256 of `rows` as compact JSON, lowercase hex.
+fn rows_hash(rows: &[Value]) -> Result<String, String> {
+    use sha2::{Digest, Sha256};
+    let bytes = serde_json::to_vec(rows).map_err(|error| error.to_string())?;
+    Ok(Sha256::digest(&bytes).iter().map(|byte| format!("{byte:02x}")).collect())
+}
+
 impl Schema {
     /// The schema compiled into this binary.
     pub fn embedded() -> &'static Schema {
@@ -213,6 +223,7 @@ impl Schema {
     /// Parses an export document.
     pub fn parse(text: &str) -> Result<Schema, String> {
         let document: Document = serde_json::from_str(text).map_err(|error| error.to_string())?;
+        let schema_hash = rows_hash(&document.rows)?;
         let mut rows = Vec::with_capacity(document.rows.len());
         for raw in document.rows {
             rows.push(row(raw)?);
@@ -222,7 +233,7 @@ impl Schema {
             rows.iter().enumerate().map(|(index, row)| (row.path.clone(), index)).collect();
         Ok(Schema {
             version: document.version,
-            schema_hash: document.schema_hash,
+            schema_hash,
             sections: document.sections,
             rows,
             by_key,

@@ -31,6 +31,12 @@ warnings only.
                  its hidden New Tab pages (state an earlier launch left, as a person's app has);
                  then tabs and split again in that grid, with the tabs and split budgets (I2,
                  cx-8w027.20: each restored page re-ran its pane on every split or close anywhere).
+  new_workspaces 50 new workspaces, one newTab (Cmd-N's create path) at a time: each one's sidebar row is
+                 drawn from the press, before the daemon creates it, with no rows pass walking every
+                 workspace between its create and that draw (debug.new_workspace walks 0;
+                 host-independent, blocks; the window's own later rows pass is not timed), and commits
+                 in the first frame after it is drawn (late_vsyncs 0; a frame check). Press to drawn over
+                 one frame is a warning; the reply (the daemon's confirm) is reported.
   status         4 background workspaces print OSC 7501 progress 4 times a second for 5 s:
                  0 applies, 0 topology sends, 0 pane snapshots, 0 sidebar list reloads (I1-I3).
 
@@ -66,12 +72,11 @@ BUDGET = {
     "switch_selection_patches": 1,
     # Whole phase (40 Next Tab ops at 16 panes x 3 tabs).
     "tabs": {"workspace_applies": 0, "topology_sends": 0, "pane_snapshots": 0, "list_reloads": 0},
-    # Per split+close pair (cx-8w027.14, measured 2 / 2 / 2.4-3.4): one apply and one topology each
-    # for the split and the close (the new tab is named by its client-minted id, so the daemon's
-    # confirm sends none); snapshots: the new pane's mount, the daemon's confirm (surface, handle,
-    # terminal state and size change, after the first frame), the shell's titles (0.4-1.4, the
-    # shell's timing).
-    "split": {"workspace_applies": 2, "topology_sends": 2, "pane_snapshots": 4},
+    # Per split+close pair (cx-8w027.14, measured 2 / 2 / 1.9-2.5): one apply and one topology each
+    # for the split and the close (the new tab is named by its client-minted id; topologies carry no
+    # surfaces, so the daemon's confirm sends none); snapshots: the new pane's mount and the shell's
+    # titles (0-1.5, the shell's timing); the confirm re-runs only that tab's strip item.
+    "split": {"workspace_applies": 2, "topology_sends": 2, "pane_snapshots": 3},
     # Whole status window (4 tickers x 4 ticks/s x 5 s).
     "status": {"workspace_applies": 0, "topology_sends": 0, "pane_snapshots": 0, "list_reloads": 0},
     # Per restored pane, from the relaunched app's first answer until the restore settled: one
@@ -83,13 +88,17 @@ BUDGET = {
 # ratchet: when a full run (no --only) no longer shows the breach, the gate fails until its line here
 # is removed, so the fixing lane tightens the gate in its own landing.
 KNOWN = {
-    # Per restored pane (the relaunch budget scales with the grid's panes).
-    ("relaunch", "pane_snapshots"): (12, "cx-8w027.23: the restore maps each pane several more times as the live tree replaces the launch snapshot"),
+    # 3-6 of 50 new workspace rows commit a frame late on the mini (commit p99 34-39 ms at 33-70
+    # workspaces; feat-cmux-next runs 39292677937, 39296303954, 39300730843). The row is drawn
+    # from the press (walks 0); the list's commit of the insert is what runs long.
+    ("new_workspaces", "late_rows"): (8, "cx-zf6um"),
 }
 FRAME_BUDGET_MS = 1000 / 60
 # Main-thread work of one tab switch (intent to shown); MainActorWorkQueue's frame budget.
 TAB_APPLY_BUDGET_MS = 4
-SCENARIOS = ["workspaces", "theme", "drag", "tabs", "split", "relaunch", "status"]
+# New workspace rows: press to drawn (main-thread work and hops), one 60 Hz frame.
+NEW_ROW_BUDGET_MS = FRAME_BUDGET_MS
+SCENARIOS = ["workspaces", "theme", "drag", "tabs", "split", "relaunch", "new_workspaces", "status"]
 
 ROOT = os.path.abspath(os.path.join(HERE, "../.."))
 SOURCES = "Packages/macOS/CmuxNext/Sources"
@@ -98,7 +107,8 @@ ALLOW = re.compile(r"//\s*perf-gate-ok:\s*\S")
 CAPTURE = re.compile(r"CGWindowListCreateImage|CGDisplayCreateImage|SCScreenshotManager|\.renderSnapshot\(\)"
                      r"|\.compositedSnapshot\(|\.childWindowsSnapshot\(|\.floatingWindowsSnapshot\(\)|\.writeSnapshot\(to")
 CAPTURE_FILES = re.compile(r"/CmuxNextDesign/Windows/(NSWindow\+Snapshot|WindowFrame)\.swift$"
-                           r"|/CmuxNextApp/Control/Debug[^/]*\.swift$|/CmuxNextApp/Focus/DebugPaletteCapture\.swift$")
+                           r"|/CmuxNextApp/Control/Debug[^/]*\.swift$|/CmuxNextApp/Focus/DebugPaletteCapture\.swift$"
+                           r"|/CmuxNextApp/Popups/DebugPopups\.swift$")
 FLUSH = re.compile(r"\bCATransaction\.flush\(")
 
 failures, warnings, report = [], [], {"checks": [], "phases": {}}
@@ -724,6 +734,52 @@ class Gate:
             if overrun:
                 warn(f"{len(overrun)} of {ops} tab switch commits ended a frame late: "
                      f"{[(round(r['commit_ms'], 1), round(r['commit_end_ms'], 1)) for r in overrun][:6]} (commit ms, end ms)", scenario)
+
+    def new_workspaces(self, scenario="new_workspaces"):
+        app, creates = self.app, 50
+        before = set(app.workspace_ids())
+        app.rpc("debug.frames", {"action": "start"})
+        app.rpc("debug.new_workspace", {"action": "start"})
+        counts, replies = [], []
+        for _ in range(creates):
+            counts.append(len(app.workspace_ids()))
+            start = time.monotonic()
+            app.rpc("action.run", {"action": "newTab", "args": {}, "focus": True, "origin": "script"}, timeout=120)
+            replies.append(round((time.monotonic() - start) * 1000, 1))
+        app.settle()
+        own = app.rpc("debug.new_workspace", {"action": "stop"}) or {}
+        app.rpc("debug.frames", {"action": "stop"})
+        # The later scenarios run with the workspaces they had before this one.
+        for workspace in [w for w in app.workspace_ids() if w not in before]:
+            app.action("closeWorkspace", {"workspace": workspace})
+        wait(lambda: len(app.workspace_ids()) <= len(before), 60)
+        rows = [{k: round(v, 2) for k, v in row.items()} for row in own.get("creates") or []]
+        report["phases"][scenario] = {"workspaces_before": counts, "reply_ms": replies, "creates": rows}
+        if not check(len(rows) == creates, f"debug.new_workspace timed {len(rows)} of {creates} new workspace rows", scenario):
+            return
+        for row, count in zip(rows, counts):
+            row["workspaces_before"] = count
+        col = lambda name: sorted(row[name] for row in rows)
+        p99 = lambda values: values[max(0, int(len(values) * 0.99) - 1)]
+        applies, commits = col("apply_ms"), col("commit_ms")
+        tail = [row["apply_ms"] for row in rows[-10:]]
+        print(f"  new workspace row: press to drawn p50 {applies[creates // 2]:.2f} / p99 {p99(applies):.2f} ms "
+              f"(last 10, at {counts[-10]}-{counts[-1]} workspaces: mean {sum(tail) / len(tail):.2f} ms), commit p99 "
+              f"{p99(commits):.2f} ms; reply p50 {sorted(replies)[creates // 2]:.1f} ms (daemon confirm included)", flush=True)
+        walked = [(row["workspaces_before"], int(row.get("walks", -1))) for row in rows if row.get("walks", -1) != 0]
+        check(not walked, f"every new workspace row is drawn from the press with no rows walk of every workspace before it "
+                          f"({len(walked)} walked" + (f": {walked[:8]} (workspaces before, walks)" if walked else "") + ")", scenario)
+        if p99(applies) > NEW_ROW_BUDGET_MS:
+            warn(f"new workspace row press to drawn p99 {p99(applies):.2f} ms (over {NEW_ROW_BUDGET_MS:.1f} ms)", scenario)
+        if self.frames_ok(scenario):
+            late = [row for row in rows if row["late_vsyncs"] > 0]
+            if self.full and not late:
+                self.ratchet(scenario, {"late_rows": 0}, {"late_rows": 0})
+            # A known count of late rows (KNOWN) is a warning naming its bead; more is a failure.
+            check(not late or not self.unknown([("late_rows", len(late), 0)], scenario),
+                  f"every new workspace row commits in the first frame after it is drawn ({len(late)} later"
+                  + (f": {[(r['workspaces_before'], round(r['apply_ms'], 1), int(r['late_vsyncs'])) for r in late][:6]} "
+                     "(workspaces before, apply ms, frames missed)" if late else "") + ")", scenario)
 
     def split(self, scenario="split"):
         app = self.app

@@ -5,6 +5,7 @@
     "action.run",
     "agent.list",
     "agent.report",
+    "agent_cli.list",
     "agents.check_updates",
     "agents.cycle_variant",
     "agents.open",

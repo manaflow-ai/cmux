@@ -54,9 +54,13 @@ describe("cloud client transport", () => {
       }
     } as unknown as typeof WebSocket
     try {
-      const ok = createCloudClient({ baseUrl: "https://api.test", token: () => "tok", fetch: fakeFetch(200, { ticket: "t".repeat(43), expires_at: 1 }, []) })
-      await ok.openWire("user")
+      const minted: Array<{ url: string; init: RequestInit }> = []
+      const ok = createCloudClient({ baseUrl: "https://api.test", token: () => "tok", fetch: fakeFetch(200, { ticket: "t".repeat(43), expires_at: 1 }, minted) })
+      await ok.openWire("team")
+      expect(opened[0]!.url).toBe("wss://api.test/v1/wire/team")
       expect(opened[0]!.protocols).toEqual(["cmux.wire.v1", `ticket.${"t".repeat(43)}`])
+      // The ticket is minted for the socket it opens: the Worker refuses it on another scope.
+      expect(JSON.parse(String(minted[0]!.init.body))).toEqual({ scope: "team" })
       // A 404 from the ticket route used to mean an old Worker and sent `bearer.<token>`; it is an error now.
       const old = createCloudClient({ baseUrl: "https://api.test", token: () => "tok", fetch: fakeFetch(404, { code: "not_found" }, []) })
       await expect(old.openWire("user")).rejects.toBeInstanceOf(CloudHttpError)

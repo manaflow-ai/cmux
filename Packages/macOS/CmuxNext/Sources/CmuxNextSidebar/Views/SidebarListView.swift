@@ -95,6 +95,8 @@ final class SidebarListView: NSView {
     var external: ExternalDrag?
     /// The active row the last reload laid out (close-focus.md: reveal on change).
     var revealedActive: SidebarRowKey?
+    /// The selection the last reload or patch took (`takeTopReveal`): the top reveal scrolls once per change.
+    var revealedSelection: SidebarItem?
     /// The row that stands for the selection (`SidebarLayout.selectedRowKey`).
     internal(set) var selectedRowKey: SidebarRowKey?
     /// The anchor step moves the offset; rows wait for the new layout.
@@ -131,6 +133,8 @@ final class SidebarListView: NSView {
         groupEditing.wire()
         // A row content change configures its one row (SidebarRowIndex), never reloads the list.
         model.onRowsPatched = { [weak self] rows in self?.patchRows(rows) }
+        // A close's successor is the next row drawn here (FocusAfterClose.workspace).
+        model.drawnWorkspaceOrder = { [weak self] in self?.visibleWorkspaceOrder ?? [] }
         // A refused change: a settling drop lets go and the rows spring back.
         // A no-op drop settles the same way (nothing will change the model).
         for name in [SidebarDocStore.refusedNotification, SidebarDocStore.settledNotification] {
@@ -197,14 +201,19 @@ final class SidebarListView: NSView {
     }
     /// Pauses (or resumes) every row's activity animation, down to a row badge's glyphs (cx-m8buz).
     func setWindowVisible(_ visible: Bool) {
-        func reach(_ view: NSView) { view.subviews.forEach { ($0 as? StatusIndicatorView)?.isWindowVisible = visible; if !($0 is StatusIndicatorView) { reach($0) } } }
-        subviews.forEach(reach)
+        // Depth first in subview order; an indicator's own subviews are not entered. An explicit
+        // stack, not a recursive local function (Swift 6.3.3's SendNonSendable pass crashed now and
+        // then on capturing ones in Release).
+        var pending: [NSView] = subviews.reversed()
+        while let view = pending.popLast() {
+            if let indicator = view as? StatusIndicatorView { indicator.isWindowVisible = visible } else { pending.append(contentsOf: view.subviews.reversed()) }
+        }
     }
     nonisolated override var isFlipped: Bool { true }
     /// The list draws nothing itself (rows, group lines and decorations are subviews). A drawing
     /// layer-backed view this tall (1,000 rows) gets a visible-rect backing that AppKit marks for
     /// display on every scroll frame; with updateLayer it keeps no bitmap, so a scroll draws nothing here.
-    override var wantsUpdateLayer: Bool { true }
+    nonisolated override var wantsUpdateLayer: Bool { true }
     override func updateLayer() {}
     override var acceptsFirstResponder: Bool { true }
     var metrics: SidebarLayoutMetrics { .standard }

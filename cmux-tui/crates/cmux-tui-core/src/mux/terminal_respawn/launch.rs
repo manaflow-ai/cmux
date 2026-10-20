@@ -6,7 +6,8 @@
 //!   shell; kind `command`: the user's shell (a command never runs again).
 //!   Shell integration is derived from the current bundle, as for any new
 //!   terminal.
-//! - directory: the recorded one while it is a directory, else `$HOME`.
+//! - directory: a restarted keep-layout tab's kept directory, else the
+//!   recorded one, each while it is a directory, else `$HOME`.
 //! - environment: the daemon's launch environment plus the record's
 //!   allowlisted keys (`TERM` only with a usable `TERMINFO`).
 //! - seed: the previous screen (the exit replay of the lost incarnation,
@@ -86,9 +87,14 @@ impl Mux {
                 .filter(|previous| previous.cols > 0 && previous.rows > 0)
                 .map(|previous| (previous.cols, previous.rows))
         });
-        let cwd = record
-            .and_then(|record| record.cwd.clone())
+        // A restarted keep-layout tab: the directory its shell was in at the
+        // handoff, a fact newer than the launch record's.
+        let kept_cwd = plan.kept.first().and_then(|kept| kept.cwd.clone());
+        let cwd = kept_cwd
             .filter(|cwd| Path::new(cwd).is_dir())
+            .or_else(|| {
+                record.and_then(|record| record.cwd.clone()).filter(|cwd| Path::new(cwd).is_dir())
+            })
             .or_else(|| {
                 crate::platform::home_dir()
                     .filter(|home| home.is_dir())

@@ -127,7 +127,7 @@ private final class HeldFrameView: NSView {
     private var contents: Any?
 
     // The layer shows the held frame as it is: AppKit never draws over it.
-    override var wantsUpdateLayer: Bool { true }
+    nonisolated override var wantsUpdateLayer: Bool { true }
 
     func show(_ contents: Any, like source: CALayer?, frame: NSRect) {
         self.contents = contents

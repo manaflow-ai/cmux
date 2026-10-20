@@ -137,6 +137,13 @@ SECTIONS = [
         "enums": {},
     },
     {
+        "source": "schemas/settings/source/now-playing.json",
+        "swift": SCHEMA_DIR + "/SettingsSchema+NowPlaying.generated.swift",
+        "type": "NowPlayingSettingsSchema",
+        "lists": {"nowPlaying": ("descriptors", "NowPlayingSettings")},
+        "enums": {},
+    },
+    {
         "source": "schemas/settings/source/color-transition.json",
         "swift": SCHEMA_DIR + "/SettingsSchema+ColorTransition.generated.swift",
         "type": "ColorTransitionSettingsSchema",
@@ -149,8 +156,15 @@ SECTIONS = [
         "source": "schemas/settings/source/sessions.json",
         "swift": SCHEMA_DIR + "/SettingsSchema+Sessions.generated.swift",
         "type": "SessionSettingsSchema",
-        "lists": {"sessions": ("descriptors", "SessionSettings")},
-        "enums": {"sessions.keepAwake": "SessionKeepAwakeSetting"},
+        "lists": {"sessions": ("descriptors", "SessionSettings"), "phone": ("phoneDescriptors", "SessionSettings")},
+        "enums": {"sessions.keepAwake": "SessionKeepAwakeSetting", "phone.keepAwake": "PhoneKeepAwakeSetting"},
+    },
+    {
+        "source": "schemas/settings/source/subsessions.json",
+        "swift": SCHEMA_DIR + "/SettingsSchema+Subsessions.generated.swift",
+        "type": "SubsessionSettingsSchema",
+        "lists": {"subsessions": ("descriptors", "SubsessionSettings")},
+        "enums": {},
     },
     {
         "source": "schemas/settings/source/feed.json",
