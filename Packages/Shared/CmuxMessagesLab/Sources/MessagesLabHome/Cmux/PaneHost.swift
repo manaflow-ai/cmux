@@ -353,6 +353,11 @@ final class ChatController: NSObject, NSTextViewDelegate {
     var tapbackChoice: TapbackChoice?
     /// Press and hold on a message (MessagesLab 7f1a811).
     private let hold = PressHold()
+    /// cmux: a press on a link (the link and where it started): a move past the slop offers it to
+    /// ``onDragLink``. Cleared on the move that offers it and on every press.
+    private var linkPress: (url: URL, at: CGPoint)?
+    /// cmux: the host took this press as a link drag; its later moves and release are not ours.
+    private var linkDragTaken = false
     private(set) lazy var selection = TranscriptSelection(controller: self)
     /// Trackpad swipe-to-reply (SwipeReply.swift). cmux: installed only when
     /// the owner can honor `.reply` (`intents.canReply`).
@@ -647,7 +652,10 @@ final class ChatController: NSObject, NSTextViewDelegate {
 
     func mouseDown(at p: CGPoint, _ e: NSEvent) {
         if let tv = demo?.compose.textView.view, demo?.compose.fieldRect.contains(p) == true { window?.makeFirstResponder(tv); return }
+        linkPress = nil
+        linkDragTaken = false
         if e.clickCount == 1 {
+            if onDragLink != nil, let url = linkURL(at: p) { linkPress = (url, p) }
             selection.mouseDown(p)
             // MessagesLab 7f1a811: press and hold on a message opens the tapback picker.
             if picker == nil, intents?.canReact == true, let hit = demo?.hit(p) {
@@ -659,6 +667,19 @@ final class ChatController: NSObject, NSTextViewDelegate {
         }
     }
     func mouseDragged(at p: CGPoint, _ e: NSEvent) {
+        // cmux: a link pressed and moved past the selection's slop goes to the host as a link drag
+        // (a split or pane drop zone); it then owns the gesture, so no selection, click or hold here.
+        if linkDragTaken { return }
+        if let press = linkPress, hypot(p.x - press.at.x, p.y - press.at.y) > 3 {
+            linkPress = nil
+            let screen = window.map { $0.convertPoint(toScreen: host.convert(p, to: nil)) } ?? p
+            if onDragLink?(press.url, screen) == true {
+                linkDragTaken = true
+                hold.cancel()
+                selection.clear()
+                return
+            }
+        }
         hold.moved(to: p)
         let doc = host.scrollView.document
         if selection.mouseDragged(p) {
@@ -668,6 +689,11 @@ final class ChatController: NSObject, NSTextViewDelegate {
         }
     }
     func mouseUp(at p: CGPoint, _ e: NSEvent) {
+        if linkDragTaken {
+            linkDragTaken = false
+            _ = selection.mouseUp()
+            return
+        }
         let held = hold.fired
         hold.cancel()
         if held || thread.swallowed(e) { return }

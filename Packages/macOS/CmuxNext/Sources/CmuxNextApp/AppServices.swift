@@ -160,6 +160,8 @@ final class AppServices {
     private(set) lazy var viewers = ViewerService(services: self)
     /// Where a link or path the person opens lands (`layout.linkPlacement`): beside its pane.
     private(set) lazy var linkOpener = LinkOpener(services: self)
+    /// A link dragged out of a chat into a pane drop zone (``LinkDragSession``).
+    private(set) lazy var linkDrags = LinkDragSession(services: self)
     /// The cmux server menu bar item (DEV and NIGHTLY prototype; plans/cmux-next/server.md 14).
     private(set) lazy var serverMenuBar = ServerMenuBarController.app(services: self)
     /// Home: local conversations with the mux (plans/cmux-next/home.md).
