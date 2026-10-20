@@ -315,6 +315,21 @@ Scrolling over a pane focuses it, as a click does: a terminal, browser, Markdown
 
 Focus stays where it is for momentum (the coast after a flick that started in another pane), for a scroll that moves columns or rows, within a second of typing, and over a window that is not active. Change it in **Settings > General > Columns** or with `cmux settings set layout.focusPaneOnScroll false`.
 
+## `layout.scrollAreas`
+
+Side-by-side panes that do not fit scroll sideways instead of shrinking below **Minimum Pane Width** (`layout.minimumPaneWidth`). This works in docked columns, in columns of the strip and on a screen without columns.
+
+```json
+{
+  "layout": { "scrollAreas": true }
+}
+```
+
+- `false` (default): today's layout. A column widens to fit its splits, and a docked column refuses a split that has no room.
+- `true`: a column keeps its width, and its splits scroll inside it. Each pane keeps the minimum width. Swipe sideways with two fingers, or use Shift with the mouse wheel, over the panes. Focus (Cmd-Opt-arrows, a click, the CLI with focus) scrolls the focused pane into view. Cmd-Opt-Left and Cmd-Opt-Right step through the panes, then go on to the next column.
+
+Change it in **Settings > General > Columns** or with `cmux settings set layout.scrollAreas true`. The design is in `plans/cmux-next/scroll-areas-DESIGN.md`.
+
 ## `workspaces.newPlacement`
 
 Where a new workspace goes in the sidebar when you do not pick a place: Cmd-N, New Workspace in the palette or menu, the sidebar's +, `cmux workspace new`, Home, a tab moved to a new workspace, a link opened in a new workspace, and a workspace an agent opens.

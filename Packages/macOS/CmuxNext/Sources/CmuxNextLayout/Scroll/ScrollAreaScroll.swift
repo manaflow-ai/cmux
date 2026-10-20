@@ -10,7 +10,16 @@ public nonisolated struct ScrollAreaScroll: Hashable, Sendable {
     public init() {}
 
     /// The area as a strip the reducer reads.
+    ///
+    /// Each cell is a column whose id is its first pane, so the reducer's camera anchor and
+    /// remembered focus follow the cell while it keeps that pane. No gap: cells sit flush.
     public func strip(_ area: ScrollAreaGeometry) -> ColumnStrip {
-        ColumnStrip(columns: [], viewportWidth: area.window.width, contentWidth: area.contentWidth, gap: 0)
+        let left = area.window.minX
+        func local(_ rect: CGRect) -> CGRect { rect.offsetBy(dx: -left, dy: 0) }
+        let columns = area.cells.map { cell in
+            ColumnStrip.Column(id: ColumnID("area-cell:\(cell.panes.first?.rawValue ?? "")"), frame: local(cell.frame), panes: cell.panes,
+                               paneFrames: cell.paneFrames.mapValues(local))
+        }
+        return ColumnStrip(columns: columns, viewportWidth: area.window.width, contentWidth: area.contentWidth, gap: 0)
     }
 }

@@ -4,7 +4,7 @@ public import CoreGraphics
 /// Column and split defaults in cmux.json (plans/cmux-next/column-sizing.md):
 /// `layout.splitSizing`, `layout.newColumnWidth`, `layout.dockColumnEdge`,
 /// `layout.dockColumnMode`, `layout.frameOrientation`, `layout.minimumPaneWidth`,
-/// `layout.minimumPaneHeight`, `layout.rows`, `layout.focusPaneOnScroll`. A missing key is the default with no
+/// `layout.minimumPaneHeight`, `layout.rows`, `layout.focusPaneOnScroll`, `layout.scrollAreas`. A missing key is the default with no
 /// diagnostic; a bad value is the default plus a diagnostic.
 public nonisolated enum ColumnLayoutSettings {
     public static let splitSizingPath = ["layout", "splitSizing"]
@@ -20,6 +20,7 @@ public nonisolated enum ColumnLayoutSettings {
     public static let minimumPaneHeightPath = ["layout", "minimumPaneHeight"]
     public static let rowsPath = ["layout", "rows"]
     public static let focusPaneOnScrollPath = ["layout", "focusPaneOnScroll"]
+    public static let scrollAreasPath = ["layout", "scrollAreas"]
 
     public static let splitSizingFallback: SplitSizing = .even
     public static let newColumnWidthFallback: NewColumnWidthMode = .matchCurrent
@@ -118,6 +119,16 @@ public nonisolated enum ColumnLayoutSettings {
             }
         } else {
             snapshot.focusPaneOnScroll = focusPaneOnScrollFallback
+        }
+        if let value = root.value(at: scrollAreasPath) {
+            if let on = value.boolValue {
+                snapshot.layoutScrollAreas = on
+            } else {
+                snapshot.layoutScrollAreas = scrollAreasFallback
+                diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "layout.scrollAreas", message: "expected true or false"))
+            }
+        } else {
+            snapshot.layoutScrollAreas = scrollAreasFallback
         }
         snapshot.diagnostics += diagnostics
     }

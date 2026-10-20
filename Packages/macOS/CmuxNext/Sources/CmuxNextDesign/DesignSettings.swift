@@ -134,6 +134,9 @@ public final class DesignSettings {
     public var layoutRows = true
     /// `layout.focusPaneOnScroll`: a scroll over an unfocused pane focuses it.
     public var focusPaneOnScroll = true
+    /// `layout.scrollAreas`: a split that cannot fit scrolls instead of squashing its panes
+    /// (plans/cmux-next/scroll-areas-DESIGN.md). Off by default.
+    public var layoutScrollAreas = false
     /// `layout.minimumPaneWidth`, `layout.minimumPaneHeight`: the smallest
     /// content area a pane keeps below its chrome, in points.
     public var minimumPaneContentSize = CGSize(width: 200, height: 64)

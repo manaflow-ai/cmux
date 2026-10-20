@@ -58,7 +58,7 @@ extension ScreenContentView {
 
     /// A geometry rect for `pane` in local coordinates.
     func displayedRect(_ rect: CGRect, pane: PaneID) -> CGRect {
-        rect.offsetBy(dx: geometry.scrolls(pane: pane) ? stripShift : 0, dy: -rowOffset(of: pane))
+        rect.offsetBy(dx: (geometry.scrolls(pane: pane) ? stripShift : 0) - areaOffset(of: pane), dy: -rowOffset(of: pane))
     }
 
     /// True when `host` belongs to the scrolling strip.
@@ -78,6 +78,10 @@ extension ScreenContentView {
     func clipToStrip(_ host: PaneHostView, scrolls: Bool, clip: CGRect?, above: [ObjectIdentifier: [CGRect]]) {
         var visible = host.frame
         if scrolls, let clip { visible = visible.intersection(clip) }
+        // A pane scrolled partly out of its scroll area shows only inside the area's window.
+        let areaWindow = displayedAreaWindow(of: host.pane)
+        if let areaWindow { visible = visible.intersection(areaWindow) }
+        host.areaHitClip = areaWindow.map { $0.intersection(host.frame).offsetBy(dx: -host.frame.minX, dy: -host.frame.minY) }
         var cutouts: [CGRect] = []
         for cover in above[ObjectIdentifier(host)] ?? [] {
             let rest = visible.remainder(outside: cover), shared = visible.intersection(cover)
@@ -198,7 +202,9 @@ extension ScreenContentView {
     var navigationFrames: [PaneID: CGRect] {
         let gap = context.style.stripGap
         var result: [PaneID: CGRect] = [:]
-        for (pane, rect) in geometry.panes {
+        for (pane, shown) in geometry.panes {
+            // In a scroll area: mapped into the area's window, whatever its offset (K1).
+            let rect = baseGeometry.scrollAreaOfPane[pane] == nil ? shown : (baseGeometry.navigationRect(of: pane) ?? shown)
             guard let entry = geometry.dockFrame(containing: pane) else {
                 result[pane] = rect
                 continue

@@ -69,6 +69,7 @@ public final class SettingsApplier {
         if design.frameOrientation != snapshot.frameOrientation { design.frameOrientation = snapshot.frameOrientation }
         if design.layoutRows != snapshot.layoutRows { design.layoutRows = snapshot.layoutRows }
         if design.focusPaneOnScroll != snapshot.focusPaneOnScroll { design.focusPaneOnScroll = snapshot.focusPaneOnScroll }
+        if design.layoutScrollAreas != snapshot.layoutScrollAreas { design.layoutScrollAreas = snapshot.layoutScrollAreas }
         if design.minimumPaneContentSize != snapshot.minimumPaneContentSize { design.minimumPaneContentSize = snapshot.minimumPaneContentSize }
         if design.closeFocus != snapshot.closeFocus { design.closeFocus = snapshot.closeFocus }
         if design.defaultColumnWidth != snapshot.defaultColumnWidth { design.defaultColumnWidth = snapshot.defaultColumnWidth }

@@ -151,6 +151,7 @@ extension LayoutStyle {
         style.minimumPaneContentSize = DesignSettings.shared.minimumPaneContentSize
         style.frameOrientation = DesignSettings.shared.frameOrientation
         style.rowsEnabled = DesignSettings.shared.layoutRows
+        style.scrollAreasEnabled = DesignSettings.shared.layoutScrollAreas
         // Debug Settings overrides only (no override keeps the base style's
         // value; the tunables' defaults equal the literals above).
         if let value = LayoutTunables.inactivePaneDimming.override { style.inactivePaneDimming = value }
