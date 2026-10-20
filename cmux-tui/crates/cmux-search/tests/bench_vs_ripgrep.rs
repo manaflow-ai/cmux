@@ -101,7 +101,7 @@ fn cmux_search_search_bench_vs_ripgrep_report() {
             None => (None, None),
         };
         rows.push(Row {
-            class: *class,
+            class,
             text: text.clone(),
             engine: engine_times[2],
             hits,
@@ -381,7 +381,7 @@ fn render(
                 row.rg_full.map(|rg| rg.as_secs_f64() / row.engine.as_secs_f64().max(1e-9))
             })
             .collect();
-        let mut sorted = speedups.clone();
+        let mut sorted = speedups;
         sorted.sort_by(f64::total_cmp);
         let _ = writeln!(
             out,
