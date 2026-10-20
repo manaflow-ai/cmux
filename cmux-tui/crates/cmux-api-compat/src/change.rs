@@ -192,6 +192,35 @@ impl Op {
     }
 }
 
+impl Op {
+    /// The paths (relative to the node the op is applied at) this op reads or writes.
+    fn touched(&self) -> [Vec<String>; 2] {
+        let join = |a: &[String], b: &[String]| [a, b].concat();
+        match self {
+            Self::Rename { parent, from, to } => {
+                [join(parent, std::slice::from_ref(from)), join(parent, std::slice::from_ref(to))]
+            }
+            Self::Delete { parent, key } | Self::Insert { parent, key, .. } => {
+                let path = join(parent, std::slice::from_ref(key));
+                [path.clone(), path]
+            }
+            Self::Convert { path, .. } => [path.clone(), path.clone()],
+            Self::Move { lca, from, to } => [join(lca, from), join(lca, to)],
+        }
+    }
+
+    /// True when applying `self` and `other` in either order gives the same
+    /// result: no path one touches is a prefix of (or equal to) a path the
+    /// other touches, with `*` matching any token.
+    pub(crate) fn commutes_with(&self, other: &Op) -> bool {
+        let overlaps = |a: &[String], b: &[String]| {
+            a.iter().zip(b).all(|(x, y)| x == y || x == WILDCARD || y == WILDCARD)
+        };
+        let theirs = other.touched();
+        !self.touched().iter().any(|p| theirs.iter().any(|q| overlaps(p, q)))
+    }
+}
+
 fn split_last(path: &str) -> Result<(Vec<String>, String), CompatError> {
     let mut tokens = pointer::parse(path)?;
     let Some(last) = tokens.pop() else {
