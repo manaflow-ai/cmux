@@ -135,17 +135,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                               resolvesShellIntegration: environment.resolvesShellIntegration, prestart: daemonPrestart)
         FeaturePolicyEnforcer(services: services).start()
         cloudContext = services.startCloud()
-        // Nothing in the first frame needs these: they start once it is committed, so they
-        // never delay it (perf-launch-memory).
-        let build = environment.build
-        firstFrame.whenOpen { [weak services] in
-            guard let services else { return }
-            FreeTierAttestStarter(build: build, bundle: .main, apiBaseURL: services.feed.apiBaseURL, settings: services.settings, signedIn: { [weak services] in services.map { $0.cloud.isSignedIn || $0.cloud.auth.isRestoring } ?? true }).start()
-            services.ssh.start()
-            services.serverReach.start()
-            services.updater.start()
-            DebugTimings.markLaunch("launch.non_paint_services")
-        }
+        firstFrame.whenOpen { [weak services] in services?.startNonPaintServices() }
         // Before the first window opens (restoreWhenLoaded opens one at once).
         services.windows.onPresent = { [weak services] controller in
             services?.crashRecovery.showRestartNotice(on: controller.window)
@@ -208,24 +198,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // After two quick unexpected ends in a row, Chromium starts only
         // when the user reloads a browser tab.
         services.observeBorders()
-        // Warm-ups for later tabs (Chromium, the New Tab spare, page hosts) and the agent tab
-        // import: after the first frame too. Each reads current state when it starts, so
-        // nothing the window build did is missed.
-        firstFrame.whenOpen { [weak services] in
-            guard let services else { return }
-            if !services.crashRecovery.recovery.skipsBrowserPages { services.startChromiumWarmup() }
-            services.newTabSpares.start()
-            services.pageHostPool.start(
-                isMainWindow: { [weak services] window in
-                    services?.windows.controllers.contains { $0.window === window } == true
-                },
-                fallback: { [weak services] window in
-                    services?.windows.controllers.compactMap(\.window).first { $0 !== window && $0.isVisible }
-                })
-            services.pageHostPool.noteLikely()
-            AgentTabImport.start(services)
-            DebugTimings.markLaunch("launch.post_window_warmups")
-        }
+        firstFrame.whenOpen { [weak services] in services?.startLaterTabWarmups() }
         // Other apps' sign-ins, before any request a launch by one delivers.
         let webAuthHandler = WebAuthSessionHandler(broker: WebAuthSessionBroker(opener: WebAuthSessionWindows(services: services)))
         self.webAuthHandler = webAuthHandler
