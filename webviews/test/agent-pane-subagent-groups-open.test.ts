@@ -28,6 +28,7 @@ await requireBrowserLane("agent-pane-subagent-groups-open.test.ts", async () => 
   const LIVE = "0190a000-0000-7000-8000-0000000000b1";
   const DONE = "0190a000-0000-7000-8000-0000000000b2";
   const OTHER = "0190a000-0000-7000-8000-0000000000b3";
+  const STALE = "0190a000-0000-7000-8000-0000000000b4";
   const START = Date.now() - 90_000;
   const update = (update: Record<string, unknown>, meta?: Record<string, unknown>) => ({
     method: "session/update",
@@ -73,6 +74,16 @@ await requireBrowserLane("agent-pane-subagent-groups-open.test.ts", async () => 
     reply(answer),
     ["mux", "turn_result", { status: "completed" }],
   ];
+  // A cancel left an agent "running" in the first turn; the second turn works now.
+  const stale: Step[] = [
+    ...start,
+    spawned("a1", "Reviewer"),
+    reply("Starting the review."),
+    ["mux", "turn_result", { status: "cancelled" }],
+    ["mux", "user_message", { text: "Now fix the tests" }],
+    ["mux", "turn_started", {}],
+    read("r9", "src/tests.ts"),
+  ];
   const record = (session: string, step: Step, seq: number) => {
     const [dir, kind, msg] = step;
     return { sessionId: session, seq, at: START + seq * 1000, dir, kind, msg };
@@ -81,7 +92,9 @@ await requireBrowserLane("agent-pane-subagent-groups-open.test.ts", async () => 
     [LIVE]: live.map((step, index) => record(LIVE, step, index + 1)),
     [DONE]: done("Both reviews are in.").map((step, index) => record(DONE, step, index + 1)),
     [OTHER]: done("The other review is in.").map((step, index) => record(OTHER, step, index + 1)),
+    [STALE]: stale.map((step, index) => record(STALE, step, index + 1)),
   };
+  const working = new Set([LIVE, STALE]);
   const session = (sessionId: string, status = "idle") => ({
     sessionId,
     cwd: "/home/dev/uploader",
@@ -98,11 +111,11 @@ await requireBrowserLane("agent-pane-subagent-groups-open.test.ts", async () => 
       case "initialize":
         return { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [], operations: [] } } };
       case "_acpmux/watch":
-        return { sessions: [session(LIVE, "working"), session(DONE), session(OTHER)] };
+        return { sessions: Object.keys(chats).map((id) => session(id, working.has(id) ? "working" : "idle")) };
       case "_acpmux/attach": {
         const id = typeof params.sessionId === "string" && chats[params.sessionId] ? params.sessionId : LIVE;
         return {
-          session: session(id, id === LIVE ? "working" : "idle"),
+          session: session(id, working.has(id) ? "working" : "idle"),
           lastSeq: chats[id]!.length,
           events: chats[id],
         };
@@ -228,6 +241,29 @@ await requireBrowserLane("agent-pane-subagent-groups-open.test.ts", async () => 
     expect(await settled(page)).toEqual({ open: ["true"], lines: 2 });
     await select(page, OTHER);
     await page.getByText("The other review is in.").waitFor({ timeout: 10_000 });
+    expect(await settled(page)).toEqual({ open: ["false"], lines: 0 });
+    // Back in the first chat, its group is open as it was left.
+    await select(page, DONE);
+    await page.getByText("Both reviews are in.").waitFor({ timeout: 10_000 });
+    expect(await settled(page)).toEqual({ open: ["true"], lines: 2 });
+    await page.close();
+  });
+
+  test("a running group the person closed stays closed after a switch away and back", async () => {
+    const page = await open(LIVE, "Read src/app.ts");
+    await lines(page).first().waitFor({ timeout: 5_000 });
+    await groups(page).first().click();
+    expect(await settled(page)).toEqual({ open: ["false"], lines: 0 });
+    await select(page, DONE);
+    await page.getByText("Both reviews are in.").waitFor({ timeout: 10_000 });
+    await select(page, LIVE);
+    await page.getByText("Read src/app.ts").waitFor({ timeout: 10_000 });
+    expect(await settled(page)).toEqual({ open: ["false"], lines: 0 });
+    await page.close();
+  });
+
+  test("an earlier turn's agent a cancel left running opens nothing when the next turn works", async () => {
+    const page = await open(STALE, "Read src/tests.ts");
     expect(await settled(page)).toEqual({ open: ["false"], lines: 0 });
     await page.close();
   });
