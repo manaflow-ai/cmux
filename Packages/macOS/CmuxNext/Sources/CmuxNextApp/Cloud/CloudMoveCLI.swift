@@ -1,4 +1,5 @@
 import CmuxNextDaemon
+import CmuxNextRemote
 import Foundation
 
 /// The cmux-tui CLIs Move to Cloud and Bring Back Local run (cmux-tui `link/sync_cli.rs` and
@@ -21,6 +22,8 @@ nonisolated struct CloudMoveCLI: Sendable {
         var side: String?
         /// `link machine update`: whether the machine's cmux-tui changed.
         var updated = false
+        /// `link stage ssh`: the folder on the host the chat runs in.
+        var cwd: String?
     }
 
     /// The `cmux` binary (the bundled cmux-tui).
@@ -40,6 +43,15 @@ nonisolated struct CloudMoveCLI: Sendable {
     /// `local`; a conflict changes nothing here and lists its paths.
     func syncPull(socket: String, local: String, remote: String) async throws -> Answer {
         try await run(["link", "sync", "pull", "--socket", socket, local, remote])
+    }
+
+    /// `cmux link stage ssh`: puts the git working copy `folder` on the SSH host `destination`
+    /// (a fresh worktree under its `~/work`, keyed by `key`); the answer's `cwd` is where the
+    /// moved chat runs there. A rerun reuses the worktree while it is as staged.
+    func stageSSH(destination: String, port: Int?, key: String, folder: String) async throws -> Answer {
+        let portFlags = port.map { ["--port", String($0)] } ?? []
+        return try await run(["link", "stage", "ssh", "--to", destination, "--ssh-binary", SSHCommandLine.systemSSH, "--key", key]
+                             + portFlags + [folder])
     }
 
     /// `cmux link agent move`: moves the chat of tab `surface` of the daemon at
@@ -73,6 +85,6 @@ nonisolated struct CloudMoveCLI: Sendable {
         return Answer(ok: ok, errorCode: object["error_code"] as? String, error: object["error"] as? String,
                       sessionID: object["session_id"] as? String, transferID: object["transfer_id"] as? String,
                       conflicts: object["conflicts"] as? [String] ?? [], side: object["side"] as? String,
-                      updated: object["updated"] as? Bool ?? false)
+                      updated: object["updated"] as? Bool ?? false, cwd: object["cwd"] as? String)
     }
 }

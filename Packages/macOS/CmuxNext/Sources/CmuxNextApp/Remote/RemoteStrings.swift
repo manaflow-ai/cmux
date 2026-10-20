@@ -224,6 +224,23 @@ enum RemoteStrings {
     }
 
     /// The one table from the bundled cmux-tui's typed refusal codes to text.
+    // Move Chat to SSH Machine (``SSHMove``).
+    static func moveMoving(_ machine: String) -> String {
+        String(format: String(localized: "remote.move.moving", defaultValue: "Moving this chat to %@…", table: "Remote", bundle: .module), machine)
+    }
+    static var moveNoMachine: String {
+        String(localized: "remote.move.noMachine", defaultValue: "Connect an SSH machine first.", table: "Remote", bundle: .module)
+    }
+    static var moveNotAChat: String {
+        String(localized: "remote.move.notAChat", defaultValue: "Only a chat tab can move to a machine.", table: "Remote", bundle: .module)
+    }
+    static var moveIsPersons: String {
+        String(localized: "remote.move.isPersons", defaultValue: "Only a person can move a chat to another machine.", table: "Remote", bundle: .module)
+    }
+    static var movePreview: String {
+        String(localized: "remote.move.preview", defaultValue: "Moving chats to SSH machines is a preview: turn on labs.previewFeatures in cmux.json.", table: "Remote", bundle: .module)
+    }
+
     static func refusalText(_ refusal: RemoteRefusal) -> String {
         switch refusal {
         case .protocolOlder:

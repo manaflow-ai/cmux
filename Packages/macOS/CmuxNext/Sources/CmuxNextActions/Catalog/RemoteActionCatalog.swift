@@ -51,6 +51,14 @@ nonisolated enum RemoteActionCatalog: ActionCatalogGroup {
                 keywords: ["ssh", "remote", "offline"], category: .remote, symbol: "bolt.horizontal.circle",
                 surfaces: [.palette, .contextMenu], targets: [.machine], cliName: "remote disconnect"
             ),
+            // Move Chat to SSH Machine (cmuxterm-hq#2580): a chat tab of this Mac moves to a
+            // connected SSH machine. A preview: unavailable without labs.previewFeatures.
+            ActionDescriptor(
+                id: "remote.moveChat",
+                title: String(localized: "action.remote.moveChat", defaultValue: "Move Chat to SSH Machine", table: "RemoteActions", bundle: .module),
+                keywords: ["ssh", "remote", "machine", "move", "chat", "agent", "host"], category: .remote, symbol: "arrow.up.forward.app",
+                surfaces: [.palette], arguments: [CatalogArgument.optionalMachine], targets: [.tab], cliName: "remote move-chat"
+            ),
             ActionDescriptor(
                 id: "remote.install",
                 title: String(localized: "action.remote.install", defaultValue: "Install cmux-tui on Machine…", table: "RemoteActions", bundle: .module),

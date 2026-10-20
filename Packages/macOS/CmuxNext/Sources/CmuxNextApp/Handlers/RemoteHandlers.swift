@@ -71,6 +71,14 @@ enum RemoteHandlers {
             }
             registry.track(work)
         }
+        // Move Chat to SSH Machine (``SSHMove``): a preview until it is styled into the chat menu.
+        let services = context.services
+        let movePreview: @MainActor () -> String? = { [weak services] in
+            services?.settings?.snapshot.previewFeatures == true ? available() : RemoteStrings.movePreview
+        }
+        CloudHandlers.bind(SSHMove.action, registry, reason: movePreview) { invocation in
+            try SSHMove(services: context.services).start(invocation, context: context)
+        }
         CloudHandlers.bind("remote.reconnect", registry, reason: hasMachine) { invocation in
             ssh.reconnect(try machine(invocation, context))
         }

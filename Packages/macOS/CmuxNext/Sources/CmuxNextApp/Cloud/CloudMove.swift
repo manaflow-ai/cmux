@@ -275,25 +275,10 @@ struct CloudMove {
         return session
     }
 
-    /// Shows the moved chat on `machine`: a new Cloud workspace with a terminal
-    /// in `folder`, then the chat's tab bound to `session` through the
-    /// machine's store, selected; filed into the window, and shown when the run
-    /// may change the view. `key` makes the chat tab's creation idempotent.
+    /// Shows the moved chat on `machine` (``MovedChatTab``).
     private func show(_ session: String, harness: String?, on machine: CloudMachineSession, in folder: String, name: String?, key: String) async throws {
-        let daemon = machine.daemon
-        guard let connection = daemon.connection, let host = AgentTabStore.registryHost(of: daemon) else { throw DaemonError.notConnected }
-        let record = AgentSessionRef(host: host, hostName: machine.machine.title, session: session, harness: harness)
-        let workspace = WorkspaceKey.generate()
-        let created = try await WorkspaceCreation.createWithFirstTab(workspace, name: name, on: connection, repair: machine.emptyWorkspaces) { result in
-            try await connection.createTerminal(in: result.key, cwd: folder)
-            return try await connection.request(NewConversationTabRequest(agentSession: record, workspace: result.workspace,
-                                                                          origin: AgentTabStore.createOrigin, mutationID: "cloud-move-" + key))
-        }
-        services.windows.reveal(workspaceID: workspace.rawValue)
-        let tab = created.tabResourceID?.rawValue ?? "surface:\(created.surface.rawValue)"
-        if let pane = await AgentSessionWorkspace.mirroredPane(of: workspace, in: daemon.store) {
-            for window in services.windows.controllers { window.state.selection.select(tab, in: pane.id) }
-        }
+        try await MovedChatTab.open(session, harness: harness, on: machine.daemon, hostName: machine.machine.title,
+                                    repair: machine.emptyWorkspaces, in: folder, name: name, mutationID: "cloud-move-" + key, services: services)
     }
 
     /// The failure of a `cmux link agent move` answer, in plain words. `retry`

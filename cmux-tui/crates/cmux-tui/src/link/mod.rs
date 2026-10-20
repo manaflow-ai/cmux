@@ -10,6 +10,7 @@ mod control;
 mod dial;
 mod dial_cli;
 mod ensure;
+mod stage_cli;
 mod sync_cli;
 // Wired into `serve` when Cloud hosts run the link (needs the TeamDO peer
 // map and a token format); tested now.
@@ -107,6 +108,9 @@ pub(crate) fn run(args: &[String]) -> i32 {
     // `sync` answers one JSON line on stdout and has its own exit codes too.
     if args.first().map(String::as_str) == Some("sync") {
         return sync_cli::run(&args[1..]);
+    }
+    if args.first().map(String::as_str) == Some("stage") {
+        return stage_cli::run(&args[1..]);
     }
     // So do `agent` and `access`.
     if args.first().map(String::as_str) == Some("agent") {

@@ -103,7 +103,7 @@ nonisolated extension ActionSurfaceCatalog {
         "cloudFirewallList", "cloudFirewallGet", "cloudFirewallCreate", "cloudFirewallDelete", "cloudNewTerminal", "cloudRenameMachine", "cloudKillMachine", "cloudResizeMachine",
         "cloudDiagnostics", "cloudPauseMachine", "cloudResumeMachine", "cloudDomainList", "cloudPublicationList", "palette.cloud.deleteSnapshot", "palette.auth.signIn", "palette.auth.signOut", "accounts.show", "accounts.refresh",
         "accounts.reauthenticate", "accounts.connect", "accounts.remove", "remote.connect", "remote.newWorkspace",
-        "remote.openTerminalHere", "remote.reconnect", "remote.disconnect", "remote.install", "remote.forget",
+        "remote.openTerminalHere", "remote.reconnect", "remote.disconnect", "remote.install", "remote.forget", "remote.moveChat",
         "reloadConfiguration", "palette.makeDefaultBrowser", "palette.makeDefaultTerminal", "palette.toggleSetting",
         "palette.shortcutKeymap", "palette.installCLI", "palette.uninstallCLI", "palette.restartSocketListener",
         "palette.checkForUpdates", "updates.whatsNew", "announcements.show", "announcements.hide", "palette.applyUpdateIfAvailable", "palette.switchAppChannel",
@@ -273,6 +273,8 @@ nonisolated extension ActionSurfaceCatalog {
             "workspace.importClassic",
             // Whose localhost a workspace reaches: the person's choice only (cx-d0d.41).
             "workspace.setRemoteLocalhost",
+            // Moves a chat to an SSH machine: the person starts it (cmuxterm-hq#2580).
+            "remote.moveChat",
             "notifications.dismissal.keystroke",
             "notifications.dismissal.focus",
             "notifications.dismissal.click",
