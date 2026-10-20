@@ -412,7 +412,10 @@ impl Queued {
             } | Source::Resume {
                 requires_approval: true,
                 ..
-            }
+            } | Source::Spawn(crate::state::SpawnRef {
+                requires_approval: true,
+                ..
+            })
         )
     }
 }

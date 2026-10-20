@@ -551,6 +551,10 @@ pub struct SpawnRef {
     pub spawn: String,
     /// (subagent id, its floor once this report is logged).
     pub subs: Vec<(String, u64)>,
+    /// The report came from a subagent whose effects required approval.
+    /// Older persisted reports have unknown provenance and fail closed.
+    #[serde(default = "legacy_requires_approval")]
+    pub requires_approval: bool,
     /// The user stopped the subagent: its report is logged with the next
     /// turn and starts none (the reference client's stopped report).
     #[serde(default)]
@@ -935,7 +939,7 @@ impl FrozenRecord {
 
 #[cfg(test)]
 mod security_tests {
-    use super::{Item, Resume};
+    use super::{Item, Resume, SpawnRef};
 
     #[test]
     fn legacy_pending_turns_require_approval_but_new_owner_records_round_trip() {
@@ -953,5 +957,18 @@ mod security_tests {
             serde_json::from_slice(&serde_json::to_vec(&resume).unwrap()).unwrap();
         assert!(!item_again.requires_approval);
         assert!(!resume_again.requires_approval);
+
+        let old_spawn: SpawnRef =
+            serde_json::from_str(r#"{"spawn":"spawn-1","subs":[],"quiet":false}"#).unwrap();
+        assert!(old_spawn.requires_approval);
+        let spawn = SpawnRef {
+            spawn: "spawn-1".to_owned(),
+            subs: Vec::new(),
+            requires_approval: false,
+            quiet: false,
+        };
+        let spawn_again: SpawnRef =
+            serde_json::from_slice(&serde_json::to_vec(&spawn).unwrap()).unwrap();
+        assert!(!spawn_again.requires_approval);
     }
 }
