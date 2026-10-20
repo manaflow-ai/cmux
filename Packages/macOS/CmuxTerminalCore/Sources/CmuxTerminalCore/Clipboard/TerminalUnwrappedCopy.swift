@@ -36,9 +36,16 @@ public struct TerminalUnwrappedCopy: Equatable, Sendable {
         var protected: [Bool] = []
         let lines = text.split(separator: "\n", omittingEmptySubsequences: false).map { raw in
             var line = String(raw.reversed().drop(while: \.isWhitespace).reversed())
-            let content = line.drop(while: \.isWhitespace)
-            let delimiter = fenceDelimiter(content)
+            var content = line.drop(while: \.isWhitespace)
             let inside = !fence.isEmpty
+            // Strip the marker before looking for a fence, so "⏺ ```sh" still opens one.
+            if !inside, let first = content.first, "⏺●⎿✻✳✶✢✽".contains(first),
+               content.dropFirst().first == " " {
+                let index = line.index(line.startIndex, offsetBy: line.count - content.count)
+                line.replaceSubrange(index...index, with: " ")
+                content = line.drop(while: \.isWhitespace)
+            }
+            let delimiter = fenceDelimiter(content)
             protected.append(inside || !delimiter.isEmpty)
             if inside {
                 if delimiter.first == fence.first, delimiter.count >= fence.count,
@@ -47,10 +54,6 @@ public struct TerminalUnwrappedCopy: Equatable, Sendable {
                 }
             } else if !delimiter.isEmpty {
                 fence = delimiter
-            } else if let first = content.first, "⏺●⎿✻✳✶✢✽".contains(first),
-                      content.dropFirst().first == " " {
-                let index = line.index(line.startIndex, offsetBy: line.count - content.count)
-                line.replaceSubrange(index...index, with: " ")
             }
             return line
         }
@@ -58,8 +61,6 @@ public struct TerminalUnwrappedCopy: Equatable, Sendable {
         if !widths.isEmpty { widths[0] += firstLineStartColumn ?? 0 }
         let widest = lines.indices.filter { !protected[$0] && widths[$0] <= terminalColumns }
             .map { widths[$0] }.max() ?? 0
-        // A second row near the widest one shows the widest width is the real wrap width.
-        let wrapWidthConfirmed = lines.indices.filter { !protected[$0] && widths[$0] <= widest && widths[$0] >= widest - 8 }.count > 1
         let nonblank = lines.indices.filter { !lines[$0].isEmpty }
         let restIndent = nonblank.dropFirst().map { indent(lines[$0]) }.min()
         let partialFirst = nonblank.first.map {
@@ -81,19 +82,20 @@ public struct TerminalUnwrappedCopy: Equatable, Sendable {
                 continue
             }
             let content = line.drop(while: \.isWhitespace)
+            let nextWordWidth = width(String(content.prefix(while: { !$0.isWhitespace })))
             let separator = index > 0 ? rowJoinSeparator(
                 after: dedented[index - 1], before: content, fillsWidth: widths[index - 1] == widest,
-                wrapWidthConfirmed: wrapWidthConfirmed
+                nextWordFitsGrid: widths[index - 1] + 1 + nextWordWidth <= terminalColumns
             ) : nil
             let joins = canReflow && index > 0 && !protected[index] && !protected[index - 1]
                 && !line.isEmpty && !dedented[index - 1].isEmpty && separator != nil
                 && widths[index - 1] <= terminalColumns
                 && !endsWithContinuation(dedented[index - 1])
-                && !startsStructure(content)
+                && !startsStructure(content) && !endsBlock(dedented[index - 1])
                 && indent(line) == continuationIndent
                 && !isColumnar(line) && !isColumnar(dedented[index - 1])
                 && ((firstLineStartColumn == nil && partialFirst && index - 1 == nonblank.first)
-                    || widths[index - 1] + 1 + width(String(content.prefix(while: { !$0.isWhitespace }))) > widest)
+                    || widths[index - 1] + 1 + nextWordWidth > widest)
             if joins, var previous = result.popLast() {
                 previous.append(contentsOf: separator ?? " ")
                 previous.append(contentsOf: content)
