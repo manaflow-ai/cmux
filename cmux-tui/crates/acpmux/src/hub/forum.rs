@@ -12,15 +12,18 @@
 //!   the rules on its first prompt. A rule counts as told only once the agent
 //!   answered that prompt (or took a pushed rule into its running turn). A
 //!   session restored onto a new agent session, or whose agent ran `/clear`
-//!   or `/compact`, gets every rule again on its next prompt; a slash command
-//!   gets none (its turn is the command). The author's own session is not
-//!   told its own rule.
+//!   or `/compact`, gets every rule again on its next prompt that the agent
+//!   answers; a slash command gets none (its turn is the command; a prompt
+//!   that starts with a path is no command). The author's own session is not
+//!   told its own rule, but is told when someone retires it.
 //! - `urgent`: also a prompt to every live session, the way an agent's
 //!   message is (provenance `announcement`, prompt id `forum-<postId>`). A
 //!   rule superseded while that prompt still waits is taken out of the queue;
 //!   one that starts anyway carries the key's current rule instead. A rule
 //!   superseded in the moment between that check and the send can still
-//!   reach the agent; the next prompt then tells it the current one.
+//!   reach the agent; the next prompt then tells it the current one. An
+//!   urgent retirement reaches every session told the key, or being told it
+//!   by the turn it runs, and the rule's author.
 //! - The block and the prompt say who wrote each rule: a person's is an
 //!   instruction, an agent's is information.
 //! - Sessions that get no cmux tools (remote origin, `ACPMUX_AGENT_TOOLS=0`
@@ -81,6 +84,20 @@ enum Push {
     Pending,
     /// Not sent: no rules for this session, not live, or refused.
     No,
+}
+
+/// What a turn's prompt tells, from [`Hub::forum_context`] to the turn's end.
+#[derive(Default)]
+pub(super) struct ForumTurn {
+    /// The posts the prompt carries.
+    posts: Vec<String>,
+    /// It retold every rule after the agent's context was emptied.
+    retold: bool,
+}
+
+/// Whether `/name` is a slash command rather than a path (`/src/main.rs`).
+fn is_command_name(name: &str) -> bool {
+    !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || "-_:".contains(c))
 }
 
 fn push_text(p: &Post) -> String {
@@ -193,14 +210,20 @@ impl Hub {
         }
     }
 
-    /// Whether `session` gets rules: the sessions that get cmux's tools, by
-    /// the profile it spawns with (its preset's env and args included, as
-    /// `child_for` resolves it) and the daemon-wide switch.
+    /// Whether `session` gets rules: the sessions that get cmux's tools, as
+    /// its agent was launched (`record_spawn_inputs`), else by the profile it
+    /// spawns with (its preset's env and args included, as `child_for`
+    /// resolves it), and the daemon-wide switch.
     async fn forum_reaches(&self, session: &Session) -> bool {
         let m = session.meta();
         let switch = std::env::var_os(crate::agent_tools::SWITCH_ENV);
         if m.remote_origin || switch.is_some_and(|v| v == "0") {
             return false;
+        }
+        match session.launched_with_tools.load(Ordering::SeqCst) {
+            1 => return true,
+            2 => return false,
+            _ => {}
         }
         let (profile, defaults) = {
             let cfg = self.config.read().await;
@@ -245,45 +268,58 @@ impl Hub {
     }
 
     /// Appends the hidden block of what `session` was not told yet to a
-    /// prompt's `blocks`. The posts the turn tells, including `pushed` (a
-    /// pushed rule's own post): recorded by [`Self::forum_told`] once the
-    /// agent answered.
+    /// prompt's `blocks`. What the turn tells, including `pushed` (a pushed
+    /// rule's own post): recorded by [`Self::forum_turn_end`] once the agent
+    /// answered.
     pub(super) async fn forum_context(
         &self,
-        session: &Session,
+        session: &Arc<Session>,
         pushed: Option<String>,
         blocks: &mut Vec<Value>,
-    ) -> Vec<String> {
+    ) -> ForumTurn {
+        let turn = self.forum_collect(session, pushed, blocks).await;
+        *session.forum_telling.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
+            turn.posts.clone();
+        turn
+    }
+
+    async fn forum_collect(
+        &self,
+        session: &Arc<Session>,
+        pushed: Option<String>,
+        blocks: &mut Vec<Value>,
+    ) -> ForumTurn {
         let mut told: Vec<String> = pushed.into_iter().collect();
         let first = blocks.iter().find_map(|b| b.get("text").and_then(Value::as_str));
         // A slash command's turn is the command: the rules wait for the next
         // prompt, all of them after one that empties the agent's context.
         if let Some(command) = first.and_then(|t| t.trim_start().strip_prefix('/')) {
             let name = command.split_whitespace().next().unwrap_or_default();
-            if matches!(name, "clear" | "compact" | "new" | "reset") {
-                session.forum_retell.store(true, Ordering::SeqCst);
+            if is_command_name(name) {
+                if matches!(name, "clear" | "compact" | "new" | "reset") {
+                    session.forum_retell.store(true, Ordering::SeqCst);
+                }
+                return ForumTurn { posts: told, retold: false };
             }
-            return told;
         }
+        // Kept until the agent answers a prompt that retold the rules.
+        let retold = session.forum_retell.load(Ordering::SeqCst);
         // A new agent session that got the restored transcript lost the rules with it.
-        let restored = first.is_some_and(|t| t.starts_with("<restored_transcript"))
-            || session.forum_retell.swap(false, Ordering::SeqCst);
-        let forum = self.forum();
-        let queued: Vec<String> = session
-            .queue
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .iter()
-            .filter_map(|q| q.prompt_id.strip_prefix(PUSH_PREFIX).map(str::to_owned))
-            .collect();
-        let posts: Vec<Post> = forum
+        let restored = first.is_some_and(|t| t.starts_with("<restored_transcript")) || retold;
+        let posts: Vec<Post> = self
+            .forum()
             .undelivered(&session.id, restored)
             .into_iter()
-            // Told by this prompt itself, or by its own prompt still waiting.
-            .filter(|p| !told.contains(&p.id) && !queued.contains(&p.id))
+            // Told by this prompt itself (a pushed rule).
+            .filter(|p| !told.contains(&p.id))
             .collect();
         if posts.is_empty() || !self.forum_reaches(session).await {
-            return told;
+            return ForumTurn { posts: told, retold };
+        }
+        // This prompt runs first: it tells the urgent rules still waiting
+        // behind it, and their own prompts are taken back.
+        for p in &posts {
+            self.remove_queued_because(session, &format!("{PUSH_PREFIX}{}", p.id), Some("told"));
         }
         let lines: Vec<String> = posts.iter().map(rule_text).collect();
         told.extend(posts.into_iter().map(|p| p.id));
@@ -294,7 +330,7 @@ impl Hub {
                 lines.join("\n\n")
             ),
         }));
-        told
+        ForumTurn { posts: told, retold }
     }
 
     /// [`Self::forum_context`] again for a prompt that now opens with a
@@ -302,10 +338,10 @@ impl Hub {
     /// rules block is replaced by every current rule.
     pub(super) async fn forum_retell(
         &self,
-        session: &Session,
+        session: &Arc<Session>,
         pushed: Option<String>,
         blocks: &mut Vec<Value>,
-    ) -> Vec<String> {
+    ) -> ForumTurn {
         let open = format!("<{CONTEXT_TAG}>");
         blocks.retain(|b| {
             !b.get("text").and_then(Value::as_str).is_some_and(|t| t.starts_with(&open))
@@ -313,7 +349,29 @@ impl Hub {
         self.forum_context(session, pushed, blocks).await
     }
 
-    /// The agent answered a prompt that told `posts`: record them as told.
+    /// A turn that ran [`Self::forum_context`] ended; `answered`: the agent
+    /// answered its prompt, so what it carried counts as told.
+    pub(super) fn forum_turn_end(&self, session: &Session, turn: &ForumTurn, answered: bool) {
+        session.forum_telling.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clear();
+        if !answered {
+            return;
+        }
+        if turn.retold {
+            session.forum_retell.store(false, Ordering::SeqCst);
+        }
+        self.forum_told(session, &turn.posts);
+    }
+
+    /// Whether the turn `session` runs now tells a rule of `key`.
+    fn forum_telling_key(&self, session: &Session, key: &str) -> bool {
+        let telling =
+            session.forum_telling.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
+        telling
+            .iter()
+            .any(|id| self.forum().get(id).is_some_and(|v| v.post.key.as_deref() == Some(key)))
+    }
+
+    /// The agent took `posts` in: record them as told.
     pub(super) fn forum_told(&self, session: &Session, posts: &[String]) {
         if posts.is_empty() {
             return;
@@ -324,7 +382,8 @@ impl Hub {
     }
 
     /// Queues `post` as a prompt to every live session that gets rules, the
-    /// author's own excepted (a retirement: only those told the key before),
+    /// author's own excepted (a retirement: only those told or telling the
+    /// key, and the rule's author),
     /// all at once: the ids that took it, and the ids still on their way
     /// after [`PUSH_WAIT`] (their prompt may still be queued).
     async fn forum_push(self: &Arc<Self>, post: &Post) -> (Vec<String>, Vec<String>) {
@@ -335,7 +394,11 @@ impl Hub {
             {
                 continue;
             }
-            if post.retired && !post.key.as_ref().is_some_and(|k| self.forum().told_key(k, &s.id)) {
+            if post.retired
+                && !post.key.as_ref().is_some_and(|k| {
+                    self.forum().told_key(k, &s.id) || self.forum_telling_key(&s, k)
+                })
+            {
                 continue;
             }
             let (hub, post) = (self.clone(), post.clone());

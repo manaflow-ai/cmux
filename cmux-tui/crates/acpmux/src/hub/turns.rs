@@ -370,6 +370,7 @@ impl Hub {
             let e = RpcError::new(-32000, "the remote floor cancelled this turn before its prompt")
                 .with_data(json!({"reason": reason}));
             self.refuse_started_turn(session, &prompt_id, &turn_id, &e);
+            self.forum_turn_end(session, &told, false);
             drop(guard);
             return Err(e);
         }
@@ -453,9 +454,7 @@ impl Hub {
         let mut result =
             self.finish_turn(session, &child, result, &prompt_id, &turn_id, turn_seq).await;
         // A rule counts as told once the agent answered the prompt that carried it.
-        if result.is_ok() {
-            self.forum_told(session, &told);
-        }
+        self.forum_turn_end(session, &told, result.is_ok());
         // A connection error cut the turn off: it goes on by itself (`auto_resume.rs`).
         let cut = match (&result, detached) {
             (Err(e), false) => Some(super::auto_resume::CutTurn {

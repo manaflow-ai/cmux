@@ -45,6 +45,13 @@ pub struct Session {
     /// The agent's context was emptied (`/clear`, `/compact`): its next
     /// prompt is told every forum rule again (`hub/forum.rs`).
     pub(super) forum_retell: AtomicBool,
+    /// The forum posts the running turn's prompt tells, until it ends: an
+    /// urgent retirement of their key reaches this session too.
+    pub(super) forum_telling: std::sync::Mutex<Vec<String>>,
+    /// Whether its running agent was launched with cmux's tools (0: not
+    /// launched yet, 1: with, 2: without), so forum rules follow the launch,
+    /// not a profile reloaded since (`hub/tools.rs`).
+    pub(super) launched_with_tools: std::sync::atomic::AtomicU8,
     /// The chat's route changed during a turn: restart the harness on it when
     /// the turn ends (`route_switch.rs`).
     pub(super) route_switch: AtomicBool,

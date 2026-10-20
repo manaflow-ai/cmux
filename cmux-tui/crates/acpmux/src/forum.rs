@@ -184,10 +184,13 @@ impl State {
         self.delivered.get(post_id).is_some_and(|m| m.iter().any(|m| m.session_id == session))
     }
 
-    /// Whether `session` was told any rule of `key` before its current post.
+    /// Whether `session` was told, or wrote, any rule of `key` before its current post.
     fn told_key(&self, key: &str, session: &str) -> bool {
         self.history.get(key).is_some_and(|h| {
-            h.iter().rev().skip(1).any(|&i| self.delivered_to(&self.posts[i].id, session))
+            h.iter().rev().skip(1).any(|&i| {
+                let p = &self.posts[i];
+                p.author.session_id() == Some(session) || self.delivered_to(&p.id, session)
+            })
         })
     }
 
@@ -321,8 +324,9 @@ impl Forum {
     }
 
     /// What `session` was not told yet, oldest first: each current rule it did
-    /// not write, and each retired key it had been told a rule of.
-    /// `all`: every current rule again (an agent that lost its context).
+    /// not write, and each retired key it had been told or written a rule of.
+    /// `all`: every current rule again, and each retirement of a key it had
+    /// been told (an agent that lost its context).
     pub fn undelivered(&self, session: &str, all: bool) -> Vec<Post> {
         let s = self.lock();
         let mut idx: Vec<usize> = s.current.values().copied().collect();
@@ -331,14 +335,14 @@ impl Forum {
             .map(|i| &s.posts[i])
             .filter(|p| p.author.session_id() != Some(session))
             .filter(|p| all || !s.delivered_to(&p.id, session))
-            .filter(|p| {
-                !p.retired || (!all && p.key.as_ref().is_some_and(|k| s.told_key(k, session)))
-            })
+            // A retired key it had been told of, also when told every rule
+            // again: a restored transcript may still hold the old rule.
+            .filter(|p| !p.retired || p.key.as_ref().is_some_and(|k| s.told_key(k, session)))
             .cloned()
             .collect()
     }
 
-    /// Whether `session` was told any earlier rule of `key`.
+    /// Whether `session` was told, or wrote, any earlier rule of `key`.
     pub fn told_key(&self, key: &str, session: &str) -> bool {
         self.lock().told_key(key, session)
     }

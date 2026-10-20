@@ -559,6 +559,8 @@ impl Hub {
             asks_landed: Notify::new(),
             rehydrate: AtomicBool::new(false),
             forum_retell: AtomicBool::new(false),
+            forum_telling: std::sync::Mutex::default(),
+            launched_with_tools: std::sync::atomic::AtomicU8::new(0),
             route_switch: AtomicBool::new(false),
             inbound_tx,
             inbound_rx: Mutex::new(Some(inbound_rx)),
