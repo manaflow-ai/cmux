@@ -96,6 +96,7 @@ public final class SidebarView: NSView {
         profileBar = ProfileBarView(model: model)
         super.init(frame: .zero)
         buildHierarchy()
+        newButton.setAccessibilityIdentifier("cmux.sidebar.newWorkspace")
         list.reload(animated: false)
         observe()
         // The chrome reveal follows the pointer and the sidebar's frame (cx-3wu5).
