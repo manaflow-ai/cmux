@@ -1,4 +1,4 @@
-import AppKit
+public import AppKit
 
 /// The hover card gallery: each card module registers its kinds over fixture data (the sidebar's
 /// session cards, the tab strip's cards) and `debug.hover_cards {gallery: set}` shows one set in a
