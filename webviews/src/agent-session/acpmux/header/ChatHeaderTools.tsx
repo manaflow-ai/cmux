@@ -104,7 +104,7 @@ export function ChatHeaderTools({
   statusKey,
   onApplyWorktree,
   onRemoveWorktree,
-  sessionRail,
+  inspector,
 }: {
   /// Terminal and Browser run their split with the quick action's mode: the App opens it, or for
   /// `toggle` closes the split this button opened when it is still there.
@@ -150,8 +150,9 @@ export function ChatHeaderTools({
   onApplyWorktree?: (key: string) => Promise<unknown>;
   /// Remove on the worktree pill (cx-lyqio.5): `git.worktree.remove` for the chat's session.
   onRemoveWorktree?: (key: string, discard: boolean) => Promise<unknown>;
-  /// The session side rail's toggle (Debug Settings `agent.sessionRail`, summary/SessionRail.tsx), before the summary.
-  sessionRail?: ReactNode;
+  /// The Inspector's toggle (Debug Settings `agent.inspector`, inspector/ChatInspector.tsx): the
+  /// header's last, top-right button, as Claude Code desktop's panel toggle is.
+  inspector?: ReactNode;
 }) {
   const t = useT();
   const terminalKey = useShortcut(HEADER_ACTIONS.terminal);
@@ -394,7 +395,6 @@ export function ChatHeaderTools({
       ) : null}
       {buttons ? <hr className="acpmux-header-separator" aria-orientation="vertical" /> : null}
       <div className="acpmux-header-tool-group acpmux-header-tool-group-meta">
-        {sessionRail}
         {summary}
         <ChatMenu
           items={rows}
@@ -403,6 +403,7 @@ export function ChatHeaderTools({
           expand={expand}
           onExpanded={onExpanded}
         />
+        {inspector}
       </div>
     </div>
   );

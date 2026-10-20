@@ -29,7 +29,13 @@ export interface ChatDisplay {
   /// Code as a share of the text size, or null for the chat's own code sizes (13px inline and
   /// 12px blocks at 14px text, scaled with the text).
   codeScale: number | null;
+  /// Where the Inspector goes when open (inspector/ChatInspector.tsx): `push` moves the chat aside,
+  /// `overlay` lies over it. Not a look: the Text & Width popover's Reset leaves it.
+  inspector: "push" | "overlay";
 }
+
+/// Settings > Agent Chat > Inspector (Swift AgentPaneDisplaySettingsSchema has the same row).
+export const INSPECTOR_PLACEMENT_KEY = "agentPane.display.inspector.placement";
 
 /// Each option: its cmux.json key, its range and default. The Swift schema has the same rows
 /// (AgentPaneDisplaySettingsSchema).
@@ -59,6 +65,7 @@ export const DEFAULT_CHAT_DISPLAY: ChatDisplay = {
   lineHeight: CHAT_DISPLAY.lineHeight.fallback,
   codeFamily: null,
   codeScale: null,
+  inspector: "push",
 };
 
 /// The body font stacks, as the Markdown viewer's presets (pages/markdown/settings.ts).
@@ -106,6 +113,7 @@ export function resolveChatDisplay(raw: unknown): ChatDisplay {
     codeScale:
       number(values[CHAT_DISPLAY.codeScale.key], CHAT_DISPLAY.codeScale) ??
       number(values[MARKDOWN_FOLLOWED.codeScale], CHAT_DISPLAY.codeScale),
+    inspector: values[INSPECTOR_PLACEMENT_KEY] === "overlay" ? "overlay" : "push",
   };
 }
 

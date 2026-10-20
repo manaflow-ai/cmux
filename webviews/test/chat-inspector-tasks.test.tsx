@@ -1,18 +1,22 @@
-// The session rail's Background tasks card (Claude Code desktop's): the session's background
-// processes from acpmux's registry (`_acpmux/process/list` and `process_update`), running ones
-// with their elapsed time and a Stop button, and how many finished.
-import { afterEach, expect, setSystemTime, test } from "bun:test";
+// The Inspector's Background tasks and Servers (Claude Code desktop's): the chat's background
+// processes from acpmux's registry (`_acpmux/process/list` and `process_update`). Dev servers go
+// under Servers with the ports their commands name; the rest under Background tasks, running ones
+// with their elapsed time and a Stop button, then "N finished", folded.
+import { afterEach, beforeEach, expect, setSystemTime, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { SessionRail } from "../src/agent-session/acpmux/summary/SessionRail";
+import { ChatInspector } from "../src/agent-session/acpmux/inspector/ChatInspector";
+import { resetInspectorState } from "../src/agent-session/acpmux/inspector/inspectorState";
 import {
   mergeProcess,
   processesOf,
-  useSessionProcesses,
+  serverOf,
+  splitServers,
+  useInspectorProcesses,
+  type InspectorProcess,
   type ProcessSource,
-  type RailProcess,
-} from "../src/agent-session/acpmux/summary/sessionProcesses";
+} from "../src/agent-session/acpmux/inspector/processes";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -41,6 +45,8 @@ function installDom(): HTMLElement {
   Object.assign(scope, replacements);
   return dom.window.document.getElementById("root")!;
 }
+
+beforeEach(() => resetInspectorState());
 
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
@@ -73,26 +79,33 @@ const wire = (task: string, command: string, state: string, startedAt: number, e
 
 async function render(
   container: HTMLElement,
-  processes: readonly RailProcess[],
+  processes: readonly InspectorProcess[],
   onStop?: (id: string) => Promise<unknown>,
+  onOpenUrl?: (url: string) => void,
 ) {
   await act(async () => {
     root ??= createRoot(container);
-    root.render(<SessionRail outputs={[]} processes={processes} onStopProcess={onStop} />);
+    root.render(<ChatInspector processes={processes} onStopProcess={onStop} onOpenUrl={onOpenUrl} />);
   });
 }
 
-const card = (container: HTMLElement) =>
-  [...container.querySelectorAll<HTMLElement>(".acpmux-rail-card")].find(
-    (element) => element.querySelector(".acpmux-rail-card__title")?.textContent === "Background tasks",
-  );
+const section = (container: HTMLElement, id: string) =>
+  container.querySelector<HTMLElement>(`section.acpmux-inspector-section[data-section="${id}"]`);
+const click = (element: HTMLElement) => act(async () => element.click());
+
+const process = (command: string, state = "running"): InspectorProcess => ({
+  id: command,
+  command,
+  startedAt: 1,
+  state,
+});
 
 test("the registry's records become the session's processes, an update replacing its record", () => {
   const listed = processesOf(
     { processes: [wire("a", "bun run dev", "running", 1_000), wire("b", "cargo test", "exited", 2_000, 9_000)] },
     "s1",
   );
-  expect(listed.map((process) => [process.id, process.command, process.state])).toEqual([
+  expect(listed.map((record) => [record.id, record.command, record.state])).toEqual([
     ["s1/a", "bun run dev", "running"],
     ["s1/b", "cargo test", "exited"],
   ]);
@@ -101,22 +114,40 @@ test("the registry's records become the session's processes, an update replacing
     [],
   );
   const stopped = mergeProcess(listed, wire("a", "bun run dev", "killed", 1_000, 5_000), "s1");
-  expect(stopped.map((process) => process.state)).toEqual(["killed", "exited"]);
+  expect(stopped.map((record) => record.state)).toEqual(["killed", "exited"]);
   const added = mergeProcess(stopped, wire("d", "vite", "running", 6_000), "s1");
-  expect(added.map((process) => process.id)).toEqual(["s1/a", "s1/b", "s1/d"]);
+  expect(added.map((record) => record.id)).toEqual(["s1/a", "s1/b", "s1/d"]);
   expect(mergeProcess(added, { ...wire("e", "y", "running", 1), sessionId: "s2" }, "s1")).toBe(added);
 });
 
-test("no card before the first background process; then running ones with elapsed time and Stop, and a finished count", async () => {
+test("a server is a command that serves, with only the ports it names", () => {
+  expect(serverOf(process("bun run dev --port 5173"))?.ports).toEqual([5173]);
+  expect(serverOf(process("PORT=3001 npm start"))?.ports).toEqual([3001]);
+  expect(serverOf(process("python3 -m http.server 8000"))?.ports).toEqual([8000]);
+  expect(serverOf(process("rails s -p 4000"))?.ports).toEqual([4000]);
+  // A server whose command names no port: no guessed default.
+  expect(serverOf(process("pnpm dev"))?.ports).toEqual([]);
+  // Not servers: a build, a test watcher, a one-off with -p.
+  expect(serverOf(process("vite build"))).toBeUndefined();
+  expect(serverOf(process("bun test --watch"))).toBeUndefined();
+  expect(serverOf(process("mkdir -p 8080"))).toBeUndefined();
+  // A server that ended is a finished task, not a server.
+  const { servers, tasks } = splitServers([process("bun run dev"), process("vite", "exited"), process("cargo test")]);
+  expect(servers.map((server) => server.command)).toEqual(["bun run dev"]);
+  expect(tasks.map((task) => task.command)).toEqual(["vite", "cargo test"]);
+});
+
+test("no section before the first background process; then running ones with elapsed time and Stop, and N finished folded", async () => {
   setSystemTime(new Date(100_000));
   const container = installDom();
   await render(container, []);
-  expect(card(container)).toBeUndefined();
+  expect(section(container, "tasks")).toBeNull();
+  expect(section(container, "servers")).toBeNull();
 
   const processes = processesOf(
     {
       processes: [
-        wire("a", "bun run dev", "running", 100_000 - 76_000),
+        wire("a", "cargo watch -x check", "running", 100_000 - 76_000),
         wire("b", "cargo test", "exited", 1_000, 9_000),
         wire("c", "tsc --watch", "running", 100_000 - 3_723_000),
         wire("d", "npm run lint", "failed", 1_000, 2_000),
@@ -126,33 +157,69 @@ test("no card before the first background process; then running ones with elapse
   );
   const stopped: string[] = [];
   await render(container, processes, async (id) => void stopped.push(id));
-  const tasks = card(container)!;
-  const rows = [...tasks.querySelectorAll<HTMLElement>(".acpmux-rail-task")];
+  const tasks = section(container, "tasks")!;
+  const rows = () => [...tasks.querySelectorAll<HTMLElement>(".acpmux-inspector-task")];
   // Running first, newest first.
-  expect(rows.map((row) => row.querySelector(".acpmux-rail-task__command")?.textContent)).toEqual([
-    "bun run dev",
+  expect(rows().map((row) => row.querySelector(".acpmux-inspector-task__command")?.textContent)).toEqual([
+    "cargo watch -x check",
     "tsc --watch",
   ]);
-  expect(rows.map((row) => row.querySelector(".acpmux-rail-task__time")?.textContent)).toEqual(["1m 16s", "1h 2m 3s"]);
-  expect(tasks.querySelector(".acpmux-rail-card__value")?.textContent).toBe("2 running");
-  expect(tasks.querySelector(".acpmux-rail-tasks__finished")?.textContent).toBe("2 finished");
+  expect(rows().map((row) => row.querySelector(".acpmux-inspector-task__time")?.textContent)).toEqual([
+    "1m 16s",
+    "1h 2m 3s",
+  ]);
+  expect(tasks.querySelector(".acpmux-inspector-section__meta")?.textContent).toBe("2 running");
 
-  const stop = rows[0]!.querySelector<HTMLButtonElement>("button.acpmux-rail-task__stop")!;
-  expect(stop.getAttribute("aria-label")).toBe("Stop bun run dev");
-  await act(async () => stop.click());
+  // The finished ones fold behind their count; open, each with how long it ran and how it ended.
+  const fold = tasks.querySelector<HTMLButtonElement>("button.acpmux-inspector-fold")!;
+  expect(fold.textContent).toBe("2 finished");
+  expect(fold.getAttribute("aria-expanded")).toBe("false");
+  await click(fold);
+  const finished = [...tasks.querySelectorAll<HTMLElement>("[data-finished] .acpmux-inspector-task")];
+  expect(finished.map((row) => row.querySelector(".acpmux-inspector-task__state")?.textContent)).toEqual([
+    "Finished",
+    "Failed",
+  ]);
+
+  const stop = rows()[0]!.querySelector<HTMLButtonElement>("button.acpmux-inspector-stop")!;
+  expect(stop.getAttribute("aria-label")).toBe("Stop cargo watch -x check");
+  await click(stop);
   expect(stopped).toEqual(["s1/a"]);
   // It waits for the registry's update rather than dropping the row itself.
   expect(stop.disabled).toBe(true);
 });
 
-test("a session whose processes all finished keeps the card with only its count", async () => {
+test("a dev server is listed under Servers with its port, which opens beside the chat, and Stop", async () => {
+  setSystemTime(new Date(100_000));
+  const container = installDom();
+  const opened: string[] = [];
+  const stopped: string[] = [];
+  await render(
+    container,
+    processesOf({ processes: [wire("a", "bun run dev --port 5173", "running", 40_000)] }, "s1"),
+    async (id) => void stopped.push(id),
+    (url) => opened.push(url),
+  );
+  expect(section(container, "tasks")).toBeNull();
+  const servers = section(container, "servers")!;
+  expect(servers.querySelector(".acpmux-inspector-section__meta")?.textContent).toBe("1 running");
+  const port = servers.querySelector<HTMLButtonElement>("button.acpmux-inspector-port")!;
+  expect(port.textContent).toBe(":5173");
+  expect(port.getAttribute("aria-label")).toBe("Open http://localhost:5173");
+  await click(port);
+  expect(opened).toEqual(["http://localhost:5173"]);
+  await click(servers.querySelector<HTMLButtonElement>("button.acpmux-inspector-stop")!);
+  expect(stopped).toEqual(["s1/a"]);
+});
+
+test("a session whose processes all finished keeps the section with only its count", async () => {
   const container = installDom();
   await render(container, processesOf({ processes: [wire("b", "cargo test", "exited", 1_000, 9_000)] }, "s1"));
-  const tasks = card(container)!;
-  expect(tasks.querySelectorAll(".acpmux-rail-task")).toHaveLength(0);
-  expect(tasks.querySelector(".acpmux-rail-tasks__finished")?.textContent).toBe("1 finished");
+  const tasks = section(container, "tasks")!;
+  expect(tasks.querySelectorAll(".acpmux-inspector-task")).toHaveLength(0);
+  expect(tasks.querySelector("button.acpmux-inspector-fold")?.textContent).toBe("1 finished");
   // No Stop without a way to stop.
-  expect(tasks.querySelector("button.acpmux-rail-task__stop")).toBeNull();
+  expect(tasks.querySelector("button.acpmux-inspector-stop")).toBeNull();
 });
 
 /// A client whose list answers when the test says, and whose updates the test sends.
@@ -171,9 +238,9 @@ function fakeSource() {
   return { source, lists, listeners, send };
 }
 
-let seen: readonly RailProcess[] = [];
+let seen: readonly InspectorProcess[] = [];
 function Probe({ source, sessionId }: { source: ProcessSource; sessionId: string }) {
-  seen = useSessionProcesses(source, sessionId, true);
+  seen = useInspectorProcesses(source, sessionId, true);
   return null;
 }
 const mount = (container: HTMLElement, source: ProcessSource, sessionId: string) =>
@@ -228,13 +295,13 @@ const lists = (fake: ReturnType<typeof fakeSource>) => fake.lists;
 test("a refused Stop says so and can be tried again", async () => {
   const container = installDom();
   let refuse = true;
-  await render(container, processesOf({ processes: [wire("a", "bun run dev", "running", 1_000)] }, "s1"), async () => {
+  await render(container, processesOf({ processes: [wire("a", "cargo watch", "running", 1_000)] }, "s1"), async () => {
     if (refuse) throw new Error("refused");
   });
-  const stop = () => card(container)!.querySelector<HTMLButtonElement>("button.acpmux-rail-task__stop")!;
+  const stop = () => section(container, "tasks")!.querySelector<HTMLButtonElement>("button.acpmux-inspector-stop")!;
   await act(async () => stop().click());
   expect(stop().getAttribute("data-state")).toBe("failed");
-  expect(stop().getAttribute("aria-label")).toBe("Couldn’t stop bun run dev");
+  expect(stop().getAttribute("aria-label")).toBe("Couldn’t stop cargo watch");
   expect(stop().disabled).toBe(false);
   refuse = false;
   await act(async () => stop().click());

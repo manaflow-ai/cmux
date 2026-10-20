@@ -1,0 +1,586 @@
+/* The Inspector (ChatInspector.tsx): the chat's right-hand panel. Push: a column in the shell's
+   flex row beside the chat, which reflows narrower. Overlay: the same column over the chat's right
+   side, with a shadow. Its width comes from the viewer's drag (inline style); it fades in, and the
+   width never animates. Sections are hairline cards a step lighter than the page; rows are 28px;
+   a long list scrolls inside its section. */
+.acpmux-inspector {
+  position: relative;
+  flex: none;
+  min-width: 0;
+  max-width: calc(100% - 24px);
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  background: var(--agent-page-bg);
+  color: var(--agent-text);
+  font-size: var(--text-control);
+  line-height: 18px;
+}
+.acpmux-inspector[data-placement="push"] {
+  border-left: var(--cmux-hairline, 0.5px) solid var(--agent-border);
+}
+.acpmux-inspector[data-placement="overlay"] {
+  position: absolute;
+  z-index: var(--layer-overlay);
+  top: 0;
+  right: 0;
+  bottom: 0;
+  box-shadow: var(--elevation-2);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .acpmux-inspector {
+    animation: acpmux-inspector-in 120ms var(--acpmux-motion-ease, ease-out);
+  }
+}
+@keyframes acpmux-inspector-in {
+  from {
+    opacity: 0;
+  }
+}
+.acpmux-inspector[data-resizing] {
+  user-select: none;
+}
+.acpmux-inspector__resize {
+  position: absolute;
+  z-index: var(--layer-raised);
+  top: 0;
+  bottom: 0;
+  left: -3px;
+  width: 6px;
+  cursor: col-resize;
+}
+.acpmux-inspector__resize::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 2px;
+  width: 2px;
+  background: transparent;
+  transition: background-color var(--acpmux-motion-hover, 80ms) var(--acpmux-motion-ease, ease-out);
+}
+.acpmux-inspector__resize:hover::after,
+.acpmux-inspector[data-resizing] .acpmux-inspector__resize::after {
+  background: var(--agent-border);
+}
+.acpmux-inspector__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 10px 10px;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+.acpmux-inspector-section {
+  flex: none;
+  min-width: 0;
+  padding: 4px;
+  border: var(--cmux-hairline, 0.5px) solid var(--agent-border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--agent-text) 3%, var(--agent-page-bg));
+}
+.acpmux-inspector-section .ui-disclosure-trigger,
+.acpmux-inspector-section__head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  height: 28px;
+  padding: 0 8px;
+  box-sizing: border-box;
+  border-radius: 7px;
+  text-align: left;
+  cursor: default;
+}
+.acpmux-inspector-section .ui-disclosure-trigger {
+  margin: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  appearance: none;
+  transition: background-color var(--acpmux-motion-hover, 80ms) var(--acpmux-motion-ease, ease-out);
+}
+.acpmux-inspector-section .ui-disclosure-trigger:hover {
+  background: var(--acpmux-menu-hover);
+}
+.acpmux-inspector-section .ui-disclosure-trigger:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: -1.5px;
+}
+.acpmux-inspector-section__title {
+  flex: none;
+  font-weight: 500;
+}
+.acpmux-inspector-section__fold {
+  flex: none;
+  color: var(--agent-muted);
+}
+.acpmux-inspector-section__meta {
+  flex: 0 1 auto;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  color: var(--agent-muted);
+  font-variant-numeric: tabular-nums;
+}
+.acpmux-inspector-section__value {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.acpmux-inspector-section__disclosure,
+.acpmux-inspector-section .ui-disclosure-panel {
+  min-width: 0;
+}
+.acpmux-inspector-meter {
+  flex: none;
+  display: block;
+  width: 36px;
+  height: 6px;
+  border-radius: 2px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--agent-text) 14%, transparent);
+}
+.acpmux-inspector-meter > span {
+  display: block;
+  height: 100%;
+  min-width: 2px;
+  border-radius: 2px;
+  background: var(--agent-accent);
+}
+/* A section's list scrolls past about eight rows instead of growing the panel without end. */
+.acpmux-inspector-scroll {
+  max-height: 260px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.acpmux-inspector-list {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.acpmux-inspector-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 28px;
+  padding: 0 8px;
+  box-sizing: border-box;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: default;
+}
+.acpmux-inspector-row > svg {
+  flex: none;
+  color: var(--agent-muted);
+}
+.acpmux-inspector-row--button {
+  transition: background-color var(--acpmux-motion-hover, 80ms) var(--acpmux-motion-ease, ease-out);
+}
+.acpmux-inspector-row--button:hover:not(:disabled) {
+  background: var(--acpmux-menu-hover);
+}
+.acpmux-inspector-row--button:focus-visible,
+.acpmux-inspector-row__link:focus-visible,
+.acpmux-inspector-link:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: -1.5px;
+}
+.acpmux-inspector-row__name {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.acpmux-inspector-row__link {
+  color: inherit;
+  text-decoration: none;
+}
+.acpmux-inspector-row__link:hover {
+  text-decoration: underline;
+}
+.acpmux-inspector-row__detail {
+  flex: 0 1000 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--agent-muted);
+}
+.acpmux-inspector-row__end {
+  flex: none;
+  margin-left: auto;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+  font-variant-numeric: tabular-nums;
+}
+.acpmux-inspector-row__end[data-state="failed"] {
+  color: var(--agent-danger, var(--agent-muted));
+}
+.acpmux-inspector-row .acpmux-diff-counts {
+  opacity: 0.8;
+}
+.acpmux-inspector-note {
+  margin: 0;
+  padding: 4px 8px 6px;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+}
+.acpmux-inspector-link {
+  padding: 0 2px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--agent-muted);
+  font: inherit;
+  font-size: var(--text-detail);
+  cursor: default;
+}
+.acpmux-inspector-link:hover {
+  color: var(--agent-text);
+  text-decoration: underline;
+}
+.acpmux-inspector-switch {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.acpmux-inspector-switch__input {
+  flex: none;
+  margin: 0 0 0 auto;
+  accent-color: var(--agent-accent);
+}
+.acpmux-inspector-icon-button {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  color: var(--agent-muted);
+  cursor: default;
+}
+.acpmux-inspector-icon-button:hover {
+  background: var(--acpmux-menu-hover);
+  color: var(--agent-text);
+}
+.acpmux-inspector-icon-button:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: -1.5px;
+}
+.acpmux-inspector-icon-button:disabled {
+  opacity: 0.4;
+}
+.acpmux-inspector-stop[data-state="failed"] {
+  color: var(--agent-danger);
+}
+.acpmux-inspector-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+/* Changes: a pull request per row, its menu at the end. */
+.acpmux-inspector-pr {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  padding-right: 4px;
+  border-radius: 7px;
+  transition: background-color var(--acpmux-motion-hover, 80ms) var(--acpmux-motion-ease, ease-out);
+}
+.acpmux-inspector-pr:hover {
+  background: var(--acpmux-menu-hover);
+}
+.acpmux-inspector-pr__link {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 5px 4px 5px 8px;
+  border-radius: 7px;
+  color: inherit;
+  text-decoration: none;
+  cursor: default;
+}
+.acpmux-inspector-pr__link:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: -1.5px;
+}
+.acpmux-inspector-pr__icon {
+  flex: none;
+  display: inline-flex;
+  margin-top: 3px;
+  color: var(--agent-muted);
+}
+.acpmux-inspector-pr[data-state="open"] .acpmux-inspector-pr__icon {
+  color: var(--agent-success, var(--acpmux-add));
+}
+.acpmux-inspector-pr[data-state="merged"] .acpmux-inspector-pr__icon {
+  color: var(--agent-ansi-5, var(--agent-accent));
+}
+.acpmux-inspector-pr[data-state="closed"] .acpmux-inspector-pr__icon {
+  color: var(--agent-danger);
+}
+.acpmux-inspector-pr__text {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.acpmux-inspector-pr__title {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.acpmux-inspector-pr__line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.acpmux-inspector-pr__ref {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.acpmux-inspector-pr__counts,
+.acpmux-inspector-pr__line .acpmux-diff-counts {
+  flex: none;
+}
+.acpmux-inspector-pr__state,
+.acpmux-inspector-pr__checks {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-left: auto;
+}
+.acpmux-inspector-pr__checks[data-checks="failing"] {
+  color: var(--agent-danger);
+}
+.acpmux-inspector-pr__base {
+  color: var(--agent-muted);
+  opacity: 0.75;
+}
+.acpmux-inspector-pr__checks[data-checks="passing"],
+.acpmux-inspector-pr__checks[data-checks="pending"] {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  margin-right: 2px;
+  border-radius: 50%;
+  background: var(--agent-success, var(--acpmux-add));
+}
+.acpmux-inspector-pr__checks[data-checks="pending"] {
+  background: var(--agent-warning, var(--agent-muted));
+}
+.acpmux-inspector-pr__owner {
+  flex: none;
+  max-width: 72px;
+  margin-top: 6px;
+  padding: 0 6px;
+  overflow: hidden;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--agent-text) 8%, transparent);
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+  line-height: 16px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.acpmux-inspector-pr__more {
+  margin-top: 4px;
+}
+.acpmux-inspector-breakdown__rows {
+  display: grid;
+  gap: 2px;
+}
+.acpmux-inspector-breakdown__row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+/* Servers and Background tasks. */
+.acpmux-inspector-task,
+.acpmux-inspector-server {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 26px;
+  padding: 2px 4px 2px 8px;
+}
+.acpmux-inspector-task > svg {
+  flex: none;
+  color: var(--agent-muted);
+}
+.acpmux-inspector-server {
+  align-items: flex-start;
+  padding-top: 5px;
+  padding-bottom: 5px;
+}
+.acpmux-inspector-server__dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  margin: 6px 2px 0;
+  border-radius: 50%;
+  background: var(--agent-success, var(--acpmux-add));
+}
+.acpmux-inspector-server__text {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.acpmux-inspector-server__line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+}
+.acpmux-inspector-port {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  cursor: default;
+}
+button.acpmux-inspector-port:hover {
+  background: var(--acpmux-menu-hover);
+  color: var(--agent-text);
+}
+button.acpmux-inspector-port:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: -1.5px;
+}
+.acpmux-inspector-task__command {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.acpmux-inspector-task__time,
+.acpmux-inspector-task__state {
+  flex: none;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+  font-variant-numeric: tabular-nums;
+}
+.acpmux-inspector-task[data-state="failed"] .acpmux-inspector-task__state,
+.acpmux-inspector-task[data-state="lost"] .acpmux-inspector-task__state {
+  color: var(--agent-danger, var(--agent-muted));
+}
+.acpmux-inspector-fold {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  color: var(--agent-muted);
+  font: inherit;
+  font-size: var(--text-detail);
+  cursor: default;
+}
+.acpmux-inspector-fold:hover {
+  color: var(--agent-text);
+}
+.acpmux-inspector-fold:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: -1.5px;
+}
+/* Subagents: one row of avatars; running ones breathe. */
+.acpmux-inspector-avatars {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 34px;
+  padding: 2px 8px;
+  box-sizing: border-box;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: default;
+}
+.acpmux-inspector-avatars:hover {
+  background: var(--acpmux-menu-hover);
+}
+.acpmux-inspector-avatars:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: -1.5px;
+}
+.acpmux-inspector-avatars__stack {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+.acpmux-inspector-avatars__stack > .cv-subagent-avatar + .cv-subagent-avatar {
+  margin-left: -6px;
+}
+.acpmux-inspector-avatars__more {
+  flex: none;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .acpmux-inspector-avatars .cv-subagent-avatar[data-state="running"] {
+    animation: acpmux-inspector-breathe 2.4s ease-in-out infinite;
+  }
+}
+@keyframes acpmux-inspector-breathe {
+  50% {
+    opacity: 0.62;
+  }
+}
+.acpmux-inspector-subagents__list {
+  margin-top: 4px;
+}
+.acpmux-inspector-menu {
+  min-width: 180px;
+}

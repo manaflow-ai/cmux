@@ -71,7 +71,8 @@ export function useNow(live: boolean): number {
   return now - offset;
 }
 
-function Avatar({ agent, dot = false }: { agent: Subagent; dot?: boolean }) {
+/// A subagent's avatar: the harness's mark in the agent's tone, with its status dot when `dot`.
+export function Avatar({ agent, dot = false }: { agent: Subagent; dot?: boolean }) {
   const harness = useContext(SubagentHarnessContext);
   return (
     <span className="cv-subagent-avatar" data-state={agent.state}>
