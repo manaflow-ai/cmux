@@ -291,6 +291,13 @@ pub enum Input {
     Shutdown {
         signal: i32,
     },
+    /// Every few seconds while cloud VMs are set: pauses idle ones
+    /// (`cloud.autoPauseIdleSeconds`).
+    CloudTick,
+    /// The pool tool refused to pause `peer` (busy there): it is tried again.
+    CloudPauseFailed {
+        peer: String,
+    },
     /// SIGUSR1 to the host: an update replaced the app, so the brain stops
     /// once no turn runs ([`HANDOFF_WHEN_IDLE`]); the app then hands acpmux
     /// off and starts the next host.
@@ -1138,6 +1145,7 @@ impl Brain {
                 let answer = self.control(&request);
                 let _ = reply.send(answer);
             }
+            Input::CloudTick | Input::CloudPauseFailed { .. } => {}
             Input::SubTick => {
                 self.sub_tick();
                 self.cloud_tick();

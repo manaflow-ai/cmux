@@ -455,3 +455,164 @@ fn an_idle_cloud_vm_is_paused_once_and_resumed_for_the_next_subagent() {
         "{calls:?}"
     );
 }
+
+/// Pause answers: the first `fail` pauses of a peer fail (the VM said busy).
+#[derive(Default)]
+struct BusyVms {
+    fail: std::sync::atomic::AtomicUsize,
+    calls: std::sync::Mutex<Vec<String>>,
+}
+
+impl optchat_chief::cloud_vms::CloudVms for BusyVms {
+    fn resume(&self, peer: &str) -> Result<(), String> {
+        self.calls.lock().unwrap().push(format!("resume {peer}"));
+        Ok(())
+    }
+    fn pause(&self, peer: &str) -> Result<(), String> {
+        self.calls.lock().unwrap().push(format!("pause {peer}"));
+        use std::sync::atomic::Ordering::SeqCst;
+        if self.fail.load(SeqCst) > 0 {
+            self.fail.fetch_sub(1, SeqCst);
+            return Err("busy: a background process runs".into());
+        }
+        Ok(())
+    }
+}
+
+fn pauses(calls: &std::sync::Mutex<Vec<String>>, peer: &str) -> usize {
+    calls
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|c| **c == format!("pause {peer}"))
+        .count()
+}
+
+fn wait_calls(calls: &std::sync::Mutex<Vec<String>>, peer: &str, n: usize) {
+    let until = Instant::now() + Duration::from_secs(5);
+    while pauses(calls, peer) < n && Instant::now() < until {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+/// `cloud.autoPauseIdleSeconds` is 60 by default, a saved setting, and the
+/// idle time the host pauses after (aggressive auto-pause).
+#[test]
+fn cloud_auto_pause_idle_seconds_is_60_by_default_and_a_setting() {
+    use optchat_chief::chief_settings::ChiefSettings;
+    assert_eq!(ChiefSettings::default().cloud_auto_pause_idle_secs, 60);
+    let mut h = Harness::new(default_script());
+    let file = h.dir.path().join("settings.json");
+    assert_eq!(ChiefSettings::load(&file).cloud_auto_pause_idle_secs, 60);
+    let set = h
+        .brain
+        .set_setting("cloud.autoPauseIdleSeconds", "0")
+        .unwrap();
+    assert!(set.contains("cloud.autoPauseIdleSeconds = 0"), "{set}");
+    assert!(
+        h.brain
+            .set_setting("cloud.autoPauseIdleSeconds", "soon")
+            .is_err()
+    );
+
+    // The brain pauses after the setting's idle time, not the one it was
+    // built with.
+    h.agents.hold(true);
+    let vms = Arc::new(FakeVms::default());
+    let sp = pool_spawner(&h, &vms);
+    h.brain.set_sub_starter(Some(sp.queue_starter()));
+    h.brain
+        .set_cloud_vms(Some(vms.clone()), Duration::from_secs(3600));
+    h.brain
+        .set_setting("cloud.autoPauseIdleSeconds", "0")
+        .unwrap();
+    set_cloud(&mut h, &sp, "cloud1");
+    let a = sp.clone();
+    run(&mut h, move || a.spawn(vec!["one".into()], None)).unwrap();
+    h.brain.step(optchat_chief::brain::Input::SubagentFailed {
+        id: "a1".into(),
+        error: "ended".into(),
+    });
+    h.brain.step(optchat_chief::brain::Input::CloudTick);
+    h.brain.step(optchat_chief::brain::Input::CloudTick);
+    wait_calls(&vms.calls, "cloud1", 1);
+    assert_eq!(pauses(&vms.calls, "cloud1"), 1);
+}
+
+/// A VM the pool tool refuses to pause (a running process or turn there)
+/// is tried again at a later tick, never marked paused.
+#[test]
+fn a_refused_pause_is_tried_again() {
+    use optchat_chief::brain::Input;
+    let mut h = Harness::new(default_script());
+    h.agents.hold(true);
+    let busy = Arc::new(BusyVms::default());
+    busy.fail.store(1, std::sync::atomic::Ordering::SeqCst);
+    let vms: Arc<dyn optchat_chief::cloud_vms::CloudVms> = busy.clone();
+    let sp = Arc::new(
+        Arc::try_unwrap(spawner(&h, None))
+            .ok()
+            .unwrap()
+            .with_cloud_text("T".into())
+            .with_cloud_vms(Some(vms.clone())),
+    );
+    h.brain.set_sub_starter(Some(sp.queue_starter()));
+    h.brain.set_cloud_vms(Some(vms), Duration::ZERO);
+    set_cloud(&mut h, &sp, "cloud1");
+    let a = sp.clone();
+    run(&mut h, move || a.spawn(vec!["one".into()], None)).unwrap();
+    h.brain.step(Input::SubagentFailed {
+        id: "a1".into(),
+        error: "ended".into(),
+    });
+    h.brain.step(Input::CloudTick);
+    h.brain.step(Input::CloudTick);
+    wait_calls(&busy.calls, "cloud1", 1);
+    // The refusal comes back to the brain; the next ticks try again.
+    let until = Instant::now() + Duration::from_secs(5);
+    while pauses(&busy.calls, "cloud1") < 2 && Instant::now() < until {
+        while let Ok(input) = h.rx.recv_timeout(Duration::from_millis(20)) {
+            h.brain.step(input);
+        }
+        h.brain.step(Input::CloudTick);
+    }
+    assert_eq!(
+        pauses(&busy.calls, "cloud1"),
+        2,
+        "{:?}",
+        busy.calls.lock().unwrap()
+    );
+}
+
+/// The host going away pauses its idle cloud VMs at once (no idle wait),
+/// and never one with a subagent mid-turn.
+#[test]
+fn host_shutdown_pauses_idle_cloud_vms_at_once_but_not_busy_ones() {
+    use optchat_chief::brain::Input;
+    let mut h = Harness::new(default_script());
+    h.agents.hold(true);
+    let vms = Arc::new(FakeVms::default());
+    let sp = pool_spawner(&h, &vms);
+    h.brain.set_sub_starter(Some(sp.queue_starter()));
+    h.brain
+        .set_cloud_vms(Some(vms.clone()), Duration::from_secs(3600));
+    set_cloud(&mut h, &sp, "cloud1,cloud2");
+    let a = sp.clone();
+    run(&mut h, move || {
+        a.spawn(vec!["one".into(), "two".into()], None)
+    })
+    .unwrap();
+    // a1 (cloud1) ends; a2 (cloud2) is still mid-turn.
+    h.brain.step(Input::SubagentFailed {
+        id: "a1".into(),
+        error: "ended".into(),
+    });
+    h.brain.step(Input::Shutdown { signal: 15 });
+    assert_eq!(
+        pauses(&vms.calls, "cloud1"),
+        1,
+        "{:?}",
+        vms.calls.lock().unwrap()
+    );
+    assert_eq!(pauses(&vms.calls, "cloud2"), 0, "never mid-turn");
+}
