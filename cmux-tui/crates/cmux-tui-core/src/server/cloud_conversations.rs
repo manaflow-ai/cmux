@@ -631,3 +631,7 @@ mod tests;
 #[cfg(test)]
 #[path = "cloud_lease_gate_tests.rs"]
 mod lease_gate_tests;
+
+#[cfg(test)]
+#[path = "cloud_request_tests.rs"]
+mod request_tests;
