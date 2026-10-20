@@ -43,6 +43,14 @@ def test_secret_dispatch_jobs_use_branch_restricted_environments_and_ephemeral_r
         assert job.get("runs-on") == runner, f"{name} must use a literal ephemeral runner"
         assert "vars." not in runner
 
+    shared_secret_readers = (
+        ("claude.yml", "claude", "claude-agent"),
+        ("ci-compile-attribution.yml", "fix", "ci-attribution-agent"),
+    )
+    for name, job_name, environment in shared_secret_readers:
+        job = workflow(name)["jobs"][job_name]
+        assert job.get("environment") == environment, f"{name} secrets need {environment}"
+
 
 def test_pull_request_target_jobs_never_receive_oidc() -> None:
     checked = 0
