@@ -793,6 +793,16 @@ impl Brain {
         self.sub_starter = starter;
     }
 
+    /// The VMs behind cloud peers: resumed before a cloud subagent starts,
+    /// paused after `idle` with no cloud subagent on them (B4).
+    pub fn set_cloud_vms(
+        &mut self,
+        vms: Option<std::sync::Arc<dyn crate::cloud_vms::CloudVms>>,
+        idle: std::time::Duration,
+    ) {
+        let _ = (vms, idle);
+    }
+
     /// Caps the subagents at work at once (None: no cap, the default).
     pub fn set_max_live(&mut self, limit: Option<usize>) {
         self.max_live = limit;

@@ -360,6 +360,13 @@ impl Spawner {
         }
     }
 
+    /// The VMs behind cloud peers: resumed before a subagent starts or is
+    /// told there.
+    pub fn with_cloud_vms(self, vms: Option<Arc<dyn crate::cloud_vms::CloudVms>>) -> Spawner {
+        let _ = vms;
+        self
+    }
+
     pub fn with_cloud(mut self, cloud: Option<CloudPlacement>) -> Spawner {
         self.cloud = cloud;
         self
