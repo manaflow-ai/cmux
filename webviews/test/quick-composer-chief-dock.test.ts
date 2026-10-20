@@ -63,7 +63,9 @@ await requireBrowserLane("quick-composer-chief-dock.test.ts", async () => {
   /** What a click at the prompt's centre and at its left and right thirds lands on: inside the prompt or not. */
   const promptHits = (page: Page) =>
     page.evaluate(() => {
-      const prompt = document.querySelector<HTMLElement>(".acpmux-shell[data-surface='quick'] .acpmux-composer-prompt")!;
+      const prompt = document.querySelector<HTMLElement>(
+        ".acpmux-shell[data-surface='quick'] .acpmux-composer-prompt",
+      )!;
       const box = prompt.getBoundingClientRect();
       const y = box.top + box.height / 2;
       return [box.left + box.width / 3, box.left + box.width / 2, box.left + (box.width * 2) / 3].map((x) => {
