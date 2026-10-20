@@ -65,9 +65,10 @@ const STOP_GUARD_MS = 600;
 /// How long typing pauses before a new chat's text goes to the host (`onUnsentDraft`).
 const UNSENT_DRAFT_SETTLE_MS = 300;
 
-/// What keeps its own press inside the composer card (`focusFromCard`): the text, controls and attachments.
+/// What keeps its own press inside the composer card (`focusFromCard`): the text, controls, the menus
+/// and dialogs the card opens, and attachments.
 const CARD_OWN_PRESS =
-  '.ProseMirror, button, a[href], input, textarea, select, label, summary, [contenteditable="true"], [role="button"], [role="link"], [role="menuitem"], [role="option"], [role="checkbox"], [role="radio"], [role="switch"], [role="slider"], [role="tab"], [role="textbox"], [role="combobox"], [role="listbox"], [role="menu"], .acpmux-attachment';
+  '.ProseMirror, button, a[href], input, textarea, select, label, summary, [contenteditable="true"], [role="button"], [role="link"], [role="menuitem"], [role="option"], [role="checkbox"], [role="radio"], [role="switch"], [role="slider"], [role="tab"], [role="textbox"], [role="combobox"], [role="listbox"], [role="menu"], [role="dialog"], .ui-popup, .acpmux-attachment';
 
 export type ComposerEditCommand = "cut" | "copy" | "paste" | "pasteAsPlainText";
 
@@ -978,9 +979,18 @@ export function Composer({
   // input card is the text area. The text keeps its own press (caret, selection), and the card's
   // controls and attachments keep theirs.
   const focusFromCard = (event: React.MouseEvent<HTMLDivElement>) => {
-    if (event.button !== 0) return;
+    // A Control-press opens the context menu on macOS.
+    if (event.button !== 0 || event.ctrlKey) return;
     const target = event.target as Element;
-    if (target.closest(CARD_OWN_PRESS)) return;
+    // React hands up presses from what the card portals elsewhere (a menu, a dialog, a backdrop).
+    if (!event.currentTarget.contains(target) || target.closest(CARD_OWN_PRESS)) return;
+    // A long prompt's scrollbar (the field scrolls past eight lines) keeps its drag.
+    if (
+      target instanceof HTMLElement &&
+      target.scrollHeight > target.clientHeight &&
+      event.nativeEvent.offsetX >= target.clientWidth
+    )
+      return;
     event.preventDefault();
     if (shell) shellField.current?.focus();
     else field.current?.focus();
