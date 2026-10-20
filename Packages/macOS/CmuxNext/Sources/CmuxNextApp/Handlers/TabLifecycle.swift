@@ -16,35 +16,46 @@ enum TabLifecycle {
         if NewTerminalTrace.shared.isArmed { NewTerminalTrace.shared.markAction() } // `debug.new_terminal_trace`
         #endif
         guard let focused = ctx.daemonPane(invocation) else { return }
-        let cwd = invocation["cwd"]?.stringValue
-        // A person's terminal from an agent tab (a chat, the New Tab page) starts in the folder the
-        // tab shows (#16620, #22225), asked before the terminal is placed so every placement gets
-        // it: this pane, the strip beside a docked chat, a lone chat's dock and a new workspace.
-        // Ghostty's `tab-inherit-working-directory = false` still starts it in the home folder.
-        if cwd == nil, invocation.origin == .user, let controller = ctx.services.paneController(for: focused),
-           let agent = controller.selectedAgentView,
-           NewTerminalStart.uninherited(.tab, services: ctx.services, daemon: controller.daemon, besides: controller.selectedTab) == nil {
-            ctx.registry.track(Task { @MainActor in
-                let folder = await agent.workingContext()?.cwd.flatMap { WorkingURL.isDirectory($0) ? $0 : nil }
-                open(ctx, invocation, focused: focused, cwd: folder, askedAgent: true, after: anchor)
-                return nil
-            })
-            return
-        }
-        open(ctx, invocation, focused: focused, cwd: cwd, askedAgent: false, after: anchor)
-    }
-
-    /// New Terminal Tab once its folder is known: `cwd` is the named one, else nil for the
-    /// inheritance rules (NewTerminalStart) and the daemon's resolver. `askedAgent`: the selected
-    /// agent tab named no folder, so it is not asked again and the daemon's resolver decides.
-    private static func open(_ ctx: AppActionContext, _ invocation: ActionInvocation, focused: PaneModel, cwd: String?,
-                             askedAgent: Bool, after anchor: TabModel?) {
-        // `--keep`: the terminal outlives its tab (a background terminal made on purpose).
-        let keep = invocation["keep"]?.boolValue == true ? true : nil
         let opensWorkspace = NewTerminalWorkspaceSetting.resolves(
             setting: ctx.services.settings?.snapshot.newTerminalOpensWorkspace ?? NewTerminalWorkspaceSetting.fallback,
             toggled: invocation["toggleWorkspace"]?.boolValue == true
         )
+        // A person's terminal from an agent tab (a chat, the New Tab page) starts in the folder the
+        // tab shows (#16620, #22225), asked before the terminal is placed so every placement gets
+        // it: this pane, the strip beside a docked chat, a lone chat's dock, a split and a new
+        // workspace. Ghostty's `tab-` (`window-` for a new workspace) `inherit-working-directory =
+        // false` still starts it in the home folder. The window's keys wait meanwhile (cx-wb5.76).
+        if invocation["cwd"] == nil, invocation.origin == .user, let controller = ctx.services.paneController(for: focused),
+           let agent = controller.selectedAgentView,
+           NewTerminalStart.uninherited(opensWorkspace ? .window : .tab, services: ctx.services, daemon: controller.daemon,
+                                        besides: controller.selectedTab) == nil {
+            let coordinator = ctx.services.keyRouter.creationInputCoordinator, window = controller.view.window
+            let keys = coordinator.begin(in: window, generation: controller.workspace?.beginFocusIntent())
+            ctx.registry.track(Task { @MainActor in
+                // Resolved after `open` began the terminal's own hold, so the keys wait for it.
+                defer { coordinator.resolve(keys, landed: false, in: window) }
+                let folder = await agent.workingContext()?.cwd.flatMap { WorkingURL.isDirectory($0) ? $0 : nil }
+                // The pane closed meanwhile: nothing to open beside.
+                guard ctx.services.paneController(for: focused) != nil else { return nil }
+                var invocation = invocation
+                if let folder { invocation.arguments["cwd"] = .string(folder) }
+                open(ctx, invocation, focused: focused, opensWorkspace: opensWorkspace, askedAgent: true, after: anchor)
+                return nil
+            })
+            return
+        }
+        open(ctx, invocation, focused: focused, opensWorkspace: opensWorkspace, askedAgent: false, after: anchor)
+    }
+
+    /// New Terminal Tab once its folder is known: the invocation's `cwd`, else nil for the
+    /// inheritance rules (NewTerminalStart) and the daemon's resolver. `askedAgent`: the selected
+    /// agent tab was asked, so a tab is not asked again and, with no folder named, the daemon's
+    /// resolver decides.
+    private static func open(_ ctx: AppActionContext, _ invocation: ActionInvocation, focused: PaneModel,
+                             opensWorkspace: Bool, askedAgent: Bool, after anchor: TabModel?) {
+        let cwd = invocation["cwd"]?.stringValue
+        // `--keep`: the terminal outlives its tab (a background terminal made on purpose).
+        let keep = invocation["keep"]?.boolValue == true ? true : nil
         if invocation.origin == .user, opensWorkspace, case let windows = ctx.services.windows,
            let windowID = ctx.activeWindow?.state.id {
             let daemon = ctx.services.daemon(for: focused)
