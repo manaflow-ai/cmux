@@ -442,7 +442,8 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
     expect(marks.branchClipped).toBe(false);
   });
 
-  test("focusing a footer control lifts the strip rim without changing its geometry", async () => {
+  // Focus draws no ring (Leo 2026-10-19): a focused footer control leaves the strip's rim at rest.
+  test("focusing a footer control changes neither the strip rim nor its geometry", async () => {
     const page = await open("agent-pane.composer-strip", "project", 420);
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
     await page.waitForTimeout(20);
@@ -464,7 +465,7 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
       };
     });
     await page.close();
-    expect(after.edge).not.toBe(before.edge);
+    expect(after.edge).toBe(before.edge);
     expect(after.rect).toEqual(before.rect);
   });
 

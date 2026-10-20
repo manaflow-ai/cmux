@@ -609,7 +609,7 @@ export function NewTabScreen(props: Props) {
     document.addEventListener("keydown", listener);
     return () => document.removeEventListener("keydown", listener);
   }, []);
-  const focusFromRow = (event: React.MouseEvent<HTMLDivElement>) => {
+  const focusFromRow = (event: React.MouseEvent<HTMLElement>) => {
     const input = field.current;
     if (!input || event.button !== 0 || event.target === input) return;
     // Keep the press from moving focus to the row; a field that had no focus gets the caret at
@@ -802,6 +802,39 @@ export function NewTabScreen(props: Props) {
       </div>
     </ChromeArea>
   );
+  // Search | Ask (Leo 2026-10-18): which row Return takes. It sits just above the box at its right
+  // edge, with its Tab hint (Lawrence 2026-10-20: "move tab to switch outside above the box"), so
+  // the box holds only the field, the mic and Send. A press on it keeps the caret in the field
+  // (focusFromRow), so a click never takes the keyboard away from the draft.
+  const modeRow = shell ? undefined : (
+    // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role, jsx-a11y/no-noninteractive-element-interactions -- A pointer convenience only: the buttons inside are the controls.
+    <span
+      ref={modeSwitch}
+      className="nt-mode"
+      role="group"
+      aria-label={nt("mode.label")}
+      data-mode={mode}
+      onMouseDown={focusFromRow}
+    >
+      {/* The field's description, so a screen reader hears the key too. */}
+      <span id="nt-mode-hint" className="nt-mode-hint">
+        {nt("mode.hint")}
+      </span>
+      {/* The mode a Tab switched to, said aloud: the field keeps focus, so the pressed button is not. */}
+      <output className="nt-mode-status" aria-live="polite">
+        {nt(mode === "search" ? "mode.search" : "mode.ask")}
+      </output>
+      <span className="nt-mode-track">
+        <span className="nt-mode-thumb" aria-hidden="true" />
+        <button type="button" data-mode="search" aria-pressed={mode === "search"} onClick={() => chooseMode("search")}>
+          {nt("mode.search")}
+        </button>
+        <button type="button" data-mode="ask" aria-pressed={mode === "ask"} onClick={() => chooseMode("ask")}>
+          {nt("mode.ask")}
+        </button>
+      </span>
+    </span>
+  );
   return (
     <div
       ref={screen}
@@ -818,7 +851,14 @@ export function NewTabScreen(props: Props) {
           composer location strip; newtab/screen.css). */}
       <div ref={setComposer} className="nt-composer">
         {worktreeError && <WorktreeFailure error={worktreeError} onDismiss={() => setWorktreeError(undefined)} />}
-        {!pill && folderStrip}
+        {/* Above the box: the project strip on the left (Cards draws it under the field) and the
+            Search | Ask switch at the box's right edge. */}
+        {(!pill || modeRow) && (
+          <div className="nt-above">
+            {!pill && folderStrip}
+            {modeRow}
+          </div>
+        )}
         <div ref={setBox} className="nt-box">
           {/* What was pasted on the field or dropped on the page, as a chat's composer shows it. */}
           <AttachmentStrip
@@ -874,35 +914,6 @@ export function NewTabScreen(props: Props) {
                 composing.current = false;
               }}
             />
-            {!shell && (
-              // Search | Ask (Leo 2026-10-18): which row Return takes. The field's row keeps the focus
-              // in the field on a press (focusFromRow), so a click here never takes the caret away.
-              // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-              <span ref={modeSwitch} className="nt-mode" role="group" aria-label={nt("mode.label")} data-mode={mode}>
-                {/* The field's description, so a screen reader hears the key too. */}
-                <span id="nt-mode-hint" className="nt-mode-hint">
-                  {nt("mode.hint")}
-                </span>
-                {/* The mode a Tab switched to, said aloud: the field keeps focus, so the pressed button is not. */}
-                <output className="nt-mode-status" aria-live="polite">
-                  {nt(mode === "search" ? "mode.search" : "mode.ask")}
-                </output>
-                <span className="nt-mode-track">
-                  <span className="nt-mode-thumb" aria-hidden="true" />
-                  <button
-                    type="button"
-                    data-mode="search"
-                    aria-pressed={mode === "search"}
-                    onClick={() => chooseMode("search")}
-                  >
-                    {nt("mode.search")}
-                  </button>
-                  <button type="button" data-mode="ask" aria-pressed={mode === "ask"} onClick={() => chooseMode("ask")}>
-                    {nt("mode.ask")}
-                  </button>
-                </span>
-              </span>
-            )}
           </div>
           {!pill && pickers}
         </div>

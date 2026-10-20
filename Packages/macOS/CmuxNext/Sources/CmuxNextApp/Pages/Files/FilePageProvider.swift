@@ -35,10 +35,17 @@ protocol FilePageHosting: AnyObject {
     /// The native "Open <path>?" sheet for a link outside every granted document's folder: shown
     /// only after a real user gesture, one at a time; false when refused or not shown.
     func confirmOpen(_ url: URL, userGesture: Bool) async -> Bool
+    /// The native omnibar shows the file's path above the page (the Markdown omnibar), so the
+    /// page's toolbar drops its own file name (config `omnibar: true`).
+    var showsOmnibar: Bool { get }
     /// A page's edit of `url` (the R96 quit hook): the document's unsaved state and its draft.
     func edited(_ url: URL, text: String, baseHash: String?, writable: Bool) -> RecoveryDraftAcceptance
     /// A normal save of `url` wrote `hash`.
     func saved(_ url: URL, hash: String)
+}
+
+extension FilePageHosting {
+    var showsOmnibar: Bool { false }
 }
 
 /// One file page tab's `cmux.markdown.*` or `cmux.editor.*` namespace (diff-host.md S6 "Markdown
@@ -278,6 +285,7 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
         case .markdown:
             config["assetBase"] = .string("\(origin)/\(MarkdownPageResource.asset)/\(assetToken)/")
             config["libBase"] = .string("\(origin)/\(MarkdownPageResource.library)/")
+            if host?.showsOmnibar == true { config["omnibar"] = true }
             if host?.remoteImages ?? false { config["remoteImageBase"] = .string("\(origin)/\(MarkdownPageResource.remoteImage)/") }
             if let repository = await AgentPaneGitHubRepository.read(at: file.url.deletingLastPathComponent().path) {
                 config["githubRepository"] = .string(repository)

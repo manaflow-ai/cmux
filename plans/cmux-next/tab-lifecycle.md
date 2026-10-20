@@ -86,9 +86,18 @@ cmux.json:
 "browser": {
   "hibernation": "moderate",          // "off" | "moderate" (60 min) | "aggressive" (10 min) | minutes
   "hibernationExclusions": ["mail.google.com", "*.example.com"],
-  "hibernatePinnedTabs": false
+  "hibernatePinnedTabs": false,
+  "freezeHiddenTabs": 30              // "off" | seconds: hidden Chromium pages freeze (power, msg 2654)
 }
 ```
+
+- Freeze (before hibernation, independent of its mode): a hidden Chromium
+  page past `freezeHiddenTabs` seconds gets `Page.setWebLifecycleState
+  frozen` (timers, tasks, rendering stop; memory and state stay). It thaws
+  when shown, when an agent drives it (before the call goes out) and before
+  the hibernation probe. Pinned tabs (unless `hibernatePinnedTabs`), excluded
+  hosts, open DevTools, capture, playing media and Web Audio stay awake; a
+  page kept for media is asked again after `freezeHiddenTabs`.
 
 - Triggers: time since last visible (one one-shot deadline for the earliest
   page), the memory pressure dispatch source (warning: 10 min, or every

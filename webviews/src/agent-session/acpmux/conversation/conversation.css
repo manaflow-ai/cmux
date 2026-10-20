@@ -414,8 +414,10 @@
 .cv-user__edit-button:hover {
   background: var(--cv-faint-rule);
 }
+/* Send is the theme inverted: a text-color fill with the page's opaque color for its label. Not
+   --agent-surface, a translucent tint that left the label invisible on the light fill in dark themes. */
 .cv-user__edit-button--send {
-  color: var(--agent-surface);
+  color: var(--cmux-surface-solid, var(--acpmux-base));
   background: var(--cv-text);
   box-shadow: none;
 }
@@ -780,9 +782,11 @@ pre.cv-math-source {
 /* ---------- Column ---------- */
 
 /* The transcript column; styles.css lines the composer and the cards above it up with it. The
-   bottom stack under it (bottomStack.css) changes the scroller's size, which keeps a followed view
-   at its end before the frame paints. */
+   bottom stack lies over the scroller's foot (bottomStack.css): VirtualTranscript keeps its height
+   as room under the last row, and keeps a followed view at its end before the frame paints as it
+   changes. Focus and Find scroll a row into view above it. */
 .acpmux-scroll {
+  scroll-padding-bottom: var(--acpmux-dock-space, 0px);
   font-family: var(--cv-font);
   font-size: var(--cv-font-size);
   letter-spacing: var(--cv-tracking, 0.045px);
@@ -2295,7 +2299,8 @@ pre.cv-math-source {
 .acpmux-jump-latest {
   position: absolute;
   left: 50%;
-  bottom: 12px;
+  /* Over the bottom stack, which lies over the stage's foot (App.tsx passes its height). */
+  bottom: calc(12px + var(--acpmux-dock-space, 0px));
   z-index: var(--layer-sticky);
   display: inline-grid;
   place-items: center;
@@ -2419,7 +2424,11 @@ pre.cv-math-source {
    has left the start, and out above the composer while more lies below, instead of a hard cut. A
    mask paints nothing, so rows dissolve into whatever is behind the pane (its background or the
    wallpaper) and nothing moves; at either end the edge is plain, so the first and last rows sit in
-   full ink. Reduce Transparency keeps plain edges. */
+   full ink. Reduce Transparency keeps plain edges.
+   Under the bottom stack (data-docked, --acpmux-dock-space) rows are out of sight: they never show
+   through the composer's tinted card or the gutters around it. The scrollbar is not: a second
+   layer keeps the scroller's right edge, where rows never reach (they sit --cv-inset in), so its
+   track runs to the pane's bottom corner (Leo 2026-10-19). */
 .acpmux-scroll[data-fade-top] {
   --acpmux-fade-top: 18px;
 }
@@ -2431,33 +2440,54 @@ pre.cv-math-source {
   --acpmux-fade-top: 0px;
 }
 .acpmux-scroll[data-fade-top],
-.acpmux-scroll[data-fade-bottom] {
-  -webkit-mask-image: linear-gradient(
-    to bottom,
-    transparent,
-    #000 var(--acpmux-fade-top, 0px),
-    #000 calc(100% - var(--acpmux-fade-bottom, 0px)),
-    transparent
-  );
-  mask-image: linear-gradient(
-    to bottom,
-    transparent,
-    #000 var(--acpmux-fade-top, 0px),
-    #000 calc(100% - var(--acpmux-fade-bottom, 0px)),
-    transparent
-  );
+.acpmux-scroll[data-fade-bottom],
+.acpmux-scroll[data-docked] {
+  --acpmux-view-foot: calc(100% - var(--acpmux-dock-space, 0px));
+  -webkit-mask-image:
+    linear-gradient(
+      to bottom,
+      transparent,
+      #000 var(--acpmux-fade-top, 0px),
+      #000 calc(var(--acpmux-view-foot) - var(--acpmux-fade-bottom, 0px)),
+      transparent var(--acpmux-view-foot)
+    ),
+    linear-gradient(#000, #000);
+  mask-image:
+    linear-gradient(
+      to bottom,
+      transparent,
+      #000 var(--acpmux-fade-top, 0px),
+      #000 calc(var(--acpmux-view-foot) - var(--acpmux-fade-bottom, 0px)),
+      transparent var(--acpmux-view-foot)
+    ),
+    linear-gradient(#000, #000);
+  -webkit-mask-size:
+    100% 100%,
+    var(--acpmux-scrollbar-lane, 16px) 100%;
+  mask-size:
+    100% 100%,
+    var(--acpmux-scrollbar-lane, 16px) 100%;
+  -webkit-mask-position:
+    0 0,
+    100% 0;
+  mask-position:
+    0 0,
+    100% 0;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
 }
+/* Plain edges: the rows under the bottom stack still stay out of sight, with a hard cut. */
 @media (prefers-reduced-transparency: reduce) {
   .acpmux-scroll[data-fade-top],
   .acpmux-scroll[data-fade-bottom] {
-    -webkit-mask-image: none;
-    mask-image: none;
+    --acpmux-fade-top: 0px;
+    --acpmux-fade-bottom: 0px;
   }
 }
 :root[data-reduce-transparency] .acpmux-scroll[data-fade-top],
 :root[data-reduce-transparency] .acpmux-scroll[data-fade-bottom] {
-  -webkit-mask-image: none;
-  mask-image: none;
+  --acpmux-fade-top: 0px;
+  --acpmux-fade-bottom: 0px;
 }
 @media (prefers-reduced-transparency: reduce) {
   .acpmux-jump-latest {

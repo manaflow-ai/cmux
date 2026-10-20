@@ -1,5 +1,6 @@
 import { Schema } from "effect"
 import { automationCapabilityOps } from "./automation-caps.ts"
+import { MachineId } from "./cloud-machine-ops.ts"
 import { DisplayName, HostId, TeamId, UserId } from "./schemas.ts"
 
 /**
@@ -69,7 +70,34 @@ export const Step = Schema.Union([
    * One cloud op, run as the automation (automation-caps.ts lists the ops). The op's own
    * schema validates `params` when the step runs; the step's key makes a retry replay.
    */
-  Schema.Struct({ type: Schema.Literal("op"), op: Schema.Literals(automationCapabilityOps), params: Schema.Unknown })
+  Schema.Struct({ type: Schema.Literal("op"), op: Schema.Literals(automationCapabilityOps), params: Schema.Unknown }),
+  /**
+   * One fixed shell command on one of the team's own Cloud machines (org workflows,
+   * plans/cmux-next/org-workflows-DESIGN.md). The run journals its output (the stdout tail),
+   * so a replay never runs it again. `input_from` names an earlier machine or agent step whose
+   * journaled output goes to this command's stdin.
+   */
+  Schema.Struct({
+    type: Schema.Literal("machine"),
+    machine: MachineId,
+    command: NonEmptyText(4000),
+    input_from: Schema.optionalKey(Int(0, 49)),
+    /** One provider exec answers within about 300 s; longer work belongs in a durable terminal. */
+    timeout_seconds: Int(1, 300)
+  }),
+  /**
+   * One agent turn through acpmux on one of the team's machines. The prompt (and the
+   * `input_from` output) goes on stdin, never into the command line; the reply is journaled once.
+   */
+  Schema.Struct({
+    type: Schema.Literal("agent"),
+    machine: MachineId,
+    harness: Schema.Literals(["claude", "codex", "opencode"]),
+    prompt: NonEmptyText(8000),
+    input_from: Schema.optionalKey(Int(0, 49)),
+    /** One provider exec answers within about 300 s; longer work belongs in a durable terminal. */
+    timeout_seconds: Int(1, 300)
+  })
 ]).annotate({ identifier: "Step" })
 
 /**

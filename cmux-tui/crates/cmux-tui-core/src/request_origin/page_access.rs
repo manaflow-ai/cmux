@@ -345,6 +345,10 @@ const fn access(operation: Op) -> Access {
         | Op::WorkspaceStatusClear
         | Op::WorkspaceStatusList
         | Op::WorkspaceStatusSet
+        | Op::WorkspaceChecklistList
+        | Op::WorkspaceChecklistAdd
+        | Op::WorkspaceChecklistUpdate
+        | Op::WorkspaceChecklistRemove
         // A page never sees, mints or rotates launch credentials.
         | Op::CredentialVerify
         | Op::CredentialMint

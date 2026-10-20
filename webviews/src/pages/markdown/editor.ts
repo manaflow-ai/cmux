@@ -16,7 +16,7 @@ import { history } from "@milkdown/kit/plugin/history";
 import { commonmark, imageSchema, linkSchema } from "@milkdown/kit/preset/commonmark";
 import { gfm } from "@milkdown/kit/preset/gfm";
 import type { Mark, Node as ProseNode, Schema } from "@milkdown/kit/prose/model";
-import { Plugin, PluginKey, TextSelection, type Transaction } from "@milkdown/kit/prose/state";
+import { Plugin, PluginKey, TextSelection, type EditorState, type Transaction } from "@milkdown/kit/prose/state";
 import { Decoration, DecorationSet, type EditorView, type NodeViewConstructor } from "@milkdown/kit/prose/view";
 import { ParserState, type SerializerState } from "@milkdown/kit/transformer";
 import { $nodeSchema, $prose } from "@milkdown/kit/utils";
@@ -51,7 +51,8 @@ import {
   type SourceMap,
 } from "./sourceMap";
 import { imageSize, obsidianSyntaxPlugin } from "./obsidian";
-import { ResizableTableView, tableClipboard, tableKeyDown, type TableWidths } from "./tables";
+import { isPointerSelecting, pointerChanged, pointerSelectPlugin } from "./pointerSelect";
+import { ResizableTableView, tableClipboard, tableDragOutPlugin, tableKeyDown, type TableWidths } from "./tables";
 
 /** What the editor needs from its page: links, images, code colors, diagrams and labels. */
 export interface MarkdownEditorHost {
@@ -304,6 +305,8 @@ export class MarkdownEditor {
       .use(autolinkPlugin(() => this.readOnly))
       .use(clipboard)
       .use(rawSchema)
+      .use(pointerSelectPlugin)
+      .use(tableDragOutPlugin)
       .use(activeBlockPlugin)
       .use(taskCheckboxPlugin())
       .use(githubReferencePlugin(() => host.githubRepository))
@@ -460,10 +463,28 @@ export class MarkdownEditor {
       (kind: RawKind, value: string) => rawNode(schema, kind, value),
     );
     const nodes = sourceMapNodes(map);
-    const doc = schema.topNodeType.create(null, nodes.length ? nodes : [schema.nodes.paragraph.create()]);
-    const tr = view.state.tr.replaceWith(0, view.state.doc.content.size, doc.content);
-    tr.setMeta(LOAD_META, true).setMeta("addToHistory", false);
-    view.dispatch(tr);
+    // Only the blocks that differ are replaced (a reload from disk): the selection maps through the
+    // change and stays on its words, and the blocks that did not change keep their DOM.
+    const before = this.topNodes();
+    const after = nodes.length ? [...nodes] : [schema.nodes.paragraph.create()];
+    let head = 0;
+    while (head < before.length && head < after.length && sameBlock(before[head]!, after[head]!)) head++;
+    let tail = 0;
+    while (
+      tail < before.length - head &&
+      tail < after.length - head &&
+      sameBlock(before[before.length - 1 - tail]!, after[after.length - 1 - tail]!)
+    )
+      tail++;
+    if (head < before.length - tail || head < after.length - tail) {
+      let from = 0;
+      for (let index = 0; index < head; index++) from += before[index]!.nodeSize;
+      let to = from;
+      for (let index = head; index < before.length - tail; index++) to += before[index]!.nodeSize;
+      const tr = view.state.tr.replaceWith(from, to, after.slice(head, after.length - tail));
+      tr.setMeta(LOAD_META, true).setMeta("addToHistory", false);
+      view.dispatch(tr);
+    }
     // The baseline is the document as the editor holds it after its own normalization.
     const current = this.topNodes();
     let index = 0;
@@ -534,6 +555,16 @@ export class MarkdownEditor {
   }
 }
 
+/**
+ * Whether a loaded block is the one the editor holds: equal, or a heading that differs only in the
+ * `id` the editor derives after a load (a fresh parse has none yet).
+ */
+function sameBlock(held: ProseNode, loaded: ProseNode): boolean {
+  if (held.eq(loaded)) return true;
+  if (held.type !== loaded.type || held.type.name !== "heading" || !held.content.eq(loaded.content)) return false;
+  return held.attrs.level === loaded.attrs.level && (!loaded.attrs.id || loaded.attrs.id === held.attrs.id);
+}
+
 /** ProseMirror nodes for a transformed mdast root, with Milkdown's parser state. */
 function buildNodes(schema: Schema, root: MdastRoot): ProseNode[] {
   const State = ParserState as unknown as new (schema: Schema) => {
@@ -548,7 +579,7 @@ function buildNodes(schema: Schema, root: MdastRoot): ProseNode[] {
   return nodes;
 }
 
-const activeKey = new PluginKey("cmuxMarkdownActive");
+const activeKey = new PluginKey<DecorationSet>("cmuxMarkdownActive");
 
 const taskCheckboxKey = new PluginKey<DecorationSet>("cmuxMarkdownTaskCheckbox");
 
@@ -630,22 +661,32 @@ function taskCheckboxPlugin() {
   );
 }
 
-/** Marks the top-level block holding the selection `md-active` (diagrams and HTML show source). */
+/** The top-level block holding the selection's head, as a decoration (`md-active`). */
+function activeBlock(state: EditorState): DecorationSet {
+  const { $head, from } = state.selection;
+  // A node selection of a top-level block sits at depth 0, before the block.
+  const start = $head.depth >= 1 ? $head.before(1) : from;
+  const node = state.doc.nodeAt(start);
+  if (!node) return DecorationSet.empty;
+  return DecorationSet.create(state.doc, [Decoration.node(start, start + node.nodeSize, { class: "md-active" })]);
+}
+
+/**
+ * Marks the top-level block holding the selection `md-active` (diagrams and HTML show source).
+ * While the button is down it stays on the block it was on (pointerSelect.ts): a diagram's source
+ * opening under a drag moved the text below it.
+ */
 const activeBlockPlugin = $prose(
   () =>
-    new Plugin({
+    new Plugin<DecorationSet>({
       key: activeKey,
+      state: {
+        init: (_config, state) => activeBlock(state),
+        apply: (tr, previous, _old, state) =>
+          isPointerSelecting(state) && !pointerChanged(tr) ? previous.map(tr.mapping, state.doc) : activeBlock(state),
+      },
       props: {
-        decorations(state) {
-          const { $head, from } = state.selection;
-          // A node selection of a top-level block sits at depth 0, before the block.
-          const start = $head.depth >= 1 ? $head.before(1) : from;
-          const node = state.doc.nodeAt(start);
-          if (!node) return null;
-          return DecorationSet.create(state.doc, [
-            Decoration.node(start, start + node.nodeSize, { class: "md-active" }),
-          ]);
-        },
+        decorations: (state) => activeKey.getState(state),
       },
     }),
 );

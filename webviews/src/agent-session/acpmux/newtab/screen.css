@@ -7,7 +7,6 @@
 /* The box (Leo 10-13, coherence pass; Lawrence 10-14): the composer's surface (composerStates.css: lighter than the page in a light theme, one small step toward the text in a dark one), solid, so on a wallpaper it sits as chrome, not a film over the art and not a gray slab. Its rim (--acpmux-card-ring, which the location strip's seam redraws) is one device pixel in the composer's edge, clear under appearance.borders none; focus keeps that rim and only lifts its tone a little, never a wider ring or the accent. Its shadow is the composer's (composerStates.css): --elevation-1 in a light theme, none in a dark one. */
 .nt-box{flex:none;display:flex;flex-direction:column;box-sizing:border-box;border-radius:20px;background:var(--acpmux-composer-surface,var(--cmux-surface-solid,var(--acpmux-base)));position:relative;--acpmux-card-ring:inset 0 0 0 var(--cmux-hairline,.5px) var(--acpmux-composer-edge);box-shadow:var(--acpmux-card-ring),var(--acpmux-composer-shadow,var(--elevation-1))}
 .nt-input{display:flex;align-items:flex-start;gap:10px;min-height:52px;padding:0 18px}
-.nt-box:focus-within{--acpmux-card-ring:inset 0 0 0 var(--cmux-hairline,.5px) var(--acpmux-composer-edge-focus,color-mix(in srgb,var(--agent-text) 30%,var(--acpmux-composer-edge)))}
 :root[data-borders=none] .nt-box{--acpmux-card-ring:inset 0 0 0 var(--cmux-hairline,.5px) transparent}
 /* The field wraps a long draft and grows with it (NewTabScreen fits its height) up to eight lines,
    the chat composer's cap (markdownField.css), and never past 40% of the pane; then it scrolls.
@@ -435,24 +434,48 @@
   .nt-player[data-playing="true"] .nt-player-levels i:nth-child(3){height:30%}
   .nt-player-played{transition:none}
 }
-/* Search | Ask (Leo 2026-10-18, reversing R86): a small glass switch at the field's right, its
-   "Tab to switch" hint before it. The thumb is its own compositor layer and moves only by
+/* Search | Ask (Leo 2026-10-18, reversing R86): a small glass switch, its "Tab to switch" hint
+   before it, in the row just above the box at its right edge (Lawrence 2026-10-20: "move tab to
+   switch outside above the box"), so the box holds only the field, the mic and Send. The project
+   strip shares the row on the left. The thumb is its own compositor layer and moves only by
    transform, so the slide stays smooth when the main thread is busy; NewTabScreen sets data-mode
    on the element before React renders the rows. Two equal columns keep the thumb exactly one
    segment wide in every language. */
+.nt-above {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+/* The strip is size-contained (its controls answer to its own width): it takes the row's spare
+   room as a basis-0 item, and the switch keeps its own width at the right end. */
+.nt-above .acpmux-composer-strip {
+  flex: 1 1 0;
+  min-width: 0;
+}
+/* A top strip variant (Debug Settings) draws the strip as the card's own top, spanning it: the
+   switch then takes its own line above the strip, still at the right edge. */
+:root[data-top-strip] .nt-above {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+}
 .nt-mode {
   flex: none;
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  /* On the field's first line, as the prompt glyph: the row is top-aligned so it stays there as
-     the draft grows. */
-  align-self: flex-start;
-  height: var(--text-title--line-height);
-  margin-top: 16px;
+  /* At the box's right edge, in from it as the field's text is from the left. */
+  margin-left: auto;
+  padding-right: 6px;
   font-size: var(--text-detail);
   line-height: var(--text-detail--line-height);
   user-select: none;
+  cursor: default;
+}
+:root[data-top-strip] .nt-above .nt-mode {
+  order: -1;
+  align-self: flex-end;
 }
 /* The mode said aloud after a Tab: for screen readers only (ui.css's ui-sr-only is not on this page). */
 .nt-mode-status {
@@ -467,10 +490,6 @@
 .nt-mode-hint {
   color: var(--acpmux-composer-dim, color-mix(in srgb, var(--agent-text) 45%, transparent));
   white-space: nowrap;
-}
-/* The composer template's row starts 2px lower (its padding-top) than the default's 0. */
-.nt-screen[data-template="composer"] .nt-mode {
-  margin-top: 18px;
 }
 @container (max-width: 520px) {
   .nt-mode-hint {
@@ -556,7 +575,7 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
 /* The quiet row sits 4 px under the box (the column gap is 6). */
 .nt-foot .acpmux-composer-foot { margin-top: -2px; }
 /* Cards (u2851, from a scrawl of Aside's New Tab page). The field is a pill of its own: a round
-   rim, the Search | Ask switch at its right end with the Tab hint before it. Under it, outside the
+   rim, the Search | Ask switch with the Tab hint just above its right end. Under it, outside the
    pill, one quiet row: the project strip on the left, the agent's chips and the mic on the right,
    no Send disc (Return sends); it keeps its place but hides while Search shows its suggestions.
    Then "Chats" as a segmented tab with "All Chats >" across from it, and three tall cards in a
@@ -577,11 +596,9 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
 .nt-screen[data-template="cards"][data-pill] .nt-field {
   padding-block: 18px;
 }
+/* Cards has no strip over its pill: the row holds only the switch, at the pill's right end. */
 .nt-screen[data-template="cards"][data-pill] .nt-mode {
-  align-self: center;
-  height: auto;
-  margin-top: 0;
-  font-size: var(--text-control);
+  padding-right: 12px;
 }
 .nt-screen[data-template="cards"][data-pill] .nt-mode-track {
   padding: 3px;

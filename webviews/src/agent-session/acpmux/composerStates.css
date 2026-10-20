@@ -1,8 +1,8 @@
 /* Interaction states for the composer and its menus: every control gets a hover and a pressed
    state (focus rings are in styles.css). Each is a tonal step mixed from the theme's text color, so no
    accent hue appears and every theme keeps its character. Only colors change (never size,
-   padding or borders), so a state never shifts the layout; the composer chips' press adds a
-   transform, which draws the chip a hair smaller in place and moves nothing around it.
+   padding or borders), so a state never shifts the layout. A press on a composer chip draws
+   nothing of its own (Leo 2026-10-19): no shrink and no dip.
 
    Motion tokens: the native host sends its MotionFade durations with the theme
    (AgentPaneTheme.motion, after ui.animationSpeed and Reduce Motion), and these defaults are
@@ -18,9 +18,6 @@
   --agent-motion-move: 190ms;
   /* Core Animation's easeOut, which the native fades use. */
   --agent-ease-out: cubic-bezier(0, 0, 0.58, 1);
-  /* A pressed chip's spring back to full size: quick, with a slight overshoot. */
-  --acpmux-press-release: 140ms;
-  --acpmux-press-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 .acpmux-shell {
@@ -91,10 +88,9 @@
 }
 
 /* Composer chips: Plan, the mode, model and effort pickers, +, the mic and Steer. A press keeps the
-   hover's pill, with no brighter or tinted tone (Leo 2026-10-19): its feedback is the Claude app's,
-   a shrink of a hair with an almost invisible dip that springs back on release (below). The press
-   shows at once (cg-composer click polish, as Codex's chips): the hover's ease below never delays
-   the button going down; the release eases back. */
+   hover's pill, with no brighter or tinted tone, and no shrink or dip (Leo 2026-10-19: no mousedown
+   and mouseup click feedback). The press shows at once (cg-composer click polish, as Codex's
+   chips): the hover's ease below never delays the button going down. */
 .acpmux-picker-button:active,
 .acpmux-picker-button[data-press-active],
 .acpmux-plan:active,
@@ -203,17 +199,7 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   .acpmux-steer {
     transition:
       background-color var(--agent-motion-hover) var(--agent-ease-out),
-      color var(--agent-motion-hover) var(--agent-ease-out),
-      transform var(--acpmux-press-release) var(--acpmux-press-spring),
-      opacity var(--acpmux-press-release) var(--agent-ease-out);
-  }
-  /* The press: 0.975 and a 4% dip, at once (transition-duration 0s above), springing back over
-     the release with a slight overshoot. Nothing lingers once the button is up. A chip that opens
-     its menu on pointerdown moves focus into the menu, and Chromium drops :active before the press
-     frame paints; popoverTrigger.ts's data-press-active holds the press until release. */
-  :is(.acpmux-picker-button, .acpmux-plan, .acpmux-steer, .acpmux-mic, .acpmux-fast):is(:active, [data-press-active]) {
-    transform: scale(0.975);
-    opacity: 0.96;
+      color var(--agent-motion-hover) var(--agent-ease-out);
   }
   .acpmux-send {
     transition: background-color var(--agent-motion-hover) var(--agent-ease-out);
@@ -222,9 +208,7 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   .acpmux-fast {
     transition:
       background-color var(--agent-motion-hover) var(--agent-ease-out),
-      color var(--agent-motion-hover) var(--agent-ease-out),
-      transform var(--acpmux-press-release) var(--acpmux-press-spring),
-      opacity var(--acpmux-press-release) var(--agent-ease-out);
+      color var(--agent-motion-hover) var(--agent-ease-out);
   }
   .acpmux-dictation-settings,
   .acpmux-dictation-dismiss {
@@ -285,34 +269,14 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   opacity: 1;
 }
 /* The card's rim is --acpmux-card-ring (styles.css draws it; under a location strip
-   composerLocation.css draws it around the strip's seam). Focus is quiet, as the New Tab box's
-   (Lawrence, Leo 10-14): the same one-device-pixel rim, never a wider ring or the accent, and clear
-   with appearance.borders none. Its tone steps 30% toward the text (--acpmux-composer-edge-focus):
-   the earlier 8% step was below what an eye can see, so a focused composer was pixel-identical to an
-   idle one in every theme (cg-composer focus audit, 10-14). Leo 2026-10-19 asked for a subtler focus,
-   so it steps 22%: still well clear of the invisible 8%. Over art the glass card also catches more
-   light on its top edge (below). The card's rim goes round the location
-   strip too (composerLocation.css), so the focused rim stays one outline. Shell mode takes its own accent,
-   the mode's mark. The prompt itself draws no ring (desktop.css, cx-ncc.57). */
+   composerLocation.css draws it around the strip's seam). Focus draws no ring (Leo 2026-10-19: the
+   focus ring flashed): a focused composer, the chat's and the New Tab's, its strip and its queue
+   keep the resting one-device-pixel rim in the resting tone (--acpmux-composer-edge-focus is the
+   resting edge), and over art the glass card's top-lit rim stays as it rests. The caret alone shows
+   focus. The prompt itself draws no ring (desktop.css, cx-ncc.57). */
 .acpmux-composer,
 .nt-composer {
-  --acpmux-composer-edge-focus: color-mix(in srgb, var(--agent-text) 22%, var(--acpmux-composer-edge));
-}
-/* Glass focus: over art (data-cmux-see-through) a focused card's top-lit rim (#21786) brightens, as
-   light catches a lifted pane of glass, instead of the ring growing heavier. Reduce Transparency
-   draws no rim layer at all (above), so it keeps the plain step. */
-/* The New Tab card is the same glass (#22114 left it out): its field focused or a control under
-   keyboard focus, never a chip a click focused. Only the key page lifts it (pageKey.ts). */
-:root[data-cmux-see-through]:not([data-page-inactive])
-  :is(
-    .acpmux-composer-box:has(:focus-visible),
-    .acpmux-composer:has(> .acpmux-composer-strip :focus-visible) > .acpmux-composer-box,
-    .nt-box:has(.nt-field:focus, :focus-visible)
-  ) {
-  --acpmux-composer-rim: inset 0 1px 0 light-dark(
-    color-mix(in srgb, var(--cmux-tone-light) 85%, transparent),
-    color-mix(in srgb, var(--cmux-tone-light) 22%, transparent)
-  );
+  --acpmux-composer-edge-focus: var(--acpmux-composer-edge);
 }
 :root[data-borders="none"] :is(.acpmux-composer, .nt-composer) {
   --acpmux-composer-edge-focus: transparent;
@@ -365,9 +329,6 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
 @media (prefers-contrast: more) {
   :is(.acpmux-composer-bar, .nt-pickers) .acpmux-picker-button:focus-visible { outline-offset: 2px; }
 }
-.acpmux-composer[data-shell] .acpmux-composer-box:has(:focus-visible) {
-  --acpmux-card-ring: inset 0 0 0 var(--cmux-hairline-ring, 1px) color-mix(in srgb, var(--acpmux-shell-accent) 85%, transparent);
-}
 /* Under Increase Contrast the edge is already the text color, so the step above would not show:
    the box takes the shared focus ring, following its rounded corners. */
 @media (prefers-contrast: more) {
@@ -380,21 +341,13 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   --acpmux-card-ring: inset 0 0 0 var(--cmux-hairline-ring, 1px) color-mix(in srgb, var(--acpmux-shell-accent) 55%, transparent);
 }
 
-/* Caret and ring agree (Leo 2026-10-19; the Claude app's caret shows only while its composer is
-   focused). A field can hold DOM focus while the page is not the key one: the window is in the
-   background, another pane has the keyboard, or the New Tab page focused its field before the user
-   came to it (pageKey.ts marks the root data-page-inactive). Then no field draws a caret and every
-   composer draws its resting ring: the focused tone falls back to the resting edge, and the shell
-   and Increase Contrast rings, which do not use it, are reset here. Once the page is key both come
-   back together. */
+/* The caret shows only while the page is the key one (Leo 2026-10-19; the Claude app's caret shows
+   only while its composer is focused). A field can hold DOM focus while the page is not the key one:
+   the window is in the background, another pane has the keyboard, or the New Tab page focused its
+   field before the user came to it (pageKey.ts marks the root data-page-inactive). Then no field
+   draws a caret, and the Increase Contrast ring, the one focus ring left, is reset too. */
 :root[data-page-inactive] :is(input, textarea, [contenteditable="true"]):focus {
   caret-color: transparent;
-}
-:root[data-page-inactive] :is(.acpmux-composer, .nt-composer) {
-  --acpmux-composer-edge-focus: var(--acpmux-composer-edge);
-}
-:root[data-page-inactive] .acpmux-composer[data-shell] .acpmux-composer-box:has(:focus-visible) {
-  --acpmux-card-ring: inset 0 0 0 var(--cmux-hairline-ring, 1px) color-mix(in srgb, var(--acpmux-shell-accent) 55%, transparent);
 }
 @media (prefers-contrast: more) {
   :root[data-page-inactive] :is(.acpmux-composer-box:has(:focus-visible), .nt-box:focus-within) {

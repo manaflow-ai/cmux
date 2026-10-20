@@ -182,6 +182,11 @@ public final class HomeSidebarSource {
     /// Whether `id` can be muted (a Cloud DM or group listed by its owner).
     public func canMute(_ id: ConversationID) -> Bool { owner(of: id)?.canMute(id.rawValue) == true }
 
+    /// Whether `id`'s alerts are hidden, as its owner lists it (or this Mac's last Hide Alerts).
+    public func isMuted(_ id: ConversationID) -> Bool {
+        owner(of: id)?.rows?.first { $0.id == id.rawValue }?.muted ?? false
+    }
+
     /// The signed-in account changed: its own pins and unread marks.
     public func reloadPins() {
         pins = store.pins(account: account())

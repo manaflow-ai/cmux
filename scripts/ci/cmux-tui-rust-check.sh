@@ -30,6 +30,10 @@
 # path, reset to the exact commit except .build), so the target can hold the
 # last step's build; cargo's fingerprints decide what is rebuilt, and
 # warm_target_guard wipes it when the toolchain or its stamp changes.
+# terminal [FILTER]: the tests of the terminal stack's crates only (terminal_crates:
+# ghostty-vt with its VT, tmux regress, kitty graphics and corpus suites, ghostty-vt-sys,
+# the PTY, sizing, encode and client crates), no fmt, clippy or doc tests: the fast
+# gate for a terminal change (cmux-next-terminal.yml).
 set -euo pipefail
 if [[ -z "${CMUX_CI_STEP_KEY:-}" ]]; then
   cat >&2 <<'MSG'
@@ -40,7 +44,14 @@ MSG
 fi
 mode="${1:-}"
 filter="${2:-}"
-case "$mode" in fmt|clippy|test|all|rd-host|rb-testhost|optchat-chief|screen) ;; *) echo "usage: cmux-tui-rust-check.sh fmt|clippy|test|all|rd-host|rb-testhost|optchat-chief|screen [TEST_FILTER]" >&2; exit 2 ;; esac
+case "$mode" in fmt|clippy|test|all|terminal|rd-host|rb-testhost|optchat-chief|screen) ;; *) echo "usage: cmux-tui-rust-check.sh fmt|clippy|test|all|terminal|rd-host|rb-testhost|optchat-chief|screen [TEST_FILTER]" >&2; exit 2 ;; esac
+# The crates the terminal mode tests; every other mode's tests take the whole workspace.
+terminal_crates=(ghostty-vt ghostty-vt-sys cmux-pty cmux-terminal-sizing cmux-terminal-client cmux-encode)
+test_scope=(--workspace)
+if [[ "$mode" == terminal ]]; then
+  test_scope=()
+  for crate in "${terminal_crates[@]}"; do test_scope+=(-p "$crate"); done
+fi
 if [[ -n "$filter" && ! "$filter" =~ ^[A-Za-z0-9_:.-]{1,200}$ ]]; then
   echo "error: TEST_FILTER must be one Rust test-name substring (letters, digits, _ : . -)" >&2
   exit 2
@@ -56,7 +67,7 @@ if [[ -n "$shard" ]]; then
     exit 2
   fi
   shard_i="${BASH_REMATCH[1]}"
-  case "$mode" in test|all) ;; *) echo "error: CMUX_RUST_TEST_SHARD applies only to the test and all modes" >&2; exit 2 ;; esac
+  case "$mode" in test|all|terminal) ;; *) echo "error: CMUX_RUST_TEST_SHARD applies only to the test, all and terminal modes" >&2; exit 2 ;; esac
   # A partition of a filtered run can hold no test, which --no-tests=fail makes red.
   [[ -z "$filter" ]] || { echo "error: CMUX_RUST_TEST_SHARD does not take a TEST_FILTER" >&2; exit 2; }
   echo "gate-notice: shard $shard (nextest --partition count:$shard)"
@@ -548,7 +559,7 @@ PY
 workspace_tests() {
   # nextest's store is target/nextest under the workspace, not under CARGO_TARGET_DIR.
   local junit="$root/cmux-tui/target/nextest/ci/junit.xml" rc rrc vrc n expr verdict line
-  local args=(nextest run --workspace --locked --profile ci --no-tests=fail)
+  local args=(nextest run "${test_scope[@]}" --locked --profile ci --no-tests=fail)
   [[ "$fail_fast" != 1 ]] || args+=(--fail-fast)
   [[ -z "$shard" ]] || args+=(--partition "count:$shard")
   [[ -z "$filter" ]] || args+=("$filter")
@@ -581,7 +592,7 @@ workspace_tests() {
   expr="$(junit_tool expr "$junit_full")" || { echo "rerun: none (a failed test name does not fit a filterset)"; return "$rc"; }
   echo "=== rerun: the $n failed tests, each alone (--test-threads 1)"
   rm -f "$junit"
-  env "$run_marker" cargo nextest run --workspace --locked --profile ci --no-tests=fail --test-threads 1 -E "$expr" 2>&1 | tee -a "$test_log"
+  env "$run_marker" cargo nextest run "${test_scope[@]}" --locked --profile ci --no-tests=fail --test-threads 1 -E "$expr" 2>&1 | tee -a "$test_log"
   rrc="${PIPESTATUS[0]}"
   [[ ! -f "$junit" ]] || cp "$junit" "$junit_rerun"
   vrc=0
@@ -672,7 +683,7 @@ finish() {
     IFS=$'\t' read -r a b c <<<"$row"
     printf '%-28s %-22s %s\n' "$a" "$b" "$c"
   done
-  if [[ "$mode" == test || "$mode" == all ]] && [[ -f "$test_log" ]]; then
+  if [[ "$mode" == test || "$mode" == all || "$mode" == terminal ]] && [[ -f "$test_log" ]]; then
     echo
     crate_table
   fi
@@ -787,5 +798,11 @@ if [[ "$mode" == test || "$mode" == all ]]; then
   reap_leaked "at the end of the step"
   # Only after a build that cargo finished: a failed build lists no artifacts.
   step "prune target" prune_target
+fi
+if [[ "$mode" == terminal ]]; then
+  step "base-red list" load_base_red
+  step "cargo-nextest" ensure_nextest
+  step "terminal tests" workspace_tests
+  reap_leaked "at the end of the step"
 fi
 finish
