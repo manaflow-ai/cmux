@@ -1,4 +1,4 @@
-import AppKit
+package import AppKit
 package import CmuxNextActions
 
 /// App actions on an agent chat's own tab: the header's tools and "..." menu
