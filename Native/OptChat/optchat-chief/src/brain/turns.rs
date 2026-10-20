@@ -374,7 +374,7 @@ impl Brain {
         // The conversation of the first item that wakes (a quiet report waits).
         let head = self.queue.iter().find(|q| q.wakes());
         let side = head.or(self.queue.front())?.conversation.clone();
-        let (items, rest): (Vec<Queued>, Vec<Queued>) =
+        let (mut items, rest): (Vec<Queued>, Vec<Queued>) =
             self.queue.drain(..).partition(|q| q.conversation == side);
         self.queue.extend(rest);
         // The messages, their bookkeeping (floors, children) and the pending
@@ -406,9 +406,19 @@ impl Brain {
             || self
                 .summary
                 .as_ref()
-                .is_some_and(|summary| !self.settings.membership.is_private_conversation(summary))
+                .is_none_or(|summary| !self.settings.membership.is_private_conversation(summary))
             || participant_requires_approval;
         let conversation_scoped = conversation_scoped || resumed_scoped;
+        // A report may have been queued while the main conversation was
+        // private and only taken after membership expanded. Redact it again
+        // at the log/prompt boundary, not only when it first arrives.
+        for queued in &mut items {
+            if let Source::Spawn(report) = &queued.source
+                && let Some(text) = self.scoped_spawn_report(report)
+            {
+                queued.text = text;
+            }
+        }
         let opening: Vec<Item> = items
             .iter()
             .map(|queued| {

@@ -252,6 +252,7 @@ impl Brain {
                     }
                 })
                 .collect(),
+            private_context: self.state.turn.is_some() && self.turn_shared_memory,
             delivered: false,
             started_ms: now_ms(),
             turn: self.state.turn.as_ref().map(|t| t.key.clone()),
@@ -820,6 +821,10 @@ impl Brain {
                 requires_approval,
                 quiet,
             });
+            let text = match &source {
+                Source::Spawn(report) => self.scoped_spawn_report(report).unwrap_or(text),
+                _ => text,
+            };
             // On its way into the running turn (a steer not read yet): it is
             // logged when the harness reads it, never queued twice.
             let steering = self.steering.iter().any(|st| {
@@ -849,6 +854,29 @@ impl Brain {
                 }
             }
         }
+    }
+
+    /// A child that received the private Chief view never carries its report
+    /// into a conversation whose membership is shared or not known yet.
+    pub(super) fn scoped_spawn_report(&self, report: &SpawnRef) -> Option<String> {
+        let private = self
+            .state
+            .spawns
+            .get(&report.spawn)
+            .is_some_and(|record| record.private_context);
+        let shared = self
+            .summary
+            .as_ref()
+            .is_none_or(|summary| !self.settings.membership.is_private_conversation(summary));
+        (private && shared).then(|| {
+            let ids = report
+                .subs
+                .iter()
+                .map(|(id, _)| id.as_str())
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("[{ids}] private report withheld after conversation membership changed")
+        })
     }
 
     /// The report reached the log (as `user`): the trace's `spawn.report`.

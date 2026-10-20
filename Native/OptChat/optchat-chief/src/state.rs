@@ -240,6 +240,10 @@ impl SideFloor {
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SpawnRecord {
     pub subs: Vec<SubRecord>,
+    /// The child received a private turn view. Older in-flight spawns fail
+    /// closed if the conversation later becomes shared.
+    #[serde(default = "legacy_requires_approval")]
+    pub private_context: bool,
     /// A report of this spawn is in the log.
     #[serde(default)]
     pub delivered: bool,
