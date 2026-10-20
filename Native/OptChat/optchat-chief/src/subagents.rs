@@ -126,6 +126,8 @@ pub struct SpawnPlan {
     /// The engine of the turn that called spawn (engine.json); None before
     /// any turn.
     pub engine: Option<SpawnEngine>,
+    /// The acpmux peer its subagents run on (cloud); None: this host.
+    pub peer: Option<String>,
 }
 
 /// The engine a spawn's subagents run on: the calling turn's harness and
@@ -302,6 +304,9 @@ pub struct Spawner {
     refused: Mutex<BTreeMap<String, String>>,
     /// Cloud placement: new subagents start on this acpmux peer.
     cloud: Option<CloudPlacement>,
+    /// The subagent system text for a peer set at run time
+    /// (`control cloud`) when the env set none.
+    cloud_text: Option<String>,
 }
 
 impl Spawner {
@@ -326,10 +331,35 @@ impl Spawner {
             grant: None,
             refused: Mutex::new(BTreeMap::new()),
             cloud: None,
+            cloud_text: None,
         }
     }
 
     /// New subagents start on this peer (None: on this machine).
+    /// The subagent system text a cloud subagent gets in its first message
+    /// when the peer comes from `control cloud` (no env placement).
+    pub fn with_cloud_text(mut self, text: String) -> Spawner {
+        self.cloud_text = Some(text);
+        self
+    }
+
+    /// The placement on `peer`: the env's folder and harness when it set
+    /// one, else the defaults (`/home/agent/work`, `claude`).
+    fn placement(&self, peer: &str) -> CloudPlacement {
+        match &self.cloud {
+            Some(c) => CloudPlacement {
+                peer: peer.to_owned(),
+                ..c.clone()
+            },
+            None => CloudPlacement {
+                peer: peer.to_owned(),
+                dir: PathBuf::from("/home/agent/work"),
+                harness: "claude".to_owned(),
+                instructions: self.cloud_text.clone().unwrap_or_default(),
+            },
+        }
+    }
+
     pub fn with_cloud(mut self, cloud: Option<CloudPlacement>) -> Spawner {
         self.cloud = cloud;
         self
@@ -430,9 +460,10 @@ impl Spawner {
         view: &str,
         floor: Option<&str>,
         s: &SubagentSettings,
+        peer: Option<&str>,
     ) -> Result<String, String> {
         let began = Instant::now();
-        let peer = self.cloud.as_ref().map(|c| c.peer.clone());
+        let peer = peer.map(str::to_owned);
         // Claude only through acpmux's own Claude Code adapter (harness_gate).
         // A peer's harness is its own profile: the gate reads this daemon's
         // catalog, so it does not apply there.
@@ -764,7 +795,16 @@ impl Spawner {
             ),
             None => w.task.clone(),
         };
-        match self.start_one(&w.spawn, id, &task, &view, w.floor.as_deref(), &w.launch) {
+        // Queued ones are local: a cloud subagent never queues.
+        match self.start_one(
+            &w.spawn,
+            id,
+            &task,
+            &view,
+            w.floor.as_deref(),
+            &w.launch,
+            None,
+        ) {
             Ok(note) => (self.log)(&format!("subagent {id} started from the queue: {note}")),
             Err(e) => fail(&e),
         }
@@ -911,6 +951,16 @@ impl Orchestrator for Spawner {
         cwd: Option<String>,
         effort: Option<String>,
     ) -> Result<String, String> {
+        self.spawn_placed(tasks, cwd, effort, None)
+    }
+
+    fn spawn_placed(
+        &self,
+        tasks: Vec<String>,
+        cwd: Option<String>,
+        effort: Option<String>,
+        place: Option<String>,
+    ) -> Result<String, String> {
         if let Some(e) = effort.as_deref()
             && !crate::tools::EFFORTS.contains(&e)
         {
@@ -940,11 +990,13 @@ impl Orchestrator for Spawner {
         self.send(Input::SpawnRegister {
             tasks: tasks.clone(),
             peer: self.cloud.as_ref().map(|c| c.peer.clone()),
+            place,
             reply,
         })?;
         let plan = answer
             .recv()
             .map_err(|_| "the Chief host is stopping".to_owned())??;
+        let cloud = plan.peer.as_deref().map(|p| self.placement(p));
         let run = self.engine_settings(plan.engine.as_ref());
         // The person's grant: a harness outside it starts nothing.
         let grant = self.grant.as_ref().map(|g| g.grant());
@@ -966,7 +1018,7 @@ impl Orchestrator for Spawner {
                 "harness": run.harness,
             }),
         );
-        if let (None, Some(text), Some(preset)) = (&self.cloud, &run.claude_md, &run.preset) {
+        if let (None, Some(text), Some(preset)) = (&cloud, &run.claude_md, &run.preset) {
             let file = (!self.agents.system_prompt(preset)).then_some(text.as_str());
             if let Err(e) = crate::session_dir::set_claude_md(&run.cwd, file) {
                 (self.log)(&format!("the subagent directory's CLAUDE.md: {e}"));
@@ -976,7 +1028,7 @@ impl Orchestrator for Spawner {
         // ask child or subagent lives, every subagent runs with policy ask.
         // No answer from the brain fails closed (ask).
         let floor = self.spawn_floor();
-        let (dir, dir_note) = match &self.cloud {
+        let (dir, dir_note) = match &cloud {
             Some(c) => (c.dir.clone(), None),
             None => self.run_dir(cwd.as_deref(), &run),
         };
@@ -990,7 +1042,7 @@ impl Orchestrator for Spawner {
             ..run.clone()
         };
         // On a peer: its own harness profile, no local preset or model.
-        if let Some(c) = &self.cloud {
+        if let Some(c) = &cloud {
             launch.harness = c.harness.clone();
             launch.preset = None;
             launch.model = None;
@@ -1061,11 +1113,19 @@ impl Orchestrator for Spawner {
                 ));
                 continue;
             }
-            let task = match &self.cloud {
+            let task = match &cloud {
                 Some(c) => c.task(id, cwd.as_deref(), task),
                 None => task.clone(),
             };
-            match self.start_one(&plan.spawn, id, &task, &view, floor.as_deref(), &launch) {
+            match self.start_one(
+                &plan.spawn,
+                id,
+                &task,
+                &view,
+                floor.as_deref(),
+                &launch,
+                plan.peer.as_deref(),
+            ) {
                 Ok(note) => {
                     started.push(id.clone());
                     lines.push(format!("- {id}: {note}"));
@@ -1084,7 +1144,7 @@ impl Orchestrator for Spawner {
             "No subagent started.".to_owned()
         } else if started.is_empty() {
             format!("Queued {}.", plan.queued.join(", "))
-        } else if let Some(c) = &self.cloud {
+        } else if let Some(c) = &cloud {
             format!(
                 "Started {} on the cloud VM {} (acpmux peer), in {}.",
                 started.join(", "),
