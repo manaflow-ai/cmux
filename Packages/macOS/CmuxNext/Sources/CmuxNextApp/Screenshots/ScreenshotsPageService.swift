@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextFileGrid
 import CmuxNextScreenshots
