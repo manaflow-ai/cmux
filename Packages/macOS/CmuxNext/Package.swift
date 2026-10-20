@@ -1209,7 +1209,7 @@ let package = Package(
             name: "CmuxNextAppTests",
             dependencies: ["CmuxNextCompat", "CmuxNextVSCodeServer", "CmuxNextFileGrid", "CmuxNextScreenshots", "CmuxNextTerminalGeometry", "CmuxNextRemote", "CmuxNextWakeups", "CmuxNextNowPlaying", "CmuxNextFloating", "CmuxNextLayout", "CmuxNextTasks", "CmuxNextAgentCursor", "CmuxNextTabs", "CmuxNextProcessEnvironment", "CmuxNextApp", "CmuxNextApps", "CmuxNextCookieImport", "CmuxNextAgentLanes", "CmuxNextBrowserHistory", "CmuxNextCrashReporting", "CmuxNextDiff", "CmuxNextFeed", "CmuxNextActions", "CmuxNextHistory", "CmuxNextCopyMode",
                            "CmuxNextWorkspaceNaming",
-                           "CmuxNextComputerUse", "CmuxNextDaemon", "CmuxNextDaemonRecovery", "CmuxNextDaemonService", "CmuxNextRemoteLocalhostService", "CmuxNextFocus", "CmuxNextFocusUI", "CmuxNextHome", "CmuxNextHomeEngine", .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
+                           "CmuxNextComputerUse", "CmuxNextDaemon", "CmuxNextDaemonRecovery", "CmuxNextDaemonService", "CmuxNextRemoteLocalhostService", "CmuxNextFocus", "CmuxNextFocusUI", "CmuxNextHome", "CmuxNextHomeEngine", "CmuxNextHostedChief", .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
                            .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
                            // ReduceMotionLoopTests builds the vendored Home typing indicators.
                            .product(name: "MessagesLabHome", package: "CmuxMessagesLab"),

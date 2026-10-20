@@ -27,6 +27,10 @@ enum CmuxStrings {
     }
 
     /// The message menu's permalink item (tree threads, cx-och3h).
+    /// The remove button on an attachment in the message box (its help and accessibility label).
+    static var removeAttachment: String {
+        String(localized: "home.compose.removeAttachment", defaultValue: "Remove Attachment", table: "CmuxHome", bundle: .module)
+    }
     static var copyLink: String {
         String(localized: "home.message.copyLink", defaultValue: "Copy Link", table: "CmuxHome", bundle: .module)
     }
