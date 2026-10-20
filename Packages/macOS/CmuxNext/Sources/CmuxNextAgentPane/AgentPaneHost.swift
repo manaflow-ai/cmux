@@ -16,6 +16,10 @@ public nonisolated protocol AgentPaneHostProviding: Sendable {
     /// The folder of the daemon's session `sessionId`, nil when it has none.
     /// Never starts a daemon.
     func sessionFolder(sessionId: String) async throws -> AgentPaneSessionFolder?
+    /// Starts the agent of each session in `sessionIds` without a page (`_acpmux/warm`), so a
+    /// relaunch resumes every chat tab, not only the ones shown. A session whose agent runs
+    /// already, or whose folder has no Trust answer, is left as it is.
+    func warm(sessionIds: [String]) async throws
     /// Saves a file the person dropped into session `sessionId` on the machine that runs it (an
     /// ssh peer's chat: on that peer) and answers its path there. Throws
     /// ``AgentPaneFilePutFailure``. Never starts a daemon.
@@ -42,6 +46,9 @@ extension AgentPaneHostProviding {
 
     /// Hosts without a daemon know no session folders.
     public func sessionFolder(sessionId: String) async throws -> AgentPaneSessionFolder? { nil }
+
+    /// Hosts without a daemon run no agents.
+    public func warm(sessionIds: [String]) async throws {}
 
     /// Hosts without a daemon have none to restart.
     public func restartAcpmux(owner: AcpmuxSocketOwner) async -> Bool { false }
@@ -256,6 +263,18 @@ public actor AcpmuxHost: AgentPaneHostProviding {
 
     public func prewarm() async throws {
         _ = try await endpoint(startsDaemon: true)
+    }
+
+    /// One `_acpmux/warm` per session: the daemon warms one session per folder in a call, so
+    /// two chats in one folder would leave the second stopped.
+    public func warm(sessionIds: [String]) async throws {
+        guard !sessionIds.isEmpty else { return }
+        _ = try await endpoint(startsDaemon: true)
+        guard let socket = environment?.socketPath else { throw AgentPaneHostError.acpmuxNotFound }
+        for session in sessionIds {
+            let params: [String: any Sendable] = ["sessionIds": [session], "limit": 1]
+            _ = try await AcpmuxStatusClient.call(socketPath: socket, method: "_acpmux/warm", params: params, deadline: .seconds(60))
+        }
     }
 
     public func sessionFolder(sessionId: String) async throws -> AgentPaneSessionFolder? {
