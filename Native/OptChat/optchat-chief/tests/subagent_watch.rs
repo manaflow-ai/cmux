@@ -234,6 +234,17 @@ impl Setup {
         self.h.brain.state().sub("a1").unwrap().1.clone()
     }
 
+    /// acpmux reports the session running (a turn in flight).
+    fn running(&self) {
+        self.h
+            .agents
+            .inner
+            .lock()
+            .unwrap()
+            .session_status
+            .insert(self.session.clone(), "running".into());
+    }
+
     fn idle(&self) {
         self.h
             .agents
@@ -316,6 +327,8 @@ fn a_silent_subagent_is_continued_once_then_reported() {
     assert!(s.trace("subagent.stuck").is_empty());
     let follow = s.sub().after_stop.unwrap_or_default();
     assert!(follow.contains("git status"), "{follow}");
+    // acpmux runs the continue as its next turn, which stays silent.
+    s.running();
     // Still silent 16 minutes after the continue: now the Chief hears.
     s.at(t0 + 33 * MIN);
     s.tick();
