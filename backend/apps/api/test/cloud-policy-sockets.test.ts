@@ -7,7 +7,8 @@ import { deliverRoleNotices, openCloudSockets } from "./cloud-role-socket-suppor
 
 const policyVersion = async (token: string, team: string): Promise<number> => {
   const reply = await call(token, "/v1/read", { op: "team.policy.get", params: {} }, team)
-  expect(reply.body.ok).toBe(true)
+  expect(reply.status).toBe(200)
+  expect(reply.body.op).toBe("team.policy.get")
   const version = reply.body.value?.policy?.version
   expect(Number.isInteger(version)).toBe(true)
   return version
