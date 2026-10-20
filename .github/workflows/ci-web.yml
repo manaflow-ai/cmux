@@ -259,10 +259,12 @@ jobs:
     # has twice the memory. Fork pull requests run the same suite on it.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-8vcpu-ubuntu-2404' }}
     # The 10-minute siblings in this workflow, plus the browser engines and the
-    # browser-lane suites they run. The full suite grew to 22 min in one process;
-    # two deterministic file shards keep per-file isolation while shortening the
-    # critical path. Keep the existing cap until hosted timing proves a tighter
-    # bound for the shard with the longer browser files.
+    # browser-lane suites they run. The full suite grew to 22 min in one process.
+    # Deterministic file shards keep per-file isolation; each shard runs its
+    # dev-server files only two at a time (about 28 s each), so two shards spent
+    # 12 of their 14-16 min there. Twelve shards cut that to a few files each;
+    # Blacksmith ran 256 concurrent jobs without queueing. Keep the existing cap
+    # until hosted timing proves a tighter bound for the longer browser files.
     timeout-minutes: 40
     name: react-apps-check (${{ matrix.shard }})
     strategy:
@@ -270,9 +272,29 @@ jobs:
       matrix:
         include:
           - shard: 1
-            shard_count: 2
+            shard_count: 12
           - shard: 2
-            shard_count: 2
+            shard_count: 12
+          - shard: 3
+            shard_count: 12
+          - shard: 4
+            shard_count: 12
+          - shard: 5
+            shard_count: 12
+          - shard: 6
+            shard_count: 12
+          - shard: 7
+            shard_count: 12
+          - shard: 8
+            shard_count: 12
+          - shard: 9
+            shard_count: 12
+          - shard: 10
+            shard_count: 12
+          - shard: 11
+            shard_count: 12
+          - shard: 12
+            shard_count: 12
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
