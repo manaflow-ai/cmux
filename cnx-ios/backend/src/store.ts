@@ -49,7 +49,6 @@ export interface Store {
   getDevice(deviceId: string): Promise<Device | undefined>
   /** Insert or update; "not_owner" when the id already belongs to another user (nothing changes). */
   upsertDevice(d: DeviceInput): Promise<{ device: Device; previousTeamId: string | null } | "not_owner">
-  listMacs(teamId: string): Promise<Array<Device>>
   /** Every Mac one owner registered, in any team or personal space (`ownerUserId` is the owner key). */
   listOwnerMacs(ownerUserId: string): Promise<Array<Device>>
   /** Every device (Mac or phone) of one owner, with whether it has a push token. */
@@ -120,10 +119,6 @@ export const pgStore = async (hyperdrive: Hyperdrive): Promise<Store> => {
         .returning()
       if (!r) return "not_owner"
       return { device: row(r), previousTeamId: prev && prev.teamId !== d.teamId ? prev.teamId : null }
-    },
-    async listMacs(teamId) {
-      const rs = await db.select().from(devices).where(and(eq(devices.teamId, teamId), eq(devices.kind, "mac"))).orderBy(devices.name)
-      return rs.map(row)
     },
     async listOwnerMacs(ownerUserId) {
       const rs = await db.select().from(devices).where(and(eq(devices.ownerUserId, ownerUserId), eq(devices.kind, "mac"))).orderBy(devices.name)
@@ -202,9 +197,6 @@ export const memoryStore = (): Store => ({
     const device: Device = { ...d, createdAt: prev?.createdAt ?? now, updatedAt: now, lastSeenAt: prev?.lastSeenAt ?? null }
     mem.devices.set(d.deviceId, device)
     return { device: { ...device }, previousTeamId: prev && prev.teamId !== d.teamId ? prev.teamId : null }
-  },
-  async listMacs(teamId) {
-    return [...mem.devices.values()].filter((d) => d.teamId === teamId && d.kind === "mac").sort((a, b) => a.name.localeCompare(b.name))
   },
   async listOwnerMacs(owner) {
     return [...mem.devices.values()].filter((d) => d.ownerUserId === owner && d.kind === "mac").sort((a, b) => a.name.localeCompare(b.name))
