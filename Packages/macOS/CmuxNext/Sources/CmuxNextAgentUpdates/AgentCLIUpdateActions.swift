@@ -53,6 +53,8 @@ public final class AgentCLIUpdateActions {
         @ObservationIgnored var work: Task<JSONValue, any Error>?
         var jobs: [JSONValue] = []
         var receipts: [AgentCLIJobReceipt] = []
+        /// Child keys of starts whose reply was lost, by family; refresh replays them.
+        @ObservationIgnored var unsent: [String: String] = [:]
 
         var profile: String? { invocation["id"]?.stringValue }
 
@@ -143,9 +145,36 @@ public final class AgentCLIUpdateActions {
         return .array(intents[key]?.jobs ?? [])
     }
 
-    /// Explicit refresh observes retained terminals, never starts a new update.
+    /// Explicit refresh observes retained terminals, never starts a new update. A start
+    /// whose reply was lost is sent again with its key; the owner replays it by that key.
     public func refresh() async {
         for intent in intents.values {
+            for (family, childKey) in intent.unsent.sorted(by: { $0.key < $1.key }) {
+                guard let route = owner(of: intent), let cli = AgentCLIFamily(rawValue: family) else { break }
+                let result: Result<AgentCLIJobReceipt, any Error>
+                do { result = .success(try await route.start(cli, childKey)) } catch { result = .failure(error) }
+                guard intent.unsent[family] == childKey, let index = Self.job(of: family, in: intent) else { continue }
+                switch result {
+                case .success(let receipt):
+                    guard route.isCurrent() else { continue }
+                    intent.unsent[family] = nil
+                    guard receipt.machine == route.machine, receipt.session == route.session, receipt.cli == cli else {
+                        intent.jobs.remove(at: index)
+                        continue
+                    }
+                    intent.receipts.append(receipt)
+                    if var job = intent.jobs[index].objectValue {
+                        job["terminal"] = .string(receipt.path.terminalID.rawValue)
+                        job["state"] = "created"
+                        intent.jobs[index] = .object(job)
+                    }
+                case .failure(let error):
+                    // The owner's refusal says the key created nothing; anything else may follow a creation.
+                    guard Self.refusedBeforeCreation(error) else { continue }
+                    intent.unsent[family] = nil
+                    intent.jobs.remove(at: index)
+                }
+            }
             for receipt in intent.receipts {
                 guard let route = owner(of: intent) else { break }
                 do {
@@ -163,7 +192,7 @@ public final class AgentCLIUpdateActions {
                     }
                     intent.jobs[index] = .object(job)
                 } catch {
-                    // Keep the receipt and original route; a failed observation is no completion.
+                    // Keep the receipt; a failed observation is no completion.
                 }
             }
         }
@@ -189,9 +218,12 @@ public final class AgentCLIUpdateActions {
     }
 
     private func start(_ intent: Intent, key: String) async throws -> JSONValue {
-        guard intent.route.isCurrent() else { throw DaemonError.notConnected }
-        let inventory = try await intent.route.inventory()
-        guard intent.route.isCurrent() else { throw DaemonError.notConnected }
+        // The owner this intent captured. Showing or refreshing may swap `intent.route` for a
+        // re-capture after a reconnect, but a start never continues on another connection.
+        let route = intent.route
+        guard route.isCurrent() else { throw DaemonError.notConnected }
+        let inventory = try await route.inventory()
+        guard route.isCurrent() else { throw DaemonError.notConnected }
         let rows = inventory.harnesses.filter { intent.profile == nil ? $0.outdated : $0.id == intent.profile }
         let families = Set(rows.compactMap { row -> String? in
             guard let family = row.family, family != .unknown,
@@ -204,10 +236,10 @@ public final class AgentCLIUpdateActions {
         // One family's refusal never stops the others; the batch reports every failure.
         var failures: [String] = []
         for family in families {
-            guard intent.route.isCurrent(), let cli = AgentCLIFamily(rawValue: family) else { throw DaemonError.notConnected }
+            guard route.isCurrent(), let cli = AgentCLIFamily(rawValue: family) else { throw DaemonError.notConnected }
             guard !intents.values.contains(where: { other in
                 other !== intent && other.jobs.contains { job in
-                    job["machine"]?.stringValue == intent.route.machine.rawValue && job["cli"]?.stringValue == family
+                    job["machine"]?.stringValue == route.machine.rawValue && job["cli"]?.stringValue == family
                         && ["unknown", "created", "pending"].contains(job["state"]?.stringValue ?? "")
                 } && owner(of: other) != nil
             }) else {
@@ -217,23 +249,28 @@ public final class AgentCLIUpdateActions {
             // Batch children derive from the original intent and family, not row order.
             let childKey = intent.profile != nil ? key
                 : SHA256.hash(data: Data("cmux/agent-update/\(family)/\(key)".utf8)).map { String(format: "%02x", $0) }.joined()
-            var job: [String: JSONValue] = ["machine": .string(intent.route.machine.rawValue),
-                "session": .string(intent.route.session.rawValue), "cli": .string(family), "state": "unknown",
+            var job: [String: JSONValue] = ["machine": .string(route.machine.rawValue),
+                "session": .string(route.session.rawValue), "cli": .string(family), "state": "unknown",
                 "profiles": .array(rows.filter { $0.family?.rawValue == family }.map { .string($0.id) })]
             intent.jobs.append(.object(job))
-            let index = intent.jobs.count - 1
             let receipt: AgentCLIJobReceipt
             do {
-                receipt = try await intent.route.start(cli, childKey)
+                receipt = try await route.start(cli, childKey)
             } catch {
                 // A refusal created nothing, so it leaves no job to block this CLI.
-                // A lost reply may have created the terminal and stays unknown.
-                if Self.refusedBeforeCreation(error) { intent.jobs.remove(at: index) }
+                // A lost reply may have created the terminal: it stays unknown, and
+                // refresh sends the same key again to learn which.
+                if Self.refusedBeforeCreation(error) {
+                    if let index = Self.job(of: family, in: intent) { intent.jobs.remove(at: index) }
+                } else {
+                    intent.unsent[family] = childKey
+                }
                 failures.append("\(family): \(Self.text(error))")
-                guard intent.route.isCurrent() else { throw error }
+                guard route.isCurrent() else { throw error }
                 continue
             }
-            guard receipt.machine == intent.route.machine, receipt.session == intent.route.session, receipt.cli == cli else {
+            guard let index = Self.job(of: family, in: intent) else { throw DaemonError.notConnected }
+            guard receipt.machine == route.machine, receipt.session == route.session, receipt.cli == cli else {
                 // Another owner's terminal is not this update's, and this route cannot observe it.
                 intent.jobs.remove(at: index)
                 throw DaemonError.malformedResponse("Agent update receipt owner mismatch")
@@ -242,10 +279,15 @@ public final class AgentCLIUpdateActions {
             job["terminal"] = .string(receipt.path.terminalID.rawValue)
             job["state"] = "created"
             intent.jobs[index] = .object(job)
-            guard intent.route.isCurrent() else { throw DaemonError.notConnected }
+            guard route.isCurrent() else { throw DaemonError.notConnected }
         }
         guard failures.isEmpty else { throw ActionFailure(message: failures.joined(separator: "\n")) }
         return .array(intent.jobs)
+    }
+
+    /// The intent's job for one family that has no terminal yet; an intent runs each family once.
+    private static func job(of family: String, in intent: Intent) -> Int? {
+        intent.jobs.lastIndex { $0["cli"]?.stringValue == family && $0["terminal"] == nil }
     }
 
     /// The rows of a `_acpmux/harness/health` answer by harness id; nil when it is not one.

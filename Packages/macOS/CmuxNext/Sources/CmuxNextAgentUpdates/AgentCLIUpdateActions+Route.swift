@@ -48,7 +48,8 @@ extension AgentCLIUpdateActions.Route {
                 && daemon.identity?.machineResourceID == machine && daemon.identity?.sessionResourceID == session
         }
         var carrier: AgentCLIJobCarrier?
-        // The owner-checked carrier; a route re-captured after a reconnect opens it to observe receipts.
+        // The owner-checked carrier, opened by whichever call comes first: a route re-captured
+        // after a reconnect starts (a replayed key) or observes without reading the inventory.
         let opened: @MainActor () async throws -> AgentCLIJobCarrier = {
             guard current() else { throw DaemonError.notConnected }
             if let carrier { return carrier }
@@ -60,9 +61,7 @@ extension AgentCLIUpdateActions.Route {
         return Self(machine: machine, session: session, isCurrent: current, inventory: {
             try await opened().inventory()
         }, start: { cli, key in
-            // A start always follows this route's inventory read, which opened the carrier.
-            guard current(), let carrier else { throw DaemonError.notConnected }
-            return try await carrier.startUpdate(cli: cli, idempotencyKey: key)
+            try await opened().startUpdate(cli: cli, idempotencyKey: key)
         }, observe: { receipt in
             try await opened().observe(receipt)
         })
