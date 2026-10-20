@@ -171,6 +171,23 @@ import Testing
         #expect(updater.readyCard != nil, "the staged update shows no badge card")
     }
 
+    /// The person's check ended (up to date, then Sparkle went idle before
+    /// the note timed out); an hour later the scheduled check finds and
+    /// downloads an update: that is automatic and shows no card.
+    @Test func aFinishedCheckDoesNotMakeTheNextBackgroundUpdateLoud() {
+        let updater = Self.updater()
+        updater.send(.checkRequested)
+        for phase: UpdateIndicatorPhase in [.checking, .note(.upToDate), .hidden] {
+            updater.debugIndicatorPhase = phase
+            updater.syncFlowPhase()
+        }
+        for phase in Self.attemptPhases.dropLast() {
+            updater.debugIndicatorPhase = phase
+            updater.syncFlowPhase()
+            #expect(updater.card == nil, "the background update after a finished check showed \(String(describing: updater.card))")
+        }
+    }
+
     /// The same phases after the person ran Check for Updates (menu or
     /// Cmd+Shift+P, `palette.checkForUpdates`) show the loading card.
     @Test func checkForUpdatesFromTheCommandShowsTheLoadingCard() {
