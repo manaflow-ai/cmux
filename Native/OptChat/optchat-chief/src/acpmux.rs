@@ -940,33 +940,17 @@ impl AgentPort for Acpmux {
         prompt_id: &str,
         signals: Sender<TurnSignal>,
     ) -> Result<(), String> {
-        let client = self.client()?;
-        self.turns
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .insert(
-                session.to_owned(),
-                TurnRoute {
-                    tx: signals.clone(),
-                    spoke: false,
-                },
-            );
-        let answer = client.start(
-            "session/prompt",
-            json!({"sessionId": session, "prompt": blocks, "_meta": {"acpmux": {"promptId": prompt_id}}}),
-        );
-        std::thread::Builder::new()
-            .name("acpmux-prompt".into())
-            .spawn(move || {
-                let done = match answer.recv() {
-                    Ok(Ok(value)) => TurnSignal::Done(Ok(value)),
-                    Ok(Err(RpcError::Remote { message, .. })) => TurnSignal::Done(Err(message)),
-                    Ok(Err(RpcError::Closed | RpcError::Timeout(_))) | Err(_) => TurnSignal::Lost,
-                };
-                let _ = signals.send(done);
-            })
-            .map_err(|e| e.to_string())?;
-        Ok(())
+        self.send_prompt(session, blocks, prompt_id, signals, false)
+    }
+
+    fn start_prompt_queued(
+        &self,
+        session: &str,
+        blocks: Vec<Value>,
+        prompt_id: &str,
+        signals: Sender<TurnSignal>,
+    ) -> Result<(), String> {
+        self.send_prompt(session, blocks, prompt_id, signals, true)
     }
 
     fn events(&self, session: &str, after: u64) -> Result<Vec<AcpmuxEvent>, String> {
@@ -1208,5 +1192,50 @@ impl AgentPort for Acpmux {
             )
             .map(|_| ())
             .map_err(|e| format!("setting the system prompt of preset {preset}: {e}"))
+    }
+}
+
+impl Acpmux {
+    /// `session/prompt` for `start_prompt`; `queue` (`_meta.acpmux.queue`) waits for a
+    /// running turn instead of stopping it.
+    fn send_prompt(
+        &self,
+        session: &str,
+        blocks: Vec<Value>,
+        prompt_id: &str,
+        signals: Sender<TurnSignal>,
+        queue: bool,
+    ) -> Result<(), String> {
+        let client = self.client()?;
+        self.turns
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(
+                session.to_owned(),
+                TurnRoute {
+                    tx: signals.clone(),
+                    spoke: false,
+                },
+            );
+        let answer = client.start(
+            "session/prompt",
+            if queue {
+                json!({"sessionId": session, "prompt": blocks, "_meta": {"acpmux": {"promptId": prompt_id, "queue": true}}})
+            } else {
+                json!({"sessionId": session, "prompt": blocks, "_meta": {"acpmux": {"promptId": prompt_id}}})
+            },
+        );
+        std::thread::Builder::new()
+            .name("acpmux-prompt".into())
+            .spawn(move || {
+                let done = match answer.recv() {
+                    Ok(Ok(value)) => TurnSignal::Done(Ok(value)),
+                    Ok(Err(RpcError::Remote { message, .. })) => TurnSignal::Done(Err(message)),
+                    Ok(Err(RpcError::Closed | RpcError::Timeout(_))) | Err(_) => TurnSignal::Lost,
+                };
+                let _ = signals.send(done);
+            })
+            .map_err(|e| e.to_string())?;
+        Ok(())
     }
 }

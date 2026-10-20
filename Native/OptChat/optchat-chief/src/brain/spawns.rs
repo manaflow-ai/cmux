@@ -886,7 +886,14 @@ impl Brain {
             .sub(id)
             .is_some_and(|(_, s)| matches!(s.status, SubStatus::Running | SubStatus::Starting));
         let (agents, forward, sub_id) = (self.agents.clone(), self.tx.clone(), id.to_owned());
-        let steered = if running {
+        let steered = if running && queue {
+            // A `queue` tell is a low-priority FYI: no steer (a steer Claude Code has not read
+            // soon stops its running tool); it waits for the turn to end.
+            tell_prompt(
+                &*agents, &session, blocks, &prompt_id, forward, sub_id, true,
+            )?;
+            false
+        } else if running {
             // Reference parity S4: into the running session, read between
             // its tool calls. One that cannot steer now is interrupted, and
             // the message is its next prompt (user 2026-10-20: "interrupt
@@ -916,6 +923,7 @@ impl Brain {
                         &prompt_id,
                         forward,
                         sub_id.clone(),
+                        true,
                     ) {
                         log(&format!(
                             "subagent {sub_id}: the tell did not reach it: {e}"
@@ -925,7 +933,9 @@ impl Brain {
             });
             true
         } else {
-            tell_prompt(&*agents, &session, blocks, &prompt_id, forward, sub_id)?;
+            tell_prompt(
+                &*agents, &session, blocks, &prompt_id, forward, sub_id, false,
+            )?;
             false
         };
         let resumed = if let Some(sub) = self.state.sub_mut(id)
@@ -945,9 +955,9 @@ impl Brain {
             "tell",
             json!({"id": id, "spawn": spawn, "from": "chief", "steered": steered, "queue": queue, "message": self.trace.text(message)}),
         );
-        let answer = if steered && queue {
+        let answer = if queue && running {
             format!(
-                "sent to {id}; it reads it between its tool calls, or after its current turn when its agent cannot take it mid-turn; its report answers it as a \"[{id}] ...\" message"
+                "queued for {id}: it reads it after its current turn; its report answers it as a \"[{id}] ...\" message"
             )
         } else if steered {
             format!(
@@ -1018,6 +1028,7 @@ impl Brain {
                     &prompt_id,
                     self.tx.clone(),
                     id.to_owned(),
+                    true,
                 ) {
                     (self.log)(&format!("subagent {id}: the tell did not reach it: {e}"));
                 }
@@ -1398,9 +1409,15 @@ fn tell_prompt(
     prompt_id: &str,
     forward: std::sync::mpsc::Sender<super::Input>,
     sub_id: String,
+    queue: bool,
 ) -> Result<(), String> {
     let (tx, rx) = std::sync::mpsc::channel();
-    agents.start_prompt(session, blocks, prompt_id, tx)?;
+    // acpmux stops a running turn for a prompt that does not ask to queue.
+    if queue {
+        agents.start_prompt_queued(session, blocks, prompt_id, tx)?;
+    } else {
+        agents.start_prompt(session, blocks, prompt_id, tx)?;
+    }
     std::thread::spawn(move || {
         while let Ok(signal) = rx.recv() {
             match signal {
