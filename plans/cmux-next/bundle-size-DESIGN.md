@@ -194,11 +194,20 @@ Why a wrapper `.app`, and not the framework alone:
   relative to the helper. The helpers must sit beside the framework.
 - Chromium finds the (GPU)/(Renderer)/(Plugin)/(Alerts) helper variants beside
   the base helper (`browser_subprocess_path`).
-- The helper sandbox (`no_sandbox = false`) lets a helper read the main bundle
-  path (`main_bundle_path`, Chromium's `bundle-path` sandbox parameter). The
-  helper enters the sandbox before it loads the framework, so the framework
-  must sit under `main_bundle_path`. With the wrapper as `main_bundle_path`,
-  the on-disk shape is exactly the in-bundle shape Chromium is tested with.
+- The helper sandbox (`no_sandbox = false`) lets a helper read the
+  `bundle-path` sandbox parameter. The helper enters the sandbox before it
+  loads the framework, so the framework must be readable from inside it.
+  **Finding (DEV experiment, 2026-10-19):** `bundle-path` is
+  `base::apple::MainBundlePath()`, the real app, not CEF's
+  `main_bundle_path`. With the runtime outside the app every helper failed
+  with "file system sandbox blocked open()" and the browser hit FATAL "GPU
+  process isn't usable". Fix: the CEF fork patch
+  `cmux_runtime_outside_bundle` (manaflow-ai/cef, branch
+  `cmux/8037-cmux28-ondemand`) sets the `component-path` parameter, which
+  `common.sb` already allows to read, to the framework's parent folder when
+  that folder is outside the main bundle. Inside the bundle nothing changes.
+  The app can use on-demand Chromium only with a CEF artifact that has this
+  patch.
 - `CEFRuntimeLayout.locate` already supports it: for a Frameworks directory
   outside the app, "the main bundle is the app that holds it".
 - The wrapper's `CFBundleIdentifier` equals the app's id, so Chromium's base
@@ -283,17 +292,19 @@ Chromium in this process. No relaunch.
 
 - New tabs with the default engine (Chromium) open in WebKit while the engine
   is missing. The first such tab shows the existing one-time notice, now
-  "Chromium is downloading (42%). This tab uses WebKit until it’s ready."
-- When the install finishes, the app shows one notice on the next new tab:
-  "Chromium is ready. New tabs open in Chromium." New tabs then use Chromium.
+  "Chromium is downloading, so this tab uses WebKit. New tabs use Chromium
+  when it’s ready."
+- When the install finishes, new tabs use Chromium. (A "Chromium is ready"
+  notice is not built yet.)
 - A tab that explicitly asks for Chromium ("Open in Chromium", `--engine
-  chromium`) is refused, as today, with the download state as the reason, and
-  the request starts the download at user priority.
-- Failure: "Chromium couldn’t download, so this tab uses WebKit. cmux will
+  chromium`) is refused, as today, with "Chromium is downloading (42%). Try
+  again when it’s ready." Every check that finds the download pending (a
+  new tab, the palette, the CLI) starts the download at user priority.
+- Failure: "Chromium couldn’t download yet, so this tab uses WebKit. cmux will
   try again." The reason (offline, checksum, signature, disk full) is in
-  `debug.cef` (`runtime` object) and in the log.
-- `debug.cef` reports `runtime`: `{source: bundled|installed|compatible|none,
-  key, state, fraction, bytes, error}`.
+  `debug.cef`.
+- `debug.cef` reports `runtime`: `{origin: bundled|installed|compatible|downloading|none,
+  pinned_key, install, fraction, frameworks, error}`.
 
 ### 6.6 Release flow
 
@@ -317,8 +328,10 @@ Chromium in this process. No relaunch.
 
 ### 6.7 Risks and what stays open
 
-- Sandbox: the wrapper keeps the in-bundle shape, but a Chromium start from a
-  folder outside the app is checked only by hand on a DEV build so far.
+- Sandbox: a Chromium start from a folder outside the app needs the
+  `cmux_runtime_outside_bundle` CEF patch (6.1). The pin bump to a CEF
+  artifact with the patch belongs to the browser lane; until then the nightly
+  flag stays off.
 - Notarization: the pack is not notarized. It is never quarantined (the app
   downloads it, not a browser), so Gatekeeper does not assess it; its pin is
   inside the notarized app. Notarizing the wrapper zip is a later hardening.
