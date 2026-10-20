@@ -9606,8 +9606,8 @@ describe("Cloud snapshot request ledger (Postgres)", () => {
       returning id
     `;
     const repo = vmRepositoryLiveShape;
-    const begin = (key: string, name: string | null, staleBefore = new Date(0)) =>
-      Effect.runPromise(repo.beginSnapshotRequest!({ vmId: vm.id, idempotencyKey: key, name, staleBefore }));
+    const begin = (key: string, name: string | null, staleBefore = new Date(0), maxSnapshots = 10) =>
+      Effect.runPromise(repo.beginSnapshotRequest!({ vmId: vm.id, idempotencyKey: key, name, staleBefore, maxSnapshots }));
 
     expect(await begin("k1", "nightly")).toEqual({ kind: "started" });
     expect(await begin("k1", "nightly")).toEqual({ kind: "in_progress" });
@@ -9629,5 +9629,56 @@ describe("Cloud snapshot request ledger (Postgres)", () => {
     await sql`delete from cloud_vms where id = ${vm.id}`;
     const [{ count }] = await sql<{ count: string }[]>`select count(*)::text as count from cloud_vm_snapshot_requests`;
     expect(count).toBe("0");
+  });
+
+  dbTest("serializes the last quota slot and releases failed, stale, and deleted reservations", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    await sql`truncate cloud_vm_snapshot_requests, cloud_vm_usage_events, cloud_vms restart identity cascade`;
+    const [vm] = await sql<{ id: string }[]>`
+      insert into cloud_vms (user_id, billing_team_id, billing_plan_id, provider, image_id, status, provider_metadata)
+      values ('user-snapshot-quota', 'team-snapshot-quota', 'pro', 'freestyle', 'image-snapshot-quota', 'running', '{}'::jsonb)
+      returning id
+    `;
+    for (let index = 0; index < 9; index += 1) {
+      await sql`
+        insert into cloud_vm_usage_events (user_id, billing_team_id, billing_plan_id, vm_id, event_type, provider, image_id, metadata)
+        values ('user-snapshot-quota', 'team-snapshot-quota', 'pro', ${vm.id}, 'vm.snapshot.created', 'freestyle', 'image-snapshot-quota', ${sql.json({ snapshotId: `snap-${index}` })})
+      `;
+    }
+    const repo = vmRepositoryLiveShape;
+    const claim = (key: string, staleBefore = new Date(0)) => Effect.runPromise(repo.beginSnapshotRequest!({
+      vmId: vm.id,
+      idempotencyKey: key,
+      name: null,
+      staleBefore,
+      maxSnapshots: 10,
+    }));
+
+    const concurrent = await Promise.all([claim("last-a"), claim("last-b")]);
+    expect(concurrent.map((result) => result.kind).sort()).toEqual(["quota_exceeded", "started"]);
+    const startedKey = concurrent[0]?.kind === "started" ? "last-a" : "last-b";
+    const refusedKey = startedKey === "last-a" ? "last-b" : "last-a";
+
+    await Effect.runPromise(repo.finishSnapshotRequest!({
+      vmId: vm.id,
+      idempotencyKey: startedKey,
+      outcome: { kind: "failed" },
+    }));
+    expect(await claim(refusedKey)).toEqual({ kind: "started" });
+
+    await sql`update cloud_vm_snapshot_requests set updated_at = now() - interval '20 minutes' where vm_id = ${vm.id}`;
+    expect(await claim("after-stale", new Date(Date.now() - 15 * 60 * 1000))).toEqual({ kind: "started" });
+
+    await sql`delete from cloud_vm_snapshot_requests where vm_id = ${vm.id}`;
+    await sql`
+      insert into cloud_vm_usage_events (user_id, billing_team_id, billing_plan_id, vm_id, event_type, provider, image_id, metadata)
+      values ('user-snapshot-quota', 'team-snapshot-quota', 'pro', ${vm.id}, 'vm.snapshot.created', 'freestyle', 'image-snapshot-quota', ${sql.json({ snapshotId: "snap-last" })})
+    `;
+    expect(await claim("full")).toEqual({ kind: "quota_exceeded", limit: 10 });
+    await sql`
+      insert into cloud_vm_usage_events (user_id, billing_team_id, billing_plan_id, vm_id, event_type, provider, image_id, metadata)
+      values ('user-snapshot-quota', 'team-snapshot-quota', 'pro', ${vm.id}, 'vm.snapshot.deleted', 'freestyle', 'image-snapshot-quota', ${sql.json({ snapshotId: "snap-last" })})
+    `;
+    expect(await claim("after-delete")).toEqual({ kind: "started" });
   });
 });
