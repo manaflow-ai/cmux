@@ -4,7 +4,9 @@ import Foundation
 /// The per-key focus rules that stay JSON calls into `cmux-focus-core`
 /// (`focus_type_ahead`, `focus_child_window_key`): one call per queued key or
 /// child-window key change, not per focus event.
-public nonisolated enum FocusReducer {
+public nonisolated struct FocusReducer {
+    public nonisolated init() {}
+
     /// The first output buffer: a reply that does not fit returns ERR_BUFFER
     /// with the needed length, and the call runs once more with that size.
     private static let initialCapacity = 4 * 1024
