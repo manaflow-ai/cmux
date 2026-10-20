@@ -77,6 +77,9 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
     /// Whether the tab's file may be saved (the last config's answer).
     private var writable = false
     var isWritable: Bool { writable }
+    /// The page shows its file read only (the last config said `readOnly`): bare keys are the
+    /// user's bindings there, not typing (`markdownReadOnlyFocused`, K1).
+    private(set) var showsReadOnly = false
     /// Documents this tab has shown (it may reopen them, its own back and forward).
     private var shown: Set<String> = []
     private(set) var isClosed = false
@@ -285,6 +288,9 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
         case .editor:
             config["size"] = JSONValue(file.size)
         }
+        // Set after the awaits above, so overlapping opens leave the flag
+        // matching the config the page applies last.
+        showsReadOnly = file.readOnlyReason != nil
         return merged(.object(config), host?.look() ?? .object([:]))
     }
 

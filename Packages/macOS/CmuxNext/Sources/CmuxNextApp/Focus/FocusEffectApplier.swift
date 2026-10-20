@@ -379,7 +379,8 @@ final class FocusEffectApplier: FocusEffectApplying {
         // The same rule as `KeyRouter.keyContext`: the focused page's id (diff, markdown, code editor).
         switch services.keyRouter.focusedPage(in: controller)?.descriptor.id {
         case KeyRouter.diffPageID?: next.insert(.diffViewerFocused)
-        case KeyRouter.markdownPageID?: next.insert(.markdownFocused)
+        case KeyRouter.markdownPageID?:
+            next.formUnion(.markdown(readOnly: services.viewers.markdownPages.showsReadOnly(focusedIn: controller)))
         case KeyRouter.codeEditorPageID?: next.insert(.codeEditorFocused)
         default: break
         }

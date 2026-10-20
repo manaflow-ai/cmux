@@ -12,7 +12,7 @@ extension KeyRouter {
     typealias Facts = KeyFacts
 
     /// The markdown page's id (`PageDescriptor.markdown`), for the
-    /// `markdownFocused` bit.
+    /// `markdownFocused` bit (with `markdownReadOnlyFocused` or `markdownEditorFocused`).
     nonisolated static let markdownPageID = "cmux.markdown"
     /// The diff viewer page: `diffViewerFocused`, which owns bare keys.
     nonisolated static let diffPageID = "cmux.diff"
@@ -34,7 +34,7 @@ extension KeyRouter {
         if implied.browser { bits.insert(.browserFocused) }
         if implied.agent { bits.insert(.agentPaneFocused) }
         if case .addressBar = focus.resolved { bits.insert(.omnibarFocused) }
-        if facts.pageID == Self.markdownPageID { bits.insert(.markdownFocused) }
+        if facts.pageID == Self.markdownPageID { bits.formUnion(.markdown(readOnly: facts.markdownReadOnly)) }
         if facts.pageID == Self.diffPageID { bits.insert(.diffViewerFocused) }
         if facts.pageID == Self.codeEditorPageID { bits.insert(.codeEditorFocused) }
         var context = KeyContext(bits: bits)
@@ -103,6 +103,7 @@ extension KeyRouter {
         let editor = page?.descriptor.id == Self.codeEditorPageID ? page : nil
         return Facts(hasMarkedText: (window.firstResponder as? any NSTextInputClient)?.hasMarkedText() == true,
                      terminalCopyMode: terminalCopyMode(in: controller), pageID: page?.descriptor.id,
+                     markdownReadOnly: services?.viewers.markdownPages.showsReadOnly(focusedIn: controller) == true,
                      listFocus: focusedReadiness(in: controller)?.isListFocused == true,
                      pageEditableFocused: focusedReadiness(in: controller)?.isEditableFocused == true,
                      omnibarListOpen: focusedAddressBar(in: controller)?.isShowingSuggestions == true,

@@ -7,7 +7,9 @@
 /// completes; else the key completes the entry that wins for the whole
 /// sequence; else nothing. The Cmd-J leader arms as a first key whenever
 /// any entry sits under it, even one that cannot run in this context, so
-/// its overlay can say what it offers. A key has several readings
+/// its overlay can say what it offers. A bare first key (no Command,
+/// Control or Option: `g g`) arms only where the context owns bare keys
+/// (``KeyContext/ownsBareKeys``, K1). A key has several readings
 /// (`ActionRegistry.shortcuts(for:)`: its characters, then the unshifted
 /// key); the first reading that extends wins, then the first that completes.
 extension KeyBindingTable {
@@ -23,8 +25,13 @@ extension KeyBindingTable {
     /// for a first key).
     public func step(after keys: [Shortcut], readings: [Shortcut], in context: KeyContext,
                      isRunnable: (ActionID) -> Bool) -> SequenceStep {
+        // A bare sequence goes on only while the context still owns bare
+        // keys: focus that moved into a text field mid-sequence types the key.
+        if let first = keys.first, BareKeys.isBare(first), !context.ownsBareKeys { return .none }
         if keys.count + 1 < Self.maxSequenceLength,
-           let longer = readings.first(where: { continues(keys + [$0], in: context, isRunnable: isRunnable) }) {
+           let longer = readings.first(where: {
+               (!keys.isEmpty || !BareKeys.isBare($0) || context.ownsBareKeys) && continues(keys + [$0], in: context, isRunnable: isRunnable)
+           }) {
             return .extend(longer)
         }
         if keys.isEmpty, readings.contains(LeaderLayer.prefix), !entries(after: [LeaderLayer.prefix]).isEmpty {

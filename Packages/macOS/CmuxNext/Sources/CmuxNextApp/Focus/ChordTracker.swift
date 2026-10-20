@@ -3,8 +3,9 @@ import CmuxNextActions
 import CmuxNextFocus
 
 /// Chords of up to four keys (`["ctrl+b", "c"]` in cmux.json, longer
-/// sequences in keybindings.json) for the key router: the first key arms a
-/// chord in its window, each key that leads to a longer entry keeps it
+/// sequences in keybindings.json) for the key router: the first key (a
+/// Command or Control chord, or a bare key in a page that owns bare keys:
+/// `g g`, K1) arms a chord in its window, each key that leads to a longer entry keeps it
 /// armed, and the key that completes an entry runs it. As in the old app
 /// there is no timeout, and a key in another window ends it. When a key
 /// both completes an entry and leads to a longer one, the longer one wins
@@ -111,7 +112,10 @@ struct ChordTracker {
                 }
             }
         }
-        guard KeyRouter.isChord(event.modifierFlags), let key = first(event), canArm() else { return .pass }
+        // A bare first key reaches here only from a page that owns bare keys, and the table arms
+        // it only there (`KeyBindingTable.step`); an Option key never starts a chord.
+        guard KeyRouter.isChord(event.modifierFlags) || KeyRouter.isBareKey(event.modifierFlags), let key = first(event), canArm()
+        else { return .pass }
         self.pending = ([key], window, focus)
         return .armed
     }

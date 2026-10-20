@@ -92,6 +92,14 @@ final class FilePageService: InternalPageProvider {
 
     func provider(_ key: String) -> FilePageProvider? { tabs[key]?.provider }
 
+    /// `controller`'s focused pane shows one of this page's tabs, read only (the config its
+    /// provider last served said so): `markdownReadOnlyFocused` (K1).
+    func showsReadOnly(focusedIn controller: WindowController) -> Bool {
+        guard case .page = controller.focus.state.resolved, let pane = controller.focus.state.resolved.pane,
+              case .page(let view)? = controller.content?.paneController(key: pane)?.currentContent else { return false }
+        return tabs[view.key]?.provider?.showsReadOnly == true
+    }
+
     /// Whether the tab showing `page` waits for the second key of a key sequence
     /// (``FilePageProvider/keySequencePending``).
     func keySequencePending(on page: PageWebView) -> Bool {

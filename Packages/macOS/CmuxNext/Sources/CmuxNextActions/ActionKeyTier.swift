@@ -48,6 +48,7 @@ public nonisolated enum ActionKeyTier: Int, Comparable, CaseIterable, Sendable {
     static let contentContexts: ActionContext = [
         .terminalFocused, .browserFocused, .simulatorFocused, .diffViewerFocused, .filePreviewFocused, .codeEditorFocused,
         .markdownFocused, .rightSidebarFocused, .fileExplorerFocused, .textBoxFocused, .paletteOpen, .agentPaneFocused,
+        .markdownReadOnlyFocused, .markdownEditorFocused,
     ]
 
     /// The catalog default for `descriptor`.
