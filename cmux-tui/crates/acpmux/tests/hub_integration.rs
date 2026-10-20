@@ -47,6 +47,8 @@ mod status_indicator;
 mod steer_only;
 #[path = "hub_integration/stop.rs"]
 mod stop;
+#[path = "hub_integration/surfaces.rs"]
+mod surfaces;
 #[path = "hub_integration/tags_rules.rs"]
 mod tags_rules;
 #[path = "hub_integration/xai_requests.rs"]
