@@ -45,6 +45,8 @@ beforeAll(async () => {
     prototype.getClientRects = rects;
     prototype.getBoundingClientRect = box;
   }
+  // jsdom lays nothing out: a press hits no element (ProseMirror's own mousedown asks).
+  (dom.window.document as unknown as { elementFromPoint: () => null }).elementFromPoint = () => null;
   ({ MarkdownEditor } = await import("../src/pages/markdown/editor"));
 });
 
