@@ -1,5 +1,5 @@
 import AppKit
-import CmuxNextAccounts
+public import CmuxNextAccounts
 import CmuxNextCloud
 import CmuxNextCodeRouter
 import CmuxNextDaemon
@@ -162,7 +162,7 @@ final class AccountsService: AccountsServices {
 }
 
 /// Settings > Accounts drives the same Cloud sign-in as every other entry point.
-extension CloudAuth: @retroactive CmuxAccountSource {}
+extension CloudAuth: CmuxAccountSource {}
 
 /// Fixture mode: no Keychain item exists.
 private struct NoKeychain: KeychainProbing {
