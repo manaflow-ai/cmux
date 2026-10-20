@@ -261,9 +261,11 @@ public final class TerminalHostView: NSView {
             }
         }
         // Framed hidden too: the bar shows itself when find opens.
+        // The shared find pill sits where every pane's does (FindPillMetrics.inset from top and trailing).
+        let findInset = FindPillMetrics.inset
         for case let bar as TerminalFindBarView in subviews {
-            _ = place(bar, maxWidth: bounds.width - inset * 2, evenHidden: true) { size in
-                CGPoint(x: self.bounds.width - inset - size.width, y: self.bounds.height - inset - size.height)
+            _ = place(bar, maxWidth: bounds.width - findInset * 2, evenHidden: true) { size in
+                CGPoint(x: self.bounds.width - findInset - size.width, y: self.bounds.height - findInset - size.height)
             }
         }
     }
@@ -316,8 +318,7 @@ public final class TerminalHostView: NSView {
     /// (translucent, glass, or over art) the window root paints the one
     /// sheet and the host stays clear, as the panes around it do, unless the
     /// terminal's theme differs from theirs: its background then lies over
-    /// the glass at the window's tint, which over art keeps its own text
-    /// legible (`WindowBackdrop.legibleTintOpacity`). The user's terminal
+    /// the glass at the window's tint (`WindowBackdrop.tintOpacity`). The user's terminal
     /// background (`appearance.surfaces.terminal`) replaces all of these;
     /// the surfaces then draw a transparent default background.
     fileprivate func paintBackground() {

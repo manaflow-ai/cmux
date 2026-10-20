@@ -179,8 +179,11 @@ key=$(cd "$TMP/src" && bash scripts/cmux-next/pin-cmux-tui.sh key)
   echo "fixture: the merge has the head's tree key" >&2; exit 1; }
 set_runs "$none"
 unset CMUX_TUI_TREE_DISPATCH
+# A fork PR: main's merge-tree publisher never starts, so path routing looks once (wait 0).
+export CMUX_TUI_TREE_PUBLISHER_WAIT_SECONDS=0
 expect "pull request, changed hash, dispatch off (fork)" pull_request failed "no cmux-tui artifacts run"
 [[ "$(posts dispatches)" == 0 ]] || fail "(b) a fork PR (no CMUX_TUI_TREE_DISPATCH) must not dispatch"
+unset CMUX_TUI_TREE_PUBLISHER_WAIT_SECONDS
 export CMUX_TUI_TREE_DISPATCH=1
 expect "pull request, changed hash" pull_request deferred
 [[ "$(posts dispatches)" == 1 && "$(posts git/refs)" == 1 ]] || fail "(b) a changed hash needs one pin ref and one dispatch: $(cat "$TMP/posts.log")"
@@ -225,6 +228,30 @@ probe pull_request
 (( took < 15 )) || fail "(d) the wait must be bounded"
 unset REFUSE_WRITES CMUX_TUI_TREE_DISPATCH CMUX_TUI_TREE_PUBLISHER_WAIT_SECONDS CMUX_TUI_TREE_PUBLISHER_POLL_SECONDS
 
+# (e) Path routing is read-only since e93faa5f1fb0 (CMUX_TUI_TREE_DISPATCH is
+# empty), so a same-repository PR with its own merge tree never reaches the
+# dispatch path. Main's cmux-next-pr-merge-tree.yml has already pinned the merge
+# commit and its cmux-tui artifacts run is active: the probe must look for that
+# run (reads only) and defer, not fail with "no cmux-tui artifacts run can
+# publish tree" (PR #22580, run 39491343806, 2026-10-20).
+: > "$TMP/posts.log"
+set_runs "$active"
+expect "pull request, own merge tree, read-only probe, main's publisher active" pull_request deferred "active cmux-tui artifacts run"
+[[ ! -s "$TMP/posts.log" ]] || fail "(e) the read-only probe must not write: $(cat "$TMP/posts.log")"
+# The publisher appears during the bounded wait.
+set_runs "$none"
+export CMUX_TUI_TREE_PUBLISHER_WAIT_SECONDS=8 CMUX_TUI_TREE_PUBLISHER_POLL_SECONDS=1
+fake_clock_at 2 "printf '%s\\n' '$active' > '$runs_dir/runs'"
+probe pull_request
+[[ "$status" == 0 && "$state" == deferred ]] || fail "(e) a publish started from main during the wait must be deferred to"
+# Nothing starts: the bounded wait ends and the check still fails, without writing.
+set_runs "$none"
+probe pull_request
+[[ "$state" == failed ]] || fail "(e) with no publisher the read-only probe must still fail"
+(( took < 15 )) || fail "(e) the wait must be bounded"
+[[ ! -s "$TMP/posts.log" ]] || fail "(e) the read-only probe must not write: $(cat "$TMP/posts.log")"
+unset CMUX_TUI_TREE_PUBLISHER_WAIT_SECONDS CMUX_TUI_TREE_PUBLISHER_POLL_SECONDS
+
 
 # (d) A pull request that changes no cmux-tui or ghostty-next path is not
 # blocked by a merge tree nothing publishes (#16614, #17551, #18605): the base
@@ -265,8 +292,12 @@ expect "pull request, no cmux-tui change, nothing published" pull_request skippe
 mv "$TMP/unpublished" "$TMP/cdn/cmux-tui/tree/$published_key"
 unset CMUX_TUI_TREE_BASE_FALLBACK
 
-# A scheduled DEV snapshot remains buildable after the source branch moves.
-# The CLI must start one publisher for its exact tree, then reuse that run.
+# A scheduled DEV snapshot owns its exact SHA after the source branch moves.
+# Since e93faa5f1fb0 path routing is read-only (CMUX_TUI_TREE_DISPATCH=""), so
+# the probe never writes a pin ref or a dispatch. Current behavior: a cold tree
+# reads failed, and ready once published. Failed is not the intended result
+# while a trusted publisher for the exact SHA is running; the probe skips that
+# read-only lookup too. Follow-up: ci-green/dev-tree-readonly-lookup.
 sha=$(git -C "$TMP/src" rev-parse HEAD)
 set_head "$newer"
 set_runs "$none"
@@ -291,11 +322,14 @@ PYENV
 }
 export CMUX_TUI_DEV_DAILY=1
 eval "$(dev_probe_environment tree)"
-expect "scheduled dev, cold exact tree" workflow_dispatch deferred
-[[ "$(posts dispatches)" == 1 && "$(posts git/refs)" == 1 ]] || fail "dev snapshot needs exactly one publisher"
-grep -q "cmux-tui-pin-${sha:0:12}.*$sha" "$TMP/posts.log" || fail "dev publisher must pin the snapshot SHA"
+expect "scheduled dev, cold exact tree" workflow_dispatch failed "no cmux-tui artifacts run can publish tree $key"
+[[ ! -s "$TMP/posts.log" ]] || fail "dev snapshot probe must not write (pin ref or dispatch): $(cat "$TMP/posts.log")"
 eval "$(dev_probe_environment tree-final)"
-expect "scheduled dev, second probe" workflow_dispatch deferred
-[[ "$(posts dispatches)" == 1 ]] || fail "dev second probe dispatched a duplicate"
+expect "scheduled dev, second probe" workflow_dispatch failed "no cmux-tui artifacts run can publish tree $key"
+[[ ! -s "$TMP/posts.log" ]] || fail "dev second probe must not write: $(cat "$TMP/posts.log")"
+mkdir -p "$TMP/cdn/cmux-tui/tree/$key"
+printf '%064d  cmux-tui-aarch64-apple-darwin\n' 0 > "$TMP/cdn/cmux-tui/tree/$key/cmux-tui-aarch64-apple-darwin.sha256"
+expect "scheduled dev, published by a trusted publisher" workflow_dispatch ready
+[[ ! -s "$TMP/posts.log" ]] || fail "dev published probe must not write: $(cat "$TMP/posts.log")"
 
 printf 'pin-cmux-tui probe tests: ok\n'

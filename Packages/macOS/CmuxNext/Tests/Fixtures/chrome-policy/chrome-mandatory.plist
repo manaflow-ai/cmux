@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- The com.google.Chrome payload of a typical company Chrome profile (Jamf, Kandji, Intune "Preference file").
+     Top-level keys are mandatory, as the managed domain's forced values are. -->
+<plist version="1.0">
+<dict>
+	<key>DefaultSearchProviderEnabled</key>
+	<true/>
+	<key>DefaultSearchProviderName</key>
+	<string>Example Corp Search</string>
+	<key>DefaultSearchProviderSearchURL</key>
+	<string>https://search.example.com/search?q={searchTerms}</string>
+	<key>DefaultSearchProviderSuggestURL</key>
+	<string>https://search.example.com/suggest?q={searchTerms}</string>
+	<key>NewTabPageLocation</key>
+	<string>https://intranet.example.com/start</string>
+	<key>PasswordManagerEnabled</key>
+	<false/>
+	<key>URLBlocklist</key>
+	<array>
+		<string>facebook.com</string>
+		<string>example.org/private</string>
+		<string>file://*</string>
+	</array>
+	<key>URLAllowlist</key>
+	<array>
+		<string>example.org/private/handbook</string>
+	</array>
+	<key>ExtensionInstallForcelist</key>
+	<array>
+		<string>aeblfdkhhhdcdjpifhhbdiojplfjncoa;https://clients2.google.com/service/update2/crx</string>
+		<string>ppnbnpeolgkicgegkbkbjmhlideopiji</string>
+	</array>
+	<key>AuthServerAllowlist</key>
+	<string>*.example.com</string>
+	<key>ProxyMode</key>
+	<string>system</string>
+</dict>
+</plist>

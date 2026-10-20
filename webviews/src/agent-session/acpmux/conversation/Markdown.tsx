@@ -26,6 +26,7 @@ import "../../../markdown-task-checkbox.css";
 import { TaskCheckbox } from "../../../ui/TaskCheckbox";
 import { githubReferences } from "../../../githubReferences";
 import { acpmuxPerf } from "../perf";
+import { entranceAllowed } from "../../shared/pageReveal";
 
 export type Align = "left" | "center" | "right" | null;
 
@@ -272,6 +273,9 @@ export type FootnoteNumbers = { numbers: Map<string, number>; anchor: (id: strin
 /// changes as the reply streams (a note's definition usually arrives last). Code is skipped, and
 /// so is a label shaped like a regex class (`[^a-z]`), which prose writes outside code too.
 export function footnoteOrder(source: string): string[] {
+  // A reference needs "[" and "^"; the scan below only deletes text, so without both there is none.
+  // A streaming reply runs this on every reveal frame, and most replies have no footnote.
+  if (!source.includes("^") || !source.includes("[")) return [];
   const prose = source.replace(/^\s*```[\s\S]*?(?:^\s*```|(?![\s\S]))/gm, "").replace(/(`+)[^`]*?\1/g, "");
   const ids: string[] = [];
   for (const match of prose.matchAll(/\[\^([\w-]+)\](?!:)/g)) {
@@ -769,6 +773,8 @@ export function Markdown({
   // Blocks there at the first render (history, a row scrolled into view) never animate.
   const atMount = useRef<Set<string> | null>(null);
   atMount.current ??= new Set(blocks.map((entry) => entry.key));
+  // Blocks first drawn while entrances wait (the page hidden or just shown again).
+  const awayBlocks = useRef(new Set<string>());
   // Notes are numbered by first reference; the key keeps `opts` (and every memoized block) the
   // same object until a new reference arrives.
   // The reveal clock can re-render a streaming reply while its source is unchanged. Keep the
@@ -796,10 +802,16 @@ export function Markdown({
     streaming && fresh
       ? { steps: fresh, text: freshChars ? children.slice(children.length - freshChars) : "", now }
       : undefined;
-  // An odd number of fence lines: the last block is a fence still arriving.
-  const openFence = streaming && (children.match(/^\s*```/gm)?.length ?? 0) % 2 === 1;
+  // An odd number of fence lines: the last block is a fence still arriving. The parser counts
+  // only the text it has not closed yet, so a reveal frame does not scan the whole reply.
+  const openFence = streaming && parser.current.fenceOpen;
+  // A block that streamed in while the chat was hidden, or that lands before its first frame back,
+  // came while the user was away: it never enters (WebKit would play its suspended entrance on
+  // return, shared/pageReveal.ts). It still hands its code over like any live block.
+  const away = streaming && !entranceAllowed();
   const draw = (entry: KeyedBlock, index: number) => {
     const live = !atMount.current!.has(entry.key);
+    if (live && away) awayBlocks.current.add(entry.key);
     const open = openFence && index === blocks.length - 1;
     if (open) streamedFences.current.add(entry.key);
     return (
@@ -808,7 +820,7 @@ export function Markdown({
         block={entry.block}
         opts={opts}
         depth={0}
-        enter={streaming && live}
+        enter={streaming && live && !awayBlocks.current.has(entry.key)}
         code={open ? "open" : plainCode ? "plain" : live || streamedFences.current.has(entry.key) ? "handoff" : "final"}
         tail={index === blocks.length - 1 ? freshTail : undefined}
       />

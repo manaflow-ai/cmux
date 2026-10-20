@@ -71,7 +71,10 @@ fn turn(reply: String) -> (Vec<Part>, Harness) {
     (sent_reply(&mut h), h)
 }
 
-fn attachment(part: &Part) -> Option<(String, String, u64, Option<u32>, Option<u32>)> {
+/// An attachment part's (name, type, bytes, width, height).
+type Sent = (String, String, u64, Option<u32>, Option<u32>);
+
+fn attachment(part: &Part) -> Option<Sent> {
     match part {
         Part::Attachment {
             name,
@@ -98,7 +101,9 @@ fn a_markdown_image_of_a_local_picture_or_video_goes_as_an_attachment() {
     let picture = png(40, 30);
     std::fs::write(&shot, &picture).unwrap();
     let clip = dir.path().join("demo clip.mp4");
-    std::fs::write(&clip, b"\0\0\0\x18ftypmp42 not a real video").unwrap();
+    let clip_bytes: &[u8] = b"\0\0\0\x18ftypmp42 not a real video";
+    std::fs::write(&clip, clip_bytes).unwrap();
+    let clip_len = clip_bytes.len() as u64;
     let reply = format!(
         "Here is the screenshot:\n![shot]({})\nand the video ![clip](<{}>)",
         shot.display(),
@@ -124,7 +129,7 @@ fn a_markdown_image_of_a_local_picture_or_video_goes_as_an_attachment() {
             (
                 "demo clip.mp4".to_owned(),
                 "video/mp4".to_owned(),
-                30,
+                clip_len,
                 None,
                 None
             ),
