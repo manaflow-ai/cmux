@@ -54,13 +54,18 @@ final class ChiefPetBubblePanel: NSPanel {
         return expanded ? shown * pillHeight + (shown - 1) * spacing : pillHeight + (shown - 1) * deckStep
     }
 
-    /// Centered over `pet`, `gap` above it; below it when the screen's top is too close.
+    /// Toward the quadrant of the screen with room (Leo 2026-10-20): on the right half the frame's
+    /// trailing edge lines up with the pet's and it extends left, on the left half its leading
+    /// edge does and it extends right; on the lower half it sits `gap` above the pet, on the upper
+    /// half `gap` below it. Then kept fully on screen. The reply box takes the same place.
     static func frame(height: CGFloat, over pet: CGRect, in visible: CGRect, width: CGFloat = ChiefPetBubblePanel.width,
                       gap: CGFloat = ChiefPetBubblePanel.gap) -> CGRect {
-        var frame = CGRect(x: pet.midX - width / 2, y: pet.maxY + gap, width: width, height: height)
-        if frame.maxY > visible.maxY { frame.origin.y = pet.minY - gap - height }
-        frame.origin = ChiefPetPlacement.clamped(frame.origin, size: frame.size, in: visible)
-        return frame
+        let towardLeft = pet.midX > visible.midX
+        let below = pet.midY > visible.midY
+        let x = towardLeft ? pet.maxX - width : pet.minX
+        let y = below ? pet.minY - gap - height : pet.maxY + gap
+        let size = CGSize(width: width, height: height)
+        return CGRect(origin: ChiefPetPlacement.clamped(CGPoint(x: x, y: y), size: size, in: visible), size: size)
     }
 }
 
