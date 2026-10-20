@@ -351,6 +351,42 @@ body {
   max-width: 100%;
 }
 
+.md-image-node {
+  display: inline;
+}
+
+.md-remote-image-placeholder {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  border: 1px solid var(--cmux-md-border-color);
+  border-radius: var(--cmux-md-code-radius);
+  background: var(--cmux-md-code-background);
+  color: var(--cmux-md-muted-color);
+  font-size: var(--cmux-md-toolbar-font-size);
+  vertical-align: middle;
+  user-select: none;
+}
+
+.md-remote-image-placeholder > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.md-remote-image-placeholder .md-button {
+  flex: 0 0 auto;
+  color: var(--cmux-md-text-color);
+  font: inherit;
+}
+
+.md-remote-image-placeholder .md-button:disabled {
+  color: var(--cmux-md-faint-color);
+}
+
 /* Wide tables (MARKDOWN-TABLE-SCROLL, user 2026-10-19). The editor draws every table inside a
    `.tableWrapper` (prosemirror-tables TableView) and gives the table an inline `min-width` of
    100px a column. That wrapper is the table's horizontal scroller: the table keeps its natural
@@ -464,11 +500,12 @@ body {
   position: relative;
 }
 
+/* tables.ts sets the handle's left and width to the boundary's hit zone (5px either side, clipped
+   to the table's box) and --md-col-line to the boundary's offset in it: the line, the col-resize
+   cursor and the press always cover the same pixels. */
 .md-prose .md-col-resize {
   position: absolute;
   z-index: var(--layer-raised);
-  width: 9px;
-  margin-left: -5px;
   cursor: col-resize;
   user-select: none;
 }
@@ -482,7 +519,7 @@ body {
   position: absolute;
   top: 0;
   bottom: 0;
-  left: 3px;
+  left: clamp(0px, calc(var(--md-col-line, 5px) - 1.5px), calc(100% - 3px));
   width: 3px;
   border-radius: 2px;
   background: var(--cmux-md-link-color);
@@ -1308,4 +1345,76 @@ body {
 .md-prose .md-callout-folded > :not(:first-child),
 .md-prose .md-callout-folded .md-callout-body {
   display: none;
+}
+
+/* Viewer comments (comments.ts, viewer-comments-DESIGN.md): a marker in the left margin just before
+   the block that holds the comment's first line; it opens the comment's card under it. The marker
+   takes no height, so the text never moves when comments come and go. */
+.cmux-comment-marker {
+  position: relative;
+  height: 0;
+  user-select: none;
+}
+
+.cmux-comment-button {
+  position: absolute;
+  top: 0.35em;
+  left: -28px;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 9px 9px 9px 3px;
+  background: var(--cmux-accent);
+  opacity: 0.85;
+  cursor: pointer;
+}
+
+.cmux-comment-button:hover,
+.cmux-comment-button[aria-expanded="true"] {
+  opacity: 1;
+}
+
+.cmux-comment-card {
+  position: absolute;
+  z-index: var(--layer-dropdown);
+  top: 1.6em;
+  left: -28px;
+  width: min(360px, 80vw);
+  padding: 10px 12px;
+  border: 1px solid var(--cmux-md-border-color);
+  border-radius: 10px;
+  background: var(--page-elevated);
+  color: var(--cmux-md-text-color);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  box-shadow: 0 6px 20px rgb(0 0 0 / 0.18);
+}
+
+.cmux-comment-card blockquote {
+  margin: 0 0 6px;
+  padding-left: 8px;
+  border-left: 2px solid var(--cmux-md-border-color);
+  color: var(--cmux-md-muted-color);
+  white-space: pre-wrap;
+  max-height: 6.5em;
+  overflow: hidden;
+}
+
+.cmux-comment-card p {
+  margin: 0 0 8px;
+  white-space: pre-wrap;
+}
+
+.cmux-comment-delete {
+  border: 0;
+  padding: 0;
+  background: none;
+  color: var(--cmux-md-muted-color);
+  font: inherit;
+  cursor: pointer;
+}
+
+.cmux-comment-delete:hover {
+  color: var(--cmux-md-text-color);
 }

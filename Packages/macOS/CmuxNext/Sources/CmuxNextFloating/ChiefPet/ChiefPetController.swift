@@ -144,7 +144,7 @@ public final class ChiefPetController {
         panel.addChildWindow(bubble, ordered: .above)
         bubble.orderFrontRegardless()
         if bubble.alphaValue == 0 {
-            Motion.animateTimed(.fadeIn, in: bubble.contentView) { bubble.animator().alphaValue = 1 }
+            Motion.home.animateTimed(.fadeIn, in: bubble.contentView) { bubble.animator().alphaValue = 1 }
         }
     }
 

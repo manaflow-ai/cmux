@@ -37,6 +37,10 @@ wire_literal! {
 }
 
 wire_literal! {
+    LitConfirmed = "confirmed"
+}
+
+wire_literal! {
     LitContinue = "continue"
 }
 
@@ -102,6 +106,10 @@ wire_literal! {
 
 wire_literal! {
     LitPresence = "presence"
+}
+
+wire_literal! {
+    LitReserved = "reserved"
 }
 
 wire_literal! {

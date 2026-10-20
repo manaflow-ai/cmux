@@ -1,25 +1,40 @@
 import AppKit
 import CmuxNextPages
 
-/// A page tab's content: the provider's view filling the pane. The pane
-/// focuses `focusTarget` when the tab gets the keyboard; a click inside the
-/// page moves the responder within it as usual.
+/// A page tab's content: the provider's view filling the pane, under the
+/// provider's optional native bar (``InternalPageProvider/makeTopBar(for:)``,
+/// the Markdown omnibar). `content` is always the provider's view, so code
+/// that looks for the page (`content as? PageWebView`) finds it with or without
+/// a bar. The pane focuses `focusTarget` when the tab gets the keyboard; a
+/// click inside the page moves the responder within it as usual.
 final class InternalPageView: NSView {
     let key: String
     let page: InternalPageID
     let content: NSView
+    /// The native bar above the content; it sets its own height.
+    let topBar: NSView?
 
-    init(key: String, page: InternalPageID, content: NSView) {
+    init(key: String, page: InternalPageID, content: NSView, topBar: NSView? = nil) {
         self.key = key
         self.page = page
         self.content = content
+        self.topBar = topBar
         super.init(frame: .zero)
         content.translatesAutoresizingMaskIntoConstraints = false
         addSubview(content)
+        if let topBar {
+            topBar.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(topBar)
+            NSLayoutConstraint.activate([
+                topBar.leadingAnchor.constraint(equalTo: leadingAnchor),
+                topBar.trailingAnchor.constraint(equalTo: trailingAnchor),
+                topBar.topAnchor.constraint(equalTo: topAnchor),
+            ])
+        }
         NSLayoutConstraint.activate([
             content.leadingAnchor.constraint(equalTo: leadingAnchor),
             content.trailingAnchor.constraint(equalTo: trailingAnchor),
-            content.topAnchor.constraint(equalTo: topAnchor),
+            content.topAnchor.constraint(equalTo: topBar?.bottomAnchor ?? topAnchor),
             content.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
         setAccessibilityIdentifier("cmux.page.\(page.rawValue)")
@@ -33,7 +48,7 @@ final class InternalPageView: NSView {
     /// web content itself, so typing reaches the page without a click first.
     var focusTarget: NSView {
         if let input = (content as? any PrimaryInputTarget)?.primaryInputView { return input }
-        return (content as? PageWebView)?.webKitView ?? content
+        return (content as? PageWebView)?.focusView ?? content
     }
 
     override var acceptsFirstResponder: Bool { false }

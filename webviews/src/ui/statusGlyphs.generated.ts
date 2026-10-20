@@ -24,11 +24,10 @@ export const STATUS_GLYPHS = {
   },
   waiting: {
     set: "static",
-    for: "waiting on you (a question, or blocked with no reason): an empty speech bubble",
+    for: "waiting on you (a question, or no reason): the attention dot, no talk bubble",
     tint: "var(--cmux-app-warning, #b26b00)",
-    master:
-      "M5 2L15 2A4 4 0 0 1 19 6L19 11A4 4 0 0 1 15 15L10 15L4 19L5 15A4 4 0 0 1 1 11L1 6A4 4 0 0 1 5 2ZM5 4L15 4A2 2 0 0 1 17 6L17 11A2 2 0 0 1 15 13L5 13A2 2 0 0 1 3 11L3 6A2 2 0 0 1 5 4Z",
-    x1: "M2 1h6v1h-6ZM1 2h1v5h-1ZM8 2h1v5h-1ZM2 7h6v1h-6ZM2 8h2v1h-2ZM2 9h1v1h-1Z",
+    master: "M4 10A6 6 0 1 0 16 10A6 6 0 1 0 4 10Z",
+    x1: "M3 2h4v1h-4ZM2 3h6v4h-6ZM3 7h4v1h-4Z",
   },
   permission: {
     set: "static",
@@ -82,7 +81,7 @@ export type StatusGlyphName = keyof typeof STATUS_GLYPHS;
 export const STATUS_GLYPH_SETS = {
   codex: {
     working: { glyph: "idle", tint: "color-mix(in srgb, var(--cmux-app-text, CanvasText) 66%, transparent)" },
-    waiting: { glyph: "waiting", tint: "var(--cmux-app-text-secondary, GrayText)" },
+    waiting: { glyph: "dot", tint: "var(--cmux-app-warning, #b26b00)" },
     permission: { glyph: "shieldLine", tint: "var(--cmux-app-text-secondary, GrayText)" },
     done: { glyph: "dot", tint: `var(--cmux-status-unread, ${STATUS_UNREAD})` },
     error: { glyph: "info", tint: "var(--cmux-app-danger, #c42b1c)" },

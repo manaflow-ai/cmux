@@ -1,95 +1,155 @@
 # Risk tiers for feat-cmux-next pull requests
 
-Each pull request into `feat-cmux-next` is labeled `risk:low`, `risk:medium` or `risk:high`
-from the paths it changes. The label decides what evidence the description needs before merge.
-`.github/workflows/risk-tier.yml` sets the label and runs the `risk evidence` check, and
-Nothing merges while that check is red on the exact head: `next-autoland` into `feat-cmux-next` and `gh-merge-green` into `main` both refuse it.
+Each pull request into `feat-cmux-next` is labeled `risk:low`, `risk:normal` or `risk:high` from
+what it changes. Only high waits for a person. Low and normal merge on agent review and the checks
+relevant to the change, with no extra waiting: the `risk evidence` check passes as soon as it has
+graded them, in about a minute, alongside the rest of CI.
 
-Why: in the two weeks to 2026-10-18, 2,049 pull requests merged into `feat-cmux-next`. 932 of them
-had a failing check on their merged head that wasn't a review bot or a report-only lane. Until
-#22303, pull requests into `feat-cmux-next` didn't run `cmux-next swift test` unless they were
-labeled `full-ci`, so a new Swift test usually compiled and never ran before merge. A
-same-repository pull request now runs the Swift targets its change reaches, but a green run
-still says little about runtime behavior outside them. The tiers ask for proof where a
-regression would hurt.
+`.github/workflows/risk-tier.yml` sets the label and runs the `risk evidence` check. The
+classifier is `scripts/ci/risk_tier.py`, and its tests are in `tests/test_risk_tier.py`.
+Nothing merges while that check is red on the exact head: `next-autoland` (`scripts/ci/next_batch.py`)
+into `feat-cmux-next` and `gh-merge-green` both refuse it.
 
 ## Tiers
 
-The classifier is `scripts/ci/risk_tier.py`. A pull request takes the highest tier of any file it
-changes. A file it can't place is medium, so a new directory is never graded low by accident.
+A pull request takes the highest tier of any file it changes. A file no rule names is normal.
 
-| Tier | When | Evidence before merge |
+| Tier | What | Before merge |
 | --- | --- | --- |
-| low | only docs, `*.md`, tests, skills, plans, `scripts/` tooling, and `.github/` files other than workflows and actions | green CI on the exact head |
-| medium | app UI (`Packages/`, `webviews/`, `App/`, `ios/`, `web/`), SDK bindings, workflows that don't route checks, anything unclassified, and a runtime change of 40 lines or fewer | plus a screenshot or clip under `## Proof` (next to the matching [cmux-design-references](https://github.com/manaflow-ai/cmux-design-references) entry when one exists), or `Not UI: <why>` |
-| high | any of the four below | plus an independent review and a runtime test that executed the change |
+| low | docs, plans, skills, copy (`*.xcstrings`, `*.strings`), logs (even inside a high directory), generated output, tests and fixtures, agent and tooling config (`.claude/`, `tools/`, prototypes) | green relevant checks. Post-merge checks catch the rest. |
+| normal | everything else: cmux NEXT UI and logic, webviews, the daemon and cmux-tui, web routes, CI workflows and scripts, pins and lockfiles (even inside a high directory), defaults behind a setting | agent review and the relevant checks, then auto-merge or the batch queue. No person. |
+| high | the six kinds below | a person looks first: an approving review on the head commit by a collaborator other than the author, or `risk:human-ok` added by a maintainer |
 
-High comes from four places:
+High is kept small on purpose. Each kind is here because a regression in it can't be undone by
+reverting the commit, or because it takes out the safety net every other tier relies on:
 
-- **Always, at any size.** One line here can break shipping or every other merge:
-  - signing, release, publish, deploy, nightly, promote and rollback scripts and workflows (in any `scripts/` directory), `scripts/ci/lib/`, update and entitlements
-  - migrations, `schemas/defaults/` (the defaults every user gets), the `cmux-tui/spec/` JSON (its Markdown is docs), `plans/cmux-next/daemon-capabilities.json`
-  - vendored pins and `Package.resolved`, `ghostty.h`, `homebrew-cmux`, `.xcode-version`
-  - the merge gates and check routing: `CODEOWNERS`, `gh-merge-green`, this classifier, `cmux-next.yml`, `ci.yml`, `ci-guards.yml`, `ci-macos.yml`, `cmux-tui.yml`, `merge-*.yml`, `cmux_next_route.py`, and the helpers `gh-merge-green` calls (`merge_freeze.py`, `main_fix_evidence.py`, `vercel_merge_gate.py`), `merge-main.sh` and the god-file check. One line in `cmux-next.yml` stopped feat-cmux-next PRs from running `swift test`.
-- **A runtime change over 40 lines.** That's 40 changed lines outside tests and generated files, summed across `cmux-tui/` (daemon, acpmux), `backend/`, `schemas/`, `daemon/`, `server/`, `services/`, `workers/`, and the NEXT targets `Daemon*`, `Control`, `Server*`, `Remote*`, `Mobile`, `Bridge`, `Accounts`, `AppPermissions`, `History`, `Cloud`, `BrowserImport`, `BrowserAutomation`, `BrowserHost`, `ComputerUse`, `CrashReporting`, `CLIInstall`, the terminal input path, and the OptChat agent backend (`Native/OptChat/`, except its inspector UI). A smaller change there is medium, because a reviewer can read it whole.
-- **Taking back a change another pull request merged in the last 7 days.** That means deleting most of what it added, and putting back most of what it replaced. The check names the pull request. One stale-base squash (50a0c607aee, #21194) undid #21199, #21234, #21369, #21384 and #21446 this way, and graded only medium by path. If it's on purpose, say so in the description; the review covers it.
-- **A medium change over 1,000 lines** outside tests and generated files.
+| High kind | Paths or change | Why (audit evidence) |
+| --- | --- | --- |
+| auth and credentials | `CmuxAuthRuntime`, `CMUXAuthCore`, `WebAuth/`, keychain and token stores, `web/services/auth/`, `web/proxy.ts`, any `auth`, `oauth`, `sign-in` or `login` path word, `*.entitlements` | #12121 sent signed-in production users into a sign-in loop. A leaked token stays leaked after a revert. |
+| socket and relay access policy | `ControlAuthorizer`, `ControlPeer*`, `CheckedAccess`, the socket path, peer inspectors, relay crates, `services/iroh-relay-minter`, `web/services/relay`, any `relay-policy` or `socket-access` file | Who may drive the app or forward through a relay. #20644 (P1) broke local agent chats against this policy. The app has no relay policy yet, so every relay path must stay default-deny. |
+| stored-data migrations | `migrations/`, `*/migrations/*`, `drizzle/`, `migrate/`, `*Migrat*` sources, `web/convex/schema*`, `backend/db/schema*` | #16397 deployed code before its migration was applied: every Cloud VM create failed for about 7 hours. A bad migration loses data on every machine that runs it. |
+| release, signing, notarization and the updater | `nightly*.yml`, any script or workflow named for sign, notarize, appcast, sparkle, release, publish, deploy, nightly, promote or rollback, `scripts/ci/lib/`, `CmuxNextUpdater` | Two release breaks in the window (#18817, 19f51d5ef2). A broken updater stops fixes from reaching anyone, so it breaks the nightly safety net that normal relies on. |
+| the risk gate itself | `risk-tier.yml`, `risk-tier-tests.yml`, `risk_tier.py`, `CODEOWNERS`, and what refuses a red `risk evidence`: `scripts/gh-merge-green`, and `scripts/ci/next_batch.py` with `cmux-next-batch.yml` (next-autoland) | It grades every other pull request. A normal change to an enforcer could drop the refusal with no person looking. |
+| new data deletion, new privileged trigger | a product-code line that adds a delete of files or rows (`removeItem(at:`, `remove_dir_all`, Rust `fs::remove_file`/`fs::remove_dir`, `rmtree`, `DELETE FROM`, `DROP TABLE`, `trashItem`, `deleteAll…`, Drizzle `db.delete(`/`tx.delete(`) that the pull request doesn't also remove from product code (an edited or moved delete isn't new, so retargeting an existing delete is normal: agent review catches that; a cleanup line moved out of a test into product code is new); a workflow line that adds `pull_request_target` or `workflow_run` | Deleted user data doesn't come back with a revert. 16c570b576 put a cargo cache on `pull_request_target`, a cache-poisoning path. Tests, CI scripts (`scripts/`, `*/scripts/`), generated bindings, comments and in-memory purges don't count. |
 
-## What the description needs
+### Taking back a recent change
 
-Medium, under `## Proof` (or `## Screenshots`, `## Demo`, `## Video`, `## Recording`): an embedded image or video, an uploaded attachment, or a link to an
-image or video file. A link to a CI run isn't proof. When nothing user-visible changes, write
-`Not UI: <why>` in a sentence instead.
+Separately from the tier, a pull request that takes back what another pull request merged in the
+last 7 days is held. It deletes most of what that pull request added, and puts back most of what
+it replaced. This is how a stale-base squash silently undoes other work: one (50a0c607aee, #21194)
+undid #21199, #21369 and #21384. The check names the pull request. To clear it, merge the base
+and push. If it's on purpose, add a line `Takes back #N: <why>` to the description. An agent
+clears this; no person is needed.
 
-High, anywhere in the description, as their own lines:
+### What is deliberately not high
 
-```
-Review: SHIP at 1a2b3c4d5e6f (cmux-review subagent; correctness first)
-Runtime test: AgentQueueTests/aFailedTurnHoldsTheQueue() in https://github.com/manaflow-ai/cmux/actions/runs/123
-```
+- **Size.** There is no line-count rule. In the audit, the changes that broke things were as
+  often small as large: the unclosed CSS rule (#19473) was one line, and the P1 (#20644) was 48
+  lines. A size rule mostly made large, safe UI work wait.
+- **CI workflows** (`cmux-next.yml`, `ci.yml`), apart from the gate's enforcers above. They broke
+  CI often (18 of the 142 fixes), but a bad line is one revert away and hurts no user. The cost
+  of making them wait on a person was higher than the cost of the reds.
+- **Pins and the package graph** (`ghostty`, `vendor/`, `Package.resolved`). Three stale pins
+  broke the build (#16319, #15747, #11163). The compile checks catch that, and the fix is a
+  one-line pin move. The takeback check above catches the stale-squash cause.
+- **Defaults** (`schemas/defaults/`). A default ships with its setting, so undo is the setting
+  (#21686).
+- **The daemon, protocol and terminal paths.** These had real regressions (a render deadlock
+  from #8698, and an app option older cmux-tui builds refused), but none lost data, and every fix
+  was a forward fix in the next nightly. They need agent review and the relevant tests, not a
+  person.
 
-- `Review:` names a commit on this pull request that an independent reviewer read
-  ([cmux-review](../../skills/cmux-review/SKILL.md)). The author's own agent doesn't count.
-  A `Review:` commit older than the head says the later commits went unreviewed; re-review
-  anything beyond a merge of the base.
-- `Runtime test:` names the test, and the run URL where it executed this change, or the commit of
-  this pull request that a tagged build or a Testbox ran. A same-repository pull request's own
-  `cmux-next` run executes the tiers its paths reach (`cmux-next swift test` among them); for
-  every tier, `gh workflow run cmux-next.yml --ref <branch>` runs them all on that branch. A
-  fork pull request runs its Mac tiers only with `full-ci`. A `cargo test` run on a Testbox, or a tagged build you drove
-  with `scripts/cmux-debug-cli.sh`, works too: give the command and the SHA it ran on.
+## The audit behind this (2026-08-20 to 2026-10-18)
 
-The check re-runs when the description is edited, so adding the lines turns it green.
+We read every fix commit on `main` and `feat-cmux-next` in the window that names the commit it
+fixes (573 scanned, 142 with a firm culprit), and every revert (83).
 
-Until 2026-10-24 00:00 UTC (`ENFORCE_FROM` in `risk-tier.yml`) the check is advisory: a missing
-item is a warning and the check passes, so pull requests already in flight have time to add their
-evidence. After that it blocks merge. A verdict from the advisory window doesn't count after the
-cutover: `gh-merge-green` reads `ENFORCE_FROM` from the base and refuses a `risk evidence` check
-whose job started before it, or one that never ran. Edit the description (or push) to re-grade.
+| Bucket | Count | What it was |
+| --- | --- | --- |
+| base red from a pull request | 56 | a merged pull request turned a check red on the base: lint, guards, tests that never ran before merge |
+| base red from a direct push | 30 | all on `feat-cmux-next`, all pushed without a pull request |
+| real regression | 28 | a user-visible break (the list below) |
+| other | 11 | design or ownership rollbacks |
+| unfinished | 9 | half-done work reverted by its own author |
+| stale-base squash | 8 | a squash that silently undid other merged work |
+
+Of the 28 real regressions, by severity:
+
+- **Production auth or data: 3.** The sign-in loop (#12121), the unapplied migration (#16397),
+  and `/api/vm` throwing on rows from a retired provider (#11566). The first two are high now.
+  The third was a read path in `web/services`, fixed forward in a day; it stays normal.
+- **Release breaks: 2** (#18817, 19f51d5ef2). High now.
+- **Security: 1, latent.** The `pull_request_target` cache (16c570b576). High now as a change kind.
+- **P1 functional: 1** (#20644, agent chats). The caller changed, not the policy, so no path rule
+  sees it. It stays normal; its regression test is the guard.
+- **Crashes and hangs: 3** (a drag-end crash, a Cmd+Y crash, a render deadlock). Each was
+  UI or logic code, fixed forward within a day. Normal.
+- **Functional UI and logic: 18.** Normal. Every one was fixed forward or reverted the same or
+  next day, and none lost data.
+
+So most real regressions are normal-tier UI and logic, and asking a person to look at every one
+of those would have stopped all merging. The tiers put a person only where a revert doesn't undo
+the damage.
+
+The biggest bucket is base reds (86 of 142), and tiers don't fix those. They come from checks
+that don't run before merge (`feat-cmux-next` pull requests skip `cmux-next swift test` unless
+labeled `full-ci`) and from direct pushes. On 2026-10-18, three direct pushes to `feat-cmux-next`
+(the sidebar card transition at c5a1f900ec, the error journal at 1597dc9c14, browser popups at
+fa8b3fcdda) broke lint and concurrency guards and kept every pull request into the branch red
+for about 1.5 to 2 hours. The fix for that is running the relevant checks before merge and not
+pushing directly, not a person's review.
+
+### Replay over feat-cmux-next
+
+Graded with both classifiers, the 1,035 pull requests merged into `feat-cmux-next` from
+2026-09-28 to 2026-10-20 (first-parent, up to d080fa059e):
+
+| | low | medium / normal | high |
+| --- | --- | --- | --- |
+| previous rules (paths, 40- and 1,000-line thresholds) | 133 | 598 | 304 (29%) |
+| these rules | 90 | 866 | 79 (7.6%) |
+
+Why the 79 are high (a pull request can have more than one reason): 30 add a delete of files or
+stored rows (stores and caches in the daemon, CmuxNext and acpmux that remove files), 20 touch
+release, signing or the updater, 10 auth, 9 socket or relay policy, 7 the gate or its enforcers
+(`gh-merge-green`, `next_batch.py`), 4 a privileged workflow trigger, 4 migrations. 242 that the
+previous rules made high are normal now, mostly runtime changes over 40 lines and CI routing. 42
+that were low are normal now: CI scripts and lockfiles, which aren't docs or tests.
+
+## Changing a designation
+
+A wrong tier is a bug in `scripts/ci/risk_tier.py`. To change one:
+
+1. Edit the rule in `RULES` (ordered; the first match wins) or the change-kind regexes
+   (`DELETES`, `PRIVILEGED_TRIGGER`), with a one-line comment saying why.
+2. Add or update a case in `tests/test_risk_tier.py`, ideally a real pull request's files in
+   `test_audit_sample_of_real_pull_requests`.
+3. Update the tables above with the evidence.
+
+The pull request is high (it changes the gate), so a person looks before it lands.
+
+## Rollout
+
+Until 2026-10-24 00:00 UTC (`ENFORCE_FROM` in `risk-tier.yml`) a held pull request only gets a
+warning, and the check passes. After that, a held pull request blocks merge. A verdict from the
+advisory window doesn't count after the cutover: `gh-merge-green` reads `ENFORCE_FROM` from the
+base and refuses a `risk evidence` check whose job started before it, or one that never ran. Edit
+the description or push to re-grade.
+
+After approving a high pull request, re-run its `risk evidence` check, or edit the description, so
+it re-grades. Adding `risk:human-ok` re-grades on its own.
 
 ## Ship risky behavior dark
 
 A high-tier change that a user would notice lands behind a setting or Debug toggle that defaults
-off, unless it fixes a regression. Flip the default in its own small pull request after a
-nightly-next has carried it. That flip is high tier too (`schemas/defaults/`), so it needs its
-own evidence.
-
-## Canary and revert
-
-nightly-next is the canary. The agent that merged a high-tier pull request checks the first
-nightly-next that contains it. When a high-tier change breaks nightly-next and the fix isn't
-ready before the next nightly-next is cut, revert it:
+off, unless it fixes a regression. nightly-next is the canary. When a change breaks nightly-next
+and the fix isn't ready before the next cut, revert it:
 
 ```bash
 gh-merge-green --revert manaflow-ai/cmux#<number>
 ```
 
-That opens the revert pull request and lands it through the same checks. Reland with the fix
-and a regression test.
+## Sign-off labels
 
-## Waiving
-
-A maintainer (admin or maintain role; the check reads who added the label) can add `risk:waived` to accept a pull request without its tier's evidence, for
-example a base-red repair that has to land now. Agents never add it. A wrong tier is a bug in
-`scripts/ci/risk_tier.py`: fix the rule and its test in `tests/test_risk_tier.py`, instead of
-waiving.
+`risk:human-ok` (and the older `risk:waived`) count only when a maintainer (admin or maintain
+role) added them; the check reads who did. Agents never add either.

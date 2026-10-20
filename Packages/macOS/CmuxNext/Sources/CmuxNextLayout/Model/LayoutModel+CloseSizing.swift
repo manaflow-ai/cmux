@@ -71,7 +71,7 @@ struct CloseSizing {
     }
 
     /// The axis of `pane`'s parent split and the sibling subtree that takes its place.
-    private static func parent(of pane: PaneID, in node: SplitNode) -> (SplitAxis, SplitNode)? {
+    static func parent(of pane: PaneID, in node: SplitNode) -> (SplitAxis, SplitNode)? {
         guard case let .split(_, axis, _, a, b) = node else { return nil }
         if a == .leaf(pane) { return (axis, b) }
         if b == .leaf(pane) { return (axis, a) }
