@@ -148,7 +148,8 @@ impl Brain {
         let message = self.message_of_line("react", view_id)?;
         let name = tapback_name(tapback);
         let key = format!("react-{}-{}-{name}", message.conversation, message.seq);
-        if self.state.outbox.iter().any(|e| e.idempotency_key == key)
+        if self.reacted.contains(&key)
+            || self.state.outbox.iter().any(|e| e.idempotency_key == key)
             || message.reactions.iter().any(|r| {
                 r.author == self.settings.membership.participant
                     && r.kind == ReactionKind::Tapback(tapback)
@@ -158,6 +159,7 @@ impl Brain {
                 "outcome: noop. message {view_id} already has your {name}"
             ));
         }
+        self.reacted.insert(key.clone());
         self.state.outbox.push(op_entry(
             message.conversation.clone(),
             key,

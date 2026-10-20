@@ -581,6 +581,9 @@ pub struct Brain {
     /// restart an unknown message counts as not the newest.
     message_seqs: HashMap<String, u64>,
     newest_seq: u64,
+    /// The keys of the reactions this host posted (`react` dedupe, besides
+    /// the message's own reactions).
+    reacted: std::collections::HashSet<String>,
     /// Fetches link previews for replies' URL lines (None: replies stay text).
     previewer: Option<Arc<dyn crate::link_preview::Fetcher>>,
 }
@@ -678,6 +681,7 @@ impl Brain {
             reply_threads: HashMap::new(),
             message_seqs: HashMap::new(),
             newest_seq: 0,
+            reacted: std::collections::HashSet::new(),
             previewer: None,
         };
         // Each cut turn runs again first, on the reference client's note;
