@@ -319,7 +319,7 @@ final class CloudService {
         return session
     }
 
-    private func dropAllMachines() {
+    func dropAllMachines() {
         for creation in creations.all { creations.remove(creation) }
         for session in machines.cloud { machines.remove(session.machineID)?.disconnect() }
         hasLoadedMachines = false
