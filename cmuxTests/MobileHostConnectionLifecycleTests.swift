@@ -852,6 +852,10 @@ extension MobileHostAuthorizationTests {
             MobileHostService.caffeineControlCapability,
             "terminal.render_grid.v1",
             "notification.feed.v1",
+            // Cloud referral ids on both mobile sync payloads: iOS
+            // feature-detects `cloud_vm_id`/`cloud_workspace_id`/
+            // `cloud_terminal_id` support through this entry.
+            "cloud.surface.referral.v1",
         ]))
     }
     @Test func testWorkspaceChangesCapabilityFollowsFeatureFlag() {

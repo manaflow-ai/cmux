@@ -284,6 +284,12 @@ extension MobileHostService {
             // workspace.group.collapse/expand from mobile. iOS feature-detects
             // this to render collapsible groups only against a Mac that emits them.
             "workspace.groups.v1",
+            // Workspace rows carry `cloud_vm_id`/`cloud_workspace_id` and
+            // terminal rows `cloud_vm_id`/`cloud_terminal_id` when they are
+            // backed by a Cloud machine (both mobile sync payloads), so a
+            // paired phone can recognize Cloud-VM surfaces and connect to the
+            // Cloud machine directly instead of streaming through this Mac.
+            "cloud.surface.referral.v1",
         ]
         if !includingWorkspaceChanges {
             capabilities.removeAll { $0 == Self.workspaceChangesCapability }
