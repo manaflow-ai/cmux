@@ -19,8 +19,8 @@ extension ChatController {
         // the press; back when the menu closes).
         // The drawn balloon with its frame's corners (MessagesLab 2281879 RowDraw.balloon).
         // MessagesLab 267d218: a 1-line text ends in half circles; 7924f00: my text balloon's soft edge (soft-copies).
-        let hl = MenuHighlight(host: host, body: hit.outline, cornersOf: hit.body.size, outgoing: hit.row.outgoing, tail: hit.row.tail,
-                               circularEnds: RowDraw.circularEnds(hit.row), soft: demo?.softMask(hit),
+        let hl = MenuHighlight(host: host, shape: BubblePath.balloon(drawn: hit.outline, frameSize: hit.body.size, row: hit.row).cgPath,
+                               outgoing: hit.row.outgoing, soft: demo?.softMask(hit),
                                scale: demo?.renderScale ?? Fixture.renderScale, softOwner: demo?.softMaskOwner(hit))
         menu.delegate = hl
         menuHighlight = hl
@@ -139,8 +139,7 @@ extension ChatController {
     /// the menu highlight's shape. No bitmap copy of the row: a copy over the dim took its orientation
     /// from the flips of the views above it and drew upside down in a cmux-next pane (Lawrence 2026-10-20).
     func pickerHole(for hit: MessagesWindowView.Hit) -> CGPath {
-        BubblePath.make(body: hit.outline, outgoing: hit.row.outgoing, tail: hit.row.tail, cornersOf: hit.body.size,
-                        circularEnds: RowDraw.circularEnds(hit.row)).cgPath
+        BubblePath.balloon(drawn: hit.outline, frameSize: hit.body.size, row: hit.row).cgPath
     }
 
     /// The emoji button: a glass circle 34 pt under the strip (center 95 pt in, 12 pt
@@ -191,7 +190,8 @@ final class MenuHighlight: NSObject, NSMenuDelegate {
     /// MessagesLab 7924f00 (cx-3cb soft-copies): `soft`, my text balloon's soft mask in the host's coordinates
     /// (MessagesWindowView.softMask): the highlight has the balloon's soft edge, not the crisp shape over it.
     /// `scale`: the view's renderScale.
-    init(host: NSView, body: CGRect, cornersOf frame: CGSize? = nil, outgoing: Bool, tail: Bool, circularEnds: Bool = false,
+    /// `shape`: the bubble's shared outline (`BubblePath.balloon`) in the host's coordinates.
+    init(host: NSView, shape: CGPath, outgoing: Bool,
          soft: SoftBalloon.Mask? = nil, scale: CGFloat = Fixture.renderScale, softOwner: CALayer? = nil) {
         self.host = host
         self.softOwner = softOwner
@@ -209,7 +209,7 @@ final class MenuHighlight: NSObject, NSMenuDelegate {
             layer = l
         } else {
             let l = CAShapeLayer()
-            l.path = BubblePath.make(body: body, outgoing: outgoing, tail: tail, cornersOf: frame, circularEnds: circularEnds).cgPath
+            l.path = shape
             l.fillColor = tint
             layer = l
         }
