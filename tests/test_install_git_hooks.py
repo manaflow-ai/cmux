@@ -227,7 +227,7 @@ class InstallGitHooksTests(unittest.TestCase):
         """Only the tools the hook needs on PATH, plus a recording rustfmt."""
         bin_dir = self.root / ("bin-rustfmt" if with_rustfmt else "bin-plain")
         bin_dir.mkdir(exist_ok=True)
-        for tool in ("git", "bash", "sh", "sed", "awk", "grep", "cut", "sort", "head", "cat", "env", "dirname", "basename", "mktemp", "rm"):
+        for tool in ("git", "bash", "sh", "sed", "awk", "grep", "cut", "sort", "head", "cat", "env", "dirname", "basename", "mktemp", "rm", "mkdir", "rmdir", "find"):
             found = shutil.which(tool)
             if found and not (bin_dir / tool).exists():
                 (bin_dir / tool).symlink_to(found)
@@ -384,6 +384,36 @@ done
                 self.assertEqual(args.split()[-1], "src/app.ts")
                 staged = self.git("show", f":{package}/src/app.ts").stdout
                 self.assertEqual(staged, "formatted\n", "the formatted file is restaged")
+
+    def test_pre_commit_takes_over_an_install_lock_whose_holder_died(self):
+        # A hook killed mid-install leaves its lock; this worktree has no vp yet.
+        self.assertEqual(self.install().returncode, 0)
+        vp_log = self.root / "vp.log"
+        web = self.repo / "webviews"
+        self.stage_web_file("webviews")
+        (web / "node_modules/.bin/vp").unlink()
+        (web / "bun.lock").write_text("{}\n")
+        env = self.formatter_env(with_rustfmt=False, FAKE_VP_LOG=str(vp_log))
+        bun = Path(env["PATH"]) / "bun"
+        bun.write_text(f"""#!/bin/sh
+cat > node_modules/.bin/vp <<'VP'
+{self.FAKE_VP}VP
+chmod +x node_modules/.bin/vp
+""")
+        bun.chmod(0o755)
+        dead = subprocess.Popen(["true"])
+        dead.wait()
+        lock = Path(self.git("rev-parse", "--absolute-git-dir").stdout.strip()) / "cmux-format-install-webviews.lock"
+        lock.mkdir()
+        (lock / "pid").write_text(f"{dead.pid}\n")
+        try:
+            result = self.run_pre_commit(env)
+        finally:
+            bun.unlink()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("another agent is installing", result.stderr)
+        self.assertEqual(self.git("show", ":webviews/src/app.ts").stdout, "formatted\n", result.stderr)
+        self.assertFalse(lock.exists(), "the hook releases the lock it took over")
 
     def test_skip_variable_commits_without_formatting(self):
         self.assertEqual(self.install().returncode, 0)
@@ -774,6 +804,10 @@ done
             "scripts/ci/validate_test_execution_registry.py",
             "scripts/ci/test_execution_registry.py",
             "scripts/ci/workload_entrypoints.py",
+            "scripts/git-hooks/pre-push",
+            "scripts/web_lint_prepush.py",
+            "scripts/lint_swift_namespaces.py",
+            "scripts/swift_source_mask.py",
         ):
             path = self.repo / relative
             reviewed = path.read_bytes()

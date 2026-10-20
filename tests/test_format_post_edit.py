@@ -236,12 +236,56 @@ class FormatPostEditTests(unittest.TestCase):
         self.assertEqual(len(installs), 1, stderr)
         self.assertIn("install --frozen-lockfile --ignore-scripts", installs[0])
 
+    def test_a_lock_left_by_a_killed_install_does_not_block_later_installs(self):
+        # A hook killed mid-install (the agent's hook timeout) leaves its lock behind.
+        self.webviews(installed=("0.9.0", "0.60.0"))
+        self.tool(self.bin / "bun", FAKE_BUN)
+        dead = subprocess.Popen(["true"])
+        dead.wait()
+        lock = self.repo / ".git/cmux-format-install-webviews.lock"
+        lock.mkdir()
+        (lock / "pid").write_text(f"{dead.pid}\n")
+        path = self.edit("webviews/src/stale.ts")
+        returncode, stdout, stderr = self.run_hook("claude", path)
+        self.assert_hook_ok("claude", returncode, stdout)
+        installs = self.bun_log.read_text().splitlines() if self.bun_log.exists() else []
+        self.assertEqual(len(installs), 1, stderr)
+        self.assertFalse(lock.exists(), "the hook releases the lock it took over")
+
+    def test_a_live_install_lock_is_respected(self):
+        self.webviews(installed=("0.9.0", "0.60.0"))
+        self.tool(self.bin / "bun", FAKE_BUN)
+        lock = self.repo / ".git/cmux-format-install-webviews.lock"
+        lock.mkdir()
+        (lock / "pid").write_text(f"{os.getpid()}\n")
+        path = self.edit("webviews/src/stale.ts")
+        returncode, stdout, stderr = self.run_hook("claude", path)
+        self.assert_hook_ok("claude", returncode, stdout)
+        self.assertFalse(self.bun_log.exists(), stderr)
+        self.assertIn("another agent is installing", stderr)
+        self.assertTrue(lock.exists())
+
     def test_current_webviews_packages_are_not_reinstalled(self):
         self.webviews()
         self.tool(self.bin / "bun", FAKE_BUN)
         path = self.edit("webviews/src/current.ts")
         self.run_hook("claude", path)
         self.assertFalse(self.bun_log.exists())
+
+    def test_rust_output_never_lands_in_the_checkout(self):
+        # A hook killed mid-rustfmt would leave its output file for a sibling's `git add -A`.
+        package = self.repo / "probe"
+        (package / "src").mkdir(parents=True)
+        (package / "Cargo.toml").write_text('[package]\nname = "probe"\nedition = "2021"\n')
+        listing = self.root / "listing.log"
+        self.tool(self.bin / "rustfmt", f"""#!/bin/sh
+ls -a "{package / 'src'}" > "{listing}"
+cat
+""")
+        path = self.edit("probe/src/main.rs", "fn main() {}\n")
+        returncode, stdout, stderr = self.run_hook("claude", path)
+        self.assert_hook_ok("claude", returncode, stdout)
+        self.assertEqual(listing.read_text().split(), [".", "..", "main.rs"], stderr)
 
     def test_rust_uses_the_toolchain_its_package_pins(self):
         package = self.repo / "cmux-tui"
