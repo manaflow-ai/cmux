@@ -259,13 +259,15 @@ nonisolated enum SidebarSectionActionCatalog: ActionCatalogGroup {
                 // Not in the palette: "Density: Compact" (appearance.density.compact) is the one
                 // palette row for "compact" (Lawrence 2026-10-20: two rows, and Enter did nothing).
                 surfaces: [.keyboard, .contextMenu],
-                surfacePlan: plan(cli: .exempt(.guiOnly), menus: [p(.sidebarBackground, .view, 132, folder: .options, label: ObjectMenuLabels.densityCompact)])
+                surfacePlan: plan(cli: .exempt(.guiOnly), menus: [p(.sidebarBackground, .view, 132, folder: .options, label: ObjectMenuLabels.densityCompact)],
+                                  palette: .exempt(.familyMember))
             ),
             ActionDescriptor(
                 id: "sidebar.density.comfortable", title: t("action.sidebar.density.comfortable", "Sidebar Density: Comfortable"),
                 keywords: ["sidebar", "density", "comfortable", "rows", "one line", "taller", "spacious", "medium", "roomy"],
                 category: .sidebar, symbol: "list.bullet", surfaces: [.keyboard, .contextMenu],
-                surfacePlan: plan(cli: .exempt(.guiOnly), menus: [p(.sidebarBackground, .view, 133, folder: .options, label: ObjectMenuLabels.densityComfortable)])
+                surfacePlan: plan(cli: .exempt(.guiOnly), menus: [p(.sidebarBackground, .view, 133, folder: .options, label: ObjectMenuLabels.densityComfortable)],
+                                  palette: .exempt(.familyMember))
             ),
             ActionDescriptor(
                 id: "sidebar.density.expanded", title: t("action.sidebar.density.expanded", "Sidebar Density: Expanded"),
@@ -365,8 +367,8 @@ nonisolated enum SidebarSectionActionCatalog: ActionCatalogGroup {
     }
 
     private static func plan(cli: SurfaceDecision = .offered, menus: [ContextMenuPlacement] = [],
-                             exemption: SurfaceExemption? = nil) -> ActionSurfacePlan {
-        ActionSurfacePlan(cli: cli, contextMenus: menus, contextMenuExemption: menus.isEmpty ? exemption : nil)
+                             exemption: SurfaceExemption? = nil, palette: SurfaceDecision = .offered) -> ActionSurfacePlan {
+        ActionSurfacePlan(palette: palette, cli: cli, contextMenus: menus, contextMenuExemption: menus.isEmpty ? exemption : nil)
     }
 
     private static func t(_ key: StaticString, _ english: String.LocalizationValue) -> String {

@@ -166,7 +166,7 @@ nonisolated enum AppearanceSettingsSchema {
             SettingDescriptor(
                 CustomDensitiesSetting().configPath, section: .appearance, group: look,
                 title: SettingsText.keyed("settings.appearance.customDensities", "Custom Densities"),
-                kind: .text, default: nil, keywords: ["density", "custom"]
+                kind: .text, default: .array([]), keywords: ["density", "custom"]
             ).hiddenFromPalette("the Density card edits them: a list of density objects"),
             SettingDescriptor(
                 uiScale.configPath, section: .appearance, group: look,
