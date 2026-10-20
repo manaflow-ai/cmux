@@ -86,7 +86,8 @@ const refinedSheet = readFileSync(new URL("./refined.css", import.meta.url), "ut
 function refined(selector: string, property: string, width: number): string | undefined {
   let value: string | undefined;
   for (const rule of rules(refinedSheet)) {
-    if (!rule.selectors.includes(`:root[data-settings-look="refined"] ${selector}`) || !rule.declarations.has(property)) continue;
+    if (!rule.selectors.includes(`:root[data-settings-look="refined"] ${selector}`) || !rule.declarations.has(property))
+      continue;
     if (rule.media) {
       const max = /max-width:\s*(\d+)px/.exec(rule.media);
       if (!max || width > Number(max[1])) continue;

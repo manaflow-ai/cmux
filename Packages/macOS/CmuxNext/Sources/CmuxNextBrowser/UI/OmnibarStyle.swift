@@ -37,10 +37,14 @@ enum OmnibarStyle {
     /// button's hover shape starts where the tab pills above it start and
     /// its glyph near the tabs' icons (`Metrics.paneChromeInset`).
     static var toolbarInset: CGFloat { Metrics.paneChromeInset }
-    /// Toolbar buttons: square, bar height, 8 pt hover shape.
+    /// Toolbar buttons: square, bar height, circular hover shape.
     static var buttonSize: CGFloat { barHeight }
-    static let buttonCornerRadius: CGFloat = 8
-    static var buttonSymbolSize: CGFloat { 15 }
+    /// Toolbar buttons highlight in a circle on hover and press, as Chrome's toolbar ink drop does.
+    static var buttonCornerRadius: CGFloat { buttonSize / 2 }
+    /// Toolbar button icons draw at Chrome's toolbar icon size (`kToolbarButtonIconSize`, 20 dp).
+    static let toolbarIconSize: CGFloat = 20
+    /// The star and other trailing address-bar icons, Chrome's `kLocationBarTrailingIconSize` (20 dp).
+    static let trailingIconSize: CGFloat = 20
     static let buttonSpacing: CGFloat = 0
     /// Gap between the reload button and the omnibox, and the omnibox and
     /// the extension slot.

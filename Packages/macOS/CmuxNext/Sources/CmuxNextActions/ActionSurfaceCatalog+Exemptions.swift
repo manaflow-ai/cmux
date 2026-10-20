@@ -149,7 +149,6 @@ nonisolated extension ActionSurfaceCatalog {
             "disconnectRemoteTab",
             "toggleTabAudioMute",
             "agentChat.toggleNotificationMute",
-            "palette.openCloudPane",
             "palette.openVaultPane",
             "palette.openFindPane",
             "palette.openFilesPane",
