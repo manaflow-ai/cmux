@@ -46,14 +46,8 @@ impl Fixture {
         value
     }
 
-    /// The JSON error of a `server` command that must fail (the last JSON
-    /// line on stderr).
-    fn server_failure(&self, action: &str, extra: &[&str]) -> Value {
-        let (success, value) = self.run(action, extra);
-        assert!(!success, "server {action} {extra:?} succeeded: {value}");
-        value
-    }
-
+    /// Whether a `server` command succeeded, and its result or JSON error
+    /// (the last JSON line on stdout or stderr).
     fn run(&self, action: &str, extra: &[&str]) -> (bool, Value) {
         let output = Command::new(env!("CARGO_BIN_EXE_cmux-tui"))
             .args(["server", action, "--json", "--session", &self.session, "--socket"])
@@ -192,7 +186,17 @@ fn ensure_reports_an_owner_at_its_connection_limit_as_busy_and_adopts_it_later()
     let mut held = fixture.fill_connections();
 
     // Not `server.unavailable` ("did not become ready"), and no second owner.
-    let busy = fixture.server_failure("ensure", &[]);
+    // A permit of an earlier command's connection may free only after the
+    // fill: then this ensure is served, and the fill tops up and asks again.
+    let busy = (0..3)
+        .find_map(|_| match fixture.run("ensure", &[]) {
+            (false, failure) => Some(failure),
+            (true, _) => {
+                held.extend(fixture.fill_connections());
+                None
+            }
+        })
+        .expect("the full owner served every ensure");
     assert_eq!(busy["code"], "server.busy", "{busy}");
 
     // One client leaves: the same owner serves the next ensure.
@@ -207,9 +211,19 @@ fn replace_unresponsive_replaces_an_owner_at_its_connection_limit() {
     let fixture = Fixture::new("replace-full");
     let first = fixture.server("ensure", &[]);
     let old = pid_of(&first);
-    let _held = fixture.fill_connections();
+    let mut held = fixture.fill_connections();
 
-    let replaced = fixture.server("ensure", &["--replace-unresponsive"]);
+    // As above: a late-freed permit answers the probe, and the owner is kept.
+    let replaced = (0..3)
+        .find_map(|_| {
+            let result = fixture.server("ensure", &["--replace-unresponsive"]);
+            if result["status"] == "running" {
+                held.extend(fixture.fill_connections());
+                return None;
+            }
+            Some(result)
+        })
+        .expect("the full owner answered every replace probe");
     assert_eq!(replaced["status"], "replaced", "{replaced}");
     assert_eq!(replaced["replaced_pid"], old, "{replaced}");
     let new = pid_of(&replaced);

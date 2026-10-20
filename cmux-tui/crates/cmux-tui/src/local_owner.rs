@@ -459,7 +459,9 @@ fn wait_while_starting(
 /// once: the contact bound applies again, and when the spawned process has
 /// exited too (`owner_exited`) ensure fails now instead of waiting. An owner
 /// that refuses connections at its connection limit when the contact bound
-/// passes is reported busy, not as an owner that never came up.
+/// passes is reported busy, not as an owner that never came up. Only the last
+/// answer counts: this runs after a spawn, where `wait_while_starting` has
+/// already seen the socket answer no busy refusal.
 fn wait_until_ready(
     spec: &OwnerSpec,
     expected_session: Option<&str>,
@@ -658,12 +660,16 @@ enum IdentifyError {
     Failed,
 }
 
-/// Whether `line` is the refusal an owner at its connection limit sends
-/// before it closes a connection (`type: "refused"`, cmux-tui-core
-/// `REFUSED_BUSY_LINE`).
+/// Whether `value` is the refusal an owner at its connection limit sends
+/// before it closes a connection (cmux-tui-core `REFUSED_BUSY_LINE`).
+fn is_refusal_value(value: &Value) -> bool {
+    value.get("type").and_then(Value::as_str) == Some("refused")
+        && value.get("code").and_then(Value::as_str) == Some("server.busy")
+}
+
+/// `is_refusal_value` for one received line.
 fn is_refusal(line: &[u8]) -> bool {
-    serde_json::from_slice::<Value>(line)
-        .is_ok_and(|value| value.get("type").and_then(Value::as_str) == Some("refused"))
+    serde_json::from_slice::<Value>(line).is_ok_and(|value| is_refusal_value(&value))
 }
 
 /// After a failed write: whether the owner refused the connection. It sends
@@ -718,7 +724,7 @@ fn identify(stream: Box<dyn transport::Stream>, deadline: Instant) -> Result<Val
         let Ok(response) = serde_json::from_slice::<Value>(&bytes) else {
             return Err(IdentifyError::Failed);
         };
-        if response.get("type").and_then(Value::as_str) == Some("refused") {
+        if is_refusal_value(&response) {
             return Err(IdentifyError::Refused);
         }
         if response.get("event").is_some() || response["id"] != 1 {
