@@ -51,6 +51,6 @@ export const provisionRole = (team: string, user: string, role: string, key: str
   const stub = teamStub(team) as unknown as {
     submit(entity: string, principal: Principal, frame: OpFrame): Promise<{ frames: ReadonlyArray<OwnerFrame> }>
   }
-  return stub.submit(team, principal, { t: "op", op: "team.member.provision", params: { user, role, display_name: "Member" },
+  return stub.submit(team, principal, { t: "op", op: "team.member.provision", params: { user, role, source: "stack", display_name: "Member" },
     idempotency_key: key, origin: "script" })
 }
