@@ -6,9 +6,12 @@ import Testing
 @MainActor
 struct TerminalPasteboardTests {
     @Test func carriageReturnsBecomeNewlinesBeforePaste() throws {
-        let pasteboard = NSPasteboard(name: .init("com.cmuxterm.tests.terminal-pasteboard"))
+        // A uniquely named board: a fixed name is shared with every other test process on the
+        // machine, and one that clears it between our clearContents and setString makes the
+        // write fail.
+        let pasteboard = NSPasteboard.withUniqueName()
+        defer { pasteboard.releaseGlobally() }
         pasteboard.clearContents()
-        defer { pasteboard.clearContents() }
         try #require(pasteboard.setString("first\rsecond\r\nthird", forType: .string))
 
         #expect(TerminalPasteboard.pasteText(from: pasteboard) == "first\nsecond\nthird")
