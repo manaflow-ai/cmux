@@ -327,6 +327,9 @@ def main(argv: list[str] | None = None) -> int:
         strategy = "--merge" if args.merge else "--rebase" if args.rebase else "--squash"
         github.run(["pr", "merge", str(number), "--repo", repo, "--match-head-commit", posted["head"]["sha"], strategy])
         return 0
+    except RateLimited as error:
+        print(f"rate-limited: {error}\nrefusing to merge {args.ref}; rerun after the reset", file=sys.stderr)
+        return 3
     except (Refused, json.JSONDecodeError, KeyError) as error:
         print(f"not green: {error}\nrefusing to merge {args.ref}; wait with: glaeda-gh wait pr {args.ref}", file=sys.stderr)
         return 1
