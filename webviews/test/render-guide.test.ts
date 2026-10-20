@@ -29,13 +29,21 @@ async function chat(workspaceContext = false, fresh = false, origin: string | un
   let hold = false;
   let refuse: boolean | string = false;
   let editOK = true;
+  let removeOK = true;
   let seq = 0;
   const event = (kind: string, promptId: string) =>
     socket.onmessage?.({
       data: JSON.stringify({
         jsonrpc: "2.0",
         method: "_acpmux/event",
-        params: { sessionId: "chat-1", seq: ++seq, at: 1, dir: "mux", kind, msg: { promptId, text: "Queued" } },
+        params: {
+          sessionId: "chat-1",
+          seq: ++seq,
+          at: 1,
+          dir: "mux",
+          kind,
+          msg: { promptId, text: "Queued" },
+        },
       }),
     });
   const reply = (id: number) =>
@@ -80,9 +88,11 @@ async function chat(workspaceContext = false, fresh = false, origin: string | un
                   }
                 : method === "session/new"
                   ? { sessionId: "chat-new" }
-                  : method === "_acpmux/queue_edit"
-                    ? { ok: editOK }
-                    : null;
+                  : method === "_acpmux/queue_remove"
+                    ? { removed: removeOK }
+                    : method === "_acpmux/queue_edit"
+                      ? { ok: editOK }
+                      : null;
         if (id !== undefined)
           queueMicrotask(() =>
             socket.onmessage?.({
@@ -121,6 +131,11 @@ async function chat(workspaceContext = false, fresh = false, origin: string | un
     editOK: (value: boolean) => {
       editOK = value;
     },
+    removeOK: (value: boolean) => {
+      removeOK = value;
+    },
+    removed: (promptId: string) => event("queue_removed", promptId),
+    dequeued: (promptId: string) => event("dequeued", promptId),
     queued: (promptId: string) => event("queued", promptId),
     updated: (promptId: string) => event("queue_updated", promptId),
     finish: () => {
@@ -166,7 +181,12 @@ test("later prompts and a reselected session do not repeat the guide", async () 
   await client.send("Other session");
   await client.select("chat-1");
   await client.send("Back");
-  expect(prompts.map((prompt) => context(prompt)?.includes(TAG) ?? false)).toEqual([true, false, true, false]);
+  expect(prompts.map((prompt) => context(prompt)?.includes(TAG) ?? false)).toEqual([
+    true,
+    false,
+    true,
+    false,
+  ]);
 });
 
 test("workspace context and the guide share the existing hidden channel", async () => {
@@ -208,7 +228,12 @@ test("a changed harness or agent gets the guide again, but learning its initial 
   sessions[0]!.harness = "codex";
   await client.select("chat-1");
   await client.send("New harness");
-  expect(prompts.map((prompt) => context(prompt)?.includes(TAG) ?? false)).toEqual([true, false, true, true]);
+  expect(prompts.map((prompt) => context(prompt)?.includes(TAG) ?? false)).toEqual([
+    true,
+    false,
+    true,
+    true,
+  ]);
 });
 
 test("a prompt in flight reserves the guide until accepted", async () => {
@@ -248,7 +273,11 @@ test("a guide-only origin refusal retries once without context and disables late
   await send;
   await daemon.client.select("chat-2");
   await daemon.client.send("Other chat");
-  expect(daemon.prompts.map((prompt) => context(prompt)?.includes(TAG) ?? false)).toEqual([true, false, false]);
+  expect(daemon.prompts.map((prompt) => context(prompt)?.includes(TAG) ?? false)).toEqual([
+    true,
+    false,
+    false,
+  ]);
   expect(daemon.prompts[1].prompt).toEqual(daemon.prompts[0].prompt);
   expect(daemon.prompts[1]._meta.acpmux.promptId).toBe(daemon.prompts[0]._meta.acpmux.promptId);
 });
@@ -314,7 +343,14 @@ test("the guide advertises kit APIs only while available and keeps its compact c
   expect(context(daemon.prompts[1])).not.toContain("cmux.chart");
   expect(context(daemon.prompts[1])).not.toContain("data-cmux-prompt");
   expect(context(daemon.prompts[1])).toContain("prefill(text)");
-  for (const token of ["--cmux-text", "--cmux-muted", "--cmux-card", "--cmux-border", "--cmux-accent", "--cmux-font"])
+  for (const token of [
+    "--cmux-text",
+    "--cmux-muted",
+    "--cmux-card",
+    "--cmux-border",
+    "--cmux-accent",
+    "--cmux-font",
+  ])
     expect(context(daemon.prompts[1])).toContain(token);
 });
 
@@ -324,4 +360,37 @@ test("both guides teach that declined bridge calls reject", async () => {
     configureLabs({ labs: { renderKit } });
     expect(renderGuide()).toContain("reject when declined");
   }
+});
+
+test.each(["reply", "event"] as const)(
+  "withdrawing a queued guide prompt releases it through the %s path",
+  async (via) => {
+    const daemon = await chat();
+    daemon.hold();
+    const first = daemon.client.send("First", [], "first");
+    daemon.queued("first");
+    if (via === "reply") await daemon.client.removeQueued("first");
+    else daemon.removed("first");
+    const next = daemon.client.send("Next");
+    const nextContext = context(daemon.prompts[1]);
+    daemon.finish();
+    await Promise.all([first, next]);
+    expect(nextContext).toContain(TAG);
+  },
+);
+
+test("a refused removal, another prompt's removal and dequeue keep the delivered guide", async () => {
+  const daemon = await chat();
+  daemon.hold();
+  const first = daemon.client.send("First", [], "first");
+  daemon.queued("first");
+  daemon.removeOK(false);
+  await daemon.client.removeQueued("first");
+  daemon.removed("other");
+  daemon.dequeued("first");
+  const next = daemon.client.send("Next");
+  const nextContext = context(daemon.prompts[1]);
+  daemon.finish();
+  await Promise.all([first, next]);
+  expect(nextContext).toBeUndefined();
 });
