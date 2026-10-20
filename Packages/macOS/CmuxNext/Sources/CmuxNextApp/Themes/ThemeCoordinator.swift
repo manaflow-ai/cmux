@@ -254,7 +254,7 @@ final class ThemeCoordinator {
         if forceSurfaces { for entry in services.cache.terminals.values { entry.themeBinding.syncSurface(force: true) } }
     }
 
-    private func setTheme(of scope: ThemeScope, to text: String?) {
+    func setTheme(of scope: ThemeScope, to text: String?) {
         let resolved = resolver.resolve(text.flatMap(ThemeSpec.init))
         // Re-resolves run on every Ghostty config reload in the process; a
         // theme this coordinator never set is not its to clear.

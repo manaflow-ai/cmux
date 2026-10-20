@@ -2,6 +2,7 @@ import CmuxNextActions
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextSettings
+import CmuxNextBridge
 
 /// Appearance per window, workspace, pane and tab (plans/cmux-next/appearance-scopes-DESIGN.md):
 /// `appearance.set|reset` (every level and property) and the menu rows `pane.setBackground`,
@@ -87,7 +88,7 @@ struct PaneBackgroundHandlers {
             let value = (invocation["value"]?.stringValue ?? "").trimmingCharacters(in: .whitespaces)
             guard property.accepts(value) else { return ctx.refuse(PaneBackgroundStrings.badValue) }
             guard let target = target(level, invocation) else { return }
-            if property == .theme, let forwarded = themeAction(level, set: true) {
+            if property == .theme, let forwarded = Self.themeAction(level, set: true) {
                 _ = ctx.services.registry.perform(forwarded, invocation: forward(invocation, theme: value))
                 return
             }
@@ -97,10 +98,10 @@ struct PaneBackgroundHandlers {
             guard let (level, property) = levelAndProperty(invocation) else { return ctx.refuse(PaneBackgroundStrings.badProperty) }
             guard let target = target(level, invocation) else { return }
             let properties = property.map { [$0] } ?? AppearanceProperty.allCases
-            if properties.contains(.theme), let forwarded = themeAction(level, set: false) {
+            if properties.contains(.theme), let forwarded = Self.themeAction(level, set: false) {
                 _ = ctx.services.registry.perform(forwarded, invocation: forward(invocation, theme: nil))
             }
-            save(reset(target, properties: properties.filter { $0 != .theme || themeAction(level, set: false) == nil }))
+            save(reset(target, properties: properties.filter { $0 != .theme || Self.themeAction(level, set: false) == nil }))
         })
 
     }
