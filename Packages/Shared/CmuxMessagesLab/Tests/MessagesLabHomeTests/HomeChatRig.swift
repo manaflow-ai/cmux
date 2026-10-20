@@ -126,3 +126,14 @@ final class HomeChatRig {
         store.transcript(for: Self.conversation).map(\.plainText).filter { $0.hasPrefix(Self.tag) }
     }
 }
+
+extension HomeStore {
+    /// Shows `draft` as an owner's fresh `conversation-draft` item sends it (its whole text at its
+    /// `lastSeq`), through the store's event path; nil ends the turn's draft (its `done` item).
+    func showDraft(_ draft: HomeTurnDraft?, turn: IdempotencyKey, author: ParticipantID, in conversation: ConversationID) {
+        let update = HomeDraftUpdate(conversation: conversation, participant: author, turn: turn, segment: 0,
+                                     seq: draft?.lastSeq ?? UInt64.max, isTalk: true, text: draft?.text ?? "",
+                                     fresh: true, done: draft == nil)
+        handle(.draft(update))
+    }
+}
