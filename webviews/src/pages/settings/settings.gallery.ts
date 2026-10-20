@@ -714,7 +714,7 @@ Object.assign(variants, {
         },
       },
     ),
-    note: "The active team switcher: one radio per team, the active one checked.",
+    note: "The active team switcher: one row with a pop-up menu of the teams, the active one checked.",
   }),
   "accounts-success": variant("accounts", {
     accounts: accounts({ outcome: { kind: "success", text: "Account connected." } }),
