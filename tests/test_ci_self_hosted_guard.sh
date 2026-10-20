@@ -1101,6 +1101,13 @@ check_no_github_hosted_runners() {
     if [[ "$(basename "$file")" == *nightly*.yml || "$(basename "$file")" == *notarization*.yml ]]; then
       content="$(printf '%s\n' "$content" | sed -E "s/$nightly_hosted//g")"
     fi
+    # test-ios.yml's cmux-next lane (feat-cmux-next pushes and pull requests
+    # into it) never runs on Blacksmith either (user decision 2026-10-20): its
+    # small Linux helper jobs take hosted ubuntu-24.04, its Mac jobs the owned
+    # minis. Only this exact selector is read as allowed.
+    if [[ "$(basename "$file")" == test-ios.yml ]]; then
+      content="${content//"(github.event_name == 'push' || github.base_ref == 'feat-cmux-next') && 'ubuntu-24.04' || "/}"
+    fi
     # Fork-only matrix rows: read only through the fork branch above.
     [[ "$content" =~ (^|[^A-Za-z_])\"?hosted_runner\"?:[[:space:]] ]] && continue
     stripped="$(printf '%s\n' "$content" | sed -E "s/$fork_branch//g; s/$trusted_list//g")"
