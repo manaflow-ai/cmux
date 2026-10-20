@@ -73,6 +73,11 @@ public enum BrowserTabIntent {
     /// `VerificationPageScripts`, saw a one-time-code field or "we sent you a code" text).
     /// The host's `VerificationAutofillCoordinator` may offer that site's code.
     case verificationPageWaiting
+    /// The person chose "Sign in yourself" after cmux refused an agent's
+    /// passkey request (`BrowserPromptKind.agentPasskeyRefused`). The host
+    /// ends the agent's control of the tab and reopens its page, which may
+    /// then use passkeys; an agent's next operation takes the tab back.
+    case endAgentControl
 }
 
 /// Receives intents from a tab.

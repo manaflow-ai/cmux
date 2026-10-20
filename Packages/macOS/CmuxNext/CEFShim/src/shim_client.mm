@@ -53,6 +53,7 @@ class App : public CefApp, public CefBrowserProcessHandler {
     InstallWindowRequestHandler();
     InstallExtensionUIHandlers();
     InstallPasswordPromptHandler();
+    InstallWebAuthnRefusedHandler();
     InstallPageSchemes();
     Emit(CMUX_SHIM_CONTEXT_INITIALIZED, 0);
   }

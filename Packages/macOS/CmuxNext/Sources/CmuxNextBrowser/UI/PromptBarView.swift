@@ -192,6 +192,9 @@ final class PromptBarView: NSView {
             addButton(Strings.verificationNotNow, prominent: false, response: .cancel)
             if offer.link != nil { addButton(Strings.verificationOpenLink, prominent: offer.code == nil, response: .allowOnce) }
             if offer.code != nil { addButton(Strings.verificationFillCode, prominent: true, response: .accept) }
+        case .agentPasskeyRefused:
+            messageLabel.stringValue = Strings.agentPasskeyRefused(prompt.origin)
+            addButton(Strings.agentPasskeySignInYourself, prominent: true, response: .accept)
         }
         if !inputField.isHidden {
             window?.makeFirstResponder(inputField)

@@ -66,6 +66,9 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
     /// prompt is gone (PASSWORD_PROMPT, fork API 20), answered with
     /// `cmux_shim_password_prompt_answer(promptID, …)`.
     case passwordPrompt(browser: Int32, promptID: Int32, json: String)
+    /// The fork refused a WebAuthn request of a tab an agent drives, before
+    /// any system UI (WEBAUTHN_REFUSED, fork API 23).
+    case webAuthnRefused(browser: Int32)
     /// The page did not handle a key down (Windows key code): a plain
     /// Escape, or a letter outside editable fields with `shift`.
     case keyUnhandled(browser: Int32, keyCode: Int, shift: Bool)
@@ -140,6 +143,7 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
         case 41: self = .permissionPrompt(browser: browser, token: request, permissions: a, origin: s1)
         case 42: self = .permissionDismissed(browser: browser, token: request)
         case 43: self = .passwordPrompt(browser: browser, promptID: request, json: s1)
+        case 44: self = .webAuthnRefused(browser: browser)
         default: self = .unknown(kind: kind)
         }
     }

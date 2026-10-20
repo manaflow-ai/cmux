@@ -95,7 +95,7 @@ extension CEFTab {
             rendererTerminated(.cef(status: status, code: code))
         case .renderUnresponsive: machine.apply(.unresponsiveChanged(true))
         case .renderResponsive: machine.apply(.unresponsiveChanged(false))
-        case .permissionPrompt, .permissionDismissed, .passwordPrompt: CEFPermissionPrompts(tab: self).handle(event)
+        case .permissionPrompt, .permissionDismissed, .passwordPrompt, .webAuthnRefused: CEFPermissionPrompts(tab: self).handle(event)
         case .devToolsMessage(_, let json):
             agentRelay.deliver(json)
         default:

@@ -163,7 +163,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
             runtime.shim?.loadURL(browser, url.absoluteString)
         }
         applyPageBackground()
-        applyPasswordFill()
+        applyAgentSwitches()
         leaveAutomaticDownloadsToCmux(browser)
         applyDeviceEmulation()
         agentRelay.browserAttached()

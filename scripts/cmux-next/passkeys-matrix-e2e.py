@@ -120,6 +120,9 @@ def scenario(engine, tab, name, spec):
     unconfirmed = False
     note = ""
     if engine == "cef" and not opts.no_virtual_authenticator:
+        # An agent-driven tab refuses WebAuthn (passkeys.md 3.5); mode virtual lets it reach the
+        # virtual authenticator until WebAuthn.disable below.
+        rpc("debug.cef.webauthn_virtual", {"on": True})
         devtools("WebAuthn.enable", {"enableUI": False})
         added = devtools("WebAuthn.addVirtualAuthenticator",
                          {"options": {"automaticPresenceSimulation": True, **(spec.get("authenticator") or {})}})

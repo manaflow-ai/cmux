@@ -23,6 +23,16 @@ extension AppBrowserPage {
         return stale
     }
 
+    /// The person chose "Sign in yourself" after cmux refused an agent's
+    /// passkey request (plans/cmux-next/passkeys.md 3.5): tab `tabID` leaves
+    /// the agent's control and gets a new page for the same URL, unmarked,
+    /// so passkeys, saved passwords and extensions work in it again. An
+    /// agent's next operation marks and rebuilds it again (`markAgentDriven`).
+    static func endAgentControl(_ tabID: String, services: AppServices) {
+        services.cache.agentMarks.forget(tabID)
+        services.cache.rebuildForAgent(tabID)
+    }
+
     /// Rebuilds a stale page; only `state` (which reads no page content) goes on.
     static func rebuildStale(_ stale: Bool, tabID: String, for operation: BrowserPageOperation, services: AppServices) throws {
         guard stale else { return }
