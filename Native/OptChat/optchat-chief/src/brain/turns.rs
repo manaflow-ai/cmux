@@ -1104,9 +1104,7 @@ impl Brain {
         // before the note but still open).
         let steered_waits = self.queue.iter().any(|q| q.logged);
         let failure_note = match &outcome.error {
-            Some(error)
-                if !(quiet || outcome.orphan.is_some() || steered_waits) =>
-            {
+            Some(error) if !(quiet || outcome.orphan.is_some() || steered_waits) => {
                 Some(failure_note(error))
             }
             _ => None,
