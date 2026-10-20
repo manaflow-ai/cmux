@@ -56,10 +56,10 @@ public class HomeSheetController: NSViewController {
         stack.addArrangedSubview(statusLabel)
         cancelButton.target = self
         cancelButton.action = #selector(cancel(_:))
-        cancelButton.keyEquivalent = "\u{1b}"
+        cancelButton.keyHint = .escape
         primaryButton.target = self
         primaryButton.action = #selector(primary(_:))
-        primaryButton.keyEquivalent = "\r"
+        primaryButton.keyHint = .return
         primaryButton.setAccessibilityIdentifier("cmux.home.sheet.primary")
         buttons.orientation = .horizontal
         buttons.spacing = Metrics.space3
@@ -95,7 +95,7 @@ public class HomeSheetController: NSViewController {
 
     /// Runs `action`: an opened conversation or a sent invite closes the
     /// sheet; anything else stays and says why.
-    func run(_ action: @escaping @MainActor () async -> HomeComposeOutcome) {
+    final func run(_ action: @escaping @MainActor () async -> HomeComposeOutcome) {
         guard !isRunning else { return }
         isRunning = true
         show(nil)

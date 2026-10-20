@@ -35,6 +35,7 @@ export { OpencodeBrainDO } from "./chief-brain-opencode/brain-do.ts"
 import { CHIEF_BRAIN_PATH, handleChiefBrain } from "./chief-brain/routes.ts"
 import { GATEWAY_PATH, handleModelGateway } from "./model-gateway/http.ts"
 import { FAULT_PATH, handleFault } from "./chief-fault.ts"
+import { CC_NOTES_PATH, handleCcNotes } from "./chief-brain-cc/routes.ts"
 import { handleBrainImpl, handleOpencodeHost, handleOpencodeRuns, OPENCODE_HOST_PATH, OPENCODE_IMPL_PATH, opencodeOn } from "./chief-brain-opencode/routes.ts"
 export { DomainDO } from "./domain-do.ts"
 export { PairingDO } from "./pairing-do.ts"
@@ -221,6 +222,9 @@ export default {
     if (brainImpl) return handleBrainImpl(request, env, brainImpl[1]!)
     const opencodeHost = url.pathname.match(OPENCODE_HOST_PATH)
     if (opencodeHost) return handleOpencodeHost(request, env, opencodeHost[1]!)
+    // The Claude Code route's turn machines stream their turn back here (chief-brain-cc/turn.ts; a per-turn token).
+    const ccNotes = url.pathname.match(CC_NOTES_PATH)
+    if (ccNotes) return handleCcNotes(request, env, ccNotes[1]!, ccNotes[2]!)
     // Home invite links: anonymous; the card answers only for open invites, the preview only with the secret.
     const card = url.pathname.match(/^\/v1\/invites\/card\/([dg][0-9A-HJKMNP-TV-Z]{26})$/)
     if (card && request.method === "GET") return handleInviteCard(env, card[1]!)
