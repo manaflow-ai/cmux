@@ -181,8 +181,13 @@ jobs:
               continue
             fi
             if [ -d "$gallery" ]; then
+              # The runner exits 1 when a state's play check fails (a base state
+              # whose play script no longer finds its element is common); the
+              # images and results.json are still written and pr.ts reports the
+              # failure, so only a missing results.json ends the receipt.
               bun runner.ts --manifest "$RUNNER_TEMP/$stage.json" --gallery-dir "$gallery" \
-                --output-dir "$out" --engines chromium --shard-count 1 --shard-index 0
+                --output-dir "$out" --engines chromium --shard-count 1 --shard-index 0 \
+                || echo "::warning::the $stage render exited $? (a failed play check or an unready state); see results.json"
             else
               echo "Missing $stage gallery build; advisory capture failed." >&2
               exit 1
