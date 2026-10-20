@@ -27,6 +27,27 @@ import Testing
         #expect(view.failure.isHidden)
     }
 
+    @Test func aBrainThatAnswersAgainClearsItsNote() async {
+        let chief = FlakyChief()
+        let view = HomeChiefSettingsView(muxHome: FileManager.default.temporaryDirectory, source: chief)
+        await view.refresh().value
+        #expect(!view.failure.isHidden)
+        await chief.answers.set()
+        await view.refresh().value
+        #expect(view.failure.isHidden)
+    }
+
+    @Test func closingTheCardOrAnotherChiefClearsTheNote() async {
+        let view = HomeChiefSettingsView(muxHome: FileManager.default.temporaryDirectory, source: RefusingChief())
+        await view.refresh().value
+        await view.pick("effort", "low").value
+        view.cardClosed()
+        #expect(view.failure.isHidden)
+        await view.pick("effort", "low").value
+        await view.use(RefusingChief(refuses: [])).value
+        #expect(view.failure.isHidden)
+    }
+
     @Test func aPictureThatCannotBeUsedStaysSaid() async {
         let view = HomeChiefSettingsView(muxHome: FileManager.default.temporaryDirectory, source: RefusingChief())
         await view.refresh().value
@@ -35,6 +56,26 @@ import Testing
         await view.refresh().value
         #expect(!view.failure.isHidden)
     }
+}
+
+/// Whether `FlakyChief`'s brain answers yet.
+private actor Flag {
+    var on = false
+    func set() { on = true }
+}
+
+/// A brain that does not answer until `answers` is set.
+private struct FlakyChief: HomeChiefEngineSource {
+    let answers = Flag()
+    var isLocal: Bool { true }
+    var place: String? { nil }
+
+    func read() async throws(HomeChiefEngineError) -> HomeChiefSnapshot {
+        guard await answers.on else { throw .localUnreachable }
+        return HomeChiefSnapshot(harness: "claude", model: nil, effort: nil, avatar: nil, turns: [])
+    }
+
+    func set(_ fields: [String: String?]) async throws(HomeChiefEngineError) -> HomeChiefSnapshot { try await read() }
 }
 
 /// A brain that answers reads and refuses writes to `refuses`.

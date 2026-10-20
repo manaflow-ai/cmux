@@ -46,8 +46,8 @@ extension HomeChiefSettingsView {
             let result = await Task.detached { () async -> Result<HomeChiefSnapshot, HomeChiefEngineError> in
                 do { return .success(try await source.set(fields)) } catch let error as HomeChiefEngineError { return .failure(error) } catch { return .failure(.other(String(describing: error))) }
             }.value
-            // A pick for the Chief shown before (another conversation) is not shown.
-            guard let self, muxHome == home else { return }
+            // A pick for the Chief shown before (another conversation, or its other host) is not shown.
+            guard let self, muxHome == home, self.source.isLocal == source.isLocal, self.source.place == source.place else { return }
             switch result {
             case .success(let snapshot):
                 show(snapshot)
@@ -66,14 +66,30 @@ extension HomeChiefSettingsView {
         note(error.text, kept: readable)
     }
 
-    /// Shows `text` in the note and has VoiceOver say it; `kept` keeps it through refreshes.
+    /// Shows `text` in the note and has VoiceOver say it once (a refresh that says the same again,
+    /// such as a brain that still does not answer, is not announced again); `kept` keeps it through
+    /// refreshes. The card may be closed (a picture's open panel closed it): the announcement then
+    /// comes from the main window.
     func note(_ text: String, kept: Bool) {
+        let changed = failure.isHidden || failure.stringValue != text
         failure.stringValue = text
         failure.isHidden = false
         changeFailed = kept
-        NSAccessibility.post(element: failure, notification: .announcementRequested,
-                             userInfo: [.announcement: text, .priority: NSAccessibilityPriorityLevel.high.rawValue])
+        if changed {
+            var element: Any = NSApp as Any
+            if failure.window?.isVisible == true { element = failure } else if let main = NSApp.mainWindow { element = main }
+            NSAccessibility.post(element: element, notification: .announcementRequested,
+                                 userInfo: [.announcement: text, .priority: NSAccessibilityPriorityLevel.high.rawValue])
+        }
         onResize()
+    }
+
+    /// The card closed: a note about a change is said and seen, so the next open starts clear. A
+    /// picture's note, set after its open panel closed the card, waits for the next open.
+    func cardClosed() {
+        guard changeFailed else { return }
+        changeFailed = false
+        failure.isHidden = true
     }
 
     func show(_ snapshot: HomeChiefSnapshot) {

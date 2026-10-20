@@ -26,6 +26,7 @@ public final class HomeChiefSettingsPopover {
         popup.panel.adoptPopupStyle(card: card)
         popup.onDismiss = { [weak self] in
             self?.content.commitEditing()
+            self?.content.cardClosed()
         }
         content.onResize = { [weak self] in self?.resize() }
         // The open panel takes the keys from the popover, which closes; it runs over the window.
@@ -59,6 +60,7 @@ public final class HomeChiefSettingsPopover {
     /// Closes the card (fading toward the pill), keeping a name being edited.
     public func close() {
         content.commitEditing()
+        content.cardClosed()
         popup.hide()
     }
 
