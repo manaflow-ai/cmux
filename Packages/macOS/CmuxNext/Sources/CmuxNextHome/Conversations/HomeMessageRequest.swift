@@ -4,7 +4,7 @@ public import Foundation
 /// One message request as Home shows it (plans/cmux-next/home-messaging-invites/DESIGN.md 2.3):
 /// someone the user is not connected to invited them into a DM or a group. It carries names
 /// and text only; `conversation` is the one id, never shown.
-public struct HomeMessageRequest: Hashable, Sendable, Identifiable {
+public nonisolated struct HomeMessageRequest: Hashable, Sendable, Identifiable {
     public var conversation: ConversationID
     /// The inviter's display name.
     public var inviter: String

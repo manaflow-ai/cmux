@@ -21,7 +21,6 @@ nonisolated extension ActionSurfaceCatalog {
         .unimplemented: [
             "palette.browserToggleOmnibar",
             "toggleReactGrab",
-            "palette.openCloudPane",
             "palette.openVaultPane",
             "palette.openFindPane",
             "palette.openFilesPane",
