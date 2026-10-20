@@ -17,7 +17,7 @@ import Observation
 @MainActor
 final class TerminalClipboardReadService {
     /// The daemon is local, but the program behind its PTY may not be.
-    static let requestHost = ClipboardReadHost(kind: .remote)
+    static let requestHost = ClipboardReadHost(kind: .unknown)
 
     private weak var services: AppServices?
     private var broker: TerminalClipboardBroker?
@@ -125,7 +125,11 @@ final class TerminalClipboardReadService {
         { prompt, answer in
             guard let placement = place(prompt) else { return {} }
             let title = placement.terminalTitle.flatMap { $0.isEmpty ? nil : $0 } ?? ClipboardReadStrings.untitledTerminal
-            let host = prompt.host.kind == .local ? ClipboardReadStrings.thisMac : (prompt.host.name ?? ClipboardReadStrings.otherMachine)
+            let host: String? = switch prompt.host.kind {
+            case .local: ClipboardReadStrings.thisMac
+            case .remote, .cloud: prompt.host.name ?? ClipboardReadStrings.otherMachine
+            case .unknown: nil
+            }
             let spec = ClipboardReadStrings.spec(terminal: title, host: host)
             let id = center.present(spec, in: placement.scope) { result in
                 answer(result.button == ClipboardReadStrings.allowID)

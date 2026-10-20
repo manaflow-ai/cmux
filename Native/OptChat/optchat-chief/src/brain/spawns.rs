@@ -80,8 +80,12 @@ impl Brain {
             .count()
     }
 
-    /// B4: pauses each cloud peer's VM after `cloud_idle` with no live
-    /// subagent on it, once (the tick runs every minute).
+    /// B4: pauses each cloud peer's VM after `cloud_idle`
+    /// (`cloud.autoPauseIdleSeconds`, 60 s) with no live subagent on it,
+    /// once; [`CLOUD_TICK`](super::control::CLOUD_TICK) runs it. A subagent
+    /// mid-turn (running, a tool, a prompt, a pending tell) is live, so its
+    /// VM never pauses; the pool tool also refuses while a turn or a
+    /// background process runs on the VM, and that pause is tried again.
     pub(super) fn cloud_tick(&mut self) {
         let Some(vms) = self.cloud_vms.clone() else {
             return;
@@ -110,17 +114,70 @@ impl Brain {
             }
             self.cloud_paused.insert(peer.clone());
             self.cloud_idle_since.remove(&peer);
-            (self.log)(&format!("cloud: pausing {peer} (no live cloud subagent)"));
+            (self.log)(&format!(
+                "cloud: pausing {peer} (no live cloud subagent for {} s)",
+                self.cloud_idle.as_secs()
+            ));
             let vms = vms.clone();
             let log = self.log.clone();
+            let tx = self.tx.clone();
             // The pool tool takes seconds: off the brain thread.
             let _ = std::thread::Builder::new()
                 .name("cloud-pause".into())
                 .spawn(move || {
-                    if let Err(e) = vms.pause(&peer) {
-                        log(&format!("cloud: pause {peer}: {e}"));
+                    let began = std::time::Instant::now();
+                    match vms.pause(&peer) {
+                        Ok(()) => log(&format!(
+                            "cloud: paused {peer} in {} ms",
+                            began.elapsed().as_millis()
+                        )),
+                        Err(e) => {
+                            log(&format!("cloud: pause {peer}: {e}"));
+                            let _ = tx.send(super::Input::CloudPauseFailed { peer });
+                        }
                     }
                 });
+        }
+    }
+
+    /// The pool tool refused or failed to pause `peer`: it is not paused,
+    /// and its idle time starts again.
+    pub(super) fn cloud_pause_failed(&mut self, peer: &str) {
+        self.cloud_paused.remove(peer);
+        self.cloud_idle_since.remove(peer);
+    }
+
+    /// The host stops: each cloud VM with no live subagent pauses now, on
+    /// this thread (the process exits next); one with a subagent mid-turn
+    /// keeps running, and its report waits in acpmux for the next host.
+    pub(super) fn cloud_shutdown(&mut self) {
+        let Some(vms) = self.cloud_vms.clone() else {
+            return;
+        };
+        let mut peers: Vec<String> = self
+            .state
+            .spawns
+            .values()
+            .flat_map(|r| r.subs.iter())
+            .filter_map(|s| s.peer.clone())
+            .collect();
+        peers.sort_unstable();
+        peers.dedup();
+        for peer in peers {
+            if self.live_on(&peer) > 0 || self.cloud_paused.contains(&peer) {
+                continue;
+            }
+            let began = std::time::Instant::now();
+            match vms.pause(&peer) {
+                Ok(()) => {
+                    self.cloud_paused.insert(peer.clone());
+                    (self.log)(&format!(
+                        "cloud: host stops: paused {peer} in {} ms",
+                        began.elapsed().as_millis()
+                    ));
+                }
+                Err(e) => (self.log)(&format!("cloud: host stops: pause {peer}: {e}")),
+            }
         }
     }
 
@@ -845,8 +902,13 @@ impl Brain {
             && let Some(peer) = peer.filter(|p| self.cloud_paused.contains(p))
             && let Some(vms) = self.cloud_vms.clone()
         {
+            let began = std::time::Instant::now();
             vms.resume(&peer)
                 .map_err(|e| format!("{id}'s cloud VM {peer} did not resume: {e}"))?;
+            (self.log)(&format!(
+                "cloud: resumed {peer} for a tell to {id} in {} ms",
+                began.elapsed().as_millis()
+            ));
             self.cloud_paused.remove(&peer);
             self.cloud_idle_since.remove(&peer);
         }
