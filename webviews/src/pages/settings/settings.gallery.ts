@@ -488,6 +488,28 @@ Object.assign(variants, {
     options: { values: { "appearance.theme": "Gruvbox Dark", "appearance.appTheme": "Rose Pine" } },
     note: "An app theme apart from the terminal theme (appearance.appTheme).",
   }),
+  "theme-app-light-dark": variant("theme", {
+    allThemes: true,
+    options: {
+      values: {
+        "appearance.theme": "light:Catppuccin Latte,dark:Catppuccin Mocha",
+        "appearance.appTheme": "light:Rose Pine Dawn,dark:Rose Pine",
+        "appearance.accent": "magenta",
+      },
+    },
+    note: "One Theme card: the terminal and the app theme each with Match System Appearance, then the accent.",
+  }),
+  "theme-long-name": variant("theme", {
+    allThemes: true,
+    options: { values: { "appearance.theme": "Builtin Pastel Dark Solarized Tango Long Name", "appearance.accent": "blue" } },
+    note: "A long theme name ellipsizes; every popup keeps its one width.",
+  }),
+  "theme-accent": variant("theme", {
+    allThemes: true,
+    options: { values: { "appearance.theme": "Dracula", "appearance.accent": "theme" } },
+    steps: [click("[data-accent-picker]"), wait("[data-accent-option]")],
+    note: "The accent swatch popup: each choice's color on the app theme, the check on the right.",
+  }),
   "theme-managed": variant("theme", {
     allThemes: true,
     options: {

@@ -5,16 +5,7 @@
 // shows the contrast the derived app tokens reach and the active window's scope overrides inline
 // (no space/workspace/terminal tabs). Overrides and the app theme are the host's theme levels. The
 // schema's App Theme group lists the same keys; SectionView draws none of them a second time.
-import {
-  useCallback,
-  useEffect,
-  useId,
-  useMemo,
-  useRef,
-  useState,
-  useSyncExternalStore,
-  type ReactNode,
-} from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { ContextMenu, type ContextMenuItem } from "../../../ui/ContextMenu";
 import { APP_ACCENTS, contrastReport, deriveAppTheme, type AppAccent } from "../../../theme/appTheme";
 import type { GhosttyTheme } from "../../../theme/ghosttyTheme";
@@ -192,10 +183,7 @@ export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
     ? (accentValue as AppAccent)
     : "neutral";
   const app = appSource ? deriveAppTheme(appSource, accent) : null;
-  const accents = useMemo(
-    () => (accentRow ? accentChoices(accentRow, appSource) : []),
-    [accentRow, appSource],
-  );
+  const accents = useMemo(() => (accentRow ? accentChoices(accentRow, appSource) : []), [accentRow, appSource]);
 
   const write = (next: ThemeSpec | null) =>
     next ? store.set(THEME_KEY, formatThemeSpec(next)) : store.reset(THEME_KEY);
