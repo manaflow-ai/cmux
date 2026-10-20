@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextApp
 import CmuxNextBridge
+@testable import CmuxNextDaemon
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
 @testable import CmuxNextTabs
@@ -94,6 +95,96 @@ import Testing
         solid.render(TabDragGhostMotion(rect: CGRect(x: 100, y: 100, width: 160, height: 28), cardness: 0))
         let solidGlass = try #require(solid.panel.contentView?.subviews.first { $0 is GlassPanelView })
         #expect(solidGlass.alphaValue == 0, "an opaque window's tab image carries its own card")
+    }
+
+    /// Runs `body` with the app theme opaque and without art, so only a workspace's own pin can
+    /// make a drag preview glass.
+    func opaqueAppWithoutArt<T>(_ body: () throws -> T) rethrows -> T {
+        let original = ThemeStore.shared.input
+        let originalSelection = ThemeScope.app.backdropSelection
+        defer {
+            _ = ThemeStore.shared.apply(original)
+            ThemeScope.app.setBackdropSelection(originalSelection)
+        }
+        var input = original
+        input.backgroundOpacity = 1
+        input.backgroundBlur = 0
+        _ = ThemeStore.shared.apply(input)
+        ThemeScope.app.setBackdropSelection(nil)
+        return try body()
+    }
+
+    /// Review of #22202: the drag ghost read the APP scope while the images under it are drawn in
+    /// the SOURCE scope, so a workspace with art of its own over an opaque app dropped its card
+    /// for glass and the ghost then drew no glass under it. Every source now hands its own
+    /// scope's answer to the ghost: a strip's tab image, a lifted sidebar row (and its handoff),
+    /// and the ghost the drag session flies for that handoff.
+    @Test func aWorkspacesOwnBackgroundDecidesTheGhostsGlassNotTheApps() async throws {
+        opaqueAppWithoutArt {
+            #expect(WindowBackdrop.dragPreview(ThemeScope.app).isOpaque, "the fixture's app is opaque")
+            let workspace = ThemeScope(level: .workspace)
+            workspace.pinBackdrop(.selection(.art(.goyaSaturn)))
+            let glass = !Self.reducesTransparency
+            #expect(WindowBackdrop.dragPreview(workspace).dragsOnGlass == glass)
+
+            // A strip in the workspace: its tab image is drawn for glass.
+            let host = NSView(frame: NSRect(x: 0, y: 0, width: 600, height: TabStripView.preferredHeight))
+            let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            defer { window.close() }
+            window.contentView = host
+            workspace.root(host)
+            let strip = TabStripView(model: TabStripModel(tabs: [TabItem(id: TabID("t"), title: "cmux")], selectedID: TabID("t")))
+            strip.frame = host.bounds
+            host.addSubview(strip)
+            #expect(strip.snapshot(of: [], frame: CGRect(x: 0, y: 0, width: 160, height: 28)).onGlass == glass)
+
+            // A row lifted in the workspace's sidebar is glass (its colors are read on joining the
+            // window), and says so in its handoff.
+            let lift = DragLiftView(content: NSView(), count: 1)
+            lift.frame = NSRect(x: 0, y: 0, width: 220, height: 28)
+            host.addSubview(lift)
+            lift.layout()
+            #expect(lift.isGlass == glass)
+        }
+
+        // The drag session's ghost follows the handoff, not the app's opaque theme.
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        let store = services.machines.local.store
+        let json = #"{"app":"cmux-tui","protocol":1,"session":"s-local","generation":"g1"}"#
+        let identity = try JSONDecoder().decode(DaemonIdentity.self, from: Data(json.utf8))
+        store.noteHandshake(identity)
+        store.connectionState = .connected(identity)
+        var tree = DaemonTree(registryID: "s-local", workspaces: [
+            WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 1), key: WorkspaceKey(rawValue: "k1"), name: "k1"),
+        ])
+        tree.personal = PersonalState(workspaces: [
+            PersonalWorkspace(sessionID: "s-local", workspaceKey: WorkspaceKey(rawValue: "k1"), index: 0),
+        ])
+        store.apply(snapshot: tree)
+        let record = try JSONDecoder().decode(WindowRecord.self, from: Data(#"{"id":"drag-glass","workspace_key":"k1"}"#.utf8))
+        let state = WindowState(record: record)
+        services.windows.registry.provisional[state.id] = ["k1"]
+        let controller = WindowController(state: state, services: services, frame: NSRect(x: 200, y: 200, width: 1100, height: 720))
+        defer {
+            controller.teardown()
+            controller.window?.close()
+        }
+        let session = services.dragSession
+        for onGlass in [true, false] {
+            try opaqueAppWithoutArt {
+                let handoff = SidebarDragHandoff(payload: .workspaces([WorkspaceID("k1")]), workspaceIDs: [WorkspaceID("k1")],
+                                                 rowScreenFrame: CGRect(x: 300, y: 300, width: 220, height: 28),
+                                                 grabOffset: CGPoint(x: 20, y: 14), screenPoint: CGPoint(x: 320, y: 314),
+                                                 image: nil, imageOnGlass: onGlass)
+                #expect(session.beginWorkspaces(handoff, from: controller))
+                let ghost = try #require(session.drag?.ghost)
+                #expect(ghost.onGlass == onGlass, "the ghost stands on the glass its image was drawn for")
+                session.finish(commit: false)
+                session.finishLanding()
+            }
+        }
     }
 
     /// The boundary: a window opened later (a torn-off workspace or tab) with its own room scope
