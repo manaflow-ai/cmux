@@ -82,6 +82,8 @@ final class SidebarRows {
         live = SidebarSection.patching(changed, in: live)
         guard model.patchWorkspaces(changed) else { return show() }
         guard model.priorityOrdering else { return }
+        // Attention ordering was turned on since the last rebuild: sort now, quietly, not with the next create.
+        guard !buckets.isEmpty || shownOrder.isEmpty else { return show(quietly: true) }
         var moved = false
         for row in changed {
             guard let old = buckets[row.id] else { continue }
