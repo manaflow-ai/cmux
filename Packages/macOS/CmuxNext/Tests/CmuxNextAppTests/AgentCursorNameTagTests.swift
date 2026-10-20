@@ -79,7 +79,7 @@ struct AgentCursorNameTagTests {
         // The next input starts from the drop.
         model.render(AutomationInputEvent(sessionID: "s", targetID: "T", seq: 2, kind: .click, space: .viewport,
                                           point: .init(x: 300, y: 200), tMs: 20))
-        #expect(host.commands.filter { if case .glide = $0 { true } else { false } }.count == 2,
-                "a click at the drop does not move the cursor again")
+        #expect(host.commands.filter { if case .glide = $0 { true } else { false } }.count == 1,
+                "one glide for the drag; a click at the drop does not move the cursor again")
     }
 }

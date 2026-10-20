@@ -10,6 +10,9 @@ public final class AgentCursorLayerHost: AgentCursorLayerHosting {
     /// Fill color per session. The App passes `AgentCursorPalette.forSession`
     /// once the vendored package carries it (cmux-cua v0.8.3).
     public typealias Coloring = (String) -> CGColor
+    /// The name tag text per session (``AgentCursorSessionLabel``); nil or
+    /// empty shows no tag.
+    public typealias Labeling = (String) -> String?
 
     /// How long a cursor stays after its agent's last action: the cmux-cua
     /// helper's idle fade (`--idle-hide-ms 10000`, cx-ujus), so in-app and
@@ -18,11 +21,14 @@ public final class AgentCursorLayerHost: AgentCursorLayerHosting {
 
     private let hostLayer: CALayer
     private let color: Coloring
+    private let label: Labeling
     private var cursors: [String: AgentCursorLayer] = [:]
 
-    public init(hostLayer: CALayer, color: @escaping Coloring) {
+    public init(hostLayer: CALayer, color: @escaping Coloring,
+                label: @escaping Labeling = { AgentCursorSessionLabel(sessionID: $0).text }) {
         self.hostLayer = hostLayer
         self.color = color
+        self.label = label
     }
 
     /// Sessions with a cursor layer, sorted (diagnostics).
@@ -92,7 +98,7 @@ public final class AgentCursorLayerHost: AgentCursorLayerHosting {
         if let existing = cursors[session] {
             return existing
         }
-        let cursor = AgentCursorLayer(color: color(session))
+        let cursor = AgentCursorLayer(color: color(session), name: label(session), scale: max(hostLayer.contentsScale, 2))
         hostLayer.addSublayer(cursor.root)
         cursors[session] = cursor
         return cursor
