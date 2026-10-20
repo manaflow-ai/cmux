@@ -6,6 +6,7 @@
 
 #[cfg(unix)]
 pub mod host_exe;
+mod kinfo_proc;
 pub mod platform;
 #[cfg(unix)]
 pub mod process_identity;

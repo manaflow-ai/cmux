@@ -4,7 +4,9 @@ import CmuxNextApps
 import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextBrowser
+import CmuxNextBrowserHistory
 import CmuxNextChromiumWarmup
+import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextCrashReporting
 import CmuxNextDesign
@@ -54,13 +56,13 @@ final class AppServices {
     /// SSH machines (Connect to Machine…); `serverReach`: paired servers' Chief sessions in the sidebar.
     private(set) lazy var ssh: SSHService = SSHService(machines: machines, bundleID: environment.launch.bundleID)  // first read in init (no IUO)
     private(set) lazy var serverReach = ServerReachService.app(services: self)
-    let mobile = MobileHostService(displayName: { await MacName.computerName() })  // phone access; the account layer starts it
+    let mobile = MobileHostService(displayName: { await MacName().computerName() })  // phone access; the account layer starts it
     let registry = ActionRegistry.standard()
     /// Sparkle updates (release builds) or read-only feed probes (DEV).
     let updater = UpdaterService()
     private(set) lazy var updateSheet: UpdateSheetController = UpdateSheetController(source: UpdateSheetModel(service: updater, openLink: { LinkRouter.shared.open($0) }))  // first read in init (no IUO)
     /// cmux.json controller; set by `AppDelegate` once it starts. Agent tabs made before it (by launch's action bindings) follow it from here.
-    var settings: SettingsController? { didSet { if let settings, settings !== oldValue { madeAgentTabs?.follow(settings) } } }
+    var settings: SettingsController? { didSet { if let settings, settings !== oldValue { madeAgentTabs?.follow(settings); browserHost?.follow(settings); cloud.hostReplica.follow(settings, local: machines.local, account: { [cloud] in cloud.auth.isSignedIn && cloud.mayCallCloud && !cloud.policyDisabled ? cloud.auth.user?.id : nil }) } } }
     /// Writes the palette shortcut recorder's edits (the recorder holds it weakly).
     var paletteShortcutEditor: PaletteShortcutEditor?
     private(set) lazy var cache: TabContentCache = TabContentCache(daemon: daemon, cef: CEFEngine(lifecycleTrace: .shared, contextMenus: self.contextMenus))  // first read in init (no IUO)
@@ -145,6 +147,16 @@ final class AppServices {
     let terminalDelegate = TerminalHostDelegate()
     /// Attention rings, banners, sounds and dismissal (plans/cmux-next/notifications.md).
     let notifications = NotificationCenterService()
+    /// Email verification AutoFill (`browser.verificationAutofill.enabled`, off by default): a code
+    /// or link from Mail.app offered in the prompt bar of a page of the sender's own site
+    /// (plans/cmux-next/email-verification-autofill/DESIGN.md). Built on the first page that waits,
+    /// so the Public Suffix List is read only then. Turning the setting off withdraws offers at
+    /// the next read (within `pollInterval`).
+    private(set) lazy var verificationAutofill = VerificationAutofillCoordinator(
+        inbox: VerificationInbox(policy: VerificationOfferPolicy(publicSuffixes: PublicSuffixList.bundled() ?? PublicSuffixList(listText: ""))),
+        source: MailAppVerificationSource(),
+        isEnabled: { [weak self] in self?.settings.map { BrowserVerificationAutofillSetting.current($0).enabled } ?? false }
+    )
     /// The one keyboard router (plans/cmux-next/focus.md section 5).
     private(set) lazy var keyRouter: KeyRouter = KeyRouter(registry: registry)  // first read in init (no IUO)
     private(set) lazy var chromiumWarmup: ChromiumWarmup = ChromiumWarmup(engine: cache.cef)  // first read in init (no IUO)

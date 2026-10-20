@@ -28,7 +28,8 @@ public final class MainThreadWatchdog: Sendable {
         /// At most one hang report per this interval (default 5 min).
         public var hangReportInterval: Duration
         /// Debug builds: a hang still running this long fails an assertion
-        /// (default 10 s; nil in release builds).
+        /// (default 10 s; nil in release builds), if the main thread used
+        /// CPU for at least half of it (``hangFailsAssertion(elapsedNanos:mainThreadCPUNanos:assertNanos:)``).
         public var hangAssertThreshold: Duration?
 
         /// `CMUX_NEXT_HANG_THRESHOLD_MS` lowers the threshold for a
@@ -352,10 +353,20 @@ public final class MainThreadWatchdog: Sendable {
             }
         }
         if let hangAssertNanos, elapsed >= hangAssertNanos, state.assertedBeat != beat,
-           !assertionsEnded.load(ordering: .acquiring) {
+           !assertionsEnded.load(ordering: .acquiring),
+           Self.hangFailsAssertion(elapsedNanos: elapsed, mainThreadCPUNanos: mainThreadCPU(sinceBeat: beat),
+                                   assertNanos: hangAssertNanos) {
             state.assertedBeat = beat
             assertionFailure("main thread hang: busy over \(configuration.hangAssertThreshold ?? .zero); see debug.hangs and the crash report")
         }
+    }
+
+    /// Main-thread CPU used since heartbeat `beat` began the stall (its
+    /// `beatCPUNanos` stamp); nil when the reading failed or `beat` ended.
+    private func mainThreadCPU(sinceBeat beat: UInt64) -> UInt64? {
+        let start = beatCPUNanos.load(ordering: .acquiring)
+        guard beatSequence.load(ordering: .acquiring) == beat, let now = busy.mainThreadCPUNanos() else { return nil }
+        return now > start ? now - start : 0
     }
 
     private static func nanos(_ duration: Duration) -> UInt64 {

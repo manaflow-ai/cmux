@@ -113,6 +113,9 @@ export const COMPOSER_LABELS = {
   copy: "composer.menu.copy",
   paste: "composer.menu.paste",
   pasteAsPlainText: "composer.menu.pasteAsPlainText",
+  undo: "composer.menu.undo",
+  redo: "composer.menu.redo",
+  selectAll: "composer.menu.selectAll",
   attachFiles: "composer.menu.attachFiles",
   insertMention: "composer.menu.insertMention",
 } as const satisfies Record<string, StringKey>;
@@ -223,6 +226,11 @@ type Props = {
   /// ⌘Return, only where set (the Quick Composer): sends what was typed as Return would, then
   /// asks to open the chat in a window. `sent` says whether there was a prompt to send.
   onOpenInWindow?(sent: boolean): void;
+  /// ⌘Return on an empty prompt while no turn runs (where it does nothing else): the recap card's
+  /// yes (RecapCard.tsx). Set only while that card shows.
+  onEmptyCommandReturn?(): void;
+  /// Shell mode (`!` first) on or off: its ⌘Return answers no recap card, so the card drops its key.
+  onShellChange?(shell: boolean): void;
   /// Set while no prompt may go (the folder's trust question is open, useFolderTrustAsk.ts):
   /// Send is off, Enter keeps the prompt, and `reason` shows above it. Shell mode still runs.
   blocked?: SendBlock;
@@ -267,6 +275,8 @@ export function Composer({
   onShellInterrupt,
   onMode,
   onOpenInWindow,
+  onEmptyCommandReturn,
+  onShellChange,
   handle,
   sessionId,
   switching,
@@ -282,7 +292,7 @@ export function Composer({
   const [findingFiles, setFindingFiles] = useState(false);
   // A new folder (another chat) closes the palette, so no row from the last one stays pickable.
   useEffect(() => setFindingFiles(false), [searchFiles]);
-  // Search Files… (Cmd-P in the app, cx-ncc.69) opens the same search the + menu does.
+  // Search Files… (the app's command palette, cx-ncc.69) opens the same search the + menu does.
   useEffect(() => {
     if (!searchFiles) return;
     const open = () => setFindingFiles(true);
@@ -300,7 +310,13 @@ export function Composer({
   textRef.current = text;
   /// Shell mode: the prompt is a plain monospace field whose Enter runs a command. The markdown
   /// prompt stays mounted under it, keeping its own draft.
-  const [shell, setShell] = useState(false);
+  const [shell, setShellState] = useState(false);
+  const shellChange = useRef(onShellChange);
+  shellChange.current = onShellChange;
+  const setShell = (on: boolean) => {
+    setShellState(on);
+    shellChange.current?.(on);
+  };
   const [shellText, setShellText] = useState("");
   const shellRef = useRef({ shell, shellText });
   shellRef.current = { shell, shellText };
@@ -798,17 +814,25 @@ export function Composer({
     // ⌘Return while a turn runs steers: the prompt goes in now instead of after the turn. (The
     // Quick Composer keeps its own ⌘Return and Esc, below.)
     const quick = Boolean(onOpenInWindow);
-    if (
-      event.key === "Enter" &&
-      event.metaKey &&
-      !event.shiftKey &&
-      !event.altKey &&
-      !event.ctrlKey &&
-      steerable &&
-      !quick
-    ) {
+    const commandReturn =
+      event.key === "Enter" && event.metaKey && !event.shiftKey && !event.altKey && !event.ctrlKey && !quick;
+    if (commandReturn && steerable) {
       event.preventDefault();
       send(false, true);
+      return;
+    }
+    // ⌘Return on an empty prompt after a turn answers the recap card's question (RecapCard.tsx).
+    if (
+      commandReturn &&
+      onEmptyCommandReturn &&
+      !shell &&
+      remote.canSend &&
+      !snapshot.isWorking &&
+      !text.trim() &&
+      attachments.length === 0
+    ) {
+      event.preventDefault();
+      onEmptyCommandReturn();
       return;
     }
     // The @ picker owns arrows (and Ctrl-N/P/J/K), Return and Tab while it lists files, and Esc.
@@ -955,18 +979,35 @@ export function Composer({
     else if (open) setDismissed(text);
     else if (mentionAt) setMentionDismissed(text);
   };
-  // The prompt's context menu: the edit items, then Attach Files… and Insert Mention. Cut and Copy
-  // need a selection in the field, read when the menu opens.
+  // The prompt's context menu, as a text field's (POLISH.md): Undo and Redo, the edit items and
+  // Select All, then Attach Files… and Insert Mention. Cut and Copy need a selection in the field,
+  // and Undo and Redo an edit in its history, read when the menu opens.
   const [fieldSelected, setFieldSelected] = useState(false);
+  const [fieldHistory, setFieldHistory] = useState({ undo: false, redo: false });
   const noteSelection = () => {
     const shellInput = shellField.current;
     if (shell && shellInput) {
       setFieldSelected(shellInput.selectionStart !== shellInput.selectionEnd);
+      // A plain text area keeps its own history, which the page cannot read: both stay offered.
+      setFieldHistory({ undo: true, redo: true });
       return;
     }
     const selection = window.getSelection();
     const element = field.current?.element();
     setFieldSelected(Boolean(selection && !selection.isCollapsed && element?.contains(selection.anchorNode)));
+    setFieldHistory(field.current?.history() ?? { undo: false, redo: false });
+  };
+  /// Undo, Redo or Select All, in the prompt or the shell field.
+  const runField = (command: "undo" | "redo" | "selectAll") => {
+    const shellInput = shellField.current;
+    if (shell && shellInput) {
+      shellInput.focus();
+      if (command === "selectAll") shellInput.select();
+      else document.execCommand(command);
+      return;
+    }
+    field.current?.focus();
+    field.current?.[command]();
   };
   const runEdit = (command: ComposerEditCommand) => {
     if (shell) shellField.current?.focus();
@@ -974,7 +1015,15 @@ export function Composer({
     onEdit?.(command);
   };
   const fieldMenu: ContextMenuItem[] = [
-    { id: "cut", label: t(COMPOSER_LABELS.cut), disabled: !onEdit || !fieldSelected, onSelect: () => runEdit("cut") },
+    { id: "undo", label: t(COMPOSER_LABELS.undo), disabled: !fieldHistory.undo, onSelect: () => runField("undo") },
+    { id: "redo", label: t(COMPOSER_LABELS.redo), disabled: !fieldHistory.redo, onSelect: () => runField("redo") },
+    {
+      id: "cut",
+      label: t(COMPOSER_LABELS.cut),
+      separatorBefore: true,
+      disabled: !onEdit || !fieldSelected,
+      onSelect: () => runEdit("cut"),
+    },
     {
       id: "copy",
       label: t(COMPOSER_LABELS.copy),
@@ -988,6 +1037,7 @@ export function Composer({
       disabled: !onEdit,
       onSelect: () => runEdit("pasteAsPlainText"),
     },
+    { id: "selectAll", label: t(COMPOSER_LABELS.selectAll), onSelect: () => runField("selectAll") },
     {
       id: "attach",
       label: t(COMPOSER_LABELS.attachFiles),

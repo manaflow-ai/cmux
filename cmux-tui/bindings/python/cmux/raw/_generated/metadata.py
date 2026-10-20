@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = 'c09dd7c14b07e11ae0cfd502853da8ac29ed04e4022b4ab807cb844565da7eaa'
+IR_SHA256 = '6843b0cfd4e966719acde1c323621e6a5b049829b422229956fb3c194436dc06'
 
 
 @dataclass(frozen=True)
@@ -663,6 +663,42 @@ COMMANDS = {
             'conversation': CommandFieldMetadata(None, None),
         },
     ),
+    'cloud-host-replica-clear': CommandMetadata(
+        'cloud-host-replica-clear',
+        'local-admin',
+        12,
+        'cloud-host-replica-v1',
+        ('local-admin',),
+        None,
+        {
+            'purge': CommandFieldMetadata(None, None),
+        },
+    ),
+    'cloud-host-replica-set': CommandMetadata(
+        'cloud-host-replica-set',
+        'local-admin',
+        12,
+        'cloud-host-replica-v1',
+        ('local-admin',),
+        None,
+        {
+            'api_base_url': CommandFieldMetadata(None, None),
+            'client_version': CommandFieldMetadata(None, None),
+            'expires_at': CommandFieldMetadata(None, None),
+            'host_name': CommandFieldMetadata(None, None),
+            'install_token': CommandFieldMetadata(None, None),
+        },
+    ),
+    'cloud-host-replica-status': CommandMetadata(
+        'cloud-host-replica-status',
+        'local-admin',
+        12,
+        'cloud-host-replica-v1',
+        ('local-admin',),
+        None,
+        {
+        },
+    ),
     'cloud-inbox-list': CommandMetadata(
         'cloud-inbox-list',
         'local-admin',
@@ -750,6 +786,16 @@ COMMANDS = {
         {
             'conversation': CommandFieldMetadata(None, None),
             'participant_id': CommandFieldMetadata(None, None),
+        },
+    ),
+    'cloud-requests-list': CommandMetadata(
+        'cloud-requests-list',
+        'local-admin',
+        12,
+        'cloud-conversations-v1',
+        ('local-admin',),
+        None,
+        {
         },
     ),
     'cloud-session-clear': CommandMetadata(
@@ -2867,6 +2913,7 @@ COMMANDS = {
         None,
         {
             'bytes': CommandFieldMetadata(None, None),
+            'expect_foreground': CommandFieldMetadata(None, 'send-expect-foreground-v1'),
             'paste': CommandFieldMetadata(7, None),
             'surface': CommandFieldMetadata(None, None),
             'terminal_id': CommandFieldMetadata(None, 'terminal-input-while-creating-v1'),
@@ -2916,6 +2963,7 @@ COMMANDS = {
         ('control', 'frontend', 'local-admin', 'provider-authority'),
         None,
         {
+            'api_revision': CommandFieldMetadata(12, None),
             'capabilities': CommandFieldMetadata(None, None),
             'device_id': CommandFieldMetadata(12, 'shared-sizing-v1'),
             'device_kind': CommandFieldMetadata(12, 'shared-sizing-v1'),
@@ -3741,6 +3789,7 @@ EVENTS = {
     'cloud-conversation-resynced': EventMetadata('cloud-conversation-resynced', 12, 'cloud-conversations-v1', ('subscribe',), 'emitted'),
     'cloud-conversation-run-changed': EventMetadata('cloud-conversation-run-changed', 12, 'cloud-conversation-runs-v1', ('subscribe',), 'emitted'),
     'cloud-conversation-typing': EventMetadata('cloud-conversation-typing', 12, 'cloud-conversation-typing-v1', ('subscribe',), 'emitted'),
+    'cloud-host-replica-needed': EventMetadata('cloud-host-replica-needed', 12, 'cloud-host-replica-v1', ('subscribe',), 'emitted'),
     'cloud-inbox-changed': EventMetadata('cloud-inbox-changed', 12, 'cloud-conversations-v1', ('subscribe',), 'emitted'),
     'cloud-inbox-reset': EventMetadata('cloud-inbox-reset', 12, 'cloud-conversations-v1', ('subscribe',), 'emitted'),
     'cloud-mux-resynced': EventMetadata('cloud-mux-resynced', 12, 'cloud-conversations-v1', ('subscribe',), 'emitted'),

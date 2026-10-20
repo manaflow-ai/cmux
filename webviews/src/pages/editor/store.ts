@@ -76,6 +76,8 @@ export interface CodeView {
   setReadOnly(readOnly: boolean): void;
   /** Formats the document (format on save), when a formatter exists for its language. */
   format?(): Promise<void>;
+  /** VS Code's save options (`editor.trimTrailingWhitespace`, `editor.insertFinalNewline`). */
+  prepareSave?(options: { trimTrailingWhitespace: boolean; insertFinalNewline: boolean }): Promise<void>;
 }
 
 export type Schedule = (run: () => void, delayMs: number) => () => void;
@@ -364,8 +366,12 @@ export class EditorStore {
       this.saveAgain = true;
       return this.saving;
     }
-    if (options.format && view.format && resolveEditorSettings(this.state.look.settings).formatOnSave) {
-      await view.format().catch(() => undefined);
+    if (options.format) {
+      const settings = resolveEditorSettings(this.state.look.settings);
+      if (view.prepareSave && (settings.trimTrailingWhitespace || settings.insertFinalNewline)) {
+        await view.prepareSave(settings).catch(() => undefined);
+      }
+      if (view.format && settings.formatOnSave) await view.format().catch(() => undefined);
     }
     const version = view.version();
     if (version === this.savedVersion) {

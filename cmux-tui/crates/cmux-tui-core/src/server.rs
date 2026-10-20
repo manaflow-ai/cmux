@@ -160,6 +160,7 @@ pub(crate) mod clipboard_read;
 mod close_tabs_command;
 mod cloud_attachments;
 mod cloud_conversations;
+pub mod cloud_host_replica;
 mod conversation_attachments;
 mod conversation_live;
 mod conversation_resource;
@@ -169,6 +170,7 @@ use resource_trust::{
     conversation_resource_client, handles_resource_connection_operation,
     trusted_local_resource_client,
 };
+mod api_revision_wire;
 mod conversation_tabs_wire;
 mod conversations;
 mod detached_terminals;
@@ -191,13 +193,11 @@ mod cmd_attach;
 mod cmd_browser;
 #[cfg(test)]
 use cmd_browser::browser_provider_registration;
+mod cmd_frontend;
 mod cmd_panes;
 mod cmd_profiles;
 mod cmd_screens;
 mod cmd_server;
-#[cfg(test)]
-use cmd_server::{stamped_build_commit, stamped_ghostty_commit};
-mod cmd_frontend;
 mod cmd_sizing;
 use cmd_sizing::{optional_surface_size, paired_surface_size};
 mod cmd_subscribe;
@@ -259,7 +259,9 @@ use terminal_snapshot::{attach_overflow_json, handle_attach_send_error, report_a
 mod capabilities;
 pub use capabilities::build_capabilities;
 mod daemon_build;
-pub use daemon_build::{DAEMON_BUILD_CAPABILITY, DaemonBuild, install_daemon_build};
+pub use daemon_build::{
+    BuildStamp, DAEMON_BUILD_CAPABILITY, DaemonBuild, install_build_stamp, install_daemon_build,
+};
 mod socket_path;
 #[cfg(test)]
 use socket_path::default_socket_path_in_runtime_dir;
@@ -756,6 +758,10 @@ enum Command {
         device_name: Option<String>,
         #[serde(default)]
         device_id: Option<String>,
+        /// The API revision the client reads and writes
+        /// (server/api_revision_wire.rs). Absent: revision 12.
+        #[serde(default)]
+        api_revision: Option<u32>,
     },
     ListClients,
     /// Read the machine-level model spend readout hosted by this daemon.
@@ -888,22 +894,8 @@ enum Command {
         #[serde(default)]
         rows: Option<u16>,
     },
-    Send {
-        /// The terminal surface; or `terminal_id` (exactly one).
-        #[serde(default)]
-        surface: Option<SurfaceId>,
-        /// `terminal-input-while-creating-v1`: the host terminal id, also of a terminal still
-        /// being created (the input is queued for it, `mux::creating_input`).
-        #[serde(default)]
-        terminal_id: Option<String>,
-        #[serde(default)]
-        text: Option<String>,
-        /// Base64-encoded raw bytes, written verbatim to the pty.
-        #[serde(default)]
-        bytes: Option<String>,
-        #[serde(default)]
-        paste: bool,
-    },
+    /// `send`: write input to a terminal.
+    Send(cmd_terminal_io::SendParams),
     ReadScreen {
         surface: SurfaceId,
     },
@@ -1688,17 +1680,20 @@ enum Command {
     ConversationDraft(conversations::DraftParams),
     ConversationBind(conversations::BindParams),
     ConversationAgentToken(conversations::AgentTokenParams),
-    /// Cloud conversations proxy (`cloud-conversations-v1`,
-    /// server/cloud_conversations.rs).
+    /// Cloud conversations proxy and host replica (server/cloud_conversations.rs and so on).
     CloudSessionSet(cloud_conversations::SessionSetParams),
     CloudSessionClear,
     CloudSessionStatus,
+    CloudHostReplicaSet(cloud_host_replica::HostReplicaSetParams),
+    CloudHostReplicaClear(cloud_host_replica::HostReplicaClearParams),
+    CloudHostReplicaStatus,
     /// `page-credential` (`page-credential-v1`, server/page_credential.rs).
     PageCredential(page_credential::PageCredentialParams),
-    /// `ws-listen` (`ws-listen-v1`, server/page_listener.rs): open the
-    /// owner's loopback page listener on request.
+    /// `ws-listen` (`ws-listen-v1`, server/page_listener.rs): open the owner's page listener.
     WsListen(page_listener::WsListenParams),
     CloudInboxList(cloud_conversations::InboxListParams),
+    /// `cloud-requests-list`: the person's message requests (no fields).
+    CloudRequestsList(cloud_conversations::NoParams),
     CloudConversationSnapshot(cloud_conversations::SnapshotParams),
     CloudConversationHistory(cloud_conversations::HistoryParams),
     CloudConversationThread(cloud_conversations::ThreadParams),
@@ -1713,13 +1708,11 @@ enum Command {
     CloudConversationUnsubscribe(cloud_conversations::TargetParams),
     CloudConversationLive(cloud_conversations::TargetParams),
     CloudConversationTyping(cloud_conversations::TypingParams),
-    /// The leased chief's MuxDO wake queue (`mux:<agent>`, agent from the
-    /// chief token), and the ack of handled wakes.
+    /// The leased chief's MuxDO wake queue (`mux:<agent>`) and the ack of handled wakes.
     CloudMuxSubscribe(cloud_conversations::NoParams),
     CloudMuxUnsubscribe(cloud_conversations::NoParams),
     CloudMuxAck(cloud_conversations::MuxAckParams),
-    /// Local conversation attachments (`local-attachments-v1`,
-    /// server/conversation_attachments.rs).
+    /// Local conversation attachments (`local-attachments-v1`, server/conversation_attachments.rs).
     ConversationAttachmentUpload(conversation_attachments::UploadParams),
     ConversationAttachmentRead(conversation_attachments::ReadParams),
     ConversationAttachmentLink(conversation_attachments::LinkParams),
@@ -2199,8 +2192,8 @@ impl Command {
             | Self::ReattachView { surface, .. }
             | Self::NoteSizeActivity { surface, .. }
             | Self::ScrollSurface { surface, .. } => Some(*surface),
+            Self::Send(send) => send.surface,
             Self::AttachSurface { surface, .. }
-            | Self::Send { surface, .. }
             | Self::Notify { surface, .. }
             | Self::ListAgents { surface, .. }
             | Self::Subscribe { surface, .. }
@@ -2217,7 +2210,7 @@ impl Command {
         matches!(
             self,
             Self::ClearHistory { .. }
-                | Self::Send { .. }
+                | Self::Send(_)
                 | Self::SendKey { .. }
                 | Self::BrowserFramePresented { .. }
                 | Self::BrowserMouse { .. }
@@ -2540,7 +2533,7 @@ pub use restoring::RestoringServer;
 use websocket_listener::handle_websocket_connection;
 pub use websocket_listener::{
     WebSocketAccess, WebSocketServer, parse_websocket_origin, serve_websocket,
-    serve_websocket_with_access, serve_websocket_with_pages,
+    serve_websocket_with_access, serve_websocket_with_keepalive, serve_websocket_with_pages,
 };
 
 #[cfg(test)]

@@ -90,7 +90,10 @@
 #   cmux-tui-agent-screen-detection-<target> goes beside it as
 #   cmux-agent-screen-detection (cmux-agent-screen-detection.sha256), which the
 #   daemon runs by default; the pin carries no plugin fields yet (Release
-#   bundles none until its notices are mapped).
+#   bundles none until its notices are mapped). The slim terminal host rides
+#   the same way, tree mode only: cmux-tui-host-<target> goes beside it as
+#   cmux-tui-host (cmux-tui-host.sha256), which a macOS daemon runs every
+#   terminal host from; without it hosts re-exec the daemon's own binary.
 #
 # No mode needs GitHub credentials: downloads are public and sha256-checked.
 #
@@ -385,12 +388,15 @@ github_api() {
 # commit has tree <key>, or nothing. A commit missing locally is fetched once
 # (depth 1, best effort); one it cannot read does not count.
 active_publisher_for_key() {
-  local key="$1" body candidate
+  local key="$1" body candidate depth=()
   body="$(github_api GET "actions/workflows/cmux-tui-artifacts.yml/runs?per_page=50" 2>/dev/null)" || return 0
+  # Depth 1 only in a shallow checkout: in a full clone --depth writes
+  # .git/shallow and truncates history for every worktree sharing it.
+  [[ "$(git -C "$repo_root" rev-parse --is-shallow-repository)" == true ]] && depth=(--depth=1)
   while read -r candidate; do
     [[ "$candidate" =~ ^[0-9a-f]{40}$ ]] || continue
     git -C "$repo_root" cat-file -e "$candidate^{commit}" 2>/dev/null \
-      || git -C "$repo_root" fetch -q --no-tags --depth=1 origin "$candidate" 2>/dev/null || continue
+      || git -C "$repo_root" fetch -q --no-tags ${depth[@]+"${depth[@]}"} origin "$candidate" 2>/dev/null || continue
     if [[ "$(tree_key "$candidate" 2>/dev/null)" == "$key" ]]; then echo "$candidate"; return 0; fi
   done < <(python3 -c '
 import json, sys
@@ -747,7 +753,8 @@ local_build_matches() {
 
 # Fetches a companion binary of tree <key> into <dir>: cmux-tui-<artifact>-<target>
 # (app-host -> cmux-app-host, cloud-server -> cmux-cloud, browser-host ->
-# cmux-browser-host, agent-screen-detection -> cmux-agent-screen-detection) that
+# cmux-browser-host, host -> cmux-tui-host, agent-screen-detection ->
+# cmux-agent-screen-detection) that
 # the commit named by
 # <dir>/source.json published in its attested commit-addressed manifest. Records its
 # sha256, or `none` when that build published none, in <dir>/<file>.sha256.
@@ -841,6 +848,7 @@ fetch_tree_companions() {
   fetch_tree_companion "$1" "$2" app-host cmux-app-host
   fetch_tree_companion "$1" "$2" cloud-server cmux-cloud
   fetch_tree_companion "$1" "$2" browser-host cmux-browser-host
+  fetch_tree_companion "$1" "$2" host cmux-tui-host
   fetch_tree_companion "$1" "$2" agent-screen-detection cmux-agent-screen-detection
   # The app bundles acpmux too; a tree published before its build carried
   # acpmux has none, and the app build compiles it (build-acpmux.sh).

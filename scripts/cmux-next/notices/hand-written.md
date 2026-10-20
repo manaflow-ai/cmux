@@ -486,6 +486,13 @@ viewer has no runtime CDN dependency.
 - **Copyright:** Copyright (c) 2014-2024 Knut Sveidqvist and Mermaid contributors
 - **Source:** https://github.com/mermaid-js/mermaid/releases/tag/mermaid%4011.4.1
 
+### Ondine
+
+- **Version:** 0.0.1 (`Resources/markdown-viewer/ondine.min.js`, built by `scripts/cmux-next/vendor-ondine.mjs`)
+- **License:** MIT License (`Resources/markdown-viewer/ondine.LICENSE`)
+- **Copyright:** Copyright (c) 2025-present wevm contributors
+- **Source:** https://github.com/wevm/ondine (npm `ondine@0.0.1`, built from commit f662aa795b91bf2dfc7162f48035be3884201193)
+
 ### Vega
 
 - **Version:** 5.30.0
@@ -931,6 +938,21 @@ js-beautify: MIT; diff: BSD-3-Clause; lz4-wasm and other files under `lib/`: see
 the license files there), and so do its filter lists under `assets/thirdparties/`
 (EasyList and EasyPrivacy: GPL-3.0 or CC BY-SA 3.0; Peter Lowe's list and the
 URLhaus filter: their own terms, shipped beside them; publicsuffix.org: MPL-2.0).
+
+---
+
+## Public Suffix List (email verification AutoFill)
+
+- **License:** Mozilla Public License 2.0 (MPL-2.0)
+- **Copyright:** The Public Suffix List contributors (Mozilla Foundation)
+- **Source:** https://publicsuffix.org/list/public_suffix_list.dat (as of 2026-10-02)
+
+The cmux-next app bundles the list's rules, unmodified except that IDN rules
+are stored in punycode and comments are removed, as
+`PublicSuffixList.dat` in the CmuxNextBrowser resource bundle
+(`Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/Resources/PublicSuffixList.dat`).
+The file carries the MPL-2.0 notice. The full license text is at
+https://mozilla.org/MPL/2.0/; the source form is the file itself.
 
 ---
 
