@@ -836,10 +836,12 @@ public final class LiveCoordinator {
             // own `daemon` channel of this link; open ones reattach now. Input-lane
             // channels may ride another stream, so they wait for pairing here.
             self.terminals.removeAll { $0.session == nil }
-            let attach = Set(DaemonTerminalSession.surfacesToReattach(self.terminals.compactMap { $0.session?.surface },
-                                                     tree: self.workspaces.tree.map { Set($0.surfaces.values) }))
-            for terminal in self.terminals where terminal.session.map({ attach.contains($0.surface) }) == true {
-                terminal.session?.reconnect()
+            let tree = self.workspaces.tree
+            for terminal in self.terminals {
+                guard let session = terminal.session,
+                      DaemonTerminalSession.shouldReattach(surface: session.surface, terminalID: session.terminalID, tree: tree)
+                else { continue }
+                session.reconnect()
             }
             // Streamed browser tabs that dropped open again on this link.
             StreamedBrowserDirectory.shared.linkChanged()
@@ -1047,7 +1049,8 @@ public final class LiveCoordinator {
         // The daemon titles a shell tab with its folder; the composer says "Send to <program>".
         let program = programName.hasPrefix("/") || programName.hasPrefix("~") || programName.isEmpty ? "terminal" : programName
         let info = ["name": deviceName, "kind": "ios", "device_kind": "iphone", "device_name": deviceName, "device_id": identity.link]
-        let session = DaemonTerminalSession(surface: surface, programName: program, clientInfo: info, open: { [weak self] in
+        let terminalID = workspaces.tree?.terminals[tabID]?.id
+        let session = DaemonTerminalSession(surface: surface, terminalID: terminalID, programName: program, clientInfo: info, open: { [weak self] in
             guard let link = await self?.servedLink else { throw LinkError(code: "no-link", message: "Not connected to the Mac") }
             let channel = try await link.openChannel(service: "daemon", args: [:])
             return DaemonClient(channel: channel)

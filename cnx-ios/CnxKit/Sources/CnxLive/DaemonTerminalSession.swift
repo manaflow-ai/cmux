@@ -30,7 +30,12 @@ private let log = Logger(subsystem: "dev.cmux.cnx", category: "terminal")
 /// size.
 @MainActor
 public final class DaemonTerminalSession: TerminalSession {
-    public let surface: Int
+    /// The daemon surface the terminal is on. A daemon that restarted
+    /// (crash, update) numbers its surfaces again; a reattach follows the
+    /// terminal by ``terminalID`` (`resolve-terminal`).
+    public private(set) var surface: Int
+    /// The Mac terminal's durable id (`terminal_id`, `term_…`), when known.
+    public let terminalID: String?
     public private(set) var programName: String
     public private(set) var isAlternateScreen = false
     /// The Mac terminal's rows (`vt-state`, `resized`), else the size asked for.
@@ -50,7 +55,7 @@ public final class DaemonTerminalSession: TerminalSession {
     private var inputDraining = false
     private var handler: (@MainActor (TerminalSessionEvent) -> Void)?
     /// Decodes lines given to `handle(_:)` (the attach stream has its own, off the main actor).
-    private lazy var lineParser = DaemonTerminalEventParser(surface: surface)
+    private var lineParser: DaemonTerminalEventParser
     private var inbox: DaemonTerminalInbox?
     private var outputPaused = false
     private var eventTask: Task<Void, Never>?
@@ -78,7 +83,8 @@ public final class DaemonTerminalSession: TerminalSession {
     /// `connecting` until the first attach, `reattaching` after a dropped
     /// link, `attached` while the screen mirrors the Mac's terminal.
     public var connectionState: TerminalConnectionState {
-        if attached { return .attached }
+        // An ended terminal shows its last screen, not a spinner.
+        if attached || ended { return .attached }
         return everAttached ? .reattaching(mac: macName) : .connecting(mac: macName)
     }
 
@@ -93,12 +99,15 @@ public final class DaemonTerminalSession: TerminalSession {
     /// (termqa V2-5).
     public init(
         surface: Int,
+        terminalID: String? = nil,
         programName: String = "zsh",
         clientInfo: [String: String] = [:],
         open: @escaping @Sendable () async throws -> DaemonClient,
         openInput: (@Sendable () async throws -> DaemonClient)? = nil
     ) {
         self.surface = surface
+        self.terminalID = terminalID
+        lineParser = DaemonTerminalEventParser(surface: surface)
         self.programName = programName
         self.clientInfo = clientInfo
         self.open = open
@@ -116,6 +125,8 @@ public final class DaemonTerminalSession: TerminalSession {
         guard !bytes.isEmpty else { return }
         input.append(bytes)
         drainInput()
+        // A reattach that gave up: typing tries again (the line it printed says so).
+        if gaveUp { reconnect() }
     }
 
     public func resize(columns: Int, rows: Int) {
@@ -152,7 +163,41 @@ public final class DaemonTerminalSession: TerminalSession {
     /// attaching, before `start`, and after the surface ended.
     public func reconnect() {
         guard handler != nil, !attached, !attaching, !ended else { return }
+        gaveUp = false
         Task { await attach() }
+    }
+
+    /// Where the terminal is now, asked by its durable id before a reattach.
+    enum Resolved: Equatable {
+        case surface(Int)
+        /// The Mac has no such terminal (closed), or it is on no surface.
+        case gone
+        /// The daemon cannot say (an older one): attach by number.
+        case unknown
+    }
+
+    static func resolved(_ reply: Data) -> Resolved {
+        guard let object = try? JSONSerialization.jsonObject(with: reply) as? [String: Any] else { return .unknown }
+        if object["ok"] as? Bool == false || object["error"] != nil {
+            let error = (object["error"] as? String) ?? ""
+            return error.contains("terminal_not_found") ? .gone : .unknown
+        }
+        let data = object["data"] as? [String: Any] ?? object
+        if let surface = data["surface"] as? Int { return .surface(surface) }
+        return data.keys.contains("surface") ? .gone : .unknown
+    }
+
+    /// The terminal is no longer on the Mac: say so and stop, never wait
+    /// "Reattaching…" forever.
+    private func terminalGone() {
+        guard handler != nil, !ended else { return }
+        ended = true
+        attached = false
+        log.notice("surface \(self.surface, privacy: .public): terminal \(self.terminalID ?? "-", privacy: .public) is no longer on the Mac")
+        if let client { self.client = nil; Task { await client.close() } }
+        emitText("\r\n\u{1B}[2m[This terminal is no longer open on the Mac]\u{1B}[0m\r\n")
+        handler?(.connection(.attached))
+        handler?(.exited(code: 0))
     }
 
     // MARK: Attach
@@ -166,6 +211,25 @@ public final class DaemonTerminalSession: TerminalSession {
             guard handler != nil else { return }
             self.client = client
             await client.start()
+            // A reattach (or a retry) first asks where the terminal is: a Mac
+            // daemon that restarted numbers its surfaces again, and the old
+            // number may now name another terminal (defect 2 of
+            // verify/transport-verify-20261019.md).
+            if let terminalID, everAttached || attachRetries > 0 {
+                let reply = try await client.request("resolve-terminal", params: ["terminal_id": terminalID])
+                guard self.client === client else { return }
+                switch Self.resolved(reply) {
+                case .surface(let moved) where moved != surface:
+                    log.notice("surface \(self.surface, privacy: .public): terminal \(terminalID, privacy: .public) is now surface \(moved, privacy: .public)")
+                    surface = moved
+                    lineParser = DaemonTerminalEventParser(surface: moved)
+                case .gone:
+                    terminalGone()
+                    return
+                case .surface, .unknown:
+                    break
+                }
+            }
             let events = client.events
             eventTask?.cancel()
             inbox?.close()
@@ -276,7 +340,13 @@ public final class DaemonTerminalSession: TerminalSession {
                 }
                 return
             }
-            emitText("\r\n\u{1B}[2m[\(lastError ?? "Can't attach to this terminal")]\u{1B}[0m\r\n")
+            if everAttached {
+                // Retries ran out: say what happened and how to go on.
+                gaveUp = true
+                emitText("\r\n\u{1B}[2m[Can't reattach: \(lastError ?? "no answer from the Mac"). Type to try again.]\u{1B}[0m\r\n")
+            } else {
+                emitText("\r\n\u{1B}[2m[\(lastError ?? "Can't attach to this terminal")]\u{1B}[0m\r\n")
+            }
         }
     }
 
@@ -517,6 +587,8 @@ public final class DaemonTerminalSession: TerminalSession {
     private var heldEvents: [DaemonTerminalInbound]?
     /// Failed reattach attempts since the last good attach.
     private var attachRetries = 0
+    /// The reattach retries ran out; the next keystroke tries again.
+    private var gaveUp = false
     /// Delays before retrying a failed reattach (seconds); then the error shows.
     static let reattachBackoff: [Double] = [0.25, 0.5, 1, 2, 4, 8]
 
@@ -531,6 +603,16 @@ public final class DaemonTerminalSession: TerminalSession {
     nonisolated public static func surfacesToReattach(_ sessions: [Int], tree: Set<Int>?) -> [Int] {
         guard let tree else { return sessions }
         return sessions.filter(tree.contains)
+    }
+
+    /// Whether a session attaches again on a new link: its surface is still
+    /// listed, or its terminal is (on another surface after the Mac's daemon
+    /// restarted; the reattach finds it by id). Before the tree is known, yes.
+    nonisolated public static func shouldReattach(surface: Int, terminalID: String?, tree: DaemonTree?) -> Bool {
+        guard let tree else { return true }
+        if tree.surfaces.values.contains(surface) { return true }
+        guard let terminalID else { return false }
+        return tree.terminals.values.contains { $0.id == terminalID }
     }
 
     /// Whether the daemon takes the viewer's size in `attach-surface`.
