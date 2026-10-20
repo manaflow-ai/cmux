@@ -45,6 +45,18 @@ final class LinkOpener {
         return services.windows.active?.focusedPane
     }
 
+    /// The pane showing `view` (a Home or agent chat, a cmux page) in any window, or nil: a click
+    /// in it opens from that pane, never from whichever pane has focus.
+    func source(containing view: NSView) -> PaneController? {
+        guard let services else { return nil }
+        return source(containing: view, in: services.windows.controllers.flatMap { $0.content.map { Array($0.panes.values) } ?? [] })
+    }
+
+    /// Pure: the pane among `panes` whose view holds `view`, or nil.
+    func source(containing view: NSView, in panes: [PaneController]) -> PaneController? {
+        panes.first { view === $0.view || view.isDescendant(of: $0.view) }
+    }
+
     /// Where an item opened from `source` lands now, by ``LinkOpenPlacement``.
     func target(from source: PaneController) -> LinkOpenPlacement<LayoutPaneID>.Target {
         let right = source.workspace.flatMap { content in
