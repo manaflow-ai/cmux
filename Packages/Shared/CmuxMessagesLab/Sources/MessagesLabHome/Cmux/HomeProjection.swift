@@ -96,6 +96,13 @@ final class HomeProjection: @preconcurrency ChatIntents {
     /// Rebuilds and applied (changed) updates, for tests.
     private(set) var rebuilds = 0
     private(set) var appliedUpdates = 0
+    /// Store reads of this conversation (`refresh`), changed or not (tests: traffic for other conversations costs none).
+    private(set) var refreshPasses = 0
+    /// This conversation's store inputs at the last observed pass (HomeProjection+Observe.swift): a
+    /// change to another conversation wakes the observation, not the transcript.
+    var observedInputs: HomeProjectionInputs?
+    /// A store pass waits for the next display frame (a keystroke's frame is open); one at a time.
+    var heldPass = false
 
     /// Link card previews (LinkPresentation, MessagesLab's LinkPreviews): fetched
     /// once per URL for links this Mac sends or the user taps; nil keeps domain cards.
@@ -122,6 +129,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
 
     func start() {
         refresh()
+        noteObservedInputs()
         observe()
     }
 
@@ -136,6 +144,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
     // MARK: HomeStore -> projection
 
     func refresh() {
+        refreshPasses += 1
         if sendWhenConfirmed, homeStore.isConfirmed(conversation) {
             sendWhenConfirmed = false
             sendNotice = nil
@@ -291,7 +300,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
     private func send(thread deferred: (root: MessageID?, parent: MessageID?)?) -> String? {
         guard let store = controller.store else { return noteSend("refused: transcript_not_ready") }
         let draft = store.state.ui.draft
-        let text = draft.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let text = draft.plainText.trimmingCharacters(in: .whitespacesAndNewlines)  // without the attachment marks
         let attachments = draft.attachments.compactMap { drafts[$0.id] }
         // MessagesLab d0017ba: the reducer's own rule first (Return with nothing to send does nothing:
         // no .send, no flash, no jump, nothing to HomeStore); then a chip whose attachment is not prepared.
@@ -417,7 +426,9 @@ final class HomeProjection: @preconcurrency ChatIntents {
         let hash = attachment.ref.hash
         guard !stopped, let store = controller.store, !store.state.ui.draft.attachments.contains(where: { $0.id == hash }) else { return }
         drafts[hash] = attachment
-        controller.dispatch(.attach(HomeMapping.attachment(attachment.ref, picture: media.asset(hash), progress: nil)))
+        // In the field's text at the caret (Draft+InlineMarks.swift); at the end when the field
+        // does not show this draft's text yet.
+        controller.dispatch(.attachAt(HomeMapping.attachment(attachment.ref, picture: media.asset(hash), progress: nil), controller.composeCaret()))
     }
 
     /// The field's attachments, in order.
@@ -535,7 +546,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
 
     func draftChanged() {
         if sendNotice == CmuxStrings.threadRootNotReady { sendNotice = nil }  // the user moved on
-        let text = controller.store?.state.ui.draft.text ?? ""
+        let text = controller.store?.state.ui.draft.plainText ?? ""  // without the attachment marks
         homeStore.setDraft(text, for: conversation)
         // My typing dots for the other members (HomeStore+Typing); off once the field is empty.
         homeStore.composing(text, in: conversation)
@@ -700,6 +711,10 @@ struct ProjectionCore {
 
     /// The actions from the shown snapshot to this one.
     mutating func step(items: [TranscriptItem], summary new: ConversationSummary?) -> HomeDiff {
+        // The shown snapshot again (a streamed token, typing, the activity line): nothing to diff.
+        // Mapping every row again cost 3.5 ms per token at 60 rows on the main thread, which a
+        // drag over the field waits for (DragWhileStreamingTests).
+        if items == shown, new == summary { return HomeDiff() }
         let d = HomeDiff.plan(old: shown, new: items, oldSummary: summary, newSummary: new, aliases: aliases, me: me, media: media, links: links,
                               handOff: streamingTurn)
         shown = items

@@ -20,6 +20,7 @@ nonisolated extension OmnibarStep {
         case .undo: undo(redo: false)
         case .redo: undo(redo: true)
         case .backspaceAtStart: backspaceAtStart()
+        case .searchWithDefaultEngine: searchWithDefaultEngine()
         }
     }
 
@@ -67,14 +68,24 @@ nonisolated extension OmnibarStep {
         if let fixed = typoFixedDestination {
             effects.append(.hostTypoFixed(typedHost: fixed.typedHost))
             effects.append(.typedNavigation(fixed.url))
+            noteHTTPSUpgrade(fixed.url, disposition)
             return commit(fixed.url, disposition)
         }
         guard let destination = commitDestination else {
             effects.append(.beep)
             return
         }
-        if let typed = typedDestination, typed == destination { effects.append(.typedNavigation(typed)) }
+        if let typed = typedDestination, typed == destination {
+            effects.append(.typedNavigation(typed))
+            if OmnibarRules.isHTTPSUpgrade(of: state.fieldText, to: typed, resolver: resolver.urlResolver) { noteHTTPSUpgrade(typed, disposition) }
+        }
         commit(destination, disposition)
+    }
+
+    /// A typed https upgrade loading in this tab may fall back to http.
+    private mutating func noteHTTPSUpgrade(_ url: URL, _ disposition: OmnibarInput.Disposition) {
+        guard disposition == .currentTab, url.scheme?.lowercased() == "https" else { return }
+        effects.append(.typedHTTPSUpgrade(url))
     }
 
     /// Control-Enter (Chromium `OmniboxEditModel::OnControlKeyChanged`,
@@ -92,6 +103,7 @@ nonisolated extension OmnibarStep {
             return enter(disposition)
         }
         effects.append(.typedNavigation(url))
+        noteHTTPSUpgrade(url, disposition)
         commit(url, disposition)
     }
 

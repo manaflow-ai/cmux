@@ -67,6 +67,10 @@ const RESPAWN_REASONS: &[&str] = &[
     // grace, or a SIGTERM reached it while orphaned (cx-3ryj): a host that
     // died without a daemon, so the next owner respawns it.
     "owner_gone",
+    // A host this owner could not adopt (an earlier build's, after an
+    // update) that died without recording its shell's end (#21088). A host
+    // whose shell ended by itself leaves an exit record and stays ended.
+    "unadoptable_host_ended",
 ];
 
 /// The owner's respawn state.

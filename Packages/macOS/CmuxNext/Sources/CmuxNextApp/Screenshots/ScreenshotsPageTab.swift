@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextBrowser
 import CmuxNextFileGrid
+import CmuxNextFiles
 import CmuxNextIcons
 import CmuxNextScreenshots
 import Foundation
@@ -31,7 +32,7 @@ final class ScreenshotsPageTab: BrowserTab {
     @ObservationIgnored var onClose: (() -> Void)?
 
     init(id: BrowserTabID, engine: BrowserEngineKind, profile: BrowserProfileID, model: ScreenshotsModel, cache: ThumbnailCache,
-         workspace: any FileGridWorkspace) {
+         workspace: any ScreenshotsWorkspace, files: any FileOperating) {
         self.id = id
         self.engineKind = engine
         self.profileID = profile
@@ -39,7 +40,7 @@ final class ScreenshotsPageTab: BrowserTab {
         state.phase = .finished
         self.state = state
         self.model = model
-        view = ScreenshotsView(model: model, cache: cache, workspace: workspace)
+        view = ScreenshotsView(model: model, cache: cache, workspace: workspace, files: files)
     }
 
     func load(_ url: URL) {

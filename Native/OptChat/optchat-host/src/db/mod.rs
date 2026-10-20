@@ -458,6 +458,19 @@ impl Db {
             .map(|id| id as u64)
     }
 
+    /// The key message `i` was logged with (`<conversation>#<seq>`), if any:
+    /// the reverse of [`Self::logged_id`].
+    pub fn logged_key(&self, i: u64) -> Option<String> {
+        if i >= self.t {
+            return None;
+        }
+        self.conn
+            .prepare_cached("SELECT conv_msg FROM messages WHERE id = ?1")
+            .and_then(|mut s| s.query_row([i as i64], |r| r.get::<_, Option<String>>(0)))
+            // crash-allow: a committed row that cannot be read means the disk is failing (see `message`).
+            .unwrap_or_else(|e| panic!("optchat: cannot read message {i}: {e}"))
+    }
+
     /// The stored ISO date of message `i`.
     pub fn date(&self, i: u64) -> Option<String> {
         if i >= self.t {
