@@ -34,7 +34,11 @@ public struct SubrouterCodexResumeRouting: Sendable, Equatable {
 
     private static let routingEnvironmentLimits = [
         "SUBROUTER_CODEX_ACCOUNT_ID": 256,
-        "SUBROUTER_CODEX_BASE_URL": 2048,
+        // The data-plane URL is deliberately not persisted. Subrouter may
+        // allocate a per-process localhost proxy (and hosted routes can be
+        // rotated); replaying it after quit/reopen strands the restored
+        // session on a dead endpoint. The resume command resolves a fresh
+        // route from the durable account/server identity instead.
         "SUBROUTER_CODEX_BIN": 4096,
         "SUBROUTER_CODEX_SERVER": 256,
         "SUBROUTER_CODEX_USER_EMAIL": 320,
@@ -44,6 +48,9 @@ public struct SubrouterCodexResumeRouting: Sendable, Equatable {
     /// routed launch record during restore.
     public static let restoreOwnedEnvironmentKeys: Set<String> = Set(routingEnvironmentLimits.keys)
         .union([
+            // Clear any inherited or request-side endpoint before launching;
+            // it is intentionally never restored from the snapshot.
+            "SUBROUTER_CODEX_BASE_URL",
             environmentKey,
             launchBoundEnvironmentKey,
             "CMUX_CUSTOM_CODEX_PATH",
@@ -73,8 +80,11 @@ public struct SubrouterCodexResumeRouting: Sendable, Equatable {
         return tokens.joined(separator: " ")
     }
 
-    /// Returns bounded, non-secret Subrouter routing inputs that may accompany
-    /// a trusted resume marker through structured restore metadata.
+    /// Returns bounded, non-secret Subrouter routing identity that may accompany
+    /// a trusted resume marker through structured restore metadata. The
+    /// data-plane URL is intentionally excluded: it can be a per-process
+    /// localhost proxy or a rotated hosted endpoint and must be resolved fresh
+    /// by Subrouter when the resume command runs.
     public func capturedRoutingEnvironment(in environment: [String: String]?) -> [String: String] {
         guard let environment else { return [:] }
         var selected: [String: String] = [:]
