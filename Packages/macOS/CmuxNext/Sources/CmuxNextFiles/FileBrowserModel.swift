@@ -289,6 +289,13 @@ public final class FileBrowserModel {
         selection = Set(entries[min(from, to)...max(from, to)].map(\.name))
     }
 
+    /// A layout's own selection change (click, arrows in a table): takes
+    /// `names`, and `cursor` when given.
+    public func adoptSelection(_ names: Set<String>, cursor: String?) {
+        if selection != names { selection = names }
+        if let cursor { self.cursor = cursor }
+    }
+
     /// Select All (Cmd+A).
     public func selectAll() { selection = Set(entries.map(\.name)) }
 

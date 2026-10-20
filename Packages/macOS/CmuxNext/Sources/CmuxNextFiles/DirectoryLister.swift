@@ -142,7 +142,7 @@ public struct DirectoryLister: DirectoryListing {
     }
 
     /// True for a folder name Finder shows as one item (by its extension's type).
-    static func isPackage(_ name: String) -> Bool {
+    public static func isPackage(_ name: String) -> Bool {
         let ext = (name as NSString).pathExtension
         guard !ext.isEmpty, let type = UTType(filenameExtension: ext) else { return false }
         return type.conforms(to: .package)

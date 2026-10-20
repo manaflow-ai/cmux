@@ -184,6 +184,8 @@ let package = Package(
             name: "CmuxNextApp",
             dependencies: [
                 "CmuxNextCompat",
+                "CmuxNextFiles",
+                "CmuxNextFilesUI",
                 "CmuxNextKeepAwake",
                 "CmuxNextChromiumWarmup",
                 "CmuxNextPhoneAccess",
@@ -594,6 +596,17 @@ let package = Package(
             name: "CmuxNextFilesTests",
             dependencies: ["CmuxNextFiles"],
             swiftSettings: daemonSwiftSettings
+        ),
+        // The Files pane's AppKit views over CmuxNextFiles: list (NSTableView), icons
+        // (NSCollectionView), columns (NSBrowser), path bar, Quick Look, drag in and out,
+        // the shared icon and thumbnail cache. The App hosts it as an internal page.
+        .target(
+            name: "CmuxNextFilesUI",
+            dependencies: ["CmuxNextFiles", "CmuxNextDesign", "CmuxNextCompat"],
+            resources: [
+                .process("Resources"),
+            ],
+            swiftSettings: uiSwiftSettings
         ),
         // Keep awake (sessions.keepAwake): one idle-sleep hold for the Keep Mac Awake
         // action and working local agents, released on battery unless the user

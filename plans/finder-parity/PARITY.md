@@ -13,9 +13,9 @@ Priority: P0 = first slice, P1 = next, P2 = later, P3 = only if asked.
 
 | # | Feature | Finder shortcut | Pri | Status |
 |---|---|---|---|---|
-| 1.1 | Icon view (grid of icons/thumbnails, size slider) | Cmd+1 | P0 | [ ] |
-| 1.2 | List view (columns: Name, Date Modified, Size, Kind; sortable headers) | Cmd+2 | P0 | [ ] |
-| 1.3 | Column view (Miller columns, preview column) | Cmd+3 | P0 | [ ] |
+| 1.1 | Icon view (grid of icons/thumbnails, size slider) | Cmd+1 | P0 | [~] |
+| 1.2 | List view (columns: Name, Date Modified, Size, Kind; sortable headers) | Cmd+2 | P0 | [x] |
+| 1.3 | Column view (Miller columns, preview column) | Cmd+3 | P0 | [~] |
 | 1.4 | Gallery view (big preview + filmstrip) | Cmd+4 | P1 | [ ] |
 | 1.5 | List view disclosure triangles (expand folders inline) | Right / Left, Opt+Right recursive | P1 | [ ] |
 | 1.6 | Extra list columns (Date Created, Last Opened, Date Added, Version, Comments, Tags) | View > Show View Options | P2 | [ ] |
@@ -30,16 +30,16 @@ Priority: P0 = first slice, P1 = next, P2 = later, P3 = only if asked.
 
 | # | Feature | Shortcut | Pri | Status |
 |---|---|---|---|---|
-| 2.1 | Open folder / open file with default app | Cmd+Down, Return-free double click | P0 | [ ] |
-| 2.2 | Enclosing folder | Cmd+Up | P0 | [ ] |
-| 2.3 | Back / Forward history | Cmd+[ / Cmd+] | P0 | [ ] |
-| 2.4 | Go to Folder sheet with path completion (Tab), `~` expansion, recents | Cmd+Shift+G | P0 | [ ] |
+| 2.1 | Open folder / open file with default app | Cmd+Down, Return-free double click | P0 | [x] |
+| 2.2 | Enclosing folder | Cmd+Up | P0 | [x] |
+| 2.3 | Back / Forward history | Cmd+[ / Cmd+] | P0 | [x] |
+| 2.4 | Go to Folder sheet with path completion (Tab), `~` expansion, recents | Cmd+Shift+G | P0 | [~] |
 | 2.5 | Go menu: Home, Desktop, Documents, Downloads, Applications, Utilities, Computer, Network, iCloud Drive, Recents, AirDrop | Cmd+Shift+H/D/O/L/A/U/C/K/I/F/R | P1 | [ ] |
 | 2.6 | Recent Folders | | P2 | [ ] |
-| 2.7 | Path bar (clickable segments, drag targets, Cmd+click opens) | Opt+Cmd+P | P0 | [ ] |
+| 2.7 | Path bar (clickable segments, drag targets, Cmd+click opens) | Opt+Cmd+P | P0 | [~] |
 | 2.8 | Title-bar path popup (Cmd+click title) | | P2 | [ ] |
-| 2.9 | Type-select (type the start of a name to select it) | | P0 | [ ] |
-| 2.10 | Arrow-key nav in all views, Shift extend, Cmd+A select all, Opt+Cmd+A deselect | | P0 | [ ] |
+| 2.9 | Type-select (type the start of a name to select it) | | P0 | [x] |
+| 2.10 | Arrow-key nav in all views, Shift extend, Cmd+A select all, Opt+Cmd+A deselect | | P0 | [x] |
 | 2.11 | Tab / Shift+Tab select next/prev alphabetically | | P1 | [ ] |
 | 2.12 | Spring-loaded folders on drag hover | | P2 | [ ] |
 | 2.13 | Open in new tab (Cmd+double-click), new window | Cmd+T / Cmd+N | P1 | [ ] (cmux tab model covers it) |
@@ -62,7 +62,7 @@ Priority: P0 = first slice, P1 = next, P2 = later, P3 = only if asked.
 | # | Feature | Shortcut | Pri | Status |
 |---|---|---|---|---|
 | 4.1 | Tabs (cmux pane tabs already do this) | Cmd+T | P0 | [x] (host) |
-| 4.2 | Status bar (N items, X available, selection count, icon-size slider) | Cmd+/ | P1 | [ ] |
+| 4.2 | Status bar (N items, X available, selection count, icon-size slider) | Cmd+/ | P1 | [~] |
 | 4.3 | Toolbar: back/forward, view switcher, group, share, tags, action menu, search | Opt+Cmd+T | P1 | [ ] |
 | 4.4 | Preview pane (right side, metadata, Quick Actions) | Shift+Cmd+P | P1 | [ ] |
 | 4.5 | Customize toolbar | | P3 | [ ] |
@@ -71,44 +71,44 @@ Priority: P0 = first slice, P1 = next, P2 = later, P3 = only if asked.
 
 | # | Feature | Shortcut | Pri | Status |
 |---|---|---|---|---|
-| 5.1 | Quick Look (space), full screen, arrow through selection, index sheet | Space, Opt+Space | P0 | [ ] |
+| 5.1 | Quick Look (space), full screen, arrow through selection, index sheet | Space, Opt+Space | P0 | [~] |
 | 5.2 | Get Info (kind, size, where, dates, comments, open with, permissions, locked, stationery, name & extension, preview) | Cmd+I | P1 | [ ] |
 | 5.3 | Inspector (live Get Info for selection) | Opt+Cmd+I | P2 | [ ] |
 | 5.4 | Show Package Contents | | P1 | [ ] |
-| 5.5 | Thumbnails (QLThumbnailGenerator, cached, off-main) | | P0 | [ ] |
+| 5.5 | Thumbnails (QLThumbnailGenerator, cached, off-main) | | P0 | [~] |
 | 5.6 | Change permissions/owner in Get Info | | P2 | [ ] |
 
 ## 6. File operations
 
 | # | Feature | Shortcut | Pri | Status |
 |---|---|---|---|---|
-| 6.1 | Rename inline (Return), extension-hide aware, select stem only | Return | P0 | [ ] |
+| 6.1 | Rename inline (Return), extension-hide aware, select stem only | Return | P0 | [x] |
 | 6.2 | Batch rename (Replace Text / Add Text / Format with index/counter/date) | | P1 | [ ] |
-| 6.3 | New Folder / New Folder with Selection | Shift+Cmd+N / Ctrl+Cmd+N | P0 | [ ] |
-| 6.4 | Move to Trash, with Put Back and Undo | Cmd+Delete | P0 | [ ] |
+| 6.3 | New Folder / New Folder with Selection | Shift+Cmd+N / Ctrl+Cmd+N | P0 | [x] |
+| 6.4 | Move to Trash, with Put Back and Undo | Cmd+Delete | P0 | [~] |
 | 6.5 | Delete Immediately | Opt+Cmd+Delete | P1 | [ ] |
 | 6.6 | Empty Trash (with confirm) | Shift+Cmd+Delete | P2 | [ ] |
-| 6.7 | Duplicate ("name copy") | Cmd+D | P0 | [ ] |
+| 6.7 | Duplicate ("name copy") | Cmd+D | P0 | [x] |
 | 6.8 | Make Alias / Symlink | Ctrl+Cmd+A | P1 | [ ] |
-| 6.9 | Copy / Cut-paste (Cmd+C, Cmd+Opt+V moves), Paste | Cmd+C/V, Opt+Cmd+V | P0 | [ ] |
-| 6.10 | Copy as Pathname | Opt+Cmd+C | P0 | [ ] |
-| 6.11 | Copy/move with progress, cancel, ETA (off-main, cancellable) | | P0 | [ ] |
-| 6.12 | Conflict UI: Keep Both / Stop / Replace / Apply to all, merge folders (Opt) | | P0 | [ ] |
-| 6.13 | Undo / Redo for rename, move, copy, trash, new folder | Cmd+Z / Shift+Cmd+Z | P0 | [ ] |
+| 6.9 | Copy / Cut-paste (Cmd+C, Cmd+Opt+V moves), Paste | Cmd+C/V, Opt+Cmd+V | P0 | [x] |
+| 6.10 | Copy as Pathname | Opt+Cmd+C | P0 | [x] |
+| 6.11 | Copy/move with progress, cancel, ETA (off-main, cancellable) | | P0 | [~] |
+| 6.12 | Conflict UI: Keep Both / Stop / Replace / Apply to all, merge folders (Opt) | | P0 | [x] |
+| 6.13 | Undo / Redo for rename, move, copy, trash, new folder | Cmd+Z / Shift+Cmd+Z | P0 | [x] |
 | 6.14 | Compress (zip) / expand archives | | P1 | [ ] |
 | 6.15 | Burn / create disk image | | P3 | [ ] |
 | 6.16 | Lock / unlock (uchg) | | P2 | [ ] |
 | 6.17 | Eject volume | Cmd+E | P1 | [ ] |
-| 6.18 | Show in Finder (escape hatch) | | P0 | [ ] |
+| 6.18 | Show in Finder (escape hatch) | | P0 | [x] |
 
 ## 7. Drag and drop
 
 | # | Feature | Pri | Status |
 |---|---|---|---|
-| 7.1 | Drag files out to other apps, terminals, chat composer (file URLs) | P0 | [ ] |
-| 7.2 | Drop files in (copy across volumes, move on same volume) | P0 | [ ] |
-| 7.3 | Modifiers: Opt = copy, Cmd = move, Opt+Cmd = alias; cursor badge | P0 | [ ] |
-| 7.4 | Drop onto folder rows, path bar segments, sidebar | P1 | [ ] |
+| 7.1 | Drag files out to other apps, terminals, chat composer (file URLs) | P0 | [x] |
+| 7.2 | Drop files in (copy across volumes, move on same volume) | P0 | [x] |
+| 7.3 | Modifiers: Opt = copy, Cmd = move, Opt+Cmd = alias; cursor badge | P0 | [x] |
+| 7.4 | Drop onto folder rows, path bar segments, sidebar | P1 | [~] |
 | 7.5 | File promises (NSFilePromiseReceiver: from Photos, Mail, screenshot thumbnails) | P1 | [ ] |
 | 7.6 | Rubber-band (marquee) selection in icon view | P1 | [ ] |
 | 7.7 | Drag to dock/trash | P3 | n/a |
@@ -117,7 +117,7 @@ Priority: P0 = first slice, P1 = next, P2 = later, P3 = only if asked.
 
 | # | Feature | Shortcut | Pri | Status |
 |---|---|---|---|---|
-| 8.1 | Filter current folder by name (instant, in-memory) | Cmd+F | P0 | [ ] |
+| 8.1 | Filter current folder by name (instant, in-memory) | Cmd+F | P0 | [x] |
 | 8.2 | Spotlight search (NSMetadataQuery / mdfind), scope This Mac vs current folder | Cmd+F | P1 | [ ] |
 | 8.3 | Search tokens: Kind, Name matches, Contents, Date, Tags; raw query (`kMDItem...`) | | P1 | [ ] |
 | 8.4 | Smart Folders (saved searches, `.savedSearch` read + write) | Opt+Cmd+N | P2 | [ ] |
@@ -129,8 +129,8 @@ Priority: P0 = first slice, P1 = next, P2 = later, P3 = only if asked.
 
 | # | Feature | Pri | Status |
 |---|---|---|---|
-| 9.1 | Open (default app) / Open With submenu / Other… / Always Open With | P0 open, P1 Open With | [ ] |
-| 9.2 | Open in cmux: text and Markdown in cmux viewer, folder in terminal (cmux-native extras) | P0 | [ ] |
+| 9.1 | Open (default app) / Open With submenu / Other… / Always Open With | P0 open, P1 Open With | [~] |
+| 9.2 | Open in cmux: text and Markdown in cmux viewer, folder in terminal (cmux-native extras) | P0 | [~] |
 | 9.3 | Share menu (NSSharingServicePicker), AirDrop | P2 | [ ] |
 | 9.4 | Services menu, Quick Actions (Rotate, Markup, Create PDF, Convert Image, Trim) | P2 | [ ] |
 | 9.5 | Finder Sync extensions (Dropbox badges) | P3 | n/a |
@@ -141,18 +141,17 @@ Priority: P0 = first slice, P1 = next, P2 = later, P3 = only if asked.
 
 | # | Feature | Shortcut | Pri | Status |
 |---|---|---|---|---|
-| 10.1 | Show hidden files | Cmd+Shift+. | P0 | [ ] |
+| 10.1 | Show hidden files | Cmd+Shift+. | P0 | [x] |
 | 10.2 | Show all filename extensions (setting) | | P1 | [ ] |
-| 10.3 | Sort folders first (setting) | | P1 | [ ] |
-| 10.4 | Live updates when files change (FSEvents) | | P0 | [ ] |
+| 10.3 | Sort folders first (setting) | | P1 | [~] |
+| 10.4 | Live updates when files change (FSEvents) | | P0 | [x] |
 | 10.5 | Localized display names (Desktop → "Desktop" in Japanese) | | P1 | [ ] |
-| 10.6 | Context menus matching Finder's order | | P0 | [ ] |
-| 10.7 | Light/dark, accessibility (VoiceOver labels, keyboard only) | | P0 | [ ] |
+| 10.6 | Context menus matching Finder's order | | P0 | [~] |
+| 10.7 | Light/dark, accessibility (VoiceOver labels, keyboard only) | | P0 | [~] |
 
 ## Count
 
-Items: 90 (excluding n/a). P0: 37. Done: tracked at the bottom of this file
-by the agent after each push.
+Rows: 90 (2 n/a). P0: 33. Progress: see "Slice 1 notes".
 
 ## Performance baseline (2026-10-19, Lawrence's Mac, load avg 14-17)
 
@@ -178,6 +177,55 @@ Notes:
   visible rows exist), filter-as-you-type < 16 ms per key at 10k.
 - Measured numbers for the pane are appended under "Pane results".
 
+## Slice 1 notes (what `[x]` and `[~]` mean today)
+
+- `[~]` partial: 1.1 no icon-size slider; 1.3 no preview column; 2.4 no Tab
+  completion in the sheet (the resolver has `completions`, not wired); 2.7
+  NSPathControl, segments click but are not drop targets; 4.2 status line
+  without free space; 5.1 Space and arrows, no full screen or index sheet; 5.5
+  thumbnails in icon view only; 6.4 Undo puts back, no Put Back menu item in
+  the Trash; 6.11 progress shows in the status line, no Cancel button yet; 7.4
+  folder rows and tiles take drops, path bar and sidebar do not; 9.1 Open uses
+  the default app, no Open With submenu; 9.2 text and code open in cmux's
+  viewer, folders not yet "open in terminal"; 10.3 folders-first exists in the
+  model, no setting; 10.6 menus cover the slice's commands only; 10.7 VoiceOver
+  comes from AppKit tables, not audited.
+- Keys that keep their cmux meaning inside a Files pane: Cmd+D (split; use the
+  menu's Duplicate), Cmd+1/2/3 (workspaces; Files uses Ctrl+Cmd+1/2/3 for
+  icons/list/columns), Cmd+[ and Cmd+] (cmux page history, which the pane
+  plugs into, so they do step through folders).
+- Of 88 countable items (90 rows, 2 n/a): `[x]` 21, `[~]` 15. Parity by
+  weight (`[~]` = half): (21 + 7.5) / 88 = 32%. P0 rows only (33): (21 + 6) / 33 = 82%.
+  `[x]` means built and unit-tested in the model; none is verified in a running app yet.
+
+## Shared core for the Screenshots pane
+
+The Screenshots pane (worktree `screenshots-pane`) should not list, watch or
+draw files on its own. Use:
+
+- `CmuxNextFiles`: `DirectoryLister` (or `DirectoryListing` for a fake),
+  `FolderWatcher` (`FolderChange.items([name])` per child), `FileSortOrder(field: .created, ascending: false)` for newest first,
+  `FileOperator` for trash, rename and copy with Undo via `FileBrowserModel`.
+- `CmuxNextFilesUI`: `FileIconProvider` (shared type icons and
+  `QLThumbnailGenerator` thumbnails with an `NSCache`), `FilePasteboard`, and
+  the icon grid (`FileIconGridView`, internal today; make it `public` when the
+  Screenshots pane imports it, or ask in plans/finder-parity/PARITY.md).
+- A Screenshots pane is a `FileBrowserModel` per folder (Desktop, the
+  `com.apple.screencapture location`, `$TMPDIR/../TemporaryItems/NSIRD_screencaptureui_*`, CleanShot's folder) merged newest first.
+
 ## Pane results
 
-(filled in by the agent as slices land)
+Measured 2026-10-19 on Lawrence's Mac (load average 14-17, so all numbers are
+noisy upper bounds), with the core compiled `-O` outside the app
+(`/tmp/finder-parity-scripts/filesbench`):
+
+| Operation | 10k | 100k | Finder (same folder) |
+|---|---|---|---|
+| List (`DirectoryLister.listSync`) | 25-44 ms | 324-461 ms | `count items`: 353-865 ms / 816-8 019 ms |
+| Sort by name (flat key, index sort) | 2 ms | 29-32 ms | (inside its 56 s `name of every item`) |
+| Sort by date | 1 ms | 18-25 ms | |
+| Filter one keystroke (ASCII byte match) | 5 ms (before byte matcher) | 52-64 ms (before byte matcher) | |
+| Scroll | NSTableView reuses cells: rows on screen only | same | |
+
+Not measured yet: first paint inside the app (needs a running build), scroll
+frame times, filter with the new byte matcher.
