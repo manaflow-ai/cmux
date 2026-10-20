@@ -44,6 +44,7 @@ import Testing
         let defaults = UserDefaults(suiteName: "UpdateCheckFeedbackTests.\(UUID().uuidString)")!
         let updater = UpdaterService(identity: identity, policy: ManagedUpdatePolicy { false }, prober: UpdateProber(fetcher: feed),
                                      defaults: defaults, enableSparkle: false, recordsUpdates: false)
+        updater.announcementsFetch = false
         updater.start()
         return updater
     }
