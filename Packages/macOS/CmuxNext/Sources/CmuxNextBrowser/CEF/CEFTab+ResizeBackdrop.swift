@@ -12,8 +12,9 @@ import AppKit
 /// (`BrowserResizeTunables.pageBackdrop`).
 extension CEFTab {
     /// The document's background as `[r, g, b]` (0-255): the root element's,
-    /// else the body's (CSS propagates it to the canvas), blended over
-    /// Chromium's white when translucent; white when neither has one. A 1x1
+    /// else the body's (CSS propagates it to the canvas); white when neither
+    /// has one; null when the first one set is translucent (Chromium's white
+    /// base stays, since the page paints its color over that base). A 1x1
     /// canvas turns any CSS color syntax into sRGB bytes.
     static let pageBackdropScript = """
     (() => {
@@ -28,8 +29,8 @@ extension CEFTab {
         context.fillRect(0, 0, 1, 1);
         const [r, g, b, a] = context.getImageData(0, 0, 1, 1).data;
         if (a === 0) continue;
-        const alpha = a / 255;
-        return [r, g, b].map((value) => Math.round(value * alpha + 255 * (1 - alpha)));
+        // Translucent: the page paints it over Chromium's base, so a base of the same color would darken it.
+        return a === 255 ? [r, g, b] : null;
       }
       return [255, 255, 255];
     })()

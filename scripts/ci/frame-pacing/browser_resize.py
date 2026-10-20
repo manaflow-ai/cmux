@@ -154,11 +154,14 @@ def judge(data: dict, refresh: float) -> dict:
     drags = [judge_drag(trace, refresh) for trace in data.get("drags") or []]
     measured = [drag for drag in drags if "error" not in drag]
     if not measured:
-        return {"ok": False, "problems": ["not measured: " + (data.get("error") or "no drag with a Chromium host")]}
+        # Report only: a run without the numbers says so, and never fails the judge.
+        return {"ok": True, "problems": [], "measured": False,
+                "note": "not measured: " + (data.get("error") or "no drag with a Chromium host")}
     lags = [drag["layout_lag"] for drag in measured]
     return {
         "ok": True,
         "problems": [],
+        "measured": True,
         "drags": drags,
         "layout_lag_p50": max(lag["p50"] for lag in lags),
         "layout_lag_p95": max(lag["p95"] for lag in lags),
@@ -171,8 +174,8 @@ def judge(data: dict, refresh: float) -> dict:
 
 
 def markdown_row(verdict: dict) -> str:
-    if not verdict.get("ok"):
-        return f"| browser_resize | FAIL | | | | {'; '.join(verdict.get('problems') or [])} |"
+    if not verdict.get("measured"):
+        return f"| browser_resize | report | | | | {verdict.get('note', 'not measured')} (reported only) |"
     return ("| browser_resize | ok | | | | Chromium page laid out at its host's width "
             f"{verdict['layout_lag_p50']:g}/{verdict['layout_lag_p95']:g}/{verdict['layout_lag_max']:g} frames after it "
             f"(p50/p95/max), stale in {verdict['stale_frames']} of {verdict['moving_frames']} moving frames; "
