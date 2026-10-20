@@ -132,6 +132,20 @@ struct AgentPaneGitReviewThreadsTests {
         #expect(unknown.map { $0["moved"] as? Bool } == [true, true])
     }
 
+    /// Reading review-thread placement is not permission for repository-selected programs to run.
+    @Test func readingThreadsDoesNotRunAConfiguredFileSystemMonitor() async throws {
+        let rig = try Self.rig()
+        let helper = rig.folder + "/fsmonitor"
+        let marker = helper + ".ran"
+        try "#!/bin/sh\n: > \"$0.ran\"\nexit 0\n".write(toFile: helper, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: helper)
+        try Self.git(rig.folder, "config", "core.fsmonitor", helper)
+
+        let request = try #require(AgentPaneGitPullRequest(params: ["cwd": rig.folder, "action": "threads"]))
+        _ = await AgentPaneGitPullRequest.reply(to: request, in: Self.model(rig.folder), gh: rig.gh)
+        #expect(!FileManager.default.fileExists(atPath: marker))
+    }
+
     /// The branch's merged or closed pull request is not this work: its threads are not shown.
     @Test func aMergedPullRequestsThreadsAreNotShown() async throws {
         let rig = try Self.rig(state: "MERGED")
