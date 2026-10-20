@@ -1,6 +1,7 @@
 import { previewAttachmentsOf, type PreviewAttachments } from "./attachments.ts"
 import type { Commit, OpRequest } from "./request.ts"
 import type { ConversationHead, ConversationKind, Message, Participant } from "./types.ts"
+import { focusOf, isLarge } from "./large.ts"
 import { currentParticipants, findParticipant, utf8Bytes } from "./validate.ts"
 
 /**
@@ -45,6 +46,8 @@ export interface InboxBump {
   readonly last_mention?: true
   /** This user's `joined_seq`: messages at or before it were history when the user joined. */
   readonly joined_seq?: number
+  /** A large group (large.ts): the inbox pulls this row's fields from the conversation when it lists. */
+  readonly large?: true
 }
 
 export type WakeReason = "dm" | "mention" | "reply"
@@ -100,6 +103,8 @@ export interface FanOutInput {
   readonly commit: Commit
   /** Counts per user before this commit, when the host has them. */
   readonly counts?: Readonly<Record<string, UnreadCounts>>
+  /** The commit that promotes a group to the large tier bumps every member once, so each inbox learns it. */
+  readonly everyone?: boolean
 }
 
 const textOf = (message: Message): string =>
@@ -200,7 +205,7 @@ const ROW_CHANGING = new Set([
 ])
 
 /** The fan-out intent of one commit. */
-export const fanOut = ({ before, request, commit, counts }: FanOutInput): FanOut => {
+export const fanOut = ({ before, request, commit, counts, everyone }: FanOutInput): FanOut => {
   const head = commit.head
   const op = request.op
   const message = commit.message
@@ -222,6 +227,9 @@ export const fanOut = ({ before, request, commit, counts }: FanOutInput): FanOut
     const mentionChange = old ? !sameSet(mentionsOf(old), mentionsOf(message)) : false
     if (isLast || mentionChange) recipients = nowHumans
   } else if (op.kind === "read_cursor.set" && nowHumans.includes(request.actor)) recipients = [request.actor]
+  // A large group bumps only the people the commit names; everyone else pulls (large.ts).
+  const focus = isLarge(head) && everyone !== true ? focusOf(request, message) : null
+  if (focus) recipients = recipients.filter((user) => focus.has(user))
 
   const countFor = (user: string): UnreadCounts | undefined => {
     if (op.kind === "read_cursor.set" && op.seq === head.last_seq) return { unread: 0, mentions: 0 }
@@ -266,10 +274,12 @@ export const fanOut = ({ before, request, commit, counts }: FanOutInput): FanOut
       // Only an agent asks for approval, and only its owner can decide it (home.md section 5).
       ...(author?.kind === "agent" && author.owner_user === user && lastMessage && hasApprovalPart(lastMessage) ? { last_approval: true as const } : {}),
       ...(author && lastMessage && mentionsOf(lastMessage).has(user) ? { last_mention: true as const } : {}),
-      ...(joined === undefined ? {} : { joined_seq: joined })
+      ...(joined === undefined ? {} : { joined_seq: joined }),
+      ...(isLarge(head) ? { large: true as const } : {})
     }
   }
-  const bumps = [...recipients.map((user) => row(user, false)), ...(ROW_CHANGING.has(op.kind) ? removed.map((user) => row(user, true)) : [])]
+  const gone = focus ? removed.filter((user) => focus.has(user)) : removed
+  const bumps = [...recipients.map((user) => row(user, false)), ...(ROW_CHANGING.has(op.kind) ? gone.map((user) => row(user, true)) : [])]
 
   const wakes = op.kind === "message.send" && message ? wakesFor(head, message, request.reply_target) : []
   const search =
