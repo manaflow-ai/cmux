@@ -199,8 +199,9 @@ nonisolated enum BrowserActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "palette.browserClearHistory",
                 title: String(localized: "action.palette.browserClearHistory", defaultValue: "Clear Browser History", bundle: .module),
-                keywords: ["browser", "privacy"], category: .browser, symbol: "clock.badge.xmark", surfaces: [.palette],
-                targets: [.pane], cliName: "browser clear-history"
+                keywords: ["browser", "privacy", "clear", "delete"], category: .browser, symbol: "clock.badge.xmark", surfaces: [.palette],
+                arguments: [HistoryActionCatalog.historyRange, CatalogArgument.browserProfile],
+                targets: [.pane], cliName: "browser clear-history", destructive: true
             ),
             {
                 // Person-only and no CLI verb (PASSWORDS-IMPORT-ANY-BROWSER): an agent must not put
