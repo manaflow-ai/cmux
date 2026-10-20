@@ -38,15 +38,38 @@ public nonisolated struct TerminalGridPolicy: Sendable {
 
     /// The view now fits `grid`. Returns the grid to report, if any: each
     /// distinct grid once, or again when `force` is set (a new owner).
+    ///
+    /// `holding`: the view is on a layout spring (a Cmd-Shift-Enter zoom, a split, a close), so
+    /// its size changes on every display frame. The grid is not reported then: each report is a
+    /// PTY resize, a shell redraw and a reflow at the owner, and announcements arriving frames
+    /// behind the view made the zoom stutter and its text jump. ``releaseHeld()`` reports the
+    /// last held grid once, when the spring lands.
     public mutating func viewSized(_ grid: TerminalGridSize, force: Bool = false, holding: Bool = false) -> TerminalGridSize? {
         desired = grid
-        guard ownsGeometry, force || grid != reported else { return nil }
+        guard ownsGeometry, force || heldForce || grid != reported else {
+            held = false
+            return nil
+        }
+        guard !holding else {
+            held = true
+            heldForce = heldForce || force
+            return nil
+        }
+        (held, heldForce) = (false, false)
         reported = grid
         return grid
     }
 
-    /// The layout spring landed: the grid held while it moved (not yet held: red test commit).
-    public mutating func releaseHeld() -> TerminalGridSize? { nil }
+    /// Whether a grid waits for ``releaseHeld()``.
+    public private(set) var held = false
+    private var heldForce = false
+
+    /// The layout spring landed: the grid held while it moved, to report once (nil when none
+    /// waits or the view is back at the reported grid).
+    public mutating func releaseHeld() -> TerminalGridSize? {
+        guard held, let desired else { return nil }
+        return viewSized(desired)
+    }
 
     /// The PTY owner announced `grid` at this point in the stream.
     public mutating func announce(_ grid: TerminalGridSize) {
