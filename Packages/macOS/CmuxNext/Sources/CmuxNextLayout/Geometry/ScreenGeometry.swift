@@ -123,7 +123,8 @@ public nonisolated struct ScreenGeometry: Hashable, Sendable {
                 geometry.columnEdges.append(ColumnEdgeGeometry(
                     column: column.id,
                     columnFrame: frame,
-                    hitFrame: CGRect(x: gapMid - edgeHit / 2, y: stripY, width: edgeHit, height: stripH)
+                    hitFrame: DividerBand(axis: .horizontal, center: gapMid, lineThickness: style.columnEdgeLineThickness,
+                                          hitThickness: edgeHit, crossStart: stripY, crossLength: stripH, scale: scale).hit
                 ))
                 geometry.gapZones.append(ColumnGapZone(after: column.id, frame: CGRect(x: gapMid - dropWidth / 2, y: stripY, width: dropWidth, height: stripH)))
             }
@@ -151,26 +152,26 @@ public nonisolated struct ScreenGeometry: Hashable, Sendable {
         fixedPanes.formUnion(result.panes.keys)
         dividers.append(contentsOf: result.dividers)
         fixedSplits.formUnion(result.dividers.map(\.id))
-        let edgeHit = style.columnEdgeHitThickness
-        // A top or bottom dock's handle is a horizontal line on its inner
-        // edge, dragged up and down (layout-model.md, dock resize).
-        if entry.dock.edge.isBand {
-            let y = entry.dock.edge == .top ? entry.frame.maxY - edgeHit + 1 : entry.frame.minY - 1
-            columnEdges.append(ColumnEdgeGeometry(
-                column: column.id, columnFrame: entry.frame,
-                hitFrame: CGRect(x: entry.frame.minX, y: y, width: entry.frame.width, height: edgeHit),
-                dockEdge: entry.dock.edge, axis: .vertical
-            ))
-            return
+        // The handle is centered on the strip gap beside the dock's inner
+        // edge (`DockStripGeometry.place` leaves one `stripGap` there), like
+        // every other handle: its line draws in the middle of the space
+        // between the dock's panes and the strip's (u2345). Where the strip's
+        // last column sits flush with a right dock, its own edge handle lies
+        // under this one and the dock takes that gap's drag (`rank`).
+        let gap = style.stripGap
+        let axis: SplitAxis = entry.dock.edge.isBand ? .vertical : .horizontal
+        let center = switch entry.dock.edge {
+        case .left: entry.frame.maxX + gap / 2
+        case .right: entry.frame.minX - gap / 2
+        case .top: entry.frame.maxY + gap / 2
+        case .bottom: entry.frame.minY - gap / 2
         }
-        // The handle sits on the column's own inner edge, so the gap beside
-        // it stays with the neighboring strip column's handle (both resize).
-        let x = entry.dock.edge == .left ? entry.frame.maxX - edgeHit + 1 : entry.frame.minX - 1
-        columnEdges.append(ColumnEdgeGeometry(
-            column: column.id, columnFrame: entry.frame,
-            hitFrame: CGRect(x: x, y: entry.frame.minY, width: edgeHit, height: entry.frame.height),
-            dockEdge: entry.dock.edge
-        ))
+        let band = DividerBand(axis: axis, center: center, lineThickness: style.columnEdgeLineThickness,
+                               hitThickness: style.columnEdgeHitThickness,
+                               crossStart: axis == .horizontal ? entry.frame.minY : entry.frame.minX,
+                               crossLength: axis == .horizontal ? entry.frame.height : entry.frame.width, scale: scale)
+        columnEdges.append(ColumnEdgeGeometry(column: column.id, columnFrame: entry.frame, hitFrame: band.hit,
+                                              dockEdge: entry.dock.edge, axis: axis))
     }
 
     /// A column's panes and dividers in `frame`: its split tree, or its rows
@@ -183,7 +184,7 @@ public nonisolated struct ScreenGeometry: Hashable, Sendable {
                                              minimumHeights: column.rows.map { SplitGeometry.minimumSize(of: $0.root, style: style).height },
                                              in: frame, gap: style.stripGap, fits: !style.rowsEnabled, scale: scale)
         rowStacks[column.id] = stack
-        rowEdges.append(contentsOf: stack.edges(thickness: style.columnEdgeHitThickness))
+        rowEdges.append(contentsOf: stack.edges(lineThickness: style.dividerThickness, hitThickness: style.columnEdgeHitThickness, scale: scale))
         var result = SplitLayoutResult()
         for (row, placed) in zip(column.rows, stack.rows) {
             let inner = SplitGeometry.layout(row.root, in: placed.frame, style: style, scale: scale)
