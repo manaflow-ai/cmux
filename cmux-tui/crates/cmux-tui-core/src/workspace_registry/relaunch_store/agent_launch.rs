@@ -124,13 +124,13 @@ pub(crate) fn job_is_non_interactive(
                 _ => CODEX_NON_INTERACTIVE.contains(&argument),
             };
         }
-        let flag = argument.split_once('=').map_or(argument, |(flag, _)| flag);
+        let (flag, inline) = split_flag(harness, argument);
         match (harness, flag) {
             ("claude", "-p" | "--print" | "-v" | "--version" | "-h" | "--help")
             | ("codex", "-V" | "--version" | "-h" | "--help") => return true,
             _ => {}
         }
-        if argument.contains('=') {
+        if inline.is_some() {
             continue;
         }
         // A flag's values are not the first word; an unknown flag may take one.
@@ -281,6 +281,24 @@ fn takes(harness: &str, flag: &str) -> Option<Takes> {
     }
 }
 
+/// `argument` as its flag and the value given with it: `--flag=value`, or a
+/// short flag that takes a value with the value attached (`-cKEY=VALUE`,
+/// `-mgpt-5.5`); else the whole argument and none.
+fn split_flag<'a>(harness: &str, argument: &'a str) -> (&'a str, Option<&'a str>) {
+    if let Some((flag, value)) = argument.split_once('=')
+        && flag.starts_with("--")
+    {
+        return (flag, Some(value));
+    }
+    if !argument.starts_with("--") && argument.len() > 2 && argument.is_char_boundary(2) {
+        let (flag, value) = argument.split_at(2);
+        if matches!(takes(harness, flag), Some(Takes::One | Takes::Many)) {
+            return (flag, Some(value));
+        }
+    }
+    (argument, None)
+}
+
 /// Whether the value of `flag` is inline configuration (JSON for Claude
 /// Code's `--settings`, `--mcp-config` and `--agents`, TOML for Codex's
 /// `-c`), which can hold a credential that no shape check finds: never kept.
@@ -318,26 +336,24 @@ fn session_free(harness: &str, args: &[String]) -> Option<Vec<String>> {
             if first_word {
                 first_word = false;
                 match (harness, argument) {
-                    // `codex resume <id>` or `codex resume --last`: the session is picked anew.
-                    ("codex", "resume") => {
+                    // `codex resume <id>`, `codex resume --last` or `codex fork
+                    // <id>`: the session is picked anew.
+                    ("codex", "resume" | "fork") => {
                         if args.get(index).is_some_and(|next| !next.starts_with('-')) {
                             index += 1;
                         }
                         continue;
                     }
-                    // Codex: no subcommand, or `resume`. A first word may be a
-                    // subcommand this list does not know.
-                    ("codex", _) => return None,
+                    // A Codex first word that is not a known subcommand is the
+                    // session's first prompt, dropped like Claude's.
+                    ("codex", word) if CODEX_NON_INTERACTIVE.contains(&word) => return None,
                     ("claude", word) if CLAUDE_SUBCOMMANDS.contains(&word) => return None,
                     _ => {}
                 }
             }
             continue; // A prompt.
         }
-        let (flag, inline) = match argument.split_once('=') {
-            Some((flag, value)) if flag.starts_with("--") => (flag, Some(value)),
-            _ => (argument, None),
-        };
+        let (flag, inline) = split_flag(harness, argument);
         match (harness, flag) {
             ("claude", "-p" | "--print" | "-v" | "--version" | "-h" | "--help")
             | ("codex", "-V" | "--version" | "-h" | "--help") => return None,
@@ -573,6 +589,7 @@ mod tests {
                 "-c",
                 "mcp_servers.x.env={API=\"1\"}",
                 "--config=a=b",
+                r#"-csandbox_mode="danger-full-access""#,
                 "-m",
                 "gpt",
             ]),
@@ -585,7 +602,15 @@ mod tests {
     #[test]
     fn codex_runs_only_without_a_subcommand_or_as_resume() {
         assert!(agent_launch_from_job("codex", &strings(&["codex", "cloud"]), &[]).is_none());
-        assert!(agent_launch_from_job("codex", &strings(&["codex", "fix it"]), &[]).is_none());
+        // An interactive session started with its first prompt keeps its flags and account.
+        let prompted = agent_launch_from_job(
+            "codex",
+            &strings(&["codex", "-m", "gpt", "fix the bug"]),
+            &env(&[("CODEX_HOME", "/accounts/work")]),
+        )
+        .unwrap();
+        assert_eq!(prompted.args, strings(&["-m", "gpt"]));
+        assert_eq!(prompted.env, env(&[("CODEX_HOME", "/accounts/work")]));
         assert!(
             agent_launch_from_job("claude", &strings(&["claude", "mcp", "list"]), &[]).is_none()
         );

@@ -22,8 +22,8 @@
 //!   `name=value` argument with a secret name, a known token prefix, a long
 //!   high-entropy value, a bearer token or URL password in a script, or a
 //!   control character is not stored at all (dropping arguments would change
-//!   what the command does), and neither is one over [`ARGV_CAP`] bytes. The argv is only typed on the new prompt, never with a
-//!   newline, so it never runs on its own. It is not copied into the closed
+//!   what the command does), and neither is one over [`ARGV_CAP`] bytes. The argv is never typed or run
+//!   again: the marker line only names it. It is not copied into the closed
 //!   history: reopen never runs a command again, so it has no use there.
 //! - `env`: values of the named keys in [`ENV_KEYS`] only, minus any key that
 //!   names a secret ([`names_secret`]).

@@ -1096,7 +1096,7 @@ def seed_tagents():
     tui = daemon_binary() or ""
     for provider in CLI_AGENTS:
         # On PATH as `claude` / `codex`. The wrapper names the log and the app's cmux-tui itself, so
-        # a resume typed by the app after a reboot (with no variables of ours) still reports.
+        # a resume run by the app after a reboot (with no variables of ours) still reports.
         exe = os.path.join(bindir, provider)
         with open(exe, "w") as f:
             f.write("#!/bin/sh\n"
