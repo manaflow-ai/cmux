@@ -2849,6 +2849,12 @@
       "title" : "More Screenshot Folders",
       "type" : "array"
     },
+    "sessions.allowFullAccess" : {
+      "default" : true,
+      "description" : "Off, cmux won't switch an agent into a mode that skips approvals.",
+      "title" : "Allow Full-Access Modes",
+      "type" : "boolean"
+    },
     "sessions.keepAwake" : {
       "default" : "pluggedIn",
       "description" : "Stops idle sleep while an agent on this Mac is working. Your display can still turn off, and closing the lid still puts the Mac to sleep.",
