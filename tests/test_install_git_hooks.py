@@ -227,7 +227,7 @@ class InstallGitHooksTests(unittest.TestCase):
         """Only the tools the hook needs on PATH, plus a recording rustfmt."""
         bin_dir = self.root / ("bin-rustfmt" if with_rustfmt else "bin-plain")
         bin_dir.mkdir(exist_ok=True)
-        for tool in ("git", "bash", "sh", "sed", "awk", "grep", "cut", "sort", "head", "cat", "env", "dirname", "basename", "mktemp", "rm", "mkdir", "rmdir", "find"):
+        for tool in ("git", "bash", "sh", "sed", "awk", "grep", "cut", "sort", "head", "cat", "env", "dirname", "basename", "mktemp", "rm", "mv", "mkdir", "rmdir", "find"):
             found = shutil.which(tool)
             if found and not (bin_dir / tool).exists():
                 (bin_dir / tool).symlink_to(found)
