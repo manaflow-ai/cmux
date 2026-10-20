@@ -85,6 +85,16 @@ extension HomeService {
         HomeGroupActions(store: homeStore, muting: groupMuting, contacts: { [weak self] in self?.contacts() ?? [] })
     }
 
+    /// The one path every "Send Message…" entry point resolves its chat through (right-click
+    /// rows, Send to Chief, Forward…, `cmux chat send`, MCP): AppActions+HomeMessaging.
+    var messageRouting: HomeMessageRouting {
+        HomeMessageRouting(store: homeStore, actions: groupActions,
+                           chief: { [weak self] in
+            guard let self, let chief = TopHomePageView.chief(self) else { return nil }
+            return ConversationID(chief)
+        })
+    }
+
     /// The Home sidebar's data source (the vendored MessagesLab sidebar reads it):
     /// choosing a row shows its conversation on the Home page, a person starts a DM.
     func makeSidebarSource() -> HomeSidebarSource {
@@ -93,7 +103,8 @@ extension HomeService {
             store: HomePinStore(), inboxes: [homeInbox, homeCloudInbox], account: { [weak self] in self?.pinAccount ?? "local" },
             rows: { [weak self] in TopHomePageView.visible(store.rows, archivedChiefs: self?.directory.archivedChiefs ?? [], me: store.me?.id) },
             me: { store.me?.id }, contacts: { [weak self] in self?.contacts() ?? [] },
-            chiefAvatar: { [weak self] in self?.directory.chiefAvatar },
+            chiefAvatars: { [weak self] in self?.directory.chiefAvatars ?? [:] },
+            defaultChiefAvatar: { HomeHostView.defaultTileAvatar },
             chiefHarnesses: { [weak self] in self?.directory.chiefHarnesses ?? [:] },
             chiefRoster: { [weak self] in self?.chiefRoster ?? HomeChiefRoster() })
         source.onSelect = { [weak self] id in self?.pendingSelection = id }
@@ -111,14 +122,19 @@ extension HomeService {
         return auth.user.map { CloudIdentity.workerUserID(stackProjectID: auth.configuration.stackProjectID, stackUserID: $0.id) } ?? "local"
     }
 
-    /// Reads the Chief's avatar for its tile (profile.json's picture, else
-    /// its text, else 🫡), as the Chief header does.
-    func refreshChiefAvatar() {
-        let files = HomeChiefFiles(muxHome: HomeBrainHost.muxHome(tag: services.environment.tag))
-        // task-owner: one profile read off the main actor; ends when it is set
+    /// Reads each listed local Chief's own avatar for its tile (its picture in the daemon's
+    /// Chief registry, which the profile and chiefs tools write, else its profile.json text;
+    /// none: 🫡), as each Chief's header does. A Chief's picture never shows on another's row.
+    func refreshChiefAvatars() {
+        let chiefs = Set(homeStore.rows.filter { !isCloudConversation($0.id) }
+            .flatMap { $0.summary.participants.filter(\.isChief).map(\.id.rawValue) })
+        let reader = HomeChiefAvatars(muxHome: HomeBrainHost.muxHome(tag: services.environment.tag),
+                                      registry: DaemonChiefAvatarRegistry(connection: connection))
+        // task-owner: one read of a few small files off the main actor; ends when it is set
         Task { [weak self] in
-            let avatar = await Task.detached { files.tileAvatar() }.value
-            self?.directory.chiefAvatar = HomeChiefAvatar.resolved(avatar)
+            let avatars = await reader.read(chiefs: chiefs)
+            guard let self, directory.chiefAvatars != avatars else { return }
+            directory.chiefAvatars = avatars
         }
     }
 }

@@ -35,7 +35,10 @@
   /* Resolved where it is used: 100% is the pane's width there. */
   --cv-inset: max(var(--cv-edge), calc((100% - var(--cv-column)) / 2));
   --cv-font: system-ui;
-  --cv-mono: ui-monospace, "SF Mono", Menlo, monospace;
+  /* Code follows the terminal font; a chat or Markdown viewer code font (chatDisplay.ts) sets
+     --cv-mono in front of it. */
+  --cv-mono-default: var(--cmux-diff-code-font-family, ui-monospace, "SF Mono", Menlo, monospace);
+  --cv-mono: var(--cv-mono-default);
   /* The pane's other mono text (permission commands, preview addresses, the replay clock, the
      Inspector) reads --font-mono; defined here rather than left to Tailwind's theme layer. */
   --font-mono: var(--cv-mono);
@@ -1086,36 +1089,61 @@ pre.cv-math-source {
 .cv-worked__label {
   flex: none;
 }
-/* A band of the text color sweeps across "Thinking"; with Reduce Motion on it stays muted. */
-@keyframes cv-thinking-sweep {
-  from {
-    background-position: 100% 0;
-  }
-  to {
-    background-position: 0 0;
-  }
+/* A running turn's line (WorkingFor.tsx): the call in flight gives way first, its time stays. */
+.cv-worked__doing {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cv-worked__time {
+  flex: none;
+  margin-inline-start: 6px;
+}
+/* The working mark (WorkingMark.tsx): the pane's one running motion, three accent dots that pulse
+   in turn on a slow 2s cycle, centred on the 20px line. */
+.cv-working-mark {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 20px;
+  margin-inline-end: 6px;
+}
+.cv-working-mark > span {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: var(--agent-accent, currentColor);
 }
 @media (prefers-reduced-motion: no-preference) {
-  .cv-thinking {
-    color: transparent;
-    background: linear-gradient(
-        90deg,
-        var(--cv-text-muted) 40%,
-        var(--cv-text) 50%,
-        var(--cv-text-muted) 60%
-      )
-      0 0 / 300% 100%;
-    -webkit-background-clip: text;
-    background-clip: text;
-    animation: cv-thinking-sweep 2s linear infinite;
+  .cv-working-mark > span {
+    animation: cv-working-dot 2s ease-in-out infinite;
+  }
+  .cv-working-mark > span:nth-child(2) {
+    animation-delay: 0.25s;
+  }
+  .cv-working-mark > span:nth-child(3) {
+    animation-delay: 0.5s;
   }
 }
-/* Static status indicators (cx-sya4n): no sweep; the word stays muted. */
-:root[data-status-indicators="static"] .cv-thinking {
+@keyframes cv-working-dot {
+  0%,
+  60%,
+  100% {
+    opacity: 0.35;
+  }
+  30% {
+    opacity: 1;
+  }
+}
+/* "Thinking" stays still in the muted color; the working dots carry the motion. */
+.cv-thinking {
   color: var(--cv-text-muted);
-  background: none;
-  -webkit-background-clip: border-box;
-  background-clip: border-box;
+}
+/* Static status indicators (cx-sya4n), or Reduce Motion above: the dots hold at full strength. */
+:root[data-status-indicators="static"] .cv-working-mark > span {
   animation: none;
 }
 
@@ -2198,8 +2226,9 @@ pre.cv-math-source {
   border-radius: 0;
 }
 
-/* Find in Chat (conversation/ChatFindBar.tsx, chatFind.ts): a compact bar pinned to the
-   transcript's top right, over the rows, like the minimap; the matches are custom highlights. */
+/* Find in Chat (conversation/ChatFindBar.tsx, chatFind.ts): the shared find pill (ui/findPill.css)
+   pinned to the transcript's top right, over the rows, where every pane's find pill sits
+   (FindPillMetrics.inset); the matches are custom highlights. */
 .acpmux-find {
   position: sticky;
   top: 0;
@@ -2208,80 +2237,8 @@ pre.cv-math-source {
 }
 .acpmux-find__bar {
   position: absolute;
-  top: 8px;
-  right: 16px;
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  height: 28px;
-  padding: 0 3px 0 9px;
-  border: var(--cmux-hairline, 0.5px) solid var(--agent-border);
-  border-radius: 8px;
-  background: var(--acpmux-base, var(--agent-page-bg));
-  /* Its border is its one rim (it takes the accent on focus), so the shadow brings no hairline. */
-  box-shadow: var(--ui-popup-drop, var(--elevation-2));
-  font-family: var(--cv-font);
-  font-size: var(--text-body);
-}
-.acpmux-find__bar:focus-within {
-  border-color: var(--agent-accent);
-}
-.acpmux-find__field {
-  width: min(180px, 40vw);
-  height: 100%;
-  padding: 0;
-  border: 0;
-  outline: none;
-  background: none;
-  color: var(--agent-text);
-  font: inherit;
-  -webkit-appearance: none;
-  appearance: none;
-}
-.acpmux-find__field::placeholder {
-  color: var(--agent-muted);
-}
-.acpmux-find__field::-webkit-search-cancel-button {
-  -webkit-appearance: none;
-  appearance: none;
-}
-.acpmux-find__count {
-  min-width: 0;
-  padding-right: 4px;
-  color: var(--agent-muted);
-  font-size: var(--text-detail);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-.acpmux-find__step {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 22px;
-  padding: 0;
-  border: 0;
-  border-radius: 6px;
-  background: none;
-  color: var(--agent-soft, var(--agent-muted));
-  cursor: default;
-}
-.acpmux-find__step:hover:not(:disabled) {
-  background: var(--agent-control-hover, color-mix(in srgb, var(--agent-text) 6%, transparent));
-}
-.acpmux-find__up {
-  transform: rotate(180deg);
-}
-/* No match for the query: the count reads as an answer, not as quiet detail. */
-.acpmux-find__count[data-empty] {
-  color: var(--agent-text);
-}
-.acpmux-find__step:disabled {
-  opacity: 0.4;
-}
-.acpmux-find__step:focus-visible {
-  outline: 2px solid var(--agent-accent);
-  outline-offset: -2px;
+  top: var(--find-pill-inset, 10px);
+  right: var(--find-pill-inset, 10px);
 }
 /* Find matches: the theme's highlight (the yellow is only for an unthemed preview). */
 ::highlight(acpmux-find) {
@@ -2562,6 +2519,16 @@ pre.cv-math-source {
 /* ---------- A background shell's end (BackgroundTaskNote.tsx, cx-ncc.84) ---------- */
 .cv-bgtask[data-state="failed"] .cv-tool__icon {
   color: var(--agent-danger);
+}
+/* A click opens the task's terminal (processTerminal.ts): no hover fill (Leo 2026-10-13), only the
+   pointer and the keyboard focus ring. */
+.cv-bgtask {
+  cursor: pointer;
+}
+.cv-bgtask:focus-visible {
+  outline: 2px solid var(--agent-accent-soft);
+  outline-offset: 1px;
+  border-radius: 4px;
 }
 
 /* ---------- Where a Claude Code session started (SessionStartNote.tsx) ---------- */

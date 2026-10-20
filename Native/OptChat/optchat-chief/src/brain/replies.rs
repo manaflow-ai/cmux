@@ -22,22 +22,55 @@ pub const REACTIONS: [&str; 7] = [
     "ack",
 ];
 
-/// The tapback a `react` reaction names.
+/// The tapback a `react` reaction names (a tapback word, or its iMessage emoji).
 pub fn tapback(reaction: &str) -> Result<Tapback, String> {
-    Ok(match reaction.trim() {
+    Ok(match reaction.trim().trim_end_matches('\u{FE0F}') {
         "like" | "ack" | "thumbs_up" | "👍" => Tapback::Like,
-        "love" | "heart" | "❤️" => Tapback::Love,
-        "laugh" | "haha" => Tapback::Laugh,
-        "emphasize" | "!!" => Tapback::Emphasize,
-        "question" | "?" => Tapback::Question,
+        "love" | "heart" | "❤" => Tapback::Love,
+        "laugh" | "haha" | "😂" => Tapback::Laugh,
+        "emphasize" | "!!" | "‼" => Tapback::Emphasize,
+        "question" | "?" | "❓" => Tapback::Question,
         "dislike" | "thumbs_down" | "👎" => Tapback::Dislike,
         other => {
             return Err(format!(
-                "react: no reaction {other:?}; one of {}",
+                "react: no reaction {other:?}; one of {} or one emoji",
                 REACTIONS.join(", ")
             ));
         }
     })
+}
+
+/// The reaction `react` posts: a tapback (by word or iMessage emoji), else one
+/// emoji (no letters, digits, spaces or controls; at most 64 bytes, the owner's
+/// limit) as an emoji reaction.
+pub fn reaction(text: &str) -> Result<ReactionKind, String> {
+    match tapback(text) {
+        Ok(t) => Ok(ReactionKind::Tapback(t)),
+        Err(refusal) => {
+            let text = text.trim();
+            let emoji = !text.is_empty() && text.len() <= 64 && text.chars().all(emoji_char);
+            if emoji {
+                Ok(ReactionKind::Emoji(text.to_owned()))
+            } else {
+                Err(refusal)
+            }
+        }
+    }
+}
+
+/// A character of an emoji: pictographs and symbols, the variation selector,
+/// the zero-width joiner, skin tones and flag tags.
+fn emoji_char(c: char) -> bool {
+    matches!(c as u32,
+        0x203C | 0x2049 | 0x2100..=0x2BFF | 0x3030 | 0x303D | 0x3297 | 0x3299
+        | 0x1F000..=0x1FAFF | 0xFE0F | 0x200D | 0x20E3 | 0xE0020..=0xE007F)
+}
+
+fn reaction_name(kind: &ReactionKind) -> String {
+    match kind {
+        ReactionKind::Tapback(t) => tapback_name(*t).to_owned(),
+        ReactionKind::Emoji(e) => e.clone(),
+    }
 }
 
 fn tapback_name(t: Tapback) -> &'static str {
@@ -109,7 +142,7 @@ impl Brain {
     }
 
     /// The conversation message the Chief's view line `view_id` logged.
-    fn message_of_line(&mut self, tool: &str, view_id: u64) -> Result<Message, String> {
+    pub(super) fn message_of_line(&mut self, tool: &str, view_id: u64) -> Result<Message, String> {
         let key = self.chat.logged_key(view_id).ok_or_else(|| {
             format!(
                 "{tool}: line {view_id} is not a message in the conversation (a note, a report or a tool line); name a user message"
@@ -144,16 +177,26 @@ impl Brain {
     /// The `react` tool: a tapback on the user message of view line
     /// `view_id`, posted at once.
     pub(super) fn react(&mut self, view_id: u64, reaction: &str) -> Result<String, String> {
-        let tapback = tapback(reaction)?;
+        let kind = self::reaction(reaction)?;
         let message = self.message_of_line("react", view_id)?;
-        let name = tapback_name(tapback);
-        let key = format!("react-{}-{}-{name}", message.conversation, message.seq);
+        let name = reaction_name(&kind);
+        let key = match &kind {
+            ReactionKind::Tapback(_) => {
+                format!("react-{}-{}-{name}", message.conversation, message.seq)
+            }
+            ReactionKind::Emoji(e) => format!(
+                "react-{}-{}-e{:016x}",
+                message.conversation,
+                message.seq,
+                fnv(e.as_bytes())
+            ),
+        };
         if self.reacted.contains(&key)
             || self.state.outbox.iter().any(|e| e.idempotency_key == key)
-            || message.reactions.iter().any(|r| {
-                r.author == self.settings.membership.participant
-                    && r.kind == ReactionKind::Tapback(tapback)
-            })
+            || message
+                .reactions
+                .iter()
+                .any(|r| r.author == self.settings.membership.participant && r.kind == kind)
         {
             return Ok(format!(
                 "outcome: noop. message {view_id} already has your {name}"
@@ -166,7 +209,7 @@ impl Brain {
             Op::ReactionAdd {
                 message_id: message.id.clone(),
                 part_index: 0,
-                reaction: ReactionKind::Tapback(tapback),
+                reaction: kind.clone(),
             },
         ));
         self.save();
@@ -213,6 +256,7 @@ impl Brain {
             });
             *thread_root = Some(root);
         }
+        let entry = self.reply_with_previews(entry);
         self.state.outbox.push(entry);
         self.save();
         self.flush_outbox();
@@ -267,7 +311,7 @@ pub(super) fn unthreaded(op: &Op, reason: &str) -> Option<Op> {
 }
 
 /// FNV-1a, for a stable idempotency key of a reply's text.
-fn fnv(bytes: &[u8]) -> u64 {
+pub(super) fn fnv(bytes: &[u8]) -> u64 {
     let mut hash: u64 = 0xcbf29ce484222325;
     for b in bytes {
         hash ^= u64::from(*b);

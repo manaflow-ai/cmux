@@ -1,5 +1,5 @@
 //! Per-Chief settings, `$MUX_HOME/optchat/settings.json`
-//! (`{"remote": {"autoApprove": true}, "cache": {"ttl": "1h"}}`), shown later in the Chief settings
+//! (`{"remote": {"autoApprove": false}, "cache": {"ttl": "1h"}}`), shown later in the Chief settings
 //! sidebar. The host reads the file once at start and owns the value after
 //! that: a change goes through the host (`Brain::set_setting`), which
 //! refuses to turn `remote.autoApprove` on during a remote-origin turn, and
@@ -16,9 +16,8 @@ use crate::prompt::CacheTtl;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ChiefSettings {
     /// A remote-origin turn (the owner's own paired device) runs with the
-    /// configured policy instead of `ask`. Default true (Lawrence,
-    /// 2026-10-06: "i dont want stuff to require my approval"); false turns
-    /// approvals and the spawn floor back on.
+    /// configured policy instead of `ask`. Default false; true is an explicit
+    /// opt-in that applies only to that owner's paired devices.
     pub remote_auto_approve: bool,
     /// How long a turn's prompt cache entries live (`5m` or `1h`); None: the
     /// engine's default (1 hour on the Claude Code path, 5 minutes on the
@@ -27,6 +26,10 @@ pub struct ChiefSettings {
     /// When a reply in the Chief's DM goes into the thread of the message it
     /// answers (`replies.thread`). Default `auto`.
     pub reply_threads: ReplyThreads,
+    /// A subagent's report that names landed commits, pages or preview files
+    /// gets a `<show>` block for the Chief to open them in the column right of
+    /// its chat (`show.afterReport`, crate::show). Default true.
+    pub show_after_report: bool,
 }
 
 /// `replies.thread`: when a Chief reply in its DM is threaded under the user
@@ -66,9 +69,10 @@ impl ReplyThreads {
 impl Default for ChiefSettings {
     fn default() -> ChiefSettings {
         ChiefSettings {
-            remote_auto_approve: true,
+            remote_auto_approve: false,
             cache_ttl: None,
             reply_threads: ReplyThreads::Auto,
+            show_after_report: true,
         }
     }
 }
@@ -81,6 +85,9 @@ pub const CACHE_TTL: &str = "cache.ttl";
 
 /// The key of `ChiefSettings::reply_threads`.
 pub const REPLY_THREADS: &str = "replies.thread";
+
+/// The key of `ChiefSettings::show_after_report`.
+pub const SHOW_AFTER_REPORT: &str = "show.afterReport";
 
 impl ChiefSettings {
     /// The settings in `path`; a missing or unreadable file is the defaults.
@@ -96,6 +103,7 @@ impl ChiefSettings {
                 .as_str()
                 .and_then(ReplyThreads::parse)
                 .unwrap_or_default(),
+            show_after_report: value["show"]["afterReport"].as_bool().unwrap_or(true),
         }
     }
 
@@ -105,6 +113,7 @@ impl ChiefSettings {
             value["cache"] = json!({"ttl": ttl.as_str()});
         }
         value["replies"] = json!({"thread": self.reply_threads.as_str()});
+        value["show"] = json!({"afterReport": self.show_after_report});
         value
     }
 

@@ -54,6 +54,9 @@ public final class OmniboxSuggestionEngine {
     public var revealTab: (String) -> Void = { _ in }
     /// Phase B: remote search suggestions (off until the App gives a fetcher).
     public var remote = OmniboxRemoteConfiguration()
+    /// Checks whether a bare typed word is an intranet host (`wiki`); nil
+    /// (the default, and tests) never asks DNS, so a bare word searches.
+    public var intranetProbe: IntranetHostProbe?
     /// How this engine's omnibars show addresses, and their menu's settings hooks.
     public let display = OmnibarDisplay()
     public let local: OmniboxLocalIndex
@@ -122,11 +125,13 @@ public final class OmniboxSuggestionEngine {
         let remote = sources.contains(.search) && self.remote.enabled && OmniboxRemoteSuggestions.allows(text, resolver: resolver)
             ? self.remote : nil
         let engine = resolver.searchEngine, hidden = pendingDeletes
+        let probe = IntranetHostProbe.candidate(text) == nil ? nil : intranetProbe
+        let intranetHosts = resolver.intranetHosts
         let task = Task {
             guard var rows = await local.run(query) else { return continuation.finish() }
             if !hidden.isEmpty { rows.removeAll { $0.kind == .history && hidden.contains(BrowserHistoryRanker.dedupeKey(for: $0.url)) } }
+            var extra: [BrowserSuggestion] = []
             if !providers.isEmpty, !text.isEmpty {
-                var extra: [BrowserSuggestion] = []
                 for provider in providers {
                     if Task.isCancelled { return continuation.finish() }
                     extra += await provider.suggestions(for: text)
@@ -135,6 +140,20 @@ public final class OmniboxSuggestionEngine {
             }
             guard !Task.isCancelled, request.gate.isCurrent(request.generation) else { return continuation.finish() }
             continuation.yield(.local(rows))
+            // A bare word: ask DNS (bounded by the probe's timeout); when the
+            // answer changes what the word is, the rows lead with the new answer.
+            if let probe {
+                let resolves = await probe.resolves(text)
+                if resolves != intranetHosts.isIntranetHost(text) {
+                    intranetHosts.record(text, resolves: resolves)
+                    guard var fresh = await local.run(query), !Task.isCancelled, request.gate.isCurrent(request.generation) else {
+                        return continuation.finish()
+                    }
+                    if !hidden.isEmpty { fresh.removeAll { $0.kind == .history && hidden.contains(BrowserHistoryRanker.dedupeKey(for: $0.url)) } }
+                    rows = extra.isEmpty ? fresh : OmniboxPhaseA.merging(fresh, extra, maxRows: maxRows)
+                    continuation.yield(.local(rows))
+                }
+            }
             let answer = rows.first { $0.kind == .answer }?.content
             if let remote, let more = await Self.remoteRows(text, engine: engine, remote: remote, answer: answer),
                !Task.isCancelled, request.gate.isCurrent(request.generation) {

@@ -13,6 +13,10 @@ import MessagesLabSidebar
 /// after every change and handles the choices.
 public final class HomeSidebarView: NSView {
     public var onSelect: (ConversationID) -> Void = { _ in }
+    /// The person opened a conversation: a plain click on its row or pinned tile (the selected one
+    /// too) or Return on the highlighted one. Called after ``onSelect``; Up/Down and Command- or
+    /// Shift-clicks only select. The page moves the keyboard into its message box.
+    public var onOpen: (ConversationID) -> Void = { _ in }
     public var onSetPinned: (Bool, ConversationID) -> Void = { _, _ in }
     /// A drag put a conversation at an index of the pinned grid (a new place, or a row pinned
     /// there); call `update` before returning so the tiles land smoothly.
@@ -79,7 +83,7 @@ public final class HomeSidebarView: NSView {
         requestsButton.bezelStyle = .accessoryBarAction
         requestsButton.isBordered = false
         requestsButton.alignment = .left
-        requestsButton.font = .systemFont(ofSize: NSFont.smallSystemFontSize, weight: .medium)
+        requestsButton.font = .systemFont(ofSize: TypeScale.caption, weight: TypeScale.emphasis)
         requestsButton.image = NSImage(systemSymbolName: "tray", accessibilityDescription: nil)
         requestsButton.imagePosition = .imageLeading
         requestsButton.target = self
@@ -91,6 +95,7 @@ public final class HomeSidebarView: NSView {
         // names, as Messages' pinned grid.
         list.neutralSelection = true
         list.onSelect = { [weak self] id in if let id { self?.onSelect(ConversationID(id)) } }
+        list.onOpen = { [weak self] id in self?.onOpen(ConversationID(id)) }
         list.onSetPinned = { [weak self] on, id in self?.onSetPinned(on, ConversationID(id)) }
         list.onPlacePinned = { [weak self] id, index in self?.onPlacePinned(ConversationID(id), index) }
         list.onSetRead = { [weak self] read, id in

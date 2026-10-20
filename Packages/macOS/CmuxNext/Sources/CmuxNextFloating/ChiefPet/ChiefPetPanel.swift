@@ -134,7 +134,7 @@ final class ChiefPetView: NSView {
     let rail = ChiefPetRail()
     private let badgeView = ChiefPetBadge()
     /// The pixel character, drawn by a layer so it scales up with whole pixels.
-    private let character = NSView()
+    private let character = ChiefPetCharacter()
     /// Where the press started, in screen points, the panel's origin then, and whether it was on the character.
     private var press: (start: CGPoint, origin: CGPoint, onCharacter: Bool)?
     private var dragging = false
@@ -154,8 +154,11 @@ final class ChiefPetView: NSView {
         self.image = image
         character.layer?.contents = image
         character.setAccessibilityElement(true)
-        character.setAccessibilityRole(.image)
+        // A button, not an image: the panel never takes the keys, so VoiceOver's press is the only way
+        // to the reply box that is not the pointer.
+        character.setAccessibilityRole(.button)
         character.setAccessibilityLabel(ChiefPetStrings.accessibilityLabel)
+        character.onPress = { [weak self] in self?.onClick?() }
         toolTip = ChiefPetStrings.accessibilityLabel
     }
 
@@ -220,5 +223,16 @@ final class ChiefPetView: NSView {
 
     override func resetCursorRects() {
         addCursorRect(character.frame, cursor: .pointingHand)
+    }
+}
+
+/// The character's view: a VoiceOver press on it is a click on the character.
+final class ChiefPetCharacter: NSView {
+    var onPress: (() -> Void)?
+
+    override func accessibilityPerformPress() -> Bool {
+        guard let onPress else { return false }
+        onPress()
+        return true
     }
 }

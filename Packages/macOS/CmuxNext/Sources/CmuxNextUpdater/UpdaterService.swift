@@ -90,6 +90,10 @@ public final class UpdaterService {
     public internal(set) var stagedVersion: String?
     public internal(set) var stagedNotes: ReleaseNotes?
     @ObservationIgnored var stagedNotesTask: (build: String, task: Task<Void, Never>)?
+    /// This build's own verified notes, read once when the Updated card has
+    /// no change list of its record (``loadCurrentBuildNotesIfNeeded()``).
+    public internal(set) var currentBuildNotes: ReleaseNotes?
+    @ObservationIgnored var currentBuildNotesTask: Task<Void, Never>?
     /// The staged appcast item's build (replaced by tests).
     @ObservationIgnored var stagedBuild: () -> String? = { nil }
     /// `updates.downloadAutomatically` (the card's Automatic Updates box).
@@ -337,6 +341,8 @@ public final class UpdaterService {
         clearUpdateSnooze()
         controller.model.setOverrideState(nil)
         syncFlowPhase()
+        // As for a check: the loading card shows in the next frame, not one observation hop later.
+        defer { syncFlowPhase() }
         switch flow.phase {
         case .ready, .available, .downloading, .checking:
             // The gate installs once the update is staged and no agent is busy.
