@@ -2,8 +2,9 @@
 //! SIGKILL of both, a host that died while no daemon ran) gets a new shell
 //! under the same terminal id and a new incarnation. Its tab never reads
 //! dead, the new shell starts below the previous screen and one dim marker
-//! line, an agent session or a command it ran is offered on the prompt
-//! (typed, never run), and a real process end or a close stays ended.
+//! line, an agent session it ran resumes (unless "Resume Agents After
+//! Restart" is off), a command it ran never runs again and the marker line
+//! names it, and a real process end or a close stays ended.
 
 use std::io::Write as _;
 
@@ -289,14 +290,35 @@ fn a_host_that_ended_at_the_orphan_grace_is_respawned_at_the_next_start() {
     wait_for_screen(&harness.socket, surface, MARKER);
 }
 
-/// c. An agent session the terminal ran is typed on the new prompt for the
-/// user to resume; it does not run.
-#[test]
-fn a_respawned_terminal_offers_its_agent_session_for_resume_without_running_it() {
-    let _exclusive = exclusive_process_test();
-    let harness = RecoveryHarness::start("respawn-agent");
-    let (terminal_id, incarnation, surface) = start_default_shell(&harness, "agent");
-    let public_id = tab_named(&harness, "agent")["terminal_resource_id"]
+/// A respawn harness whose daemon reads settings file `settings` (none:
+/// a missing file, the defaults) and finds a `claude` stand-in first on
+/// PATH that prints `resumed:` and its arguments.
+fn agent_harness(name: &str, settings: Option<&str>) -> RecoveryHarness {
+    use std::os::unix::fs::PermissionsExt as _;
+    let mut harness = RecoveryHarness::start_unstarted(name);
+    let bin_dir = harness.dir.join("agent-bin");
+    fs::create_dir_all(&bin_dir).expect("agent bin dir");
+    let claude = bin_dir.join("claude");
+    fs::write(&claude, "#!/bin/sh\necho \"resumed:$*\"\nsleep 600\n").expect("write claude");
+    fs::set_permissions(&claude, fs::Permissions::from_mode(0o755)).expect("chmod");
+    let config = harness.dir.join("cmux-next.json");
+    if let Some(settings) = settings {
+        fs::write(&config, settings).expect("write settings");
+    }
+    let path = std::env::var("PATH").unwrap_or_default();
+    harness.extra_env.extend([
+        ("CMUX_NEXT_CONFIG_FILE".to_string(), config.display().to_string()),
+        ("PATH".to_string(), format!("{}:{path}", bin_dir.display())),
+    ]);
+    harness.restart();
+    harness
+}
+
+/// Respawn the terminal of a new shell tab `name` after its claude session
+/// `abc-123` started: (terminal id, surface after the respawn).
+fn respawn_after_agent_start(harness: &RecoveryHarness, name: &str) -> (String, u64) {
+    let (terminal_id, incarnation, surface) = start_default_shell(harness, name);
+    let public_id = tab_named(harness, name)["terminal_resource_id"]
         .as_str()
         .expect("tab has no public terminal id")
         .to_string();
@@ -328,32 +350,50 @@ fn a_respawned_terminal_offers_its_agent_session_for_resume_without_running_it()
         assert!(Instant::now() < deadline, "the hook never reached the terminal: {agents}");
         std::thread::sleep(Duration::from_millis(50));
     }
+    kill_current_shell_and_host(harness, &terminal_id);
+    wait_for_respawn(harness, &terminal_id, &incarnation);
+    let surface = tab_named(harness, name)["surface"].as_u64().expect("surface");
+    (terminal_id, surface)
+}
 
-    kill_current_shell_and_host(&harness, &terminal_id);
-    wait_for_respawn(&harness, &terminal_id, &incarnation);
-    let surface = tab_named(&harness, "agent")["surface"].as_u64().expect("surface");
-    // The screen after the marker without whitespace. The prompt is the
-    // host user's (user@host:cwd), so the typed command can wrap at any
-    // column of the 80-column screen, also right at a space, which the
-    // screen text drops as trailing blank: with the blanks gone, every wrap
-    // position reads the same.
-    let after_marker = |text: &str| {
-        text.rsplit_once(MARKER)
-            .map(|(_, tail)| tail.split_whitespace().collect::<String>())
-            .unwrap_or_default()
-    };
-    let command = "claude--resumeabc-123";
-    let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
-    while !after_marker(&screen(&harness, surface)).contains(command) {
-        assert!(Instant::now() < deadline, "no resume offer: {}", screen(&harness, surface));
+/// The agent marker line, which names the resume command.
+const AGENT_MARKER: &str = "session restored; resume with claude --resume abc-123";
+
+/// c. By default an agent session the terminal ran resumes by itself: the
+/// resume runs at the new shell's prompt.
+#[cfg(unix)]
+#[test]
+fn a_respawned_terminal_resumes_its_agent_session() {
+    let _exclusive = exclusive_process_test();
+    let harness = agent_harness("respawn-agent", None);
+    let (terminal_id, surface) = respawn_after_agent_start(&harness, "agent");
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(15));
+    while !screen(&harness, surface).contains("resumed:--resume abc-123") {
+        assert!(Instant::now() < deadline, "the resume did not run: {}", screen(&harness, surface));
         std::thread::sleep(Duration::from_millis(50));
     }
-    std::thread::sleep(Duration::from_secs(1));
-    let text = screen(&harness, surface);
-    assert!(!text.contains("not found"), "the resume command ran: {text}");
-    assert!(after_marker(&text).trim_end().ends_with(command), "not on the prompt line: {text}");
+    assert!(screen(&harness, surface).contains(AGENT_MARKER), "{}", screen(&harness, surface));
     let lines = wait_for_respawn_lines(&harness, &terminal_id, 1);
     assert_eq!(lines.first().map(|line| line["prefilled"].clone()), Some("harness".into()));
+}
+
+/// c0. With "Resume Agents After Restart" off nothing runs or is typed:
+/// the marker line shows the resume command.
+#[cfg(unix)]
+#[test]
+fn with_resume_off_a_respawned_terminal_only_shows_the_resume_command() {
+    let _exclusive = exclusive_process_test();
+    let harness =
+        agent_harness("respawn-agent-off", Some(r#"{"sessions": {"resumeAgents": false}}"#));
+    let (terminal_id, surface) = respawn_after_agent_start(&harness, "agent");
+    wait_for_screen(&harness.socket, surface, AGENT_MARKER);
+    let lines = wait_for_respawn_lines(&harness, &terminal_id, 1);
+    assert_eq!(lines.first().map(|line| line["prefilled"].clone()), Some("none".into()));
+    std::thread::sleep(Duration::from_secs(1));
+    let text = screen(&harness, surface);
+    let after = text.rsplit_once(AGENT_MARKER).map(|(_, tail)| tail).unwrap_or_default();
+    assert!(!text.contains("resumed:"), "the resume ran: {text}");
+    assert!(!after.contains("--resume"), "the resume was typed: {text}");
 }
 
 /// c1. A non-interactive agent run (`claude -p`) that reported a session
@@ -410,11 +450,11 @@ fn a_respawned_terminal_does_not_resume_a_non_interactive_agent_run() {
 }
 
 /// c2. A command tab respawned by a later daemon (the daemon was killed,
-/// then the host died) offers its command line on the new prompt, typed,
-/// never run. A command with an argument that looks like a credential is
-/// not stored at all: its tab only names the program.
+/// then the host died) never runs or types its command: the marker line
+/// names its command line. A command with an argument that looks like a
+/// credential is not stored at all: its tab only names the program.
 #[test]
-fn a_command_tab_offers_its_command_after_a_daemon_restart_without_secrets() {
+fn a_command_tab_names_its_command_after_a_daemon_restart_without_secrets() {
     let _exclusive = exclusive_process_test();
     let mut harness = RecoveryHarness::start("respawn-argv");
     let entropy = "Zx9Qw2Lp7Rt4Vb8Nm3Kj6Hg1Fd5Sa0YcXeUiOo";
@@ -472,35 +512,29 @@ fn a_command_tab_offers_its_command_after_a_daemon_restart_without_secrets() {
     }
     harness.restart();
 
-    // Whitespace dropped, as in c: the typed line can wrap at any column.
-    let after_marker = |text: &str| {
-        text.rsplit_once(MARKER)
-            .map(|(_, tail)| tail.split_whitespace().collect::<String>())
-            .unwrap_or_default()
-    };
     for (name, terminal_id, incarnation) in &terminals {
         wait_for_respawn(&harness, terminal_id, incarnation);
         let surface = tab_named(&harness, name)["surface"].as_u64().expect("surface");
         if *name == "argv" {
-            let command = "/bin/sh-c'echoran-$((6*7));sleep600'cmuxargv";
+            // Whitespace dropped: the marker line wraps on the 80-column screen.
+            let compact = |text: &str| text.split_whitespace().collect::<String>();
+            let named = "itran/bin/sh-c'echoran-$((6*7));sleep600'cmuxargv)";
             let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
-            while !after_marker(&screen(&harness, surface)).contains(command) {
+            while !compact(&screen(&harness, surface)).contains(named) {
                 assert!(
                     Instant::now() < deadline,
-                    "no command offer: {}",
+                    "no marker naming the command: {}",
                     screen(&harness, surface)
                 );
                 std::thread::sleep(Duration::from_millis(50));
             }
-            std::thread::sleep(Duration::from_secs(1));
-            let text = screen(&harness, surface);
-            assert!(
-                after_marker(&text).trim_end().ends_with(command),
-                "not on the prompt line: {text}"
-            );
-            assert!(!after_marker(&text).contains("ran-42"), "the offered command ran: {text}");
             let lines = wait_for_respawn_lines(&harness, terminal_id, 1);
-            assert_eq!(lines.first().map(|line| line["prefilled"].clone()), Some("command".into()));
+            assert_eq!(lines.first().map(|line| line["prefilled"].clone()), Some("none".into()));
+            std::thread::sleep(Duration::from_secs(1));
+            let text = compact(&screen(&harness, surface));
+            let tail = text.rsplit_once(named).map(|(_, tail)| tail).unwrap_or_default();
+            assert!(!tail.contains("ran-42"), "the command ran: {text}");
+            assert!(!tail.contains("cmuxargv"), "the command was typed: {text}");
         } else {
             // The marker names the program instead: "(previous process ended; it ran sh)".
             let named = "session restored (previous process ended; it ran sh)";

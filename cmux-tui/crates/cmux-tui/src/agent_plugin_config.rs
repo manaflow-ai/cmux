@@ -28,10 +28,6 @@ pub(crate) struct RawAgents {
     plugin: Option<RawAgentPlugin>,
     /// `false` stops the bundled screen-detection plugin. Default `true`.
     screen_detection: Option<bool>,
-    /// What a terminal respawned after its host died (a reboot) does with the
-    /// agent session it ran: `"run"` resumes it, anything else (the default)
-    /// only types the resume command on the new prompt.
-    resume: Option<String>,
     /// The config file or its `agents` section failed to parse, so the user's
     /// choice is unknown and no plugin runs.
     #[serde(skip)]
@@ -39,12 +35,6 @@ pub(crate) struct RawAgents {
 }
 
 impl RawAgents {
-    /// Whether a respawned terminal runs its agent's resume: only when the
-    /// settings could be read and ask for it (`resume: "run"`).
-    pub(crate) fn resume_runs(&self) -> bool {
-        !self.unreadable && self.resume.as_deref() == Some("run")
-    }
-
     /// Agents settings that could not be read (see `unreadable`).
     pub(crate) fn invalid() -> Self {
         Self { unreadable: true, ..Self::default() }
@@ -380,19 +370,6 @@ mod tests {
         let link = path_dir.path().join("cmux");
         std::os::unix::fs::symlink(&exe, &link).unwrap();
         assert_eq!(daemon_dir_of(&link), Some(std::fs::canonicalize(app_bin.path()).unwrap()));
-    }
-
-    /// Running a restored agent's resume is opt-in (`agents.resume: "run"`);
-    /// a missing, other or unreadable setting only types it.
-    #[test]
-    fn an_agent_resume_runs_only_when_the_config_asks_for_it() {
-        assert!(raw(r#"{"resume":"run"}"#).resume_runs());
-        assert!(!raw("{}").resume_runs());
-        assert!(!raw(r#"{"resume":"type"}"#).resume_runs());
-        assert!(!raw(r#"{"resume":"yes"}"#).resume_runs());
-        assert!(!RawAgents::invalid().resume_runs());
-        assert!(!crate::config::Agents::default().resume_runs);
-        assert!(!cmux_tui_core::SurfaceOptions::default().agent_resume_runs);
     }
 
     #[test]

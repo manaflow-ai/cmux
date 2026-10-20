@@ -196,10 +196,8 @@ pub(crate) fn record_host_replaced(
 /// What a respawned terminal's new shell had pre-filled on its input line.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Prefilled {
-    /// An agent resume command (`claude --resume`, `codex resume`).
+    /// An agent resume command (`claude --resume`, `codex resume`), run.
     Harness,
-    /// The terminal's earlier command line.
-    Command,
     None,
 }
 
@@ -207,7 +205,6 @@ impl Prefilled {
     fn as_str(self) -> &'static str {
         match self {
             Self::Harness => "harness",
-            Self::Command => "command",
             Self::None => "none",
         }
     }

@@ -13,9 +13,12 @@ use std::sync::OnceLock;
 pub struct TerminalRespawnText {
     /// The marker of a respawned terminal.
     pub restored: &'static str,
-    /// The marker of a respawned terminal that ran a command which is not
-    /// offered again; `{program}` is the command's program name.
+    /// The marker of a respawned terminal that ran a command which does not
+    /// run again; `{program}` is its command line, else its program name.
     pub restored_command: &'static str,
+    /// The marker of a respawned terminal that ran an agent session;
+    /// `{command}` is the command that resumes it.
+    pub restored_agent: &'static str,
     /// The line under a reopened tab's archived screen when its close
     /// stopped a running program; `{program}` is the program's name.
     pub stopped: &'static str,
@@ -28,6 +31,7 @@ pub struct TerminalRespawnText {
 pub const ENGLISH: TerminalRespawnText = TerminalRespawnText {
     restored: "\u{2014} session restored (previous process ended) \u{2014}",
     restored_command: "\u{2014} session restored (previous process ended; it ran {program}) \u{2014}",
+    restored_agent: "\u{2014} session restored; resume with {command} \u{2014}",
     recovered_workspace: "Recovered terminals",
     stopped: "\u{2014} {program} was stopped when this tab closed \u{2014}",
 };
@@ -43,13 +47,37 @@ pub fn text() -> &'static TerminalRespawnText {
     TEXT.get().copied().unwrap_or(&ENGLISH)
 }
 
-/// The marker line for a terminal that ran `program` (a command that is not
-/// pre-filled again), or none. Control characters in the name are dropped.
-pub fn marker(program: Option<&str>) -> String {
+/// The longest command a marker line shows, in characters.
+const MARKER_COMMAND_CHARS: usize = 200;
+
+/// What a respawned terminal ran, for its marker line.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Ran<'a> {
+    /// A command (its command line, else its program name); it does not run
+    /// again.
+    Command(&'a str),
+    /// An agent session; the command that resumes it.
+    Agent(&'a str),
+}
+
+/// The marker line for a terminal that ran `ran`, else the plain one.
+/// Control characters are dropped and a long command is cut with `…`.
+pub fn marker(ran: Option<Ran<'_>>) -> String {
     let text = text();
-    match program.map(|program| program.chars().filter(|c| !c.is_control()).collect::<String>()) {
-        Some(program) if !program.is_empty() => {
-            text.restored_command.replace("{program}", &program)
+    let clean = |command: &str| {
+        let command = command.chars().filter(|c| !c.is_control()).collect::<String>();
+        if command.chars().count() > MARKER_COMMAND_CHARS {
+            command.chars().take(MARKER_COMMAND_CHARS - 1).chain(['\u{2026}']).collect()
+        } else {
+            command
+        }
+    };
+    match ran {
+        Some(Ran::Command(command)) if !clean(command).is_empty() => {
+            text.restored_command.replace("{program}", &clean(command))
+        }
+        Some(Ran::Agent(command)) if !clean(command).is_empty() => {
+            text.restored_agent.replace("{command}", &clean(command))
         }
         _ => text.restored.to_string(),
     }
@@ -70,10 +98,16 @@ mod tests {
     fn the_marker_names_a_command_without_its_control_characters() {
         assert_eq!(marker(None), ENGLISH.restored);
         assert_eq!(
-            marker(Some("ca\u{1b}t")),
-            "\u{2014} session restored (previous process ended; it ran cat) \u{2014}"
+            marker(Some(Ran::Command("ca\u{1b}t -n"))),
+            "\u{2014} session restored (previous process ended; it ran cat -n) \u{2014}"
         );
-        assert_eq!(marker(Some("\u{7}")), ENGLISH.restored);
+        assert_eq!(marker(Some(Ran::Command("\u{7}"))), ENGLISH.restored);
+        assert_eq!(
+            marker(Some(Ran::Agent("claude --resume a1"))),
+            "\u{2014} session restored; resume with claude --resume a1 \u{2014}"
+        );
+        let long = marker(Some(Ran::Command(&"x".repeat(500))));
+        assert!(long.contains(&format!("{}\u{2026}", "x".repeat(MARKER_COMMAND_CHARS - 1))));
     }
 
     #[test]

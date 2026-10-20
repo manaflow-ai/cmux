@@ -131,7 +131,6 @@ from the sidebar plugin and never replace the sidebar view.
 | `agents.plugin.cwd` | string | unset | Absolute working directory for the agent plugin process |
 | `agents.plugin.revision` | string | unset | Content revision used to restart the process after an artifact update |
 | `agents.screen_detection` | boolean | `true` | Runs the bundled `cmux-agent-screen-detection` beside the daemon (producer `cmux_screen_detection`, Unix only) when `agents.plugin` is unset; `false` turns it off. An explicit `agents.plugin` always replaces it, and an invalid one disables agent plugins without falling back. A config file or `agents` section that fails to parse also keeps it off. Older cmux-tui builds reject the whole `agents` section when it contains this key, so an `agents.plugin` next to it is ignored there |
-| `agents.resume` | string | `"type"` | What a terminal respawned after its host died (a reboot) does with the Claude Code or Codex session it ran. By default the resume command (`claude --resume <id>` or `codex resume <id>`, with the session's flags and account directory) is typed on the new prompt for you to run. `"run"` also presses Return, but only at the shell's own empty prompt (POSIX shell, OSC 133 marks, nothing typed) and never for a session started with an approval bypass such as `--dangerously-skip-permissions`. A config that fails to parse types it |
 
 Live sidebar dragging also leaves at least 40 columns for pane content.
 

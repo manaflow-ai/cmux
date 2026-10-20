@@ -12,7 +12,8 @@
 //!   allowlisted keys (`TERM` only with a usable `TERMINFO`).
 //! - seed: the previous screen (the exit replay of the lost incarnation,
 //!   else the latest journal checkpoint of the terminal, else nothing),
-//!   modes a dead program left on reset, then one dim marker line.
+//!   modes a dead program left on reset, then one dim marker line that
+//!   names what it ran (an agent's resume command, else its command line).
 
 use std::path::Path;
 
@@ -110,13 +111,9 @@ impl Mux {
         );
         options.command = Some(integrated.command);
         options.extra_env = integrated.env;
-        // A command whose argv neither this daemon nor its record has is
-        // only named.
-        let program = record
-            .filter(|record| record.kind == RelaunchKind::Command && record.argv.is_none())
-            .filter(|_| self.terminal_respawns.argv(&plan.terminal_id).is_none())
-            .and_then(|record| record.program.as_deref());
-        let marker = crate::terminal_respawn_text::marker(program);
+        // What it ran: an agent's resume command, else the command line.
+        let ran = self.respawn_ran(&plan.terminal_id, record);
+        let marker = crate::terminal_respawn_text::marker(ran.as_ref().map(|ran| ran.as_ran()));
         RespawnLaunch {
             options,
             cell_pixels: geometry.map_or(creation_cell_pixels, |(_, cell_pixels)| cell_pixels),

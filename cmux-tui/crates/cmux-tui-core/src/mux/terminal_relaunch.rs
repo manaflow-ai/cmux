@@ -61,7 +61,8 @@ impl Mux {
             (None, false) => AgentStart::Unknown,
         };
         let mut registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
-        if let Err(error) = registry.record_terminal_relaunch_agent(terminal_id.as_str(), agent, start)
+        if let Err(error) =
+            registry.record_terminal_relaunch_agent(terminal_id.as_str(), agent, start)
         {
             eprintln!("cmux-tui: terminal {terminal_id} relaunch agent failed: {error:#}");
         }

@@ -93,27 +93,6 @@ pub(crate) fn kept_agent_args(harness: &str, args: &[String]) -> Vec<String> {
     session_free(harness, args).map(|args| stored_args(harness, args)).unwrap_or_default()
 }
 
-/// Whether `args` turn off the CLI's approval prompts. A resume with them is
-/// typed, never run: the person confirms it.
-pub(crate) fn bypasses_approvals(args: &[String]) -> bool {
-    args.iter().any(|argument| {
-        let flag = argument.split('=').next().unwrap_or(argument);
-        matches!(
-            flag,
-            "--dangerously-skip-permissions"
-                | "--allow-dangerously-skip-permissions"
-                | "--dangerously-bypass-approvals-and-sandbox"
-                | "--yolo"
-                | "--full-auto"
-        ) || (flag == "--permission-mode" && argument.contains("bypassPermissions"))
-            || argument == "bypassPermissions"
-            || argument == "danger-full-access"
-            || argument.ends_with("=danger-full-access")
-            || argument == "never"
-            || argument.ends_with("=never")
-    })
-}
-
 /// `args` as stored: all of them only when none looks like a credential
 /// (the terminal command rule, [`stored_argv`]).
 fn stored_args(harness: &str, args: Vec<String>) -> Vec<String> {
@@ -435,9 +414,8 @@ mod tests {
     /// process that could not be read says nothing.
     #[test]
     fn a_non_interactive_run_is_told_apart_from_an_unknown_process() {
-        let non_interactive = |harness: &str, argv: &[&str]| {
-            job_is_non_interactive(harness, &strings(argv), &[])
-        };
+        let non_interactive =
+            |harness: &str, argv: &[&str]| job_is_non_interactive(harness, &strings(argv), &[]);
         assert!(non_interactive("claude", &["claude", "-p", "hi"]));
         assert!(non_interactive("claude", &["/bin/sh", "/tmp/x/claude", "--print", "hi"]));
         assert!(non_interactive("codex", &["codex", "exec", "do it"]));
@@ -541,15 +519,5 @@ mod tests {
         let args = r#"["--model","opus"]"#;
         let other = strings(&["node", "/usr/lib/node_modules/some-tool/index.js"]);
         assert!(agent_launch_from_job("claude", &other, &env(&[(SHIM_ARGS_ENV, args)])).is_none());
-    }
-
-    #[test]
-    fn approval_bypasses_are_recognized() {
-        assert!(bypasses_approvals(&strings(&["--dangerously-skip-permissions"])));
-        assert!(bypasses_approvals(&strings(&["--permission-mode", "bypassPermissions"])));
-        assert!(bypasses_approvals(&strings(&["--dangerously-bypass-approvals-and-sandbox"])));
-        assert!(bypasses_approvals(&strings(&["-s", "danger-full-access"])));
-        assert!(bypasses_approvals(&strings(&["-a", "never"])));
-        assert!(!bypasses_approvals(&strings(&["--model", "opus", "-a", "on-request"])));
     }
 }

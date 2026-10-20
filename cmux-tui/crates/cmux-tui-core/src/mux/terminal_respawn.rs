@@ -24,9 +24,9 @@
 //! that typed end instead of a generic host loss.
 //!
 //! The launch and seed (`terminal_respawn/launch.rs`) and the pre-fill
-//! (`terminal_respawn/prefill.rs`): an agent resume command, typed, and run
-//! only when it is configured to and the shell's own empty prompt waits, or
-//! the terminal's command line, typed on the new prompt without a newline. The manual
+//! (`terminal_respawn/prefill.rs`): an agent session's resume runs at the
+//! shell's own empty prompt ("Resume Agents After Restart", on by default);
+//! a command never runs again, and the marker line names it. The manual
 //! restart of a tab this path leaves dead (`terminal_respawn/manual.rs`,
 //! `restart-tab`) runs the same worker.
 
@@ -558,7 +558,7 @@ impl Mux {
         self.publish_resource_event();
         let _ = self.retry_pending_agent_hooks_for_terminal(&plan.public_id);
         self.reconcile_agent_roster_projections_for_terminal(&plan.public_id);
-        let prefill = self.respawn_prefill(&plan.terminal_id, record.as_ref());
+        let prefill = Self::respawn_prefill(record.as_ref(), crate::user_settings::resume_agents());
         Ok(Some((surface, prefill)))
     }
 

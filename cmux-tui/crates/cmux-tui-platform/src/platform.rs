@@ -962,9 +962,8 @@ pub fn foreground_job_name(pid: u32) -> Option<String> {
 /// terminal's foreground: no job it started (a program from its startup
 /// files: tmux, ssh, a REPL) does. False when the lookup fails.
 pub fn shell_holds_foreground(pid: u32) -> bool {
-    foreground_process_group(pid).is_some_and(|leader| {
-        leader == pid || crate::kinfo_proc::login_session_shell(pid, leader)
-    })
+    foreground_process_group(pid)
+        .is_some_and(|leader| leader == pid || crate::kinfo_proc::login_session_shell(pid, leader))
 }
 
 #[cfg(target_os = "linux")]
