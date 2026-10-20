@@ -42,7 +42,9 @@
     "chief.profile.create",
     "chief.profile.delete",
     "chief.profile.get",
+    "chief.profile.history",
     "chief.profile.list",
+    "chief.profile.undo",
     "chief.profile.update",
     "chief.stop",
     "client.cell_pixels.set",
@@ -294,6 +296,10 @@
     "workspace.rename",
     "workspace.run",
     "workspace.update",
+    "workspace_checklist.add",
+    "workspace_checklist.list",
+    "workspace_checklist.remove",
+    "workspace_checklist.update",
     "workspace_group.create",
     "workspace_group.delete",
     "workspace_group.list",
@@ -381,6 +387,7 @@
       "machine-usage",
       "move-bookmark",
       "move-browser-profile",
+      "move-column",
       "move-personal-group",
       "move-profile",
       "move-screen",
@@ -563,6 +570,7 @@
       "page-credential",
       "ws-listen",
       "cloud-inbox-list",
+      "cloud-requests-list",
       "cloud-conversation-snapshot",
       "cloud-conversation-history",
       "cloud-conversation-thread",
@@ -1115,6 +1123,12 @@
     },
     {
       "name": "cloud-session-needed",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "cloud-host-replica-needed",
       "streams": [
         "subscribe"
       ]

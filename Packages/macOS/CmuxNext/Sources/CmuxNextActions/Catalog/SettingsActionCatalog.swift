@@ -394,25 +394,27 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 keywords: ["appearance", "font", "chrome", "default"], category: .settings, symbol: "textformat.size",
                 surfaces: [.palette], cliName: "settings reset-interface-size"
             ),
+            // Ctrl-Shift-Cmd-= / - / 0 scale all app text (Lawrence 2026-10-19: "for changing font size we
+            // should do Command+Shift+Control++ and -"); Ctrl-Cmd-= is Equalize Splits, as in Ghostty.
             ActionDescriptor(
                 id: "appearance.uiScale.increase",
                 title: String(localized: "action.appearance.uiScale.increase", defaultValue: "Increase Interface Scale", bundle: .module),
                 keywords: ["appearance", "scale", "chrome", "bigger", "zoom"],
-                defaultShortcut: Shortcut("=", modifiers: [.control, .command]), category: .settings,
+                defaultShortcut: Shortcut("=", modifiers: [.control, .shift, .command]), category: .settings,
                 symbol: "plus.magnifyingglass", surfaces: [.palette, .keyboard, .menu], cliName: "settings increase-interface-scale", mainMenu: .view
             ),
             ActionDescriptor(
                 id: "appearance.uiScale.decrease",
                 title: String(localized: "action.appearance.uiScale.decrease", defaultValue: "Decrease Interface Scale", bundle: .module),
                 keywords: ["appearance", "scale", "chrome", "smaller", "zoom"],
-                defaultShortcut: Shortcut("-", modifiers: [.control, .command]), category: .settings,
+                defaultShortcut: Shortcut("-", modifiers: [.control, .shift, .command]), category: .settings,
                 symbol: "minus.magnifyingglass", surfaces: [.palette, .keyboard, .menu], cliName: "settings decrease-interface-scale", mainMenu: .view
             ),
             ActionDescriptor(
                 id: "appearance.uiScale.reset",
                 title: String(localized: "action.appearance.uiScale.reset", defaultValue: "Reset Interface Scale", bundle: .module),
                 keywords: ["appearance", "scale", "chrome", "default", "zoom"],
-                defaultShortcut: Shortcut("0", modifiers: [.control, .command]), category: .settings,
+                defaultShortcut: Shortcut("0", modifiers: [.control, .shift, .command]), category: .settings,
                 symbol: "1.magnifyingglass", surfaces: [.palette, .keyboard, .menu], cliName: "settings reset-interface-scale", mainMenu: .view
             ),
         ]

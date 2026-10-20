@@ -55,16 +55,22 @@ extension HomeService {
         }
     }
 
-    /// A conversation of the cloud owner (the placed Chief's, or one the
+    /// A conversation of the cloud owner (a cloud Chief's, or one the
     /// store lists as cloud): it does not wait for the local Chief owner.
     func isCloudConversation(_ id: ConversationID) -> Bool {
-        cloudChief?.mainConversation == id.rawValue || homeStore.summary(id)?.owner == .cloud
+        cloudChiefs.chief(for: id.rawValue) != nil || homeStore.summary(id)?.owner == .cloud
     }
 
     /// The notice row of a conversation: on the local Chief, agents off in this build session (cx-tgf4h)
     /// or its organizing status while a turn waits; else the merge notice.
     func conversationNotice(for id: ConversationID) -> String? {
         let isLocalChief = HomeChiefName.select(from: conversations)?.id == id.rawValue
+        // The copy notice shows where the user is: on the Hosted Chief, or on the local Chief while it keeps the tab;
+        // a brain notice only on the Hosted Chief, the Chief it is about.
+        if let notice = hostedChief.notice {
+            let onHosted = cloudChiefs.hosted?.mainConversation == id.rawValue
+            if onHosted || (hostedChief.isCopyNotice && isLocalChief && hostedChief.pending) { return notice }
+        }
         return (isLocalChief ? (HomeBrainHost.agentsDisabledNotice() ?? settleNotice) : nil) ?? migrationNotice
     }
 

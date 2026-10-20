@@ -29,6 +29,7 @@ final class TerminalFindBarView: NSView {
 
         field.placeholderString = Self.placeholder
         field.setAccessibilityLabel(Self.placeholder)
+        field.setAccessibilityIdentifier("cmux.terminal.find.field")
         field.isBordered = false
         field.drawsBackground = false
         field.fill = { .clear }
@@ -45,9 +46,9 @@ final class TerminalFindBarView: NSView {
 
         icon.image = Self.icon(.search)
         buttons = [
-            button(.navPreviousMatch, label: Self.previousLabel, action: #selector(previousClicked)),
-            button(.disclosureExpanded, label: Self.nextLabel, action: #selector(nextClicked)),
-            button(.actionClose, label: Self.closeLabel, action: #selector(closeClicked)),
+            button(.navPreviousMatch, label: Self.previousLabel, id: "previous", action: #selector(previousClicked)),
+            button(.disclosureExpanded, label: Self.nextLabel, id: "next", action: #selector(nextClicked)),
+            button(.actionClose, label: Self.closeLabel, id: "close", action: #selector(closeClicked)),
         ]
 
         let stack = NSStackView(views: [icon, field, countLabel] + buttons)
@@ -174,12 +175,13 @@ final class TerminalFindBarView: NSView {
     @objc private func nextClicked() { find.navigate(.next) }
     @objc private func closeClicked() { find.close() }
 
-    private func button(_ icon: IconName, label: String, action: Selector) -> NSButton {
+    private func button(_ icon: IconName, label: String, id: String, action: Selector) -> NSButton {
         let button = NSButton(image: Self.icon(icon), target: self, action: action)
         button.isBordered = false
         button.bezelStyle = .accessoryBarAction
         button.themedToolTip = label
         button.setAccessibilityLabel(label)
+        button.setAccessibilityIdentifier("cmux.terminal.find.\(id)")
         return button
     }
 

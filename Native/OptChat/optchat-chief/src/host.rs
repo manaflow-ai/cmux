@@ -141,23 +141,63 @@ pub const DEFAULT_HARNESS: &str = "claude";
 /// route (`claude-cr`, which acpmux has only when `coderouterClaudeRoute`
 /// names one) whether or not it can run, so an unavailable route is
 /// refused with its reason instead of silently moving to another account;
-/// else the subrouter2 route (`claude-sr2`, a harness file the person
-/// installs) when acpmux can run it (Lawrence 2026-10-18: "all your agents
-/// are started with Opus 5.5 medium using subrouter to Claude"); else
-/// `DEFAULT_HARNESS`.
+/// else the user's own Claude CLI (`DEFAULT_HARNESS`: the `claude` acpmux
+/// finds on the login shell's PATH, run with the user's own
+/// `~/.claude/settings.json` and login; Lawrence 2026-10-19: "make sure
+/// Chief, by default, will talk to the correct Claude, using the user's
+/// Claude CLI"). The subrouter2 route (`claude-sr2`) is an explicit choice
+/// (`chief engine set --harness claude-sr2`), and the default only when
+/// acpmux has no usable `claude` but can run sr2.
 pub fn default_harness(answer: &serde_json::Value) -> &'static str {
     let harnesses = answer.get("harnesses");
     if harnesses.and_then(|h| h.get(CODEROUTER_HARNESS)).is_some() {
         return CODEROUTER_HARNESS;
     }
-    let sr2 = harnesses.and_then(|h| h.get(SR2_HARNESS));
-    if sr2.is_some_and(|p| {
-        p.get("kind").and_then(serde_json::Value::as_str) == Some("claude-stdio")
-            && p.get("unavailable").is_none()
-    }) {
+    let runnable_stdio = |name: &str| {
+        harnesses.and_then(|h| h.get(name)).is_some_and(|p| {
+            p.get("kind").and_then(serde_json::Value::as_str) == Some("claude-stdio")
+                && p.get("unavailable").is_none()
+        })
+    };
+    if !runnable_stdio(DEFAULT_HARNESS) && runnable_stdio(SR2_HARNESS) {
         SR2_HARNESS
     } else {
         DEFAULT_HARNESS
+    }
+}
+
+/// Records which executable (and its `--version`) the turns, compactor and
+/// subagents run, for `engine show` and host.log (Lawrence 2026-10-19: show
+/// which Claude the Chief talks to). A refused role is left out.
+fn record_resolved(home: &std::path::Path, plans: [&crate::harness_gate::Plan; 3]) {
+    let mut versions: BTreeMap<String, String> = BTreeMap::new();
+    let mut resolve = |plan: &crate::harness_gate::Plan| {
+        plan.admitted.as_ref().ok().map(|a| {
+            let version = versions
+                .entry(a.argv0.clone())
+                .or_insert_with(|| crate::engine::binary_version(&a.argv0))
+                .clone();
+            crate::engine::ResolvedHarness {
+                harness: a.profile.clone(),
+                kind: a.kind.clone(),
+                argv0: a.argv0.clone(),
+                version,
+            }
+        })
+    };
+    let resolved = crate::engine::ResolvedEngine {
+        turn: resolve(plans[0]),
+        compactor: resolve(plans[1]),
+        subagent: resolve(plans[2]),
+    };
+    if let Some(t) = &resolved.turn {
+        log(format!("turn CLI: {} {}", t.argv0, t.version));
+    }
+    if let Err(e) = crate::engine::save_resolved(home, &resolved) {
+        log(format!(
+            "writing {}: {e}",
+            crate::engine::resolved_path(home).display()
+        ));
     }
 }
 
@@ -260,6 +300,12 @@ pub fn turn_preset(
         env.insert(
             crate::compactor::SUBROUTER_SESSION_KEY_ENV.to_owned(),
             codex_cache_key(home, "turn"),
+        );
+        // acpmux sends it as X-Subrouter-Session (sr2 and plain routes too):
+        // a fresh Claude process per turn stays on one account and its cache.
+        env.insert(
+            crate::compactor::SUBROUTER_SESSION_HEADER_ENV.to_owned(),
+            "1".to_owned(),
         );
     }
     // The reference's Claude Code path: no user settings (user MCP servers,
@@ -395,6 +441,18 @@ pub fn session_env(
             session_env.insert(key.to_owned(), value);
         }
     }
+    // A host without its own app (the Cloud Chief VM): its turns reach the
+    // user's app through the relay that `CMUX_CHIEF_APP_SOCKET` names. An
+    // app's own `CMUX_SOCKET_PATH` wins.
+    if !session_env.contains_key("CMUX_SOCKET_PATH")
+        && let Some(relay) =
+            inherited(crate::cmux_env::REMOTE_APP_KEY).filter(|value| !value.is_empty())
+    {
+        session_env.insert("CMUX_SOCKET_PATH".to_owned(), relay);
+    }
+    // Its tabs open beside the Chief's chat (the app does not know a turn's
+    // agent session; cmux_env::HOME_CHAT_KEY).
+    session_env.insert(crate::cmux_env::HOME_CHAT_KEY.to_owned(), "1".to_owned());
     session_env.insert(
         "PATH".to_owned(),
         inherited("PATH").unwrap_or_else(|| "/usr/bin:/bin".into()),
@@ -636,7 +694,11 @@ fn start(
     // Who this Chief is in the conversations (membership): its participant
     // and which messages of the owner's other conversations wake it.
     let membership =
-        crate::membership::Membership::from_env(matches!(source, Source::Local { .. }))?;
+        crate::membership::Membership::from_env(matches!(source, Source::Local { .. }))?
+            .with_owner(match &source {
+                Source::Local { .. } => Some(cmux_chief::rules::USER_LOCAL),
+                Source::Cloud { install } => install.user.as_deref(),
+            });
     log(format!(
         "conversations: as {}{}",
         membership.participant,
@@ -747,8 +809,7 @@ fn start(
             }
         }
         // Nothing set: the configured CodeRouter route when acpmux has one,
-        // else subrouter2 when acpmux can run it, else the user's own Claude
-        // login (default_harness).
+        // else the user's own Claude CLI (default_harness).
         if chief_set.is_none() {
             harness = default_harness(&answer).to_owned();
             if sub_set.is_none() {
@@ -769,6 +830,7 @@ fn start(
             plan(&compactor_harness, "compactor"),
             plan(&sub_harness, "subagent"),
         );
+        record_resolved(home, [&turn, &compactor, &sub]);
         (
             turn.family,
             compactor.family,
@@ -877,8 +939,14 @@ fn start(
     }
     if codex_preset.is_some()
         && isolate
-        && let Err(e) =
+        && let Err(e) = (|| {
+            // No turn survives a brain-host restart. Remove every old Codex
+            // transcript/database then recreate the stable config, sign-in
+            // link and installation id that prompt caching needs.
+            crate::codex_home::wipe_codex_home(&paths.turn_codex)?;
             crate::codex_home::prepare_turn_codex_home(paths, &crate::codex_home::user_codex_home())
+                .map_err(std::io::Error::other)
+        })()
     {
         log(format!("the codex turns' CODEX_HOME: {e}"));
     }
@@ -1221,7 +1289,13 @@ fn start(
         .with_pinned_harness(sub_set.is_some())
         .with_harness_grant(chief_tools.clone())
         .with_workspaces(workspaces.clone())
-        .with_no_workspace_reason(no_workspace_reason.clone());
+        .with_no_workspace_reason(no_workspace_reason.clone())
+        // OPTCHAT_SUBAGENT_PEER: subagents run on that acpmux peer (a cloud
+        // VM) and take no local slot (plans/cmux-next/cloud-subagents-DESIGN.md).
+        .with_cloud(crate::subagents::CloudPlacement::from_env(
+            env,
+            sub_text.clone(),
+        ));
         let spawner = Arc::new(spawner);
         sub_starter = Some(spawner.queue_starter());
         spawner as Arc<dyn crate::tools::Orchestrator>
@@ -1378,10 +1452,18 @@ fn start(
         paths,
         &crate::paths::home_id(home),
     ));
+    let retention =
+        crate::turn_retention::TurnRetention::new(paths, &crate::compactor::user_claude_home());
+    if let Err(e) = retention.cleanup() {
+        log(format!(
+            "cleaning expired turn transcripts at start failed: {e}"
+        ));
+    }
     let persister = crate::persist::Persister::start(
         paths.chat.clone(),
         paths.memory_db.clone(),
         Some(backup),
+        Some(retention),
         brain_log.clone(),
     )
     .map_err(|e| format!("starting the persister: {e}"))?;
@@ -1408,33 +1490,11 @@ fn start(
     brain.set_max_live(crate::subagents::live_limit(
         env(crate::subagents::MAX_LIVE_ENV).as_deref(),
     ));
-    // Finished subagents' workspaces stay with a done mark unless this says close.
+    // Finished subagents' workspaces stay, names untouched, unless this says close.
     brain.set_sub_close_on_finish(env("OPTCHAT_SUBAGENT_ON_FINISH").as_deref() == Some("close"));
     // Subagents that stop on a model or network error continue on their own
     // (auto_resume.rs); OPTCHAT_AUTO_RESUME=off turns it off.
     brain.set_auto_resume(crate::auto_resume::ResumePolicy::from_env(env), None);
-    // Agent CLIs in cmux terminals (Claude Code, Codex) that stop on an
-    // error continue the same way (terminal_watch.rs);
-    // OPTCHAT_TERMINAL_RESUME=off turns only that off.
-    if let Some(policy) = crate::auto_resume::ResumePolicy::from_env(env)
-        && !matches!(
-            env("OPTCHAT_TERMINAL_RESUME").as_deref(),
-            Some("off" | "0" | "false" | "no")
-        )
-    {
-        crate::terminal_watch::spawn(
-            policy,
-            Arc::new(crate::terminal_watch::CliTerminals::from_env(env)),
-            Arc::new(crate::auto_resume::TcpProbe::from_env(
-                env,
-                std::env::var_os("HOME")
-                    .map(std::path::PathBuf::from)
-                    .as_deref(),
-            )),
-            tx.clone(),
-            brain_log.clone(),
-        );
-    }
     if let Some(describer) = describer {
         brain.set_describer(describer);
     }

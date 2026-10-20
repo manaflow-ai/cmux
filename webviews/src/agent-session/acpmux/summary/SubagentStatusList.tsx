@@ -1,6 +1,7 @@
 // The summary card's Subagents section (SummaryCard.tsx): every subagent of the chat, nested ones
 // indented under the agent that spawned them, with its live state (running, waiting on the user,
-// done, failed) and its time. A row shows that subagent (`onOpen`): its pane when it has one.
+// done, failed) and its time. A row shows that subagent (`onOpen`): its pane when it has one. Its
+// title opens the card's Subagents tab (`onShowAll`, SubagentsTab.tsx).
 import type { AcpmuxRow, AcpmuxSnapshot } from "../model";
 import { formatDuration } from "../conversation/turns";
 import { useT, type StringKey } from "../i18n";
@@ -15,7 +16,7 @@ const ROW_ICON = rowIconSize(12);
 /// is waiting on them, not running; a cancelled or lost one ended without its result.
 export type SubagentStatus = "running" | "waiting" | "done" | "failed";
 
-const STATUS_LABEL: Record<SubagentStatus, StringKey> = {
+export const STATUS_LABEL: Record<SubagentStatus, StringKey> = {
   running: "subagents.state.running",
   waiting: "subagents.state.waiting",
   done: "subagents.state.completed",
@@ -82,6 +83,7 @@ export function SubagentStatusList({
   current,
   onOpen,
   autoOpen,
+  onShowAll,
 }: {
   agents: readonly Subagent[];
   waiting: ReadonlySet<string>;
@@ -90,15 +92,25 @@ export function SubagentStatusList({
   onOpen?: (id: string) => void;
   /// The switch for opening new subagents in panes of their own (subagents/subagentPanes.ts).
   autoOpen?: { on: boolean; set: (on: boolean) => void };
+  /// Opens the card's Subagents tab; the title is a button only with it.
+  onShowAll?: () => void;
 }) {
   const t = useT();
   const now = useNow(agents.some(running));
   const title = t("summary.subagents");
   const live = agents.filter((agent) => subagentStatus(agent, waiting) === "running").length;
+  const heading = live > 0 ? `${title} · ${t("summary.subagents.running", { n: live })}` : title;
   return (
     <section className="acpmux-summary-section acpmux-summary-agents" aria-label={title}>
       <h3 className="acpmux-summary-title">
-        {live > 0 ? `${title} · ${t("summary.subagents.running", { n: live })}` : title}
+        {onShowAll ? (
+          <button type="button" className="acpmux-summary-title__button" onClick={onShowAll}>
+            {heading}
+            <Icon name="disclosure.collapsed" size={10} />
+          </button>
+        ) : (
+          heading
+        )}
       </h3>
       <ul className="acpmux-summary-list">
         {agents.length === 0 && <li className="acpmux-summary-row acpmux-summary-none">{t("summary.none")}</li>}

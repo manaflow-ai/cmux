@@ -131,6 +131,34 @@ async fn a_chat_its_harness_never_titles_gets_a_short_generated_title_after_its_
     assert_eq!(std::fs::read_to_string(&asked).unwrap().matches("---").count(), 1);
     assert_eq!(client.title(&session).await, json!("Three-Dish Picnic Menu"));
     let _ = std::fs::remove_file(&asked);
+    let _ = std::fs::remove_file(cwd_path(&asked));
+}
+
+fn cwd_path(asked: &Path) -> PathBuf {
+    PathBuf::from(format!("{}.cwd", asked.display()))
+}
+
+/// The title command runs in acpmux's own empty `unattended` folder, never
+/// the shared temp dir or the daemon's folder: Claude Code indexes its cwd at
+/// start (`rg --files --hidden <cwd>`), and a titler per finished chat that
+/// scanned all of `$TMPDIR` pegged the Mac's CPU.
+#[tokio::test]
+async fn the_title_command_runs_in_an_empty_folder_of_its_own() {
+    let asked = asked_path("cwd");
+    let hub = hub(&asked);
+    let mut client = Client::open(&hub);
+    client.watch().await;
+    let session = client.new_session().await;
+
+    client.prompt(&session, "Plan a three-dish picnic menu").await;
+    client.titled(Duration::from_secs(15)).await.expect("no titled change");
+    let cwd = PathBuf::from(std::fs::read_to_string(cwd_path(&asked)).unwrap());
+    let name = cwd.file_name().and_then(|n| n.to_str()).unwrap_or_default().to_owned();
+    assert!(name.ends_with("unattended"), "title command ran in {}", cwd.display());
+    let tmp = std::fs::canonicalize(std::env::temp_dir()).unwrap();
+    assert_ne!(std::fs::canonicalize(&cwd).unwrap(), tmp, "title command ran in $TMPDIR");
+    let _ = std::fs::remove_file(&asked);
+    let _ = std::fs::remove_file(cwd_path(&asked));
 }
 
 #[tokio::test]

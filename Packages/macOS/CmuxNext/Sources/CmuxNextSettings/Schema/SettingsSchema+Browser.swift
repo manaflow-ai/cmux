@@ -74,11 +74,23 @@ nonisolated enum BrowserSettingsSchema {
                 kind: .toggle, default: .bool(BrowserHibernationSetting.fallback.includesPinnedTabs)
             ),
             SettingDescriptor(
+                ["browser", "freezeHiddenTabs"], section: .browser, group: memory,
+                title: SettingsText.keyed("settings.browser.freezeHiddenTabs", "Freeze Hidden Tabs"),
+                help: SettingsText.keyed(
+                    "settings.browser.freezeHiddenTabs.help",
+                    "Saves power: a hidden Chromium tab stops running until you show it. Pinned tabs and Never Hibernate hosts stay awake."
+                ),
+                kind: .choiceOrNumber([
+                    SettingChoice("off", SettingsText.keyed("settings.choice.never", "Never")),
+                ], SettingNumber(5...3_600, step: 5, unit: .seconds, placeholder: BrowserHibernationSetting.defaultFreezeSeconds)),
+                default: .number(BrowserHibernationSetting.defaultFreezeSeconds), keywords: ["power", "battery", "energy", "sleep", "suspend"]
+            ),
+            SettingDescriptor(
                 ["browser", "remoteLocalhost"], section: .browser, group: remote,
                 title: SettingsText.keyed("settings.browser.remoteLocalhost", "Open localhost on the Workspace's Machine"),
                 kind: .toggle, default: .bool(RemoteLocalhostSetting.fallback.enabled), keywords: ["ssh", "cloud", "port"]
             ),
         ] + OmnibarSettingsSchema.descriptors + BrowserLinkClickSchema.descriptors + LinkRoutingSchema.descriptors
-            + BrowserPasswordsSettingsSchema.descriptors
+            + BrowserPasswordsSettingsSchema.descriptors + BrowserVerificationAutofillSettingsSchema.descriptors
     }
 }

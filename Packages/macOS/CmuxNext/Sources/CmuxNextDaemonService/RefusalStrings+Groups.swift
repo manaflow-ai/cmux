@@ -5,6 +5,7 @@ nonisolated extension RefusalStrings {
     public static func noOpenTabGroup(_ id: String) -> String { text("handlers.refusal.tabGroupGone", "That tab group is no longer open.") }
     public static var tabNotInGroup: String { text("handlers.refusal.tabNotInGroup", "the tab is not in a group") }
     public static var pinnedCannotGroup: String { text("handlers.refusal.pinnedCannotGroup", "pinned tabs cannot be grouped") }
+    public static var tabsInDifferentPanes: String { text("handlers.refusal.tabsInDifferentPanes", "the tabs are in different panes") }
     public static var groupArgumentRequired: String { text("handlers.refusal.groupArgumentRequired", "a group argument is required") }
     public static var nameArgumentRequired: String { text("handlers.refusal.nameArgumentRequired", "a name argument is required") }
     public static var colorArgumentRequired: String { text("handlers.refusal.colorArgumentRequired", "a color argument (grey, blue, ...) is required") }
@@ -25,6 +26,7 @@ nonisolated extension RefusalStrings {
     public static func ghosttyRejected(_ binding: String) -> String { format("handlers.refusal.ghosttyRejected", "Ghostty rejected %@", binding) }
     public static var textBoxUnported: String { text("handlers.refusal.textBoxUnported", "needs the TextBox composer, which cmux-next does not have yet") }
     public static func colorMustBeOneOf(_ choices: String) -> String { format("handlers.refusal.colorMustBeOneOf", "color must be one of %@", choices) }
+    public static func statusMustBeOneOf(_ choices: String) -> String { format("handlers.refusal.statusMustBeOneOf", "status must be one of %@", choices) }
     public static var resourceCardNotShown: String {
         text("handlers.refusal.resourceCardNotShown", "the tab or workspace is not shown in a window, so its resource card cannot open")
     }

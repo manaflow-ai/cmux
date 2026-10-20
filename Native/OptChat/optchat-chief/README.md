@@ -49,7 +49,7 @@ settle go into that same call. A pending approval is denied by a newer
 human message, so the turn reaches its next tool boundary. Subagent reports
 follow the same rule. Only chief.stop stops a turn: the runner waits until
 no tool call runs, then sends `session/cancel` every second until the turn
-ends, and the end posts what the turn said and "(turn stopped)".
+ends, and the end posts nothing to the chat or any bridge.
 
 ## Several Chiefs and channels
 
@@ -188,7 +188,8 @@ Claude harness, `chief spawn|tell|zoom|date` on any other).
 
 - Any number of subagents work at once by default; `OPTCHAT_MAX_LIVE_SUBAGENTS=N`
   caps it (one spawn takes at most 8 tasks; call spawn again for more). A spawn
-  over the cap answers `a<N>: queued`; a queued subagent starts, with the view
+  over the cap answers `a<N>: queued`, naming the cap's source (`control cap N`
+  or the env) and that `control cap 0` removes it; a queued subagent starts, with the view
   of that moment and its task, when another finishes. Its record keeps its
   task, directory, effort and floor, so a host that restarts still starts it
   (a record from before launches were saved takes its task from the spawn
@@ -237,7 +238,8 @@ marks (decision 2026-10-08; see Cache marks and TTL).
   from the person's app, so a refusal says to deny, steer or ask the user),
   `pause id` / `resume id [message]` (no auto-resume while paused),
   `cancel id`, `restart id [message]` (same session), `priority id`,
-  `cap n` (the live cap now, 0 none; saved as `live_cap`).
+  `cap n` (the live cap now, 0 none; saved as `live_cap`, so it outlives a
+  restart; a cap is opt-in, set only when the user asks for one).
 - Pushed to the Chief: a prompt with its option ids and the approve policy
   (safe steps: reads, edits and tests in its worktree; the user for money,
   legal, destructive or credential steps), and one `looks stuck` note per run
@@ -349,9 +351,19 @@ optchat-chief import-claude-code dry-run|write [--projects DIR] [--mux-home DIR]
                                                            Claude Code transcripts as messages (host stopped)
 optchat-chief memory export --text DIR [--mux-home DIR]    the memory as JSONL day files (read-only; host may run)
 optchat-chief memory import [--mux-home DIR] DIR           an old JSONL home or an export into an empty memory (host stopped)
-optchat-chief memory search [--mux-home DIR] [--limit N] WORDS  messages and summaries holding every word (FTS5)
+optchat-chief memory search [--mux-home DIR] [--limit N] [--json] WORDS  messages and summaries holding every word (FTS5);
+                                                           --json: id, kind, date, snippet and full text per hit
 optchat-chief memory stats [--mux-home DIR]                counts, schema, migration record, backup status
+optchat-chief agent-memory search|get|remember|mcp|sync|sources|config ...
+                                                           long-term memory shared by Codex and Claude Code sessions
 ```
+
+`agent-memory` is a separate home (`~/.cmux/agent-memory`) built from the agents'
+own memory files, with its own MCP server (`cmux-agent-memory`: `memory_search`,
+`memory_get`, `memory_remember`) that cmux registers for agent sessions when
+`agents.memory.enabled` is on. It never touches a Chief's memory, and `mcp`'s
+tool list above is unchanged (section 7.2). Setup, several machines and the
+migration from the leo-workspace script: [cmux-agent-memory](../../../skills/cmux-agent-memory/SKILL.md).
 
 Inside a turn the Chief runs `chief agents ...` (a launcher in
 `$MUX_HOME/optchat/bin`, first on the turn's PATH). A child's final reply of

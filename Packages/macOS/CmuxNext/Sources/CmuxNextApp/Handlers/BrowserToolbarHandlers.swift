@@ -48,7 +48,7 @@ enum BrowserToolbarHandlers {
         })
         registry.bind("browser.media.show", run: { invocation in
             let entry = try context.page(invocation)
-            entry.chrome.toolbarButtons.present(BrowserMediaMenu.menu(context.services), from: .media)
+            entry.chrome.toolbarButtons.present(BrowserMediaMenu.menu(context.services, rows: entry.chrome.toolbarButtons.mediaRows), from: .media)
         })
         registry.bind("browser.downloads.show", run: { invocation in
             let entry = try context.page(invocation)

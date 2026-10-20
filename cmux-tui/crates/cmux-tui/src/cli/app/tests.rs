@@ -15,10 +15,30 @@ fn call(command: AppCommand) -> (&'static str, Value) {
         | AppCommand::Events { .. }
         | AppCommand::DebugCall { .. }
         | AppCommand::Screenshot { .. }
-        | AppCommand::Settings(_) => {
+        | AppCommand::Right { .. }
+        | AppCommand::Settings(_)
+        | AppCommand::Version => {
             panic!("expected a call")
         }
     }
+}
+
+/// `cmux window screenshot --out FILE` names a file of the caller's working
+/// directory, so the app (which runs elsewhere) gets it absolute; `--out -`
+/// (the PNG inline in the reply) and an absolute path go as given.
+#[test]
+fn screenshot_out_is_made_absolute_except_stdout() {
+    let out = |value: &str| {
+        let (method, params) =
+            call(parse(&args(&["window", "screenshot", "--out", value])).unwrap().unwrap());
+        assert_eq!(method, "action.run");
+        assert_eq!(params["action"], "window screenshot");
+        params["args"]["out"].as_str().unwrap().to_owned()
+    };
+    let cwd = std::env::current_dir().unwrap();
+    assert_eq!(out("shot.png"), cwd.join("shot.png").to_string_lossy());
+    assert_eq!(out("-"), "-");
+    assert_eq!(out("/tmp/shot.png"), "/tmp/shot.png");
 }
 
 #[test]
@@ -154,7 +174,7 @@ fn an_app_socket_of_another_user_is_refused_before_a_request_is_written() {
     assert!(app.join().unwrap()[0].is_empty(), "the client wrote before checking the peer uid");
 }
 
-fn global_for(socket: &std::path::Path) -> GlobalArgs {
+fn global_for(socket: &Path) -> GlobalArgs {
     GlobalArgs {
         app_socket: Some(socket.to_path_buf()),
         output: OutputMode::Quiet,
@@ -737,7 +757,9 @@ fn only_a_confirmed_settings_write_waits_without_a_deadline() {
         | AppCommand::Events { .. }
         | AppCommand::DebugCall { .. }
         | AppCommand::Screenshot { .. }
-        | AppCommand::Settings(_) => {
+        | AppCommand::Right { .. }
+        | AppCommand::Settings(_)
+        | AppCommand::Version => {
             panic!("expected a call")
         }
     };
@@ -825,7 +847,7 @@ fn identify_answer(bundle_id: &str) -> Value {
     json!({ "id": 1, "ok": true, "result": { "app": "cmux-next", "bundle_id": bundle_id, "tag": "occl1-v1" } })
 }
 
-fn app_call(socket: &std::path::Path, words: &[&str]) -> i32 {
+fn app_call(socket: &Path, words: &[&str]) -> i32 {
     let mut command_args = vec!["app", "call"];
     command_args.extend_from_slice(words);
     run(&global_for(socket), parse(&args(&command_args)).unwrap().unwrap())
@@ -1185,3 +1207,54 @@ fn settings_validate_reports_what_the_owner_would() {
         local(parse(&args(&["settings", "validate", missing.as_str()])).unwrap().unwrap());
     assert_eq!(missing.unwrap_err()["code"], "settings.unreadable");
 }
+
+/// Lawrence 2026-10-19: `cmux <noun> move-to-window --new` moves the object
+/// to a new window, as `cmux <noun> move-to-new-window` does, for every noun.
+#[test]
+fn move_to_window_new_is_move_to_new_window() {
+    for noun in
+        ["tab", "tab-group", "pane", "workspace", "workspace-group", "screen", "screen-group"]
+    {
+        let name = format!("{noun} move-to-window");
+        assert_eq!(
+            new_window_spelling(&name, &args(&["--new", "--target", "x1"])),
+            Some((format!("{noun} move-to-new-window"), args(&["--target", "x1"]))),
+            "{noun}"
+        );
+        assert_eq!(
+            new_window_spelling(&name, &args(&["--target", "x1", "--new=true"])),
+            Some((format!("{noun} move-to-new-window"), args(&["--target", "x1"]))),
+            "{noun} --new=true"
+        );
+    }
+    // Without --new it names a window: the action keeps its own name.
+    assert_eq!(new_window_spelling("workspace move-to-window", &args(&["--window", "w1"])), None);
+    assert_eq!(new_window_spelling("workspace move-to-window", &args(&["--new=false"])), None);
+    assert_eq!(new_window_spelling("workspace rename", &args(&["--new"])), None);
+}
+
+/// A Chief turn (`CMUX_CALLER_HOME_CHAT=1`, set by the Chief host) names the
+/// Home chat too, so the app opens its tabs beside Home's chat when it does not
+/// know the turn's agent session (a Cloud Chief turn on a VM, or a local turn).
+#[test]
+fn a_chief_turn_names_the_home_chat_as_its_caller() {
+    let env = |pairs: &'static [(&'static str, &'static str)]| {
+        move |key: &str| pairs.iter().find(|(k, _)| *k == key).map(|(_, v)| (*v).to_owned())
+    };
+    assert_eq!(
+        caller_from(env(&[("CMUX_AGENT_SESSION", "turn-1"), ("CMUX_CALLER_HOME_CHAT", "1")])),
+        Some(json!({ "agent_session": "turn-1", "home_chat": true }))
+    );
+    assert_eq!(
+        caller_from(env(&[("CMUX_CALLER_HOME_CHAT", "1")])),
+        Some(json!({ "home_chat": true }))
+    );
+    assert_eq!(
+        caller_from(env(&[("CMUX_AGENT_SESSION", "turn-1")])),
+        Some(json!({ "agent_session": "turn-1" }))
+    );
+    assert_eq!(caller_from(env(&[("CMUX_CALLER_HOME_CHAT", "0")])), None);
+}
+
+#[path = "right_tests.rs"]
+mod right;
