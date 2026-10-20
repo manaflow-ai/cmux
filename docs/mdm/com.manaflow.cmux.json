@@ -2071,6 +2071,29 @@
       "title" : "Channels",
       "type" : "boolean"
     },
+    "home.chiefPetEnabled" : {
+      "default" : false,
+      "description" : "A small Chief floats over every app and shows agent events above it. Drag it anywhere; click it to message the Chief or reply to a session.",
+      "title" : "Show Chief Pet",
+      "type" : "boolean"
+    },
+    "home.chiefPetMascot" : {
+      "default" : "orb",
+      "description" : "home.chiefPetMascot",
+      "enum" : [
+        "orb",
+        "orb-spark",
+        "orb-hood",
+        "machine",
+        "machine-cyan",
+        "machine-blue",
+        "moon",
+        "moon-blue",
+        "fox"
+      ],
+      "title" : "Character",
+      "type" : "string"
+    },
     "home.chiefPictureMotion" : {
       "default" : "hover",
       "description" : "Whether a Chief's GIF or animated picture moves on Home pages. Reduce Motion always shows its first frame.",

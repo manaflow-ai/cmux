@@ -442,6 +442,8 @@
     "setting.history.terminalCommands": false,
     "setting.home.attachments.keepLocation": false,
     "setting.home.channelsEnabled": false,
+    "setting.home.chiefPetEnabled": false,
+    "setting.home.chiefPetMascot": "orb",
     "setting.home.chiefPictureMotion": "hover",
     "setting.labs.classicHome": false,
     "setting.labs.previewFeatures": false,
