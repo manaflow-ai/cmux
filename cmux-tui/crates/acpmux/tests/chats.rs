@@ -174,6 +174,30 @@ async fn a_chat_titles_from_the_persons_words_not_its_workspace_context() {
     assert_eq!(chat["title"].as_str(), Some("what is running in my terminal?"), "{chat}");
 }
 
+/// An agent can open the same-uid unix socket and omit its caller token. That must not turn it
+/// into the person for the device-wide chat catalog or historical transcript reader.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_unbound_local_client_cannot_read_device_chat_history() {
+    let h = home("unbound");
+    let projects = h.0.join(".claude/projects");
+    write_session(&projects, A, &[user(A, "/work/private", "private prompt")]);
+    let hub = hub();
+    hub.start_chats(sources(&h.0, &[])).await.unwrap();
+    let mut attacker = Client::new(&hub, Origin::Local);
+    attacker
+        .ok("initialize", json!({"protocolVersion": 1, "clientInfo": {"name": "unbound"}}))
+        .await;
+
+    let list = attacker.call("_acpmux/chats", json!({})).await;
+    let transcript =
+        attacker.call("_acpmux/chat_transcript", json!({"key": format!("claude-code:{A}")})).await;
+    assert!(list.get("error").is_some(), "an unbound client listed device chats: {list}");
+    assert!(
+        transcript.get("error").is_some(),
+        "an unbound client read historical prompts: {transcript}"
+    );
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn chats_lists_synthetic_roots_with_filters_and_pages() {
     let h = home("list");
