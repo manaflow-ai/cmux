@@ -92,6 +92,17 @@ fn check(mux: &Mux, client: u64, envelope: &RequestEnvelope) -> Result<Actor, Re
     Ok(peer_or_local(mux, client, transport, local))
 }
 
+/// Test seam for the peer-PID ancestry actor landed with its behavioral regression.
+#[cfg(test)]
+fn actor_for_local_peer(
+    _mux: &Mux,
+    local: Actor,
+    _peer_key: Option<&str>,
+    _session_for_pid: impl FnOnce(u32) -> Option<u32>,
+) -> Actor {
+    local
+}
+
 /// `credential.mint` and `credential.rotate` are the owner's: a registered
 /// local Unix connection with no link peer record whose principal is the
 /// local user (or the verified app), on a request that presents no

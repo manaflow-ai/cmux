@@ -33,6 +33,24 @@ fn connect(mux: &Arc<Mux>) -> Conn {
     Conn { client, writer, outbound, scheduler }
 }
 
+#[test]
+fn a_terminal_peer_that_omits_its_credential_cannot_become_the_owner() {
+    let mux = mux("peer-terminal");
+    let surface = mux
+        .new_workspace_as(&crate::Actor::Daemon, None, Some((80, 24)))
+        .expect("a terminal workspace");
+    let process = surface.process_id().expect("the terminal child pid");
+    let terminal = surface.terminal_public_id().expect("the terminal id").as_str().to_string();
+
+    let actor =
+        super::actor_for_local_peer(&mux, crate::Actor::local_user(), Some("token:4242.1"), |_| {
+            Some(process)
+        });
+
+    assert_eq!(actor, crate::Actor::Terminal { id: terminal });
+    mux.shutdown();
+}
+
 /// A page relay connection whose peer is `peer`.
 fn relay(mux: &Arc<Mux>, peer: &str) -> Conn {
     let conn = connect(mux);
