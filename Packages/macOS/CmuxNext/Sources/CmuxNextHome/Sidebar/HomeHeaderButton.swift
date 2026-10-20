@@ -70,8 +70,63 @@ final class HomeHeaderButton: NSButton {
         guard size != glyphSize || name != glyphName else { return }
         glyphSize = size
         glyphName = name
-        image = NSImage(systemSymbolName: name, accessibilityDescription: nil)?
-            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: size, weight: .regular))
+        image = Self.centredSymbol(name, size: size)
+    }
+
+    private static var centred: [String: NSImage] = [:]
+
+    /// Symbol `name` at `size` with what it draws centred in its canvas, as a template (the tint
+    /// still applies). SF Symbols centre their layout box, not their ink: compose's pencil tip
+    /// lifts its box, so its square sat 1.75 pt below the other header glyphs. Cached per name
+    /// and size (a few small images).
+    static func centredSymbol(_ name: String, size: CGFloat) -> NSImage? {
+        let key = "\(name)@\(size)"
+        if let cached = centred[key] { return cached }
+        guard let symbol = NSImage(systemSymbolName: name, accessibilityDescription: nil)?
+            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: size, weight: .regular)) else { return nil }
+        var proposed = CGRect(origin: .zero, size: symbol.size)
+        guard let bitmap = symbol.cgImage(forProposedRect: &proposed, context: nil, hints: nil), let ink = inkBounds(bitmap) else {
+            return symbol
+        }
+        let scale = CGFloat(bitmap.width) / max(1, symbol.size.width)
+        // How far the ink's centre is from the canvas's, in points (x right, y down from the top).
+        let dx = (symbol.size.width / 2 - ink.midX / scale).snapped(scale: scale)
+        let dy = (symbol.size.height / 2 - ink.midY / scale).snapped(scale: scale)
+        // A canvas grown on both sides by the shift, so the moved ink is never clipped.
+        let canvas = NSSize(width: symbol.size.width + 2 * abs(dx), height: symbol.size.height + 2 * abs(dy))
+        let result = NSImage(size: canvas, flipped: true) { _ in
+            symbol.draw(in: NSRect(x: abs(dx) + dx, y: abs(dy) + dy, width: symbol.size.width, height: symbol.size.height),
+                        from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+            return true
+        }
+        result.isTemplate = true
+        centred[key] = result
+        return result
+    }
+
+    /// The pixel rect (origin top-left) of `image`'s visible pixels, nil when it draws nothing.
+    static func inkBounds(_ image: CGImage) -> CGRect? {
+        let width = image.width, height = image.height
+        var pixels = [UInt8](repeating: 0, count: width * height)
+        let drawn: Bool = pixels.withUnsafeMutableBytes { buffer in
+            guard let context = CGContext(data: buffer.baseAddress, width: width, height: height, bitsPerComponent: 8,
+                                          bytesPerRow: width, space: CGColorSpaceCreateDeviceGray(),
+                                          bitmapInfo: CGImageAlphaInfo.none.rawValue) else { return false }
+            // The glyph's ink over white: a drawn pixel is a dark one.
+            context.setFillColor(gray: 1, alpha: 1)
+            context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+            context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+            return true
+        }
+        guard drawn else { return nil }
+        var minX = width, minY = height, maxX = -1, maxY = -1
+        for y in 0..<height {
+            for x in 0..<width where pixels[y * width + x] < 224 {
+                minX = min(minX, x); maxX = max(maxX, x); minY = min(minY, y); maxY = max(maxY, y)
+            }
+        }
+        guard maxX >= 0 else { return nil }
+        return CGRect(x: minX, y: minY, width: maxX - minX + 1, height: maxY - minY + 1)
     }
 
     /// The glyph's colour in the view's theme scope (also on a theme or appearance change).
@@ -112,4 +167,9 @@ final class HomeHeaderButton: NSButton {
         layer.transform = pressed ? shrink : CATransform3DIdentity
         CATransaction.commit()
     }
+}
+
+private extension CGFloat {
+    /// Rounded to the nearest device pixel at `scale` (pixels per point).
+    func snapped(scale: CGFloat) -> CGFloat { scale > 0 ? (self * scale).rounded() / scale : self }
 }
