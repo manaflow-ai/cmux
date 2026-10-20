@@ -116,7 +116,7 @@ export interface paths {
         put?: never;
         /**
          * Create a VM
-         * @description Create a VM. Requires the vm:write scope. Refused with 402 when the tenant's plan does not include VMs and 429 at the tenant's VM quota. Dev/test tenants may not ask for an idle timeout over 300 seconds and default to 300; other tenants default to -1 (never pause for idleness). A retry with the same Idempotency-Key returns the first VM instead of creating another; the same key with a different body is 409. Keys with a resource allowlist cannot create. initialNetwork additionally requires vm:network; proxy destinations must be enabled by the deployment. When initialNetwork is requested, its receipt confirms the accepted policy. A missing receipt means the API does not support that request; do not assume the policy was applied. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.
+         * @description Create a VM. Requires the vm:write scope. Refused with 402 when the tenant's plan does not include VMs and 429 at the tenant's VM quota. Dev/test tenants may not ask for an idle timeout over 300 seconds and default to 300; other tenants default to -1 (never pause for idleness). When no Idempotency-Key is supplied, the API issues a public creationKey and journals the allocation. Save this handle and use it as Idempotency-Key for retries; a separate request without a key is a new intent. GET /v1/vm-creations can recover a lost server-issued handle. Unconfirmed allocations retain quota until reconciliation or verified cancellation. Server-issued handles never expire into permission to allocate again. A retry with the same Idempotency-Key returns the first VM instead of creating another; the same key with a different body is 409. Keys with a resource allowlist cannot create. initialNetwork additionally requires vm:network; proxy destinations must be enabled by the deployment. When initialNetwork is requested, its receipt confirms the accepted policy. A missing receipt means the API does not support that request; do not assume the policy was applied. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.
          */
         post: operations["vms.createVm"];
         delete?: never;
@@ -260,9 +260,89 @@ export interface paths {
         put?: never;
         /**
          * Fork a VM into a new VM with the same memory and disk
-         * @description Fork a VM into a new VM with the same memory and disk. Requires the vm:write scope. Fork is a snapshot of the source followed by a create from that snapshot, so it costs more than a create and is not atomic. The source must be running or paused (409 otherwise). On success the intermediate snapshot is deleted. If the snapshot succeeds and the create fails, the answer is 503 ForkIncomplete with the kept snapshot's id, which belongs to the caller's tenant; a retry with the same Idempotency-Key creates from that snapshot without taking a second one. Billing, quota, idle-timeout and idempotency rules are those of create. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.
+         * @description Fork a VM into a new VM with the same memory and disk. Requires the vm:write scope. Fork is a snapshot of the source followed by a create from that snapshot, so it costs more than a create and is not atomic. A fresh source must be running or paused (409 otherwise); a retained snapshot or destination can be recovered after source deletion. On success the intermediate snapshot is deleted. If the snapshot succeeds and the create fails, the answer is 503 ForkIncomplete when allocation cannot be confirmed, with the kept snapshot's id and a server-issued creationKey when the caller omitted its key, which belongs to the caller's tenant; a retry with the same Idempotency-Key creates from that snapshot without taking a second one. Billing, quota, idle-timeout and idempotency rules are those of create. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.
          */
         post: operations["vms.forkVm"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/vm-creations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List server-issued VM creation handles
+         * @description List server-issued VM creation handles. Requires the vm:read scope. Bounded creation history for requests that omitted their key. Never lists caller-supplied keys or contacts the provider. Current service labels apply; resource-allowlisted keys cannot list. Empty filtered pages can still have a nextCursor.
+         */
+        get: operations["vmCreations.listVmCreations"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/vm-creations/by-key": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Inspect a VM creation by its Idempotency-Key
+         * @description Inspect a VM creation by its Idempotency-Key. Requires the vm:read scope. Reads retained intent and ownership only; never contacts the provider. Unknown keys return 404.
+         */
+        get: operations["vmCreations.getVmCreation"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/vm-creations/by-key/reconcile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reconcile a retained VM creation
+         * @description Reconcile a retained VM creation. Requires the vm:write scope. Records a verified allocation or finishes a previously requested cancellation. Never creates, starts or grows a VM. Provider absence alone is not cancellation.
+         */
+        post: operations["vmCreations.reconcileVmCreation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/vm-creations/by-key/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cancel a pending VM creation
+         * @description Cancel a pending VM creation. Requires the vm:write scope. Fences future sends before cleanup. Unknown work stays cancelling; cancelled requires verified rejection or deletion. Completed or legacy creates return 409. Keys reported cancelled cannot be reused.
+         */
+        post: operations["vmCreations.cancelVmCreation"];
         delete?: never;
         options?: never;
         head?: never;
@@ -353,6 +433,126 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/snapshot-creations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List snapshot captures, newest first
+         * @description List snapshot captures, newest first. Requires the snapshot:read scope. Reads retained public intent only. Current service labels apply; resource-allowlisted keys cannot list. Filtered empty pages may have a nextCursor.
+         */
+        get: operations["snapshots.listSnapshotCreations"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/snapshot-creations/by-key/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Stop captures under an original key and delete its verified snapshot
+         * @description Stop captures under an original key and delete its verified snapshot. Requires the snapshot:write scope. Fences before cleanup, including absent keys and already committed captures. Fenced with id:null stops future admission; it does not prove legacy unrecorded effects were deleted. Cancelling retains unknown work. Fencing a never-admitted key requires snapshot entitlement; existing captures and fences can be cancelled after plan loss. Resource-allowlisted keys must use id-addressed controls.
+         */
+        post: operations["snapshots.cancelSnapshotCreationByKey"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/snapshot-creations/by-key": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Inspect a capture by its original Idempotency-Key
+         * @description Inspect a capture by its original Idempotency-Key. Requires the snapshot:read scope. Read only; never contacts the provider or requires the source VM. Legacy uncertain records return 409; unknown keys return 404.
+         */
+        get: operations["snapshots.getSnapshotCreationByKey"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/snapshot-creations/{snapshotId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Inspect a snapshot capture
+         * @description Inspect a snapshot capture. Requires the snapshot:read scope. Read only; never contacts the provider.
+         */
+        get: operations["snapshots.getSnapshotCreation"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/snapshot-creations/{snapshotId}/reconcile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reconcile a snapshot capture
+         * @description Reconcile a snapshot capture. Requires the snapshot:write scope. Adopts a verified capture or finishes a requested cancellation. Never takes a new snapshot.
+         */
+        post: operations["snapshots.reconcileSnapshotCreation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/snapshot-creations/{snapshotId}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cancel a pending snapshot capture
+         * @description Cancel a pending snapshot capture. Requires the snapshot:write scope. Fences before cleanup. An absent provider snapshot does not prove cancellation. Completed captures return 409; delete their snapshot instead.
+         */
+        post: operations["snapshots.cancelSnapshotCreation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/vms/{vmId}/snapshots": {
         parameters: {
             query?: never;
@@ -364,7 +564,7 @@ export interface paths {
         put?: never;
         /**
          * Snapshot a running or paused VM
-         * @description Snapshot a running or paused VM. Requires the snapshot:write scope. The snapshot captures memory and disk; VMs can boot from it as soon as this returns. A VM booted from a snapshot resumes from the captured memory. Whether the guest kernel's random number generator is reseeded, and whether the machine id, hostname and clock change on restore, is not documented by the platform and is not yet verified: assume every VM booted from one snapshot starts with identical RNG state, machine id and hostname, and reseed, regenerate and resync them in the guest when that matters.
+         * @description Snapshot a running or paused VM. Requires the snapshot:write scope. Each capture is journaled before sending. A key permanently identifies one capture; use a fresh key for a new capture. Retained failures return pendingSnapshotId. Inspect, reconcile or cancel it at /v1/snapshot-creations/:snapshotId; reconcile never captures again. Omitted-key requests are separate captures; recover a lost handle from GET /v1/snapshot-creations. Unknown outcomes retain quota. A VM booted from a snapshot resumes from the captured memory. Whether the guest kernel's random number generator is reseeded, and whether the machine id, hostname and clock change on restore, is not documented by the platform and is not yet verified: assume every VM booted from one snapshot starts with identical RNG state, machine id and hostname, and reseed, regenerate and resync them in the guest when that matters.
          */
         post: operations["snapshots.createSnapshot"];
         delete?: never;
@@ -907,16 +1107,27 @@ export interface components {
         };
         ServiceUnavailable: {
             message: string;
+            creationKey?: components["schemas"]["VmCreationKey"];
+            /** @description a string matching the pattern ^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$ */
+            pendingSnapshotId?: string;
             /** @enum {string} */
             _tag: "ServiceUnavailable";
         };
+        /** @description Server-issued recovery handle; use as Idempotency-Key. Not an authentication credential. */
+        VmCreationKey: string;
         NotFound: {
             message: string;
+            creationKey?: components["schemas"]["VmCreationKey"];
+            /** @description a string matching the pattern ^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$ */
+            pendingSnapshotId?: string;
             /** @enum {string} */
             _tag: "NotFound";
         };
         QuotaExceeded: {
             message: string;
+            creationKey?: components["schemas"]["VmCreationKey"];
+            /** @description a string matching the pattern ^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$ */
+            pendingSnapshotId?: string;
             retryAfterSeconds?: components["schemas"]["Int"];
             /** @enum {string} */
             budget?: "snapshots" | "vms" | "rate" | "capacity" | "mesh.perTenant" | "device.perMesh" | "firewallRule.perMesh" | "firewallRule.perResource" | "firewallRule.account" | "aclApply.perMeshPerMinute" | "enrollmentCode.perMeshPerHour" | "address.perDevice";
@@ -978,6 +1189,11 @@ export interface components {
             autoDeleteSeconds: number | null;
             createdAt: string;
             updatedAt: string;
+            /**
+             * @description Present while the create that made this VM has not finished: the VM could not be grown to the requested size. Retry that create with its Idempotency-Key or creationKey to finish it, or delete the VM.
+             * @enum {string}
+             */
+            creation?: "pending";
         };
         Labels: {
             [key: string]: string;
@@ -989,11 +1205,17 @@ export interface components {
         };
         BadRequest: {
             message: string;
+            creationKey?: components["schemas"]["VmCreationKey"];
+            /** @description a string matching the pattern ^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$ */
+            pendingSnapshotId?: string;
             /** @enum {string} */
             _tag: "BadRequest";
         };
         Conflict: {
             message: string;
+            creationKey?: components["schemas"]["VmCreationKey"];
+            /** @description a string matching the pattern ^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$ */
+            pendingSnapshotId?: string;
             /** @enum {string} */
             _tag: "Conflict";
         };
@@ -1087,7 +1309,7 @@ export interface components {
         VmProxyHeaders: {
             [key: string]: string;
         };
-        /** @description Size of the new VM. Omitted axes keep the base image's size. The VM boots from the largest base size that fits within the request on every axis, then grows to the exact request. Growing is a second step after the create and is not atomic: if it fails, the new VM is deleted and the create answers 409. Sizes can only grow, so a VM booted from a snapshot cannot be made smaller than the snapshot. */
+        /** @description Size of the new VM. Omitted axes keep the base image's size. The VM boots from the largest base size that fits within the request on every axis, then grows to the exact request. Growing is a second step after the create and is not atomic. A failed or unconfirmed grow retains the allocation and quota; inspect or retry the same creation intent, or cancel it. The error is 503, or 429 for capacity. Sizes can only grow, so a VM booted from a snapshot cannot be made smaller than the snapshot. */
         RequestedResources: {
             /**
              * between(2, 32)
@@ -1125,6 +1347,12 @@ export interface components {
             autoDeleteSeconds: number | null;
             createdAt: string;
             updatedAt: string;
+            /**
+             * @description Present while the create that made this VM has not finished: the VM could not be grown to the requested size. Retry that create with its Idempotency-Key or creationKey to finish it, or delete the VM.
+             * @enum {string}
+             */
+            creation?: "pending";
+            creationKey?: components["schemas"]["VmCreationKey"];
             initialNetwork?: components["schemas"]["InitialVmNetworkReceipt"];
             bootImage?: components["schemas"]["VmImage"];
         };
@@ -1178,13 +1406,73 @@ export interface components {
                 [key: string]: string;
             };
         };
-        /** @description The fork's snapshot was taken but the new VM was not created. The snapshot is kept in the caller's tenant; retry with the same Idempotency-Key to create from it without a second snapshot. */
+        /** @description The fork's snapshot was taken but the VM allocation could not be confirmed. The snapshot stays in the caller's tenant. Inspect or retry with the original Idempotency-Key or returned creationKey; an unknown allocation may already exist. */
         ForkIncomplete: {
             message: string;
             /** @description a string matching the pattern ^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$ */
             snapshotId: string;
+            creationKey?: components["schemas"]["VmCreationKey"];
+            /** @description a string matching the pattern ^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$ */
+            pendingSnapshotId?: string;
             /** @enum {string} */
             _tag: "ForkIncomplete";
+        };
+        VmCreationList: {
+            items: components["schemas"]["VmCreationListItem"][];
+            nextCursor: string | null;
+            /**
+             * @description Present for state=pending. Building needs the next cursor; unavailable means some older retained slots have no recoverable journal. Never treat either as complete history.
+             * @enum {string}
+             */
+            pendingIndex?: "ready" | "building" | "unavailable";
+        };
+        VmCreationListItem: {
+            /** @enum {string} */
+            state: "pending" | "committed" | "deleted" | "unresolved";
+            /**
+             * @description Requested retains unknown provider work; completed means verified rejection/deletion. A completed cancellation permanently fences this key.
+             * @enum {string}
+             */
+            cancellation?: "requested" | "completed";
+            id: string | null;
+            receipt?: components["schemas"]["VmCreationReceipt"];
+            creationKey: components["schemas"]["VmCreationKey"];
+            createdAt: string;
+            /** @enum {string} */
+            operation: "create" | "fork";
+            displayName: string | null;
+            /** @description a string matching the pattern ^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$ */
+            sourceId?: string;
+        };
+        /** @description Original accepted creation intent. Contains no provider identifiers or proxy credentials. */
+        VmCreationReceipt: {
+            /** @description a string matching the pattern ^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$ */
+            id: string;
+            displayName: string | null;
+            labels: {
+                [key: string]: string;
+            };
+            idleTimeoutSeconds: number;
+            bootImage?: components["schemas"]["VmImage"];
+            initialNetwork?: components["schemas"]["InitialVmNetworkReceipt"];
+        };
+        VmCreationStatus: {
+            /** @enum {string} */
+            state: "pending" | "committed" | "deleted" | "unresolved";
+            /**
+             * @description Requested retains unknown provider work; completed means verified rejection/deletion. A completed cancellation permanently fences this key.
+             * @enum {string}
+             */
+            cancellation?: "requested" | "completed";
+            id: string | null;
+            receipt?: components["schemas"]["VmCreationReceipt"];
+        };
+        VmCreationCancellation: {
+            /** @enum {string} */
+            state: "cancelling" | "cancelled" | "deleted";
+            /** @description a string matching the pattern ^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$ */
+            id: string;
+            receipt?: components["schemas"]["VmCreationReceipt"];
         };
         ExecRequest: {
             /**
@@ -1259,6 +1547,42 @@ export interface components {
             /** @enum {string} */
             kind: "file" | "directory" | "symlink" | "other";
         };
+        SnapshotCreationList: {
+            items: components["schemas"]["SnapshotCreationStatus"][];
+            nextCursor: string | null;
+        };
+        SnapshotCreationStatus: {
+            /** @enum {string} */
+            state: "pending" | "committed" | "deleted";
+            /** @description a string matching the pattern ^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$ */
+            id: string;
+            receipt: components["schemas"]["SnapshotSummary"];
+            /** @enum {string} */
+            cancellation?: "requested" | "completed";
+            /** @description True only when admission needs the original create request retried with its original key; false for an uncertain capture send. */
+            retryCreate?: boolean;
+        };
+        SnapshotSummary: {
+            /** @description a string matching the pattern ^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$ */
+            id: string;
+            sourceVmId: string | null;
+            displayName: string | null;
+            labels: components["schemas"]["SnapshotLabels"];
+            createdAt: string;
+        };
+        SnapshotLabels: {
+            [key: string]: string;
+        };
+        CancelSnapshotKeyRequest: {
+            /** @description The capture id just inspected; null fences only an absent key. A different current id returns 409 without deleting anything. */
+            expectedSnapshotId: string | null;
+        };
+        SnapshotKeyCancellation: {
+            /** @enum {string} */
+            state: "fenced" | "cancelling" | "cancelled";
+            id: string | null;
+            receipt?: components["schemas"]["SnapshotSummary"];
+        };
         CreateSnapshotRequest: {
             /**
              * maxLength(100)
@@ -1277,9 +1601,6 @@ export interface components {
              */
             autoDeleteSeconds?: components["schemas"]["Int"];
         };
-        SnapshotLabels: {
-            [key: string]: string;
-        };
         /** @description A VM's memory and disk, captured. A VM booted from a snapshot resumes from the captured memory. Whether the guest kernel's random number generator is reseeded, and whether the machine id, hostname and clock change on restore, is not documented by the platform and is not yet verified: assume every VM booted from one snapshot starts with identical RNG state, machine id and hostname, and reseed, regenerate and resync them in the guest when that matters. */
         Snapshot: {
             /** @description a string matching the pattern ^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$ */
@@ -1295,14 +1616,6 @@ export interface components {
         SnapshotList: {
             items: components["schemas"]["SnapshotSummary"][];
             nextCursor: string | null;
-        };
-        SnapshotSummary: {
-            /** @description a string matching the pattern ^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$ */
-            id: string;
-            sourceVmId: string | null;
-            displayName: string | null;
-            labels: components["schemas"]["SnapshotLabels"];
-            createdAt: string;
         };
         InvalidRequest: {
             message: string;
@@ -2800,13 +3113,13 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Vm */
+            /** @description CreatedVm */
             201: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Vm"];
+                    "application/json": components["schemas"]["CreatedVm"];
                 };
             };
             /** @description The request did not match the expected schema */
@@ -2879,6 +3192,326 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ServiceUnavailable"] | components["schemas"]["ForkIncomplete"];
+                };
+            };
+        };
+    };
+    "vmCreations.listVmCreations": {
+        parameters: {
+            query?: {
+                state?: "pending";
+                /** @description a string matching the pattern ^(?:[a-f0-9]{64}|(?:p1_[a-f0-9]{16}-[a-f0-9]{64}|i1_[a-f0-9]{32}(?:_[a-f0-9]{16}-[a-f0-9]{64})?))$ */
+                cursor?: string;
+                /** @description a string to be decoded into a number */
+                limit?: string;
+            };
+            header?: {
+                /** @description a string at most 128 character(s) long */
+                "x-cmux-team-id"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description VmCreationList */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VmCreationList"];
+                };
+            };
+            /** @description The request did not match the expected schema */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HttpApiDecodeError"] | components["schemas"]["BadRequest"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Unauthorized"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Forbidden"];
+                };
+            };
+            /** @description QuotaExceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuotaExceeded"];
+                };
+            };
+            /** @description ServiceUnavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceUnavailable"];
+                };
+            };
+        };
+    };
+    "vmCreations.getVmCreation": {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description a string at most 128 character(s) long */
+                "x-cmux-team-id"?: string;
+                /** @description a string at most 255 character(s) long */
+                "idempotency-key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description VmCreationStatus */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VmCreationStatus"];
+                };
+            };
+            /** @description The request did not match the expected schema */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HttpApiDecodeError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Unauthorized"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Forbidden"];
+                };
+            };
+            /** @description NotFound */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotFound"];
+                };
+            };
+            /** @description QuotaExceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuotaExceeded"];
+                };
+            };
+            /** @description ServiceUnavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceUnavailable"];
+                };
+            };
+        };
+    };
+    "vmCreations.reconcileVmCreation": {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description a string at most 128 character(s) long */
+                "x-cmux-team-id"?: string;
+                /** @description a string at most 255 character(s) long */
+                "idempotency-key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description VmCreationStatus */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VmCreationStatus"];
+                };
+            };
+            /** @description The request did not match the expected schema */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HttpApiDecodeError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Unauthorized"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Forbidden"];
+                };
+            };
+            /** @description NotFound */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotFound"];
+                };
+            };
+            /** @description QuotaExceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuotaExceeded"];
+                };
+            };
+            /** @description ServiceUnavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceUnavailable"];
+                };
+            };
+        };
+    };
+    "vmCreations.cancelVmCreation": {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description a string at most 128 character(s) long */
+                "x-cmux-team-id"?: string;
+                /** @description a string at most 255 character(s) long */
+                "idempotency-key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description VmCreationCancellation */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VmCreationCancellation"];
+                };
+            };
+            /** @description The request did not match the expected schema */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HttpApiDecodeError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Unauthorized"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Forbidden"];
+                };
+            };
+            /** @description NotFound */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotFound"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Conflict"];
+                };
+            };
+            /** @description QuotaExceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuotaExceeded"];
+                };
+            };
+            /** @description ServiceUnavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceUnavailable"];
                 };
             };
         };
@@ -3285,6 +3918,514 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HttpApiDecodeError"] | components["schemas"]["BadRequest"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Unauthorized"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Forbidden"];
+                };
+            };
+            /** @description NotFound */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotFound"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Conflict"];
+                };
+            };
+            /** @description QuotaExceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuotaExceeded"];
+                };
+            };
+            /** @description ServiceUnavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceUnavailable"];
+                };
+            };
+        };
+    };
+    "snapshots.listSnapshotCreations": {
+        parameters: {
+            query?: {
+                /** @description a string to be decoded into a number */
+                limit?: string;
+                /** @description a string matching the pattern ^[a-f0-9]{16}-snap_[0-9a-hjkmnp-tv-z]{26}$ */
+                cursor?: string;
+            };
+            header?: {
+                /** @description a string at most 128 character(s) long */
+                "x-cmux-team-id"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description SnapshotCreationList */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SnapshotCreationList"];
+                };
+            };
+            /** @description The request did not match the expected schema */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HttpApiDecodeError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Unauthorized"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Forbidden"];
+                };
+            };
+            /** @description QuotaExceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuotaExceeded"];
+                };
+            };
+            /** @description ServiceUnavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceUnavailable"];
+                };
+            };
+        };
+    };
+    "snapshots.cancelSnapshotCreationByKey": {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description a string at most 128 character(s) long */
+                "x-cmux-team-id"?: string;
+                /** @description a string at most 255 character(s) long */
+                "idempotency-key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CancelSnapshotKeyRequest"];
+            };
+        };
+        responses: {
+            /** @description SnapshotKeyCancellation */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SnapshotKeyCancellation"];
+                };
+            };
+            /** @description The request did not match the expected schema */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HttpApiDecodeError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Unauthorized"];
+                };
+            };
+            /** @description PaymentRequired */
+            402: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaymentRequired"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Forbidden"];
+                };
+            };
+            /** @description NotFound */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotFound"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Conflict"];
+                };
+            };
+            /** @description QuotaExceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuotaExceeded"];
+                };
+            };
+            /** @description ServiceUnavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceUnavailable"];
+                };
+            };
+        };
+    };
+    "snapshots.getSnapshotCreationByKey": {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description a string at most 128 character(s) long */
+                "x-cmux-team-id"?: string;
+                /** @description a string at most 255 character(s) long */
+                "idempotency-key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description SnapshotCreationStatus */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SnapshotCreationStatus"];
+                };
+            };
+            /** @description The request did not match the expected schema */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HttpApiDecodeError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Unauthorized"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Forbidden"];
+                };
+            };
+            /** @description NotFound */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotFound"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Conflict"];
+                };
+            };
+            /** @description QuotaExceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuotaExceeded"];
+                };
+            };
+            /** @description ServiceUnavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceUnavailable"];
+                };
+            };
+        };
+    };
+    "snapshots.getSnapshotCreation": {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description a string at most 128 character(s) long */
+                "x-cmux-team-id"?: string;
+            };
+            path: {
+                snapshotId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description SnapshotCreationStatus */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SnapshotCreationStatus"];
+                };
+            };
+            /** @description The request did not match the expected schema */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HttpApiDecodeError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Unauthorized"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Forbidden"];
+                };
+            };
+            /** @description NotFound */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotFound"];
+                };
+            };
+            /** @description QuotaExceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuotaExceeded"];
+                };
+            };
+            /** @description ServiceUnavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceUnavailable"];
+                };
+            };
+        };
+    };
+    "snapshots.reconcileSnapshotCreation": {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description a string at most 128 character(s) long */
+                "x-cmux-team-id"?: string;
+            };
+            path: {
+                snapshotId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description SnapshotCreationStatus */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SnapshotCreationStatus"];
+                };
+            };
+            /** @description The request did not match the expected schema */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HttpApiDecodeError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Unauthorized"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Forbidden"];
+                };
+            };
+            /** @description NotFound */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotFound"];
+                };
+            };
+            /** @description QuotaExceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuotaExceeded"];
+                };
+            };
+            /** @description ServiceUnavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceUnavailable"];
+                };
+            };
+        };
+    };
+    "snapshots.cancelSnapshotCreation": {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description a string at most 128 character(s) long */
+                "x-cmux-team-id"?: string;
+            };
+            path: {
+                snapshotId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description SnapshotCreationStatus */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SnapshotCreationStatus"];
+                };
+            };
+            /** @description The request did not match the expected schema */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HttpApiDecodeError"];
                 };
             };
             /** @description Unauthorized */
