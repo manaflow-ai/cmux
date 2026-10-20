@@ -27,11 +27,14 @@ while [ $# -gt 0 ]; do
 done
 
 if [ -z "$branch" ]; then
-  branch="$(git rev-parse --abbrev-ref HEAD)"
-  [ "$branch" != HEAD ] || { echo "gallery-compare: detached HEAD; name the branch" >&2; exit 2; }
-  upstream="$(git rev-parse -q --verify "@{upstream}" 2>/dev/null || true)"
-  if [ "$upstream" != "$(git rev-parse HEAD)" ]; then
-    echo "gallery-compare: $branch is not pushed as it is (HEAD differs from its upstream); the gallery builds what is on GitHub. Push first." >&2
+  local_branch="$(git rev-parse --abbrev-ref HEAD)"
+  [ "$local_branch" != HEAD ] || { echo "gallery-compare: detached HEAD; name the branch" >&2; exit 2; }
+  # The branch on GitHub is the upstream's name (origin/<name>), which may differ from the local one.
+  upstream_ref="$(git rev-parse --abbrev-ref --symbolic-full-name "@{upstream}" 2>/dev/null || true)"
+  [ -n "$upstream_ref" ] || { echo "gallery-compare: $local_branch has no upstream; push it (git push -u origin HEAD) or name the branch" >&2; exit 1; }
+  branch="${upstream_ref#*/}"
+  if [ "$(git rev-parse "$upstream_ref")" != "$(git rev-parse HEAD)" ]; then
+    echo "gallery-compare: HEAD differs from $upstream_ref; the gallery builds what is on GitHub. Push first." >&2
     exit 1
   fi
 fi
@@ -39,9 +42,9 @@ fi
 quoted="$(printf '%q' "$branch")"
 remote="GALLERY_ON_HOST=1 ~/cmux-gallery-host/gallery compare $quoted"
 if ssh -o BatchMode=yes -o ConnectTimeout=10 "$host" true 2>/dev/null; then
-  out="$(ssh -o BatchMode=yes -o ConnectTimeout=15 "$host" "$remote")"
+  out="$(ssh -o BatchMode=yes -o ConnectTimeout=15 "$host" "$remote")" || { echo "gallery-compare: gallery compare failed on $host (its message is above)" >&2; exit 1; }
 elif command -v reach >/dev/null 2>&1; then
-  out="$(reach "$host" "$remote" | grep -v '^reach:')"
+  out="$(reach "$host" "$remote")" || { echo "gallery-compare: reach $host failed" >&2; printf '%s\n' "$out" >&2; exit 1; }
 else
   echo "gallery-compare: cannot reach $host over ssh (set CMUX_GALLERY_HOST, or install reach)" >&2
   exit 1
