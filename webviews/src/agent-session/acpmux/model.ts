@@ -279,6 +279,9 @@ export type AcpmuxSnapshot = {
     steering?: boolean;
     /// A turn failed: the queued prompts wait until the user resumes the queue (acpmux `queuePaused`).
     queuePaused?: boolean;
+    /// The family (`claude`, `codex`) of a conversation another app runs that this chat only shows
+    /// (acpmux `watching`): no prompt goes until the user takes it over.
+    watching?: string;
     /// The MCP servers the harness says it loaded (acpmux `mcpServers`, from Claude Code's
     /// system/init); unset when it reports none (every ACP harness).
     mcpServers?: { name: string; status: "connected" | "failed" | "pending" }[];
@@ -366,6 +369,9 @@ export type AcpmuxSnapshot = {
    * `adopt.live`): the pane offers Open Anyway, and Fork It when the harness can fork. `command`
    * is the process that holds it, when acpmux found one. Unset once a choice is sent. */
   liveChat?: { canFork: boolean; command?: string };
+  /** Take Over of a watched chat was refused because the other app still runs it (`adopt.live`):
+   * the pane offers Open Anyway, and Fork It when the harness can fork. */
+  liveTakeOver?: { canFork: boolean; command?: string };
 };
 
 export type PreparedRow = {
