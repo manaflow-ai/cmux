@@ -34,6 +34,8 @@ struct NewTabWarmSnapshotTests {
         #expect(json["warm"] as? String == Self.warm)
         // A page on another machine lists that machine's chats, not this Mac's.
         #expect(AgentPaneNewTab(kind: .agent).warmedOnThisMac(false).warm == nil)
+        // Nor the chats this Mac's pages share (webviews newtab/chatStore.ts) before its handshake.
+        #expect(AgentPaneNewTab(kind: .agent).warmedOnThisMac(false).privateChatLists == true)
     }
 
     @Test func anotherMachinesPageDoesNotWarmThisMacsPages() async {

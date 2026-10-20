@@ -30,7 +30,11 @@ beforeAll(() => {
   });
 });
 
-afterAll(() => {
+afterAll(async () => {
+  // The store is module state every later test file in this process shares.
+  window.localStorage.clear();
+  const store = await import("../src/agent-session/acpmux/newtab/chatStore");
+  store.reloadChatStoreForTests();
   for (const [key, had, value] of saved) {
     if (had) scope[key] = value;
     else delete scope[key];
@@ -228,4 +232,21 @@ test("a chat past the newest 60 keeps its folder for the project picker", async 
   const oldest = store.sharedSessions([]).find((session) => session.sessionId === "s-01");
   expect(oldest?.archived).toBe(true);
   expect(oldest?.cwd).toBe("/Users/you/src/p1");
+});
+
+test("only a New Tab page of this Mac's daemon lists the shared chats, and not while its daemon is down", async () => {
+  const { sharesChatList } = await import("../src/agent-session/acpmux/newtab/chatStore");
+  const page = {};
+  // Before the handshake a page names no origin: its context said whether it is this Mac's.
+  expect(sharesChatList(page, { connection: "connecting" })).toBe(true);
+  expect(sharesChatList(page, { connection: "connected", origin: "local" })).toBe(true);
+  // Another machine's page (its context turns the store off), or an older acpmux that names none.
+  expect(sharesChatList({ privateChatLists: true }, { connection: "connecting" })).toBe(false);
+  expect(sharesChatList(page, { connection: "connected", origin: "remote" })).toBe(false);
+  expect(sharesChatList(page, { connection: "connected", origin: "peer" })).toBe(false);
+  expect(sharesChatList(page, { connection: "connected", origin: "unknown" })).toBe(false);
+  // A daemon that is down shows that, not chats the page cannot open; a chat page lists none.
+  expect(sharesChatList(page, { connection: "disconnected", origin: "local" })).toBe(false);
+  expect(sharesChatList(page, { connection: "debug", origin: "local" })).toBe(false);
+  expect(sharesChatList(undefined, { connection: "connected", origin: "local" })).toBe(false);
 });

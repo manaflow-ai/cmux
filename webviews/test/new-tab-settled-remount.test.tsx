@@ -42,9 +42,12 @@ beforeAll(() => {
 
 afterAll(async () => {
   act(() => root?.unmount());
-  // The device chats are module state every later test file in this process shares.
+  // The device chats and the settled list are module state every later test file in this process shares.
   const { setDeviceChats } = await import("../src/agent-session/acpmux/newtab/deviceChats");
   setDeviceChats([]);
+  globalThis.localStorage?.clear();
+  const { resetSettledChatsForTests } = await import("../src/agent-session/acpmux/newtab/settledCache");
+  resetSettledChatsForTests();
   for (const [key, had, value] of saved) {
     if (had) scope[key] = value;
     else delete scope[key];
@@ -99,4 +102,19 @@ test("a chat that changed while no list was mounted is read once by the next lis
   await settle();
   expect(reads).toBe(2);
   expect(host.textContent).toContain("cg-steward-old");
+});
+
+test("a new page draws the rows another page read, then reads its own first page once", async () => {
+  // Another page read them; this page has read nothing and heard no push (its context's warm
+  // device chats are not a push it read), so what it draws may be stale.
+  const { resetSettledChatsForTests } = await import("../src/agent-session/acpmux/newtab/settledCache");
+  act(() => root!.unmount());
+  resetSettledChatsForTests({ keepStore: true });
+  const before = reads;
+  page = { chats: [row("cg-fresh", 5), row("cg-steward-old", 4)], ready: true };
+  await mountList();
+  expect(host.textContent).toContain("cg-steward-old");
+  await settle();
+  expect(reads).toBe(before + 1);
+  expect(host.textContent).toContain("cg-fresh");
 });
