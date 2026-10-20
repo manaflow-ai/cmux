@@ -538,6 +538,35 @@ fn the_persons_page_mutes_a_cloud_conversation_through_the_daemon() {
     );
 }
 
+/// Group roles through the daemon (plans/cmux-next/home-dm-group-chats/DESIGN.md section 4): the
+/// page's `cloud-conversation-op` forwards `participants.set_role`, `ownership.transfer`,
+/// `participants.unban` and a `participants.remove` with `ban` to `POST /v1/ops` unchanged.
+#[test]
+fn the_persons_page_manages_group_roles_through_the_daemon() {
+    let fixture = Fixture::start("roles");
+    let cloud = FakeCloud::start();
+    let token = person_token();
+    let mut app = fixture.app();
+    assert_eq!(app.rpc(lease(&cloud.base, &token))["ok"], true);
+    let mut page = Page::open(&fixture.credential().0, &page_credential(&mut app));
+    let ops = [
+        json!({"kind":"participants.set_role","participant":"user_ben","role":"admin"}),
+        json!({"kind":"ownership.transfer","participant":"user_ben"}),
+        json!({"kind":"participants.remove","participant":"user_cat","ban":true}),
+        json!({"kind":"participants.unban","participant":"user_cat"}),
+    ];
+    for (n, op) in ops.iter().enumerate() {
+        let reply = page.rpc(json!({"cmd":"cloud-conversation-op","conversation":CONV,
+            "idempotency_key":format!("roles-{n}"),"origin":"user","op":op}));
+        assert_eq!(reply["ok"], true, "{op}: {reply}");
+    }
+    let names: Vec<Value> = cloud.requests().iter().filter(|(path, _, _)| path == "/v1/ops").map(|(_, _, body)| body["op"].clone()).collect();
+    assert_eq!(names, vec![json!("participants.set_role"), json!("ownership.transfer"), json!("participants.remove"), json!("participants.unban")]);
+    let bodies: Vec<Value> = cloud.requests().iter().filter(|(path, _, _)| path == "/v1/ops").map(|(_, _, body)| body["params"].clone()).collect();
+    assert_eq!(bodies[0]["role"], "admin");
+    assert_eq!(bodies[2]["ban"], true);
+}
+
 /// The person's pin and "marked unread" of a Cloud conversation
 /// (`conversation-inbox-state-v1`): the page sends `cloud-inbox-op` and the
 /// daemon forwards the Cloud owner's own inbox ops (`inbox.pin`,
