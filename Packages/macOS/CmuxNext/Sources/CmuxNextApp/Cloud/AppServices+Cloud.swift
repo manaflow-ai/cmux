@@ -44,7 +44,7 @@ extension AppServices {
                         NewChatPicks(lastAgent: self?.newTabChoices.agent, picks: self?.newTabChoices.picks)
                     },
                     settings: { [weak self] in self?.settings },
-                    bundleID: environment.launch.bundleID, computerName: { await MacName.computerName() })
+                    bundleID: environment.launch.bundleID, computerName: { await MacName().computerName() })
         iphone.pairWindow = { [weak self] in self?.windows.active?.window }
         iphone.pairNotices = IPhonePairNotices(post: { [weak self] in self?.notifications.desktop.post(id: IPhonePairNotices.id, title: $0,
             body: $1, surface: nil, workspace: nil, defaultSound: true, category: IPhonePairNotices.category) },
