@@ -29,7 +29,7 @@ pub use root::RootOwnedDaemon;
 /// it to authorize a caller on a public socket or a caller-selected path.
 #[cfg(target_os = "linux")]
 pub fn verify_inherited_root_parent(fd: std::os::fd::RawFd) -> Result<(), CallerRefused> {
-    verify_inherited_parent(fd)
+    root::verify_parent(fd)
 }
 
 use std::fmt;

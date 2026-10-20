@@ -200,6 +200,8 @@ The receiving authority writer installs its authenticated keyset, generated poli
 
 Receiving connections acquire bounded authority before reading a hello. That lease pins the host/epoch, receiving generation, full current peer, services and public signing keys; revocation or expiry closes partial frames too. Renewal cannot extend a pending hello. The handshake grants no service and spends no JWT: after a complete hello, signature and single-use verification acquire a separate service lease. Pending and admitted connections share bounded storage, with dropped slots reclaimed before admission. This prepares stream drain before WG removal; the supervised listener and drain composition remain required.
 
+Linux private bootstrap admission has an explicit root-parent boundary. The root spawner retains the actual daemon child and kernel start identity, and checks its selected work uid on a child-created connected stream before sending bootstrap data. The child checks the inherited channel's root uid and actual parent pid. These checks grant no serving permission, do not change ordinary same-user admission, and cannot derive ownership from pid files or claimed identities. Failure to capture identity leaves bootstrap unavailable while preserving the session daemon; dropping the root owner also preserves the daemon for adoption. The post-start channel, original private WG handoff and lifecycle acknowledgements remain follow-ups.
+
 Cache rules for `cmux link`:
 1. Cache the `connect_info` result by host id for at most 300 s or until a
    `cloud.machine.upsert` with a higher `revision` arrives (key rotation, epoch change, VPC change,

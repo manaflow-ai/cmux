@@ -1,11 +1,43 @@
 //! The root host's actual session-daemon child, including a dropped work uid.
 use std::io;
-use std::os::fd::AsRawFd;
+use std::os::fd::{AsRawFd, RawFd};
 use std::os::unix::net::UnixStream;
 use std::process::{Child, ExitStatus};
 use std::sync::Mutex;
 
 use super::supervised::{ProcessStart, process_start};
+
+fn check_stream(fd: RawFd) -> io::Result<()> {
+    let mut kind = 0_i32;
+    let mut size = size_of_val(&kind) as libc::socklen_t;
+    // SAFETY: both output pointers are live and correctly sized. The kernel
+    // validates fd; this function never takes ownership of it.
+    if unsafe {
+        libc::getsockopt(fd, libc::SOL_SOCKET, libc::SO_TYPE, (&raw mut kind).cast(), &raw mut size)
+    } != 0
+        || size as usize != size_of_val(&kind)
+        || kind != libc::SOCK_STREAM
+    {
+        return Err(refused());
+    }
+    Ok(())
+}
+
+pub(super) fn verify_parent(fd: RawFd) -> Result<(), super::CallerRefused> {
+    use super::CallerRefused;
+    check_stream(fd).map_err(CallerRefused::Io)?;
+    let uid = super::peer_uid(fd).map_err(CallerRefused::Io)?;
+    if uid != 0 {
+        return Err(CallerRefused::OtherUser { uid });
+    }
+    // SAFETY: getppid has no preconditions. The parent identity comes from
+    // the kernel, never a bootstrap field, environment or registration file.
+    let parent = unsafe { libc::getppid() } as u32;
+    if super::peer_pid(fd).map_err(CallerRefused::Io)? != Some(parent) {
+        return Err(CallerRefused::Io(refused()));
+    }
+    Ok(())
+}
 
 /// Retains the real child handle. Unreadable identity disables bootstrap but
 /// never kills the session daemon. Dropping this owner preserves the daemon,
@@ -57,7 +89,7 @@ impl RootOwnedDaemon {
         if unsafe { libc::geteuid() } != 0 {
             return Err(refused());
         }
-        super::verify(stream).map_err(io::Error::from)?;
+        check_stream(stream.as_raw_fd())?;
         let mut child = self.child.lock().map_err(|_| refused())?;
         if self.started.is_none()
             || child.try_wait()?.is_some()
