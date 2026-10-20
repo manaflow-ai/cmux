@@ -35,6 +35,7 @@ export interface RawCloudDriver {
   /** Native Cloud provisioning only: pin the team mesh before allocating, then verify the owned VM's membership. */
   prepareNetwork?(active?: () => boolean): Promise<CloudNetworkTarget>
   attachNetwork?(id: string, tag: VmTag, target: CloudNetworkTarget): Promise<typeof CloudVmNetwork.Type>
+  readNetwork?(id: string, tag: VmTag, target: typeof CloudVmNetwork.Type): Promise<typeof CloudVmNetwork.Type>
   delete(id: string): Promise<void>
   /** Pause (memory kept) or start a VM (Freestyle `POST /v5/vms/{id}/pause` and `/start`). */
   pause(id: string): Promise<void>
@@ -258,6 +259,12 @@ export class GuardedCloudDriver {
     const found = await this.raw.find(name)
     if (!found || !ours(found.tag, tag)) return null
     return this.raw.resources(found.id)
+  }
+
+  async networkOf(name: string, tag: VmTag, target: typeof CloudVmNetwork.Type): Promise<typeof CloudVmNetwork.Type> {
+    const found = await this.findOwned(name, tag)
+    if (!found || !this.raw.readNetwork) throw new DriverError("cloud.provider.unavailable", "the machine network is unavailable", false)
+    return this.raw.readNetwork(found.id, tag, target)
   }
 
   /** The real provider state of our VM under `name`; `gone` when no VM is there (a cheap read for connect_info and link_token). */

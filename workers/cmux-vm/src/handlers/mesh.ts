@@ -65,6 +65,7 @@ import { tenantOwnsDevice, tenantOwnsMesh, tenantOwnsTunnel, tenantOwnsVm, type 
 import { UpstreamMesh, type TunnelInfo } from "../upstream/mesh.ts";
 import { audited, dependencyDown, rateLimit } from "./common.ts";
 import { createMeshWithKey } from "./mesh-creation.ts";
+import { readMeshMember } from "./mesh-member.ts";
 
 const experimentOff = () => new NotFound({ message: "Not found" });
 const meshNotFound = () => new NotFound({ message: "Mesh not found" });
@@ -1037,6 +1038,18 @@ export const meshHandlers = HttpApiBuilder.group(CmuxVmApi, "mesh", (handlers) =
               return yield* tunnelConfigOf(caller, tunnel, scope, row.value, tunnelNotFound);
             }),
           );
+        }),
+      ),
+    )
+    .handle("getMeshVm", ({ path }) =>
+      withOwnedMesh(path.meshId, "mesh:read", "read", (caller, mesh, proofs) =>
+        Effect.gen(function* () {
+          const scope = keyHasScope(caller, "vm:read");
+          if (scope === null) return yield* Effect.fail(missingScope("vm:read"));
+          const parsed = parseVmId(path.vmId);
+          if (Option.isNone(parsed)) return yield* Effect.fail(vmNotFound());
+          return yield* name(parsed.value, (vm) => withMeshWriter(caller.value.tenantId, mesh.value,
+            readMeshMember(caller, mesh, vm, { ownsMesh: proofs.owns, meshScope: proofs.scope, vmScope: scope })));
         }),
       ),
     )

@@ -70,6 +70,26 @@ export class VmApiCloudNetwork {
     return finish(read.value)
   }
 
+  /** Read a pinned membership without discovery, allocation or an attachment write. */
+  async read(vm: string, target: typeof CloudVmNetwork.Type, ownsVm: () => Promise<boolean>): Promise<typeof CloudVmNetwork.Type> {
+    const pinned = this.pin.read()
+    const valid = async () => (await Promise.all([this.current(), ownsVm()])).every(Boolean)
+    if (!pinned || !same(pinned, { ...this.route, ...target }) || !await valid()) throw unavailable("unconfirmed member identity", true)
+    try {
+      const response = await this.http(new Request(`${this.connection.origin}/v1/meshes/${target.mesh}/vms/${vm}`, {
+        method: "GET", redirect: "manual", signal: AbortSignal.timeout(30_000),
+        headers: { accept: "application/json", authorization: `Bearer ${this.connection.key}`, "x-cmux-team-id": this.route.tenant }
+      }))
+      if (response.status !== 200) { await response.body?.cancel(); throw unavailable(`member HTTP ${response.status}`) }
+      const body = await networkBody(response)
+      if (!body || body.meshId !== target.mesh || body.vmId !== vm || (body.ipv4 !== null && !addressInMesh(body.ipv4, target.ipv4_cidr))) throw unavailable("unconfirmed member answer")
+      if (!await valid()) throw unavailable("the member owner route changed", true)
+      const live = this.pin.read()
+      if (!live || !same(live, pinned)) throw unavailable("the member owner route changed", true)
+      return { tenant: target.tenant, mesh: target.mesh, ipv4_cidr: target.ipv4_cidr, ipv4: body.ipv4 as string | null }
+    } catch (error) { if (error instanceof DriverError) throw error; throw unavailable("no readable member answer") }
+  }
+
   async attach(vm: string, target: CloudNetworkTarget): Promise<typeof CloudVmNetwork.Type> {
     const pinned = this.pin.read()
     if (!pinned || !/^vm_[0-9a-hjkmnp-tv-z]{26}$/.test(vm) || !same(pinned, { ...this.route, ...target }) || !await this.current()) throw unavailable("unconfirmed attachment identity", true)

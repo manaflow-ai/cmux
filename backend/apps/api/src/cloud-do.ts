@@ -1,3 +1,4 @@
+import { CloudNetworkObservation } from "./cloud-network-observation.ts"
 import type { NativeLinkAuthority } from "./cloud-connect.ts"
 import { vmApiConnection } from "./cloud-vm-api-config.ts"
 import type { NativeDialPermit, NativeDialReply, NativeDialTarget } from "./cloud-native-dial.ts"
@@ -40,6 +41,7 @@ export class CloudDO extends CloudIdle {
       if (principal.kind !== "session" && !principal.grant_classes?.includes("read")) return { ok: false, code: "auth.forbidden", message: "grant does not cover read" }
       if (!this.isBound(entity)) return { ok: false, code: "cloud.machine.not_found", message: "no such machine in this team" }
       await this.checkRealState(entity, (params ?? {}) as { machine?: string; host?: string })
+      if (!await this.checkNetwork(entity, (params ?? {}) as { machine?: string; host?: string })) return { ok: false, code: "owner.unreachable", message: "the machine network is unavailable" }
       const r = await connectInfo(entity, this.bind(entity).rows, principal, params, () => this.teamConnectServices(entity), () => this.audit)
       return r.ok ? { ...r, revision: String(this.boundEngine?.currentSeq ?? 0) } : r
     }
@@ -188,6 +190,22 @@ export class CloudDO extends CloudIdle {
     this.submitSystem("cloud.machine.provider_state", { machine: row.id, state: r.gone ? null : r.state }, `provider-state:${row.id}:${this.boundEngine?.currentSeq ?? 0}`)
   }
 
+  private readonly networkObservation = new CloudNetworkObservation(
+    () => Date.now() + this.skewMs,
+    (entity, id) => this.bind(entity).rows.get<MachineRow>(TABLE_MACHINE, id)?.row,
+    async (row) => {
+      const driver = await this.driverFor(row)
+      if (!driver || !row.network) throw new Error("network unavailable")
+      return driver.networkOf(row.provider_name, { team: row.team, machine: row.id }, row.network)
+    },
+    (row, binding, network) => statusApplied(this.submitSystem("cloud.machine.network_observed", { machine: row.id, binding, network }, `network:${crypto.randomUUID()}`).frames)
+  )
+
+  private async checkNetwork(entity: string, sel: { machine?: string; host?: string }): Promise<boolean> {
+    const row = sel.machine !== undefined || sel.host !== undefined ? machineBySelector(this.bind(entity).rows, sel) : undefined
+    return !row || await this.networkObservation.check(entity, row)
+  }
+
   /** RPC from the Worker for cloud.machine.link_token: outside the op stream (no event, no ledger replay). */
   /** RPC from the Worker for cloud.vm.status.report and cloud.vm.event.emit (VM installs, own machine only; cloud-vm.ts). */
   async vmOp(entity: string, principal: Principal, op: string, params: unknown): Promise<VmReply> {
@@ -219,6 +237,7 @@ export class CloudDO extends CloudIdle {
     if (rows && principal.install && limit && !(await limit.limit({ key: `cloud-link:${principal.install}` })).success) return { ok: false, code: "cloud.rate_limited", message: "too many link tokens; retry in a minute" }
     // After the limiter (review P2-3).
     if (rows && principal.kind === "install") await this.checkRealState(entity, { host: (params as { host?: string } | null)?.host })
+    if (rows && principal.kind === "install" && !await this.checkNetwork(entity, { host: (params as { host?: string } | null)?.host })) return { ok: false, code: "owner.unreachable", message: "the machine network is unavailable" }
     const keys = parseSigningKeys(this.testLinkKeys ?? this.env.CLOUD_LINK_SIGNING_KEYS)
     // Review P3-b: never sign an iss this deployment cannot name.
     const environment = this.envTag()

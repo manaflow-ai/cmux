@@ -55,6 +55,7 @@ export const withMeshMachine = async (options: MeshOptions, run: (world: {
       if (options.lostMeshCreate && meshKeys.length === 1) throw new Error("lost mesh creation reply")
       return Response.json({ ...created, ...options.meshReceipt }, { status: 201 })
     }
+    if (url.pathname === `/v1/meshes/${MESH}/vms/${VM}` && r.method === "GET") return Response.json({ meshId: MESH, vmId: VM, ipv4: "10.128.0.5", attachedAt: mesh().createdAt, ...options.member })
     if (url.pathname === "/v1/meshes" || (r.method === "GET" && url.pathname.startsWith("/v1/meshes/"))) {
       const hook = networkHook; networkHook = undefined; await hook?.()
       if (url.pathname === "/v1/meshes") return options.meshReadStatus ? new Response(null, { status: options.meshReadStatus }) : Response.json({ items: meshes })
