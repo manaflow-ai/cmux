@@ -103,11 +103,16 @@ private final class AcknowledgementCounter {
         startUserCheck(harness)
         harness.controller.driver.showUpdateNotFoundWithError(upToDate, acknowledgement: { acknowledgements.count += 1 })
 
-        await harness.clock.fireDeadlineWhenReady()
-        await waitUntil("the up-to-date note to hide") {
+        // Release the note's 5 s display time; the check timeout may be parked first.
+        var hidden: Bool {
             if case .idle = harness.model.state { return true }
             return false
         }
+        for _ in 0..<20_000 where !hidden {
+            await harness.clock.fireDeadlines()
+            await Task.yield()
+        }
+        #expect(hidden, "the up-to-date note must hide after its display time")
 
         #expect(acknowledgements.count == 1)
     }
