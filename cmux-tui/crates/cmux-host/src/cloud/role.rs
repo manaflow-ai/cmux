@@ -115,6 +115,16 @@ impl Http for PosterHttp {
     fn post(&self, url: &str, body: &Value, bearer: Option<&str>) -> Result<(u16, Value), String> {
         self.0.post(url, body, bearer)
     }
+
+    fn request_until(
+        &self,
+        url: &str,
+        body: Option<&Value>,
+        bearer: Option<&str>,
+        deadline: Instant,
+    ) -> Result<(u16, Vec<u8>), String> {
+        self.0.request_until(url, body, bearer, deadline)
+    }
 }
 
 /// One `identify` on the daemon's control socket, bounded by `timeout`.
@@ -274,6 +284,10 @@ impl Role for CloudRole {
 struct Client {
     stream: UnixStream,
     buf: Vec<u8>,
+    output: Vec<u8>,
+    sent: usize,
+    eof: bool,
+    write_deadline: Option<u64>,
 }
 
 struct Activity {
@@ -370,6 +384,7 @@ impl Worker {
             ]
             .into_iter()
             .flatten()
+            .chain(self.clients.iter().filter_map(|c| c.write_deadline))
             .min();
             let timeout_ms =
                 deadline.map_or(-1, |at| at.saturating_sub(self.now()).min(i32::MAX as u64) as i32);
@@ -392,7 +407,8 @@ impl Worker {
             for c in &self.clients {
                 fds.push(libc::pollfd {
                     fd: c.stream.as_raw_fd(),
-                    events: libc::POLLIN,
+                    events: (if c.eof { 0 } else { libc::POLLIN })
+                        | if c.output.is_empty() { 0 } else { libc::POLLOUT },
                     revents: 0,
                 });
             }
@@ -423,7 +439,11 @@ impl Worker {
             }
             let readable: Vec<usize> =
                 (0..polled_clients).filter(|i| ready(clients_from + i)).collect();
-            self.read_clients(&readable);
+            if self.read_clients(&readable) {
+                return Ok(());
+            }
+            let now = self.now();
+            self.clients.retain(|c| c.write_deadline.is_none_or(|at| at > now));
             self.fire_deadlines();
         }
     }
@@ -481,30 +501,86 @@ impl Worker {
             if self.clients.len() >= MAX_CLIENTS || stream.set_nonblocking(true).is_err() {
                 continue;
             }
-            self.clients.push(Client { stream, buf: Vec::new() });
+            self.clients.push(Client {
+                stream,
+                buf: Vec::new(),
+                output: Vec::new(),
+                sent: 0,
+                eof: false,
+                write_deadline: None,
+            });
         }
     }
 
-    fn read_clients(&mut self, readable: &[usize]) {
+    fn read_clients(&mut self, readable: &[usize]) -> bool {
         let mut closed = Vec::new();
         let mut lines = Vec::new();
         for &i in readable {
             let client = &mut self.clients[i];
             match read_available(&mut client.stream, &mut client.buf) {
                 Ok(open) => {
-                    lines.extend(take_lines(&mut client.buf));
-                    if !open || client.buf.len() > MAX_LINE {
+                    lines.extend(take_lines(&mut client.buf).into_iter().map(|line| (i, line)));
+                    client.eof = !open;
+                    if client.buf.len() > MAX_LINE {
                         closed.push(i);
                     }
                 }
                 Err(_) => closed.push(i),
             }
         }
-        for i in closed.into_iter().rev() {
-            self.clients.remove(i);
-        }
-        for line in lines {
+        for (i, line) in lines {
+            if closed.contains(&i) {
+                continue;
+            }
             let now = self.now();
+            if serde_json::from_str::<Value>(&line)
+                .is_ok_and(|v| v["op"] == super::receiver::POLICY_OP)
+            {
+                if !self.clients[i].output.is_empty() {
+                    closed.push(i);
+                    continue;
+                }
+                // A queued batch must not hold shutdown behind up to sixteen
+                // separate network deadlines. Check the role's control fd
+                // before every policy request, not only before the batch.
+                if self.control_words().unwrap_or(true) {
+                    return true;
+                }
+                // The request is deliberately parameterless. The role owns
+                // every identity and credential used for this hidden read.
+                #[derive(serde::Deserialize)]
+                #[serde(deny_unknown_fields)]
+                struct Request {
+                    op: String,
+                }
+                let valid = serde_json::from_str::<Request>(&line)
+                    .is_ok_and(|r| r.op == super::receiver::POLICY_OP);
+                let value = if valid {
+                    self.live.as_mut().and_then(|live| {
+                        super::receiver_files::reply(
+                            &self.paths,
+                            &self.instance_id,
+                            &mut live.client,
+                            wall_ms(),
+                        )
+                        .ok()
+                    })
+                } else {
+                    None
+                };
+                let value = value.unwrap_or_else(
+                    || json!({ "ok": false, "error": "cloud.vm.network_policy.unavailable" }),
+                );
+                let client = &mut self.clients[i];
+                client.output = serde_json::to_vec(&value).unwrap_or_default();
+                if client.output.len() > 1024 * 1024 {
+                    closed.push(i);
+                    continue;
+                }
+                client.output.push(b'\n');
+                client.write_deadline = Some(self.epoch.elapsed().as_millis() as u64 + 1000);
+                continue;
+            }
             let Some(live) = self.live.as_mut() else { continue };
             let (reqs, note) = live.session.line(&line, now);
             if let Some(note) = note {
@@ -512,6 +588,43 @@ impl Worker {
             }
             self.drive(reqs);
         }
+        let now = self.now();
+        for &i in readable {
+            let client = &mut self.clients[i];
+            if client.write_deadline.is_some_and(|deadline| deadline <= now) {
+                closed.push(i);
+                continue;
+            }
+            while client.sent < client.output.len() {
+                match client.stream.write(&client.output[client.sent..]) {
+                    Ok(0) => {
+                        closed.push(i);
+                        break;
+                    }
+                    Ok(n) => client.sent += n,
+                    Err(e) if e.kind() == io::ErrorKind::WouldBlock => break,
+                    Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
+                    Err(_) => {
+                        closed.push(i);
+                        break;
+                    }
+                }
+            }
+            if client.sent == client.output.len() {
+                client.output.clear();
+                client.sent = 0;
+                client.write_deadline = None;
+                if client.eof {
+                    closed.push(i);
+                }
+            }
+        }
+        closed.sort_unstable();
+        closed.dedup();
+        for i in closed.into_iter().rev() {
+            self.clients.remove(i);
+        }
+        false
     }
 
     fn bind_now(&mut self) {

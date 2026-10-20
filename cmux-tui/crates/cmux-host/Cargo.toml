@@ -15,6 +15,11 @@ name = "cmux-host"
 path = "src/main.rs"
 
 [dependencies]
+base64.workspace = true
+cmux-cloud-wire.workspace = true
+cmux-link.workspace = true
+url.workspace = true
+x25519-dalek.workspace = true
 # Roles (the store update check and later app servers) come from
 # cmux-server; dependency direction is cmux-host -> cmux-server ->
 # cmux-server-core, never the reverse.

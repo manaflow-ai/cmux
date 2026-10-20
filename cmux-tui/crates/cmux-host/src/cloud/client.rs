@@ -2,8 +2,10 @@
 //! use a fake server and a memory store.
 
 use std::collections::HashMap;
+use std::time::Instant;
 
 use cmux_server_core::install_key::{InstallKey, SystemRandom};
+use serde::Deserialize;
 use serde_json::{Value, json};
 
 use super::sender::{Answer, OpRequest};
@@ -15,6 +17,37 @@ use super::wire::{
 /// One JSON POST: `(status, body)`, or a transport error.
 pub trait Http {
     fn post(&self, url: &str, body: &Value, bearer: Option<&str>) -> Result<(u16, Value), String>;
+
+    /// Raw, bounded, no-redirect GET (`body=None`) or JSON POST. All calls
+    /// in a receiving-policy read share this absolute deadline. Older
+    /// transports cannot silently opt into this security-sensitive path.
+    fn request_until(
+        &self,
+        _url: &str,
+        _body: Option<&Value>,
+        _bearer: Option<&str>,
+        _deadline: Instant,
+    ) -> Result<(u16, Vec<u8>), String> {
+        Err("bounded Cloud transport unavailable".into())
+    }
+}
+
+#[derive(Deserialize)]
+struct Challenge {
+    install: String,
+    nonce: String,
+    message_prefix: String,
+}
+
+#[derive(Deserialize)]
+struct Token {
+    access_token: String,
+    token_type: String,
+    expires_at: u64,
+    user: String,
+    install: String,
+    grant: String,
+    team: String,
 }
 
 /// The agent's files (atomic writes with a mode).
@@ -223,60 +256,130 @@ impl<H: Http> CloudClient<H> {
         &self.bound
     }
 
-    fn url(&self, path: &str) -> String {
+    pub(super) fn url(&self, path: &str) -> String {
         format!("{}{path}", self.bound.api_origin)
     }
 
     /// A bearer token, cached until one minute before it expires.
     /// `now_wall_ms` is wall-clock time (the server's `expires_at` is).
     pub fn token(&mut self, now_wall_ms: u64) -> Result<String, String> {
+        self.token_until(now_wall_ms, None)
+    }
+
+    pub(super) fn token_until(
+        &mut self,
+        now_wall_ms: u64,
+        deadline: Option<Instant>,
+    ) -> Result<String, String> {
+        if self.bound.api_origin != self.bound.env.api_origin() {
+            self.cached = None;
+            return Err("Cloud origin differs from the original environment".into());
+        }
         if let Some((token, expires)) = &self.cached
             && expires.saturating_sub(60_000) > now_wall_ms
         {
             return Ok(token.clone());
         }
         let ids = json!({ "user": self.bound.user, "install": self.bound.install });
-        let (status, challenge) = self.http.post(&self.url("/v1/auth/challenge"), &ids, None)?;
+        let (status, challenge): (_, Challenge) =
+            self.auth_post("/v1/auth/challenge", &ids, deadline)?;
         let expected = format!(
             "cmux-auth-v1\n{}\n{}\n",
             self.bound.env.auth_environment(),
             self.bound.install
         );
-        if status != 200 || challenge["install"] != self.bound.install.as_str() {
+        if status != 200 || challenge.install != self.bound.install {
             return Err(format!("challenge refused: HTTP {status}"));
         }
-        if challenge["message_prefix"] != expected.as_str() {
+        if challenge.message_prefix != expected {
             return Err(
                 "challenge message prefix names another environment or install; not signing"
                     .to_owned(),
             );
         }
-        let nonce = match &challenge["nonce"] {
-            Value::String(s) => s.clone(),
-            other => other.to_string(),
-        };
+        let nonce = challenge.nonce;
+        if nonce.is_empty() || nonce.len() > 256 || nonce.bytes().any(|b| !b.is_ascii_graphic()) {
+            return Err("invalid Cloud challenge".into());
+        }
         let signature = self.key.sign(format!("{expected}{nonce}").as_bytes(), &self.rng)?;
         let body = json!({
             "user": self.bound.user,
             "install": self.bound.install,
-            "nonce": challenge["nonce"],
+            "nonce": nonce,
             "signature": signature,
         });
-        let (status, token) = self.http.post(&self.url("/v1/auth/token"), &body, None)?;
-        let access = token["access_token"].as_str();
-        if status != 200 || token["token_type"] != "Bearer" || access.is_none() {
-            let code = token["code"].as_str().unwrap_or("");
-            return Err(format!("token refused: HTTP {status} {code}"));
+        let (status, token): (_, Token) = self.auth_post("/v1/auth/token", &body, deadline)?;
+        if status != 200
+            || token.token_type != "Bearer"
+            || token.user != self.bound.user
+            || token.install != self.bound.install
+            || token.grant != self.bound.grant
+            || token.team != self.bound.team
+            || token.access_token.is_empty()
+            || token.access_token.len() > 8192
+            || token.access_token.bytes().any(|b| !b.is_ascii_graphic())
+            || token.expires_at == 0
+            || token.expires_at > 9_007_199_254_740_991
+        {
+            self.cached = None;
+            return Err("Cloud token differs from the original enrollment".into());
         }
-        let access = access.unwrap_or_default().to_owned();
-        let expires = token["expires_at"].as_u64().unwrap_or(0);
-        self.cached = Some((access.clone(), expires));
+        let access = token.access_token;
+        self.cached = Some((access.clone(), token.expires_at));
         Ok(access)
+    }
+
+    fn auth_post<T: serde::de::DeserializeOwned>(
+        &self,
+        path: &str,
+        body: &Value,
+        deadline: Option<Instant>,
+    ) -> Result<(u16, T), String> {
+        let malformed = || "Cloud authentication unavailable".to_owned();
+        if let Some(deadline) = deadline {
+            let (status, bytes) = self.request_until(path, Some(body), None, deadline)?;
+            Ok((status, serde_json::from_slice(&bytes).map_err(|_| malformed())?))
+        } else {
+            let (status, value) =
+                self.http.post(&self.url(path), body, None).map_err(|_| malformed())?;
+            Ok((status, serde_json::from_value(value).map_err(|_| malformed())?))
+        }
+    }
+
+    pub(super) fn request_until(
+        &self,
+        path: &str,
+        body: Option<&Value>,
+        bearer: Option<&str>,
+        deadline: Instant,
+    ) -> Result<(u16, Vec<u8>), String> {
+        if self.bound.api_origin != self.bound.env.api_origin() || Instant::now() >= deadline {
+            return Err("bounded Cloud request unavailable".into());
+        }
+        let result = self
+            .http
+            .request_until(&self.url(path), body, bearer, deadline)
+            .map_err(|_| "bounded Cloud request unavailable".to_owned())?;
+        if result.1.len() > 1024 * 1024 || Instant::now() >= deadline {
+            return Err("bounded Cloud response unavailable".into());
+        }
+        Ok(result)
+    }
+
+    pub(super) fn install_public_jwk(&self) -> Value {
+        self.key.public_jwk()
+    }
+
+    pub(super) fn clear_token(&mut self) {
+        self.cached = None;
     }
 
     /// One read on `/v1/read` (`{op, params}`), with the same token
     /// handling as [`CloudClient::op`].
     pub fn read(&mut self, op: &str, params: &Value, now_wall_ms: u64) -> Answer {
+        if op == "cloud.vm.network_policy" {
+            return Answer::Transport;
+        }
         self.post_with_token("/v1/read", &json!({ "op": op, "params": params }), now_wall_ms)
     }
 
