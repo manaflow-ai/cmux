@@ -22,8 +22,8 @@ const DAILY_ID = "daily";
 const YOURS = "yours";
 /** The rows the picker draws, left out of their group while it shows. */
 export const BACKDROP_ROWS: ReadonlySet<string> = new Set([BACKGROUND_KEY, BACKGROUND_OPACITY_KEY]);
-/** How long the pointer rests on a tile before the window shows it: sweeping across the grid
- * previews nothing, so it fetches no full-size art. */
+/** How long the pointer or keyboard focus rests on a tile before the window shows it: sweeping
+ * or tabbing across the grid previews nothing, so it fetches no full-size art. */
 const PREVIEW_DWELL_MS = 150;
 
 /** Over a picture the window at 100% shows the work's own tint instead (the theme's opacity is
@@ -174,7 +174,7 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
         onClick={() => void (pending ? store.openWallpaperSettings() : choose(id))}
         onPointerEnter={pending ? undefined : () => preview(id, PREVIEW_DWELL_MS)}
         onPointerLeave={pending ? undefined : endPreview}
-        onFocus={(event) => !pending && event.currentTarget.matches(":focus-visible") && preview(id, 0)}
+        onFocus={(event) => !pending && event.currentTarget.matches(":focus-visible") && preview(id, PREVIEW_DWELL_MS)}
         onBlur={pending ? undefined : endPreview}
       >
         {id === "none" || id === FOLLOW_ID ? (
