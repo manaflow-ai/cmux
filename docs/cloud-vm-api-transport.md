@@ -67,5 +67,13 @@ so it cannot appear in team lists or invite members through cmux. New work
 reused for 30 seconds) and fails closed when anyone besides the owner is a
 member or the read fails; cleanup routing is kept.
 
+The team is created with no Stack creator, so the owner never holds Stack's
+creator (admin, invite) defaults; the owner then joins as a plain member, and a
+team the owner could not join is deleted. The cmux-vm Worker is the access
+chokepoint: for a Stack team whose server metadata carries the marker, a Stack
+session is admitted only for the marker's `stack_user`, and an unreadable marker
+admits nobody. Another member (for example one invited through cmux.com) gets no
+VM access. cmux.com does not yet hide marked teams from its team and billing views.
+
 Hosted tests use fake identity/VM API responses with real owner RPCs and SQLite;
 they do not establish a live provider rollout or production billing integration.
