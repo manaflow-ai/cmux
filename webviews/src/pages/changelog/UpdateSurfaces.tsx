@@ -120,11 +120,26 @@ export function UpdateReadyHighlights({
         </ol>
       )}
       {rest && rest.length > 0 && (
-        <ul className="wn-pop-rest">
-          {rest.map((item) => (
-            <li key={item.id}>{item.title}</li>
-          ))}
-        </ul>
+        <div className="wn-pop-rest">
+          {REST_ORDER.map((category) => {
+            const items = rest.filter((item) => item.category === category);
+            if (items.length === 0) return null;
+            return (
+              <section
+                key={category}
+                className="wn-pop-rest-group"
+                aria-label={strings.t(`changelog.group.${category}`)}
+              >
+                <h4>{strings.t(`changelog.group.${category}`)}</h4>
+                <ul>
+                  {items.map((item) => (
+                    <li key={item.id}>{item.title}</li>
+                  ))}
+                </ul>
+              </section>
+            );
+          })}
+        </div>
       )}
       <div className="wn-pop-foot">
         {!rest && data.moreCount > 0 && (
@@ -138,6 +153,9 @@ export function UpdateReadyHighlights({
     </section>
   );
 }
+
+/** The rest of an update reads as Conductor's release pages do: New, Improved, Fixed, Security. */
+const REST_ORDER = ["new", "improved", "fixed", "security"] as const;
 
 /** A change's picture at the popover's width, in the theme's scheme; a click opens the change's
  * notes, where it shows at the page's width. Only `data:` pictures reach it (the host inlines
