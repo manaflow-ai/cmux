@@ -19,7 +19,7 @@ enum RenderScaleScope {
     /// isolated deinit run inline under it (every main-actor class of a main-actor-default target
     /// has one) makes the macOS 15.4 to 15.x runtime free() a marker its task allocator made: cmux
     /// trapped under Chromium's allocator when Cmd-1 left Home (CMUXTERM-MACOS-44XN, macOS 15.8.1).
-    // Read and written only on the main thread (`with` and `current` check it).
+    // crash-allow: read and written only on the main thread (`with` and `current` check it).
     nonisolated(unsafe) static var mainThreadScoped: CGFloat? = nil
 
     /// The scale of the scope that runs now, nil outside any scope.

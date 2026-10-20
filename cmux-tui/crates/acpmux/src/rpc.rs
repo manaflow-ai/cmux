@@ -291,6 +291,10 @@ pub mod method {
     pub const MUX_HARNESS_REMOVE: &str = "_acpmux/harness/remove";
     pub const MUX_HARNESS_RESTORE: &str = "_acpmux/harness/restore";
     pub const MUX_HARNESS_DOCTOR: &str = "_acpmux/harness/doctor";
+    /// Store a harness env key's secret in the system secret store and point
+    /// the profile at it (`{id, key, value}`; the value is never echoed).
+    /// The unix socket only.
+    pub const MUX_HARNESS_SECRET_SET: &str = "_acpmux/harness/secret/set";
     /// The ACP Registry's agents and how each can start here.
     pub const MUX_REGISTRY: &str = "_acpmux/registry";
     /// Agent CLI health (hq #1875; `hub/health_view.rs`): the unix socket
