@@ -11,6 +11,9 @@
 // `plainFooter` is no cmux.json key either: Debug Settings' "Agent composer: plain footer" (Swift
 // AgentPaneTunables.composerPlainFooter, DEV and NIGHTLY builds) rides the same event and draws the
 // footer's chips as plain text at rest (composerLocation.css, [data-footer-look="plain"]).
+// `harnessSwitch` is Debug Settings' "Allow switching harness in a started chat" (Swift
+// AgentPaneTunables.harnessSwitchInStartedChat, off by default; no cmux.json key): off, a chat with
+// a message keeps its harness and its model menu lists that harness's models alone (ComposerPickers).
 import { useSyncExternalStore } from "react";
 
 export type ReasoningSliderStyle = "accent" | "minimal";
@@ -25,6 +28,7 @@ export type ComposerSettings = {
   reasoningSliderStyle: ReasoningSliderStyle;
   modelMenu: ModelMenuStyle;
   plainFooter: boolean;
+  harnessSwitch: boolean;
 };
 
 export const DEFAULT_COMPOSER: ComposerSettings = {
@@ -34,9 +38,10 @@ export const DEFAULT_COMPOSER: ComposerSettings = {
   reasoningSliderStyle: "accent",
   modelMenu: "full",
   plainFooter: true,
+  harnessSwitch: false,
 };
 const KEYS = Object.keys(DEFAULT_COMPOSER) as (keyof ComposerSettings)[];
-type ComposerFlag = "showContextUsage" | "showDictation" | "reasoningSlider" | "plainFooter";
+type ComposerFlag = "showContextUsage" | "showDictation" | "reasoningSlider" | "plainFooter" | "harnessSwitch";
 
 /// The host's value; anything it does not know keeps the default.
 export function readComposerSettings(value: unknown): ComposerSettings {
@@ -50,6 +55,7 @@ export function readComposerSettings(value: unknown): ComposerSettings {
     reasoningSliderStyle,
     modelMenu: raw.modelMenu === "compact" ? "compact" : "full",
     plainFooter: flag("plainFooter"),
+    harnessSwitch: flag("harnessSwitch"),
   };
 }
 

@@ -235,17 +235,16 @@ test("a search never lists a signed-out harness's models", async () => {
 // must never lock the person out of the chat they are in), and Starred lists no model a pick
 // would refuse.
 test("the running chat's own harness keeps its models", async () => {
-  const { catalog } = await mount({
+  await mount({
     harness: "codex",
     turnCount: 1,
     signIn: { signedOut: { codex: "codex login" }, logIn: () => undefined },
   });
-  const codex = catalog.harnesses.find((entry) => entry.id === "codex")!;
   await act(async () => {
     host.querySelector<HTMLButtonElement>('[data-menu="Model"]')!.click();
   });
-  const tab = tabFor(codex.name);
-  expect(tab?.getAttribute("aria-disabled")).toBeNull();
+  // A started chat's harness is fixed: its menu has no rail, only that harness's models.
+  expect(host.querySelector(".acpmux-mp-harness")).toBeNull();
   expect(modelRows().length).toBeGreaterThan(0);
   expect(host.querySelector(".acpmux-mp-login")).toBeNull();
 });
