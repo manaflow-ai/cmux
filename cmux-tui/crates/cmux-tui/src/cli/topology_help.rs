@@ -71,7 +71,7 @@ SELECTORS
 
 pub(super) const PANE_HELP: &str = "\
 USAGE
-  cmux pane list
+  cmux pane list [--workspace <selector>] [--screen <selector>]
   cmux pane create [--correlation-key <value>]
   cmux pane <selector> show|focus|close
   cmux pane <selector> close --others|--all
@@ -95,7 +95,7 @@ SELECTORS
 
 pub(super) const TAB_HELP: &str = "\
 USAGE
-  cmux tab list
+  cmux tab list [--workspace <selector>] [--screen <selector>] [--pane <selector>]
   cmux tab <selector> show|focus|close
   cmux tab <selector> close --others|--to-right|--to-left|--all [--include-pinned]
   cmux tab <selector> rename <name>|--name <name>
@@ -143,7 +143,8 @@ SELECTORS
 
 pub(super) const TERMINAL_HELP: &str = "\
 USAGE
-  cmux terminal list
+  cmux terminal list [--workspace <selector>] [--screen <selector>] [--pane <selector>]
+    [--tab <selector>]
   cmux terminal <selector> show
   cmux terminal <selector> status
   cmux terminal <selector> write [--text <value>|--bytes-base64 <base64>]
