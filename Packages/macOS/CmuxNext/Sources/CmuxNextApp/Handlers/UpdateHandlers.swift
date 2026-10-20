@@ -26,20 +26,10 @@ enum UpdateHandlers {
                 do { try updater.installAvailableUpdate() } catch { registry?.refuse(String(describing: error)) }
             })
         }
-        // Drop back to the previous build (destructive: every entrypoint confirms first; the
-        // CLI passes --confirm). A refusal (nothing kept, a store too new) is the action's failure.
+        // Drop back (destructive: every entrypoint confirms; the CLI passes --confirm).
         registry.bind("updates.rollback", run: { [weak registry] invocation in
             let build = invocation["build"]?.stringValue, directories = stateDirectories()
-            registry?.track(Task {
-                do {
-                    try await updater.dropBack(to: build, stateDirectories: directories)
-                    return nil
-                } catch let refusal as RollbackRefusal {
-                    return ActionWorkFailure(refusal.message)
-                } catch {
-                    return ActionWorkFailure(String(describing: error))
-                }
-            })
+            registry?.track(Task { await updater.dropBackFailure(to: build, stateDirectories: directories).map { ActionWorkFailure($0) } })
         })
         registry.bind("palette.switchAppChannel", unavailable: { updater.channelSwitchUnavailableReason }, invoke: { [weak registry] invocation in
             do {
