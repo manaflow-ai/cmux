@@ -196,7 +196,7 @@ async fn claude_credential(
         return Ok(None);
     }
     for &key in CREDENTIAL_ENV {
-        if let Some(value) = crate::chats::login_var(key) {
+        if let Some(value) = remote_login_credential(key) {
             return Ok(Some((key, value)));
         }
     }
@@ -223,6 +223,26 @@ async fn claude_credential(
         return Err("Claude's login on this Mac expires within 10 minutes (or has expired), and a remote chain cannot refresh it; open Claude Code on the Mac to refresh it, or put a long-lived token (`claude setup-token`) in the harness profile env".into());
     }
     Ok((!token.is_empty()).then(|| ("CLAUDE_CODE_OAUTH_TOKEN", token.to_owned())))
+}
+
+/// A daemon started inside Claude/Chief carries that parent turn's token in
+/// its process environment. A remote child may use the person's imported
+/// login credential, never the parent agent's turn-scoped credential.
+fn remote_login_credential(key: &str) -> Option<String> {
+    select_remote_login_credential(
+        std::env::var_os("CLAUDECODE").is_some(),
+        std::env::var(key).ok(),
+        crate::login_env::var(key),
+    )
+}
+
+fn select_remote_login_credential(
+    nested: bool,
+    process: Option<String>,
+    login: Option<String>,
+) -> Option<String> {
+    let nonempty = |value: Option<String>| value.filter(|value| !value.is_empty());
+    if nested { nonempty(login) } else { nonempty(process).or_else(|| nonempty(login)) }
 }
 
 /// Claude Code flags a profile's own argv may not carry for a remote chain:
@@ -678,6 +698,7 @@ impl Hub {
         // Whatever supplied the plan (including `sr claude proxy`), the
         // inner program is frozen before either a VM or Seatbelt runs it.
         plan.program = super::resolve::remote_executable(&plan.program)?;
+        super::resolve::refuse_remote_cwd_executable(&plan.program, &session.meta().cwd)?;
         // A dedicated agent VM (`vmHost`, off macOS): the VM is the sandbox.
         // Bypass mode stays off (above); the session's permission policy
         // answers Claude's prompts.
@@ -757,6 +778,26 @@ pub fn vm_host_peer_approves(vm_host: bool, macos: bool, from_peer: bool) -> boo
 #[cfg(test)]
 mod vm_host_tests {
     use super::{vm_host_peer_approves, vm_host_unsandboxed};
+
+    #[test]
+    fn a_nested_agent_parent_credential_never_becomes_remote_login() {
+        assert_eq!(
+            super::select_remote_login_credential(
+                true,
+                Some("synthetic-parent-token".into()),
+                Some("synthetic-login-token".into()),
+            ),
+            Some("synthetic-login-token".into())
+        );
+        assert_eq!(
+            super::select_remote_login_credential(
+                true,
+                Some("synthetic-parent-token".into()),
+                None,
+            ),
+            None
+        );
+    }
 
     #[test]
     fn only_the_owner_peer_on_a_vm_host_gets_approve_all() {

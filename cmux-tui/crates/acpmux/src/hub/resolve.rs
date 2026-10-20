@@ -148,6 +148,15 @@ pub(super) fn remote_executable(program: &str) -> Result<String, RpcError> {
     Ok(selected.to_string_lossy().into_owned())
 }
 
+pub(super) fn refuse_remote_cwd_executable(program: &str, cwd: &Path) -> Result<(), RpcError> {
+    let program = Path::new(program);
+    let cwd = std::fs::canonicalize(cwd).unwrap_or_else(|_| cwd.to_path_buf());
+    if program.starts_with(cwd) {
+        return Err(remote_executable_refused());
+    }
+    Ok(())
+}
+
 fn remote_executable_refused() -> RpcError {
     RpcError::invalid_params(
         "this harness has no reviewed asking mode for a remote WebSocket connection",
@@ -206,7 +215,7 @@ pub(super) fn session_profile(
     cwd: &Path,
     remote: bool,
 ) -> Result<HarnessProfile, String> {
-    let mut profile = if let Some(p) = cfg.profile(harness) {
+    let profile = if let Some(p) = cfg.profile(harness) {
         p.clone()
     } else {
         match folder_profiles::resolve_for_session(cfg, harness, cwd, remote) {
@@ -215,9 +224,9 @@ pub(super) fn session_profile(
         }?
     };
     if remote {
-        let defaults = cfg.defaults_for(harness);
-        admit_remote_profile(cfg, harness, &mut profile, &defaults.env)
-            .map_err(|error| error.message)?;
+        crate::web_modes::remote_start_for_config(cfg, harness, &profile).map_err(|_| {
+            "this harness has no reviewed asking mode for a remote WebSocket connection".to_owned()
+        })?;
     }
     Ok(profile)
 }

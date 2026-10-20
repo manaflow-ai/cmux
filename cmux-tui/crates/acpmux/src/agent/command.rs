@@ -267,29 +267,35 @@ fn apply_remote_base(cmd: &mut Command) {
 pub(crate) fn host_environment() -> Vec<(std::ffi::OsString, std::ffi::OsString)> {
     let allowed = |key: &std::ffi::OsStr| {
         let key = key.to_string_lossy();
-        key.starts_with("LC_")
-            || [
-                "HOME",
-                "USER",
-                "LOGNAME",
-                "SHELL",
-                "TMPDIR",
-                "LANG",
-                "LANGUAGE",
-                "TERM",
-                "COLORTERM",
-                "TZ",
-                // Windows process startup and temporary-directory basics.
-                "SYSTEMROOT",
-                "WINDIR",
-                "COMSPEC",
-                "PATHEXT",
-                "TEMP",
-                "TMP",
-                "USERPROFILE",
-            ]
-            .iter()
-            .any(|allowed| key.eq_ignore_ascii_case(allowed))
+        [
+            "HOME",
+            "USER",
+            "LOGNAME",
+            "SHELL",
+            "TMPDIR",
+            "LANG",
+            "LANGUAGE",
+            "LC_ALL",
+            "LC_COLLATE",
+            "LC_CTYPE",
+            "LC_MESSAGES",
+            "LC_MONETARY",
+            "LC_NUMERIC",
+            "LC_TIME",
+            "TERM",
+            "COLORTERM",
+            "TZ",
+            // Windows process startup and temporary-directory basics.
+            "SYSTEMROOT",
+            "WINDIR",
+            "COMSPEC",
+            "PATHEXT",
+            "TEMP",
+            "TMP",
+            "USERPROFILE",
+        ]
+        .iter()
+        .any(|allowed| key.eq_ignore_ascii_case(allowed))
     };
     std::env::vars_os().filter(|(key, _)| allowed(key)).collect()
 }

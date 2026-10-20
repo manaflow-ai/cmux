@@ -101,6 +101,14 @@ fn validate_private_state_ancestors(dir: &Path) -> Result<()> {
                 path.display()
             );
         }
+        if metadata.file_type().is_dir() {
+            use std::os::unix::fs::OpenOptionsExt;
+            let opened = std::fs::OpenOptions::new()
+                .read(true)
+                .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW)
+                .open(path)?;
+            refuse_writable_extended_acl(&opened, path)?;
+        }
         Ok(())
     };
 
@@ -219,6 +227,63 @@ fn refuse_extended_acl(file: &std::fs::File, path: &Path) -> Result<()> {
     // SAFETY: `acl` came from acl_get_fd_np and is released exactly once.
     unsafe { acl_free(acl) };
     anyhow::bail!("{} has an extended ACL", path.display())
+}
+
+#[cfg(target_os = "macos")]
+fn refuse_writable_extended_acl(file: &std::fs::File, path: &Path) -> Result<()> {
+    use std::ffi::CStr;
+    use std::os::fd::AsRawFd;
+
+    type Acl = *mut core::ffi::c_void;
+    const ACL_TYPE_EXTENDED: libc::c_int = 0x0000_0100;
+    unsafe extern "C" {
+        fn acl_get_fd_np(fd: libc::c_int, acl_type: libc::c_int) -> Acl;
+        fn acl_to_text(acl: Acl, len: *mut libc::ssize_t) -> *mut libc::c_char;
+        fn acl_free(object: *mut core::ffi::c_void) -> libc::c_int;
+    }
+
+    let acl = unsafe { acl_get_fd_np(file.as_raw_fd(), ACL_TYPE_EXTENDED) };
+    if acl.is_null() {
+        let error = std::io::Error::last_os_error();
+        return if error.raw_os_error() == Some(libc::ENOENT) { Ok(()) } else { Err(error.into()) };
+    }
+    let mut len = 0;
+    let text = unsafe { acl_to_text(acl, &mut len) };
+    if text.is_null() {
+        unsafe { acl_free(acl) };
+        return Err(std::io::Error::last_os_error().into());
+    }
+    let rendered = unsafe { CStr::from_ptr(text) }.to_string_lossy().to_ascii_lowercase();
+    unsafe {
+        acl_free(text.cast());
+        acl_free(acl);
+    }
+    let token = |line: &str, wanted: &str| {
+        line.split(|c: char| c == ':' || c == ',' || c.is_ascii_whitespace())
+            .any(|part| part == wanted)
+    };
+    let change = [
+        "write",
+        "append",
+        "add_file",
+        "add_subdirectory",
+        "delete",
+        "delete_child",
+        "writeattr",
+        "writeextattr",
+        "writesecurity",
+        "chown",
+    ];
+    let writable = rendered
+        .lines()
+        .any(|line| token(line, "allow") && change.iter().any(|right| token(line, right)));
+    anyhow::ensure!(!writable, "{} has a writable extended ACL", path.display());
+    Ok(())
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn refuse_writable_extended_acl(_file: &std::fs::File, _path: &Path) -> Result<()> {
+    Ok(())
 }
 
 #[cfg(all(unix, not(target_os = "macos")))]
