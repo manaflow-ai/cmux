@@ -36,6 +36,8 @@ public final class LayoutRootView: NSView {
     private var reportedKeepAlive: Set<PaneID> = []
     var scrollLock: ScrollLock = .idle
     var consumeMomentum = false
+    /// What scroll-to-focus reads besides the model (`LayoutRootView+ScrollFocus`).
+    let scrollFocusSignals: ScrollFocusSignals
     var dragTab: TabID?
     /// The drop preview's rect for the current tab drag target, in screen
     /// coordinates; nil when nothing is highlighted. The drag session flies
@@ -79,9 +81,13 @@ public final class LayoutRootView: NSView {
     /// `contentProvider` is held weakly; the App keeps it alive.
     /// `scrollbarClock` runs the strip scrollbar's `auto` fade-out deadline;
     /// tests inject a manual clock.
+    /// `scrollFocusSignals` feeds scroll-to-focus (`layout.focusPaneOnScroll`);
+    /// tests inject fixed values.
     public init(model: LayoutModel, contentProvider: any LayoutPaneContentProvider,
-                scrollbarClock: any Clock<Duration> = ContinuousClock()) {
+                scrollbarClock: any Clock<Duration> = ContinuousClock(),
+                scrollFocusSignals: ScrollFocusSignals = ScrollFocusSignals()) {
         self.model = model
+        self.scrollFocusSignals = scrollFocusSignals
         self.context = LayoutViewContext(model: model, provider: contentProvider, scrollbarClock: scrollbarClock)
         super.init(frame: .zero)
         wantsLayer = true

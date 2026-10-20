@@ -126,19 +126,22 @@ public extension PageDescriptor {
         acceptsFirstMouse: false)
 
     /// The markdown page (diff-host.md S6): the strict CSP (Vega uses vega-interpreter, code
-    /// highlighting Shiki's JavaScript engine), with images and libraries from its own origin.
+    /// highlighting Shiki's JavaScript engine) plus `'wasm-unsafe-eval'` for Ondine, the Mermaid
+    /// compiler (a WebAssembly module with no imports), with images and libraries from its own origin.
     static let markdown = PageDescriptor(
         id: "cmux.markdown", resource: diffResource, namespaces: ["cmux.markdown."],
         nativeOps: [PageNativeOp.clipboardWrite],
-        commands: PageNativeOp.commands.union(MarkdownPageCommand.all), csp: PageCSP(inlineScript: false), entry: markdownEntry,
+        commands: PageNativeOp.commands.union(MarkdownPageCommand.all), csp: PageCSP(script: ["'wasm-unsafe-eval'"], inlineScript: false), entry: markdownEntry,
         dynamicPrefixes: [MarkdownPageResource.asset, MarkdownPageResource.library, MarkdownPageResource.remoteImage])
 
     /// The code editor page (diff-host.md "Editor page", Monaco): the strict CSP plus
     /// `'wasm-unsafe-eval'` for Shiki's Oniguruma engine; no `connect-src` and no `'unsafe-eval'`.
     /// Its worker is a same-origin module, which `script-src 'self'` allows.
+    /// Its one app action is the native command palette: Monaco's own palette (F1, the context
+    /// menu's Command Palette) opens it instead, so no web view has a palette of its own.
     static let editor = PageDescriptor(
         id: "cmux.editor", resource: diffResource, namespaces: ["cmux.editor."],
-        nativeOps: [PageNativeOp.clipboardWrite],
+        nativeOps: [PageNativeOp.clipboardWrite, PageNativeOp.actionRun], actions: ["commandPalette"],
         commands: PageNativeOp.commands.union(EditorPageCommand.all),
         csp: PageCSP(script: ["'wasm-unsafe-eval'"]), entry: editorEntry)
 }
