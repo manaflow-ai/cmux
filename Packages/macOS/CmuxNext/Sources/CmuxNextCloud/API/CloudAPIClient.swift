@@ -75,6 +75,11 @@ public struct CloudAPIClient: Sendable {
                        as: CloudAttachEndpoint.self)
     }
 
+    public func approveCmuxRemoteEnrollment(_ id: String, invitationID: String) async throws -> CloudEnrollmentApproval {
+        try await send("POST", "/api/vm/\(id)/cmux-remote/approve", body: ["invitationId": invitationID],
+                       timeout: .seconds(60), as: CloudEnrollmentApproval.self)
+    }
+
     public func stats(_ id: String) async throws -> CloudMachineStats {
         try await send("GET", "/api/vm/\(id)/stats", as: CloudMachineStats.self)
     }

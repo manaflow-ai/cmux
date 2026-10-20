@@ -949,6 +949,8 @@ describe("Freestyle client configuration", () => {
 // its own, so a machine outside a private network gets no URL at all.
 describe("Freestyle openCmuxRemote: snapshot-v2 fast path", () => {
   test("uses persisted network metadata and mints a cryptographic enrollment grant", async () => {
+    const previous = process.env.CMUX_CLOUD_REQUIRE_CLIENT_GRANT;
+    process.env.CMUX_CLOUD_REQUIRE_CLIENT_GRANT = "1";
     const commands: string[] = [];
     const vm = {
       exec: async ({ command }: { command: string }) => {
@@ -962,16 +964,21 @@ describe("Freestyle openCmuxRemote: snapshot-v2 fast path", () => {
     };
     const client = { vms: { ref: () => vm } } as unknown as Freestyle;
     const provider = new FreestyleProvider({ client: () => client });
-    const endpoint = await provider.openCmuxRemote(VM_ID, {
-      providerMetadata: { cmuxTuiContract: "snapshot-v2", networkIpv4: "10.4.0.7", networkIpv6: "fd00:4::7" },
-    });
-    expect(endpoint).toMatchObject({
-      route: "ws://10.4.0.7:1337/v1/link",
-      trustedCarrier: false,
-      invitation: { invitationId: "inv_test" },
-    });
-    expect(commands).toHaveLength(1);
-    expect(commands[0]).toContain("remote enroll create");
+    try {
+      const endpoint = await provider.openCmuxRemote(VM_ID, {
+        providerMetadata: { cmuxTuiContract: "snapshot-v2", networkIpv4: "10.4.0.7", networkIpv6: "fd00:4::7" },
+      });
+      expect(endpoint).toMatchObject({
+        route: "ws://10.4.0.7:1337/v1/link",
+        trustedCarrier: false,
+        invitation: { invitationId: "inv_test" },
+      });
+      expect(commands).toHaveLength(1);
+      expect(commands[0]).toContain("remote enroll create");
+    } finally {
+      if (previous === undefined) delete process.env.CMUX_CLOUD_REQUIRE_CLIENT_GRANT;
+      else process.env.CMUX_CLOUD_REQUIRE_CLIENT_GRANT = previous;
+    }
   });
 
   // Cloud has not shipped a row from before snapshot-v2, so there is nothing
