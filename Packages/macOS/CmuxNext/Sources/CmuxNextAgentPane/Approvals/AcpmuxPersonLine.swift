@@ -39,6 +39,24 @@ final class AcpmuxPersonLine {
         return connection
     }
 
+    /// One person-only request on a checked short connection. The caller receives no result when
+    /// the daemon, peer check, or person proof fails; the in-memory key never leaves the app.
+    nonisolated static func request(
+        _ environment: AcpmuxEnvironment,
+        method: String,
+        params: [String: any Sendable],
+        deadline: Duration
+    ) async -> ResultBox? {
+        guard let line = await open(environment, deadline: deadline) else { return nil }
+        guard await line.isPerson else {
+            await line.close()
+            return nil
+        }
+        let result = await line.call(method, params)
+        await line.close()
+        return result.map(ResultBox.init)
+    }
+
     /// One request; its `result`, or nil when it failed or the connection closed.
     func call(_ method: String, _ params: [String: Any]) async -> [String: Any]? {
         guard !closed else { return nil }
