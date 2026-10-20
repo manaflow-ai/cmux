@@ -21,7 +21,9 @@ struct TabHoverCardLines: Equatable {
     /// hibernated.
     static func make(_ item: TabItem, report: ResourceReport?, now: Date) -> Self {
         let facts = item.hover
-        let where_ = facts.kind == .browser ? item.subtitle.flatMap(host) : [item.subtitle, facts.branch].compactMap(\.self).nilIfEmpty
+        // A folder the title already names (a shell at `~` titled `~`) is said once.
+        let folder = item.subtitle == item.title ? nil : item.subtitle
+        let where_ = facts.kind == .browser ? item.subtitle.flatMap(host) : [folder, facts.branch].compactMap(\.self).nilIfEmpty
         let badges = [item.profileBadge.map { Strings.browserProfile($0.name) }, item.machineBadgeHelp,
                       item.themeBadge.map { Strings.axTheme($0.name) }, where_]
         return TabHoverCardLines(
