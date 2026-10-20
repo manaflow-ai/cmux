@@ -17,6 +17,13 @@ use crate::turn::Orphan;
 /// logged as `user`; the cut turn's messages are in the log before it.
 pub(super) const RESUMED: &str = "The server restarted, cutting the turn; nothing was lost: go on.";
 
+/// Whether a logged item represented work whose interrupted turn must run
+/// again. A quiet stopped-subagent report intentionally waits for another
+/// message; a normal report wakes a turn just like a human message.
+fn resumes_after_cut(item: &Item) -> bool {
+    item.resume || item.seq.is_some() || item.spawn.as_ref().is_some_and(|spawn| !spawn.quiet)
+}
+
 /// The resume turn's new messages: the note, then the cut requests' full
 /// text in order (the reference client re-queues them into the next call's
 /// new messages), before any newer message. Only the note is logged.
@@ -52,6 +59,7 @@ pub(super) fn recover(chat: &OptChat, state: &mut HostState, acpmux: bool) -> Ve
     }
     let mut human = false;
     let mut remote = false;
+    let mut requires_approval = false;
     // The cut messages' full text, in log order (the resume turn's).
     let mut cut: Vec<String> = Vec::new();
     for (k, (at, items, done)) in batches.iter().enumerate() {
@@ -64,8 +72,9 @@ pub(super) fn recover(chat: &OptChat, state: &mut HostState, acpmux: bool) -> Ve
         };
         for (j, item) in items[..logged].iter().enumerate() {
             // A logged resume note is a cut turn's too: it resumes again.
-            human |= item.resume;
+            human |= resumes_after_cut(item);
             remote |= item.remote;
+            requires_approval |= item.requires_approval;
             cut.extend(item.cut.iter().cloned());
             if item.seq.is_some()
                 && positioned
@@ -111,11 +120,13 @@ pub(super) fn recover(chat: &OptChat, state: &mut HostState, acpmux: bool) -> Ve
         match state.resumes.iter_mut().find(|r| r.conversation == side) {
             Some(r) => {
                 r.remote |= remote;
+                r.requires_approval |= requires_approval;
                 r.messages.extend(cut);
             }
             None => state.resumes.push(Resume {
                 conversation: side,
                 remote,
+                requires_approval,
                 messages: cut,
             }),
         }
@@ -144,5 +155,27 @@ pub(super) fn recover(chat: &OptChat, state: &mut HostState, acpmux: bool) -> Ve
             Vec::new()
         }
         None => vec![turn.session],
+    }
+}
+
+#[cfg(test)]
+mod security_tests {
+    use super::resumes_after_cut;
+    use crate::state::{Item, SpawnRef};
+
+    #[test]
+    fn report_only_cut_resumes_unless_the_report_was_quiet() {
+        let report = |quiet| Item {
+            spawn: Some(SpawnRef {
+                spawn: "spawn-1".to_owned(),
+                subs: Vec::new(),
+                requires_approval: true,
+                quiet,
+            }),
+            requires_approval: true,
+            ..Item::default()
+        };
+        assert!(resumes_after_cut(&report(false)));
+        assert!(!resumes_after_cut(&report(true)));
     }
 }

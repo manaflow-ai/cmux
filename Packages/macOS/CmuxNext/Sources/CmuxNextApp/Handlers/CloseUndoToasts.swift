@@ -134,9 +134,9 @@ final class CloseUndoToasts {
     static func close(_ parts: [(pane: PaneController, ids: [StripTabID])]) {
         // A tab still being created is cancelled now, before any question or toast (CancelledCreation).
         for part in parts { part.pane.close(part.ids.filter { part.pane.daemon.store.creations.isPending(tab: $0.rawValue) }) }
-        // A tab already closing (a second close before the daemon answered the first) closes once.
-        let parts = parts.map { part in (pane: part.pane, ids: part.ids.filter { !part.pane.pendingClosed.contains($0.rawValue) }) }
-            .filter { !$0.ids.isEmpty }
+        // A tab already closing left the store's visible records with its close intent, so a
+        // second close of it (before the daemon answered the first) finds nothing to close.
+        let parts = parts.filter { !$0.ids.isEmpty }
         guard let first = parts.first?.pane else { return }
         let user = isUserClose, services = first.services, daemon = first.daemon
         let tabs = parts.flatMap { part in part.ids.compactMap(part.pane.tab) }

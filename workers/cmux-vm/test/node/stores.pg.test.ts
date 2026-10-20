@@ -1,3 +1,4 @@
+import creationReceiptIndex from "../../migrations/0011_cmux_vm_creation_receipt_index.sql?raw";
 /**
  * The SQL stores against the real migration on an in-process Postgres
  * (PGlite). No network database is involved.
@@ -6,6 +7,8 @@ import { PGlite } from "@electric-sql/pglite";
 import { Effect, Layer, Option } from "effect";
 import { beforeEach, describe, expect, it } from "vitest";
 import migration1 from "../../migrations/0001_cmux_vm_ownership.sql?raw";
+import creationReceipts from "../../migrations/0010_cmux_vm_creation_receipts.sql?raw";
+import uncommittedCreations from "../../migrations/0012_cmux_vm_uncommitted_creations.sql?raw";
 import migration2 from "../../migrations/0002_cmux_vm_display_name_audit.sql?raw";
 import { hashApiKey, generateApiKey } from "../../src/auth/credentials.ts";
 import { SqlClient, StoreError } from "../../src/db/sql.ts";
@@ -15,13 +18,13 @@ import { newApiKeyId, newSnapshotId, newVmId, TenantId, UpstreamId } from "../..
 let pg: PGlite;
 let layer: Layer.Layer<OwnershipStore | ApiKeyStore | AuditStore>;
 
-const migration = `${migration1}\n${migration2}`;
+const migrations = [migration1, migration2, creationReceipts, creationReceiptIndex, uncommittedCreations];
 
 const run = <A, E>(effect: Effect.Effect<A, E, OwnershipStore | ApiKeyStore | AuditStore>) => Effect.runPromise(Effect.provide(effect, layer));
 
 beforeEach(async () => {
   pg = new PGlite();
-  await pg.exec(migration);
+  for (const migration of migrations) await pg.exec(migration);
   layer = sqlStoresLayer.pipe(
     Layer.provide(
       Layer.succeed(SqlClient, {
@@ -37,7 +40,7 @@ beforeEach(async () => {
 
 describe("migration", () => {
   it("is idempotent and creates nothing outside the cmux_vm schema", async () => {
-    await pg.exec(migration);
+    for (const migration of migrations) await pg.exec(migration);
     const tables = await pg.query<{ name: string }>(
       `SELECT table_schema || '.' || table_name AS name FROM information_schema.tables
         WHERE table_schema NOT IN ('pg_catalog', 'information_schema') ORDER BY name`,
@@ -53,6 +56,7 @@ describe("migration", () => {
       "cmux_vm.api_keys_tenant_idx",
       "cmux_vm.audit_log_pkey",
       "cmux_vm.audit_log_tenant_created_idx",
+      "cmux_vm.resources_creation_key_idx",
       "cmux_vm.resources_kind_upstream_key",
       "cmux_vm.resources_pkey",
       "cmux_vm.resources_tenant_kind_created_idx",
@@ -272,4 +276,41 @@ describe("S2 ownership queries", () => {
       ),
     ).rejects.toThrow();
   });
+});
+
+
+it("finds the latest tenant-scoped creation receipt after journal retention, including tombstones", async () => {
+  const store = await run(OwnershipStore), tenantId = TenantId.make("team_receipt"), key = "a".repeat(64);
+  const first = newVmId();
+  for (const [id, date] of [[first, "2026-10-01"], [newVmId(), "2026-10-02"]] as const) {
+    await run(store.record({ cmuxId: id, tenantId, kind: "vm", upstreamId: UpstreamId.make(`private-${id}`), createdBy: "service:team-vm", createdAt: new Date(date), displayName: "team", labels: { role: "team-vm" }, creation: { key, receipt: { id, displayName: "team", labels: { role: "team-vm" }, idleTimeoutSeconds: 300 } } }));
+  }
+  const latest = await run(store.findCreation(tenantId, key));
+  expect(latest?.receipt.id).not.toBe(first);
+  expect(latest?.deleted).toBe(false);
+  expect(JSON.stringify(latest)).not.toContain("private-");
+  expect(await run(store.findCreation(TenantId.make("another_team"), key))).toBeNull();
+  if (latest === null) throw Error("missing receipt");
+  await run(store.markDeleted(tenantId, "vm", latest.receipt.id, new Date()));
+  expect((await run(store.findCreation(tenantId, key)))?.deleted).toBe(true);
+});
+
+it("keeps an uncommitted creation listed but out of the live count until the same allocation commits it", async () => {
+  const store = await run(OwnershipStore), tenantId = TenantId.make("team_pending"), key = "b".repeat(64), cmuxId = newVmId();
+  const row: OwnedResource = { cmuxId, tenantId, kind: "vm", upstreamId: UpstreamId.make("pending-upstream"), createdBy: "user:x", createdAt: new Date("2026-10-01T00:00:00Z"), displayName: null, labels: {}, creation: { key, receipt: { id: cmuxId, displayName: null, labels: {}, idleTimeoutSeconds: 300 } } };
+  await run(store.record({ ...row, committed: false }));
+  expect(await run(store.allocationStatus(tenantId, cmuxId))).toBe("pending");
+  expect(await run(store.creationKey(tenantId, cmuxId))).toBe(key);
+  expect(await run(store.creationKey(TenantId.make("another_team"), cmuxId))).toBeNull();
+  expect((await run(store.findCreation(tenantId, key)))?.committed).toBe(false);
+  expect(await run(store.countLive(tenantId, "vm"))).toBe(0);
+  expect((await run(store.listPage(tenantId, "vm", { limit: 10, after: null, only: null, labels: null }))).map((r) => r.committed)).toEqual([false]);
+  await run(store.record(row));
+  await run(store.record({ ...row, committed: false }));
+  expect(await run(store.allocationStatus(tenantId, cmuxId))).toBe("live");
+  expect(await run(store.creationKey(tenantId, cmuxId))).toBe(key);
+  expect(await run(store.countLive(tenantId, "vm"))).toBe(1);
+  expect(Option.map(await run(store.find(tenantId, "vm", cmuxId)), (r) => r.committed)).toEqual(Option.some(undefined));
+  await run(store.markDeleted(tenantId, "vm", cmuxId, new Date()));
+  expect(await run(store.creationKey(tenantId, cmuxId))).toBe(key);
 });

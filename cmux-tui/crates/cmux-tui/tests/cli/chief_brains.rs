@@ -549,6 +549,14 @@ fn a_daemon_with_agents_off_starts_no_brain_and_says_why() {
 /// answers with its own `label` as the engine harness, so an answer names
 /// the brain that gave it.
 fn fake_tools_socket(path: &std::path::Path, label: &'static str) -> Arc<Mutex<Vec<Value>>> {
+    fake_tools_socket_answering(
+        path,
+        json!({"engine": {"harness": label}, "choice": {}, "stopped": true}),
+    )
+}
+
+/// [`fake_tools_socket`] that answers every line with `answer`.
+fn fake_tools_socket_answering(path: &std::path::Path, answer: Value) -> Arc<Mutex<Vec<Value>>> {
     use std::os::unix::net::UnixListener;
     fs::create_dir_all(path.parent().unwrap()).unwrap();
     let listener = UnixListener::bind(path).unwrap();
@@ -561,7 +569,6 @@ fn fake_tools_socket(path: &std::path::Path, label: &'static str) -> Arc<Mutex<V
                 && let Ok(value) = serde_json::from_str::<Value>(&line)
             {
                 seen.lock().unwrap().push(value);
-                let answer = json!({"engine": {"harness": label}, "choice": {}, "stopped": true});
                 let _ = writeln!(&stream, "{answer}");
             }
         }
@@ -949,4 +956,108 @@ fn chief_engine_and_stop_cli_take_a_chief() {
     // --chief goes with engine or stop only.
     let stray = chief_cli(&server, &["--chief", &scout, "-p", "hi"], "");
     assert_eq!(stray.status.code(), Some(2), "{stray:?}");
+}
+
+/// The record is a Chief's backend (u2586, 2026-10-19): a committed write
+/// that changes its engine writes `harness`, `model` and `effort` into the
+/// engine file its brain reads at each turn (`<brain home>/optchat/
+/// engine.json`; the Chief home root for the default Chief), keeping the
+/// file's other fields; a write that leaves the engine as it is leaves the
+/// file alone; a `chief.engine.set` the brain took is written back into the
+/// record.
+#[test]
+fn a_chiefs_engine_is_written_where_its_brain_reads_it() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let files = unique_temp_dir("cme");
+    fs::create_dir_all(&files).unwrap();
+    let stub = files.join("brain.sh");
+    fs::write(&stub, STUB).unwrap();
+    fs::set_permissions(&stub, fs::Permissions::from_mode(0o755)).unwrap();
+    let chief_home = files.join("h");
+    fs::create_dir_all(&chief_home).unwrap();
+    let brains = json!({
+        "executable": stub,
+        "home": chief_home,
+        "app": {"bin_dir": "/opt/cmux-test/bin", "user_name": "Test Person",
+                "chief_title": "Chief", "acpmux_bin": "/usr/bin/false"},
+    })
+    .to_string();
+    let mut owned = HeadlessServer::start_with_options(
+        "chief-engine-mirror",
+        None,
+        None,
+        &[("CMUX_TUI_CHIEF_BRAINS", brains.as_str())],
+    );
+    let server = &owned;
+    let read = |path: &std::path::Path| -> Value {
+        serde_json::from_slice(
+            &fs::read(path).unwrap_or_else(|e| panic!("{}: {e}", path.display())),
+        )
+        .unwrap()
+    };
+
+    let made = chief_cli(
+        server,
+        &["new", "--name", "Scout", "--harness", "codex", "--model", "m1", "--json"],
+        "",
+    );
+    assert_success(&made);
+    let scout =
+        serde_json::from_slice::<Value>(&made.stdout).unwrap()["id"].as_str().unwrap().to_owned();
+    let file = brain_dir(&chief_home, &scout).join("optchat/engine.json");
+    assert_eq!(read(&file), json!({"harness": "codex", "model": "m1"}));
+    #[cfg(unix)]
+    assert_eq!(fs::metadata(&file).unwrap().permissions().mode() & 0o777, 0o600);
+
+    // The brain's own fields stay; the record's three replace the file's.
+    fs::write(&file, r#"{"harness": "codex", "model": "m1", "speed": "fast"}"#).unwrap();
+    assert_success(&chief_cli(server, &["edit", &scout, "--model", "m2", "--effort", "high"], ""));
+    assert_eq!(
+        read(&file),
+        json!({"harness": "codex", "model": "m2", "effort": "high", "speed": "fast"})
+    );
+    // A rename leaves the engine, and so the file, as it is.
+    fs::write(&file, r#"{"harness": "claude"}"#).unwrap();
+    assert_success(&chief_cli(server, &["edit", &scout, "--name", "Scout Two"], ""));
+    assert_eq!(read(&file), json!({"harness": "claude"}));
+
+    // The default Chief's engine file is the Chief home root's.
+    assert_success(&chief_cli(server, &["edit", "agent_mux", "--effort", "low"], ""));
+    assert_eq!(read(&chief_home.join("optchat/engine.json")), json!({"effort": "low"}));
+
+    // A change the brain took through chief.engine.set is the record's too.
+    let socket = brain_dir(&chief_home, &scout).join("optchat/tools.sock");
+    let _ = fs::remove_file(&socket);
+    let lines = fake_tools_socket_answering(
+        &socket,
+        json!({"engine": {"harness": "opencode"},
+               "choice": {"harness": "opencode", "model": "byo/llama"}}),
+    );
+    let mut home = Conn::open(&server.socket);
+    let set = v2_keyed(
+        &mut home,
+        "chief.engine.set",
+        "mirror-set-1",
+        json!({"chief": scout, "harness": "opencode", "model": "byo/llama"}),
+    );
+    assert_eq!(set["ok"], true, "{set}");
+    assert_eq!(lines.lock().unwrap().len(), 1);
+    let record = v2(&mut home, "chief.profile.get", json!({"chief": scout}));
+    assert_eq!(
+        record["result"]["engine"],
+        json!({"harness": "opencode", "model": "byo/llama"}),
+        "{record}"
+    );
+    let history = v2(&mut home, "chief.profile.history", json!({"chief": scout}));
+    assert_eq!(
+        history["result"]["revisions"][0]["actor"], "user_local via chief.engine.set",
+        "{history}"
+    );
+
+    let daemon = i32::try_from(owned.child.id()).unwrap();
+    // SAFETY: the test's own daemon child.
+    unsafe { libc::kill(daemon, libc::SIGTERM) };
+    let _ = owned.child.wait();
+    let _ = fs::remove_dir_all(&files);
 }

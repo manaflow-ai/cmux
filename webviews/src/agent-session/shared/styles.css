@@ -32,6 +32,9 @@
   --agent-control-hover: color-mix(in srgb, var(--agent-soft) 8%, transparent);
   --agent-card-hover: color-mix(in srgb, var(--agent-input-bg) 96%, transparent);
   --agent-primary: color-mix(in srgb, var(--agent-accent) 90%, var(--agent-text));
+  /* Compatibility aliases for older ACPMUX sheets; the host's motion tokens remain authoritative. */
+  --acpmux-motion-hover: var(--agent-motion-hover, 80ms);
+  --acpmux-motion-ease: var(--agent-ease-out, ease-out);
 }
 
 * {

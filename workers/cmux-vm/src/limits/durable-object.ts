@@ -4,10 +4,14 @@
  * two concurrent creates cannot both take the last quota slot, and two
  * requests with the same idempotency key cannot both start.
  */
+import type { SnapshotCaptureCommand, SnapshotCaptureResult } from "./snapshot-capture.ts";
+import type { GeneratedCreation, GeneratedCreationPage } from "../domain/generated-creation.ts";
 import { DurableObject } from "cloudflare:workers";
 import {
   TenantLedger,
   type LedgerStorage,
+  type CancelCreationDecision,
+  type IdempotencyRecord,
   type IdempotencyBegin,
   type IdempotencyProgress,
   type RateClass,
@@ -25,9 +29,25 @@ const storageOf = (store: DurableObjectStorage | DurableObjectTransaction): Ledg
 export class TenantLimitsObject extends DurableObject {
   private readonly ledger = new TenantLedger(storageOf(this.ctx.storage));
 
-  creationReservation(key: string, vmId: string): Promise<string | null> { return this.ledger.creationReservation(key, vmId); }
+  snapshotCapture(command: SnapshotCaptureCommand, nowMs: number): Promise<SnapshotCaptureResult> { return this.ledger.snapshotCapture(command, nowMs); }
 
-  cancelIntent(key: string, vmId: string): Promise<boolean> { return this.ledger.cancelIntent(key, vmId); }
+  beginCreateSend(key: string, vmId: string, token: string, nowMs: number): Promise<boolean> { return this.ledger.beginCreateSend(key, vmId, token, nowMs); }
+  settleAbsentCancellation(key: string, vmId: string, nowMs: number): Promise<boolean> { return this.ledger.settleAbsentCancellation(key, vmId, nowMs); }
+  readmitCreation(key: string, vmId: string, limit: number, liveCount: number, nowMs: number): Promise<"readmitted" | "over_quota" | "none"> { return this.ledger.readmitCreation(key, vmId, limit, liveCount, nowMs); }
+  rejectCreateSend(key: string, vmId: string, token: string): Promise<boolean> { return this.ledger.rejectCreateSend(key, vmId, token); }
+  creationActive(key: string, vmId: string): Promise<boolean> { return this.ledger.creationActive(key, vmId); }
+  cancelCreation(key: string, vmId: string): Promise<CancelCreationDecision> { return this.ledger.cancelCreation(key, vmId); }
+  settleCancellation(key: string, vmId: string): Promise<boolean> { return this.ledger.settleCancellation(key, vmId); }
+
+  inspect(key: string): Promise<IdempotencyRecord | null> { return this.ledger.inspect(key); }
+  quarantineForkClaim(key: string, nowMs: number): Promise<boolean> { return this.ledger.quarantineForkClaim(key, nowMs); }
+
+  async settleCreation(key: string, vmId: string, nowMs: number): Promise<boolean> {
+    try { await this.ledger.settleCreation(key, vmId, nowMs); return true; }
+    catch { return false; }
+  }
+
+  creationReservation(key: string, vmId: string): Promise<string | null> { return this.ledger.creationReservation(key, vmId); }
 
   rate(rateClass: RateClass, rule: RateRule, nowMs: number): Promise<RateDecision> {
     return this.ledger.rate(rateClass, rule, nowMs);
@@ -41,8 +61,10 @@ export class TenantLimitsObject extends DurableObject {
     return this.ledger.release(reservationId);
   }
 
-  begin(key: string, fingerprint: string, nowMs: number): Promise<IdempotencyBegin> {
-    return this.ledger.begin(key, fingerprint, nowMs);
+  listGenerated(scope: string, cursor: string | undefined, limit: number, pending?: boolean): Promise<GeneratedCreationPage> { return this.ledger.listGenerated(scope, cursor, limit, pending); }
+
+  begin(key: string, fingerprint: string, nowMs: number, clientFingerprint?: string, generated?: GeneratedCreation): Promise<IdempotencyBegin> {
+    return this.ledger.begin(key, fingerprint, nowMs, clientFingerprint, generated);
   }
 
   async advance(key: string, progress: IdempotencyProgress, nowMs: number): Promise<boolean> {
