@@ -118,7 +118,7 @@ export async function mountMarkdownPage(state: MarkdownPageVariant, context: Sta
       "cmux.markdown.openLink": () => null,
       "cmux.markdown.setTableWidths": (params: { path: string; value: unknown }) => {
         try {
-          if (params.value === null) sessionStorage.removeItem(widthsKey(params.path));
+          if (params.value == null) sessionStorage.removeItem(widthsKey(params.path));
           else sessionStorage.setItem(widthsKey(params.path), JSON.stringify(params.value));
         } catch {
           return { attribute: false, fallback: false };
