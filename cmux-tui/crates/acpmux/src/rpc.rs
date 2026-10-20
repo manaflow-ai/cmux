@@ -262,6 +262,8 @@ pub mod method {
     /// Read or replace the unsent composer text for one session.
     pub const MUX_DRAFT_GET: &str = "_acpmux/draft_get";
     pub const MUX_DRAFT_SET: &str = "_acpmux/draft_set";
+    pub const MUX_COMPOSER_SET: &str = "_acpmux/composer_set";
+    pub const MUX_COMPOSERS: &str = "_acpmux/composers";
     pub const MUX_BOOKMARK_GET: &str = "_acpmux/bookmark_get";
     pub const MUX_BOOKMARK_SET: &str = "_acpmux/bookmark_set";
     pub const MUX_ASK: &str = "_acpmux/ask";

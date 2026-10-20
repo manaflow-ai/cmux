@@ -71,6 +71,7 @@ import { isDefaultChoice } from "./defaultChoice";
 import { applySwitch, HarnessSwitch, lastOfferedModel, type SwitchPort } from "./harnessSwitch";
 import { harnessProfiles } from "./harnessProfiles";
 import { pickedMode, setStartModeSource, startModeChanged } from "./startMode";
+import { setPromptSurfaces } from "./surfaces/promptSurface";
 import { MockAcpmuxSocket, mockHost, type MockScript } from "./mock";
 import { BridgeSocket } from "./bridgeSocket";
 import { useComposerKeyboard } from "./composerFocus";
@@ -3958,6 +3959,7 @@ function AcpmuxPane() {
       },
       applyPreview(on) {
         setPreview(on === true);
+        setPromptSurfaces(on === true);
       },
       applySidebarPreviewVariant(variant) {
         configureNativeSidebarPreviewVariant(variant);
