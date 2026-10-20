@@ -128,6 +128,12 @@ class FastGate(unittest.TestCase):
         _, _, reds = run(Reader(rollup))
         self.assertEqual(reds, ["app-size", "cmux-next fast tier"])
 
+    def test_a_red_cargo_fast_tier_is_reported(self):
+        """The fast tier's cargo entries run in their own Linux job; its red is a fast-lane red."""
+        _, seen, reds = run(Reader(GREEN + [check("cmux-next fast tier (cargo)", conclusion="FAILURE")]))
+        self.assertIn("cmux-next fast tier (cargo)", seen)
+        self.assertEqual(reds, ["cmux-next fast tier (cargo)"])
+
     def test_completed_reds_in_the_full_gate_lanes_are_reported_pending_ones_are_not(self):
         """The fast gate does not wait for ci-status, the swift test or the Release compile,
         but a completed red one is judged as the full gate judges it."""
@@ -140,12 +146,13 @@ class FastGate(unittest.TestCase):
 
     def test_lint_checks_are_waited_for_and_a_red_one_goes_to_the_base(self):
         """Like the full gate (#22128): god-file, l10n and concurrency lint must complete on
-        the exact head. A red one is never waived by --override; gh-merge-green asks the
-        base whether it prints every finding too. One with no verdict refuses."""
+        the exact head. A red one goes to gh-merge-green, which asks the base whether it
+        prints every finding too or takes a human --override. One with no verdict refuses,
+        as in the full gate, which takes only success, neutral, skipped or failure."""
         lint = "cmux-next checks (god files, concurrency, crash safety, l10n)"
         with self.assertRaisesRegex(gate.Refused, "still waiting on " + re.escape(lint)):
             run(Reader(GREEN + [check(lint, "IN_PROGRESS", "")]), timeout=60)
-        for conclusion in ("CANCELLED", "TIMED_OUT"):
+        for conclusion in ("CANCELLED", "TIMED_OUT", "ACTION_REQUIRED"):
             with self.subTest(conclusion=conclusion):
                 with self.assertRaisesRegex(gate.Refused, re.escape(lint) + ".*no verdict"):
                     run(Reader(GREEN + [check(lint, conclusion=conclusion)]))

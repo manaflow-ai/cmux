@@ -3512,6 +3512,23 @@ class TabManager: ObservableObject {
     }
 
     private func closePanelWithConfirmation(tab: Workspace, panelId: UUID) {
+        // Mirror leaves are not in workspace.panels. Resolve the focused leaf
+        // before the outer container can fall through to a whole-window close.
+        let remotePane = tab.remoteTmuxControlPane(surfaceID: panelId)
+            ?? tab.activeRemoteTmuxControlPane(containerPanelID: panelId)
+        if let remotePane {
+            let prompt = DockPaneCloseConfirmationPrompt(titles: [remotePane.pane.panel.displayTitle])
+            guard confirmClose(
+                title: prompt.title,
+                message: prompt.message,
+                acceptCmdD: false
+            ) else { return }
+            // Modal confirmation can outlive a layout change. Re-resolve the
+            // exact surface, never a newly focused pane or the window wrapper.
+            _ = tab.remoteTmuxControlPane(surfaceID: remotePane.pane.panel.id)?.requestKill()
+            return
+        }
+        guard !tab.isRemoteTmuxControlContainer(panelId) else { return }
         guard tab.panels[panelId] != nil else {
 #if DEBUG
             cmuxDebugLog(
@@ -3557,6 +3574,10 @@ class TabManager: ObservableObject {
     }
 
     private func shortcutCloseTargetPanelId(in workspace: Workspace) -> UUID? {
+        if let focusedPanelId = workspace.focusedPanelId,
+           workspace.remoteTmuxControlPane(surfaceID: focusedPanelId) != nil {
+            return focusedPanelId
+        }
         if let focusedPanelId = workspace.focusedPanelId,
            workspace.panels[focusedPanelId] != nil {
             return focusedPanelId

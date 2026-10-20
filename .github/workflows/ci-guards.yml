@@ -101,6 +101,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_repo_variable_defaults.py
 
+      - name: Validate scripts keep full clones full
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_no_shallow_dev_fetch.py
+
       - name: Validate the local and fast guard runner
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_run_guards.py
@@ -148,6 +152,10 @@ jobs:
       - name: Validate the pinned gh-merge-green install
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_install_gh_merge_green.py
+
+      - name: Validate base-red evidence with a gh that has no --slurp
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_evidence_paginate_without_slurp.py
 
       - name: Validate merge freezes as issues
         if: ${{ matrix.group == 'ci' }}
@@ -559,6 +567,16 @@ jobs:
           ./scripts/ci/install-actionlint.sh
           "$RUNNER_TEMP/actionlint"
 
+      - name: Validate the workflow concurrency lint
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_workflow_concurrency.py
+
+      # Warn-level: a dispatched or PR workflow with macOS or long jobs needs a
+      # concurrency group not keyed by SHA or run id (cmuxterm-hq#2568 flood).
+      - name: Warn about workflows that can flood the queue
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 scripts/ci/check_workflow_concurrency.py
+
       - name: Validate contributor verification receipts and selection
         if: ${{ matrix.group == 'ci' }}
         run: |
@@ -696,6 +714,10 @@ jobs:
       - name: Validate spread-first compile admission placement
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_admission_placement.py
+
+      - name: Validate the Linux tests dispatch lane
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_linux_tests_lane.py
 
       - name: Validate owned Mac build state
         if: ${{ matrix.group == 'ci' }}
@@ -1241,6 +1263,7 @@ jobs:
           python3 tests/test_nightly_promotion_admission.py
           python3 tests/test_nightly_next_promotion_queue.py
           python3 tests/test_ci_nightly_push_throttle.py
+          python3 tests/test_ci_nightly_off_blacksmith.py
           python3 tests/test_ci_helper_prebuild_lifecycle.py
 
       - name: Validate test compilation cache seeding

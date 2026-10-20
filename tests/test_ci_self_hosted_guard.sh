@@ -1220,6 +1220,10 @@ check_tmux_terminal_nightly_isolation() {
 }
 
 check_no_github_hosted_runners() {
+  # Nightly workflows (*nightly*.yml, *notarization*.yml) may name these
+  # GitHub-hosted images: they never route to Blacksmith (user decision
+  # 2026-10-19, tests/test_ci_nightly_off_blacksmith.py).
+  local nightly_hosted="(^|[^A-Za-z0-9_-])'?(ubuntu-24[.]04(-arm)?|macos-(15|26)|windows-2025)'?([^A-Za-z0-9_.-]|$)"
   # A GitHub billing block or a GitHub-hosted outage must never stop CI, so no
   # job in manaflow-ai may select a GitHub-hosted runner (ubuntu-*, macos-*,
   # windows-*). Jobs run on Blacksmith labels, the CI_TRUSTED_RUNNER selector
@@ -1290,6 +1294,12 @@ check_no_github_hosted_runners() {
     file="${line%%:*}"
     content="${line#*:*:}"
     [[ "$content" =~ ^[[:space:]]*# ]] && continue
+    # Nightly workflows never run on Blacksmith (user decision 2026-10-19,
+    # tests/test_ci_nightly_off_blacksmith.py): compiles stay on the trusted
+    # minis, everything else takes an ephemeral GitHub-hosted image.
+    if [[ "$(basename "$file")" == *nightly*.yml || "$(basename "$file")" == *notarization*.yml ]]; then
+      content="$(printf '%s\n' "$content" | sed -E "s/$nightly_hosted//g")"
+    fi
     # Fork-only matrix rows: read only through the fork branch above.
     [[ "$content" =~ (^|[^A-Za-z_])\"?hosted_runner\"?:[[:space:]] ]] && continue
     stripped="$(printf '%s\n' "$content" | sed -E "s/$fork_branch//g; s/$trusted_list//g")"
@@ -1321,6 +1331,10 @@ check_no_github_hosted_runners() {
 }
 
 check_no_self_hosted_fleet_runners() {
+  # Nightly workflows (*nightly*.yml, *notarization*.yml) may name these
+  # GitHub-hosted images: they never route to Blacksmith (user decision
+  # 2026-10-19, tests/test_ci_nightly_off_blacksmith.py).
+  local nightly_hosted="(^|[^A-Za-z0-9_-])'?(ubuntu-24[.]04(-arm)?|macos-(15|26)|windows-2025)'?([^A-Za-z0-9_.-]|$)"
   # Required jobs route through repository variables. Forbid hardcoded fleet
   # labels so paid-provider fallback remains a configuration change and a
   # physical host label cannot bypass the routing rules. tart-* labels (the
@@ -1434,6 +1448,9 @@ check_no_self_hosted_fleet_runners() {
   # never match the bare `cmux` label.
   while IFS= read -r line; do
     content="${line#*:*:}"
+    if [[ "$(basename "${line%%:*}")" == *nightly*.yml || "$(basename "${line%%:*}")" == *notarization*.yml ]]; then
+      content="$(printf '%s\n' "$content" | sed -E "s/$nightly_hosted//g")"
+    fi
     if [[ "${line%%:*}" == "$ROOT_DIR/.github/workflows/nightly.yml" ]]; then
       content="${content/"$next_trusted_selector"/}"
       content="${content/"$next_repository_guard"/}"
@@ -2068,6 +2085,9 @@ check_background_macos_lane() {
     file="${line%%:*}"
     content="${line#*:*:}"
     rel="$(basename "$file")"
+    # Nightly workflows never run on Blacksmith (tests/test_ci_nightly_off_blacksmith.py):
+    # their hosted macos-15/26 jobs are the intended ephemeral route.
+    [[ "$rel" == *nightly*.yml || "$rel" == *notarization*.yml ]] && continue
     printf '%s\n' "$content" | strip_background_lane_expr | grep -Eq "$hosted_mac" || continue
     allowed=0
     for exception in "${hosted_exceptions[@]}"; do

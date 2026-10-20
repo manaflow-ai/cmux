@@ -15,7 +15,8 @@ Release compile, the swift test) still blocks unless the base has it; one still
 running does not. A fast lane that was cancelled, timed out or never started has
 no verdict to waive and refuses. God-file, l10n and concurrency lint and risk
 evidence are waited for, as in the full gate: a red risk evidence refuses, and a
-red lint check is printed as a red that only the base can excuse, never --override.
+red lint check is printed as a red that the base comparison or a human --override
+can excuse.
 gh-merge-green --full keeps the old wait for every check.
 
 The gate keys on check names, so with the workflow files of the exact head it
@@ -45,7 +46,7 @@ DEBUG_COMPILE = "cmux app scheme compile (Debug)"
 REACT = "react-apps-check"
 # cmux-next.yml jobs the gate waits for by name.
 NEXT_LANES = (ROUTING, FAST_TIER, "cmux-next Swift canary", DEBUG_COMPILE)
-FAST = re.compile(r"^(cmux-next fast tier|cmux-next Swift canary|cmux app scheme compile \(Debug\)|(.* / )?react-apps-check)$")
+FAST = re.compile(r"^(cmux-next fast tier( \(cargo\))?|cmux-next Swift canary|cmux app scheme compile \(Debug\)|(.* / )?react-apps-check)$")
 GATING = re.compile(r"react-apps-check|web status|app[- ]?size|size[- ]cap|crash", re.I)
 # The full gate's own lanes on feat-cmux-next. The fast gate does not wait for them,
 # but one that already finished red is judged as the full gate judges it.
@@ -53,11 +54,12 @@ FULL_LANES = {"ci-status", "cmux-next Release compile (Xcode 26)", "cmux-next sw
 KNOWN = {*NEXT_LANES, *FULL_LANES}
 LINT = re.compile(r"god[ -]?files?|l10n|locali[sz]ation|concurrency", re.I)
 LINT_JOB = "a god-file, l10n or concurrency lint job"
-# Waited for and never waived by --override, as in the full gate (#21692). A red lint
-# check goes to the base comparison like other reds, which excuses it only when the
-# base prints every finding too (#22128); risk evidence reads only the description, so
-# a red one refuses and the risk:waived label is its waiver (docs/ci/risk-tiers.md).
-NEVER_WAIVED = re.compile(LINT.pattern + r"|^risk evidence$", re.I)
+# Always waited for, as in the full gate (#21692). A red lint check goes to
+# gh-merge-green like other reds: the base comparison excuses it when the base prints
+# every finding too (#22128), or a human waives it with --override. Risk evidence reads
+# only the description, so a red one refuses and the risk:waived label is its waiver
+# (docs/ci/risk-tiers.md).
+WAITED_FOR = re.compile(LINT.pattern + r"|^risk evidence$", re.I)
 PASSING = {"SUCCESS", "NEUTRAL", "SKIPPED"}
 # Like the full gate's cancelled cmux-next run: nothing ran, so --override has nothing to waive.
 NO_VERDICT = {"CANCELLED", "TIMED_OUT", "STARTUP_FAILURE", "STALE"}
@@ -135,13 +137,13 @@ def evaluate(checks: dict[str, tuple[str, str]], files: list[str], touches_next:
     if touches_next and ROUTING not in checks:
         waiting.append(ROUTING)
     for name, (status, conclusion) in sorted(checks.items()):
-        if NEVER_WAIVED.search(name):
+        if WAITED_FOR.search(name):
             seen.append(name)
             if status != "COMPLETED":
                 waiting.append(name)
-            elif conclusion in NO_VERDICT:
+            elif conclusion not in PASSING and conclusion != "FAILURE" and LINT.search(name):
                 raise Refused(f"'{name}' is {conclusion.lower()} on the exact head: no verdict to compare "
-                              "with the base, and --override cannot bypass lint; rerun it")
+                              "with the base or waive with --override; rerun it")
             elif conclusion not in PASSING and not LINT.search(name):
                 raise Refused(f"'{name}' is {conclusion.lower()} on the exact head; risk evidence is "
                               "never waived or base-excused")
