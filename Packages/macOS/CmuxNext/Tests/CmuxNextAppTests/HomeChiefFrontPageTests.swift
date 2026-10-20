@@ -1,5 +1,5 @@
 import AppKit
-@testable import CmuxNextApp
+import CmuxNextDesign
 import CmuxNextFloating
 @testable import CmuxNextHome
 import Foundation
@@ -50,14 +50,21 @@ import Testing
     }
 
     @Test func theDefaultFaceIsThePetCharacterNotTheCat() {
-        #expect(HomeChiefFace.mascot(nil) == .orb)
-        #expect(HomeChiefFace.picture(nil) != nil)
-        guard case .picture(let url)? = HomeChiefFace.tile(nil) else {
+        let saved = DesignSettings.shared.homeChiefPetMascot
+        defer { DesignSettings.shared.homeChiefPetMascot = saved }
+        DesignSettings.shared.homeChiefPetMascot = "orb"
+        #expect(HomeChiefFace.picture != nil)
+        guard case .picture(let url)? = HomeChiefFace.tile else {
             Issue.record("the tile's default is a picture")
             return
         }
         #expect(url.lastPathComponent == "ChiefMascotOrb.png")
-        #expect(ChiefPetMascot(setting: "fox") == .fox)
+        DesignSettings.shared.homeChiefPetMascot = "fox"
+        guard case .picture(let fox)? = HomeChiefFace.tile else {
+            Issue.record("the tile's default is a picture")
+            return
+        }
+        #expect(fox.lastPathComponent == "ChiefMascotFox.png")
         #expect(ChiefPetMascot(setting: "cat") == .orb)
     }
 }

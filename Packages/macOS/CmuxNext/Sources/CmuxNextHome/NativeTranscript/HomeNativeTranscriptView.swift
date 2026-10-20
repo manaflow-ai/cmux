@@ -82,6 +82,9 @@ public final class HomeNativeTranscriptView: NSView {
     /// first-run panel waits, so a Chief conversation with history never
     /// flashes it before its messages arrive (stability rule).
     public var holdsFirstRun = false { didSet { if holdsFirstRun != oldValue { updateFirstRun() } } }
+    /// The Chief profile's picture and text (`setChiefAvatar`); with neither, the header shows
+    /// `HomeChiefFace`. Nil until the host sets one: the header keeps its own avatar.
+    var profileAvatar: (picture: NSImage?, text: String?)?
     /// Automation (DEBUG socket): the transcript sits this far from this view's origin, with no size change
     /// (a pane on a fraction of a point; MessagesLab b6760b6's typing snap). Zero in the product.
     public var debugTranscriptOffset = CGPoint.zero { didSet { needsLayout = true } }
@@ -126,6 +129,7 @@ public final class HomeNativeTranscriptView: NSView {
         followTextSize()
         followBubbleStyle()
         followHeroTunable()
+        followChiefPet()
         applyTheme()
         updateFirstRun()
     }

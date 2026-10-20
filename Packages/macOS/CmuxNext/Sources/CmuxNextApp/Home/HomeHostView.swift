@@ -9,7 +9,6 @@ import CmuxNextHome
 import CmuxNextHomeEngine
 import CmuxNextHostedChief
 import CmuxNextPages
-import CmuxNextSettings
 import CmuxNextWakeups
 
 /// A conversation tab's content (`conversation-tabs-v1`, home.md 7): the
@@ -32,10 +31,6 @@ final class HomeHostView: NSView {
     private var toggleObserver: (any NSObjectProtocol)?
     /// `home.toggleChiefSettings` (palette, `cmux action run`, preflight).
     static let toggleSettings = Notification.Name("HomeHostView.toggleChiefSettings")
-    /// The Chief pet's character and whether it shows (`HomeChiefFace.follow`): the default
-    /// face, the empty conversation's hero and its pet row follow them.
-    private var faceWatch: Task<Void, Never>?
-    private weak var appServices: AppServices?
     private var firstPage: Task<Void, Never>?
     /// Which brain answers this conversation (this Mac's or a paired server's).
     private var control: HomeChiefControl
@@ -55,7 +50,6 @@ final class HomeHostView: NSView {
         settings = HomeChiefSettingsPopover(content: HomeChiefSettingsView(muxHome: control.brainHome, source: control.engineSource()))
         chiefSwitch = HomeChiefSwitch(conversation: conversation, state: { [weak service] in (service?.tabChiefs ?? HomeCloudChiefs(), service?.cloudChief?.mainConversation) },
                                       pick: { [weak service] in service?.hostedChief.pick($0) })
-        appServices = services
         super.init(frame: .zero)
         transcript.linkScheme = services.linkScheme  // "Copy Link" names messages in this build's scheme
         transcript.setNamePillHelp(HomeEngineStrings.pillHelp)
@@ -136,7 +130,7 @@ final class HomeHostView: NSView {
             let id: ActionID = switch action {
             case .openTerminal: Self.openTerminalAction
             case .startAgent: Self.startAgentAction
-            case .togglePet: HomeChiefPetSetting.toggleAction
+            case .togglePet: "home.toggleChiefPet"
             }
             _ = registry.perform(id, invocation: ActionInvocation(origin: .user))
         }
@@ -173,14 +167,6 @@ final class HomeHostView: NSView {
             }) {
                 self?.transcript.setFirstRunShortcuts(terminal: keys.terminal, agent: keys.agent, switching: keys.switching)
             }
-        }
-        faceWatch = HomeChiefFace.follow(services) { [weak self, weak service] picture, petShown in
-            guard let self else { return }
-            transcript.setFirstRunPicture(picture)
-            transcript.setFirstRunPetShown(petShown)
-            // A new character is the new default face: the header, and the tile of the default Chief.
-            loadAvatar()
-            if control.named == nil { service?.refreshChiefAvatar() }
         }
         // The first-run panel waits for the first page, so a conversation
         // with history never flashes it (at once when the page is cached).
@@ -235,7 +221,6 @@ final class HomeHostView: NSView {
             engineWatch?.cancel()
             agentsWatch?.cancel()
             shortcutsWatch?.cancel()
-            faceWatch?.cancel()
             settings.close()
             if let toggleObserver { NotificationCenter.default.removeObserver(toggleObserver) }
             if let stopObserver { NotificationCenter.default.removeObserver(stopObserver) }
@@ -307,10 +292,9 @@ final class HomeHostView: NSView {
             let avatar = await Task.detached { files.headerAvatar() }.value
             // A read for the Chief shown before (the conversation's Chief came in since) is dropped.
             guard let self, control.brainHome == home else { return }
-            let picture = avatar.picture.flatMap(NSImage.init(data:)) ?? (avatar.text == nil ? HomeChiefFace.picture(appServices?.settings) : nil)
-            transcript.avatarPicture = picture
-            transcript.avatarText = avatar.text
-            settingsView.setAvatar(picture: picture, text: avatar.text)
+            // No picture and no text: the Chief pet's character (HomeChiefFace), live.
+            transcript.setChiefAvatar(picture: avatar.picture.flatMap(NSImage.init(data:)), text: avatar.text)
+            settingsView.setAvatar(picture: transcript.avatarPicture, text: avatar.text)
         }
     }
 

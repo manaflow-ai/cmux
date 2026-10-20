@@ -106,11 +106,10 @@ extension HomeService {
     /// its text, else the Chief pet's character), as the Chief header does.
     func refreshChiefAvatar() {
         let files = HomeChiefFiles(muxHome: HomeBrainHost.muxHome(tag: services.environment.tag))
-        let fallback = HomeChiefFace.tile(services.settings)
         // task-owner: one profile read off the main actor; ends when it is set
         Task { [weak self] in
             let avatar = await Task.detached { files.tileAvatar() }.value
-            self?.directory.chiefAvatar = avatar ?? fallback
+            self?.directory.chiefAvatar = avatar ?? HomeChiefFace.tile
         }
     }
 }

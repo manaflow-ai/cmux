@@ -21,15 +21,29 @@ extension HomeNativeTranscriptView {
         firstRun.setShortcuts(terminal: terminal, agent: agent, switching: switching)
     }
 
-    /// The Chief's face over the first-run panel: the Chief pet's character
-    /// (`home.chiefPetMascot`); nil draws none.
-    public func setFirstRunPicture(_ image: NSImage?) {
-        firstRun.hero.image = image
+    /// The header avatar from the Chief's profile: its picture, else its text, else the Chief
+    /// pet's character (`HomeChiefFace`), which follows the setting live (`followChiefPet`).
+    public func setChiefAvatar(picture: NSImage?, text: String?) {
+        profileAvatar = (picture, text)
+        applyChiefAvatar()
     }
 
-    /// Whether the Chief pet shows: the panel's pet row reads Hide Chief Pet while it does.
-    public func setFirstRunPetShown(_ shown: Bool) {
-        firstRun.setPetShown(shown)
+    private func applyChiefAvatar() {
+        guard let profile = profileAvatar else { return }
+        avatarPicture = profile.picture ?? (profile.text == nil ? HomeChiefFace.picture : nil)
+        avatarText = profile.text
+    }
+
+    /// The Chief pet's character and whether it shows (`DesignSettings`, from `home.chiefPetMascot`
+    /// and `home.chiefPetEnabled`): the first-run hero's picture, its pet row and the default face.
+    func followChiefPet() {
+        withObservationTracking {
+            firstRun.hero.image = HomeChiefFace.picture
+            firstRun.setPetShown(DesignSettings.shared.homeChiefPetEnabled)
+            applyChiefAvatar()
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in self?.followChiefPet() }
+        }
     }
 
     /// The user's agents for the first-run panel's glance (the host maps
