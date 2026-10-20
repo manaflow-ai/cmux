@@ -69,6 +69,9 @@ public final class HomeChiefSettingsView: NSView {
     var source: any HomeChiefEngineSource
     /// The engine the pickers last showed (the brain's answer), which a refused pick shows again.
     var shownEngine: HomeChiefSnapshot?
+    /// The note says why the person's own change did not take (a pick, a picture): it stays
+    /// through refreshes until their next change or another Chief.
+    var changeFailed = false
     /// Renames the Chief conversation (the daemon's set-title op).
     public var onRename: (String) -> Void = { _ in }
     /// Where Choose Picture… and Use Default Picture write, and for which Chief: the daemon's
@@ -181,6 +184,7 @@ public final class HomeChiefSettingsView: NSView {
     public func use(_ source: any HomeChiefEngineSource) -> Task<Void, Never> {
         self.source = source
         shownEngine = nil
+        changeFailed = false
         // A named Chief's panel keeps its own files (cx-327wl), never the default's.
         if let files = (source as? HomeChiefLocalEngine)?.files ?? (source as? HomeChiefRemoteEngine)?.files, files.muxHome != muxHome {
             muxHome = files.muxHome
@@ -272,11 +276,14 @@ public final class HomeChiefSettingsView: NSView {
     /// Makes `source` the shown Chief's picture (nil: the default again) through
     /// ``pictureStore`` (the daemon's registry for a Chief of this Mac, else its files),
     /// then has the header (and this panel's avatar) read it; a picture that could not be
-    /// used says so.
-    func usePicture(_ source: URL?) {
+    /// used says so, with a beep, since the open panel closed the card (the note waits for its
+    /// next open).
+    @discardableResult
+    func usePicture(_ source: URL?) -> Task<Void, Never> {
         let store = pictureStore ?? (avatars: HomeChiefAvatars(muxHome: muxHome), chief: HomeChiefAvatars.defaultChief)
+        changeFailed = false
         // task-owner: one picture write (registry or files), then the header reads it
-        Task { [weak self] in
+        return Task { [weak self] in
             let written: Bool
             do {
                 if let source { try await store.avatars.setPicture(from: source, chief: store.chief) } else {
@@ -287,10 +294,14 @@ public final class HomeChiefSettingsView: NSView {
                 written = false
             }
             guard let self else { return }
-            failure.stringValue = written ? "" : HomeEngineStrings.pictureUnreadable
-            failure.isHidden = written
-            onResize()
-            if written { onAvatar() }
+            if written {
+                failure.isHidden = true
+                onResize()
+                onAvatar()
+            } else {
+                NSSound.beep()
+                note(HomeEngineStrings.pictureUnreadable, kept: true)
+            }
         }
     }
 
