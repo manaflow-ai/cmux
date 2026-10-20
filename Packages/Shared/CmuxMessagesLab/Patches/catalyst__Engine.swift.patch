@@ -10,7 +10,17 @@
      var openThread: PartRef?
      /// The host's quiet status line under the transcript (HostHooks.swift, ask 9; `.setNotice`); nil: no line.
      var notice: String?
-@@ -134,6 +137,11 @@
+@@ -108,6 +111,9 @@
+     /// Delete… in the menu: the message leaves this device's transcript (no row stays).
+     case delete(ID)
+     case attach(Attachment)
++    /// cmux: an attachment enters the field's text at a UTF-16 offset (the caret), as in
++    /// Messages and Notes (Draft+InlineMarks.swift); `.attach` puts it at the end.
++    case attachAt(Attachment, Int?)
+     case removeDraftAttachment(ID)
+     case typing(ID, Bool)
+     case receive(Message)
+@@ -134,6 +140,11 @@
      /// A hosted row's new payload (CustomRows.swift): the part is replaced in place and
      /// written through; a height change animates like any row change.
      case setCustomPart(ID, Int, CustomPart)
@@ -22,7 +32,39 @@
      /// Hosted rows of these messages measure again (no state change). `animated` false: an
      /// estimate correction (no motion; the first visible row keeps its place).
      case remeasureCustom([ID], animated: Bool)
-@@ -308,6 +316,13 @@
+@@ -165,7 +176,7 @@
+     /// Whether `.send` takes DRAFT: text other than white space, or an attachment. Return on any
+     /// other draft does nothing (`Store.apply` drops the rejected send; the hosts do not dispatch it).
+     static func canSend(_ d: Draft) -> Bool {
+-        !d.attachments.isEmpty || !d.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
++        !d.attachments.isEmpty || !d.plainText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty  // cmux: marks are not text
+     }
+     /// Pure state transition. `now` stamps new records; `newID` names them.
+     static func reduce(_ s: inout AppState, _ action: Action, now: Date, newID: () -> ID) -> Message? {
+@@ -176,7 +187,7 @@
+         case .send:
+             let d = s.ui.draft
+             guard canSend(d) else { return nil }
+-            let text = d.text.trimmingCharacters(in: .whitespacesAndNewlines)
++            let text = d.plainText.trimmingCharacters(in: .whitespacesAndNewlines)  // cmux: without the attachment marks
+             var parts = d.attachments.map { Part.attachment($0) }
+             if !text.isEmpty { parts += TextParts.parts(for: text) }
+             var m = Message(id: newID(), senderId: s.me, sentAt: stamp, parts: parts,
+@@ -254,9 +265,11 @@
+             // Tree mode: a deleted branch closes back to its parent's branch.
+             if let k = s.ui.threadPath.firstIndex(where: { $0.messageId == id }) { s.ui.threadPath = Array(s.ui.threadPath.prefix(k)) }
+         case let .attach(a):
+-            s.ui.draft.attachments.append(a)
++            s.ui.draft.insert(a, at: nil)  // cmux: the attachment's mark goes in the text (Draft+InlineMarks.swift)
++        case let .attachAt(a, offset):
++            s.ui.draft.insert(a, at: offset)
+         case let .removeDraftAttachment(id):
+-            s.ui.draft.attachments.removeAll { $0.id == id }
++            s.ui.draft.remove(id)  // cmux: with its mark
+         case let .typing(who, on):
+             s.ui.typing.removeAll { $0 == who }
+             if on { s.ui.typing.append(who) }
+@@ -308,6 +321,13 @@
              break
          case let .setNotice(text):
              s.ui.notice = text
@@ -36,3 +78,14 @@
          case let .streamBegin(id, sender, format):
              guard !s.ui.streams.contains(where: { $0.id == id }) else { break }
              s.ui.streams.append(StreamBubble(id: id, sender: sender, format: format, updatedAt: stamp))
+@@ -432,8 +452,8 @@
+     }
+ }
+ 
+-/// Link-preview metadata for a URL (LinkPreviews.swift implements it with
+-/// LinkPresentation). `done` runs on the main thread once per request.
++/// Link-preview metadata for a URL (`LinkPreviews.swift` implements it with the guarded HTML and
++/// image fetcher). `done` runs on the main thread once per request.
+ struct LinkMetadata: Hashable { var title: String?; var site: String?; var image: String? }
+ protocol LinkPreviewFetching: AnyObject {
+     /// `done(nil)`: no metadata (failure, timeout): the caller shows the domain card.

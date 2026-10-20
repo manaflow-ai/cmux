@@ -37,6 +37,7 @@ nonisolated struct OmnibarStep {
         case .fieldChanged(let field, let kind): fieldChanged(field, kind)
         case .key(let pressed): key(pressed)
         case .fieldMouseDown(let clicks, let button, let word): fieldMouseDown(clicks, button, word: word)
+        case .fieldMouseDragged: state.mouse?.dragged = true
         case .fieldMouseUp: fieldMouseUp()
         case .rowHover(let row, let pointer): rowHover(row, pointer: pointer)
         case .rowClick(let row, let disposition): rowClick(row, disposition)
@@ -44,6 +45,7 @@ nonisolated struct OmnibarStep {
         case .suggestions(let generation, let rows): suggestionsArrived(rows, generation: generation)
         case .moreSuggestions(let generation, let rows, let capacity): moreSuggestionsArrived(rows, generation: generation, capacity: capacity)
         case .pageURLChanged(let url): pageURLChanged(url)
+        case .showFullURLsChanged(let full): showFullURLsChanged(full)
         case .searchEngineChanged: if state.phase == .editing { refreshSuggestions(keepSelection: true) }
         case .pasteAndGo(let text): pasteAndGo(text)
         }
@@ -138,6 +140,17 @@ nonisolated struct OmnibarStep {
             break // never overwrite what the user typed; Escape reverts to the new URL
         case .committing:
             state.phase = .committing(display: url)
+        }
+    }
+
+    /// The full-URL setting changed: the resting text follows it; a focused
+    /// field that showed the elided URL shows the full one, all selected.
+    mutating func showFullURLsChanged(_ full: Bool) {
+        guard state.showsFullURLs != full else { return }
+        state.showsFullURLs = full
+        if state.phase == .focused, state.elided, !state.canElide {
+            state.elided = false
+            state.edit = .init(selection: Self.all(state.fieldText))
         }
     }
 

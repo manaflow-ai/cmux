@@ -89,3 +89,42 @@ fn each_rule_appears_once_in_each_prompt() {
         }
     }
 }
+
+/// Lawrence 2026-10-20: every Chief, local or cloud, operates "the browser on
+/// the right", with a balance between doing browser steps itself and giving
+/// them to subagents (plans/cmux-next/chief-browser-use-DESIGN.md).
+#[test]
+fn every_chief_prompt_drives_the_browser_on_the_right_and_splits_the_work() {
+    for (name, text) in prompts()
+        .into_iter()
+        .filter(|(name, _)| name.starts_with("chief"))
+    {
+        let flat = text.split_whitespace().collect::<Vec<_>>().join(" ");
+        assert!(
+            flat.contains("cmux browser right"),
+            "{name}: no right-browser verb"
+        );
+        assert!(flat.contains("--agent"), "{name}: the cursor is not named");
+        assert!(
+            flat.contains("under about 8 actions"),
+            "{name}: no do-it-yourself bound"
+        );
+        assert!(flat.contains("to a subagent"), "{name}: no hand-off rule");
+        assert!(
+            flat.contains("lease_held"),
+            "{name}: no one-driver-per-tab rule"
+        );
+    }
+}
+
+#[test]
+fn every_agent_prompt_never_drives_a_tab_another_agent_holds() {
+    for (name, text) in prompts() {
+        let flat = text.split_whitespace().collect::<Vec<_>>().join(" ");
+        assert!(
+            flat.contains("Never drive a tab another agent drives"),
+            "{name}"
+        );
+        assert_eq!(text.matches("- Browser:").count(), 1, "{name}");
+    }
+}

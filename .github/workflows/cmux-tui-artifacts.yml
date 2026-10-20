@@ -1893,6 +1893,8 @@ jobs:
             --require-artifact cmux-tui-browser-host-x86_64-apple-darwin \
             --require-artifact cmux-tui-host-aarch64-apple-darwin \
             --require-artifact cmux-tui-host-x86_64-apple-darwin \
+            --require-artifact cmux-tui-acpmux-x86_64-unknown-linux-musl \
+            --require-artifact cmux-tui-acpmux-aarch64-unknown-linux-musl \
             --forbid-artifact cmux-tui-x86_64-pc-windows-gnu.exe \
             --forbid-artifact cmux-tui-hook-x86_64-pc-windows-gnu.exe \
             --forbid-artifact cmux-tui-host-x86_64-pc-windows-gnu.exe \
@@ -1941,6 +1943,8 @@ jobs:
               --require-artifact cmux-tui-browser-host-x86_64-apple-darwin \
               --require-artifact cmux-tui-host-aarch64-apple-darwin \
               --require-artifact cmux-tui-host-x86_64-apple-darwin \
+              --require-artifact cmux-tui-acpmux-x86_64-unknown-linux-musl \
+              --require-artifact cmux-tui-acpmux-aarch64-unknown-linux-musl \
               --forbid-artifact cmux-tui-x86_64-pc-windows-gnu.exe \
               --forbid-artifact cmux-tui-hook-x86_64-pc-windows-gnu.exe \
               --forbid-artifact cmux-tui-host-x86_64-pc-windows-gnu.exe \
@@ -2512,7 +2516,7 @@ jobs:
     # is often the branch run of the same tree.
     needs: [tree-preflight, tree-owner-wait, publish-tree-tested]
     if: ${{ !cancelled() && github.event_name == 'push' && needs.tree-preflight.result == 'success' && ((github.ref == 'refs/heads/feat-cmux-next' && (needs.tree-preflight.outputs.tree_ready == 'true' || needs.tree-owner-wait.outputs.takeover == 'false' || needs.publish-tree-tested.result == 'success')) || (github.ref != 'refs/heads/feat-cmux-next' && needs.publish-tree-tested.result == 'success')) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ubuntu-latest # github-hosted-required: nightly path never waits on Blacksmith
     # One fetch of the branch's recent history plus a jobs lookup per candidate.
     timeout-minutes: 15
     permissions:

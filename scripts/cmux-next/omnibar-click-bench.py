@@ -23,6 +23,9 @@ parser.add_argument("--runs", type=int, default=15)
 parser.add_argument("--engines", default="chromium,webkit")
 parser.add_argument("--phases", default="idle,load")
 parser.add_argument("--budget-ms", type=float, default=0, help="fail when an engine's p95 focused_ms is above this (0: report only)")
+parser.add_argument("--next-frame", action="store_true",
+                    help="fail unless every row shows the caret and the whole selection on the first display frame after the press, "
+                         "with p95 dispatch_to_selected_ms within one refresh (16.7 ms)")
 parser.add_argument("--activate", action="store_true",
                     help="run the app active (real key windows: a Chromium page's child window holds the keys); fleet hosts only")
 parser.add_argument("--out", default="/tmp")
@@ -40,6 +43,7 @@ CLI_ENV = {"HOME": os.environ["HOME"], "PATH": "/usr/bin:/bin", "TMPDIR": os.env
            "CMUX_SOCKET_PATH": SOCKET, "CMUX_QUIET": "1", "CMUX_TAG": TAG,
            "CMUX_BUNDLE_ID": f"com.cmuxterm.app.debug.{TAG}", "CMUX_BUNDLED_CLI_PATH": CLI}
 LAUNCHED, LOAD = [], []
+TIMINGS = {}  # (phase, engine) -> debug.timings omnibar_clicks
 app = None
 
 
@@ -102,7 +106,7 @@ def open_page(engine):
     open(path, "w").write("<!doctype html><title>omnibar bench</title><body style='font:20px -apple-system'>"
                           + "<p>omnibar bench row</p>" * 60)
     url = "file://" + path + "?q=" + "omnibar-latency-" * 6
-    reply = rpc("action.run", {"action": f"openBrowser.{engine}", "args": {"url": url}, "focus": True, "origin": "user"}, timeout=120)
+    reply = rpc("action.run", {"action": f"openBrowser.{engine}", "args": {"url": url}, "focus": True, "origin": "script"}, timeout=120)
     print(f"open {engine}:", json.dumps(reply)[:300], flush=True)
     ok = wait(lambda: "error" not in (rpc("debug.omnibar") or {"error": 1}), 60)
     time.sleep(1.5)  # test harness: let the page finish its first paint
@@ -119,14 +123,19 @@ def spans(row):
 
 def bench(phase, engine):
     rows = []
+    rpc("debug.timings", {"clear": True})
     for index in range(opts.runs):
         result = rpc("debug.omnibar_bench", {}, timeout=20) or {}
         result.update({"phase": phase, "engine_asked": engine, "run": index})
         rows.append(result)
         print(f"{phase} {engine} #{index}: active={result.get('app_active')} key={result.get('key_window_before')}->{result.get('key_window_after')} attached={result.get('attached_ms')} selected={result.get('selected_ms')} "
-              f"focused={result.get('focused_ms')} frames={result.get('frames_to_focused')} "
+              f"focused={result.get('focused_ms')} frames={result.get('frames_to_focused')} press={result.get('press_ms')} "
+              f"after_press(a/s/f)={result.get('attached_frames_after_press')}/{result.get('selected_frames_after_press')}/{result.get('focused_frames_after_press')} "
               f"spans={spans(result)} marks={marks(result)} err={result.get('error')}", flush=True)
         time.sleep(0.25)  # test harness: space the clicks apart (not a double-click)
+    clicks = (rpc("debug.timings", {"clear": True}) or {}).get("omnibar_clicks") or []
+    print(f"{phase} {engine} debug.timings omnibar_clicks: {json.dumps(clicks)}", flush=True)
+    TIMINGS[(phase, engine)] = clicks
     return rows
 
 
@@ -146,6 +155,15 @@ def summary(rows):
                 "focused_max": pct([r.get("focused_ms") for r in sel], 1),
                 "mouse_down_dispatch_p50": pct(down, .5), "mouse_down_dispatch_max": pct(down, 1),
             }
+            for key in ("press_ms", "dispatch_to_attached_ms", "dispatch_to_selected_ms", "dispatch_to_focused_ms",
+                        "attached_frames_after_press", "selected_frames_after_press", "focused_frames_after_press"):
+                values = [r.get(key) for r in sel]
+                out[f"{phase}/{engine}"].update({f"{key}_p50": pct(values, .5), f"{key}_p95": pct(values, .95), f"{key}_max": pct(values, 1)})
+            clicks = TIMINGS.get((phase, engine)) or []
+            for key in ("input_ms", "key_to_frame_ms"):
+                values = [c.get(key) for c in clicks]
+                out[f"{phase}/{engine}"].update({f"{key}_n": len(clicks), f"{key}_p50": pct(values, .5),
+                                                 f"{key}_p95": pct(values, .95), f"{key}_max": pct(values, 1)})
     return out
 
 
@@ -187,6 +205,8 @@ def main():
     app = subprocess.Popen([BINARY], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
     LAUNCHED.append(app.pid)
     if not wait(lambda: os.path.exists(SOCKET) and (rpc("debug.windows") or {}).get("windows"), 120):
+        log.flush()
+        print(open(os.path.join(opts.out, f"app-{TAG}.log"), errors="replace").read()[-4000:], flush=True)
         sys.exit("the tagged app did not come up")
     time.sleep(2)  # test harness: first launch settles
     if opts.activate:
@@ -211,6 +231,14 @@ def main():
         open(opts.json, "w").write(json.dumps(result, indent=1))
     if not rows:
         return False
+    if opts.next_frame:
+        frame = 1000 / 60
+        bad = [k for k, v in result["summary"].items()
+               if v["missed"] or (v["attached_frames_after_press_max"] or 9) > 1 or (v["selected_frames_after_press_max"] or 9) > 1
+               or (v["dispatch_to_selected_ms_p95"] or 1e9) > frame]
+        print("NEXT-FRAME", "FAIL " + ", ".join(bad) if bad else "PASS", flush=True)
+        if bad:
+            return False
     if opts.budget_ms:
         bad = [k for k, v in result["summary"].items() if v["missed"] or (v["focused_p95"] or 1e9) > opts.budget_ms]
         print("BUDGET", "FAIL " + ", ".join(bad) if bad else "PASS", flush=True)

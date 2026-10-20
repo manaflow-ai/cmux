@@ -67,6 +67,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `agents.subsessions.enabled` | boolean | `true` |  | Let Agents Start Sub-sessions. An agent can start other agent sessions to work on parts of a task in parallel. They show under its session in the sidebar. |
 | `agents.subsessions.maxChildren` | real | `50` | 1 to 1000 | Open Sub-sessions per Session. The most sub-sessions one session can have open at the same time. Closing a sub-session frees its place. |
 | `agents.subsessions.maxDepth` | real | `10` | 1 to 100 | Deepest Nesting. How many levels of sub-sessions can start under a session. 1 lets a session start sub-sessions that cannot start their own. |
+| `mobile.allowIPhoneConnections` | boolean | `false` |  | Allow iPhone Connections. Lets the cmux app on your iPhone open this Mac's workspaces, terminals and agent chats while you are signed in with the same account. |
 | `layout.splitSizing` | string | `"even"` | `even`, `halve` | Split Sizing. Even gives every pane in the column the same size after a split. |
 | `layout.newColumnWidth` | string | `"matchCurrent"` | `matchCurrent`, `fitScreen`, `fixed` | New Column Sizing |
 | `layout.dockColumnEdge` | string | `"nearest"` | `nearest`, `right`, `left`, `top`, `bottom` | Dock Column Edge |
@@ -78,6 +79,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `layout.minimumPaneHeight` | real | `64` | 32 to 600 | Minimum Pane Height |
 | `layout.newPanePlacement` | string | `"tab"` | `tab`, `split` | New Terminals and Browsers. Open a Tab adds a tab to the focused pane. Split Automatically splits the largest pane, like New Pane (Auto Layout). |
 | `layout.tileBrowsers` | boolean | `false` |  | Split for Browsers Too. With Split Automatically, new browsers also get their own pane instead of a tab. |
+| `layout.linkPlacement` | string | `"split-right"` | `split-right`, `new-column`, `same-pane` | Open Links and Files. Where a link or file you open from a terminal, an agent chat, Home or a page appears. Split Right uses the pane on the right, or makes one. |
 | `workspaces.newPlacement` | string | `"top"` | `top`, `afterCurrent`, `bottom` | New Workspace Position. Where Cmd-N, the + button and the CLI put a new workspace in the sidebar. Pinned workspaces stay above it. |
 | `sidebar.groupByComputer` | boolean | `false` |  | Group Workspaces by Computer. Off: one list of workspaces, and a workspace on another computer names it under its title. On: a section per computer. |
 | `workspaces.autoName` | boolean | `true` |  | Name Workspaces from Tabs. A workspace you have not named shows its front tab's name: a page's title, an agent chat's title, or a terminal's title or folder. Your own name always wins. |
@@ -181,6 +183,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `diff.lineNumbers` | boolean | `true` |  | Line Numbers |
 | `diff.showBackgrounds` | boolean | `true` |  | Change Backgrounds |
 | `diff.expandUnchanged` | boolean | `false` |  | Expand Unchanged Lines |
+| `markdown.remoteImages` | boolean | `false` |  | Load Web Images Automatically. Web image sites can see your address and when you open a document. When off, each document asks before loading its web images. |
 | `markdown.layout.width` | real | `72` | 30 to 1000 | Text Width. The widest a line of text gets, in characters (30 to 1000). On a wider window the text stays centered with margins. Wide tables and code scroll sideways in their own box. |
 | `markdown.layout.fullWidth` | boolean | `false` |  | Full Width. Text fills the whole pane instead of the text width. |
 | `markdown.font.size` | real | `16` | 8 to 40 | Default Font Size. The text size every markdown viewer opens at. Cmd-= and Cmd-- change it in one viewer; Cmd-0 goes back to this size. |
@@ -188,9 +191,17 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `markdown.font.lineHeight` | real | `1.6` | 1 to 2.4 | Line Height |
 | `markdown.spacing.paragraph` | real | `1` | 0 to 3 | Paragraph Spacing. The gap after each paragraph, as a share of the text size. |
 | `markdown.code.scale` | real | `0.875` | 0.6 to 1.25 | Code Font Size. Code as a share of the text size. A monospaced font looks bigger than the text font at the same size, so code is a little smaller by default. |
+| `markdown.code.family` | string |  |  | Code Font. The font of code blocks and inline code. Empty uses the terminal font. The agent chat uses it too unless it has its own. |
 | `markdown.code.blockSize` | real |  | 8 to 32 | Code Block Size |
 | `markdown.tables` | string | `"scroll"` | `scroll`, `wrap` | Wide Tables |
 | `markdown.theme` | string | `"app"` | `app`, `light`, `dark` | Page Theme |
+| `agentPane.display.width` | real | `800` | 480 to 4000 | Chat Text Width. The widest the chat's column gets. On a wider pane the chat stays centered. |
+| `agentPane.display.fullWidth` | boolean | `false` |  | Chat Full Width. The chat fills the whole pane instead of the text width. |
+| `agentPane.display.font.preset` | string | `"markdown"` | `markdown`, `system`, `serif`, `mono` | Chat Font |
+| `agentPane.display.font.size` | real | `14` | 10 to 28 | Chat Font Size |
+| `agentPane.display.font.lineHeight` | real | `1.625` | 1.2 to 2.4 | Chat Line Height |
+| `agentPane.display.code.family` | string |  |  | Chat Code Font. The font of code in the chat. Empty uses the Markdown viewer's code font, then the terminal font. |
+| `agentPane.display.code.scale` | real |  | 0.6 to 1.25 | Chat Code Size. Code as a share of the chat's text size. Empty uses the Markdown viewer's. |
 | `terminal.fontFamily` | string |  |  | Font Family. A monospaced font installed on this Mac. |
 | `terminal.fontSize` | real |  | 4 to 96 | Font Size |
 | `editor.fontFamily` | string |  |  | Font Family. Empty uses the terminal font. |
@@ -254,6 +265,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `sidebar.minimal` | boolean | `false` |  | Minimal Mode. Workspace rows show only their icon, name and unread mark, and section titles become thin lines. |
 | `sidebar.density` | string | `"compact"` | `compact`, `comfortable`, `expanded` | Sidebar Density. Comfortable rows keep one line on taller rows with more space around them. Expanded rows show each workspace's status or folder under its name, how long ago it changed, and its pull request and computer. |
 | `sidebar.detailedStatusIcons` | boolean | `false` |  | Detailed Status Icons. Workspace rows show a separate icon for working, waiting for input, error and done. Off, a row shows a spinner while it works and a blue dot when it is ready for you. |
+| `sidebar.showTimestamps` | boolean | `false` |  | Show Timestamps. Workspace rows show when they last changed: a time today, else an age such as 3d. Off, rows show no times; the hover card still does. |
 | `sidebar.minimalMode` | string | `"off"` | `off`, `bottom`, `top`, `both` | Hide Bands Until Hover. Hides the chosen sections until the pointer is over the sidebar. |
 | `sidebar.cards.tips` | boolean | `true` |  | Show Tips. A "Did you know" card above the account button shows one cmux feature a day that you have not used yet. Each tip shows only once. |
 | `sidebar.side` | string | `"left"` | `left`, `right` | Sidebar Side. The window edge the sidebar sits on. On the right, the window buttons sit over the tab bar. |
@@ -272,7 +284,8 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `sidebar.hoverCards.sections.git` | boolean | `true` |  | Show Branch in Workspace Cards. The workspace's branch and pull request. |
 | `sidebar.hoverCards.sections.ports` | boolean | `true` |  | Show Ports in Workspace Cards. The ports the workspace listens on. |
 | `sidebar.hoverCards.maxRows` | real | `20` | 1 to 100 | Workspace Card History Lines. The most prompts, waits and finished turns a workspace's card lists. The list scrolls. |
-| `sidebar.nowPlaying.enabled` | boolean | `false` |  | Show Now Playing. A player for what is playing, at the bottom of the sidebar and on the new chat page. |
+| `sidebar.nowPlaying.enabled` | boolean | `false` |  | Show Now Playing. A player for what is playing, at the bottom of the sidebar. |
+| `tabs.newTabNowPlaying` | boolean | `true` |  | Show Now Playing on New Tab. A player for what is playing, on the New Tab page. |
 | `appearance.colorTransition.enabled` | boolean | `true` |  | Animate Color Changes. Workspace, theme and color changes blend from the old colors to the new ones. Off: they change at once. |
 | `appearance.colorTransition.duration` | real | `200` | 0 to 2000 | Color Change Duration. How long a color change takes. 0 changes colors at once. |
 | `appearance.colorTransition.curve` | string | `"easeOut"` | `easeOut`, `easeInOut`, `linear`, `spring`, `cubicBezier` | Color Change Curve. How a color change moves over its duration. Spring uses Spring Response and Spring Damping; Custom uses the four Bezier values. |
@@ -372,6 +385,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `browser.omnibar.inlineAutocomplete` | boolean | `true` |  | Complete Addresses Inline. Completes a site you typed before or visit often. |
 | `browser.omnibar.maxRows` | real | `8` | 3 to 15 | Suggestions Shown |
 | `browser.omnibar.calculator` | boolean | `true` |  | Calculator Answers. Shows the answer to arithmetic you type. Return copies it. |
+| `browser.omnibar.showFullURLs` | boolean | `false` |  | Always Show Full URLs. Shows the whole address, with https:// and www., when you are not editing it. |
 | `browser.omnibar.glass` | string | `"off"` | `transparent`, `regular`, `clear`, `off` | Address Bar Glass. The material of the address bar. Transparent draws no fill. Clear glass shows more of what is behind it. Off uses the flat theme color. |
 | `browser.omnibar.glassTint` | string | `"background"` | `background`, `accent`, `none` | Glass Tint. The color over the glass, from the terminal theme. Accent is the theme's own accent color, or gray when the theme has none. |
 | `browser.omnibar.glassTintStrength` | real | `0.35` | 0 to 1 | Tint Strength |
@@ -383,6 +397,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `browser.links.shiftClick` | string | `"newWindow"` | `backgroundTab`, `foregroundTab`, `newWindow`, `currentTab`, `download` | Shift-Click. In Chromium tabs, Download keeps Chrome's default. |
 | `browser.links.optionClick` | string | `"download"` | `backgroundTab`, `foregroundTab`, `newWindow`, `currentTab`, `download` | Option-Click. Chromium tabs always download. |
 | `browser.links.middleClick` | string | `"backgroundTab"` | `backgroundTab`, `foregroundTab`, `newWindow`, `currentTab`, `download` | Middle-Click. Chromium tabs use the Command-Click setting. |
+| `browser.enabled` | boolean | `true` |  | Enable cmux Browser. When off, cmux opens no browser tabs for web pages and every link opens in your default browser. |
 | `browser.openLinksInCmuxBrowser` | boolean | `true` |  | Open Links in cmux Browser. When off, links you click in terminals, agent chats, Home and cmux pages open in your default browser. Shift-Command-click opens a link in the other browser. |
 | `browser.openTerminalLinksInCmuxBrowser` | boolean | `true` |  | Open Terminal Links in cmux Browser. When off, links clicked in terminal output open in your default browser. |
 | `browser.hostsToOpenInEmbeddedBrowser` | array | `[]` |  | Hosts to Open in Embedded Browser. Only these hosts open in cmux, such as example.com or *.example.com. Empty opens every host in cmux. |

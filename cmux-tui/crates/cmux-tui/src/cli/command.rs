@@ -589,6 +589,10 @@ fn parse_workspace(
     if let Some(plan) = state::parse_workspace_status(&refs, selectors, flags, argv.as_deref())? {
         return Ok(plan);
     }
+    if let Some(plan) = state::parse_workspace_checklist(&refs, selectors, flags, argv.as_deref())?
+    {
+        return Ok(plan);
+    }
     match refs.as_slice() {
         ["group", rest @ ..] => state::parse_workspace_group(rest, selectors, flags),
         ["placement", "list"] => {
@@ -713,6 +717,22 @@ fn parse_pane_strings(
                 )?;
             }
             insert_optional_string(&mut params, flags, "cwd", "cwd");
+            // The new pane runs this instead of a shell, so no empty shell
+            // tab is left beside the command's (agent evals, mode 3).
+            match (argv, flags.take("shell")) {
+                (None, None) => {}
+                (Some(argv), None) if argv.first().is_some_and(|program| !program.is_empty()) => {
+                    params.insert("argv".into(), json!(argv));
+                }
+                (None, Some(script)) if !script.is_empty() => {
+                    params.insert("shell".into(), Value::String(script));
+                }
+                _ => return Err(UsageError::new("give exact argv after -- or one --shell script")),
+            }
+            // A script's split keeps the user's focus unless it asks.
+            if flags.boolean("focus") {
+                params.insert("focus".into(), Value::Bool(true));
+            }
             add_size(&mut params, flags)?;
             request(ResourceOperation::PaneSplit, selectors, flags, params)
         }
@@ -3343,6 +3363,16 @@ mod tests {
         assert_eq!(empty.params["initial_content"], "empty");
     }
 
+    /// Agents pass `--no-focus` out of habit (`cmux open`, other CLIs).
+    /// Creating a workspace never moves focus, so the flag is accepted and
+    /// changes nothing.
+    #[test]
+    fn workspace_create_accepts_no_focus_as_a_no_op() {
+        let plain = protocol(&["workspace", "create", "--name", "w"]);
+        let quiet = protocol(&["workspace", "create", "--no-focus", "--name", "w"]);
+        assert_eq!(quiet.params, plain.params);
+    }
+
     #[test]
     fn creation_correlation_is_bounded_and_scoped() {
         let correlated =
@@ -4309,6 +4339,7 @@ mod tests {
     }
 
     mod name_source_tests;
+    mod split_focus_tests;
     mod transport_path_coverage_tests;
 
     fn record_covered_fields<'a>(

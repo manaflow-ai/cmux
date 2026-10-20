@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "bf79d8966e3a216b0586665da4ca359fc95b284f313b2d9ad638aaf6b006d569",
+  "catalog_sha256": "7e7b0c778db9d2ea9d27ad09ff8a565857cdb25856252ad50870ef031981ad43",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -118,8 +118,14 @@
     "chief.profile.get": {
       "class": "read"
     },
+    "chief.profile.history": {
+      "class": "read"
+    },
     "chief.profile.list": {
       "class": "read"
+    },
+    "chief.profile.undo": {
+      "class": "mutation"
     },
     "chief.profile.update": {
       "class": "mutation"
@@ -872,6 +878,18 @@
       "class": "mutation"
     },
     "workspace.update": {
+      "class": "mutation"
+    },
+    "workspace_checklist.add": {
+      "class": "mutation"
+    },
+    "workspace_checklist.list": {
+      "class": "read"
+    },
+    "workspace_checklist.remove": {
+      "class": "mutation"
+    },
+    "workspace_checklist.update": {
       "class": "mutation"
     },
     "workspace_group.create": {

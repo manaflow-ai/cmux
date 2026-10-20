@@ -133,10 +133,16 @@ public nonisolated struct ListViewport<ID: Hashable & Sendable>: Hashable, Senda
     ///    action). A user who scrolled the focused row out of view keeps that
     ///    view through changes that do not move it,
     /// 3. clamp.
+    ///
+    /// `extent` is what a focus change reveals for `newFocus` when that is
+    /// more than its own item (its header and the list's top above it, an
+    /// item drawn inside a larger row). Other reveals (a move, a push out of
+    /// view) show the item alone, so a list the user scrolled keeps a header
+    /// out of view while its row shows.
     public func settle(from old: ListViewport<ID>, offset: CGFloat, focused: ID?, newFocus: ID?, padding: CGFloat,
-                       userMoved: Bool) -> CGFloat {
+                       userMoved: Bool, extent: Item? = nil) -> CGFloat {
         let next = anchored(from: old, offset: offset)
-        guard let newFocus, let target = item(newFocus) else { return next }
+        guard let newFocus, let target = (newFocus != focused ? extent : nil) ?? item(newFocus) else { return next }
         let wasVisible = old.item(newFocus).map { old.isFullyVisible($0, at: offset, padding: 0) } ?? false
         guard newFocus != focused || userMoved || wasVisible || old.movedByItself(newFocus, in: self) else { return next }
         // Only an item that is not wholly in view scrolls; padding applies
