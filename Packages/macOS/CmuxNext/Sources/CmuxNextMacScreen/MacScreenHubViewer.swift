@@ -80,13 +80,16 @@ public final class MacScreenHubViewer {
     /// The request's HTTP answer came back. Cancelled (the person cancelled,
     /// or asked again) ends the session it made, unless this tab already runs
     /// that session (its ticket came first): ends are keyed to session ids.
-    func requestReturned(_ answer: Result<HubSession, DeviceHubError>, scope: SessionScope, hub: DeviceHub, cancelled: Bool) {
+    /// The `/end` it sends, if any (tests wait on it).
+    @discardableResult
+    func requestReturned(_ answer: Result<HubSession, DeviceHubError>, scope: SessionScope, hub: DeviceHub,
+                         cancelled: Bool) -> Task<Void, Never>? {
         guard cancelled else {
             requestAnswered(answer, scope: scope, hub: hub)
-            return
+            return nil
         }
-        guard case let .success(session) = answer, phase.sessionID != session.id else { return }
-        end(session.id, reason: MacScreenHubReason.viewerDisconnected.rawValue, on: hub)
+        guard case let .success(session) = answer, phase.sessionID != session.id else { return nil }
+        return end(session.id, reason: MacScreenHubReason.viewerDisconnected.rawValue, on: hub)
     }
 
     /// The hub's answer to `request(_:)` (tests call it directly).
@@ -188,10 +191,11 @@ public final class MacScreenHubViewer {
         }
     }
 
-    private func end(_ id: String, reason: String, on hub: DeviceHub) {
+    @discardableResult
+    private func end(_ id: String, reason: String, on hub: DeviceHub) -> Task<Void, Never> {
         let end = endSession
         // task-owner: one /end call; the hub's push (or its absence) settles the state
-        Task { await end(hub, id, reason) }
+        return Task { await end(hub, id, reason) }
     }
 
     // MARK: Pushes

@@ -356,17 +356,19 @@ struct MacScreenHubViewerTests {
 
     /// A ticket that beats the request's HTTP answer: the answer that comes back
     /// afterwards never ends the session it started.
-    @Test func aLateAnswerNeverEndsTheSessionItStarted() {
+    @Test func aLateAnswerNeverEndsTheSessionItStarted() async {
         let hub = testHub()
         let viewer = MacScreenHubViewer(deviceID: hostID) { hub }
         let ends = CallLog()
         viewer.endSession = { _, id, reason in ends.items.append("\(id) \(reason)") }
         viewer.phase = .streaming(sessionID: "s2", scope: .full)
-        viewer.requestReturned(.success(HubSession(id: "s2", state: .approved, scope: .full)), scope: .full, hub: hub, cancelled: true)
+        #expect(viewer.requestReturned(.success(HubSession(id: "s2", state: .approved, scope: .full)), scope: .full, hub: hub,
+                                       cancelled: true) == nil)
         #expect(viewer.phase == .streaming(sessionID: "s2", scope: .full))
         // A request the person cancelled while it was out does end its session.
         viewer.phase = .idle
-        viewer.requestReturned(.success(HubSession(id: "s3", state: .pending, scope: .view)), scope: .view, hub: hub, cancelled: true)
+        await viewer.requestReturned(.success(HubSession(id: "s3", state: .pending, scope: .view)), scope: .view, hub: hub,
+                                     cancelled: true)?.value
         #expect(viewer.phase == .idle)
         #expect(ends.items == ["s3 viewer_disconnected"])
     }
