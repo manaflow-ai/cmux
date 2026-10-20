@@ -82,7 +82,8 @@ import Testing
                                    peer: .init(id: "p", name: "P", signingKey: ""), role: .viewer, scope: .view)
         let ice = hub.iceServers(for: ticket)
         #expect(ice.map(\.urls) == [["turn:cf:3478"], ["turns:home:5349"]])
-        #expect(ice.last?.username == "1800021600:Studio")
+        // The TURN-safe label of the device name.
+        #expect(ice.last?.username == "1800021600:studio")
     }
 
     @Test func savingARelaySealsItForEveryDevice() async throws {
