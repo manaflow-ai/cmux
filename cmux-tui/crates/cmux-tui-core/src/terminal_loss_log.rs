@@ -193,13 +193,14 @@ pub(crate) fn record_host_replaced(
     remove_signals(record_path);
 }
 
-/// What a respawned terminal's new shell had pre-filled on its input line.
+/// What a respawned terminal's new shell was given to run, as decided at
+/// the respawn (before its prompt shows).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Prefilled {
-    /// An agent resume command (`claude --resume`, `codex resume`).
+    /// An agent resume command (`claude --resume`, `codex resume`), run once
+    /// the shell's own empty prompt shows; skipped (and named on the marker
+    /// line) when it does not.
     Harness,
-    /// The terminal's earlier command line.
-    Command,
     None,
 }
 
@@ -207,7 +208,6 @@ impl Prefilled {
     fn as_str(self) -> &'static str {
         match self {
             Self::Harness => "harness",
-            Self::Command => "command",
             Self::None => "none",
         }
     }
