@@ -313,6 +313,15 @@ struct ThreadPreview: Hashable {
     static let stubGap: CGFloat = 3.5, stubHeight: CGFloat = 12.5
     /// Space between the stub and the reply below.
     static let replyGap: CGFloat = 7
+    /// cmux: the quote is its source bubble (fill, text colour, rounding) drawn at this opacity, so it
+    /// reads as context under the live bubbles (plans/cmux-next/reply-thread-gallery.html, variant A).
+    static let quoteOpacity: CGFloat = 0.55
+    /// The quote's shape as a row: a part of the root's side, the quote's size, no tail (a quote is never the
+    /// last bubble of a run). `BubblePath.balloon` of this row is the quote's outline, the same rule as every bubble.
+    var shapeRow: PartRow {
+        PartRow(ref: root, part: part ?? .text("", runs: []), outgoing: outgoing, tail: false, reactions: [], failed: false,
+                size: box, text: nil, connectorRoot: nil)
+    }
     /// Body bottom of the row above to the preview's top (measured 31.5).
     static let gap: CGFloat = 31.5
     var isThumbnail: Bool {
