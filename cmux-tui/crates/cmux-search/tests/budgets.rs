@@ -197,7 +197,7 @@ fn cmux_search_budget_queries_stay_fast_while_a_segment_seals() {
     }
     for job in engine.take_seal_jobs() {
         let done = job.run();
-        engine.finish_seal(done);
+        drop(engine.finish_seal(done));
     }
     let engine = Arc::new(RwLock::new(engine));
     let done = Arc::new(AtomicBool::new(false));
@@ -233,7 +233,10 @@ fn cmux_search_budget_queries_stay_fast_while_a_segment_seals() {
                     let begin = Instant::now();
                     let sealed = job.run();
                     seals.push(begin.elapsed());
-                    engine.write().unwrap().finish_seal(sealed);
+                    // The guard drops at the end of this statement; the
+                    // retired segment is freed after it, off the lock.
+                    let retired = engine.write().unwrap().finish_seal(sealed);
+                    drop(retired);
                 }
             }
             done.store(true, Ordering::Release);

@@ -176,6 +176,9 @@ pub struct SealJob {
     dir: Option<PathBuf>,
 }
 
+/// The in-memory segment a seal replaced; dropping it frees its memory.
+pub struct Retired(Option<Segment>);
+
 /// A sealed segment ready to replace its frozen one.
 pub struct SealDone {
     id: u64,
@@ -301,24 +304,28 @@ impl SearchEngine {
 
     /// Swaps a frozen segment for its sealed image (constant time apart
     /// from the deleted bits). A failed seal leaves the frozen segment in
-    /// memory, still searchable.
-    pub fn finish_seal(&mut self, done: SealDone) {
+    /// memory, still searchable. Returns the replaced in-memory segment:
+    /// drop it after releasing the engine's lock, since freeing 64 MiB of
+    /// text and its postings takes tens of milliseconds.
+    #[must_use = "drop the retired segment after releasing the engine's lock"]
+    pub fn finish_seal(&mut self, done: SealDone) -> Retired {
         let Some(segment) = self
             .segments
             .iter_mut()
             .find(|segment| matches!(segment, Segment::Frozen(..)) && segment.id() == done.id)
         else {
-            return;
+            return Retired(None);
         };
         match done.sealed {
             Ok(mut sealed) => {
                 if let Segment::Frozen(_, deleted) = segment {
                     sealed.deleted = std::mem::take(deleted);
                 }
-                *segment = Segment::Sealed(sealed);
+                Retired(Some(std::mem::replace(segment, Segment::Sealed(sealed))))
             }
             Err(_) => {
                 self.read_errors.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                Retired(None)
             }
         }
     }
@@ -347,7 +354,7 @@ impl SearchEngine {
         jobs.extend(self.freeze());
         for job in jobs {
             let done = job.run();
-            self.finish_seal(done);
+            drop(self.finish_seal(done));
         }
     }
 
