@@ -1,0 +1,62 @@
+name: cnx-ios nightly TestFlight (cmux INTERNAL)
+
+# Nightly TestFlight for the cmux-next iPhone app (cnx-ios on feat-cmux-next).
+#
+# Scheduled workflows start only from main, so this job lives here. It does
+# not build anything: it pushes the feat-cmux-next tip to
+# rc/cnx-ios-internal-nightly-<UTC date>, and that push starts
+# cnx-ios-testflight.yml on the feat-cmux-next code, which uploads to App
+# Store Connect app "cmux INTERNAL" (dev.cmux.app.internal), never to
+# com.cmux.app (the old app ios-testflight.yml uploaded). The push uses the
+# release App token because a GITHUB_TOKEN push starts no workflow.
+# A night whose feat-cmux-next tip already has an rc/cnx-ios-internal-nightly-*
+# branch pushes nothing.
+
+on:
+  schedule:
+    - cron: "30 9 * * *" # 02:30 Pacific (PDT)
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cnx-ios-nightly-testflight
+  cancel-in-progress: false
+
+jobs:
+  push-rc:
+    name: Push feat-cmux-next to an rc/cnx-ios-internal-nightly branch
+    if: github.repository == 'manaflow-ai/cmux'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: release
+    steps:
+      - name: Release App token
+        id: token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.CMUX_RELEASE_APP_ID }}
+          private-key: ${{ secrets.CMUX_RELEASE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+          permission-workflows: write
+
+      - name: Push the rc branch
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          tip=$(gh api "repos/$REPO/commits/feat-cmux-next" --jq .sha)
+          if gh api "repos/$REPO/git/matching-refs/heads/rc/cnx-ios-internal-nightly-" --jq '.[].object.sha' | grep -qx "$tip"; then
+            echo "feat-cmux-next $tip already went to TestFlight; nothing to do."
+            exit 0
+          fi
+          branch="rc/cnx-ios-internal-nightly-$(date -u +%Y%m%d)"
+          if gh api "repos/$REPO/git/refs/heads/$branch" >/dev/null 2>&1; then
+            branch="$branch-$(date -u +%H%M)"
+          fi
+          gh api "repos/$REPO/git/refs" -f ref="refs/heads/$branch" -f sha="$tip" >/dev/null
+          echo "Pushed $branch at $tip; cnx-ios-testflight.yml uploads it to cmux INTERNAL." | tee -a "$GITHUB_STEP_SUMMARY"
