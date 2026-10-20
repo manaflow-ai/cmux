@@ -130,14 +130,14 @@ What Cmd-W does on a pinned tab.
 
 ```json
 {
-  "tabs": { "cmdWClosesPinnedTabs": true }
+  "tabs": { "cmdWClosesPinnedTabs": false }
 }
 ```
 
-- `false` (default): Cmd-W on a pinned tab selects the next tab and keeps the pinned tab, as in Chrome. When the pinned tab is the only tab in its pane, Cmd-W keeps it and shows a short notice. Close a pinned tab from its right-click menu.
-- `true`: Cmd-W closes a pinned tab like any other tab.
+- `true` (default): Cmd-W closes a pinned tab like any other tab, as in Chrome.
+- `false`: Cmd-W on a pinned tab selects the next tab and keeps the pinned tab. When the pinned tab is the only tab in its pane, Cmd-W keeps it and shows a short notice. Close a pinned tab from its right-click menu.
 
-A tab closed by name (its menu, `cmux tab close`, MCP) closes with either value. Change it in **Settings > General > Tabs** or with `cmux settings set tabs.cmdWClosesPinnedTabs true`.
+A tab closed by name (its menu, `cmux tab close`, MCP) closes with either value. Change it in **Settings > General > Tabs** or with `cmux settings set tabs.cmdWClosesPinnedTabs false`.
 
 ## `tabs.swapCmdTAndCmdN`
 

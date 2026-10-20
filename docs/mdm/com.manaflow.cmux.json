@@ -1415,12 +1415,6 @@
       "title" : "URLs to Always Open Externally",
       "type" : "array"
     },
-    "browser.verificationAutofill.enabled" : {
-      "default" : false,
-      "description" : "When a site emails you a code or link, its tab offers it. Only on the sender's own site, never filled without your click, and never stored.",
-      "title" : "Fill Codes from Verification Emails",
-      "type" : "boolean"
-    },
     "computerUse.driver" : {
       "default" : "legacy",
       "description" : "Legacy runs the current cmux Computer Use helper. Upstream runs the new helper built on the upstream Cua Driver; macOS asks for its permissions separately.",
@@ -2049,29 +2043,6 @@
       "description" : "Show Channels below Home in the sidebar. You can also turn it on or off from the command palette.",
       "title" : "Channels",
       "type" : "boolean"
-    },
-    "home.chiefPetEnabled" : {
-      "default" : false,
-      "description" : "A small Chief floats over every app and shows agent events above it. Drag it anywhere; click it to message the Chief or reply to a session.",
-      "title" : "Show Chief Pet",
-      "type" : "boolean"
-    },
-    "home.chiefPetMascot" : {
-      "default" : "orb",
-      "description" : "home.chiefPetMascot",
-      "enum" : [
-        "orb",
-        "orb-spark",
-        "orb-hood",
-        "machine",
-        "machine-cyan",
-        "machine-blue",
-        "moon",
-        "moon-blue",
-        "fox"
-      ],
-      "title" : "Character",
-      "type" : "string"
     },
     "labs.classicHome" : {
       "default" : false,
@@ -3503,7 +3474,7 @@
       "type" : "string"
     },
     "tabs.cmdWClosesPinnedTabs" : {
-      "default" : false,
+      "default" : true,
       "description" : "When off, Cmd-W on a pinned tab selects the next tab and keeps the pinned tab. Close a pinned tab from its menu.",
       "title" : "Cmd-W Closes Pinned Tabs",
       "type" : "boolean"

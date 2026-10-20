@@ -629,6 +629,24 @@
               "key" : "settings.group.editorSaving",
               "text" : "Saving"
             }
+          },
+          {
+            "key" : "settings.group.markdownViewer",
+            "rows" : [
+              "markdown.layout.width",
+              "markdown.layout.fullWidth",
+              "markdown.font.size",
+              "markdown.font.preset",
+              "markdown.font.lineHeight",
+              "markdown.spacing.paragraph",
+              "markdown.code.scale",
+              "markdown.tables",
+              "markdown.theme"
+            ],
+            "title" : {
+              "key" : "settings.group.markdownViewer",
+              "text" : "Markdown Viewer"
+            }
           }
         ],
         "id" : "editor",
@@ -712,17 +730,6 @@
             "title" : {
               "key" : "settings.group.subsessions",
               "text" : "Sub-sessions"
-            }
-          },
-          {
-            "key" : "settings.group.chiefPet",
-            "rows" : [
-              "home.chiefPetEnabled",
-              "home.chiefPetMascot"
-            ],
-            "title" : {
-              "key" : "settings.group.chiefPet",
-              "text" : "Chief Pet"
             }
           }
         ],
@@ -896,16 +903,6 @@
             }
           },
           {
-            "key" : "settings.group.agentInput",
-            "rows" : [
-              "browser.showAgentCursor"
-            ],
-            "title" : {
-              "key" : "settings.group.agentInput",
-              "text" : "Agent Input"
-            }
-          },
-          {
             "key" : "settings.group.extensions",
             "rows" : [
               "browser.builtInAdBlocker"
@@ -946,8 +943,7 @@
             "rows" : [
               "browser.passwords.offerToSave",
               "browser.passwords.generate",
-              "browser.passwords.allowExport",
-              "browser.verificationAutofill.enabled"
+              "browser.passwords.allowExport"
             ],
             "title" : {
               "key" : "settings.group.passwords",
@@ -2659,7 +2655,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : false,
+      "default" : true,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.tabs",
@@ -26193,58 +26189,6 @@
       "default" : false,
       "default_label" : null,
       "group" : {
-        "key" : "settings.group.passwords",
-        "text" : "Passwords"
-      },
-      "help" : {
-        "key" : "settings.browser.verificationAutofill.enabled.help",
-        "text" : "When a site emails you a code or link, its tab offers it. Only on the sender's own site, never filled without your click, and never stored."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "browser.verificationAutofill.enabled",
-      "keywords" : [
-        "email",
-        "verification",
-        "code",
-        "one-time",
-        "otp",
-        "2fa",
-        "autofill",
-        "magic link"
-      ],
-      "kind" : "toggle",
-      "page_hidden" : false,
-      "path" : [
-        "browser",
-        "verificationAutofill",
-        "enabled"
-      ],
-      "refuses" : [
-        "true",
-        1,
-        null
-      ],
-      "section" : "browser",
-      "summary" : null,
-      "title" : {
-        "key" : "settings.browser.verificationAutofill.enabled",
-        "text" : "Fill Codes from Verification Emails"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        true,
-        false
-      ],
-      "agent_refusal" : "privacy",
-      "agent_settable" : false,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : false,
-      "default_label" : null,
-      "group" : {
         "key" : "settings.group.attachments",
         "text" : "Attachments"
       },
@@ -26329,174 +26273,6 @@
       "title" : {
         "key" : "settings.home.channelsEnabled",
         "text" : "Channels"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        true,
-        false
-      ],
-      "agent_refusal" : "userOnly",
-      "agent_settable" : false,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : false,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.chiefPet",
-        "text" : "Chief Pet"
-      },
-      "help" : {
-        "key" : "settings.home.chiefPetEnabled.help",
-        "text" : "A small Chief floats over every app and shows agent events above it. Drag it anywhere; click it to message the Chief or reply to a session."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "home.chiefPetEnabled",
-      "keywords" : [
-        "chief",
-        "pet",
-        "mascot",
-        "floating",
-        "notifications",
-        "reply",
-        "dock"
-      ],
-      "kind" : "toggle",
-      "page_hidden" : false,
-      "path" : [
-        "home",
-        "chiefPetEnabled"
-      ],
-      "refuses" : [
-        "true",
-        1,
-        null
-      ],
-      "section" : "home",
-      "summary" : null,
-      "title" : {
-        "key" : "settings.home.chiefPetEnabled",
-        "text" : "Show Chief Pet"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        "orb",
-        "orb-spark",
-        "orb-hood",
-        "machine",
-        "machine-cyan",
-        "machine-blue",
-        "moon",
-        "moon-blue",
-        "fox"
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "choices" : [
-        {
-          "title" : {
-            "key" : "settings.choice.chiefPetMascot.orb",
-            "text" : "Orb"
-          },
-          "value" : "orb"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.chiefPetMascot.orb-spark",
-            "text" : "Orb Spark"
-          },
-          "value" : "orb-spark"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.chiefPetMascot.orb-hood",
-            "text" : "Hooded Orb"
-          },
-          "value" : "orb-hood"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.chiefPetMascot.machine",
-            "text" : "Machine"
-          },
-          "value" : "machine"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.chiefPetMascot.machine-cyan",
-            "text" : "Cyan Machine"
-          },
-          "value" : "machine-cyan"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.chiefPetMascot.machine-blue",
-            "text" : "Blue Machine"
-          },
-          "value" : "machine-blue"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.chiefPetMascot.moon",
-            "text" : "Moon"
-          },
-          "value" : "moon"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.chiefPetMascot.moon-blue",
-            "text" : "Blue Moon"
-          },
-          "value" : "moon-blue"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.chiefPetMascot.fox",
-            "text" : "Fox"
-          },
-          "value" : "fox"
-        }
-      ],
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : "orb",
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.chiefPet",
-        "text" : "Chief Pet"
-      },
-      "help" : null,
-      "kept_on_reset_all" : false,
-      "key" : "home.chiefPetMascot",
-      "keywords" : [
-        "chief",
-        "pet",
-        "mascot",
-        "character",
-        "avatar",
-        "pixel"
-      ],
-      "kind" : "choice",
-      "page_hidden" : false,
-      "path" : [
-        "home",
-        "chiefPetMascot"
-      ],
-      "refuses" : [
-        "__not_a_choice__",
-        1,
-        true
-      ],
-      "section" : "home",
-      "summary" : null,
-      "title" : {
-        "key" : "settings.home.chiefPetMascot",
-        "text" : "Character"
       },
       "validation" : "portable"
     },
@@ -29605,6 +29381,7 @@
       "validation" : "portable"
     }
   ],
+  "schema_hash" : "bd38253d3a1259fab3328334e62651b538a44d23fd2592a6309e3824c243f372",
   "sections" : [
     {
       "id" : "general",

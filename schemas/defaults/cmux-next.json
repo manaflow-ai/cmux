@@ -618,7 +618,7 @@
     "setting.status.runNotifyWhenVisible": false,
     "setting.tabs.barOrder": "aboveToolbar",
     "setting.tabs.barPosition": "top",
-    "setting.tabs.cmdWClosesPinnedTabs": false,
+    "setting.tabs.cmdWClosesPinnedTabs": true,
     "setting.tabs.newTabPosition": "end",
     "setting.tabs.newTabTemplate": "default",
     "setting.tabs.overflow": "shrink",
