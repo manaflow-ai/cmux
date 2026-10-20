@@ -20323,6 +20323,138 @@
         }
       }
     },
+    "files.truncated": {
+      "comment": "Agent pane",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا تظهر بعض الملفات. ابحث للعثور على المزيد."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neke datoteke nisu prikazane. Pretražite da pronađete više."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nogle filer vises ikke. Søg for at finde flere."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Einige Dateien werden nicht angezeigt. Suche nach weiteren Dateien."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Some files aren't shown. Search to find more."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Algunos archivos no se muestran. Busca para encontrar más."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Certains fichiers ne sont pas affichés. Recherchez pour en trouver davantage."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alcuni file non sono mostrati. Cerca per trovarne altri."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一部のファイルは表示されていません。検索して他のファイルを探せます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ឯកសារមួយចំនួនមិនត្រូវបានបង្ហាញទេ។ ស្វែងរកដើម្បីរកឯកសារបន្ថែម។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "일부 파일이 표시되지 않습니다. 검색하여 더 찾아보세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Noen filer vises ikke. Søk for å finne flere."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Niektóre pliki nie są wyświetlane. Wyszukaj, aby znaleźć więcej."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alguns arquivos não são mostrados. Pesquise para encontrar mais."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Некоторые файлы не показаны. Воспользуйтесь поиском, чтобы найти остальные."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไฟล์บางส่วนไม่แสดง ค้นหาเพื่อดูไฟล์เพิ่มเติม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bazı dosyalar gösterilmiyor. Daha fazlasını bulmak için arayın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Деякі файли не показано. Скористайтеся пошуком, щоб знайти решту."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Một số tệp không được hiển thị. Tìm kiếm để xem thêm."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "部分文件未显示。搜索以查找更多文件。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "部分檔案未顯示。搜尋以尋找更多檔案。"
+          }
+        }
+      }
+    },
     "files.search": {
       "comment": "Agent pane",
       "extractionState": "manual",

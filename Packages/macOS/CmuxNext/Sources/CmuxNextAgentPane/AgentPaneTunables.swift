@@ -360,6 +360,7 @@ public nonisolated struct AgentPaneTunables {
     /// can, so the declarations above do not collide either.
     public static var all: [TunableDescriptor] {
         [
+            chatViewer.descriptor,
             chatWidth.descriptor,
             codeWrap.descriptor,
             codexToolRuns.descriptor,

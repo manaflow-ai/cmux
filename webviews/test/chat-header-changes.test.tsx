@@ -77,3 +77,49 @@ test("Changes shows with the chat's changes or its open diff, and lights while t
   act(() => applyHostEvent({ kind: "headerState", value: { lit: [] } }));
   expect(changes()).toBeNull();
 });
+
+// Files lights for the chat viewer. Changes follows only the host's split state.
+test("Files lights for the viewer while Changes follows the host", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { ChatHeaderTools, HEADER_ACTIONS } = await import("../src/agent-session/acpmux/header/ChatHeaderTools");
+  const { applyHostEvent } = await import("../src/agent-session/acpmux/pageHost");
+  const { configureQuickActions } = await import("../src/agent-session/acpmux/header/quickActions");
+  act(() => configureQuickActions({ quickActions: ["terminal", "browser", "changes", "files", "newTab"] }));
+  applyHostEvent({ kind: "headerState", value: { lit: [] } });
+  act(() => root?.unmount());
+  root = createRoot(host);
+  const render = (viewing: string[]) =>
+    act(() =>
+      root!.render(
+        <ChatHeaderTools
+          onTerminal={() => {}}
+          onBrowser={() => {}}
+          hasChanges
+          onChanges={() => {}}
+          onFiles={() => {}}
+          viewing={viewing}
+          summary={null}
+          menu={() => []}
+        />,
+      ),
+    );
+  const button = (label: string) => host.querySelector(`.acpmux-header-tools button[aria-label="${label}"]`);
+  render([]);
+  expect(button("Files")?.getAttribute("aria-pressed")).toBe("false");
+  render([HEADER_ACTIONS.files]);
+  expect(button("Files")?.getAttribute("aria-pressed")).toBe("true");
+  expect(button("Changes")?.getAttribute("aria-pressed")).toBe("false");
+  render([HEADER_ACTIONS.changes]);
+  expect(button("Changes")?.getAttribute("aria-pressed")).toBe("false");
+  expect(button("Files")?.getAttribute("aria-pressed")).toBe("false");
+  // The tray header styles (Lucas's is quiet) draw their own buttons and light them the same way.
+  const { configureHeaderStyle } = await import("../src/agent-session/acpmux/header/headerStyle");
+  act(() => configureHeaderStyle({ headerStyle: "quiet" }));
+  render([HEADER_ACTIONS.files]);
+  const tray = (label: string) => host.querySelector(`.acpmux-header-tray button[aria-label="${label}"]`);
+  expect(tray("Files")?.getAttribute("aria-pressed")).toBe("true");
+  render([HEADER_ACTIONS.changes]);
+  expect(tray("Changes")?.getAttribute("aria-pressed")).toBe("false");
+  expect(tray("Files")?.getAttribute("aria-pressed")).not.toBe("true");
+  act(() => configureHeaderStyle({}));
+});

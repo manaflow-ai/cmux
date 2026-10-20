@@ -1,6 +1,6 @@
 // Toolbars over Base UI Toolbar: one Tab stop, arrows move between controls (direction-aware),
 // each icon control named by `label` with a tooltip that repeats it.
-import { lazy, Suspense, useState, type ReactNode } from "react";
+import { lazy, Suspense, useState, type ReactNode, type Ref } from "react";
 import { Toolbar as BaseToolbar } from "@base-ui/react/toolbar";
 import { ToggleGroup } from "@base-ui/react/toggle-group";
 import { Toggle } from "@base-ui/react/toggle";
@@ -45,6 +45,7 @@ export function Toolbar({ label, className, children }: { label: string; classNa
 export interface ToolbarButtonProps {
   /** The accessible name; also the tooltip. */
   label: string;
+  ref?: Ref<HTMLButtonElement>;
   className?: string;
   disabled?: boolean;
   /** Show the tooltip (default when the button has only an icon or a glyph). */
@@ -61,6 +62,7 @@ export interface ToolbarButtonProps {
 
 export function ToolbarButton({
   label,
+  ref,
   className,
   disabled,
   tooltip = true,
@@ -74,6 +76,7 @@ export function ToolbarButton({
   return (
     <>
       <BaseToolbar.Button
+        ref={ref}
         className={cx("ui-button ui-toolbar-button", className)}
         aria-label={label}
         aria-current={current || undefined}

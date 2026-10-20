@@ -16,6 +16,8 @@ import { useSyncExternalStore } from "react";
 /// - `codeWrap`: remember one wrap choice for every code card in the pane.
 /// - `planProgress`: keep the running plan's current step above the composer.
 /// - `shortcutsHelp`: show the chat's live keys from its menu.
+/// - `chatViewer`: Files and linked files open in one viewer beside the transcript, inside the chat,
+///   instead of a new column or a tab over the chat (Lucas 2026-10-19, on by default).
 /// - `sourceIcons`: Thread details sources show each site's icon, fetched by the host without
 ///   cookies (Lucas 2026-10-19, on by default).
 ///
@@ -36,6 +38,7 @@ export const LABS = [
   "codeWrap",
   "planProgress",
   "shortcutsHelp",
+  "chatViewer",
   "sourceIcons",
 ] as const;
 export type Lab = (typeof LABS)[number];
@@ -46,6 +49,7 @@ const defaults: Partial<Record<Lab, boolean>> = {
   renderPreview: true,
   renderExpand: true,
   tableScroll: true,
+  chatViewer: true,
   sourceIcons: true,
 };
 
