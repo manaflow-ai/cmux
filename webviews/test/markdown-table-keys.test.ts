@@ -25,6 +25,9 @@ beforeAll(async () => {
   // The editor runs in a Mac WebView, where ProseMirror's Mod is Cmd: its keymaps read
   // navigator.platform once, when they load. jsdom's platform is "", and bun's is the host's,
   // so on a Linux runner Mod was Ctrl and the third Cmd-A below never reached Select All.
+  // This holds only when this file has its own process (scripts/ci/run-webviews-tests.sh):
+  // ProseMirror decides once per process, so after another editor test (markdown-selection,
+  // markdown-link-bubble) loaded it in the same `bun test`, the override comes too late.
   Object.defineProperty(dom.window.navigator, "platform", { value: "MacIntel", configurable: true });
   const scope = globalThis as Record<string, unknown>;
   for (const key of [
