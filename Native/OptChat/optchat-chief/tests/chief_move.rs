@@ -62,7 +62,15 @@ fn chief_home(root: &Path) -> rusqlite::Connection {
     mem.execute_batch(
         "PRAGMA wal_autocheckpoint = 0;
          CREATE TABLE messages (id INTEGER PRIMARY KEY, kind TEXT, text TEXT);
-         CREATE TABLE nodes (level INTEGER, idx INTEGER, text TEXT);",
+         CREATE TABLE nodes (level INTEGER, idx INTEGER, text TEXT);
+         CREATE TABLE state (key TEXT PRIMARY KEY, value TEXT NOT NULL) WITHOUT ROWID;",
+    )
+    .unwrap();
+    // The host state rows (state.rs HOST_PREFIX): `control cloud PEER` (a306)
+    // and `control cap N` are saved here and must move with the Chief.
+    mem.execute_batch(
+        "INSERT INTO state VALUES ('host/cloud_peer', '\"chief-subagents-1\"');
+         INSERT INTO state VALUES ('host/live_cap', '12');",
     )
     .unwrap();
     for i in 0..40 {
@@ -107,6 +115,29 @@ fn new_home(dir: &Path, name: &str) -> PathBuf {
     let home = dir.join(name);
     std::fs::create_dir_all(home.join("optchat")).unwrap();
     std::fs::canonicalize(home).unwrap()
+}
+
+fn state_value(db: &Path, key: &str) -> Option<String> {
+    let conn = rusqlite::Connection::open(db).unwrap();
+    conn.query_row("SELECT value FROM state WHERE key = ?1", [key], |r| {
+        r.get(0)
+    })
+    .ok()
+}
+
+/// The run-time Chief settings saved in the host state carry over.
+fn assert_settings_moved(target: &Path) {
+    let db = target.join("optchat/memory.sqlite3");
+    assert_eq!(
+        state_value(&db, "host/cloud_peer").as_deref(),
+        Some("\"chief-subagents-1\""),
+        "control cloud PEER moves with the Chief"
+    );
+    assert_eq!(
+        state_value(&db, "host/live_cap").as_deref(),
+        Some("12"),
+        "control cap moves"
+    );
 }
 
 fn count(db: &Path, table: &str) -> i64 {
@@ -349,6 +380,7 @@ fn a_move_marks_the_source_the_host_refuses_it_and_rollback_brings_it_back() {
     ]));
     assert_eq!(report["moved"], true, "{report}");
     assert_eq!(report["memory"]["messages"], 40);
+    assert_settings_moved(&std::fs::canonicalize(&dst).unwrap());
     let steps: Vec<&str> = report["steps"]
         .as_array()
         .unwrap()
@@ -487,6 +519,7 @@ fn a_move_over_ssh_restores_with_the_remote_optchat_chief() {
         !remote.join(".cmux/chief/default.checkpoint").exists(),
         "the staging copy is removed"
     );
+    assert_settings_moved(&target);
     let moved: Value =
         serde_json::from_str(&std::fs::read_to_string(src.join("state/moved.json")).unwrap())
             .unwrap();
