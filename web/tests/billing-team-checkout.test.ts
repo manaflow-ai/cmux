@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { NextRequest } from "next/server";
 
 import {
@@ -25,6 +25,8 @@ const getUser = mock(async (options?: unknown) => {
 const createSession = mock(async (_params: unknown) => ({ id: "cs_team", url: "https://checkout.stripe.com/c/team" }));
 const createCustomer = mock(async (_params: unknown) => ({ id: "cus_new_team" }));
 const createPortal = mock(async (_params: unknown) => ({ url: "https://billing.stripe.com/p/team" }));
+const originalTeamPortalConfiguration = process.env.STRIPE_TEAM_PORTAL_CONFIGURATION_ID;
+const originalVercel = process.env.VERCEL;
 
 mock.module("../app/lib/stack", () => ({
   getStackServerApp: () => ({ getUser }),
@@ -54,6 +56,13 @@ mock.module("../services/vms/auth", () => ({
 
 const { GET, POST } = await import("../app/api/billing/checkout/route");
 
+afterAll(() => {
+  if (originalTeamPortalConfiguration === undefined) delete process.env.STRIPE_TEAM_PORTAL_CONFIGURATION_ID;
+  else process.env.STRIPE_TEAM_PORTAL_CONFIGURATION_ID = originalTeamPortalConfiguration;
+  if (originalVercel === undefined) delete process.env.VERCEL;
+  else process.env.VERCEL = originalVercel;
+});
+
 function checkoutGet(query: string) {
   return GET(new NextRequest(`https://cmux.test/api/billing/checkout?${query}`));
 }
@@ -79,6 +88,8 @@ describe("explicit team checkout", () => {
   const teamB = fixtureTeam("team-b", { displayName: "Team B", members: 5 });
 
   beforeEach(() => {
+    delete process.env.VERCEL;
+    process.env.STRIPE_TEAM_PORTAL_CONFIGURATION_ID = "bpc_team";
     dbRows = emptyBillingDbRows();
     currentUser = fixtureStackUser({ id: USER_ID, teams: [teamA, teamB], adminTeamIds: ["team-b"], selectedTeam: teamA });
     getUser.mockClear();
@@ -94,7 +105,7 @@ describe("explicit team checkout", () => {
     const params = sessionParams();
     expect(params.client_reference_id).toBe("team-b");
     expect(params.line_items).toEqual([
-      { price: "price_team_month", quantity: 5, adjustable_quantity: { enabled: true, minimum: 1 } },
+      { price: "price_team_month", quantity: 5, adjustable_quantity: { enabled: true, minimum: 5 } },
     ]);
     expect(params.metadata).toMatchObject({ stackTeamId: "team-b", stackUserId: USER_ID, plan: "team" });
     expect((params.subscription_data as { metadata: unknown }).metadata).toMatchObject({ stackTeamId: "team-b", stackUserId: USER_ID });
@@ -217,7 +228,21 @@ describe("explicit team checkout", () => {
     expect(createPortal).toHaveBeenCalledWith({
       customer: "cus_team_b",
       return_url: "https://cmux.test/dashboard/billing?team=team-b",
+      configuration: "bpc_team",
     });
+  });
+
+  test("fails closed when a deployed Team portal has no restricted configuration", async () => {
+    dbRows.customers = [{ id: "cus_team_b" }];
+    dbRows.subscriptions = [activeTeamSubscriptionRow()];
+    process.env.VERCEL = "1";
+    delete process.env.STRIPE_TEAM_PORTAL_CONFIGURATION_ID;
+
+    const response = await checkoutPost({ plan: "team", teamId: "team-b" });
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({ error: "billing_unavailable" });
+    expect(createPortal).not.toHaveBeenCalled();
   });
 });
 
