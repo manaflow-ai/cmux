@@ -166,12 +166,17 @@ enum WorkspaceGroupHandlers {
         let local = context.services.machines.local
         var spawn = WorkspaceSpawn()
         spawn.opensNewTabPage = newTabPage
+        // Only the group places it: never the new-workspace setting first (a slot in another group).
+        spawn.placesBySetting = false
         // The sidebar names the group by its document item (`itm_g_<id>`) or by its own id.
-        spawn.slot = windows.controller(for: target).flatMap { AppActionContext.sidebarGroupID(of: id, in: $0.sidebar.model) }
+        let slot = windows.controller(for: target).flatMap { AppActionContext.sidebarGroupID(of: id, in: $0.sidebar.model) }
             .map(WorkspaceSlot.endOfGroup)
+        spawn.slot = slot
         spawn.onListed = { key, bridge in
-            // A window that does not list the group (another room) has no slot for it.
-            guard AppActionContext.sidebarGroupID(of: id, in: bridge.model) == nil, let session = local.store.registryID else { return }
+            // A slot that did not resolve where it is listed (the group is in another room) placed nothing.
+            let sections = SidebarRowSection.withoutPlaceholders(bridge.model.sections)
+            let section = SectionID.machine(MachineID(local.machineID))
+            guard slot?.position(moving: [key], section: section, in: sections) == nil, let session = local.store.registryID else { return }
             let workspace = WorkspaceKey(rawValue: key), resource = local.store.personalStateID(session: session, key: workspace)
             local.send("set-personal-workspace") {
                 try await $0.state.placePersonalWorkspace(session: session, key: workspace, resource: resource, group: .set(id))

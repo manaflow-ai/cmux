@@ -82,7 +82,8 @@ enum SidebarDocWiring {
 
     /// Sends a move intent as one document move. False: not a move, or the
     /// document is not active (the older path handles it).
-    static func handle(_ intent: SidebarIntent, bridge: SidebarBridge) -> Bool {
-        docMachines(bridge.services.machines).handle(intent, model: bridge.model, pinTitle: PinStrings.pinWorkspace, unpinTitle: PinStrings.unpinWorkspace)
+    static func handle(_ intent: SidebarIntent, bridge: SidebarBridge, undoable: Bool = true) -> Bool {
+        docMachines(bridge.services.machines).handle(intent, model: bridge.model, pinTitle: PinStrings.pinWorkspace, unpinTitle: PinStrings.unpinWorkspace,
+                                                     undoable: undoable)
     }
 }

@@ -6,8 +6,11 @@ extension SidebarDocStore {
     /// items, becomes an anchor next to a sibling the person saw), a band
     /// drop or reorder, Pin and Unpin (the old "pin group" is plain Pin: the
     /// group moves into Pinned). A group's collapse is client view state.
-    /// False: not a move (the older path handles it).
-    public func handle(_ intent: SidebarIntent, model: SidebarModel, drag: SidebarDocDrag, pinTitle: String, unpinTitle: String) -> Bool {
+    /// False: not a move (the older path handles it). `undoable` false (a new workspace placed
+    /// at its slot) puts no undo step, and a reorder of a workspace the document cannot name yet
+    /// is left to the older path.
+    public func handle(_ intent: SidebarIntent, model: SidebarModel, drag: SidebarDocDrag, pinTitle: String, unpinTitle: String,
+                       undoable: Bool = true) -> Bool {
         let title = Self.moveTitle
         // A workspace the document does not place yet moves with its adopt in the same `sidebar.apply`.
         var adopt: [[String: Any]] = []
@@ -21,10 +24,10 @@ extension SidebarDocStore {
         }
         func move(_ moving: [String], to target: SidebarDocTarget, title: String) {
             // main-actor-ok: one SidebarDocTarget (section, parent, before, after, index), fixed size.
-            guard !adopt.isEmpty, let to = try? JSONSerialization.jsonObject(with: JSONEncoder().encode(target)) else {
+            guard !adopt.isEmpty || !undoable, let to = try? JSONSerialization.jsonObject(with: JSONEncoder().encode(target)) else {
                 return self.move(moving, to: target, title: title)
             }
-            send(ops: adopt + [["op": "move", "items": moving, "to": to]], title: title)
+            send(ops: adopt + [["op": "move", "items": moving, "to": to]], title: title, undoable: undoable)
         }
         if let (ops, undoable) = groupOps(intent, items: items) {
             send(ops: adopt + ops, title: Self.moveTitle, undoable: undoable)
@@ -40,6 +43,7 @@ extension SidebarDocStore {
         switch intent {
         case .reorder(let ids, let position):
             let moving = items(ids)
+            if !undoable, moving.count != ids.count { return false }
             guard let anchored = drag.anchoredTarget(position, moving: moving, model: model) else { return false }
             // An anchor this client has no item for is adopted in the same `sidebar.apply`, before the move.
             adopt += anchored.adopt.map { ref -> [String: Any] in ["op": "adopt", "refs": [ref]] }
