@@ -618,6 +618,9 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
       expect(order.first).toBeGreaterThanOrEqual(0);
       expect(order.footers.some((index) => index > order.first && index < order.second)).toBe(true);
       expect(await page.locator("body").innerText()).not.toContain("The date changed.");
+      // The last turn is the reminder's, which has no prompt of the person's to send again: no
+      // Retry resends the earlier prompt in its place.
+      expect(await page.getByRole("button", { name: "Retry", exact: true }).count()).toBe(0);
       await page.close();
     });
 
