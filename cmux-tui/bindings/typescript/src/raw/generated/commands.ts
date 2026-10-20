@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 6843b0cfd4e966719acde1c323621e6a5b049829b422229956fb3c194436dc06. */
+/* cmux-tui mux protocol 12, IR a453986b67d167174f384a45b851ba6779b4ecfde280ba17c07ea656ab7e84b0. */
 
 
 import type * as T from "./types.js";
@@ -1297,6 +1297,7 @@ export type HomeInboxResult = {
 export interface IdentifyRequest extends CmuxRequestBase {
   cmd: "identify";
   "machine_metadata"?: boolean;
+  "revisions"?: boolean;
 }
 
 /** Protocol v6; authority: control. */
@@ -2257,9 +2258,11 @@ export interface SetClientInfoRequest extends CmuxRequestBase {
   "device_kind"?: (string) | null;
   "device_name"?: (string) | null;
   "display_name"?: (string) | null;
+  "install"?: (string) | null;
   "kind"?: (string) | null;
   "name"?: (string) | null;
   "user_id"?: (string) | null;
+  "version"?: (string) | null;
 }
 export type SetClientInfoResult = T.EmptyResult;
 
