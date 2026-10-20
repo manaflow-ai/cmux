@@ -28,6 +28,7 @@ TOUR_FILES = {
     "now-playing": TOURS / "now-playing.json",
     "pinned-tabs": TOURS / "pinned-tabs.json",
     "hover-card": TOURS / "hover-card.json",
+    "sidebar-groups": TOURS / "sidebar-groups.json",
     "update-card": TOURS / "update-card.json",
     "chief-settings": TOURS / "chief-settings.json",
     "glass": TOURS / "glass.json",
