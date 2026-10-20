@@ -1435,6 +1435,7 @@ jobs:
           python3 tests/test_next_batch_groups.py
           python3 tests/test_cmux_next_base_autofix_finishes.py
           python3 tests/test_cmux_next_pr_autofix_settings.py
+          python3 tests/test_car_guards.py
 
       # The cmux NEXT DEV update script (an unchanged build is left alone; an
       # update keeps sessions and reopens the app) and the classic session import.

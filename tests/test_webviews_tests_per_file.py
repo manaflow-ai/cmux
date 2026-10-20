@@ -73,7 +73,7 @@ def path_without_timeout(temp):
 
 
 class PerFileRunner(unittest.TestCase):
-    def run_runner(self, files, without_timeout=False, contents=None, shard=None, shard_count=None):
+    def run_runner(self, files, without_timeout=False, contents=None, shard=None, shard_count=None, extra_env=None):
         temp = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
         web = temp / "webviews"
         for name in files:
@@ -106,6 +106,7 @@ class PerFileRunner(unittest.TestCase):
         if shard is not None:
             env["CMUX_WEB_TEST_SHARD"] = str(shard)
             env["CMUX_WEB_TEST_SHARD_COUNT"] = str(shard_count)
+        env.update(extra_env or {})
         started = time.monotonic()
         result = subprocess.run(["bash", str(RUNNER)], cwd=web, env=env, capture_output=True, text=True, timeout=40)
         return result, time.monotonic() - started, sorted(calls.read_text(encoding="utf-8").split())
@@ -137,6 +138,20 @@ class PerFileRunner(unittest.TestCase):
         result, _, calls = self.run_runner(["test/a.test.ts", "src/b.test.tsx"])
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(calls, ["./src/b.test.tsx", "./test/a.test.ts"])
+
+    def test_a_focused_list_runs_only_those_files(self):
+        """scripts/ci/car_guards.py passes the focused tests a car selects."""
+        files = ["test/a.test.ts", "test/fail.test.ts", "src/b.test.tsx"]
+        result, _, calls = self.run_runner(files, extra_env={"CMUX_WEB_TEST_FILES": "src/b.test.tsx\ntest/a.test.ts\n"})
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(calls, ["./src/b.test.tsx", "./test/a.test.ts"])
+
+    def test_a_focused_list_naming_no_test_file_fails(self):
+        """A stale selection (a moved or deleted test) must not pass by running nothing."""
+        result, _, calls = self.run_runner(["test/a.test.ts"], extra_env={"CMUX_WEB_TEST_FILES": "test/gone.test.ts"})
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("test/gone.test.ts", result.stderr)
+        self.assertEqual(calls, [])
 
     def test_shards_cover_each_file_once(self):
         files = ["test/a.test.ts", "test/b.test.ts", "test/c.test.ts", "src/d.test.tsx", "src/e.test.tsx"]

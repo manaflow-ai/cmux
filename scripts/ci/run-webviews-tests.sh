@@ -11,6 +11,9 @@
 # with a `// cmux-web-test-timeout: SECONDS` header line.
 # CMUX_WEB_TEST_JOBS: files run at once (default: CMUX_CI_CPU_BUDGET, the cores a fleet
 # worker granted the step, else the CPU count).
+# CMUX_WEB_TEST_FILES: optional newline-separated test files (relative to webviews/) to run instead
+# of every file, for focused runs (scripts/ci/car_guards.py). A name the git index does not list
+# is an error, so a stale selection never passes by running nothing.
 # CMUX_WEB_TEST_SHARD / CMUX_WEB_TEST_SHARD_COUNT: optional one-based shard selector (for example
 # 1/2 or 2/2). Sharding happens after the git-index file list is built, so every shard keeps the
 # same per-file process and Vite-cache isolation rules while covering a disjoint deterministic set.
@@ -136,6 +139,22 @@ trap 'rm -rf "$results"' EXIT
 # bun test's default file names, from the git index so the list is the same everywhere.
 git ls-files -z -- '*.test.ts' '*.test.tsx' '*.test.js' '*.test.jsx' '*.test.mjs' \
   '*_test.ts' '*_test.tsx' '*.spec.ts' '*.spec.tsx' '*_spec.ts' '*_spec.tsx' > "$results/files"
+if [ -n "${CMUX_WEB_TEST_FILES:-}" ]; then
+  python3 - "$results/files" <<'PY'
+import os
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+listed = [item.decode() for item in path.read_bytes().split(b"\0") if item]
+wanted = [line.strip() for line in os.environ["CMUX_WEB_TEST_FILES"].splitlines() if line.strip()]
+missing = [name for name in wanted if name not in listed]
+if missing:
+    sys.exit("error: CMUX_WEB_TEST_FILES names files that are not webviews test files: " + ", ".join(missing))
+keep = [name for name in listed if name in set(wanted)]
+path.write_bytes(b"".join(name.encode() + b"\0" for name in keep))
+PY
+fi
 shard="${CMUX_WEB_TEST_SHARD:-}"
 shard_count="${CMUX_WEB_TEST_SHARD_COUNT:-}"
 if [ -n "$shard" ] || [ -n "$shard_count" ]; then
