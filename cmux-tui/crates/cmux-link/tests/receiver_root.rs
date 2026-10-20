@@ -51,10 +51,53 @@ mod linux {
             assert!(result != 0 || kind != libc::SOCK_STREAM, "private stdin leaked across exec");
             return;
         }
-        if mode == "transport" {
-            let daemon = cmux_link::root_bootstrap::Daemon::from_stdin()
+        if mode == "legacy_transport" {
+            // A lifetime-only recipient recognizes/seals the common v1
+            // startup prefix, but cannot accept a Native role or private data.
+            use std::os::fd::FromRawFd;
+            // SAFETY: fcntl validates stdin and returns a fresh descriptor.
+            let fd = unsafe { libc::fcntl(0, libc::F_DUPFD_CLOEXEC, 3) };
+            assert!(fd >= 0);
+            // SAFETY: fd is a new exclusively owned duplicate.
+            let mut parent = unsafe { UnixStream::from_raw_fd(fd) };
+            caller::verify_inherited_root_parent(parent.as_raw_fd()).unwrap();
+            let mut prefix = [0; 4];
+            parent.read_exact(&mut prefix).unwrap();
+            assert_eq!(&prefix, b"CMR\x01");
+            // SAFETY: seal this private inherited descriptor before any exec.
+            assert_eq!(unsafe { libc::fcntl(0, libc::F_SETFD, libc::FD_CLOEXEC) }, 0);
+            let (mut control, host) = UnixStream::pair().unwrap();
+            cmux_unix_socket::descriptor::send(&parent, &[1], host.as_raw_fd()).unwrap();
+            drop(host);
+            // No role descriptor, and therefore no key, may reach v1 even
+            // if a lifetime-only consumer stays connected indefinitely.
+            assert_eq!(control.read(&mut [0]).unwrap(), 0);
+            return;
+        }
+        if mode == "transport" || mode == "native_transport" {
+            let mut daemon = cmux_link::root_bootstrap::Daemon::from_stdin()
                 .unwrap()
                 .expect("the spawner discarded its private root channel");
+            if mode == "native_transport" {
+                daemon.native_permit().expect("root Native startup was not recognized");
+                daemon
+                    .attach_native(|mut role, stop| {
+                        role.set_nonblocking(false)?;
+                        role.set_read_timeout(Some(Duration::from_secs(10)))?;
+                        let mut payload = [0; 32];
+                        role.read_exact(&mut payload)?;
+                        assert_eq!(payload, [7; 32]);
+                        role.set_nonblocking(true)?;
+                        let mut fds = [
+                            libc::pollfd { fd: role.as_raw_fd(), events: libc::POLLIN, revents: 0 },
+                            libc::pollfd { fd: stop.as_raw_fd(), events: libc::POLLIN, revents: 0 },
+                        ];
+                        // SAFETY: both sockets remain owned through the wait.
+                        assert!(unsafe { libc::poll(fds.as_mut_ptr(), 2, 10_000) } > 0);
+                        Ok(())
+                    })
+                    .unwrap();
+            }
             let probe = Command::new(std::env::current_exe().unwrap())
                 .args(["--ignored", "--exact", "linux::receiver_root_fixture"])
                 .env_clear()
@@ -339,5 +382,82 @@ mod linux {
         host.detach();
         assert!(replacement.wait().unwrap().success());
         println!("ROOT_BOUNDARY_EXECUTED channel_lifetime");
+    }
+
+    fn transport_command(mode: &str) -> Command {
+        let mut command = Command::new(std::env::current_exe().unwrap());
+        command
+            .args(["--ignored", "--exact", "linux::receiver_root_fixture"])
+            .env_clear()
+            .env(FIXTURE, mode)
+            .uid(WORK_UID)
+            .gid(WORK_UID)
+            .stdout(Stdio::null())
+            .stderr(Stdio::inherit());
+        command
+    }
+
+    #[test]
+    #[ignore = "requires Linux root; scripts/ci/verify-link-root-boundary.py"]
+    fn receiver_root_privileged_native_payload_requires_startup_support_and_current_child() {
+        use cmux_link::root_bootstrap::{Capability, Host, StopReceipt};
+        use zeroize::Zeroizing;
+        root();
+        let legacy = Host::new_native().unwrap();
+        let ticket = legacy.new_ticket().unwrap();
+        assert!(legacy.offer(&ticket));
+        let mut command = transport_command("legacy_transport");
+        let child = legacy.spawn(&mut command, WORK_UID).unwrap();
+        drop(command);
+        drive_until(&legacy, |_| legacy.capability().is_some());
+        assert_eq!(legacy.capability(), Some(Capability::LifetimeOnly));
+        assert!(legacy.prepare_native(&ticket).is_none());
+        assert_eq!(
+            legacy.quiesce(std::time::Instant::now() + Duration::from_secs(2)).unwrap(),
+            StopReceipt::NoReceiver
+        );
+        legacy.detach();
+        assert!(child.wait().unwrap().success());
+
+        let host = Host::new_native().unwrap();
+        let first = host.new_ticket().unwrap();
+        assert!(host.offer(&first));
+        let mut command = transport_command("native_transport");
+        let child = host.spawn(&mut command, WORK_UID).unwrap();
+        drop(command);
+        drive_until(&host, |_| host.capability().is_some());
+        assert_eq!(host.capability(), Some(Capability::NativeReceiver));
+        let request = host.prepare_native(&first).unwrap();
+        let stopped = host.prepare_native(&first).unwrap();
+        assert!(host.publish_native(request, Zeroizing::new(vec![7; 32])));
+        drive_until(&host, |sent| sent);
+        assert_eq!(
+            host.quiesce(std::time::Instant::now() + Duration::from_secs(2)).unwrap(),
+            StopReceipt::Acknowledged
+        );
+        assert!(!host.publish_native(stopped, Zeroizing::new(vec![7; 32])));
+        let next = host.new_ticket().unwrap();
+        assert!(host.offer(&next));
+        let old_target = host.prepare_native(&next).unwrap();
+        // SAFETY: actual still-owned unreaped fixture child.
+        assert_eq!(unsafe { libc::kill(child.id() as i32, libc::SIGTERM) }, 0);
+        assert_eq!(child.wait().unwrap().signal(), Some(libc::SIGTERM));
+        assert!(host.drive().is_err());
+        host.daemon_exited();
+        let mut command = transport_command("native_transport");
+        let replacement = host.spawn(&mut command, WORK_UID).unwrap();
+        drop(command);
+        drive_until(&host, |_| host.capability().is_some());
+        assert!(!host.publish_native(old_target, Zeroizing::new(vec![7; 32])));
+        let fresh = host.prepare_native(&next).unwrap();
+        assert!(host.publish_native(fresh, Zeroizing::new(vec![7; 32])));
+        drive_until(&host, |sent| sent);
+        assert_eq!(
+            host.quiesce(std::time::Instant::now() + Duration::from_secs(2)).unwrap(),
+            StopReceipt::Acknowledged
+        );
+        host.detach();
+        assert!(replacement.wait().unwrap().success());
+        println!("ROOT_BOUNDARY_EXECUTED native_private_channel");
     }
 }

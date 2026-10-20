@@ -10,6 +10,13 @@ use std::thread::JoinHandle;
 use super::refused;
 use crate::caller::verify_inherited_root_parent;
 
+/// Proof of Native support requested on this root parent's startup channel.
+/// This cannot be constructed from a role frame or a public caller claim.
+#[derive(Clone)]
+pub struct NativePermit {
+    _sealed: (),
+}
+
 /// A private root-parent watcher, owned by the session daemon's startup scope.
 pub struct Daemon {
     parent: Arc<UnixStream>,
@@ -18,6 +25,17 @@ pub struct Daemon {
 }
 
 impl Daemon {
+    pub fn native_permit(&self) -> Option<NativePermit> {
+        None
+    }
+
+    pub fn attach_native<F>(&mut self, _recipient: F) -> io::Result<()>
+    where
+        F: Fn(UnixStream, UnixStream) -> io::Result<()> + Send + Sync + 'static,
+    {
+        Err(io::ErrorKind::Unsupported.into())
+    }
+
     /// Call before any terminal-host exec. Ordinary stdin is left untouched.
     /// Valid private stdin is duplicated and sealed before later children run.
     pub fn from_stdin() -> io::Result<Option<Self>> {

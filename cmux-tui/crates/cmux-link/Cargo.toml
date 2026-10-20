@@ -22,6 +22,7 @@ libc.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
 cmux-unix-socket.workspace = true
+zeroize.workspace = true
 
 [dev-dependencies]
 cmux-unix-socket = { workspace = true, features = ["test-support"] }
