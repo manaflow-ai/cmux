@@ -555,7 +555,7 @@ pub fn file_from_json(params: &Value) -> Result<RouteFile, RouteError> {
         fallback: strings("fallback"),
         auto_fallback: params.get("autoFallback").and_then(Value::as_bool).unwrap_or(false),
         notes: text("notes"),
-        account_home: text("accountHome"),
+        account_home: crate::route_account::from_json(params)?,
     };
     validate(&file)?;
     Ok(file)

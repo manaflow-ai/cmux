@@ -99,6 +99,14 @@ fn an_account_home_is_one_clis_absolute_folder_on_a_subscription_route() {
                        "accountHome": "/a/${HOME}"}))
         .contains("absolute")
     );
+    // An empty or non-string home is refused, never the default login.
+    for empty in [json!(""), json!(7)] {
+        let params = json!({"kind": "direct-subscription", "families": ["claude"],
+                            "accountHome": empty});
+        assert!(bad(params).contains("absolute"));
+    }
+    let none = json!({"kind": "direct-subscription", "families": ["claude"], "accountHome": null});
+    assert_eq!(route(none).unwrap().file.account_home, None);
 }
 
 #[test]

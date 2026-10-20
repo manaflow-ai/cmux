@@ -25,6 +25,19 @@ pub fn home_var(family: &str) -> Option<&'static str> {
     }
 }
 
+/// `accountHome` of a route/add request: absent or null is none; anything
+/// else must be a path ([`validate`]), never an empty or non-string value
+/// that would quietly mean the default login.
+pub fn from_json(params: &serde_json::Value) -> Result<Option<String>, RouteError> {
+    match params.get("accountHome") {
+        None | Some(serde_json::Value::Null) => Ok(None),
+        Some(serde_json::Value::String(home)) if !home.is_empty() => Ok(Some(home.clone())),
+        Some(other) => {
+            Err(RouteError::BadParams(format!("accountHome {other} is not an absolute path")))
+        }
+    }
+}
+
 /// An account home belongs to a direct-subscription route of exactly one
 /// family that has a home variable, and is an absolute path that is never
 /// expanded at spawn (no `${…}`).
