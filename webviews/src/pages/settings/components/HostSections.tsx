@@ -74,12 +74,24 @@ export function BrowserProfiles() {
 
 export function MachinesSection({ title }: { title: string }) {
   const { host } = useSettingsState();
+  const store = useStore();
   if (!host) return null;
   return (
     <section className="group" data-card="machines">
       <h3 className="group-title">{title}</h3>
       <div className="rows">
         <ListRows rows={host.machines} empty={t("settingsWindow.machinesEmpty")} marks />
+      </div>
+      <div className="host-footer">
+        {/* The Add Server card, as the palette opens it; the page passes no code, so it never approves. */}
+        <button
+          type="button"
+          className="button"
+          data-add-server=""
+          onClick={() => void store.runAction("server.addServer")}
+        >
+          {t("action.server.addServer")}
+        </button>
       </div>
     </section>
   );

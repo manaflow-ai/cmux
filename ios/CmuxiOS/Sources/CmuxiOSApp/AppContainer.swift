@@ -28,6 +28,9 @@ final class AppContainer {
     let approveSigner: (any FeedApproveSigning)?
     private let notificationDelegate: NotificationDelegate
     private(set) var home: HomeStore?
+    /// Action Button / Siri / Shortcuts Chief calls (ios-action-button-DESIGN.md).
+    private(set) lazy var chiefCall = ChiefCallLauncher(store: { [weak self] in self?.home },
+                                                         notesRoot: ChiefCallLauncher.defaultNotesRoot())
     private var homeAccount: String?
     /// Set while the API Worker refuses this app version (enterprise P17,
     /// `client.too_old`); Home shows it as an update-required banner.
@@ -158,6 +161,7 @@ final class AppContainer {
             await push.signOut(of: user)
             await identity?.signedOut(of: user)
         }
+        chiefCall.signedOut()
         home?.stop()
         home = nil
         homeAccount = nil

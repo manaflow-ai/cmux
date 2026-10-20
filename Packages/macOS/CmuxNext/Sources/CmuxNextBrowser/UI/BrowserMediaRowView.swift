@@ -12,9 +12,15 @@ public final class BrowserMediaRowView: NSView {
     public static let width: CGFloat = 300
 
     private var media: BrowserMediaState
-    private let onCommand: (BrowserMediaCommand) -> Void
-    private let onReveal: () -> Void
+    private var onCommand: (BrowserMediaCommand) -> Void
+    private var onReveal: () -> Void
     private let artwork = NSImageView()
+    private let titleLabel = ChromeLabel(labelWithString: "")
+    private let subtitleLabel = ChromeLabel(labelWithString: "")
+    private lazy var previous = button(.previousTrack)
+    private lazy var next = button(.nextTrack)
+    /// The artwork address last loaded (`BrowserMediaRows` keeps a loaded image).
+    public var artworkURL: URL?
     private lazy var playPause = button(.playPause)
     private lazy var mute = button(.toggleMute)
 
@@ -29,8 +35,8 @@ public final class BrowserMediaRowView: NSView {
         artwork.wantsLayer = true
         artwork.layer?.cornerRadius = 6
         artwork.layer?.masksToBounds = true
-        let titleLabel = label(title, font: .systemFont(ofSize: 13, weight: .semibold), color: .labelColor)
-        let subtitleLabel = label(subtitle, font: .systemFont(ofSize: 11), color: .secondaryLabelColor)
+        style(titleLabel, title, font: .systemFont(ofSize: TypeScale.body, weight: TypeScale.emphasis), color: .labelColor)
+        style(subtitleLabel, subtitle, font: .systemFont(ofSize: TypeScale.caption, weight: TypeScale.regular), color: .secondaryLabelColor)
         let text = NSStackView(views: [titleLabel, subtitleLabel])
         text.orientation = .vertical
         text.alignment = .leading
@@ -38,7 +44,6 @@ public final class BrowserMediaRowView: NSView {
         let header = NSStackView(views: [artwork, text])
         header.alignment = .centerY
         header.spacing = 10
-        let previous = button(.previousTrack), next = button(.nextTrack)
         previous.isEnabled = media.actions.contains(.previoustrack)
         next.isEnabled = media.actions.contains(.nexttrack)
         let controls = NSStackView(views: [previous, playPause, next, mute])
@@ -65,6 +70,24 @@ public final class BrowserMediaRowView: NSView {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    /// Shows another state in place: the media hub reuses a tab's card between opens instead of
+    /// building its labels, stacks and four buttons again (u2426).
+    public func show(title: String, subtitle: String, media: BrowserMediaState, artwork image: NSImage?,
+                     onCommand: @escaping (BrowserMediaCommand) -> Void, onReveal: @escaping () -> Void) {
+        self.media = media
+        self.onCommand = onCommand
+        self.onReveal = onReveal
+        if titleLabel.stringValue != title { titleLabel.stringValue = title }
+        if subtitleLabel.stringValue != subtitle { subtitleLabel.stringValue = subtitle }
+        titleLabel.isHidden = title.isEmpty
+        subtitleLabel.isHidden = subtitle.isEmpty
+        if let image, artworkURL == nil { artwork.image = image }
+        previous.isEnabled = media.actions.contains(.previoustrack)
+        next.isEnabled = media.actions.contains(.nexttrack)
+        setAccessibilityLabel([title, subtitle].filter { !$0.isEmpty }.joined(separator: ", "))
+        update()
+    }
 
     /// The artwork, once loaded.
     public func setArtwork(_ image: NSImage) { artwork.image = image }
@@ -103,13 +126,12 @@ public final class BrowserMediaRowView: NSView {
         return view
     }
 
-    private func label(_ text: String, font: NSFont, color: NSColor) -> ChromeLabel {
-        let field = ChromeLabel(labelWithString: text)
+    private func style(_ field: ChromeLabel, _ text: String, font: NSFont, color: NSColor) {
+        field.stringValue = text
         field.font = font
         field.textColor = color
         field.lineBreakMode = .byTruncatingTail
         field.maximumNumberOfLines = 1
         field.isHidden = text.isEmpty
-        return field
     }
 }

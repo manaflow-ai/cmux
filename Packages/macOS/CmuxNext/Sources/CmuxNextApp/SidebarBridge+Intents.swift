@@ -12,6 +12,14 @@ import CmuxNextSidebar
 extension SidebarBridge {
     func handle(_ intent: SidebarIntent) {
         guard let state else { return }
+        // A group's fold is view state: this window shows it now, on that group's rows only, then tells the
+        // document (its owner of record) the value. No round trip and no rebuild (state-ownership-DESIGN.md).
+        if case let .toggleCollapse(.group(group)) = intent, SidebarDocWiring.isActive, let doc = SidebarDocStore.current,
+           let shown = model.group(group)?.isCollapsed {
+            rows.foldShown(group, collapsed: !shown)
+            doc.setGroupCollapsed(group.rawValue, !shown) { [weak self] in self?.rows.dropFold(group) }
+            return
+        }
         if CloudCreationRows.handle(intent, bridge: self, state: state) || SidebarDocWiring.handle(intent, bridge: self) { return }
         // A section's collapse is window view state (sidebar snapshot), never a daemon command.
         if case .toggleCollapse(.section) = intent {
@@ -109,6 +117,10 @@ extension SidebarBridge {
              .hideNowPlayingCard:
             SidebarCardFeed.handle(intent, services: services)
         case .nowPlaying(let command): services.cache.pageRequests.sidebarSources.perform(command)
+        case .toggleWorkspaceAudio(let id):
+            // The row's speaker runs the workspace menu's, palette's and CLI's action.
+            _ = services.registry.perform(BrowserTabAudio.workspaceToggleActionID,
+                                          invocation: ActionInvocation(target: ActionTargetRef(kind: .workspace, id: id.rawValue), origin: .user))
         case .layout(let op):
             applyLayoutOp(op)
         case .dropOnLayoutSection(let ids, let section, let index):

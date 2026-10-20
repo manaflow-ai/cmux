@@ -21,10 +21,12 @@ fn serve(
     refused: Vec<&'static str>,
     requests: Arc<Mutex<Vec<Value>>>,
 ) {
+    let created_key = Arc::new(Mutex::new(Value::Null));
     std::thread::spawn(move || {
         for conn in listener.incoming().flatten() {
             let (requests, capabilities) = (requests.clone(), capabilities.clone());
             let refused = refused.clone();
+            let created_key = created_key.clone();
             std::thread::spawn(move || {
                 let mut out = conn.try_clone().unwrap();
                 for line in BufReader::new(conn.try_clone().unwrap()).lines() {
@@ -60,6 +62,9 @@ fn serve(
                         );
                         continue;
                     }
+                    if req["cmd"] == "create-workspace" {
+                        *created_key.lock().unwrap() = req["key"].clone();
+                    }
                     let data = match req["cmd"].as_str().unwrap() {
                         "identify" => {
                             json!({"app": "cmux", "version": "test", "protocol": 12, "capabilities": capabilities,
@@ -76,6 +81,11 @@ fn serve(
                             "screen": 8, "surface": 10, "terminal_id": "term_1",
                             "terminal_incarnation": null, "terminal_revision": 1, "workspace": 7
                         }),
+                        // The real tree (tree_json.rs) carries each workspace's key and public id.
+                        "list-workspaces" => json!({"workspaces": [
+                            {"id": 6, "key": "other", "resource_id": "ws_00000000000000000000000000000006", "name": "Home", "active": true, "screens": []},
+                            {"id": 7, "key": created_key.lock().unwrap().clone(), "resource_id": "ws_cbd7f86ef04cb1b8d1f2f7a235d6538e", "name": "a1 · summarize", "active": false, "screens": []}
+                        ]}),
                         // The user's own group by a topic name is reused.
                         "list-workspace-groups" => json!({"groups": [
                             {"id": "grp_user_sidebar", "name": "Sidebar & Tabs", "collapsed": false}
@@ -285,4 +295,30 @@ fn a_topic_group_the_session_has_is_reused() {
     let moved = commands(&requests, "move-workspace-to-group");
     assert_eq!(moved.len(), 1);
     assert_eq!(moved[0]["group"], "grp_user_sidebar");
+}
+
+/// a313 (2026-10-20): the user asked to pin a306's workspace at the top, and
+/// nothing could find it: the spawn reply named only a UUID key, and an agent's
+/// `cmux` talks to the app's daemon, not the Chief's owner daemon that holds
+/// the subagent workspaces. The host names each one by its public id and session.
+#[test]
+fn a_subagent_workspace_is_located_by_its_public_id_and_session() {
+    let (w, _requests, _dir) = workspaces(GROUPED.to_vec());
+    let key = w
+        .open(
+            &optchat_chief::workspaces::new_key(),
+            "sess-1",
+            "a1 · summarize",
+            "Chief agents",
+            Path::new("/tmp"),
+        )
+        .unwrap();
+    let found = w.locate(&key).expect("the daemon names the workspace");
+    assert_eq!(found.id, "ws_cbd7f86ef04cb1b8d1f2f7a235d6538e");
+    assert_eq!(found.session, "main");
+    assert_eq!(
+        found.move_to_top(),
+        "cmux --session main workspace ws_cbd7f86ef04cb1b8d1f2f7a235d6538e move --index 0"
+    );
+    assert!(w.locate("no-such-key").is_none());
 }

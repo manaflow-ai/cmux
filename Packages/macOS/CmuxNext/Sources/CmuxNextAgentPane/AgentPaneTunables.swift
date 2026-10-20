@@ -321,6 +321,15 @@ public nonisolated struct AgentPaneTunables {
         help: "A chat with a message keeps the model menu's harness rail and Add harness…, and a pick in another harness starts a new chat there.",
         default: false, code: "AgentPaneTunables.harnessSwitchInStartedChat")
 
+    /// Whether Esc on an empty composer stops a running turn only on a second press inside a short
+    /// window, as in Claude Code. On (the default), the first press shows "Press Esc again to stop"
+    /// in the prompt; off, one press stops the turn. It applies live, as the `composer` event's
+    /// `escapeDoublePress` (AgentPaneComposerSetting, webviews composerSettings.ts, escapeStop.ts).
+    public static let escapeStopDoublePress = Tunable<Bool>.toggle(
+        "agent.escapeStopDoublePress", PageTunables.section, "Esc stops a turn on a double press",
+        help: "Esc on an empty composer stops a running turn only when pressed twice in a row. Off, one press stops it.",
+        default: true, code: "AgentPaneTunables.escapeStopDoublePress")
+
     /// The session sidebar's latest-reply hover preview treatment. User layout customization may
     /// still override this choice with `layout.sidebarPreviewVariant` for a prototype.
     public static let sidebarPreviewVariant = Tunable<AgentPaneSidebarPreviewVariant>.choice(
@@ -333,6 +342,7 @@ public nonisolated struct AgentPaneTunables {
             chatWidth.descriptor,
             codexToolRuns.descriptor,
             composerPlainFooter.descriptor,
+            escapeStopDoublePress.descriptor,
             foldLongThoughts.descriptor,
             harnessSwitchInStartedChat.descriptor,
             liveThoughtViewport.descriptor,

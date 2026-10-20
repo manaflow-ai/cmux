@@ -69,6 +69,11 @@ extension TabStripModel {
             ordered.insert(copy, at: index + 1)
             tabs = ordered
             select(copy)
+        case .toggleAudioMute(let id):
+            // The demo's speaker: playing and muted swap (the App mutes the page instead).
+            guard let index = tabs.firstIndex(where: { $0.id == id }), let audio = tabs[index].audio else { return false }
+            tabs[index].audio = audio == .muted ? .playing : .muted
+            return true
         case .pin(let id), .unpin(let id):
             guard tab(id) != nil else { return false }
             // Rebase on display order first so the tab lands at the end of

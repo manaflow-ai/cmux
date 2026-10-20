@@ -252,6 +252,7 @@ fn a_second_chief_answers_its_dm_and_acts_on_its_own_in_a_channel_thread() {
     let settings = Settings {
         membership: Membership {
             participant: CHIEF.into(),
+            owner: cmux_chief::rules::USER_LOCAL.into(),
             group_wake: GroupWake::Every,
             local_side: true,
         },
@@ -410,6 +411,7 @@ fn start_chief(daemon: &Daemon, me: &mut Conn, participant: &str, title: &str) -
     let settings = Settings {
         membership: Membership {
             participant: participant.into(),
+            owner: cmux_chief::rules::USER_LOCAL.into(),
             group_wake: GroupWake::Every,
             local_side: true,
         },
