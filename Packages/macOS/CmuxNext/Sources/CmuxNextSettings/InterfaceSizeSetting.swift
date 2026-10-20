@@ -40,7 +40,7 @@ extension DesignSettings {
     /// Steps the interface size by `delta` (a scale step, or a point) and returns the value to save.
     public func stepInterfaceSize(by delta: Int) -> Double {
         guard interfaceScaleEnabled else {
-            let points = overrides[.chromeFontSize] ?? (density == .compact ? 12 : 13)
+            let points = overrides[.chromeFontSize] ?? densityTokens.bodySize
             setOverride(.chromeFontSize, points + CGFloat(delta))
             return Double(overrides[.chromeFontSize] ?? points)
         }

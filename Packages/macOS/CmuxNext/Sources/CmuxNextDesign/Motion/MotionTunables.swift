@@ -25,6 +25,10 @@ public nonisolated enum MotionTunables {
         .track: (SpringParameters(response: 0.12, dampingFraction: 0.9), "Drop-zone overlay and the drag ghost jumping between targets."),
         .selection: (SpringParameters(response: 0.15, dampingFraction: 0.9), "Page info toggle state change. The sidebar selection does not animate."),
         .panel: (SpringParameters(response: 0.18, dampingFraction: 0.85), "Hover card slide."),
+        // Lawrence 2026-10-20 (Home's Chief pill popover, "animation needs to be better"): the card
+        // grows out of its control on a ~0.25 s spring with a hint of give, like an NSPopover.
+        .popover: (SpringParameters(response: 0.25, dampingFraction: 0.86), "A popup growing out of its control (Chief pill, group editors, page info, menus)."),
+        .popoverClose: (SpringParameters(response: 0.16, dampingFraction: 1), "A popup shrinking back toward its control as it fades: faster than its open."),
         .pinDrag: (SpringParameters(response: 0.3512407365520363, dampingFraction: 0.8385254915624211),
                    "Home list pin drag: tiles making room, rows below the grid, a dropped tile landing."),
     ]
@@ -129,6 +133,13 @@ public nonisolated enum MotionTunables {
         "motion.panel.closeScale", .palette, "Panel close scale", help: "Scale the palette shrinks to when it closes.",
         default: 0.98, range: 0.8...1, step: 0.005, unit: .multiplier, code: "MotionTunables.panelCloseScale")
 
+    public static let popupOpenScale = Tunable<Double>.number(
+        "motion.popup.openScale", .palette, "Popup open scale", help: "Scale a popup grows from, about its control, when it opens.",
+        default: 0.95, range: 0.8...1, step: 0.005, unit: .multiplier, code: "MotionTunables.popupOpenScale")
+    public static let popupCloseScale = Tunable<Double>.number(
+        "motion.popup.closeScale", .palette, "Popup close scale", help: "Scale a popup shrinks to, toward its control, when it closes.",
+        default: 0.97, range: 0.8...1, step: 0.005, unit: .multiplier, code: "MotionTunables.popupCloseScale")
+
     // MARK: Launch
 
     public static let launchMarkDelay = Tunable<Double>.number(
@@ -148,7 +159,7 @@ public nonisolated enum MotionTunables {
             + MotionLoop.allCases.compactMap { loops[$0]?.descriptor }
             + [marqueeDelay, marqueeSpeed, marqueeMinimumScroll, marqueeHold, marqueeMinimumTravel,
                tooltipDelay, tooltipWarm, hoverCardGrace, hoverCardAim].map(\.descriptor)
-            + [panelOpenScale, panelCloseScale].map(\.descriptor)
+            + [panelOpenScale, panelCloseScale, popupOpenScale, popupCloseScale].map(\.descriptor)
     }
 }
 

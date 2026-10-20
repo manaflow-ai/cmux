@@ -23,7 +23,7 @@ use serde_json::{Map, Value, json};
 use super::{GlobalArgs, OutputMode, wire};
 use crate::localization::AgentsDoctorMessages;
 
-const HELP: &str = "Usage: cmux agents doctor [--json]\n\nReports whether this machine is ready for agents: Claude Code and Codex on PATH, their cmux-cua computer use wiring, and the macOS grants of cmux Computer Use (Accessibility, Screen Recording, capture consent). Read-only: it never changes a config and never asks for a grant. Exits 0 for every report; 2 on a usage error. --json prints {\"schema_version\":1,\"checks\":[...]}; every row has exactly the keys id, status (ok, missing, unknown, not_applicable, cmux_only), reason, detail, fix and fix_url (null when there is none).\n";
+const HELP: &str = "Usage: cmux agents doctor [--json]\n\nReports whether this machine is ready for agents: Claude Code and Codex on PATH, their cmux-cua computer use wiring, any older cmux on PATH that a login shell could run instead of this one, and the macOS grants of cmux Computer Use (Accessibility, Screen Recording, capture consent). Read-only: it never changes a config and never asks for a grant. Exits 0 for every report; 2 on a usage error. --json prints {\"schema_version\":1,\"checks\":[...]}; every row has exactly the keys id, status (ok, missing, unknown, not_applicable, cmux_only, outdated), reason, detail, fix and fix_url (null when there is none).\n";
 
 /// The app method that reports Computer Use Setup's grants.
 pub(super) const STATUS_METHOD: &str = "computer_use.status";
@@ -42,6 +42,8 @@ enum Status {
     NotApplicable,
     /// Not configured for the user, but injected into chats cmux starts.
     CmuxOnly,
+    /// An older `cmux` that a login shell may find first.
+    Outdated,
 }
 
 impl Status {
@@ -52,6 +54,7 @@ impl Status {
             Self::Unknown => "unknown",
             Self::NotApplicable => "not_applicable",
             Self::CmuxOnly => "cmux_only",
+            Self::Outdated => "outdated",
         }
     }
 
@@ -62,6 +65,7 @@ impl Status {
             Self::Unknown => messages.status_unknown,
             Self::NotApplicable => messages.status_not_applicable,
             Self::CmuxOnly => messages.status_cmux_only,
+            Self::Outdated => messages.status_outdated,
         }
     }
 }
@@ -144,7 +148,7 @@ impl Check {
     fn finding(&self) -> Value {
         let status = match self.status {
             Status::Ok | Status::NotApplicable => "ok",
-            Status::CmuxOnly | Status::Unknown => "warn",
+            Status::CmuxOnly | Status::Unknown | Status::Outdated => "warn",
             Status::Missing if self.other_harness => "warn",
             Status::Missing => "fail",
         };
@@ -263,11 +267,12 @@ pub(super) fn run(global: &GlobalArgs, args: &[String]) -> i32 {
 }
 
 /// Every check id, in report order.
-const CHECK_IDS: [&str; 7] = [
+const CHECK_IDS: [&str; 8] = [
     "harness.claude",
     "harness.codex",
     "mcp.claude",
     "mcp.codex",
+    "cli.shadow",
     "grant.accessibility",
     "grant.screen_recording",
     "grant.capture_consent",
@@ -322,8 +327,8 @@ pub(super) fn mcp_tool() -> Value {
         "name": MCP_TOOL,
         "title": "Agents doctor",
         "description": "Check whether this machine is ready for agents, as `cmux agents doctor` \
-            does: Claude Code and Codex on PATH, their cmux-cua computer use wiring and the \
-            macOS grants of cmux Computer Use. Read-only: it runs no fix and changes no \
+            does: Claude Code and Codex on PATH, their cmux-cua computer use wiring, an older \
+            cmux on PATH, and the macOS grants of cmux Computer Use. Read-only: it runs no fix and changes no \
             setting. Answers {schema_version, findings}; each finding is {id, status (ok, \
             warn, fail), reason, summary, fix}, where fix is null or {text, command, palette, \
             url}: a command to run as written, a cmux command palette entry, or a System \
@@ -438,7 +443,113 @@ fn checks_without_grants(environment: &Environment, messages: &AgentsDoctorMessa
             || codex_cua(environment),
             messages,
         ),
+        cli_shadow_check(environment.path.as_deref(), messages),
     ]
+}
+
+// MARK: Older cmux on PATH
+
+/// How long one `cmux --version` may take.
+const VERSION_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// Every `cmux` on `path` that is not this CLI and is older than it: a login
+/// shell (Codex runs each command in `zsh -lc`) that lists one first runs it
+/// instead of this CLI. The PyPI `cmux` (cmux-tui) in `~/.local/bin` is the
+/// usual one. App-bundled CLIs (`*.app/Contents/Resources/bin/cmux`) are left
+/// out: each belongs to its own app. Runs only `--version` of each.
+fn cli_shadow_check(path: Option<&OsStr>, messages: &AgentsDoctorMessages) -> Check {
+    let label = messages.check_cli_shadow;
+    let own_version = env!("CARGO_PKG_VERSION");
+    let own = parse_version(own_version);
+    let this = std::env::current_exe().and_then(std::fs::canonicalize).ok();
+    let mut seen: Vec<PathBuf> = Vec::new();
+    let mut older: Vec<(PathBuf, String)> = Vec::new();
+    for dir in path.map(std::env::split_paths).into_iter().flatten() {
+        let candidate = dir.join("cmux");
+        let Ok(meta) = std::fs::metadata(&candidate) else { continue };
+        if !meta.is_file() || meta.permissions().mode() & 0o111 == 0 {
+            continue;
+        }
+        let real = std::fs::canonicalize(&candidate).unwrap_or_else(|_| candidate.clone());
+        if this.as_ref() == Some(&real) || seen.contains(&real) || in_app_bundle(&real) {
+            continue;
+        }
+        seen.push(real);
+        let Some(version) = version_of(&candidate) else { continue };
+        if let (Some(theirs), Some(own)) = (parse_version(&version), own)
+            && theirs < own
+        {
+            older.push((candidate, version));
+        }
+    }
+    if older.is_empty() {
+        return Check::new("cli.shadow", label, Status::Ok, "no_older_cli")
+            .detail(messages.no_older_cli);
+    }
+    let list = older
+        .iter()
+        .map(|(path, version)| format!("{} ({version})", path.display()))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let paths =
+        older.iter().map(|(path, _)| path.display().to_string()).collect::<Vec<_>>().join(", ");
+    Check::new("cli.shadow", label, Status::Outdated, "older_cli_on_path")
+        .detail(messages.older_cli_on_path.replace("{list}", &list).replace("{own}", own_version))
+        .fix(messages.remove_older_cli.replace("{paths}", &paths))
+}
+
+/// Whether `path` is inside `<name>.app/Contents/Resources/bin/`.
+fn in_app_bundle(path: &Path) -> bool {
+    path.parent().is_some_and(|bin| {
+        bin.ends_with("Contents/Resources/bin")
+            && bin
+                .ancestors()
+                .nth(3)
+                .is_some_and(|app| app.extension().is_some_and(|extension| extension == "app"))
+    })
+}
+
+/// The first `X.Y.Z` that `<cli> --version` prints, within
+/// [`VERSION_TIMEOUT`]; `None` when it fails, hangs or prints none.
+fn version_of(cli: &Path) -> Option<String> {
+    use std::io::Read;
+    let mut child = std::process::Command::new(cli)
+        .arg("--version")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .ok()?;
+    let deadline = std::time::Instant::now() + VERSION_TIMEOUT;
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => break,
+            Ok(None) if std::time::Instant::now() < deadline => {
+                // A bounded wait for one child, polled in 20 ms steps: std has
+                // no wait with a timeout, and the doctor is a one-shot command.
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+            _ => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return None;
+            }
+        }
+    }
+    let mut text = String::new();
+    child.stdout.take()?.take(4096).read_to_string(&mut text).ok()?;
+    text.split(|c: char| !(c.is_ascii_digit() || c == '.'))
+        .find(|word| parse_version(word).is_some())
+        .map(str::to_owned)
+}
+
+/// `X.Y.Z` (ignoring anything after a third number) as a comparable triple.
+fn parse_version(text: &str) -> Option<(u64, u64, u64)> {
+    let mut parts = text.split('.');
+    let major = parts.next()?.parse().ok()?;
+    let minor = parts.next()?.parse().ok()?;
+    let patch = parts.next()?.parse().ok()?;
+    Some((major, minor, patch))
 }
 
 // MARK: Harnesses
