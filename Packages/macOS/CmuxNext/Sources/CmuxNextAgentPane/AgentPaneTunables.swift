@@ -379,6 +379,7 @@ public nonisolated struct AgentPaneTunables {
             sidebarPreviewVariant.descriptor,
             sideColumn.descriptor,
             sideSessions.descriptor,
+            sourceIcons.descriptor,
             suggestedTasks.descriptor,
             tableScroll.descriptor,
             terminalButtonAdds.descriptor,

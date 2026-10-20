@@ -138,6 +138,7 @@ import { DictationNotice } from "./DictationNotice";
 import type { MarkdownFieldHandle } from "./MarkdownField";
 import type { ChangesSource } from "./changes/model";
 import { RevealedMarkdown } from "./conversation/RevealedMarkdown";
+import { ReplySourceIconsContext } from "./chips/ReplySourceIconsContext";
 import { ThoughtFold } from "./conversation/ThoughtFold";
 import { isThoughtNote } from "./conversation/thoughtStyle";
 import { WriteKeys, type GitWriteOp } from "./changes/gitWrite";
@@ -649,11 +650,13 @@ const MessageRow = memo(
       );
     return (
       <RenderLiveContext.Provider value={row.renderLive === true ? { attachment: row.renderAttachment ?? 0 } : false}>
-        <RevealedMarkdown
-          text={row.text ?? ""}
-          streaming={row.streaming === true}
-          githubRepository={githubRepository}
-        />
+        <ReplySourceIconsContext.Provider value={true}>
+          <RevealedMarkdown
+            text={row.text ?? ""}
+            streaming={row.streaming === true}
+            githubRepository={githubRepository}
+          />
+        </ReplySourceIconsContext.Provider>
       </RenderLiveContext.Provider>
     );
   },
