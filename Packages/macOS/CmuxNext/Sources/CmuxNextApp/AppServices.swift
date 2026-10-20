@@ -237,6 +237,10 @@ final class AppServices {
     /// This Mac's layout templates (Save Layout as Template, New Workspace from Template).
     private(set) lazy var layoutTemplates = LayoutTemplateLibrary(repository: LayoutTemplateRepository(fileURL: environment.layoutTemplatesFile))
     /// Room, workspace and terminal themes.
+    /// Every daemon answers terminal color queries with the colors terminals are painted with.
+    private(set) lazy var terminalColors = TerminalColorSync(machines: machines) {  // first read in init (no IUO)
+        GhosttyRuntime.shared.themeColors.map(TerminalDefaultColors.init)
+    }
     private(set) lazy var themes: ThemeCoordinator = ThemeCoordinator(services: self, terminalThemes: .forApplication(bundleIdentifier: environment.launch.bundleID))  // first read in init (no IUO)
     /// Browser tabs of remote machines reach that machine's localhost.
     private(set) lazy var remoteLocalhost = machines.makeRemoteLocalhost()  // first read in init (no IUO)
@@ -316,6 +320,13 @@ final class AppServices {
         }
         _ = cache  // built here, as before
         _ = themes  // built here, as before
+        _ = terminalColors
+        let runtime = GhosttyRuntime.shared
+        let previousConfigChange = runtime.onConfigChange
+        runtime.onConfigChange = { [weak self] in
+            previousConfigChange?()
+            self?.terminalColors.apply()
+        }
         _ = remoteLocalhost  // built here, as before
         cache.configureBrowser = { [weak self] tab, url, base in  // a Cloud proxied tab's store first (ProxiedBrowserTabs)
             let base = self?.cache.pageRequests.closedHistories.restoring(base, url: url, local: self?.machines.daemon(forTab: tab).isLocal == true, tab: tab.id) ?? base  // cx-d0d.59

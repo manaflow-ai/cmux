@@ -33,6 +33,15 @@ public final class DaemonService {
     public let recovery = DaemonRecovery()
     public private(set) var connection: DaemonConnection?
     public private(set) var windowState: WindowStateStore?
+    /// The colors this app paints the daemon's terminals with, sent at every
+    /// connect and on every change so the daemon answers OSC 10/11/12 queries
+    /// with them (DaemonService+TerminalColors). Nil until the app knows them.
+    public var terminalDefaultColors: TerminalDefaultColors? {
+        didSet { if terminalDefaultColors != oldValue { pushTerminalDefaultColors() } }
+    }
+    /// The running push of `terminalDefaultColors`, and whether a newer value waits for it.
+    @ObservationIgnored var terminalColorsPush: Task<Void, Never>?
+    @ObservationIgnored var terminalColorsPending = false
     /// The current (or last) daemon's identity. The store owns it and
     /// replaces it on every handshake, so capabilities follow a daemon that
     /// restarted or was handed off to a newer build after the first connect.
@@ -317,6 +326,7 @@ public final class DaemonService {
         startupDeadlineTimer = nil
         lastStartupError = nil
         startup = .connected
+        pushTerminalDefaultColors()
         relaunchKeptLayoutIfNeeded(connection)
     }
 
