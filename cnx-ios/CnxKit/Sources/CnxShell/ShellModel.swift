@@ -427,6 +427,9 @@ final class ShellModel {
                 }
                 theme.haptics.success()
                 switchTeam(to: team.id)
+            } catch ServiceTeamCreation.Failure.unavailable {
+                toast = CnxToast(symbol: "exclamationmark.circle", text: "Creating teams isn't available for this account yet")
+                theme.haptics.error()
             } catch {
                 toast = CnxToast(symbol: "exclamationmark.circle", text: "Couldn't create the team")
                 theme.haptics.error()

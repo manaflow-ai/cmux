@@ -44,7 +44,8 @@
         { "name": "USER_LIMIT", "namespace_id": "4101", "simple": { "limit": 300, "period": 60 } },
         { "name": "ICE_LIMIT", "namespace_id": "4102", "simple": { "limit": 30, "period": 60 } },
         { "name": "INVITE_LIMIT", "namespace_id": "4103", "simple": { "limit": 10, "period": 60 } },
-        { "name": "NOTIFY_LIMIT", "namespace_id": "4104", "simple": { "limit": 60, "period": 60 } }
+        { "name": "NOTIFY_LIMIT", "namespace_id": "4104", "simple": { "limit": 60, "period": 60 } },
+        { "name": "TEAM_LIMIT", "namespace_id": "4105", "simple": { "limit": 3, "period": 60 } }
       ],
       "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "e4fd2e88cfcd4f00841ddc5b49c3ee06" }]
     },
@@ -67,7 +68,8 @@
         { "name": "USER_LIMIT", "namespace_id": "4201", "simple": { "limit": 300, "period": 60 } },
         { "name": "ICE_LIMIT", "namespace_id": "4202", "simple": { "limit": 30, "period": 60 } },
         { "name": "INVITE_LIMIT", "namespace_id": "4203", "simple": { "limit": 10, "period": 60 } },
-        { "name": "NOTIFY_LIMIT", "namespace_id": "4204", "simple": { "limit": 60, "period": 60 } }
+        { "name": "NOTIFY_LIMIT", "namespace_id": "4204", "simple": { "limit": 60, "period": 60 } },
+        { "name": "TEAM_LIMIT", "namespace_id": "4205", "simple": { "limit": 3, "period": 60 } }
       ],
       "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "11158756425f41469964743aab2f6319" }]
     }

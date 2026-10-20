@@ -368,7 +368,13 @@ public final class WorkspaceTabsSource: TabsDataSource {
             showUnavailable(option)
             return nil
         }
-        guard pendingTabTitle == nil else { return nil }
+        // One tab at a time; a second request says so instead of doing nothing (full verify D8).
+        if let pending = pendingTabTitle {
+            tabsLog.info("tab request \(option.id, privacy: .public) while \(pending, privacy: .public) is opening")
+            show("Still opening \(pending). Try again once it's open.")
+            return nil
+        }
+        tabsLog.info("tab request \(option.id, privacy: .public) on \(self.macName, privacy: .public)")
         pendingTabTitle = option.title
         Task { @MainActor [weak self] in
             guard let self else { return }

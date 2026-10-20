@@ -483,7 +483,7 @@ public final class FeedStore {
                     mutate(id) {
                         guard $0.attempt == attempt else { return }
                         $0.pending = nil
-                        $0.resolution = "Allowed: \(option.name)"
+                        $0.resolution = Self.allowedText(option.name)
                         $0.isRead = true
                     }
                 } catch {
@@ -513,9 +513,20 @@ public final class FeedStore {
         applyRespond(id, option: option)
     }
 
+    /// The card's line after an Allow: the option's own words when they say more than
+    /// "Allow" ("Allowed: Always for this chat"), else "Allowed" (full verify D12: "Allowed: Allow").
+    static func allowedText(_ name: String) -> String {
+        let plain = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        switch plain.lowercased() {
+        case "", "allow", "yes", "approve", "ok": return "Allowed"
+        case "allow once", "yes, once", "once": return "Allowed once"
+        default: return "Allowed: \(plain)"
+        }
+    }
+
     private func applyRespond(_ id: String, option: ACPPermissionOption) {
         mutate(id) {
-            $0.resolution = option.isAllow ? "Allowed: \(option.name)" : "Denied"
+            $0.resolution = option.isAllow ? Self.allowedText(option.name) : "Denied"
             $0.isRead = true
         }
     }

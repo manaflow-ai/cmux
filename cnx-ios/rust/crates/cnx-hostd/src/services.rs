@@ -656,14 +656,76 @@ fn confine_open(_roots: &[PathBuf], _file: &tokio::fs::File) -> Result<(), Refus
     Ok(())
 }
 
+/// The workspace folders a phone may read from: the folders of the tabs the
+/// Mac's daemon lists, the same folders the app shares with phones for agent
+/// chats (`_acpmux/workspace_roots_set`, agentcwd). A folder that is `/`, the
+/// home folder or any ancestor of it is dropped, as acpmux drops it: a tab in
+/// `~` must not open `~/.ssh` to a phone.
+pub fn shareable_workspace_folders(folders: Vec<PathBuf>, home: &Path) -> Vec<PathBuf> {
+    let mut out: Vec<PathBuf> = Vec::new();
+    for folder in folders {
+        if !home.starts_with(&folder) && !out.contains(&folder) {
+            out.push(folder);
+        }
+    }
+    out
+}
+
+/// `path` resolved and spelled as the filesystem stores it (on macOS, `F_GETPATH`:
+/// the stored case and Unicode form), as acpmux's `fs_spelling` compares roots, so a
+/// tab whose shell spelled home `/users/ME` is still home. None when it can't be opened.
+pub fn stored_spelling(path: &Path) -> Option<PathBuf> {
+    let canonical = std::fs::canonicalize(path).ok()?;
+    #[cfg(target_vendor = "apple")]
+    {
+        use std::os::fd::AsRawFd;
+        let file = std::fs::File::open(&canonical).ok()?;
+        let mut buffer = vec![0u8; libc::PATH_MAX as usize];
+        // SAFETY: F_GETPATH writes at most PATH_MAX bytes into `buffer`, which holds
+        // PATH_MAX bytes, for a descriptor this function owns.
+        if unsafe { libc::fcntl(file.as_raw_fd(), libc::F_GETPATH, buffer.as_mut_ptr()) } != -1 {
+            let end = buffer.iter().position(|&b| b == 0).unwrap_or(buffer.len());
+            return Some(PathBuf::from(String::from_utf8_lossy(&buffer[..end]).into_owned()));
+        }
+    }
+    Some(canonical)
+}
+
+/// `CNX_FILE_ROOTS` (the Chat Folders) and the shareable workspace folders. Without a
+/// home folder that resolves, no workspace folder is shared (one might be home).
+pub fn shared_file_roots(file_roots: &[PathBuf], folders: Vec<PathBuf>, home: &Path) -> Vec<PathBuf> {
+    let mut roots = file_roots.to_vec();
+    let Some(home) = stored_spelling(home) else { return roots };
+    let folders = folders.iter().filter_map(|f| stored_spelling(f)).collect();
+    for folder in shareable_workspace_folders(folders, &home) {
+        if !roots.contains(&folder) {
+            roots.push(folder);
+        }
+    }
+    roots
+}
+
 /// `file`: stream one regular file inside a workspace root, then close
-/// with `eof`.
+/// with `eof`. The roots are the Chat Folders, then (only when the file is
+/// outside them) the Mac's workspace folders as they are now.
 async fn file(config: &ServiceConfig, args: &Value, sender: &ChannelSender) -> Result<(), Refusal> {
     let requested = args
         .get("path")
         .and_then(Value::as_str)
         .ok_or_else(|| Refusal::new("bad_request", "missing path"))?;
-    let resolved = confine(&config.file_roots, Path::new(requested))?;
+    let (resolved, roots) = match confine(&config.file_roots, Path::new(requested)) {
+        Ok(resolved) => (resolved, config.file_roots.clone()),
+        Err(refusal) if refusal.code == "forbidden" => {
+            // No home folder or no daemon answer: only the Chat Folders (the refusal stands).
+            let Some(home) = std::env::var_os("HOME").filter(|h| !h.is_empty()).map(PathBuf::from) else {
+                return Err(refusal);
+            };
+            let folders = daemon_folders(config).await.unwrap_or_default();
+            let roots = shared_file_roots(&config.file_roots, folders, &home);
+            (confine(&roots, Path::new(requested))?, roots)
+        }
+        Err(refusal) => return Err(refusal),
+    };
     // Non-blocking, so a FIFO inside a root cannot hold the open; the checks below
     // refuse anything that is not a regular file.
     let mut file = tokio::fs::OpenOptions::new()
@@ -674,7 +736,7 @@ async fn file(config: &ServiceConfig, args: &Value, sender: &ChannelSender) -> R
         .map_err(|_| Refusal::new("not_found", "cannot open"))?;
     // A path component swapped for a symlink between the check and the open would
     // escape the roots: check again where the open descriptor really points.
-    confine_open(&config.file_roots, &file)?;
+    confine_open(&roots, &file)?;
     let metadata = file.metadata().await.map_err(|_| Refusal::new("not_found", "cannot stat"))?;
     if !metadata.is_file() {
         return Err(Refusal::new("bad_request", "not a regular file"));
@@ -1173,6 +1235,38 @@ mod tests {
             .expect("open blocked")
             .unwrap();
         assert!(!file.metadata().await.unwrap().is_file());
+    }
+
+    #[test]
+    fn workspace_folders_share_projects_never_home_or_above() {
+        // Full verify D9: the phone's chat edits files in its workspace folder,
+        // which the Mac shares with phones (agentcwd); home and its ancestors never.
+        let home = Path::new("/Users/me");
+        let folders = vec![
+            PathBuf::from("/Users/me/code/app"),
+            PathBuf::from("/Users/me"),
+            PathBuf::from("/Users"),
+            PathBuf::from("/"),
+            PathBuf::from("/tmp/scratch"),
+            PathBuf::from("/Users/me/code/app"),
+        ];
+        assert_eq!(
+            shareable_workspace_folders(folders, home),
+            vec![PathBuf::from("/Users/me/code/app"), PathBuf::from("/tmp/scratch")]
+        );
+    }
+
+    #[test]
+    fn a_file_in_a_workspace_folder_is_inside_the_shared_roots() {
+        let project = tempfile::tempdir().unwrap();
+        std::fs::write(project.path().join("README.md"), "r").unwrap();
+        let home = tempfile::tempdir().unwrap();
+        let roots = shared_file_roots(&[], vec![project.path().to_path_buf(), home.path().to_path_buf()], home.path());
+        assert!(confine(&roots, &project.path().join("README.md")).is_ok());
+        assert_eq!(roots.len(), 1, "home is never a root: {roots:?}");
+        // A home that doesn't resolve shares no workspace folder at all.
+        let gone = home.path().join("missing");
+        assert!(shared_file_roots(&[], vec![project.path().to_path_buf()], &gone).is_empty());
     }
 
     #[test]
