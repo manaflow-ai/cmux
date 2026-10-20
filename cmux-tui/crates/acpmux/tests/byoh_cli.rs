@@ -105,7 +105,7 @@ impl User {
 impl Drop for User {
     fn drop(&mut self) {
         if let Some(mut child) = self.daemon.take() {
-            let _ = self.run(&["daemon", "shutdown"]);
+            let _ = self.run(&["daemon", "shutdown", "--end-agents"]);
             let _ = child.kill();
             let _ = child.wait();
         }
@@ -201,4 +201,99 @@ fn doctor_names_the_exact_fix_when_the_program_cannot_start() {
         command["fix"].as_str().unwrap().contains(&profile.display().to_string()),
         "the fix does not name the profile file: {report}"
     );
+}
+
+#[test]
+fn byo_endpoint_cli_adds_an_endpoint_profile_with_keychain_refs() {
+    let user = User::new("byoe");
+    let dir = user.root.join("xdg").join("cmux").join("harnesses");
+
+    // Anthropic-compatible: Claude Code with the endpoint, the model and a
+    // Keychain reference for the token.
+    let out = user.run(&[
+        "--json",
+        "harness",
+        "add",
+        "acme",
+        "--example",
+        "anthropic-endpoint",
+        "--base-url",
+        "https://llm.example.com",
+        "--model",
+        "acme-1",
+        "--keychain-item",
+        "acme-key",
+        "--name",
+        "Acme",
+    ]);
+    assert!(out.status.success(), "add failed: {}", text(&out));
+    let added: Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(added["path"], json!(dir.join("acme.toml")), "{added}");
+    assert_eq!(added["secret"]["key"], "ANTHROPIC_AUTH_TOKEN", "{added}");
+    let file = std::fs::read_to_string(dir.join("acme.toml")).unwrap();
+    assert!(file.contains(r#"ANTHROPIC_AUTH_TOKEN = { keychain = "acme-key" }"#), "{file}");
+    assert!(file.contains(r#"ANTHROPIC_BASE_URL = "https://llm.example.com""#), "{file}");
+    assert!(file.contains(r#"protocol = "claude-stdio""#), "{file}");
+
+    // OpenAI-compatible: OpenCode, its key from the default Keychain item.
+    let out = user.run(&[
+        "harness",
+        "add",
+        "local-oai",
+        "--example",
+        "openai-endpoint",
+        "--base-url",
+        "http://127.0.0.1:11434/v1",
+        "--model",
+        "qwen3",
+    ]);
+    assert!(out.status.success(), "add failed: {}", text(&out));
+    assert!(
+        text(&out).contains("cmux harness secret set local-oai CMUX_BYO_API_KEY"),
+        "no next step: {}",
+        text(&out)
+    );
+    let file = std::fs::read_to_string(dir.join("local-oai.toml")).unwrap();
+    assert!(
+        file.contains(
+            r#"CMUX_BYO_API_KEY = { keychain = "cmux-harness/local-oai/CMUX_BYO_API_KEY" }"#
+        ),
+        "{file}"
+    );
+
+    // Plain http to another host is refused, and nothing is written.
+    let out = user.run(&[
+        "harness",
+        "add",
+        "plain",
+        "--example",
+        "openai-endpoint",
+        "--base-url",
+        "http://llm.example.com/v1",
+        "--model",
+        "m",
+    ]);
+    assert!(!out.status.success(), "plain http was accepted: {}", text(&out));
+    assert!(text(&out).contains("https"), "{}", text(&out));
+    assert!(!dir.join("plain.toml").exists());
+
+    // The endpoint flags go only with an endpoint example.
+    let out =
+        user.run(&["harness", "add", "x", "--command", "x", "--base-url", "https://a.example"]);
+    assert!(!out.status.success(), "{}", text(&out));
+
+    // The help names both kinds, in English and in Japanese.
+    let out = user.run(&["harness", "add", "--help"]);
+    let help = text(&out);
+    for want in ["anthropic-endpoint", "openai-endpoint", "--base-url", "--keychain-item"] {
+        assert!(help.contains(want), "{want} missing: {help}");
+    }
+    let out = user
+        .cmd()
+        .env("LC_ALL", "ja_JP.UTF-8")
+        .args(["harness", "add", "--help"])
+        .output()
+        .unwrap();
+    let help = text(&out);
+    assert!(help.contains("キーチェーン"), "no Japanese help: {help}");
 }

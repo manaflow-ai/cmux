@@ -124,7 +124,10 @@ struct RestoreWindowFieldsDebugTests {
         defer { for controller in services.windows.controllers { controller.window?.close() } }
         let result: Result<Void, any Error>
         do {
-            try await until({ services.windows.active?.window != nil && services.daemon.connection != nil }, within: .seconds(90))
+            // Launch is over: its first workspace (a New Tab page) was made and shown. Before
+            // that, `restore()` could land it over the test's workspace mid-body.
+            try await until({ services.windows.active?.window != nil && services.daemon.connection != nil && !services.windows.registry.isLaunching },
+                            within: .seconds(90))
             result = .success(try await body(services, Router(router: router)))
         } catch { result = .failure(error) }
         if let connection = services.daemon.connection {

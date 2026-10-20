@@ -1,11 +1,17 @@
 import { DurableObject } from "cloudflare:workers"
 import type { Env } from "../env.ts"
-import { ackWake, chiefPrincipal, runChanged, typing } from "../chief-brain/brain-io.ts"
+import { assertFaultHooks } from "../chief-fault.ts"
+import { ackWake, chiefPrincipal, typing } from "../chief-brain/brain-io.ts"
+import { turnFailedNotice } from "../chief-brain/brain-gateway.ts"
 import type { Admission } from "../chief-brain/brain-do.ts"
-import { type Run, type Step, readSteps, upsertStep } from "../chief-brain/brain-runs.ts"
-import { HOLDER, signedFetch } from "../chief-brain/claude-auth.ts"
-import { type CpNote, type CpRun, type CpWake, decodeNote } from "./contract.ts"
+import type { Step } from "../chief-brain/brain-runs.ts"
+import { signedFetch, turnsObject } from "../chief-brain/claude-auth.ts"
+import { claudeRoute, isMetered } from "../model-gateway/routes.ts"
+import { gatewayMessages } from "../model-gateway/http.ts"
+import { payerTeam } from "../credits.ts"
+import type { CpNote, CpRun, CpWake } from "./contract.ts"
 import { brainModel, hostCall, HostRefused, type Who } from "./host.ts"
+import { LiveRuns } from "./live-runs.ts"
 
 /**
  * OpencodeBrainDO, one per Chief (name = the agent id): the Chief Protocol HOST for implementation
@@ -36,7 +42,6 @@ const PORT = 4096
 const IDLE_MS = 10 * 60_000
 const READY_MS = 60_000
 const TURN_MS = 10 * 60_000
-const DELTA_FLUSH_MS = 40
 const MAX_ATTEMPTS = 3
 const PLUGIN_DIR = "/opt/cmux-chief/plugin"
 
@@ -53,16 +58,6 @@ const SCHEMA = [
 
 export type BrainImpl = "pi" | "opencode"
 
-interface Live {
-  readonly run: string
-  readonly conversation: string
-  readonly done: Promise<CpNote | null>
-  resolve(v: CpNote | null): void
-  /** Pending talk/thought text per step id, flushed every 40 ms. */
-  readonly pending: Map<string, string>
-  readonly text: Map<string, string>
-  timer?: ReturnType<typeof setTimeout>
-}
 
 /** Constant-time string equality (the container token). */
 const sameToken = (a: string, b: string): boolean => {
@@ -76,7 +71,15 @@ const sameToken = (a: string, b: string): boolean => {
 
 export class OpencodeBrainDO extends DurableObject<Env> {
   private readonly sql = this.ctx.storage.sql
-  private readonly live = new Map<string, Live>()
+  private readonly runsView = new LiveRuns({
+    env: this.env,
+    sql: this.sql,
+    tx: (fn) => this.ctx.storage.transactionSync(fn),
+    waitUntil: (p) => this.ctx.waitUntil(p),
+    get: (n) => this.get(n),
+    set: (n, v) => this.set(n, v),
+    wakeOf: (r) => this.wakeOf(r)
+  })
   private readonly draining = new Map<string, Promise<void>>()
   private streamAbort: AbortController | undefined
   private streaming = false
@@ -135,6 +138,8 @@ export class OpencodeBrainDO extends DurableObject<Env> {
     if (this.get("agent") !== w.agent) return { skipped: "other_chief" }
     this.set("owner", w.owner)
     const cursor = this.sql.exec<{ seq: number }>(`SELECT seq FROM oc_cursor WHERE conversation = ?`, w.conversation).toArray()[0]?.seq
+    // A resent wake whose message a later turn already read is answered: nothing to do (MuxDO redelivery).
+    if (cursor !== undefined && w.seq <= cursor) return { queued: 0 }
     // A conversation this brain never answered starts just before the wake: older history is context, not a question.
     if (cursor === undefined) this.sql.exec(`INSERT INTO oc_cursor (conversation, seq) VALUES (?, ?)`, w.conversation, w.seq - 1)
     const fresh = this.sql.exec(`INSERT INTO oc_wake (wake_id, conversation, seq, reason) VALUES (?, ?, ?, ?) ON CONFLICT (wake_id) DO NOTHING RETURNING n`, `${w.conversation}:${w.seq}`, w.conversation, w.seq, w.reason).toArray()
@@ -179,6 +184,19 @@ export class OpencodeBrainDO extends DurableObject<Env> {
     if (row.tries >= MAX_ATTEMPTS) return this.endWake(row.n, run, "failed", "the brain did not finish the turn")
     const admitted = (await this.settings(agent).admit(agent, owner, row.tries === 0)) as Admission
     if (!admitted.ok) return void this.sql.exec(`UPDATE oc_wake SET state = 'skipped' WHERE n = ?`, row.n)
+    // A metered model counts against the deployment's daily Claude cap, as on P (the holder decides).
+    const model = brainModel(admitted.config.model)
+    if (row.tries === 0 && isMetered(model)) {
+      // The owner's turns object counts it (no global object; claude-auth.ts ownerTurn). Only "ok" runs.
+      const turns = this.env.CHIEF_BRAIN_DO.get(this.env.CHIEF_BRAIN_DO.idFromName(turnsObject(owner)))
+      const verdict = await turns.claudeTurn(owner, model).catch(() => "unreachable")
+      if (verdict !== "ok") {
+        this.endWake(row.n, run, "skipped", `no paid turn (${verdict})`)
+        // A paid model this owner may not use: the same notice as on P, never a silent wake (its own key: P run ids use run_<n> too).
+        if (verdict === "owner_not_allowed" || verdict === "model_not_offered") await turnFailedNotice(this.env, this.sql, admitted.config, conversation, `oc_${run}`, `no paid turn (${verdict})`, undefined)
+        return
+      }
+    }
     this.sql.exec(`UPDATE oc_wake SET state = 'running', run = ?, tries = tries + 1 WHERE n = ?`, run, row.n)
     // An eviction mid-turn loses the in-memory loop: the alarm picks the running row up again.
     await this.alarmAt(Date.now() + TURN_MS + 60_000)
@@ -189,7 +207,7 @@ export class OpencodeBrainDO extends DurableObject<Env> {
       for (let attempt = 0; attempt < MAX_ATTEMPTS && ended === null; attempt++) {
         if ((await this.impl()) !== "opencode") break
         await this.ensureContainer()
-        const live = this.track(run, conversation)
+        const live = this.runsView.track(run, conversation)
         const wake: CpWake = { wake_id: String(row.n), conversation, cursor, reason: row.reason }
         const out = (await this.rpc("wake", wake).catch((e: unknown) => (console.warn(JSON.stringify({ msg: "chief_opencode.wake_failed", error: String(e).slice(0, 300) })), null))) as { accepted?: boolean } | null
         // Wait for run/end; a lost stream or a repeated wake asks the brain where the run is.
@@ -204,7 +222,7 @@ export class OpencodeBrainDO extends DurableObject<Env> {
           else if (status?.state !== "running") break
           else if (!this.streaming) await this.openStream().catch(() => undefined)
         }
-        this.untrack(run)
+        this.runsView.untrack(run)
       }
     } finally {
       void typing(this.env, conversation, agent, false)
@@ -319,7 +337,7 @@ export class OpencodeBrainDO extends DurableObject<Env> {
             if (!data.includes("rpc.cmux-chief.cp")) continue
             try {
               const ev = JSON.parse(data) as { type?: string; data?: unknown }
-              if (ev.type === "rpc.cmux-chief.cp") this.onNote(ev.data)
+              if (ev.type === "rpc.cmux-chief.cp") this.runsView.onNote(ev.data)
             } catch {
               /* a frame that is not JSON */
             }
@@ -331,123 +349,19 @@ export class OpencodeBrainDO extends DurableObject<Env> {
         // Only the current stream speaks for the container: a replaced one ends quietly.
         if (this.streamAbort === ac) {
           this.streaming = false
-          for (const l of this.live.values()) l.resolve(null)
+          this.runsView.endAll()
         }
       }
     })()
     this.ctx.waitUntil(pump)
   }
 
-  // ------------------------------------------------------------------ CP notifications -> runs and live frames
-  private track(run: string, conversation: string): Live {
-    let resolve!: (v: CpNote | null) => void
-    const done = new Promise<CpNote | null>((r) => (resolve = r))
-    const live: Live = { run, conversation, done, resolve, pending: new Map(), text: new Map() }
-    this.live.set(run, live)
-    return live
-  }
-  private untrack(run: string): void {
-    const l = this.live.get(run)
-    if (l?.timer) clearTimeout(l.timer)
-    this.live.delete(run)
-  }
-
-  private onNote(raw: unknown): void {
-    const decoded = decodeNote(raw)
-    if (decoded._tag === "None") return
-    const note = decoded.value
-    const agent = this.get("agent")
-    if (!agent) return
-    const runId = note.method === "run/start" || note.method === "run/end" ? note.params.run.id : note.params.run
-    // The run's conversation is the wake's: a brain cannot write a run into another conversation.
-    const wake = this.wakeOf(runId)
-    if (!wake) return
-    const live = this.live.get(runId)
-    switch (note.method) {
-      case "run/start":
-      case "run/end": {
-        const r = { ...note.params.run, conversation: wake.conversation } as CpRun & Record<string, unknown>
-        const ended = note.method === "run/end"
-        const answers = Array.isArray(r.answers) ? (r.answers as Array<unknown>).filter((x): x is string => typeof x === "string").slice(0, 100) : []
-        this.ctx.storage.transactionSync(() => {
-          this.sql.exec(
-            `INSERT INTO cb_turn (id, conversation, trigger_message, trigger_kind, trigger_thread_root, last_seq, status, model, started, reason, ended, post) VALUES (?, ?, ?, 'chief', ?, 0, ?, ?, ?, ?, ?, ?)
-             ON CONFLICT (id) DO UPDATE SET status = excluded.status, reason = excluded.reason, ended = excluded.ended, post = excluded.post`,
-            r.id, wake.conversation, answers.at(-1) ?? "", typeof r.thread_root === "string" ? r.thread_root : null, r.status, r.model ?? "claude-opus-5-5", r.started_at, r.error ?? null, r.ended_at ?? null, ended ? (r.status === "done" ? "posted" : "none") : null
-          )
-          for (const m of answers) this.sql.exec(`INSERT INTO cb_inbox (message, conversation, seq, kind, text, state, turn) VALUES (?, ?, 0, 'chief', '', 'done', ?) ON CONFLICT (message) DO UPDATE SET turn = excluded.turn`, m, wake.conversation, r.id)
-          this.sql.exec(`INSERT INTO oc_run (id, body) VALUES (?, ?) ON CONFLICT (id) DO UPDATE SET body = excluded.body`, r.id, JSON.stringify(r))
-          if (ended) this.sql.exec(`DELETE FROM oc_config WHERE name = ?`, `activity:${r.id}`)
-        })
-        if (live) this.flush(live)
-        this.announce(agent, r.id, [])
-        if (ended) live?.resolve(note)
-        return
-      }
-      case "run/step": {
-        const s = note.params.step
-        const step = upsertStep(this.sql, runId, s as never, Date.now())
-        if (live && (s.kind === "talk" || s.kind === "thought")) {
-          live.pending.delete(s.id)
-          live.text.delete(s.id)
-        }
-        this.announce(agent, runId, [step])
-        return
-      }
-      case "run/delta": {
-        if (!live) return
-        const p = note.params
-        live.text.set(p.step, (live.text.get(p.step) ?? "") + p.text)
-        live.pending.set(p.step, p.kind)
-        if (!live.timer) live.timer = setTimeout(() => this.flush(live), DELTA_FLUSH_MS)
-        return
-      }
-      case "run/activity":
-        // Ephemeral: no frame for it on ConversationDO yet (the stream frame lands with hq-ec); kept for the run read while it runs.
-        this.set(`activity:${runId}`, note.params.line.slice(0, 80))
-        return
-    }
-  }
-
-  /** Partial talk/thought text as a step (no storage write): the page streams it until the full step lands. */
-  private flush(live: Live): void {
-    if (live.timer) clearTimeout(live.timer)
-    live.timer = undefined
-    const agent = this.get("agent")
-    if (!agent || live.pending.size === 0) return
-    const now = Date.now()
-    const steps = [...live.pending].map(([id, kind]) => ({ id, seq: 0, at: now, kind: kind === "thought" ? "thought" : "talk", text: live.text.get(id) ?? "" }) as Step)
-    live.pending.clear()
-    this.announce(agent, live.run, steps)
-  }
-
-  private announce(agent: string, runId: string, steps: ReadonlyArray<Step>): void {
-    const run = this.readRun(agent, runId)
-    if (run) this.ctx.waitUntil(runChanged(this.env, run.conversation, agent, run, steps))
-  }
-
-  private readRun(agent: string, id: string): (Run & Record<string, unknown>) | null {
-    const body = this.sql.exec<{ body: string }>(`SELECT body FROM oc_run WHERE id = ?`, id).toArray()[0]?.body
-    if (!body) return null
-    const r = JSON.parse(body) as Record<string, unknown>
-    const counts = this.sql.exec<{ n: number; last: number | null }>(`SELECT COUNT(*) AS n, MAX(seq) AS last FROM cb_step WHERE turn = ?`, id).one()
-    const activity = this.get(`activity:${id}`)
-    return { ...r, author: agent, turn: `${agent}:chief-reply:${id}`, step_count: Number(counts.n), last_step_seq: Number(counts.last ?? 0), ...(activity && r.status === "running" ? { activity } : {}) } as Run & Record<string, unknown>
-  }
-
   // ------------------------------------------------------------------ reads (the Worker checked membership)
   async runs(conversation: string, before: number | undefined, limit: number): Promise<{ runs: Array<Record<string, unknown>>; has_more: boolean }> {
-    const agent = this.get("agent")
-    if (!agent) return { runs: [], has_more: false }
-    const rows = this.sql.exec<{ id: string }>(`SELECT id FROM cb_turn WHERE conversation = ? AND started < ? ORDER BY started DESC LIMIT ?`, conversation, before ?? Number.MAX_SAFE_INTEGER, limit + 1).toArray()
-    return { runs: rows.slice(0, limit).flatMap((r) => this.readRun(agent, String(r.id)) ?? []), has_more: rows.length > limit }
+    return this.hasSchema() ? this.runsView.runs(conversation, before, limit) : { runs: [], has_more: false }
   }
   async run(id: string, afterSeq = 0, limit = 500): Promise<{ run: Record<string, unknown>; steps: Array<Step>; has_more: boolean } | null> {
-    const agent = this.get("agent")
-    const run = agent ? this.readRun(agent, id) : null
-    if (!run) return null
-    const steps = readSteps(this.sql, id, afterSeq, limit + 1)
-    return { run, steps: steps.slice(0, limit), has_more: steps.length > limit }
+    return this.hasSchema() ? this.runsView.run(id, afterSeq, limit) : null
   }
 
   // ------------------------------------------------------------------ container -> host (the Worker routes /v1/chief-opencode/<agent>/{cp,gateway})
@@ -489,18 +403,23 @@ export class OpencodeBrainDO extends DurableObject<Env> {
   }
 
   /**
-   * Stub of the host model gateway (Anthropic Messages in, SSE out) until the shared gateway lands:
-   * admission first (a Chief turned off stops spending at once), then the metered Claude route with
-   * the holder's sign-in, exactly the route P uses today. Credits (UsageMeterDO reserve/settle) go
-   * here, the one place every O model call passes.
+   * The container's model route (Anthropic Messages in, SSE out): admission first (a Chief turned off
+   * stops spending at once), then the host model gateway, the same allow-list, credits and Claude
+   * route P uses.
    */
   private async gateway(request: Request): Promise<Response> {
     const who = await this.who()
     if ("refused" in who) return Response.json({ type: "error", error: { type: "permission_error", message: who.refused } }, { status: 403 })
-    const holder = this.env.CHIEF_BRAIN_DO.get(this.env.CHIEF_BRAIN_DO.idFromName(HOLDER))
-    const url = `${(this.env.CHIEF_BRAIN_CLAUDE_URL || "https://chatmux.dev/api/claude-david").replace(/\/+$/, "")}/v1/messages`
-    const f = signedFetch(() => holder.claudeAuth(), () => holder.claudeInvalidate())
-    return f(url, { method: "POST", headers: request.headers, body: await request.text() }).catch((e: unknown) => Response.json({ type: "error", error: { type: "api_error", message: e instanceof Error ? e.message : "gateway failed" } }, { status: 502 }))
+    // The host model gateway (model-gateway/http.ts): allow-list, prepaid credits of the owner's team, the Claude route.
+    return gatewayMessages(this.env, { team: payerTeam(who.owner), chief: who.agent, owner: who.owner, run: "opencode" }, request)
+  }
+
+  /** Test-only (chief-fault.ts, CHIEF_FAULT_HOOKS, never staging or production): stop the container at once, as a crash. */
+  async fault(): Promise<{ stopped: boolean }> {
+    assertFaultHooks(this.env)
+    if (!this.ctx.container?.running) return { stopped: false }
+    this.ctx.container.signal(9)
+    return { stopped: true }
   }
 
   // ------------------------------------------------------------------ retries, turn guard and idle sleep

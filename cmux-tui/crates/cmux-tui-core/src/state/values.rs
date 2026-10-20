@@ -82,7 +82,48 @@ fn workspace_extra(
     if let Some(path) = super::agent_folder::agent_folder(connection, workspace_id)? {
         fields.insert("agent_folder".into(), json!(path));
     }
+    workspace_name_extra(connection, workspace_id, &mut fields)?;
+    // The workspace's key: what its terminals and agent chats carry as
+    // `CMUX_WORKSPACE_ID` (cx-ncc.96: `cmux agents chat` scopes chats by it).
+    let key = connection
+        .query_row(
+            "SELECT workspace_key FROM resource_workspaces WHERE public_id = ?1",
+            [workspace_id],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?;
+    if let Some(key) = key {
+        fields.insert("key".into(), json!(key));
+    }
     Ok(fields)
+}
+
+/// `workspace-name-source-v1`: who chose the name and its revision (a
+/// decimal string, like a tab's), read from the one stored row.
+fn workspace_name_extra(
+    connection: &Connection,
+    workspace_id: &str,
+    fields: &mut Map<String, Value>,
+) -> anyhow::Result<()> {
+    let provenance = connection
+        .query_row(
+            "SELECT w.name_source, w.name_revision
+             FROM resource_workspaces AS rw
+             JOIN workspaces AS w ON w.workspace_key = rw.workspace_key
+             WHERE rw.public_id = ?1",
+            [workspace_id],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
+        )
+        .optional()?;
+    if let Some((source, revision)) = provenance {
+        let (source, revision) =
+            crate::workspace_registry::workspace_name_store::stored_name_provenance(
+                &source, revision,
+            )?;
+        fields.insert("name_source".into(), json!(source));
+        fields.insert("name_revision".into(), json!(revision.to_string()));
+    }
+    Ok(())
 }
 
 fn tab_extra(connection: &Connection, tab_id: &str) -> anyhow::Result<Map<String, Value>> {
@@ -112,7 +153,8 @@ fn tab_extra(connection: &Connection, tab_id: &str) -> anyhow::Result<Map<String
     }
     let state = connection
         .query_row(
-            "SELECT zoom, back_json, forward_json, icon, emulation_json FROM tab_state WHERE tab_id = ?1",
+            "SELECT zoom, back_json, forward_json, icon, emulation_json, marked_unread
+             FROM tab_state WHERE tab_id = ?1",
             [tab_id],
             |row| {
                 Ok((
@@ -121,11 +163,12 @@ fn tab_extra(connection: &Connection, tab_id: &str) -> anyhow::Result<Map<String
                     row.get::<_, Option<String>>(2)?,
                     row.get::<_, Option<String>>(3)?,
                     row.get::<_, Option<String>>(4)?,
+                    row.get::<_, Option<i64>>(5)?,
                 ))
             },
         )
         .optional()?;
-    if let Some((zoom, back, forward, icon, emulation)) = state {
+    if let Some((zoom, back, forward, icon, emulation, marked_unread)) = state {
         if let Some(emulation) =
             emulation.as_deref().and_then(crate::state::browser_devices::resolve)
         {
@@ -136,6 +179,10 @@ fn tab_extra(connection: &Connection, tab_id: &str) -> anyhow::Result<Map<String
         }
         if let Some(icon) = icon {
             fields.insert("icon".into(), json!(icon));
+        }
+        // `tab-mark-unread-v1`: present only while the tab is marked.
+        if marked_unread.is_some_and(|value| value != 0) {
+            fields.insert("marked_unread".into(), json!(true));
         }
         for (name, list) in [("back", back), ("forward", forward)] {
             if let Some(list) = list {

@@ -11,6 +11,11 @@ nonisolated struct KeyFacts: Equatable, Sendable {
     /// The focused screen has a primary input and none of its text
     /// fields has the keyboard (`PrimaryInputTarget`).
     var primaryInputReady = false
+    /// The focused screen's primary input claims this key wherever in the
+    /// screen the keyboard is (`PrimaryInputTarget.routesToPrimaryInput`):
+    /// printable and dead keys, plus any key the screen adds (Home's history
+    /// arrows). Read only for a key that is not a Command or Control chord.
+    var primaryInputClaimsKey = false
     /// The focused page cannot take typing yet: its document has not
     /// focused its primary input, or keys typed before still wait.
     var pageInputPending = false
@@ -35,4 +40,7 @@ nonisolated struct KeyFacts: Equatable, Sendable {
     /// The top page the window shows (`home`), which fills the content
     /// area without a pane: its `surfaceKind`.
     var topPage: String?
+    /// The focused code editor waits for the second key of its own key sequence (Monaco's
+    /// Cmd-K Cmd-0): the next key goes to it, not to an app binding (`cmux.editor.keySequence`).
+    var pageKeySequencePending = false
 }

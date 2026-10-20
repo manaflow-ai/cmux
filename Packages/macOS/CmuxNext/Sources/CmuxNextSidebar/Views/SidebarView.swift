@@ -15,6 +15,9 @@ public enum SidebarAccessorySlot: CaseIterable, Sendable {
 /// the command palette (Go to Workspace), not here. Place it in a glass
 /// panel, or use `SidebarContainerView`, which adds the panel, width, and
 /// resize handle.
+// Keep implementation extensions in a separate checker namespace.
+typealias SidebarViewComponents = SidebarView
+
 public final class SidebarView: NSView {
     public let model: SidebarModel
     /// Height reserved at the top for the window's traffic lights (the
@@ -63,6 +66,8 @@ public final class SidebarView: NSView {
     var accessories: [SidebarAccessorySlot: NSView] = [:]
     let footer = NSView()
     let updateCardView = SidebarUpdateCardView(), nowPlayingCardView = SidebarNowPlayingCardView(), updatedCardView = SidebarUpdatedCardHost(), noticeCardView = SidebarNoticeCardView()
+    /// The card slot's height as the list lays out: springs when a card comes or goes.
+    let cardSlotMotion = SidebarCardSlotMotion()
     /// Where the spaces dots sit (`sidebar.spacesPosition`, R109).
     public var spacesPosition: SpacesPosition = .bottom {
         didSet { if spacesPosition != oldValue { needsLayout = true } }
@@ -71,11 +76,11 @@ public final class SidebarView: NSView {
     public var spacesVisibility: SpacesVisibilityMode = .hover {
         didSet { if spacesVisibility != oldValue { profileBar.alphaValue = spacesAlpha(revealed: isChromeRevealed) } }
     }
-    private var observation: Task<Void, Never>?
+    var observation: Task<Void, Never>?
     private var clipObservers: [any NSObjectProtocol] = []
-    private var lastState: RenderState?
+    var lastState: RenderState?
     /// The sections the list showed at the last render (for the space slide and the provisional check).
-    private var lastSections: [SidebarSection] = []
+    var lastSections: [SidebarSection] = []
     /// The bands' inputs changed since `updateBands` last ran (it runs in `layout`, only then).
     var bandsDirty = true
     /// The size the bands were laid out for (app sections take a share of the height).
@@ -106,7 +111,7 @@ public final class SidebarView: NSView {
             for token in clipObservers { NotificationCenter.default.removeObserver(token) }
         }
     }
-    override public var isFlipped: Bool { true }
+    nonisolated override public var isFlipped: Bool { true }
     // MARK: Public API
     /// An inline rename ended (commit or cancel). `byKeyboard` is true for
     /// Return, Escape or Tab; the host can return focus to its content.
@@ -225,7 +230,9 @@ public final class SidebarView: NSView {
 
     private func clipBoundsChanged() {
         list.realizeVisibleRows()
-        PointerHover.refresh(in: window)
+        // The list updates row hover as rows move. A window-wide refresh here
+        // rescans every chrome target on every scroll tick and adds no state
+        // change for the sidebar's fixed chrome.
     }
 
     private func scrollerStyleChanged() {
@@ -277,14 +284,16 @@ public final class SidebarView: NSView {
             updateBands()
         }
         let footerHeight: CGFloat = spacesPosition == .bottom && footerBand.dotsShareBandRow ? 0 : SidebarStyle.footerHeight
-        let cardsHeight = attachFooterCards(), updateHeight = cardSlot.height
+        // The list makes room for a card (and takes it back) on a spring; the card sits at its place.
+        let cardsHeight = attachFooterCards(), slotHeight = cardSlot.height
+        let updateHeight = cardSlotMotion.height(toward: slotHeight, in: self)
         // From the bottom up (R112/R114): the pinned footer section (the
         // profile control, then the dots), the band below the list, the
         // staged update card (UPDATE-CARD), the cards.
         let listFrame = layoutBands(top: y + spacesHeight, footerHeight: footerHeight + updateHeight + cardsHeight)
         if !isChromeRevealed { belowFade.alphaValue = belowRegion.restAlpha(hiddenByMode: minimalHiddenBands.bottom) }
         footer.frame = NSRect(x: 0, y: belowFade.frame.minY - footerHeight, width: b.width, height: footerHeight)
-        cardSlot.place(above: footer.frame.minY, width: b.width, slotHeight: updateHeight)
+        cardSlot.place(above: footer.frame.minY, width: b.width, slotHeight: slotHeight)
         footerCards?.frame = NSRect(x: 0, y: footer.frame.minY - updateHeight - cardsHeight, width: b.width, height: cardsHeight)
         footerBand.layoutFooter(visibleSlots)
         footerBand.placeSpaces(top: y, height: spacesHeight)
@@ -311,101 +320,6 @@ public final class SidebarView: NSView {
 
     // The pointer over the sidebar reveals its chrome: `chromeHover`, set up in init.
 
-    // MARK: Observation
-
-    /// Everything the list renders. Emitting a value type lets the list
-    /// skip reloads when an unrelated model property changes.
-    private struct RenderState: Hashable, Sendable {
-        /// `SidebarModel.sectionsRevision`: a structural change, compared
-        /// instead of every row (a row content change patches its row).
-        var sectionsRevision: UInt64
-        var selection: Set<WorkspaceID>
-        var selected: SidebarItem?
-        var profiles: [SidebarProfile]
-        var activeProfile: ProfileKey?
-        var filter: String
-        var layout: SidebarLayoutDocument
-        var itemInfo: [LayoutItemID: SidebarItemInfo]
-        var transientTopItems: [SidebarTransientItem]
-        var collapsedSections: Set<LayoutSectionID>
-        var look: SectionsLookVariant
-        var drawsLines: Bool
-        var preferences: SidebarSectionsPreferences
-        var suppressedApps: Set<String>
-        /// Design tokens (density, overrides, chrome font size). Reading them
-        /// inside the tracked closure makes a settings change re-render.
-        var metrics: SidebarLayoutMetrics
-        var fontSize: CGFloat
-        var titlebarHeight: CGFloat
-        var cards: SidebarBottomCards
-        init(_ model: SidebarModel, _ design: DesignSettings) {
-            sectionsRevision = model.observedSectionsRevision
-            selection = model.selection
-            selected = model.selectedItem
-            profiles = model.profiles
-            activeProfile = model.activeProfileID
-            filter = model.filterText
-            layout = model.layout
-            itemInfo = model.resolvedItemInfo
-            transientTopItems = model.transientTopItems
-            collapsedSections = model.collapsedLayoutSections
-            look = SidebarSectionTunables.currentLook
-            drawsLines = Borders.drawsLines
-            preferences = design.sidebarSections.withStatusDebugToggles()
-            suppressedApps = model.suppressedApps
-            metrics = .standard
-            fontSize = Typography.body.pointSize
-            titlebarHeight = Metrics.titlebarHeight
-            cards = SidebarBottomCards(update: model.updateCard, nowPlaying: model.nowPlaying, updated: model.updatedCard, notice: model.noticeCard)
-        }
-    }
-
-    private func observe() {
-        let model = model, design = design
-        observation = Task { [weak self] in
-            for await state in ObservationStream({ RenderState(model, design) }) { self?.render(state) }
-        }
-    }
-
-    /// Draws the model now, in the caller's turn (SidebarSameTurn); the observation's next, equal state is skipped.
-    public func renderNow() { render(RenderState(model, design)) }
-
-    private func render(_ state: RenderState) {
-        guard state != lastState else { return }
-        let chromeChanged = lastState?.metrics != state.metrics || lastState?.fontSize != state.fontSize
-            || lastState?.titlebarHeight != state.titlebarHeight
-        let profileChanged = lastState?.activeProfile != state.activeProfile
-        let profilesChanged = lastState?.profiles != state.profiles || profileChanged
-            || lastState?.layout != state.layout || lastState?.itemInfo != state.itemInfo || lastState?.selected != state.selected
-            || lastState?.transientTopItems != state.transientTopItems
-            || lastState?.collapsedSections != state.collapsedSections || lastState?.look != state.look
-            || lastState?.drawsLines != state.drawsLines || lastState?.preferences != state.preferences || lastState?.suppressedApps != state.suppressedApps
-        let listChanged = lastState?.sectionsRevision != state.sectionsRevision || lastState?.selection != state.selection
-            || lastState?.selected != state.selected || lastState?.filter != state.filter || chromeChanged || profileChanged
-            || state.preferences.changesList(from: lastState?.preferences)
-        let previous = lastState == nil ? nil : lastSections
-        model.applyListPreferences(state.preferences)
-        // Minimal mode or an item's control changed: show or hide the chosen bands now.
-        if lastState?.preferences.minimalMode != state.preferences.minimalMode || lastState?.itemInfo != state.itemInfo {
-            setChromeRevealed(isChromeRevealed)
-        }
-        if listChanged {
-            if profileChanged {
-                switchSpace(from: lastState?.activeProfile, to: state.activeProfile, profiles: state.profiles, oldSections: previous ?? [])
-            } else {
-                list.reload(animated: Self.animatesReload(from: previous, to: model.sections))
-            }
-            lastSections = model.sections
-        }
-        if lastState?.cards != state.cards { cardSlot.show(state.cards); needsLayout = true }
-        if chromeChanged || profilesChanged { bandsDirty = true; needsLayout = true }
-        lastState = state
-    }
-
-    /// Whether a sections change animates its rows. Provisional rows swap in place.
-    static func animatesReload(from old: [SidebarSection]?, to new: [SidebarSection]) -> Bool {
-        !((old ?? []) + new).contains(where: \.hasProvisionalRows)
-    }
 }
 
 // The header row beside the traffic lights is titlebar: a press there moves the

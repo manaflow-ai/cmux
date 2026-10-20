@@ -68,7 +68,7 @@ final class CEFHostView: NSView {
 
     /// The pane's rounded clip, the column strip's clip and the window's corners, in this view.
     var pageClip: CGPath? {
-        CEFClipShape.path(bounds: bounds, clips: CEFClipShape.clips(around: self))
+        CEFClipShape.path(bounds: bounds, clips: CEFClipShape.clips(around: self), cutouts: CEFClipShape.cutouts(around: self))
     }
 
     /// The chrome's rects plus the window's interactive overlays over this
@@ -170,7 +170,7 @@ final class CEFTabContentView: NSView {
     /// The pane shows this parked tab again: it takes the host view.
     override func viewDidUnhide() {
         super.viewDidUnhide()
-        guard let tab, window != nil else { return }
+        guard let tab, window != nil, !isHiddenOrHasHiddenAncestor else { return }
         tab.pageThemeDidChange()
         tab.contentDidAppear(in: self)
     }
@@ -198,7 +198,10 @@ final class CEFTabContentView: NSView {
             addSubview(frame, positioned: .below, relativeTo: nil)
         }
         // With a side panel, Chromium's window holds the panel and the page, so the host keeps the page frame.
-        let fitPage = tab?.sidePanel.state == nil ? emulation?.presentedRect(in: pageViewportFrame) : nil
+        // DevTools device mode places the page itself (the fit yields until it ends).
+        // In a DevTools window the page keeps its full frame, but the fit still yields.
+        let deviceMode = tab?.devToolsController.deviceModeOn ?? false
+        let fitPage = tab?.sidePanel.state == nil && !deviceMode ? emulation?.presentedRect(in: pageViewportFrame) : nil
         for subview in subviews {
             let frame: CGRect
             if let fitFrame = subview as? BrowserFitFrameView {
@@ -220,7 +223,7 @@ final class CEFTabContentView: NSView {
         }
         tab?.applyOcclusion()
         // DevTools or the side panel moved the page area without a resize of this view: refit.
-        if let tab, let emulation, emulation.viewport(in: emulation.layoutArea(in: pageViewportFrame).size) != tab.deviceEmulationViewport {
+        if let tab, let emulation, !deviceMode, emulation.viewport(in: emulation.layoutArea(in: pageViewportFrame).size) != tab.deviceEmulationViewport {
             tab.applyDeviceEmulation()
         }
     }

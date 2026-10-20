@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextBrowser
+import CmuxNextBrowserHistory
 import CmuxNextDaemon
 import CmuxNextNowPlaying
 import CmuxNextTabs
@@ -56,8 +57,11 @@ final class BrowserPageRequests: BrowserTabDelegate {
     let sidebarNowPlaying = BrowserTabsNowPlaying()
     /// cmux's own music player (cx-imt2i, a preview feature).
     let music = MusicPlayer()
-    /// What the Now Playing card shows and drives: the player while it plays, else the playing tab.
-    private(set) lazy var sidebarSources = NowPlayingSources(player: music, tabs: sidebarNowPlaying)
+    /// What the Now Playing card shows and drives: the player while it plays, else the playing tab,
+    /// else another app that plays (Spotify, Music: macOS Now Playing, cmux's own entries left out).
+    private(set) lazy var sidebarSources = NowPlayingSources(player: music, tabs: sidebarNowPlaying, system: SystemNowPlaying.bundled())
+    /// Whether the Now Playing card is put away (its x, Hide, Hide Until Relaunch; u2437), for every window's sidebar.
+    let nowPlayingCard = NowPlayingCardDismissal()
     /// Where a page's new tab goes next to its opener.
     let openers = BrowserTabOpeners()
     /// Background tabs whose title changed (the strip's unread dot).
@@ -182,6 +186,8 @@ final class BrowserPageRequests: BrowserTabDelegate {
             services.keyRouter.routePageKey(pageKey, from: page)
         case .webNotification(let notification):
             services.notifications.postWebNotification(notification, surface: openerTab.surface)
+        case .verificationPageWaiting:
+            services.verificationAutofill.pageWaiting(page)
         case .unhandledEscape, .resizePopup:
             break
         case .takeFocus:
@@ -266,8 +272,9 @@ final class BrowserPageRequests: BrowserTabDelegate {
         }
     }
 
-    /// A sized popup opens in a floating panel over the window that shows
-    /// its opener (else the active window); it is never a daemon tab.
+    /// A sized popup opens in a popup window of its own, placed from the
+    /// window that shows its opener (else the active window); it is never a
+    /// daemon tab.
     private func openPopup(_ child: any BrowserTab, request: BrowserPopupRequest, openerKey: String, pane: PaneModel) {
         guard let services else { child.close(); return }
         let owner = services.windows.controllers.first { $0.content?.pane(for: pane.handle) != nil }
@@ -275,7 +282,7 @@ final class BrowserPageRequests: BrowserTabDelegate {
             child.close()
             return
         }
-        services.popups.open(child, request: request, over: window, openerKey: openerKey)
+        services.popups.open(child, request: request, from: window, openerKey: openerKey)
     }
 
     private func open(url: URL?, adopting child: (any BrowserTab)?, engine: String, profile: String?, in pane: PaneModel,

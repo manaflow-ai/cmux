@@ -37,6 +37,7 @@
 //! `motion.tweens`, `motion.tabStrip`).
 
 mod clock;
+mod color;
 mod fade;
 mod marquee;
 mod policy;
@@ -51,6 +52,7 @@ mod tween;
 mod system;
 
 pub use clock::*;
+pub use color::*;
 pub use fade::*;
 pub use marquee::*;
 pub use policy::*;

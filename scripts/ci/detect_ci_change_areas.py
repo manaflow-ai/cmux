@@ -92,6 +92,12 @@ def is_other_workflow_config(path: str) -> bool:
 
 
 CI_CONTROL_PLANE_ONLY = frozenset({
+    # The shared merge helper and its deployment-status classifier are used by
+    # GitHub/agents, not by any macOS product job. Keep policy-only changes out
+    # of native compile admission; their focused guard tests remain Linux-side.
+    "scripts/gh-merge-green",
+    "scripts/ci/vercel_merge_gate.py",
+    "scripts/tests/test_vercel_merge_gate.py",
     "scripts/ci/web_validation.py",
     # Operational helpers: janitors, census and reporting, registry validation,
     # R2 canaries, build diagnostics. No workflow runs any of them on a macOS
@@ -107,6 +113,11 @@ CI_CONTROL_PLANE_ONLY = frozenset({
     "scripts/ci/build_graph_health.py",
     "scripts/ci/cleanup-stale-runs.py",
     "scripts/ci/cmux_workload_profile.py",
+    # The portable guard runner and its regression suite execute only in the
+    # Linux guard jobs. They are CI control-plane inputs, not native product
+    # inputs, so changing either must not admit macOS compile work.
+    "scripts/ci/run_ci_guards.py",
+    "tests/test_ci_run_guards.py",
     "scripts/ci/notify-indexnow.py",
     "scripts/ci/queue_janitor.py",
     "scripts/ci/r2-canary-cloudflare.py",

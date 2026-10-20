@@ -1,4 +1,5 @@
 import type { Env } from "../env.ts"
+import { brainModel } from "../model-gateway/routes.ts"
 import { ackWake, chiefPrincipal, chiefRecord, postReply, readConversation } from "../chief-brain/brain-io.ts"
 import { manageChiefs } from "../chief-brain/brain-chiefs.ts"
 import type { BrainConfig } from "../chief-brain/brain-store.ts"
@@ -43,7 +44,7 @@ export const hostCall = async (env: Env, who: Who, method: string, params: Recor
       const c = who.config
       return {
         protocol: 1,
-        chief: { id: who.agent, name: record.display_name, owner: who.owner, role: c.role, personality: c.personality, instructions: c.instructions, model: brainModel(c.model), effort: "low" },
+        chief: { id: who.agent, name: record.display_name, owner: who.owner, role: c.role, personality: c.personality, instructions: c.instructions, model: brainModel(c.model), effort: (c as { effort?: string }).effort ?? "low" },
         grants: [...(c.chiefs ? ["chiefs"] : [])],
         capabilities: { hands: false, chiefs: c.chiefs, model_gateway: true, credits: false, approvals: false, live: "chief-live-v1" }
       }
@@ -105,5 +106,4 @@ export const hostCall = async (env: Env, who: Who, method: string, params: Recor
   }
 }
 
-/** The model a Chief's turns use on O: the profile's model when the gateway serves it, else Claude Opus 5.5. */
-export const brainModel = (model: string): string => (model.startsWith("claude-") || model.startsWith("openrouter:") ? model : "claude-opus-5-5")
+export { brainModel }

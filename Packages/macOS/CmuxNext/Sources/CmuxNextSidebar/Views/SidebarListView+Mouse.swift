@@ -2,7 +2,7 @@ import AppKit
 import CmuxNextDesign
 import QuartzCore
 // Mouse selection, click-to-collapse, and keyboard navigation.
-extension SidebarListView {
+extension SidebarListViewComponents {
     // MARK: - Mouse
     typealias Press = SidebarPress
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
@@ -36,6 +36,7 @@ extension SidebarListView {
                 inlineRename.begin(row.key)
                 return
             }
+            let (oldItem, oldSelection) = (model.selectedItem, model.selection)
             if flags.contains(.command) {
                 model.toggleSelection(id)
             } else if flags.contains(.shift) {
@@ -47,7 +48,8 @@ extension SidebarListView {
             } else {
                 model.click(id)
             }
-            reload(animated: true)
+            // The fill moves now, on the two rows (a switch drew it already, `SidebarSameTurn`).
+            if !patchSelection(from: oldItem, oldSelection: oldSelection) { reload(animated: true) }
         case let .group(group):
             // Arrow keys continue from this group; the ring is for keyboard focus only (cx-qno.17).
             SidebarGroupKeys(list: self).setFocus(group, ring: false)
@@ -56,7 +58,16 @@ extension SidebarListView {
         case let .tab(workspace, tab):
             // Selected at once; the press stays so a drag can take the tab.
             model.send(.selectTab(workspace: workspace, tab: tab))
-        case .section, .emptySection, .folder, .status:
+        case let .item(item):
+            SidebarGroupKeys(list: self).setFocus(nil)
+            // An item opens at once, as a workspace row does (`LayoutItemRef.activatesOnPress`); the press can
+            // still drag the row. A new-tab launcher runs on mouse-up, so a press meant as a move makes no tab.
+            let id = LayoutItemID(item)
+            if model.listedItem(id)?.ref.activatesOnPress == true {
+                press.activatedOnPress = true
+                model.send(.activateItem(id, opensWorkspace: event.modifierFlags.contains(.option)))
+            }
+        case .section, .emptySection, .folder, .block, .status:
             break
         }
         self.press = press
@@ -86,10 +97,19 @@ extension SidebarListView {
         guard displayed.row(at: point.y)?.key == press.key else { return }
         switch press.key {
         case .workspace:
-            if let id = press.deferredClick { model.click(id) }
+            // Mouse-down drew the click on the old and new rows (`patchSelection`) and moved no row: no layout here
+            // (u2455: every click laid the whole list out and configured every row). Only a deferred click (one row
+            // of a multi-selection, no drag) changes the selection now, the same way.
+            guard let id = press.deferredClick else { return }
+            let (oldItem, oldSelection) = (model.selectedItem, model.selection)
+            model.click(id)
+            if !patchSelection(from: oldItem, oldSelection: oldSelection) { reload(animated: true) }
+            return
+        case .tab:
+            break
         case let .group(group):
             // An empty saved group reopens; any other group toggles.
-            if let g = model.group(group), g.isPinned, g.workspaces.isEmpty {
+            if let g = model.group(group), g.isPinned, g.workspaces.isEmpty, g.items.isEmpty {
                 model.send(.openGroup(group))
             } else if groupEditing.isOnChip(point, group: group) {
                 // The chip opens the group editor (cx-rcby); its chevron and
@@ -102,7 +122,11 @@ extension SidebarListView {
             model.send(.toggleCollapse(.section(section)))
         case let .status(bucket):
             model.toggleStatusBucket(bucket)
-        case .tab, .emptySection, .folder:
+        case let .item(item):
+            // A link opens its page, a tab shows, an app opens, as in the band.
+            guard !press.activatedOnPress else { break }
+            model.send(.activateItem(LayoutItemID(item), opensWorkspace: event.modifierFlags.contains(.option)))
+        case .emptySection, .folder, .block:
             break
         }
         reload(animated: true)

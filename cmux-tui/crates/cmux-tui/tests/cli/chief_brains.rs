@@ -142,16 +142,35 @@ fn each_chief_gets_its_own_brain_that_the_daemon_starts_and_stops() {
     // A stub acpmux that records each call (its args and ACPMUX_HOME).
     let acpmux = files.join("acpmux.sh");
     let calls = files.join("acpmux-calls");
-    fs::write(&acpmux, format!("#!/bin/sh\necho \"$* $ACPMUX_HOME\" >> '{}'\n", calls.display()))
-        .unwrap();
+    // It exits 1 as the real one does when no daemon runs in that home (cx-qryd0 review).
+    fs::write(
+        &acpmux,
+        format!("#!/bin/sh\necho \"$* $ACPMUX_HOME\" >> '{}'\nexit 1\n", calls.display()),
+    )
+    .unwrap();
     fs::set_permissions(&acpmux, fs::Permissions::from_mode(0o755)).unwrap();
     // Short: the brains' sockets live under it (103-byte limit).
     let chief_home = files.join("h");
     fs::create_dir_all(&chief_home).unwrap();
-    // An old per-Chief acpmux home (before one acpmux per Chief home): removed.
+    // An old per-Chief acpmux home (before one acpmux per Chief home): removed, also when its
+    // stop fails because no daemon runs there.
     let old = chief_home.join("c/0ldch1ef/a");
     fs::create_dir_all(old.join("state")).unwrap();
     fs::write(old.join("config.json"), "{}").unwrap();
+    // One whose daemon still holds its lock (the stop failed): kept.
+    let held = chief_home.join("c/h3ldch1ef/a");
+    fs::create_dir_all(held.join("state")).unwrap();
+    let mut holder = Command::new("python3")
+        .args(["-c", "import fcntl,sys,time; f=open(sys.argv[1],'a'); fcntl.flock(f, fcntl.LOCK_EX); print('held', flush=True); time.sleep(120)"])
+        .arg(held.join("daemon.lock"))
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    {
+        let mut line = String::new();
+        BufReader::new(holder.stdout.as_mut().unwrap()).read_line(&mut line).unwrap();
+        assert_eq!(line.trim(), "held");
+    }
     // The shared home stays as it is.
     let shared = chief_home.join("acpmux");
     fs::create_dir_all(&shared).unwrap();
@@ -259,11 +278,16 @@ fn each_chief_gets_its_own_brain_that_the_daemon_starts_and_stops() {
     );
     let called = fs::read_to_string(&calls).unwrap_or_default();
     assert!(
-        !called.lines().any(|l| l.starts_with("daemon shutdown") && !l.ends_with("/c/0ldch1ef/a")),
+        !called.lines().any(|l| l.starts_with("daemon shutdown")
+            && !l.ends_with("/c/0ldch1ef/a")
+            && !l.ends_with("/c/h3ldch1ef/a")),
         "a daemon shutdown other than the old per-Chief home's: {called}"
     );
     assert!(shared.join("keep").exists(), "the shared acpmux home was touched");
     assert!(!old.exists(), "the old per-Chief acpmux home is still there");
+    assert!(held.exists(), "an old Chief home whose daemon holds its lock was removed");
+    let _ = holder.kill();
+    let _ = holder.wait();
     assert!(alive(restarted));
 
     // Daemon shutdown stops the rest.
@@ -803,4 +827,126 @@ fn a_chief_made_before_the_brain_supervisor_runs_reports_its_brain_started() {
     let _ = owned.child.wait();
     wait_gone(pid, "the brain after daemon shutdown");
     let _ = fs::remove_dir_all(&files);
+}
+
+/// cx-di8pd: `cmux chief edit --name` renames the Chief's own conversation
+/// (its oldest DM with the person) in the owner, so every reader of the
+/// title (Home's header and list, the CLI, a page) follows the registry.
+/// A later conversation with the same Chief keeps the title its person gave
+/// it, and an edit of another field changes no title.
+#[test]
+fn a_chief_rename_retitles_its_own_conversation_only() {
+    let server = HeadlessServer::start("chief-rename-title");
+    let mut home = Conn::open(&server.socket);
+    let scout = make_chief(&server, "Scout", "Researcher");
+    let direct = dm(&mut home, "scout-dm", &scout, "Scout");
+    // A later conversation with only Scout and a title of its own (a channel).
+    std::thread::sleep(Duration::from_millis(5)); // distinct created_at for the oldest-first rule
+    let channel = dm(&mut home, "scout-notes", &scout, "Scout notes");
+    let title = |home: &mut Conn, id: &str| -> String {
+        let listed = home.request("conversation-list", json!({}));
+        listed["conversations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|c| c["id"] == json!(id))
+            .map(|c| c["title"].as_str().unwrap_or_default().to_owned())
+            .unwrap_or_else(|| panic!("{id} is not listed: {listed}"))
+    };
+
+    let renamed = chief_cli(&server, &["edit", &scout, "--name", "Scout Two", "--json"], "");
+    assert_success(&renamed);
+    assert_eq!(title(&mut home, &direct), "Scout Two");
+    assert_eq!(title(&mut home, &channel), "Scout notes");
+
+    let role = chief_cli(&server, &["edit", &scout, "--role", "Night watch", "--json"], "");
+    assert_success(&role);
+    assert_eq!(title(&mut home, &direct), "Scout Two");
+
+    let again = chief_cli(&server, &["edit", &scout, "--name", "Scout Three", "--json"], "");
+    assert_success(&again);
+    assert_eq!(title(&mut home, &direct), "Scout Three");
+    assert_eq!(title(&mut home, &channel), "Scout notes");
+
+    // A title the person gave the DM stays through an edit that sends the same name.
+    home.request(
+        "conversation-op",
+        json!({"conversation": direct, "idempotency_key": "my-title",
+               "op": {"kind": "title.set", "title": "My scout"}}),
+    );
+    let same = chief_cli(
+        &server,
+        &["edit", &scout, "--name", "Scout Three", "--role", "Day watch", "--json"],
+        "",
+    );
+    assert_success(&same);
+    assert_eq!(title(&mut home, &direct), "My scout");
+}
+
+/// cx-mbbee: `cmux chief engine --chief ID` (show and set) and `cmux chief
+/// stop --chief ID` send the daemon's `chief` field (chief-brains-v1): each
+/// reaches that Chief's brain only; without `--chief` the default Chief's.
+#[test]
+fn chief_engine_and_stop_cli_take_a_chief() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let files = unique_temp_dir("cbc");
+    fs::create_dir_all(&files).unwrap();
+    let stub = files.join("brain.sh");
+    fs::write(&stub, STUB).unwrap();
+    fs::set_permissions(&stub, fs::Permissions::from_mode(0o755)).unwrap();
+    let chief_home = files.join("h");
+    fs::create_dir_all(&chief_home).unwrap();
+    let default_socket = files.join("d.sock");
+    let default_lines = fake_tools_socket(&default_socket, "default");
+    let brains = json!({
+        "executable": stub,
+        "home": chief_home,
+        "app": {"bin_dir": "/opt/cmux-test/bin", "user_name": "Test Person",
+                "chief_title": "Chief", "acpmux_bin": "/usr/bin/false"},
+    })
+    .to_string();
+    let server = HeadlessServer::start_with_options(
+        "chief-brains-cli",
+        None,
+        None,
+        &[
+            ("CMUX_TUI_CHIEF_BRAINS", brains.as_str()),
+            ("CMUX_TUI_CHIEF_TOOLS_SOCKET", default_socket.to_str().unwrap()),
+        ],
+    );
+    let scout = make_chief(&server, "Scout", "Researcher");
+    let scout_home = brain_dir(&chief_home, &scout);
+    wait_file(&scout_home.join("pid.1"));
+    let scout_lines = fake_tools_socket(&scout_home.join("optchat/tools.sock"), "scout");
+    let counts = || [&default_lines, &scout_lines].map(|lines| lines.lock().unwrap().len());
+
+    let shown = chief_cli(&server, &["engine", "--chief", &scout, "--json"], "");
+    assert_success(&shown);
+    let report: Value = serde_json::from_slice(&shown.stdout).unwrap();
+    assert_eq!(report["engine"]["harness"], "scout", "{report}");
+    assert_eq!(counts(), [0, 1]);
+
+    let set = chief_cli(&server, &["engine", "--chief", &scout, "--effort", "low", "--json"], "");
+    assert_success(&set);
+    assert_eq!(counts(), [0, 2]);
+    assert_eq!(
+        scout_lines.lock().unwrap()[1],
+        json!({"tool": "engine", "action": "set", "effort": "low"})
+    );
+
+    let stopped = chief_cli(&server, &["stop", "--chief", &scout], "");
+    assert_success(&stopped);
+    assert_eq!(counts(), [0, 3]);
+    assert_eq!(scout_lines.lock().unwrap()[2], json!({"tool": "stop"}));
+
+    let plain = chief_cli(&server, &["engine", "--json"], "");
+    assert_success(&plain);
+    let report: Value = serde_json::from_slice(&plain.stdout).unwrap();
+    assert_eq!(report["engine"]["harness"], "default", "{report}");
+    assert_eq!(counts(), [1, 3]);
+
+    // --chief goes with engine or stop only.
+    let stray = chief_cli(&server, &["--chief", &scout, "-p", "hi"], "");
+    assert_eq!(stray.status.code(), Some(2), "{stray:?}");
 }

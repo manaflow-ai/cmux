@@ -14,19 +14,27 @@ import type { Env } from "./env.ts"
 const TARGETS = ["aarch64-apple-darwin", "x86_64-apple-darwin", "x86_64-unknown-linux-musl", "aarch64-unknown-linux-musl"] as const
 const DEFAULT_BASE = "https://files.cmux.com/cmux-tui"
 
+/**
+ * Where the installer downloads from: a cmux-next tree publication (HAND_RELEASE_TREE, the v2 tree
+ * key; hashes in its completion.json) or a commit-addressed one (HAND_RELEASE_COMMIT; hashes in its
+ * manifest.json). The tree wins when both are set.
+ */
 const releaseHashes = async (env: Env): Promise<{ base: string; hashes: Record<string, string> } | null> => {
+  const root = (env.HAND_RELEASE_BASE ?? DEFAULT_BASE).replace(/\/$/, "")
+  if (!/^https:\/\/[A-Za-z0-9.-]+(\/[A-Za-z0-9._/-]*)?$/.test(root)) return null
+  const tree = env.HAND_RELEASE_TREE ?? ""
   const commit = env.HAND_RELEASE_COMMIT ?? ""
-  const base = (env.HAND_RELEASE_BASE ?? DEFAULT_BASE).replace(/\/$/, "")
-  if (!/^[0-9a-f]{40}$/.test(commit) || !/^https:\/\/[A-Za-z0-9.-]+(\/[A-Za-z0-9._/-]*)?$/.test(base)) return null
-  const res = await fetch(`${base}/${commit}/manifest.json`, { cf: { cacheTtl: 300 } } as RequestInit).catch(() => null)
+  const [base, index] = /^[0-9a-f]{40}$/.test(tree) ? [`${root}/tree/${tree}`, "completion.json"] : /^[0-9a-f]{40}$/.test(commit) ? [`${root}/${commit}`, "manifest.json"] : [null, null]
+  if (!base) return null
+  const res = await fetch(`${base}/${index}`, { cf: { cacheTtl: 300 } } as RequestInit).catch(() => null)
   if (!res?.ok) return null
-  const manifest = (await res.json().catch(() => null)) as { binaries?: Record<string, string> } | null
+  const listed = (await res.json().catch(() => null)) as { binaries?: Record<string, string> } | null
   const hashes: Record<string, string> = {}
   for (const t of TARGETS) {
-    const h = manifest?.binaries?.[`cmux-tui-acpmux-${t}`]
+    const h = listed?.binaries?.[`cmux-tui-acpmux-${t}`]
     if (typeof h === "string" && /^[0-9a-f]{64}$/.test(h)) hashes[t] = h
   }
-  return { base: `${base}/${commit}`, hashes }
+  return { base, hashes }
 }
 
 export const handInstallScript = async (env: Env, origin: string): Promise<Response> => {
@@ -74,7 +82,9 @@ if [ -n "$LOCAL_BIN" ]; then
   echo "cmux-hand install: using the local file $LOCAL_BIN (development; no published hash)" >&2
 else
   [ -n "$RELEASE" ] && [ -n "$SHA" ] || { echo "cmux-hand install: this server has no published hand for $TARGET" >&2; exit 1; }
-  curl -fsSL "$RELEASE/cmux-tui-acpmux-$TARGET" -o "$TMP"
+  # A sandbox image may carry the hand already: used only when it is exactly the published file.
+  PRE=/usr/local/lib/cmux-hand/cmux-hand
+  if [ -f "$PRE" ] && [ "$(sha256 "$PRE")" = "$SHA" ]; then cp "$PRE" "$TMP"; else curl -fsSL "$RELEASE/cmux-tui-acpmux-$TARGET" -o "$TMP"; fi
   GOT="$(sha256 "$TMP")"
   [ "$GOT" = "$SHA" ] || { echo "cmux-hand install: SHA-256 mismatch for $TARGET (got $GOT, want $SHA)" >&2; exit 1; }
 fi
@@ -85,6 +95,8 @@ trap - EXIT
 # shellcheck disable=SC2086 # ROOTS holds only plain paths (checked above)
 "$BIN" hand pair "$PAIR" --api "$API" --profile "$PROFILE" \${NAME:+--name "$NAME"} \${POLICY:+--agent-policy "$POLICY"} $ROOTS
 [ "$SERVICE" = 1 ] || { echo "cmux-hand: installed; run: $BIN hand run"; exit 0; }
+# The service files below name these paths unquoted (plist XML, systemd unit): plain paths only.
+case "$HOME_DIR" in *[!A-Za-z0-9._/-]*) echo "cmux-hand: $HOME_DIR is not a plain path; start it yourself: CMUX_HAND_HOME='$HOME_DIR' '$BIN' hand run" >&2; exit 0 ;; esac
 LOG="$HOME_DIR/hand.log"
 if [ "$(uname -s)" = Darwin ]; then
   PLIST="$HOME/Library/LaunchAgents/dev.cmux.hand.plist"
@@ -122,7 +134,8 @@ UNIT
   systemctl --user enable --now cmux-hand.service
   echo "cmux-hand: running (systemd --user cmux-hand.service)"
 else
-  CMUX_HAND_HOME="$HOME_DIR" nohup "$BIN" hand run >>"$LOG" 2>&1 &
+  # Not the person's agent daemon: an app terminal's ACPMUX_HOME / ACPMUX_SOCKET stay out.
+  env -u ACPMUX_HOME -u ACPMUX_SOCKET CMUX_HAND_HOME="$HOME_DIR" nohup "$BIN" hand run >>"$LOG" 2>&1 &
   echo "cmux-hand: running (nohup, pid $!); log $LOG"
 fi
 `

@@ -15,6 +15,11 @@ public nonisolated enum SidebarRowKey: Hashable, Sendable {
     case folder(SectionID, String)
     /// Group by Status's header over one status bucket's rows.
     case status(SidebarStatusBucket)
+    /// A document item listed as a row (`SidebarNode.item`): its item id.
+    case item(String)
+    /// A document section's items in its own arrangement (tiles, a grid, a
+    /// line, item rows), drawn by one region: the section id.
+    case block(String)
 }
 
 /// A workspace row's control for its inline tabs (`sidebar.showWorkspaceTabs`).
@@ -54,8 +59,6 @@ public nonisolated struct SidebarRow: Hashable, Sendable {
     public var tabDisclosure: SidebarTabDisclosure? = nil
     /// What a workspace row draws (`WorkspaceRowContent`); nil for other rows.
     public var content: WorkspaceRowContent? = nil
-    /// A group header drawn as a thin line, its name small beside a hairline (minimal mode).
-    public var isThinHeader = false
     /// Group by Status's marks on a workspace row; nil in every other mode.
     public var statusMarks: WorkspaceRowStatusMarks? = nil
 

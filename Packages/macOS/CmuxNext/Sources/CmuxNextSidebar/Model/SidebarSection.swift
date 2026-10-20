@@ -4,6 +4,23 @@ import Foundation
 public nonisolated enum SectionID: Hashable, Sendable {
     case pinned
     case machine(MachineID)
+    /// A sidebar document section that is not a machine's (Pinned, a
+    /// custom section), listed by the list: its document section id.
+    case custom(String)
+}
+
+/// A sidebar document section the list draws (sidebar-v2): Pinned or a
+/// custom section, with its title when it shows one (Pinned shows none).
+public nonisolated struct SidebarCustomSection: Hashable, Sendable {
+    public var id: String
+    public var title: String?
+    public var showsTitle: Bool
+
+    public init(id: String, title: String? = nil, showsTitle: Bool = false) {
+        self.id = id
+        self.title = title
+        self.showsTitle = showsTitle
+    }
 }
 
 /// Machine metadata for a machine section header.
@@ -88,6 +105,8 @@ public nonisolated struct SidebarSection: Identifiable, Hashable, Sendable {
         /// Favorites. Holds loose workspaces from any machine; no groups.
         case pinned
         case machine(SidebarMachine)
+        /// A document section (Pinned, custom) the list draws; any item may sit in it.
+        case custom(SidebarCustomSection)
     }
 
     public var kind: Kind
@@ -104,7 +123,13 @@ public nonisolated struct SidebarSection: Identifiable, Hashable, Sendable {
         switch kind {
         case .pinned: .pinned
         case let .machine(machine): .machine(machine.id)
+        case let .custom(custom): .custom(custom.id)
         }
+    }
+
+    /// A document section (Pinned, custom) the list draws; never saved in the window's snapshot.
+    public var isDocSection: Bool {
+        if case .custom = kind { true } else { false }
     }
 
     public var machine: SidebarMachine? {

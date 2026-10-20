@@ -17,7 +17,8 @@ export const CREDIT_HOLD_TTL_MS = 3600_000
 /** Charge rows older than this are pruned; top-ups, grants and the balance stay. */
 export const CREDIT_CHARGE_RETENTION_MS = 400 * 24 * 3600_000
 
-export type CreditEntryKind = "topup" | "grant" | "charge" | "expired" | "correction"
+/** `opening`: the mirror's first run records the balance the ledger rows do not explain (rows pruned before it started); it never moves the balance. */
+export type CreditEntryKind = "topup" | "grant" | "charge" | "expired" | "correction" | "opening"
 
 export type CreditReserve =
   | { readonly ok: true; readonly held_micros: number; readonly replayed: boolean }
@@ -68,6 +69,8 @@ export const ensureCreditTables = (storage: DurableObjectStorage) => {
     })
   }
   if (!stateCols.has("dirty_since")) sql.exec(`ALTER TABLE credit_state ADD COLUMN dirty_since INTEGER`)
+  const mirrorCols = new Set(sql.exec<{ name: string }>(`PRAGMA table_info(credit_mirror)`).toArray().map((c) => c.name))
+  if (!mirrorCols.has("opened")) sql.exec(`ALTER TABLE credit_mirror ADD COLUMN opened INTEGER NOT NULL DEFAULT 0`)
 }
 
 /** Longest entry key the billing database takes (credit_ledger.entry_key is 255; a key may get ":late"). */

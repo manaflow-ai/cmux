@@ -355,10 +355,10 @@ input[type="submit"] {
   /* TOOLTIP SURFACE (CmuxNextDesign/Tooltip/TooltipSurface.swift; tooltip-surface.test.ts holds the
      two in step). Frosted glass: the host's tint (--cmux-tooltip-tint: the popup surface at the
      least alpha that keeps the text 4.5:1 over pure black and pure white, whatever the blur
-     averages), else the popup surface at 86%; a 24px blur; the separator rim one device pixel
+     averages), else the popup surface at 60%; a 24px blur; the separator rim one device pixel
      (--cmux-hairline); elevation 1. It fades in with the popup open and out with the popup close (the native
      fadeIn and fadeOut tokens), rising 2px. Reduce Transparency: the opaque popup surface. */
-  --tooltip-tint: var(--cmux-tooltip-tint, color-mix(in srgb, var(--surface-popup) 86%, transparent));
+  --tooltip-tint: var(--cmux-tooltip-tint, color-mix(in srgb, var(--surface-popup) 60%, transparent));
   --tooltip-blur: blur(24px) saturate(1.6);
   --tooltip-rim-width: var(--cmux-hairline);
   --tooltip-shadow: var(--elevation-1);
@@ -401,6 +401,8 @@ input[type="submit"] {
   --text-detail--line-height: calc(16px * var(--cmux-interface-scale, 1));
   --text-body: calc(13px * var(--cmux-interface-scale, 1)); /* chrome text: labels, rows, menus, controls, settings */
   --text-body--line-height: calc(18px * var(--cmux-interface-scale, 1));
+  --text-field: calc(14px * var(--cmux-interface-scale, 1)); /* the browser address bar's text */
+  --text-field--line-height: calc(18px * var(--cmux-interface-scale, 1));
   --text-title: calc(15px * var(--cmux-interface-scale, 1)); /* card and panel titles, search fields */
   --text-title--line-height: calc(20px * var(--cmux-interface-scale, 1));
   --text-heading: calc(20px * var(--cmux-interface-scale, 1)); /* page headings */

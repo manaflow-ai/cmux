@@ -45,7 +45,8 @@ final class SidebarRows {
             shown.isCollapsed = fold.collapsed
             sections[s].nodes[n] = .group(shown)
         }
-        model.setSections(SidebarAgentLink.shown(sections))
+        let shown = SidebarAgentLink.shown(sections)
+        model.setSections(model.priorityOrdering ? SidebarPriority().reordered(shown) : shown)
     }
 
     /// Row content of listed workspaces changed (`SidebarRowFeed`): written in place, or shown again when it moves rows.

@@ -548,6 +548,25 @@ pub fn start(mux: &Arc<Mux>, socket: &Path) -> Option<ChiefBrains> {
     Some(ChiefBrains { sender, thread: Some(thread), mux: Arc::downgrade(mux) })
 }
 
+/// The engine a Chief's record names (`cmux chief new --harness unii`, the
+/// `chiefs` tool's `harness`), as the brain's starting engine: the
+/// `OPTCHAT_CHIEF_*` values it reads before `MUX_HARNESS` and its defaults.
+/// The brain's own `engine.json` (`cmux chief engine`) still wins, so a
+/// switch made later is not undone at the next start.
+pub(crate) fn record_engine_env(engine: &crate::chief_registry::Engine) -> Vec<(String, String)> {
+    [
+        ("OPTCHAT_CHIEF_HARNESS", &engine.harness),
+        ("OPTCHAT_CHIEF_MODEL", &engine.model),
+        ("OPTCHAT_CHIEF_EFFORT", &engine.effort),
+    ]
+    .into_iter()
+    .filter_map(|(key, value)| {
+        let value = value.as_deref()?.trim();
+        (!value.is_empty() && value != "default").then(|| (key.to_owned(), value.to_owned()))
+    })
+    .collect()
+}
+
 /// The record fields the brain renders into its prompt or grant at start.
 fn prompt_key(record: &ChiefRecord) -> String {
     serde_json::json!([
@@ -987,6 +1006,7 @@ impl Supervisor {
                 Some(&record.display_name),
                 &inherited,
             ))
+            .envs(record_engine_env(&record.engine))
             .current_dir(&mux_home)
             .stdin(std::process::Stdio::null())
             .stdout(log.try_clone()?)
@@ -1143,7 +1163,7 @@ fn stop_lock_holder(lock: &Path) {
 
 /// Removes the per-Chief acpmux homes `<home>/c/<tail>/a` that brains of
 /// earlier builds used (before one acpmux per Chief home): `acpmux daemon
-/// shutdown` there first (that Chief's own daemon, not the shared one),
+/// shutdown --end-agents` there first (that Chief's own daemon, not the shared one),
 /// then the folder. Only inside this build's Chief home `home`, never in
 /// the person's shared `~/.cmux/chief/default` (NIGHTLY's), and not while
 /// a brain an earlier owner left holds that Chief's lock (it still uses
@@ -1176,24 +1196,37 @@ fn remove_old_acpmux_homes(home: &Path, acpmux_bin: Option<&Path>) {
         }
         let acpmux = acpmux_bin.map(Path::to_path_buf).unwrap_or_else(|| "acpmux".into());
         let user = |key: &str| std::env::var(key).ok().filter(|v| !v.is_empty());
-        let mut command = std::process::Command::new(acpmux);
-        command
-            .args(["daemon", "shutdown"])
-            .env_clear()
-            .env("ACPMUX_HOME", &old)
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null());
-        for key in ["PATH", "HOME", "USER", "TMPDIR"] {
-            if let Some(value) = user(key) {
-                command.env(key, value);
+        let stop = |end_flag: bool| {
+            let mut command = std::process::Command::new(&acpmux);
+            command.args(["daemon", "shutdown"]);
+            if end_flag {
+                command.arg("--end-agents");
             }
+            command
+                .env_clear()
+                .env("ACPMUX_HOME", &old)
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null());
+            for key in ["PATH", "HOME", "USER", "TMPDIR"] {
+                if let Some(value) = user(key) {
+                    command.env(key, value);
+                }
+            }
+            command.status().ok()
+        };
+        // On this thread only: `daemon shutdown --end-agents` ends that daemon's agents
+        // first (acpmux bounds its own grace), then the folder goes. An acpmux of a build
+        // before the flag refuses it (usage error, exit 2); its plain shutdown ends them.
+        // A stop that failed (no acpmux to ask, or no daemon there: acpmux exits 1) removes the
+        // folder only when no daemon holds its lock; a running one keeps it.
+        let stopped = match stop(true) {
+            Some(status) if status.code() == Some(2) => stop(false),
+            other => other,
+        };
+        if !stopped.is_some_and(|status| status.success()) && lock_held(&old.join("daemon.lock")) {
+            continue;
         }
-        // On this thread only: `daemon shutdown` ends that daemon's agents
-        // first (acpmux bounds its own grace), then the folder goes.
-        // No acpmux to ask: its daemon may still run there; keep the folder.
-        let Ok(mut child) = command.spawn() else { continue };
-        let _ = child.wait();
         if let Err(error) = std::fs::remove_dir_all(&old) {
             eprintln!("cmux-tui: removing {}: {error}", old.display());
         }
@@ -1214,4 +1247,27 @@ fn list_chiefs(mux: &Mux) -> Vec<ChiefRecord> {
         }
     }
     store.as_ref().and_then(|s| s.list().ok()).unwrap_or_default()
+}
+
+#[cfg(test)]
+mod record_engine_tests {
+    use super::record_engine_env;
+    use crate::chief_registry::Engine;
+
+    #[test]
+    fn a_record_harness_becomes_the_brains_starting_harness() {
+        let engine =
+            Engine { harness: Some("unii".into()), model: None, effort: Some("default".into()) };
+        assert_eq!(
+            record_engine_env(&engine),
+            vec![("OPTCHAT_CHIEF_HARNESS".to_owned(), "unii".to_owned())]
+        );
+        assert!(record_engine_env(&Engine::default()).is_empty());
+        let full = Engine {
+            harness: Some("codex".into()),
+            model: Some("gpt-5.5".into()),
+            effort: Some("high".into()),
+        };
+        assert_eq!(record_engine_env(&full).len(), 3);
+    }
 }

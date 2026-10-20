@@ -9,6 +9,7 @@ mkdir -p "$TMP/bin" "$TMP/work/cmux-tui"
 cat > "$TMP/bin/cargo" <<STUB
 #!/bin/bash
 echo "\$(umask) \${CARGO_TARGET_DIR:-unset} \$*" >> "$TMP/calls"
+[[ "\$*" != "nextest --version" ]] || echo "cargo-nextest 0.9.148 (stub)"
 STUB
 chmod +x "$TMP/bin/cargo"
 cat > "$TMP/bin/rustup" <<STUB
@@ -21,6 +22,8 @@ case "\$1 \$2" in
 esac
 STUB
 chmod +x "$TMP/bin/rustup"
+printf '#!/bin/bash\necho "rustc 1.95.0 (stub)"\n' > "$TMP/bin/rustc"
+chmod +x "$TMP/bin/rustc"
 cat > "$TMP/bin/git" <<STUB
 #!/bin/bash
 case " \$* " in
@@ -39,7 +42,8 @@ ARGS=(all 'cmux_link::')
 (umask 077; run CMUX_CI_STEP_KEY=k) >/dev/null || fail "fleet step refused"
 grep -q '^0022 .*/.build/cmux-tui-rust-target fmt --all --check$' "$TMP/calls" || fail "fmt: $(cat "$TMP/calls")"
 grep -q '^0022 .*/.build/cmux-tui-rust-target clippy --workspace --all-targets --locked -- -D warnings$' "$TMP/calls" || fail "clippy: $(cat "$TMP/calls")"
-grep -q '^0022 .*/.build/cmux-tui-rust-target test --workspace --locked --no-fail-fast cmux_link::$' "$TMP/calls" || fail "test: $(cat "$TMP/calls")"
+grep -q '^0022 .*/.build/cmux-tui-rust-target nextest run --workspace --locked --profile ci --no-tests=fail cmux_link::$' "$TMP/calls" || fail "test: $(cat "$TMP/calls")"
+! grep -q ' --doc' "$TMP/calls" || fail "doc tests ran with a filter: $(cat "$TMP/calls")"
 rm -f "$TMP/calls"
 ARGS=(test 'x; rm -rf /')
 run CMUX_CI_STEP_KEY=k >/dev/null && fail "accepted a filter with shell syntax"

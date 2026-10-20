@@ -3,7 +3,7 @@ import CmuxNextCompat
 
 /// The sessions this pane started or shows (b, ad349): `_acpmux/kill`, `permission_respond` and
 /// `permission_group_respond` are allowed only for them. A session is the pane's when it came back
-/// from the pane's own `session/new`, `acp.session.fork` or `_acpmux/handoff_start` (their replies
+/// from the pane's own `session/new`, `acp.session.fork`, `_acpmux/handoff_start` or `_acpmux/btw` (their replies
 /// are read off the main thread), when the user opened it in this pane by a gesture (an attach made
 /// with one, a click in the session list), or when the host itself opened the tab on it (restore,
 /// a session link). An attach alone adds nothing; attach and watch stay open.
@@ -13,7 +13,7 @@ import CmuxNextCompat
 /// replies, and the handoffs a click let the pane take from a session outside its scope.
 public nonisolated final class AcpmuxPaneSessions: Sendable {
     /// The requests whose reply names a session the pane started.
-    public static let starting: Set<String> = ["session/new", "acp.session.fork", "_acpmux/handoff_start"]
+    public static let starting: Set<String> = ["session/new", "acp.session.fork", "_acpmux/handoff_start", "_acpmux/btw"]
 
     private struct State {
         var sessions: Set<String> = []

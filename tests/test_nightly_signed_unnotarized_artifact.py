@@ -34,7 +34,10 @@ class SignedUnnotarizedArtifactTests(unittest.TestCase):
 
     def test_uploads_after_signing_and_before_the_notarization_wait(self):
         self.assertLess(index("Codesign apps"), index(self.ZIP))
-        self.assertLess(index("Smoke bundled CLI against the signed app"), index(self.ZIP))
+        # The launch smokes run in verify-signed-nightly, a job without secrets
+        # (#21024), so the zip no longer waits for them; it follows the signed
+        # app's handoff to that job.
+        self.assertLess(index("Upload signed app for the verify job"), index(self.ZIP))
         self.assertLess(index(self.ZIP), index(self.UPLOAD))
         self.assertLess(index(self.UPLOAD), index("Notarize app ticket through final DMG"))
 
