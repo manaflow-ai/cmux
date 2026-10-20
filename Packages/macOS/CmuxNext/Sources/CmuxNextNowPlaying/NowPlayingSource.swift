@@ -31,28 +31,37 @@ extension NowPlayingSource {
 
 extension SidebarModel {
     /// Shows `source` on the Now Playing card while `sidebar.nowPlaying.enabled` is on (off by
-    /// default), and on the New Tab page while `tabs.newTabNowPlaying` is on (on by default); the
-    /// page's menu writes that key and opens its row in Settings through `registry`
-    /// (`NewTabNowPlaying.page`).
-    public func followNowPlaying(_ source: any NowPlayingSource, settings: @escaping @MainActor () -> SettingsController?,
+    /// default) and `dismissal` does not hide it, and on the New Tab page while
+    /// `tabs.newTabNowPlaying` is on (on by default), hidden card or not; the page's menu writes
+    /// that key and opens its row in Settings through `registry` (`NewTabNowPlaying.page`).
+    public func followNowPlaying(_ source: any NowPlayingSource, dismissal: NowPlayingCardDismissal? = nil,
+                                 settings: @escaping @MainActor () -> SettingsController?,
                                  registry: ActionRegistry?) -> Task<Void, Never> {
         NewTabNowPlaying.page = NewTabNowPlaying.liveActions(settings: settings, registry: registry)
-        return followNowPlaying(source, enabled: { settings()?.snapshot.nowPlaying.enabled ?? NowPlayingSettings.enabledDefault },
+        return followNowPlaying(source, dismissal: dismissal,
+                                enabled: { settings()?.snapshot.nowPlaying.enabled ?? NowPlayingSettings.enabledDefault },
                                 onNewTab: { settings()?.snapshot.nowPlaying.newTab ?? NowPlayingSettings.newTabDefault })
     }
 
-    /// Shows `source` on the Now Playing card while `enabled` and on the New Tab page's player
-    /// (`NewTabNowPlaying`) while `onNewTab`, each on its own: off on the New Tab page, the page
-    /// gets nil, so it draws no player and keeps no space. The source runs while either shows it
-    /// (`NowPlayingSource.run`); with both off nothing reads what plays.
-    public func followNowPlaying(_ source: any NowPlayingSource, enabled: @escaping @MainActor () -> Bool,
+    /// Shows `source` on the Now Playing card while `enabled` and `dismissal` does not hide it,
+    /// and on the New Tab page's player (`NewTabNowPlaying`) while `onNewTab`, each on its own:
+    /// off on the New Tab page, the page gets nil, so it draws no player and keeps no space. The
+    /// source runs while either shows it (`NowPlayingSource.run`); with both off nothing reads
+    /// what plays.
+    public func followNowPlaying(_ source: any NowPlayingSource, dismissal: NowPlayingCardDismissal? = nil,
+                                 enabled: @escaping @MainActor () -> Bool,
                                  onNewTab: @escaping @MainActor () -> Bool = { false },
                                  player: AgentPaneNowPlaying = .shared) -> Task<Void, Never> {
         Task { [weak self] in
-            for await followed in ObservationStream({ NowPlayingFollowed(card: enabled(), newTab: onNewTab(), source: source) }) {
+            // The hide state is read with the source, so a Hide or a Show reaches the card at once.
+            for await (followed, _) in ObservationStream({
+                (NowPlayingFollowed(card: enabled(), newTab: onNewTab(), source: source),
+                 dismissal.map { [$0.hiddenMedia ?? "", "\($0.hiddenUntilRelaunch)"] })
+            }) {
                 guard let self else { return }
                 source.run(followed.card || followed.newTab)
-                let card = followed.card ? followed.nowPlaying : nil
+                let offered = followed.card ? followed.nowPlaying : nil
+                let card = dismissal.map { $0.card(for: offered, from: source) } ?? offered
                 if self.nowPlaying != card { self.nowPlaying = card }
                 NewTabNowPlaying.show(followed.newTab ? followed.nowPlaying : nil, from: source, to: player)
             }
