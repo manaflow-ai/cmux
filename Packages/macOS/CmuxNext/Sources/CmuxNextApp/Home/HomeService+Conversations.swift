@@ -85,6 +85,13 @@ extension HomeService {
         HomeGroupActions(store: homeStore, muting: groupMuting, contacts: { [weak self] in self?.contacts() ?? [] })
     }
 
+    /// The one path every "Send Message…" entry point resolves its chat through (right-click
+    /// rows, Send to Chief, Forward…, `cmux chat send`, MCP): AppActions+HomeMessaging.
+    var messageRouting: HomeMessageRouting {
+        HomeMessageRouting(store: homeStore, actions: groupActions,
+                           chief: { [weak self] in self.flatMap { TopHomePageView.chief($0) }.map(ConversationID.init) })
+    }
+
     /// The Home sidebar's data source (the vendored MessagesLab sidebar reads it):
     /// choosing a row shows its conversation on the Home page, a person starts a DM.
     func makeSidebarSource() -> HomeSidebarSource {
