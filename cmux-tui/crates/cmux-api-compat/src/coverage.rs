@@ -265,11 +265,6 @@ impl std::fmt::Display for Break {
 
 /// The breaking differences from `old` to `new`.
 pub fn breaking_changes(old: &Surface, new: &Surface) -> Vec<Break> {
-    // RED: stub until the implementation commit.
-    if true {
-        return Vec::new();
-    }
-
     let mut breaks = Vec::new();
     for (kind, old_entries) in old {
         let Some(new_entries) = new.get(kind) else {

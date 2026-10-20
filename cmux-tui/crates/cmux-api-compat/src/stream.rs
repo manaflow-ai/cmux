@@ -17,11 +17,6 @@ use crate::CompatError;
 use crate::trie::Node;
 
 pub(crate) fn rewrite(root: &Node, input: &[u8], out: &mut Vec<u8>) -> Result<(), CompatError> {
-    // RED: stub until the implementation commit.
-    out.extend_from_slice(input);
-    #[allow(unreachable_code)]
-    return Ok(());
-
     let mut editor = Editor { input, pos: 0, out };
     editor.ws();
     editor.value(Some(root))?;

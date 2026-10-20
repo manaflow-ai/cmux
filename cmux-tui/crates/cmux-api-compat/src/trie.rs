@@ -61,11 +61,6 @@ impl Node {
 
     /// Adds one operation (in chain order) to the trie.
     pub(crate) fn apply(&mut self, op: Op) {
-    // RED: stub until the implementation commit.
-    if true {
-            return;
-        }
-
         if !self.slow.is_empty() {
             // Once a node is materialized, later rules run on the value, in order.
             self.slow.push(op);
