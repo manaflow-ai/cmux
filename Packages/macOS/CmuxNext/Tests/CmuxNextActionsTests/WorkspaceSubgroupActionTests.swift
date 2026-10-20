@@ -13,10 +13,17 @@ import Testing
         #expect(action.surfacePlan.cli?.isOffered == true)
     }
 
-    @Test func newSubgroupIsATopLevelRowOfTheGroupMenu() {
-        let top = ContextMenuCatalog.shared.entries(for: .workspaceGroup).compactMap { entry -> ActionID? in
-            if case let .action(id) = entry { id } else { nil }
+    /// In the group menu's Options folder: the menu's top level holds 12 rows (ActionSurfaceParityTests).
+    @Test func theGroupMenuOffersNewSubgroup() {
+        func ids(_ entries: [ContextMenuEntry]) -> [ActionID] {
+            entries.flatMap { entry -> [ActionID] in
+                switch entry {
+                case let .action(id), let .choices(id), let .submenu(id, _): [id]
+                case let .folder(_, children): ids(children)
+                case .separator: []
+                }
+            }
         }
-        #expect(top.contains("workspaceGroup.newSubgroup"))
+        #expect(ids(ContextMenuCatalog.shared.entries(for: .workspaceGroup)).contains("workspaceGroup.newSubgroup"))
     }
 }
