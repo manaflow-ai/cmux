@@ -41,6 +41,7 @@ extension SettingsSchema {
         .union(AgentPaneEditedFilesSettingsSchema.agentSettableKeys)
 .union(["agentPane.zoom"]) // display-only agent surface zoom
         .union(AgentPaneComposerSettingsSchema.agentSettableKeys) // the composer's context ring and mic (looks only)
+        .union(HomeSettingsSchema.agentSettableKeys) // the Chief chat's bubble style (looks only)
 
     private static let agentSettableTable: Set<String> = [
         "window.titlebar",
