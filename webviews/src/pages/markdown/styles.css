@@ -1020,7 +1020,7 @@ body {
   padding-left: 6px;
   border-radius: 5px;
   background: var(--page-hover);
-  box-shadow: inset 0 0 0 0.5px var(--page-separator);
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--page-separator);
 }
 
 .md-width-field:focus-within {
@@ -1256,15 +1256,15 @@ body {
 }
 
 .md-prose blockquote.md-callout:is([data-callout="abstract"], [data-callout="question"]) {
-  --md-callout-color: light-dark(#0f8a8a, #3cc6c6);
+  --md-callout-color: light-dark(#0f8a8a, #3cc6c6); /* theme-fixed: the abstract callout's teal has no theme token */
 }
 
 .md-prose blockquote.md-callout:is([data-callout="tip"], [data-callout="success"]) {
-  --md-callout-color: light-dark(#1a7f37, #3fb950);
+  --md-callout-color: var(--cmux-app-success, light-dark(#1a7f37, #3fb950));
 }
 
 .md-prose blockquote.md-callout:is([data-callout="warning"]) {
-  --md-callout-color: light-dark(#b35900, #f0883e);
+  --md-callout-color: var(--cmux-app-warning, light-dark(#b35900, #f0883e));
 }
 
 .md-prose blockquote.md-callout:is([data-callout="failure"], [data-callout="danger"], [data-callout="bug"]) {
@@ -1272,7 +1272,7 @@ body {
 }
 
 .md-prose blockquote.md-callout:is([data-callout="example"]) {
-  --md-callout-color: light-dark(#7c3aed, #a78bfa);
+  --md-callout-color: light-dark(#7c3aed, #a78bfa); /* theme-fixed: the example callout's purple has no theme token */
 }
 
 .md-prose blockquote.md-callout:is([data-callout="quote"]) {
@@ -1388,7 +1388,7 @@ body {
   color: var(--cmux-md-text-color);
   font-size: var(--text-detail);
   line-height: var(--text-detail--line-height);
-  box-shadow: 0 6px 20px rgb(0 0 0 / 0.18);
+  box-shadow: var(--elevation-2);
 }
 
 .cmux-comment-card blockquote {

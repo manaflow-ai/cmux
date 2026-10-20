@@ -150,6 +150,7 @@ import { loadEditDiffHunks } from "./conversation/EditDiff";
 import { PlanList } from "./conversation/PlanList";
 import { ActivityLine } from "./conversation/ActivityLine";
 import { BackgroundTaskNote } from "./conversation/BackgroundTaskNote";
+import { IncomingMessageCard, IncomingNotice } from "./conversation/IncomingMessageCard";
 import { CompactionNote, FailoverNote } from "./conversation/CompactionNote";
 import { AgentPairNote } from "./conversation/AgentPairNote";
 import { SessionStartNote } from "./conversation/SessionStartNote";
@@ -620,6 +621,18 @@ const MessageRow = memo(
     const t = useT();
     // A started task's result, which acpmux sent as a prompt: one line, never the person's bubble.
     if (row.kind === "user" && row.received) return <ReceivedResult result={row.received} onOpen={openOfferChat} />;
+    // Another agent's message as a card from it; a task notification as one quiet line
+    // (conversation/incomingMessage.ts).
+    // Its images and a steer's read state show with it, as under a bubble.
+    if (row.kind === "user" && row.incoming?.kind === "notice") return <IncomingNotice text={row.incoming.text} />;
+    if (row.kind === "user" && row.incoming?.kind === "message")
+      return (
+        <div className="cv-incoming">
+          <IncomingMessageCard message={row.incoming.message} images={row.images} onOpen={openOfferChat} />
+          {row.steer && <SteerMark steer={row.steer} />}
+        </div>
+      );
+    if (row.kind === "user" && row.incoming?.kind === "hidden") return null;
     if (row.kind === "user") {
       // A Chief subagent's first message: the Chief's view as one collapsed line, the task as
       // the message (the session keeps the whole text).
