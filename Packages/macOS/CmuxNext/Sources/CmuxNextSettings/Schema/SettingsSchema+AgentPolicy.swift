@@ -209,6 +209,9 @@ extension SettingsSchema {
         "agents.chats.roots": .privacy,
         "agents.chats.discovery": .privacy,
         "agents.chats.enabled": .privacy,
+        // Which folders the Screenshots pane reads, and whether it looks for more: the person's files.
+        "screenshots.findTools": .privacy,
+        "screenshots.folders": .privacy,
         "picker.pinned": .userOnly,
         // A pin leads the empty palette and an alias wins its word: an agent could put Close Window
         // under the user's Return.
