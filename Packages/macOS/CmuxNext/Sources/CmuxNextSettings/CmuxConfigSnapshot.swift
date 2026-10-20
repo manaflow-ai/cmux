@@ -144,6 +144,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     /// `appearance.glassTransparency`, `appearance.hue` and
     /// `appearance.saturation`; identity values when unset or invalid.
     public var appearanceTuning = AppearanceTuningSetting.fallback
+    /// The tuning the window tint takes: ``appearanceTuning`` while Experimental Appearance
+    /// Controls is on, else none.
+    public var windowTuning: AppearanceTuning { experimentalAppearance ? appearanceTuning : .identity }
     /// `appearance.statusIndicator.*`.
     public var statusIndicator = StatusIndicatorSettings()
     /// `status.*`.
