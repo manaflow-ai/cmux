@@ -5,10 +5,10 @@ import Foundation
 /// The phone's streamed browser tabs run on this app's own remote browser
 /// host (`Contents/Helpers/cmux-remote-browser-host.app`, the CEF host its
 /// remote browser tabs use), one ``LocalRemoteBrowserHost`` per phone tab,
-/// started and stopped at hostd's request (cnx-ios/verify/browser-stream.md).
+/// started and stopped at hostd's request (cmux-next-ios/verify/browser-stream.md).
 /// Every configuration bundles the host (arm64 only); each host listens on loopback
-/// with its own secret, and only cnx-hostd reaches it (cnx-ios/SECURITY.md, `browser`).
-final class IPhoneBrowserHosts: CnxBrowserHosting {
+/// with its own secret, and only cmux-mobile-host reaches it (cmux-next-ios/SECURITY.md, `browser`).
+final class IPhoneBrowserHosts: MobileHostBrowserHosting {
     enum Failure: Error { case noHost }
 
     private let registry = Registry()

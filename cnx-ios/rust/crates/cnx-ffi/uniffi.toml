@@ -1,6 +1,0 @@
-[bindings.swift]
-# Swift module `CnxFFI` (cnx-ios/CnxKit/Sources/CnxFFI) imports the C module
-# `CnxFFIFFI`, which the CnxFFI.xcframework's static frameworks provide.
-module_name = "CnxFFI"
-ffi_module_name = "CnxFFIFFI"
-ffi_module_filename = "CnxFFIFFI"

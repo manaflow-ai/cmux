@@ -1361,13 +1361,13 @@ jobs:
 
       # What App Store Connect rejects only after an upload (ITMS-90626 device
       # names in App Intents text, 90683 purpose strings, ...), on the
-      # cnx-ios sources. The INTERNAL builder runs it again on the built app.
-      - name: App Store review rules (cnx-ios intents, Info.plist)
+      # cmux-next-ios sources. The INTERNAL builder runs it again on the built app.
+      - name: App Store review rules (cmux-next-ios intents, Info.plist)
         id: app-store-rules
         continue-on-error: true
         run: |
           python3 tests/test_app_store_rules.py
-          python3 tests/test_cnx_ios_test_notes_retry.py
+          python3 tests/test_cmux_next_ios_test_notes_retry.py
           python3 -I scripts/cmux-next/check-app-store-rules.py --source .
 
       - name: Checks job structure
@@ -1543,7 +1543,7 @@ jobs:
             ${{ steps.package-conventions.outcome }}|Package conventions lint
             ${{ steps.browser-chrome-icons.outcome }}|Browser chrome icons
             ${{ steps.capability-text.outcome }}|Capability texts never say update the app
-            ${{ steps.app-store-rules.outcome }}|App Store review rules (cnx-ios intents, Info.plist)
+            ${{ steps.app-store-rules.outcome }}|App Store review rules (cmux-next-ios intents, Info.plist)
             ${{ steps.checks-structure.outcome }}|Checks job structure
             ${{ steps.tier-routing.outcome }}|Tier routing
             ${{ steps.package-dependency-lists.outcome }}|Package dependency lists sorted
