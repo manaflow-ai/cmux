@@ -193,15 +193,16 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<string>end</string>
+			<string>afterCurrent</string>
 			<key>pfm_description</key>
 			<string>Where Cmd-T and the + button put the new tab. New Tab to the Right in a tab's menu always puts it after that tab.</string>
 			<key>pfm_name</key>
 			<string>tabs.newTabPosition</string>
 			<key>pfm_range_list</key>
 			<array>
-				<string>end</string>
 				<string>afterCurrent</string>
+				<string>end</string>
+				<string>start</string>
 			</array>
 			<key>pfm_title</key>
 			<string>New Tab Position</string>
@@ -926,13 +927,13 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<true/>
+			<false/>
 			<key>pfm_description</key>
-			<string>Scrolling over a pane focuses it. Momentum and scrolling within a second of typing leave focus where it is.</string>
+			<string>Moving the pointer onto a pane or scrolling over it focuses that pane. Off keeps focus where you type until you click. Momentum and the first second after typing never move focus.</string>
 			<key>pfm_name</key>
-			<string>layout.focusPaneOnScroll</string>
+			<string>layout.focusFollowsMouse</string>
 			<key>pfm_title</key>
-			<string>Focus Pane on Scroll</string>
+			<string>Focus Follows Mouse</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>
@@ -1815,6 +1816,23 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<string>shared</string>
+			<key>pfm_description</key>
+			<string>One background behind the whole window, or a copy in each pane. A pane's own background (right-click a pane) shows either way.</string>
+			<key>pfm_name</key>
+			<string>appearance.paneBackgrounds</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>shared</string>
+				<string>perPane</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Pane Backgrounds</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<false/>
 			<key>pfm_description</key>
 			<string>Show the wallpaper grid and live appearance tuner while they are being integrated.</string>
@@ -1907,15 +1925,38 @@
 		<dict>
 			<key>pfm_default</key>
 			<string>compact</string>
+			<key>pfm_description</key>
+			<string>Row height, padding, corners, icons and text size together. Compact is the default.</string>
 			<key>pfm_name</key>
 			<string>appearance.density</string>
 			<key>pfm_range_list</key>
 			<array>
+				<string>ultraCompact</string>
 				<string>compact</string>
+				<string>cozy</string>
 				<string>comfortable</string>
+				<string>spacious</string>
 			</array>
 			<key>pfm_title</key>
 			<string>Density</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>appearance.customDensity</string>
+			<key>pfm_title</key>
+			<string>Custom Density</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<array/>
+			<key>pfm_name</key>
+			<string>appearance.customDensities</string>
+			<key>pfm_title</key>
+			<string>Custom Densities</string>
 			<key>pfm_type</key>
 			<string>string</string>
 		</dict>
@@ -3929,6 +3970,30 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>A collapsed group shows how many workspaces it holds after its name. Off, it shows only its loading spinner.</string>
+			<key>pfm_name</key>
+			<string>sidebar.groupHeader.memberCount</string>
+			<key>pfm_title</key>
+			<string>Show Group Member Count</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>A collapsed group shows how many unread notifications its workspaces have. Off, it shows only its loading spinner.</string>
+			<key>pfm_name</key>
+			<string>sidebar.groupHeader.unreadCount</string>
+			<key>pfm_title</key>
+			<string>Show Group Unread Count</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<string>off</string>
 			<key>pfm_description</key>
 			<string>Hides the chosen sections until the pointer is over the sidebar.</string>
@@ -5150,7 +5215,7 @@
 			<key>pfm_default</key>
 			<string>chromium</string>
 			<key>pfm_description</key>
-			<string>New browser tabs open in this engine.</string>
+			<string>Browser tabs and cmux pages, such as History and Apps, open in this engine.</string>
 			<key>pfm_name</key>
 			<string>browser.defaultEngine</string>
 			<key>pfm_range_list</key>
@@ -5159,9 +5224,40 @@
 				<string>webkit</string>
 			</array>
 			<key>pfm_title</key>
-			<string>Default Engine</string>
+			<string>Browser Engine</string>
 			<key>pfm_type</key>
 			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<dict>
+				<key>amazon.com/gp/video</key>
+				<string>webkit</string>
+				<key>disneyplus.com</key>
+				<string>webkit</string>
+				<key>hulu.com</key>
+				<string>webkit</string>
+				<key>max.com</key>
+				<string>webkit</string>
+				<key>music.apple.com</key>
+				<string>webkit</string>
+				<key>netflix.com</key>
+				<string>webkit</string>
+				<key>primevideo.com</key>
+				<string>webkit</string>
+				<key>spotify.com</key>
+				<string>webkit</string>
+				<key>tv.apple.com</key>
+				<string>webkit</string>
+			</dict>
+			<key>pfm_description</key>
+			<string>Sites that always open in one engine: a site, such as spotify.com, and chromium or webkit. Spotify, Netflix and other protected media sites open in WebKit, because their media does not play in Chromium.</string>
+			<key>pfm_name</key>
+			<string>browser.siteEngines</string>
+			<key>pfm_title</key>
+			<string>Site Engines</string>
+			<key>pfm_type</key>
+			<string>dictionary</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>
@@ -5275,6 +5371,22 @@
 			<string>Freeze Hidden Tabs</string>
 			<key>pfm_type</key>
 			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<integer>1</integer>
+			<key>pfm_description</key>
+			<string>Tabs on each side of the shown tab stay loaded and running, so switching to them is instant. 0 turns it off. Memory pressure and Low Power Mode turn it off.</string>
+			<key>pfm_name</key>
+			<string>browser.keepNeighborTabsAwake</string>
+			<key>pfm_range_max</key>
+			<real>3</real>
+			<key>pfm_range_min</key>
+			<real>0.0</real>
+			<key>pfm_title</key>
+			<string>Keep Neighbor Tabs Awake</string>
+			<key>pfm_type</key>
+			<string>real</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>
@@ -5491,13 +5603,14 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<string>backgroundTab</string>
+			<string>linkPlacement</string>
 			<key>pfm_description</key>
 			<string>In Chromium tabs, Download keeps Chrome's default.</string>
 			<key>pfm_name</key>
 			<string>browser.links.cmdClick</string>
 			<key>pfm_range_list</key>
 			<array>
+				<string>linkPlacement</string>
 				<string>backgroundTab</string>
 				<string>foregroundTab</string>
 				<string>newWindow</string>
@@ -5518,6 +5631,7 @@
 			<string>browser.links.cmdShiftClick</string>
 			<key>pfm_range_list</key>
 			<array>
+				<string>linkPlacement</string>
 				<string>backgroundTab</string>
 				<string>foregroundTab</string>
 				<string>newWindow</string>
@@ -5538,6 +5652,7 @@
 			<string>browser.links.shiftClick</string>
 			<key>pfm_range_list</key>
 			<array>
+				<string>linkPlacement</string>
 				<string>backgroundTab</string>
 				<string>foregroundTab</string>
 				<string>newWindow</string>
@@ -5558,6 +5673,7 @@
 			<string>browser.links.optionClick</string>
 			<key>pfm_range_list</key>
 			<array>
+				<string>linkPlacement</string>
 				<string>backgroundTab</string>
 				<string>foregroundTab</string>
 				<string>newWindow</string>
@@ -5578,6 +5694,7 @@
 			<string>browser.links.middleClick</string>
 			<key>pfm_range_list</key>
 			<array>
+				<string>linkPlacement</string>
 				<string>backgroundTab</string>
 				<string>foregroundTab</string>
 				<string>newWindow</string>
