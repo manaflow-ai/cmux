@@ -69,6 +69,36 @@ export const DEFAULT_CHIEF_TOOLS = ["spawn", "tell", "workspaces", "chiefs"] as 
 /** The agent harnesses a Chief's subagents may use (none checked: every harness). */
 export const CHIEF_HARNESSES = ["claude", "codex", "opencode", "pi"] as const;
 
+/** The official engines a Chief's own brain runs on (its record's `engine.harness`). The first is
+ * the default: a record that names none, or "default", runs on it. Not the subagent grant above. */
+export const CHIEF_BACKENDS = [
+  { id: "claude", label: "chief.backend.claude" },
+  { id: "codex", label: "chief.backend.codex" },
+  { id: "unii", label: "chief.backend.unii" },
+] as const;
+export type ChiefBackend = (typeof CHIEF_BACKENDS)[number]["id"];
+/** The engine a Chief starts on when the person picks none. */
+export const DEFAULT_CHIEF_BACKEND: ChiefBackend = "claude";
+
+/** The engine id a record names, with absent and "default" read as the default engine. */
+export function chiefBackend(harness?: string): string {
+  const id = harness?.trim().toLowerCase();
+  return !id || id === "default" ? DEFAULT_CHIEF_BACKEND : id;
+}
+
+/** A Chief engine's display name ("Claude", "Codex", "UniiChat"); an unknown id shows as it is. */
+export function chiefBackendLabel(t: (key: string) => string, harness?: string): string {
+  const id = chiefBackend(harness);
+  const known = CHIEF_BACKENDS.find((backend) => backend.id === id);
+  return known ? t(known.label) : (harness?.trim() ?? id);
+}
+
+/** The engine chip a Chief's row shows: only when it runs on something other than the default. */
+export function chiefBackendChip(t: (key: string) => string, chief: HomeChief | undefined): string | undefined {
+  if (!chief || chiefBackend(chief.engine?.harness) === DEFAULT_CHIEF_BACKEND) return undefined;
+  return chiefBackendLabel(t, chief.engine?.harness);
+}
+
 /** A Chief record (`chief.profile.*`). */
 export interface HomeChief {
   id: string;
@@ -85,6 +115,9 @@ export interface HomeChief {
   createdAt: string;
   /** The picture's hash (the page reads its bytes once per hash). */
   avatar?: string;
+  /** The engine the Chief's brain starts on (absent fields: the default engine, Claude). Changed
+   * later only in the Chief's settings in the app (`cmux chief engine`). */
+  engine?: { harness?: string; model?: string; effort?: string };
 }
 
 /** A Chief's profile text as the sheet edits it. */

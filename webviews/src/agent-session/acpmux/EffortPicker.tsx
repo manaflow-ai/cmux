@@ -99,9 +99,10 @@ export function EffortPicker({
   }, [open]);
   const levelRow = (choice: Choice) =>
     row(defaulted && choice.id === selectedVisible?.id ? { ...choice, hint: t("picker.default") } : choice);
-  // One line per row, as a native menu: the check in its own leading gutter (empty when the row is
-  // not chosen, so every label starts at the same x), the label, a hint, and a short note (Ultracode)
-  // in secondary text on the same line, its full text in the tooltip when the menu clips it.
+  // One line per row, as a native menu: the label, a hint, and a short note (Ultracode) in secondary
+  // text on the same line, its full text in the tooltip when the menu clips it, then the check in its
+  // own trailing gutter (composerControls.css; empty when the row is not chosen, so every label
+  // starts at the same x).
   const row = (choice: Choice) => (
     <MenuRadioItem key={choice.id} value={choice.id} className="acpmux-effort-item">
       <span className="acpmux-effort-text">

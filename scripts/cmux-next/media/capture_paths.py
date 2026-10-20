@@ -26,6 +26,9 @@ TOUR_FILES = {
     "new-tab": TOURS / "new-tab.json",
     "agent-pane": TOURS / "agent-pane.json",
     "now-playing": TOURS / "now-playing.json",
+    "pinned-tabs": TOURS / "pinned-tabs.json",
+    "hover-card": TOURS / "hover-card.json",
+    "update-card": TOURS / "update-card.json",
     "glass": TOURS / "glass.json",
     "core": TOURS / "core.json",
 }

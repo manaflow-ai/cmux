@@ -11,6 +11,11 @@ nonisolated struct KeyFacts: Equatable, Sendable {
     /// The focused screen has a primary input and none of its text
     /// fields has the keyboard (`PrimaryInputTarget`).
     var primaryInputReady = false
+    /// The focused screen's primary input claims this key wherever in the
+    /// screen the keyboard is (`PrimaryInputTarget.routesToPrimaryInput`):
+    /// printable and dead keys, plus any key the screen adds (Home's history
+    /// arrows). Read only for a key that is not a Command or Control chord.
+    var primaryInputClaimsKey = false
     /// The focused page cannot take typing yet: its document has not
     /// focused its primary input, or keys typed before still wait.
     var pageInputPending = false
