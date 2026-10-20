@@ -10,8 +10,8 @@ use serde_json::{Value, json};
 
 use crate::prompt::{
     CONTROL_DESCRIPTION, DATE_DESCRIPTION, REACT_DESCRIPTION, REPLY_DESCRIPTION,
-    SPAWN_CWD_DESCRIPTION, SPAWN_DESCRIPTION, TELL_DESCRIPTION, ZOOM_AGENT_DESCRIPTION,
-    ZOOM_DESCRIPTION,
+    SPAWN_CWD_DESCRIPTION, SPAWN_DESCRIPTION, TELL_DESCRIPTION, VERSION_DESCRIPTION,
+    ZOOM_AGENT_DESCRIPTION, ZOOM_DESCRIPTION,
 };
 use crate::tools::{self, Call};
 
@@ -47,7 +47,7 @@ pub fn tools_granted(subagent: bool, grant: &crate::chief_profile::Grant) -> Val
     }
     if !subagent && grant.allows("tell") {
         list.push(json!({"name": "tell", "description": TELL_DESCRIPTION,
-         "inputSchema": {"type": "object", "properties": {"id": text, "message": text, "key": {"type": "string", "minLength": 1, "description": "Optional idempotency key: a repeat with the same key is not sent again."}}, "required": ["id", "message"], "additionalProperties": false}}));
+         "inputSchema": {"type": "object", "properties": {"id": text, "message": text, "key": {"type": "string", "minLength": 1, "description": "Optional idempotency key: a repeat with the same key is not sent again."}, "queue": {"type": "boolean", "description": "true: a low-priority FYI that waits for the running turn to end. Default false: it is steered in, else the turn is interrupted and this is its next prompt."}}, "required": ["id", "message"], "additionalProperties": false}}));
         list.push(json!({"name": "control", "description": CONTROL_DESCRIPTION,
          "inputSchema": {"type": "object", "properties": {
             "action": {"type": "string", "enum": crate::tools::CONTROL_ACTIONS},
@@ -64,6 +64,11 @@ pub fn tools_granted(subagent: bool, grant: &crate::chief_profile::Grant) -> Val
     if !subagent && grant.allows("chiefs") {
         list.push(crate::chief_profile::chiefs_tool());
     }
+    // Read-only, for the Chief and its subagents: never a grant to withhold.
+    list.push(
+        json!({"name": "version", "description": VERSION_DESCRIPTION,
+     "inputSchema": {"type": "object", "properties": {}, "additionalProperties": false}}),
+    );
     // The Chief's own words in its conversation: never a grant to withhold.
     if !subagent {
         list.push(json!({"name": "react", "description": REACT_DESCRIPTION,
@@ -84,6 +89,11 @@ pub trait Backend {
     /// The model tools this Chief may use (asked of the host at tools/list).
     fn grant(&self) -> crate::chief_profile::Grant {
         crate::chief_profile::Grant::all()
+    }
+    /// The `version` tool's answer (version_tool.rs). It runs here, in the
+    /// MCP server, never through the host: it only reads.
+    fn version(&self) -> Result<String, String> {
+        Ok(crate::version_tool::answer(&crate::paths::mux_home()))
     }
 }
 
@@ -142,20 +152,24 @@ pub fn handle(message: &Value, backend: &dyn Backend) -> Option<Value> {
         "tools/call" => {
             let name = params.get("name").and_then(Value::as_str).unwrap_or("");
             let args = params.get("arguments").cloned().unwrap_or(json!({}));
-            let answer = Call::parse(name, &args).and_then(|call| match call {
-                Call::Spawn { .. }
-                | Call::Tell { .. }
-                | Call::React { .. }
-                | Call::Reply { .. }
-                | Call::Control(_)
-                | Call::Profile { .. }
-                | Call::Chiefs { .. }
-                    if backend.subagent() =>
-                {
-                    Err(format!("unknown tool {name}"))
-                }
-                call => backend.call(call),
-            });
+            let answer = if name == "version" {
+                backend.version()
+            } else {
+                Call::parse(name, &args).and_then(|call| match call {
+                    Call::Spawn { .. }
+                    | Call::Tell { .. }
+                    | Call::React { .. }
+                    | Call::Reply { .. }
+                    | Call::Control(_)
+                    | Call::Profile { .. }
+                    | Call::Chiefs { .. }
+                        if backend.subagent() =>
+                    {
+                        Err(format!("unknown tool {name}"))
+                    }
+                    call => backend.call(call),
+                })
+            };
             Ok(match answer {
                 Ok(text) => json!({"content": [{"type": "text", "text": text}], "isError": false}),
                 Err(error) => {

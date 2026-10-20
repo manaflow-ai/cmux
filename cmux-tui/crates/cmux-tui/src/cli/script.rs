@@ -278,8 +278,7 @@ pub(super) fn error_text(answer: &Value) -> String {
         && message.starts_with("bad request")
         && message.contains("script-")
     {
-        let fix = super::fix_command::restart_routed_daemon(&super::fix_command::this_cli());
-        return format!("cmux: {} {fix}", messages().unsupported_daemon);
+        return format!("cmux: {}", messages().unsupported_daemon);
     }
     let mut text = format!("cmux: {code}: {message}");
     if let Some(details) = answer.get("error_details").filter(|d| !d.is_null()) {

@@ -587,7 +587,7 @@ impl Spawner {
         self.send(Input::SubagentStarted {
             id: id.to_owned(),
             session_id: session.clone(),
-            policy: floor.map(str::to_owned),
+            policy: Some(spec.policy.clone()),
         })?;
         let (tx, rx) = channel();
         let prompt_id = format!("{PROMPT_PREFIX}sub:{id}:{}", now_ms());
@@ -1225,11 +1225,22 @@ impl Orchestrator for Spawner {
     }
 
     fn tell_keyed(&self, id: &str, message: &str, key: Option<&str>) -> Result<String, String> {
+        self.tell_with(id, message, key, false)
+    }
+
+    fn tell_with(
+        &self,
+        id: &str,
+        message: &str,
+        key: Option<&str>,
+        queue: bool,
+    ) -> Result<String, String> {
         let (reply, answer) = channel();
         self.send(Input::Tell {
             id: id.to_owned(),
             message: message.to_owned(),
             key: key.map(str::to_owned),
+            queue,
             reply,
         })?;
         answer

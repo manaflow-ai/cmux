@@ -106,9 +106,15 @@ async function admitted(github, owner, repo, sha, { attempts, delayMs, sleep, co
 }
 
 // The compare API returns at most this many commits per page and files only on
-// its first page (at most 300). Anything it cannot list in full is refused.
+// its first page (at most 300). It pages through ranges of any length, so the
+// guard reads every page; anything it cannot list in full is refused.
 const COMPARE_PAGE = 100;
-const MAX_RANGE_COMMITS = 1000;
+// A budget, not a history limit: G4 reads each commit of the range once, and
+// the job token allows 15,000 requests an hour. A range over this budget is
+// refused (fail closed) instead of running the token dry halfway through.
+// It was 1000 until 2026-10-20, when a 1782-commit range (1549 of them from
+// one merge) had no smaller step and blocked every nightly (run 39407965731).
+const MAX_RANGE_COMMITS = 10000;
 const COMMIT_FILE_CAP = 3000;
 
 // One compare request, memoized for the life of a decision: the guard reads
@@ -127,16 +133,20 @@ function comparer(github, owner, repo) {
 // Every commit in base...head (all parents, merges included), from the compare
 // API's paginated commit list. Returns null when the list cannot be read in full.
 async function rangeCommits(compare, base, head) {
-  const commits = [];
-  let total = null;
-  for (let page = 1; page <= MAX_RANGE_COMMITS / COMPARE_PAGE + 1; page += 1) {
-    const data = await compare(`${base}...${head}`, page);
-    total = data.total_commits;
-    const batch = data.commits || [];
-    commits.push(...batch);
-    if (commits.length >= total || batch.length === 0) break;
-  }
+  const first = await compare(`${base}...${head}`, 1);
+  const total = first.total_commits;
   if (typeof total !== 'number' || total > MAX_RANGE_COMMITS) return null;
+  // Page count from the first page's total; every page is read, and the
+  // pages must add up to exactly that many distinct commits.
+  const pages = Math.max(1, Math.ceil(total / COMPARE_PAGE));
+  const commits = [...(first.commits || [])];
+  for (let page = 2; page <= pages; page += 1) {
+    const data = await compare(`${base}...${head}`, page);
+    if (data.total_commits !== total) return null;
+    const batch = data.commits || [];
+    if (batch.length === 0) break;
+    commits.push(...batch);
+  }
   if (commits.length !== total || new Set(commits.map((commit) => commit.sha)).size !== total) return null;
   return commits;
 }
@@ -327,7 +337,7 @@ export async function decide({
   // Every commit in the range, merges and second parents included.
   const commits = await rangeCommits(compare, current, sha);
   if (!commits) {
-    return refuse(`the range ${current}...${sha} has more than ${MAX_RANGE_COMMITS} commits or the compare API did not list them all`, { sha, current });
+    return refuse(`the range ${current}...${sha} has more than ${MAX_RANGE_COMMITS} commits (the per-commit read budget) or the compare API did not list them all`, { sha, current });
   }
   const rangeSet = new Set(commits.map((commit) => commit.sha));
 
