@@ -2,8 +2,8 @@ import Foundation
 
 /// Pages a newest-first source through a filter. Rows the filter hides never
 /// consume the requested window, and the work grows with the request: each
-/// page starts at twice `offset + limit` and grows only while too few rows
-/// pass the filter, bounded by `cap`.
+/// page starts at twice `offset + limit` and reads more only while too few
+/// rows pass the filter, bounded by `cap`.
 public enum CmuxGrowingWindowPager {
     /// Pages a candidate snapshot that is discovered once. The first window is
     /// twice the page; with `grows`, each later window doubles the inspected
@@ -35,33 +35,31 @@ public enum CmuxGrowingWindowPager {
         return Array(matched.prefix(target).dropFirst(offset).prefix(limit))
     }
 
-    /// Pages a source that can only read its newest `n` rows. Each read asks
-    /// for twice the previous limit until `offset + limit` rows pass
-    /// `isIncluded`, the limit reaches `cap`, or a larger read returns no more
-    /// rows than the one before. A single short read does not end the page,
-    /// because some readers return less for one request size (Antigravity
-    /// reads one history page for its preview size).
+    /// Pages a source that can only read its newest `n` rows. Each read
+    /// reruns the source's loader, so a page takes at most two: with
+    /// `startsSmall`, twice the page first, and `cap` only when too few of
+    /// those rows pass `isIncluded`; without it, `cap` once. A short first
+    /// read does not end the page, because some readers return less for one
+    /// request size (Antigravity reads one history page for its preview size).
     public static func prefixPage<Element>(
         offset: Int,
         limit: Int,
         cap: Int,
+        startsSmall: Bool,
         read: (Int) async -> [Element],
         isIncluded: (Element) -> Bool
     ) async -> [Element] {
         let target = offset + limit
         guard limit > 0 else { return [] }
         let maxRead = max(cap, target)
-        var readLimit = doubled(target, upTo: maxRead)
-        var previousCount: Int?
+        var readLimit = startsSmall ? doubled(target, upTo: maxRead) : maxRead
         while true {
-            let rows = await read(readLimit)
+            let included = await read(readLimit).filter(isIncluded)
             if Task.isCancelled { return [] }
-            let included = rows.filter(isIncluded)
-            if included.count >= target || readLimit >= maxRead || rows.count == previousCount {
+            if included.count >= target || readLimit >= maxRead {
                 return Array(included.prefix(target).dropFirst(offset).prefix(limit))
             }
-            previousCount = rows.count
-            readLimit = doubled(readLimit, upTo: maxRead)
+            readLimit = maxRead
         }
     }
 

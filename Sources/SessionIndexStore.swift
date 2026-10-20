@@ -1666,9 +1666,9 @@ final class SessionIndexStore: ObservableObject {
         }
         // Excluded sessions must not consume the requested window, so the
         // source offset cannot be used directly. Claude grows its window over
-        // one candidate snapshot. Other loaders read a newest-first prefix
-        // that starts at twice the page and grows only while too few sessions
-        // pass the rules.
+        // one candidate snapshot. Other loaders read a newest-first prefix of
+        // twice the page, then the cap only when too few sessions pass the
+        // rules. A search already scans up to the cap, so it reads once.
         if agent == .claude {
             return await loadClaudeEntries(
                 needle: needle,
@@ -1682,6 +1682,7 @@ final class SessionIndexStore: ObservableObject {
             offset: safeOffset,
             limit: safeLimit,
             cap: searchMaxFiles,
+            startsSmall: needle.isEmpty,
             read: { sourceLimit in
                 await loadRawAgentEntries(
                     needle: needle,
