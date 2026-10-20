@@ -363,7 +363,16 @@ export type HarnessesState = {
 /** One Harnesses gesture: Sign in and Check open a terminal tab with `harness login`; Update
  * (one `id`) and Update all start owner-bound native terminal jobs. */
 export type HarnessesRun = {
-  action: "refresh" | "signIn" | "check" | "registry" | "update" | "updateAll" | "autoUpdate" | "resumeUpdate" | "dismissUpdate";
+  action:
+    | "refresh"
+    | "signIn"
+    | "check"
+    | "registry"
+    | "update"
+    | "updateAll"
+    | "autoUpdate"
+    | "resumeUpdate"
+    | "dismissUpdate";
   id?: string;
   /** With `resumeUpdate` and `dismissUpdate`: the retained intent key, not a new operation id. */
   intent?: string;

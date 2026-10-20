@@ -1,4 +1,10 @@
 #[test]
+fn chief_turn_tools_contain_no_mac_app_actions() {
+    let tools: Vec<_> = super::CHIEF_TURN_TOOLS.split(',').map(str::trim).collect();
+    assert!(tools.iter().all(|tool| !tool.starts_with("app_")), "{tools:?}");
+}
+
+#[test]
 fn a_spawned_agent_never_inherits_a_helper_token() {
     let mut cmd = tokio::process::Command::new("/bin/true");
     crate::cua_socket::scrub_agent_env(&mut cmd);

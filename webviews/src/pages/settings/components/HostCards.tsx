@@ -193,8 +193,9 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
         aria-pressed={current === id}
         aria-label={title}
         aria-describedby={
-          [choice?.video ? `${describe}-video` : null, pending ? `${describe}-pending` : null].filter(Boolean).join(" ") ||
-          undefined
+          [choice?.video ? `${describe}-video` : null, pending ? `${describe}-pending` : null]
+            .filter(Boolean)
+            .join(" ") || undefined
         }
         /* tooltip-allow: what a click on a cloud tile does, or the credit the one-line tile drops */ title={
           pending ? t("settingsWindow.backdropPicker.downloadInSystemSettings") : credit

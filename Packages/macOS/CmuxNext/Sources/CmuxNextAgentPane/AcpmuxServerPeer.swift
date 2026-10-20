@@ -213,16 +213,34 @@ nonisolated enum AcpmuxServerPeer {
 
     /// The team requirement, with the exact code-signing identifier when one is given (rule 1).
     private static func satisfies(_ code: SecCode, team: String, identifier: String?) -> Bool {
+        guard let requirement = requirement(team: team, identifier: identifier) else { return false }
+        return SecCodeCheckValidity(code, [], requirement) == errSecSuccess
+    }
+
+    /// A strict on-disk check before a Team-signed app launches its acpmux.
+    /// DEV is ad-hoc and has no team to require; its post-launch path check remains the boundary.
+    static func executableSignedByAppTeam(_ executable: URL, team: String? = ownTeam) -> Bool {
+        guard let team else { return true }
+        guard let requirement = requirement(team: team, identifier: nil) else { return false }
+        var code: SecStaticCode?
+        let path = executable.resolvingSymlinksInPath()
+        guard SecStaticCodeCreateWithPath(path as CFURL, [], &code) == errSecSuccess, let code else { return false }
+        let flags = SecCSFlags(rawValue: kSecCSCheckAllArchitectures | kSecCSStrictValidate)
+        return SecStaticCodeCheckValidity(code, flags, requirement) == errSecSuccess
+    }
+
+    private static func requirement(team: String, identifier: String?) -> SecRequirement? {
+        let plain = { (text: String) in
+            !text.isEmpty && text.allSatisfy { $0.isLetter || $0.isNumber || $0 == "." || $0 == "-" || $0 == "_" }
+        }
+        guard plain(team), identifier.map(plain) ?? true else { return nil }
         var text = "anchor apple generic and certificate leaf[subject.OU] = \"\(team)\""
         if let identifier {
-            guard identifier.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "." || $0 == "-" || $0 == "_" }) else { return false }
             text = "identifier \"\(identifier)\" and " + text
         }
         var requirement: SecRequirement?
-        guard SecRequirementCreateWithString(text as CFString, [], &requirement) == errSecSuccess, let requirement else {
-            return false
-        }
-        return SecCodeCheckValidity(code, [], requirement) == errSecSuccess
+        guard SecRequirementCreateWithString(text as CFString, [], &requirement) == errSecSuccess else { return nil }
+        return requirement
     }
 
     /// The code-signing identifier of this app's own acpmux binary (on disk), cached per path.

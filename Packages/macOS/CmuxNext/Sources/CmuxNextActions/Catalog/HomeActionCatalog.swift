@@ -17,7 +17,7 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
             var descriptor = descriptor
             descriptor.waitsForResult = waits.contains(descriptor.id)
             // `home.chiefPetEnabled` is a user-only setting: only a person turns the pet on.
-            descriptor.isPersonOnly = descriptor.id == "home.toggleChiefPet"
+            descriptor.isPersonOnly = ["home.toggleChiefPet", "home.messageChiefPet", "home.messageChiefFromAnyApp"].contains(descriptor.id)
             return descriptor
         }
     }
@@ -93,6 +93,32 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                 // No CLI verb: the setting is user-only, so a script or agent run would be refused.
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
             ),
+            // The pet with its reply box open, turning the pet on first if it is off (Leo 2026-10-20: grow the
+            // pet toward Codex's mini chat). Bindable in Settings > Keyboard Shortcuts, unbound by default.
+            ActionDescriptor(
+                id: "home.messageChiefPet", title: t("action.home.messageChiefPet", "Message the Chief"),
+                keywords: ["chief", "pet", "message", "reply", "ask", "chat", "mini", "floating", "summon", "quick"],
+                category: .window, symbol: "bubble.left", surfaces: [.palette, .keyboard],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
+            ),
+            {
+                // Message the Chief's system-wide key, its own action so it has its own recorder (like Start Agent
+                // from Any App). GlobalHotKeyService registers it only while the pet is on: the person already chose
+                // to have the Chief over every app, and with the pet off the key stays with other apps.
+                var anyApp = ActionDescriptor(
+                    id: "home.messageChiefFromAnyApp",
+                    title: t("action.home.messageChiefFromAnyApp", "Message the Chief from Any App"),
+                    keywords: ["chief", "pet", "message", "reply", "ask", "chat", "global", "hotkey", "hot key", "summon"],
+                    // Ctrl-Opt-Cmd-C: free in cmux's defaults, Ghostty's reserved keys and macOS's; C for Chief.
+                    defaultShortcut: Shortcut("c", modifiers: [.control, .option, .command]),
+                    category: .window, symbol: "bubble.left", surfaces: [.keyboard],
+                    // Message the Chief is the palette row.
+                    surfacePlan: ActionSurfacePlan(palette: .exempt(.familyMember), cli: .exempt(.familyMember),
+                                                   contextMenuExemption: .noObject)
+                )
+                anyApp.isGlobalHotKey = true
+                return anyApp
+            }(),
             ActionDescriptor(
                 id: "home.attachFiles", title: t("action.home.attachFiles", "Attach Files…"),
                 keywords: ["home", "attach", "file", "photo", "video", "image", "upload", "message", "conversation"],

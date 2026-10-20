@@ -102,6 +102,19 @@ fn claude(h: &Path, project: &Path) {
             json!([{"type": "text", "text": "It reads lines."}]),
             "2026-10-02T09:00:02.000Z",
         ),
+        // A background task's notification, as Claude Code records it: a user line with a
+        // non-human origin. Claude Code wrote it, not the person.
+        {
+            let mut notice = line(
+                "user",
+                json!(
+                    "<task-notification>\n<task-id>a1</task-id>\n<status>completed</status>\n<summary>Agent \"Map\" finished</summary>\n</task-notification>"
+                ),
+                "2026-10-02T09:00:03.000Z",
+            );
+            notice["origin"] = json!({"kind": "task-notification", "producer": "session-task"});
+            notice
+        },
     ];
     let text: String = lines.iter().map(|line| format!("{line}\n")).collect();
     write(&h.join(format!(".claude/projects/-work-api/{CLAUDE_ID}.jsonl")), &text);
@@ -227,6 +240,7 @@ async fn a_chat_with_no_acp_resume_gives_its_prompts_and_answers_on_the_local_so
     assert_eq!(turns(&amp), [pair("Rename x", "Renamed.")]);
 
     // Claude Code and Codex chats too (a chat that cannot adopt shows them before its first send).
+    // A task notification Claude Code wrote into the chat is not a prompt.
     let key = format!("claude-code:{CLAUDE_ID}");
     let claude = call(&tx, &mut rx, 6, "_acpmux/chat_transcript", json!({"key": key})).await;
     assert_eq!(turns(&claude), [pair("Explain the parser", "It reads lines.")]);
