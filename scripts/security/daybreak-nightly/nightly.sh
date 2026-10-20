@@ -27,6 +27,8 @@ WT_ROOT="${CMUX_DAYBREAK_WORKTREE_DIR:-$HOME/fun/cmux-worktrees}"
 MODEL="${CMUX_DAYBREAK_MODEL:-gpt-daybreak-blue-latest}"
 ACCOUNT="${CMUX_DAYBREAK_ACCOUNT:-lawrence@manaflow.ai}"
 MAX_PARALLEL="${CMUX_DAYBREAK_PARALLEL:-4}"
+# A worker can hang on the model stream with no error; stop it after this many seconds.
+LANE_TIMEOUT="${CMUX_DAYBREAK_LANE_TIMEOUT:-5400}"
 PROMPT_FILE="${CMUX_DAYBREAK_PROMPT:-$STATE_DIR/prompt.md}"
 [[ -f "$PROMPT_FILE" ]] || PROMPT_FILE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)/prompt.md"
 
@@ -54,11 +56,19 @@ log() { printf '%s %s\n' "$(date '+%H:%M:%S')" "$*" | tee -a "$OUT_DIR/run.log" 
 run_lane() { # repo lane wt range pathspecs...
   local repo="$1" lane="$2" wt="$3" range="$4"; shift 4
   local out="$OUT_DIR/$repo-$lane.md" prompt
+  rm -f "$out"
   prompt="$(sed -e "s|{{REPO}}|$repo|g" -e "s|{{LANE}}|$lane|g" -e "s|{{RANGE}}|$range|g" \
     -e "s|{{PATHS}}|$*|g" -e "s|{{OUT}}|$out|g" "$PROMPT_FILE")"
-  ( cd "$wt" && SUBROUTER_CODEX_ACCOUNT_ID="$ACCOUNT" sr codex exec --json -m "$MODEL" \
+  ( cd "$wt" && exec env SUBROUTER_CODEX_ACCOUNT_ID="$ACCOUNT" sr codex exec --json -m "$MODEL" \
       -s read-only --skip-git-repo-check -o "$out" "$prompt" \
-      > "$OUT_DIR/$repo-$lane.jsonl" 2> "$OUT_DIR/$repo-$lane.err" )
+      > "$OUT_DIR/$repo-$lane.jsonl" 2> "$OUT_DIR/$repo-$lane.err" ) &
+  local worker=$!
+  ( sleep "$LANE_TIMEOUT"; kill -TERM "$worker" 2>/dev/null ) &
+  local watchdog=$!
+  wait "$worker"; local rc=$?
+  kill "$watchdog" 2>/dev/null; wait "$watchdog" 2>/dev/null
+  if [[ $rc -ne 0 ]]; then log "$repo/$lane: worker exited $rc (143 = lane timeout)"; fi
+  [[ -s "$out" ]] && grep -q '^COUNTS ' "$out"
 }
 
 FAILED=0
