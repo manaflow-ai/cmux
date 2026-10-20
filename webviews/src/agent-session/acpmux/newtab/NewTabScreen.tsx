@@ -36,7 +36,6 @@ import {
 import { RowGlyph } from "./RowGlyph";
 import { WidgetCards } from "./WidgetCards";
 import { EnvironmentCard, SuggestionsCard } from "./StageCards";
-import { useComposerSettings } from "../composerSettings";
 import { Icon } from "../icons/Icon";
 import { type NewTabTranslate, useNt } from "./strings";
 import { screenSections, type ScreenTemplate } from "./templates";
@@ -152,8 +151,6 @@ export function NewTabScreen(props: Props) {
   const sections = screenSections(template);
   // Claude Code desktop's layout (templates.ts stage): the composer at the foot, the cards over it.
   const stage = sections.stage;
-  // The composer's plain footer (#22050, composerSettings.ts): no pill at rest, a wash on hover.
-  const { plainFooter } = useComposerSettings();
   const [text, setText] = useState(location ?? "");
   // The location stays a suggestion until edited: no rows for it.
   const [touched, setTouched] = useState(false);
