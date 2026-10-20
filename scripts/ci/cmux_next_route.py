@@ -219,7 +219,12 @@ class Route:
 
 
 def load_graph(root: Path) -> dict:
-    return json.loads((root / GRAPH).read_text(encoding="utf-8"))
+    """The target graph of root's tree, built now from its cached package dump (ci-target-graph.py
+    load()). Build output since hq#2572: a missing or stale dump fails with the command to run."""
+    spec = importlib.util.spec_from_file_location("ci_target_graph", root / "scripts/cmux-next/ci-target-graph.py")
+    generator = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(generator)
+    return generator.load(root)
 
 
 def tree_input_paths(root: Path) -> list[str]:
