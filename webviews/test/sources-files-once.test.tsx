@@ -37,14 +37,16 @@ afterAll(() => {
 const file = (path: string, additions: number) =>
   ({ path, displayPath: path.split("/").pop()!, edits: [], additions, deletions: 0, created: false }) as never;
 
-async function sourcesRows(outputs: never[], changed: never[]) {
+async function sourcesRows(outputs: never[], changed: never[], onOpenChanges: (path?: string) => void = () => {}) {
   const { createRoot } = await import("react-dom/client");
   const { SummaryBody } = await import("../src/agent-session/acpmux/summary/SummaryBody");
   act(() => root?.unmount());
   root = createRoot(host);
   const summary = { scheduled: [], pullRequests: [], outputs, subagents: [], sources: [], backgroundTasks: [] };
   const changes = { additions: 1, deletions: 0, files: changed };
-  await act(async () => root!.render(<SummaryBody summary={summary} changes={changes} onOpenChanges={() => {}} />));
+  await act(async () =>
+    root!.render(<SummaryBody summary={summary} changes={changes} onOpenChanges={onOpenChanges} />),
+  );
   const sections: Record<string, string[]> = Object.fromEntries(
     [...host.querySelectorAll("section")].map((section) => [
       section.getAttribute("aria-label") ?? section.querySelector("h3")?.textContent,
@@ -78,4 +80,23 @@ test("a file the turn's checkpoint lists shows once, under Outputs", async () =>
   expectOnceUnderOutputs(
     await sourcesRows([file("~/code/x/src/upload.sh", 1), file("~/code/x/README.md", 4)], [checkpoint]),
   );
+});
+
+// A turn can edit one file with an edit tool and another with a shell command or formatter: only
+// the checkpoint knows the second. It is listed under Outputs too, and opens the turn's diff there.
+test("a file only the turn's checkpoint knows shows under Outputs and opens the turn's diff at it", async () => {
+  const opened: (string | undefined)[] = [];
+  const formatted = { ...(file("/repo/src/format.ts", 2) as object), displayPath: "src/format.ts" } as never;
+  const sections = await sourcesRows(
+    [file("/repo/src/upload.sh", 1)],
+    [file("/repo/src/upload.sh", 1), formatted],
+    (path) => opened.push(path),
+  );
+  expect(sections["Outputs"]?.filter((row) => row.includes("format.ts")).length).toBe(1);
+  expect(sections["Outputs"]?.filter((row) => row.includes("upload.sh")).length).toBe(1);
+  const row = [...host.querySelectorAll<HTMLButtonElement>("section button")].find((button) =>
+    button.textContent?.includes("format.ts"),
+  )!;
+  await act(async () => row.click());
+  expect(opened).toEqual(["/repo/src/format.ts"]);
 });

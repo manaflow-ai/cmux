@@ -128,6 +128,10 @@ await requireBrowserLane("agent-pane-adopted-edited-files.test.ts", async () => 
     await expect(card.locator(".acpmux-edited-title").innerText()).resolves.toMatch(/^Edited 2 files\s*\+4\s*-1/);
     const files = await card.locator(".acpmux-edited-file").allInnerTexts();
     expect(files.map((row) => row.replace(/\s+/g, " ").trim())).toEqual(["CHANGELOG.md +3 -0", "Cargo.toml +1 -1"]);
+    // A reopened Codex edit is replayed as hunks, parts of each file (`_meta.acpmux.fragment`): no
+    // whole-file text to put back, so the card offers no Undo the host would refuse.
+    await card.hover();
+    expect(await card.locator(".acpmux-edited-undo").count()).toBe(0);
     await card.getByRole("button", { name: "View changes" }).click();
     // The browser host has no pane beside the chat: the turn's diff opens in place, its hunks drawn.
     await page.getByText('version = "1.3.0"').first().waitFor();

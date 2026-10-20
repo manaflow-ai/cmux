@@ -1,5 +1,6 @@
 import React, { type ReactNode } from "react";
 import { Counts } from "../changes/Counts";
+import { changedByTools } from "../changes/turnCheckpoint";
 import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
@@ -15,7 +16,9 @@ const ROW_ICON = rowIconSize(12);
 /// tasks and wakeups follow when there are any.
 /// Pull requests and sources are links, so they open, copy and open in a new tab as links do;
 /// an output opens the changes view at that file. Outputs lists every file the chat changed, once
-/// (hq#2569 item 4, cx-0h4xq); Changes is one row that opens the last turn's diff with its totals.
+/// (hq#2569 item 4, cx-0h4xq), with the files only the last turn's checkpoint knows (a shell
+/// command or formatter edited them) opening that turn's diff at the file; Changes is one row
+/// that opens the last turn's diff with its totals.
 /// Following a link calls `onFollow`. A chat
 /// with images or renders offers its gallery under Outputs (GalleryDialog.tsx). A chat whose
 /// subagents acpmux reports lists them with their live state (SubagentStatusList.tsx) in the
@@ -57,26 +60,33 @@ export function SummaryBody({
   subagents?: ReactNode;
 }) {
   const t = useT();
+  // A loaded checkpoint lists its files under the repository root, outputs as the agent wrote them.
+  const checkpointOnly = (changes?.files ?? []).filter((file) => !changedByTools(file, summary.outputs));
+  const outputs = [...summary.outputs, ...checkpointOnly];
   return (
     <>
       <SummarySection
         title={t("summary.outputs")}
         fixed
-        items={summary.outputs}
-        row={(file) => (
-          <li key={file.path}>
-            <button
-              type="button"
-              className="acpmux-summary-row acpmux-summary-link"
-              disabled={!onOpenOutput}
-              onClick={() => onOpenOutput?.(file.path)}
-            >
-              <Icon name={file.created ? "file.new" : "file.text"} size={ROW_ICON} row />
-              <span className="acpmux-summary-text">{file.displayPath}</span>
-              <Counts additions={file.additions} deletions={file.deletions} />
-            </button>
-          </li>
-        )}
+        items={outputs}
+        row={(file) => {
+          const inTurnDiff = checkpointOnly.includes(file);
+          const open = inTurnDiff ? onOpenChanges : onOpenOutput;
+          return (
+            <li key={file.path}>
+              <button
+                type="button"
+                className="acpmux-summary-row acpmux-summary-link acpmux-summary-file"
+                disabled={!open}
+                onClick={() => open?.(file.path)}
+              >
+                <Icon name={file.created ? "file.new" : "file.text"} size={ROW_ICON} row />
+                <span className="acpmux-summary-text">{file.displayPath}</span>
+                <Counts additions={file.additions} deletions={file.deletions} />
+              </button>
+            </li>
+          );
+        }}
         footer={
           galleryCount > 0 &&
           onOpenGallery && (
