@@ -82,7 +82,8 @@ final class QuitCoordinator {
         SheetDismissal.endAll()
         let origin = origins.consume(appleEventReason: Self.quitReason())
         let behavior = services.settings?.snapshot.quitBehavior ?? QuitBehaviorSetting.fallback
-        logger.info("quit origin=\(String(describing: origin), privacy: .public) behavior=\(behavior.rawValue, privacy: .public)")
+        let confirm = services.settings?.snapshot.confirmQuit ?? ConfirmQuitSetting.fallback
+        logger.notice("quit origin=\(String(describing: origin), privacy: .public) behavior=\(behavior.rawValue, privacy: .public) confirm=\(confirm.rawValue, privacy: .public)")
         // [services]: the quit task pins the app's services until it ends (cx-6so P1b).
         Task { @MainActor [services] in
             // Unsaved documents come first (R96 quit hook). Answering that
@@ -95,7 +96,7 @@ final class QuitCoordinator {
                 return
             }
             let facts = QuitPolicy.needsFacts(origin) && !askedUnsaved ? await QuitFactsReader.read(services) : .none
-            switch QuitPolicy.decide(origin, behavior: behavior, facts: facts, alreadyAsked: askedUnsaved) {
+            switch QuitPolicy.decide(origin, behavior: behavior, confirm: confirm, facts: facts, alreadyAsked: askedUnsaved) {
             case .quit(let choice):
                 await complete(choice, remember: false, sender)
             case .ask(let prompt):
@@ -159,6 +160,14 @@ final class QuitCoordinator {
                 do { try await settings.setSetting(descriptor, to: .string(behavior.rawValue), by: .user) } catch {
                     Logger(subsystem: "com.cmuxterm.app.next", category: "app.quit")
                         .error("quit setting write failed: \(String(describing: error), privacy: .public)")
+                }
+            },
+            stopConfirming: {
+                guard let settings = services.settings, settings.snapshot.confirmQuit != .never,
+                      let descriptor = SettingsSchema.descriptor(for: ConfirmQuitSetting.configPath) else { return }
+                do { try await settings.setSetting(descriptor, to: .string(ConfirmQuitMode.never.rawValue), by: .user) } catch {
+                    Logger(subsystem: "com.cmuxterm.app.next", category: "app.quit")
+                        .error("confirm-quit setting write failed: \(String(describing: error), privacy: .public)")
                 }
             },
             prepareWindows: {
