@@ -66,6 +66,7 @@ import Testing
         controller.close()
         let reopen = clock.measure { controller.show(host: tab, handler: handler, anchor: anchor) }
         #expect(controller.isShown)
+        print("TOOLBAR-PERF extensions.open=\(Self.milliseconds(open)) ms extensions.reopen=\(Self.milliseconds(reopen)) ms")
         #expect(Self.milliseconds(open) < 50, "open took \(Self.milliseconds(open)) ms")
         #expect(Self.milliseconds(reopen) < 10, "reopen took \(Self.milliseconds(reopen)) ms")
         controller.close()
@@ -108,6 +109,7 @@ import Testing
             }
             slowest = max(slowest, hover)
         }
+        print("TOOLBAR-PERF extensions.hover.max=\(Self.milliseconds(slowest)) ms")
         #expect(Self.milliseconds(slowest) < 16, "slowest hover took \(Self.milliseconds(slowest)) ms")
         controller.close()
     }
