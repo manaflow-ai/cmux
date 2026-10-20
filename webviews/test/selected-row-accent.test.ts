@@ -42,7 +42,7 @@ await requireBrowserLane("selected-row-accent.test.ts", async () => {
     ["session row", `<div class="acpmux-session-row is-selected">Fix the build</div>`],
     [
       "checked question mark",
-      `<div class="acpmux-question-row" aria-checked="true"><span class="acpmux-question-mark" data-multi></span></div>`,
+      `<div class="acpmux-question-row" aria-checked="true"><span class="acpmux-question-mark" data-multi data-chosen></span></div>`,
     ],
   ];
   const page = (accent: string) => `<!doctype html><html><head><style>

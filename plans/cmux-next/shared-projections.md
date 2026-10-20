@@ -39,7 +39,7 @@ Remount bugs are the third kind: component state that starts empty and re-reads.
 | Every other finite CSS or Web Animation in the page (menus, minimap glide, tree motion, title fades) | Started while hidden, played on return. | Fixed page-wide: `installRevealSettle` finishes finite animations on hide and on show (this PR). |
 | All chats list (`newtab/AllChatsList.tsx` `useChatPages`) | List in component state; every mount (spare adoption, workspace reopen) started empty and read its first page again. A switch does not remount it. | Covered by #22115 (`settledCache.ts`, `chatStore.ts`), which removes the mount read. Not duplicated here. |
 | New Tab recent chats across pages | Each page listed its own connection's sessions; a hidden window's pages lagged. | Covered by #22115 (one chat store per app run). |
-| Composer start-mode chip (`startMode.ts` `watchPage`) | Every return (`visibilitychange` to visible and window `focus`, so twice) asks acpmux again for every pending chat. The answer is cached and an unchanged answer renders nothing. | Exception, below. |
+| Composer start-mode chip (`startMode.ts` `watchPage`) | Every return (`visibilitychange` to visible and window `focus`, so twice) asked acpmux again for every pending chat. | Fixed: acpmux watches the settings file and sends `_acpmux/start_mode_changed` (`hub/settings_watch.rs`); `watchPage` is gone. |
 | Agent pane `_acpmux/view` (`direct.ts` `showChanged`) | Tells acpmux the chat is shown or hidden, so a turn ending while hidden stays unread. A state write, not a read. | Allowed. |
 | Harness health (`App.tsx` `healthStale`) | Re-reads on return only after a Log In ran in a terminal. | Allowed (stale flag). |
 | Composer durable draft (`Composer.tsx` `readDurableDraft`) | Read on mount and session change; a switch does not remount the composer. | Remount-only; allowed (a rebuilt page has no other copy). |
@@ -107,11 +107,9 @@ Each allowlist entry names its reason. Adding one is a review question.
 
 ## 6. Exceptions and follow-ups
 
-- **Start mode on return** (`startMode.ts`). acpmux reads `agents.defaultPermissionMode` from the
-  settings file when asked and does not watch it, so a change in Settings is only seen by asking
-  again. Fix that removes the exception: acpmux watches the settings file (or the host tells it on
-  write) and sends `_acpmux/start_mode_changed`; then `watchPage` goes. Settings is another lane's;
-  not changed here.
+- **Start mode on return** (`startMode.ts`): fixed. acpmux watches the settings file
+  (`hub/settings_watch.rs`) and sends `_acpmux/start_mode_changed` when
+  `agents.defaultPermissionMode` changes, so `watchPage` is gone.
 - **#22115** carries the cross-page chat store and the All chats remount fix. It should adopt
   `pageSwitch` for its remount test once both land.
 - **Hibernated chat pages** rebuild by design (memory). Their wake state is restored from

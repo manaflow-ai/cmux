@@ -103,7 +103,7 @@ extension PaneHandlers {
     /// (`Motion.flashAnimation`), one fade under Reduce Motion, none when
     /// animations are off.
     private static func flash(_ view: NSView) {
-        guard let host = view.layer, let fade = Motion.flashAnimation() else { return }
+        guard let host = view.layer, let fade = Motion.indicators.flashAnimation() else { return }
         let ring = CALayer()
         ring.frame = host.bounds.insetBy(dx: 2, dy: 2)
         ring.cornerRadius = 8

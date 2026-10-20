@@ -2,7 +2,7 @@ public import AppKit
 import SwiftUI
 
 /// The Motion animations that opted in to settling at sleep
-/// (`Motion.animate(_:in:_:settleAtSleep:completion:)`) and are still running.
+/// (`MotionGate.animate(_:in:_:settleAtSleep:completion:)`) and are still running.
 ///
 /// A sleeping display draws no frame, so a running `animator()` change stops
 /// where it is: a sidebar row opening stays half faded, and a closing row's
@@ -72,7 +72,7 @@ enum MotionInFlight {
     }
 }
 
-extension Motion {
+extension MotionGate {
     /// ``animate(_:in:_:completion:)`` for a change that must not stay
     /// half done when the display goes to sleep mid-animation (no frame
     /// draws, so it would never end). Then, or when the display wakes,
@@ -80,13 +80,13 @@ extension Motion {
     /// once (``MotionInFlight``). `settleAtSleep` applies the CURRENT
     /// target, read when it runs, never the values captured by `changes`: a
     /// newer change may have moved things since.
-    public static func animate(_ token: MotionSpring, in view: NSView? = nil, _ changes: () -> Void,
+    public func animate(_ token: MotionSpring, in view: NSView? = nil, _ changes: () -> Void,
                                settleAtSleep: @escaping @MainActor () -> Void,
                                completion: (@MainActor @Sendable () -> Void)? = nil) {
         animateSpring(token, in: view, changes, settleAtSleep: settleAtSleep, completion: completion)
     }
 
-    static func animateSpring(_ token: MotionSpring, in view: NSView?, _ changes: () -> Void,
+    func animateSpring(_ token: MotionSpring, in view: NSView?, _ changes: () -> Void,
                                       settleAtSleep: (@MainActor () -> Void)?,
                                       completion: (@MainActor @Sendable () -> Void)?) {
         guard canAnimate(in: view) else { return snap(changes, completion: completion) }

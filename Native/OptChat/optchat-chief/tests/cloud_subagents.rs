@@ -318,3 +318,140 @@ fn control_cloud_sets_the_default_peer_at_run_time() {
     assert!(cloud_one.1.contains("~/src/cmux"), "{}", cloud_one.1);
     assert_eq!(specs.last().unwrap().0.peer, None);
 }
+
+/// Records VM calls in order.
+#[derive(Default)]
+struct FakeVms {
+    calls: std::sync::Mutex<Vec<String>>,
+}
+
+impl optchat_chief::cloud_vms::CloudVms for FakeVms {
+    fn resume(&self, peer: &str) -> Result<(), String> {
+        self.calls.lock().unwrap().push(format!("resume {peer}"));
+        Ok(())
+    }
+    fn pause(&self, peer: &str) -> Result<(), String> {
+        self.calls.lock().unwrap().push(format!("pause {peer}"));
+        Ok(())
+    }
+}
+
+fn pool_spawner(h: &Harness, vms: &Arc<FakeVms>) -> Arc<Spawner> {
+    let vms: Arc<dyn optchat_chief::cloud_vms::CloudVms> = vms.clone();
+    Arc::new(
+        Arc::try_unwrap(spawner(h, None))
+            .ok()
+            .unwrap()
+            .with_cloud_text("SUBAGENT SYSTEM TEXT".into())
+            .with_cloud_vms(Some(vms)),
+    )
+}
+
+fn set_cloud(h: &mut Harness, sp: &Arc<Spawner>, peers: &str) {
+    use optchat_chief::tools::ControlCall;
+    let a = sp.clone();
+    let peers = peers.to_owned();
+    let set = run(h, move || {
+        a.control(ControlCall {
+            action: "cloud".into(),
+            peer: Some(peers),
+            ..ControlCall::default()
+        })
+    })
+    .unwrap();
+    assert!(set.starts_with("outcome: done."), "{set}");
+}
+
+/// B4: with several peers, each subagent goes to the peer with the fewest
+/// live cloud subagents (ties: the first listed), and its VM is resumed
+/// before its session starts.
+#[test]
+fn cloud_subagents_go_to_the_least_busy_peer_and_resume_its_vm() {
+    let mut h = Harness::new(default_script());
+    h.agents.hold(true);
+    let vms = Arc::new(FakeVms::default());
+    let sp = pool_spawner(&h, &vms);
+    h.brain.set_sub_starter(Some(sp.queue_starter()));
+    h.brain
+        .set_cloud_vms(Some(vms.clone()), Duration::from_secs(600));
+    set_cloud(&mut h, &sp, "cloud1,cloud2");
+
+    let a = sp.clone();
+    let spawned = run(&mut h, move || {
+        a.spawn(vec!["one".into(), "two".into(), "three".into()], None)
+    })
+    .unwrap();
+    assert!(spawned.contains("Started a1, a2, a3"), "{spawned}");
+    let a = sp.clone();
+    run(&mut h, move || a.spawn(vec!["four".into()], None)).unwrap();
+    let peers: Vec<Option<String>> = subs(&h).into_iter().map(|(s, _)| s.peer).collect();
+    assert_eq!(
+        peers,
+        vec![
+            Some("cloud1".to_owned()),
+            Some("cloud2".to_owned()),
+            Some("cloud1".to_owned()),
+            Some("cloud2".to_owned()),
+        ],
+        "least busy first"
+    );
+    let calls = vms.calls.lock().unwrap().clone();
+    assert!(calls.contains(&"resume cloud1".to_owned()), "{calls:?}");
+    assert!(calls.contains(&"resume cloud2".to_owned()), "{calls:?}");
+    assert!(!calls.iter().any(|c| c.starts_with("pause")), "{calls:?}");
+}
+
+/// B4: a peer with no live cloud subagent for the idle time is paused once;
+/// a new cloud subagent there resumes it first.
+#[test]
+fn an_idle_cloud_vm_is_paused_once_and_resumed_for_the_next_subagent() {
+    use optchat_chief::brain::Input;
+    let mut h = Harness::new(default_script());
+    h.agents.hold(true);
+    let vms = Arc::new(FakeVms::default());
+    let sp = pool_spawner(&h, &vms);
+    h.brain.set_sub_starter(Some(sp.queue_starter()));
+    h.brain.set_cloud_vms(Some(vms.clone()), Duration::ZERO);
+    set_cloud(&mut h, &sp, "cloud1");
+
+    let a = sp.clone();
+    run(&mut h, move || a.spawn(vec!["one".into()], None)).unwrap();
+    h.brain.step(Input::SubTick);
+    let busy = vms.calls.lock().unwrap().clone();
+    assert!(
+        !busy.iter().any(|c| c.starts_with("pause")),
+        "a1 lives: {busy:?}"
+    );
+
+    h.brain.step(Input::SubagentFailed {
+        id: "a1".into(),
+        error: "ended".into(),
+    });
+    h.brain.step(Input::SubTick);
+    h.brain.step(Input::SubTick);
+    let until = Instant::now() + Duration::from_secs(5);
+    while !vms
+        .calls
+        .lock()
+        .unwrap()
+        .contains(&"pause cloud1".to_owned())
+        && Instant::now() < until
+    {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let calls = vms.calls.lock().unwrap().clone();
+    assert_eq!(
+        calls.iter().filter(|c| *c == "pause cloud1").count(),
+        1,
+        "paused once: {calls:?}"
+    );
+
+    let a = sp.clone();
+    run(&mut h, move || a.spawn(vec!["two".into()], None)).unwrap();
+    let calls = vms.calls.lock().unwrap().clone();
+    assert_eq!(
+        calls.last().map(String::as_str),
+        Some("resume cloud1"),
+        "{calls:?}"
+    );
+}

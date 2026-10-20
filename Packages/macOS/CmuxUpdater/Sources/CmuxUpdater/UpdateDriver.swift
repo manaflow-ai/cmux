@@ -5,8 +5,9 @@ import Foundation
 /// transitions for cmux's custom (non-Sparkle-UI) update surface.
 ///
 /// Sparkle's `SPUUserDriver`/`SPUUpdaterDelegate` are `@MainActor`, so every callback runs on
-/// the main actor and writes the model directly with no thread hopping. The minimum-display
-/// and check-timeout delays are bounded, cancellable ``UpdateClock`` tasks. Host actions the
+/// the main actor and writes the model directly with no thread hopping. A check's answer shows
+/// the moment Sparkle reports it; the check timeout is a bounded, cancellable ``UpdateClock``
+/// task. Host actions the
 /// driver cannot perform itself (retry, relaunch prep) go through ``UpdateActionDelegate``.
 @MainActor
 final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
@@ -24,14 +25,7 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     /// Causal lifecycle signals consumed by ``UpdateController``.
     weak var eventDelegate: (any UpdateDriverEventDelegate)?
 
-    private let minimumCheckDuration: TimeInterval = UpdateTiming.minimumCheckDisplayDuration
     private let checkTimeoutDuration: TimeInterval = UpdateTiming.checkTimeoutDuration
-    private var lastCheckStart: Date?
-    private var pendingCheckTransitionTask: Task<Void, Never>?
-    /// The state captured by ``pendingCheckTransitionTask`` while its minimum-display delay is
-    /// pending. Keeping it separately lets cancellation causally finish callbacks (especially a
-    /// mandatory Sparkle update-choice reply) before the task drops its capture.
-    private var pendingCheckTransitionState: UpdateState?
     private var checkTimeoutTask: Task<Void, Never>?
     private(set) var lastFeedURLString: String?
     /// Opt-in background installs (see `UpdateDriver+BackgroundInstall.swift`); off keeps the
@@ -71,7 +65,6 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     }
 
     deinit {
-        pendingCheckTransitionTask?.cancel()
         checkTimeoutTask?.cancel()
     }
 
@@ -110,7 +103,7 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
             self?.handlePromptReply(reply, choice: choice, source: source)
         }
         if installsInBackground && downloadsInBackground { return acceptInBackground(available) }
-        setStateAfterMinimumCheckDelay(.updateAvailable(available))
+        setState(.updateAvailable(available))
     }
 
     func showUpdateReleaseNotes(with downloadData: SPUDownloadData) {
@@ -124,7 +117,12 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     func showUpdateNotFoundWithError(_ error: any Error,
                                      acknowledgement: @escaping () -> Void) {
         log.append("show update not found: \(formatErrorForLog(error))")
-        setStateAfterMinimumCheckDelay(.notFound(.init(acknowledgement: acknowledgement)))
+        // The answer shows the moment Sparkle has it, and Sparkle's session ends with it: a
+        // check asked for while the note shows starts at once instead of queueing behind the
+        // note's display time (update-check-PERF.md). The note's own dismissal has nothing
+        // left to acknowledge.
+        setState(.notFound(.init(acknowledgement: {})))
+        acknowledgement()
     }
 
     func showUpdaterError(_ error: any Error,
@@ -298,19 +296,16 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
 
     // MARK: - State transition helpers
 
-    /// Replaces the visible state while first finishing any delayed callback-bearing transition.
-    /// Controller paths that supersede a check use this instead of mutating the model directly.
+    /// Replaces the visible state. Controller paths that supersede a check use this instead of
+    /// mutating the model directly.
     func replaceActiveState(with replacement: UpdateState) {
-        cancelPendingCheckTransition()
         model.replaceActiveState(with: replacement)
     }
 
     private func beginChecking(cancel: @escaping () -> Void) {
         model.setOverrideState(nil)
-        cancelPendingCheckTransition()
         checkTimeoutTask?.cancel()
         checkTimeoutTask = nil
-        lastCheckStart = Date()
         applyState(.checking(.init(cancellationHandler: { [weak self] source in
             guard let self else {
                 cancel()
@@ -328,61 +323,10 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
         scheduleCheckTimeout()
     }
 
-    private func setStateAfterMinimumCheckDelay(_ newState: UpdateState) {
-        cancelPendingCheckTransition()
-        checkTimeoutTask?.cancel()
-        checkTimeoutTask = nil
-
-        guard let start = lastCheckStart else {
-            lastCheckStart = nil
-            applyState(newState)
-            return
-        }
-
-        let elapsed = Date().timeIntervalSince(start)
-        if elapsed >= minimumCheckDuration {
-            lastCheckStart = nil
-            applyState(newState)
-            return
-        }
-
-        let delay = minimumCheckDuration - elapsed
-        pendingCheckTransitionState = newState
-        pendingCheckTransitionTask = Task { @MainActor [weak self] in
-            // Bounded, cancellable minimum-display delay via the injected clock.
-            try? await self?.clock.sleep(for: .seconds(delay))
-            guard !Task.isCancelled, let self else { return }
-            guard case .checking = self.model.state else {
-                guard let pendingState = self.pendingCheckTransitionState else { return }
-                self.pendingCheckTransitionState = nil
-                self.pendingCheckTransitionTask = nil
-                pendingState.finishAsSuperseded()
-                return
-            }
-            self.pendingCheckTransitionState = nil
-            self.pendingCheckTransitionTask = nil
-            self.lastCheckStart = nil
-            self.applyState(newState)
-        }
-    }
-
     func setState(_ newState: UpdateState) {
-        cancelPendingCheckTransition()
         checkTimeoutTask?.cancel()
         checkTimeoutTask = nil
-        lastCheckStart = nil
         applyState(newState)
-    }
-
-    /// Cancels the minimum-display task after causally completing the callback-bearing state it
-    /// captured. Without this handoff, cancelling while still visibly checking drops Sparkle's
-    /// mandatory update-choice reply and strands its session behind `sessionInProgress`.
-    private func cancelPendingCheckTransition() {
-        pendingCheckTransitionTask?.cancel()
-        pendingCheckTransitionTask = nil
-        guard let pendingState = pendingCheckTransitionState else { return }
-        pendingCheckTransitionState = nil
-        pendingState.finishAsSuperseded()
     }
 
     private func scheduleCheckTimeout() {

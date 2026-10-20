@@ -273,6 +273,9 @@ export type FootnoteNumbers = { numbers: Map<string, number>; anchor: (id: strin
 /// changes as the reply streams (a note's definition usually arrives last). Code is skipped, and
 /// so is a label shaped like a regex class (`[^a-z]`), which prose writes outside code too.
 export function footnoteOrder(source: string): string[] {
+  // A reference needs "[" and "^"; the scan below only deletes text, so without both there is none.
+  // A streaming reply runs this on every reveal frame, and most replies have no footnote.
+  if (!source.includes("^") || !source.includes("[")) return [];
   const prose = source.replace(/^\s*```[\s\S]*?(?:^\s*```|(?![\s\S]))/gm, "").replace(/(`+)[^`]*?\1/g, "");
   const ids: string[] = [];
   for (const match of prose.matchAll(/\[\^([\w-]+)\](?!:)/g)) {
@@ -799,8 +802,9 @@ export function Markdown({
     streaming && fresh
       ? { steps: fresh, text: freshChars ? children.slice(children.length - freshChars) : "", now }
       : undefined;
-  // An odd number of fence lines: the last block is a fence still arriving.
-  const openFence = streaming && (children.match(/^\s*```/gm)?.length ?? 0) % 2 === 1;
+  // An odd number of fence lines: the last block is a fence still arriving. The parser counts
+  // only the text it has not closed yet, so a reveal frame does not scan the whole reply.
+  const openFence = streaming && parser.current.fenceOpen;
   // A block that streamed in while the chat was hidden, or that lands before its first frame back,
   // came while the user was away: it never enters (WebKit would play its suspended entrance on
   // return, shared/pageReveal.ts). It still hands its code over like any live block.
