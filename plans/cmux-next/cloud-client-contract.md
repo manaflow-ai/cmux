@@ -317,8 +317,29 @@ registration events cannot respawn a Native carrier through the global hub. The 
 supplies the trusted CLI binary and private state/socket directories; a Native link works when
 the global registration is absent. None of this metadata appears in public session responses.
 
-The server consumer is implemented. The parent publisher and selected-team Native lifecycle
-still need to be connected; earlier parents retain the legacy route until Native is selected.
+Before serving credentials, the parent requires `native_link_binding: 1` from the verified
+daemon's provider registration and an acknowledged scope invalidation. Older daemons fail closed.
+This retires the daemon's old replay/cache/server generation before the first Native binding.
+
+Connects from the UI, CLI, MCP and scripts use the same server path. When Native is unavailable,
+the server sends one `relay.session {ensure_native: true, expected_scope}` request, bounded to
+120 seconds. The daemon forwards only that flag and restrictive scope; the parent rechecks its
+canonical team before and after starting the child. The server checks the original scope again
+before using its socket. Reads never enroll a device or start a child. Initial unavailable-to-ready
+startup in the same scope preserves the current connect's checked VM data; replacing a prior
+Native binding invalidates old daemon state before publication.
+
+The app-server configuration now assembles an owned child and enrollment from the original
+owner's team/mesh discovery; it does not construct the global launcher or legacy tunnel hub.
+Startup and broker calls recheck the original authority around owner I/O. Picker/policy changes
+and quit stop local transport while preserving enrollment cleanup handles. Sign-out joins startup,
+broker work and process exit, then revokes those enrollments before rotating the install key.
+Failed remote cleanup keeps the existing device checkpoint for later recovery.
+
+The parent and server paths are connected in source. Receiving/current-peer authorization, idle
+backend revocation/expiry, explicit selection of ambiguous meshes, offline cleanup recovery and
+live Cloud/paired-server/Keychain/GUI journeys remain unverified or incomplete. Earlier parents
+retain the legacy route until Native is selected; the frozen legacy app configuration is unchanged.
 
 ### 2.2 What of today's server code survives (9.1k lines)
 
