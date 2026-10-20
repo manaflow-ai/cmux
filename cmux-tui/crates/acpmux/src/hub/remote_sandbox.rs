@@ -626,8 +626,7 @@ pub(crate) fn vm_host_unsandboxed(vm_host: bool, macos: bool) -> bool {
 /// `vmHost` machine that is not a Mac, and only for the owner's peer daemon
 /// (`Origin::Peer`, proven by the peer token over ssh); a Web client never.
 pub fn vm_host_peer_approves(vm_host: bool, macos: bool, from_peer: bool) -> bool {
-    let _ = (vm_host, macos, from_peer);
-    false
+    vm_host_unsandboxed(vm_host, macos) && from_peer
 }
 
 #[cfg(test)]
