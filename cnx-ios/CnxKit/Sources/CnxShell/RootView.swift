@@ -374,13 +374,7 @@ public struct RootView: View {
 /// a four-tab `TabView`.
 struct ShellView: View {
     @State private var shell: ShellModel
-    @Environment(\.scenePhase) private var scenePhase
     @State private var inviteEmail = ""
-    /// Settings → Developer "Relay only"; read through `DeveloperOptions`,
-    /// which ignores it outside DEBUG builds.
-    @AppStorage(DeveloperOptions.relayOnlyKey) private var relayOnlyPreference = false
-    /// Settings → Developer "Block UDP"; read through `DeveloperOptions`.
-    @AppStorage(DeveloperOptions.blockUDPKey) private var blockUDPPreference = false
     private let options: ShellLaunchOptions
     /// RootView's coordinator; it can arrive after the shell is built.
     private let live: LiveCoordinator?
@@ -433,18 +427,7 @@ struct ShellView: View {
             shell.closeTeamScreens()
             shell.toast = CnxToast(symbol: "desktopcomputer", text: "\(followed.macName) is in \(followed.teamName). Switched to it.")
         }
-        .onChange(of: shell.settings.transport) { _, transport in
-            shell.live?.setTransport(transport.link)
-        }
-        .onChange(of: relayOnlyPreference) { _, _ in
-            shell.live?.setRelayOnly(DeveloperOptions.relayOnly)
-        }
-        .onChange(of: blockUDPPreference) { _, _ in
-            shell.live?.setBlockUDP(DeveloperOptions.blockUDP)
-        }
-        .onChange(of: scenePhase) { _, phase in
-            if phase == .active { shell.live?.foreground() }
-        }
+        .modifier(LinkSettingsObserver(shell: shell))
         // Notification taps: open now, or once the Mac's tree places the tab.
         .onChange(of: NotificationRouter.shared.pending, initial: true) { _, route in
             guard let route else { return }
@@ -499,6 +482,35 @@ struct ShellView: View {
             await DebugLaunch.run(selectTab: { shell.tab = $0 })
             #endif
         }
+    }
+}
+
+/// Hands the link the Settings transport and developer path choices, and
+/// the app's return to the foreground. Its own modifier so ShellView's
+/// chain stays small enough to type-check in a Release build.
+private struct LinkSettingsObserver: ViewModifier {
+    let shell: ShellModel
+    @Environment(\.scenePhase) private var scenePhase
+    /// Settings → Developer "Relay only"; read through `DeveloperOptions`,
+    /// which ignores it outside DEBUG builds.
+    @AppStorage(DeveloperOptions.relayOnlyKey) private var relayOnlyPreference = false
+    /// Settings → Developer "Block UDP"; read through `DeveloperOptions`.
+    @AppStorage(DeveloperOptions.blockUDPKey) private var blockUDPPreference = false
+
+    func body(content: Content) -> some View {
+        content
+            .onChange(of: shell.settings.transport) { _, transport in
+                shell.live?.setTransport(transport.link)
+            }
+            .onChange(of: relayOnlyPreference) { _, _ in
+                shell.live?.setRelayOnly(DeveloperOptions.relayOnly)
+            }
+            .onChange(of: blockUDPPreference) { _, _ in
+                shell.live?.setBlockUDP(DeveloperOptions.blockUDP)
+            }
+            .onChange(of: scenePhase) { _, phase in
+                if phase == .active { shell.live?.foreground() }
+            }
     }
 }
 
