@@ -369,9 +369,9 @@ fn queued_chief_tells_are_flushed_as_an_interrupt_on_reconnect() {
 
 /// acp-chief-issues.md #10: a tell to a running subagent whose steer is
 /// refused (acpmux: "the session has no running turn that its agent can
-/// steer", 25 times on 2026-10-19) falls back to a prompt; when that prompt
-/// fails too, the message was only logged and lost. It must stay in the
-/// subagent's inbox and go with its next prompt once its turn ends.
+/// steer", 25 times on 2026-10-19) interrupts the turn and goes as its next
+/// prompt; when that prompt fails, the message was only logged and lost. It
+/// must stay in the subagent's inbox and go with a later prompt.
 #[test]
 fn a_tell_whose_steer_and_prompt_both_fail_is_kept_and_delivered_later() {
     let mut h = Harness::new(default_script());

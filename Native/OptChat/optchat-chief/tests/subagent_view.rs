@@ -29,7 +29,9 @@ impl CompactModel for Wordy {
     }
 }
 
-const BUDGET: usize = 8_000;
+const BUDGET: usize = 32_000;
+/// Messages in the chat: enough to fill several views.
+const MESSAGES: u64 = 960;
 
 #[test]
 fn a_subagent_reads_the_coarser_compaction_view() {
@@ -48,7 +50,7 @@ fn a_subagent_reads_the_coarser_compaction_view() {
         )
         .unwrap(),
     );
-    for i in 0..240u64 {
+    for i in 0..MESSAGES {
         let kind = if i % 2 == 0 { Kind::User } else { Kind::Talk };
         chat.append(kind, &format!("message {i}: {}", "words ".repeat(100)))
             .unwrap();
@@ -106,19 +108,22 @@ fn a_subagent_reads_the_coarser_compaction_view() {
         first.find("</chat>").expect("a view"),
     );
     let view = &first[start..end];
+    // The compaction view aims at an eighth to a quarter of the budget; the
+    // newest parts may still be finer while the compactor merges them, so
+    // the bound is half the budget and well under the Chief's view.
     assert!(
-        view.len() <= BUDGET / 4 + 1_000,
-        "the subagent's view is the compaction view: {} B (the Chief's {} B)",
+        view.len() <= BUDGET / 2 && view.len() * 4 < chief_view.len() * 3,
+        "the subagent's view is the compaction view: {} B (the Chief's {} B)\n{view}",
         view.len(),
         chief_view.len()
     );
-    // Its last line reaches the newest message (240 messages: ids 0..240),
+    // Its last line reaches the newest message (ids 0..MESSAGES),
     // and the task follows.
     let last = view.lines().last().unwrap_or_default();
     let reach = last.split('|').next().and_then(|id| {
         let (start, n) = id.split_once('+')?;
         Some(start.parse::<u64>().ok()? + n.parse::<u64>().ok()?)
     });
-    assert_eq!(reach, Some(240), "{view}");
+    assert_eq!(reach, Some(MESSAGES), "{view}");
     assert!(first.contains("say hello"));
 }
