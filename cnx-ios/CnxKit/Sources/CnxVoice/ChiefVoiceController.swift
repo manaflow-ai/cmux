@@ -18,24 +18,45 @@ import Observation
 public final class ChiefVoiceController {
     /// The request the call screen shows; nil while the screen is closed.
     public private(set) var presented: ChiefVoiceRequest?
-    /// The call flow the screen renders.
-    public let coordinator: ChiefCallCoordinator
+    /// The call state the screen renders; signed-out controllers are idle.
+    public var state: ChiefCallState { coordinator?.state ?? .idle }
     /// The Chief's name for the screen title.
     public var chiefName: String? { sources.primary.title }
 
     @ObservationIgnored private let sources: ChiefSources
-    @ObservationIgnored private var interruptions: Task<Void, Never>?
+    @ObservationIgnored private let recorder: any VoiceRecording
+    @ObservationIgnored private let transcriber: any VoiceTranscribing
+    @ObservationIgnored private let microphone: any MicrophoneAuthorizing
+    @ObservationIgnored private let notesRoot: URL
+    @ObservationIgnored private let noTranscript: @Sendable (TimeInterval) -> String
+    @ObservationIgnored private var coordinator: ChiefCallCoordinator?
+    @ObservationIgnored private var accountID: String?
+    @ObservationIgnored private var pending: PendingRequest?
+    @ObservationIgnored private var operationGeneration = 0
+    @ObservationIgnored private var operationTail: Task<Void, Never>?
+    @ObservationIgnored private var interruptions: Task<Void, Never>? = nil
 
-    /// Creates the controller.
+    /// Creates an account-scoped controller from injected voice services.
     /// - Parameters:
-    ///   - coordinator: The call flow.
-    ///   - sources: Which Chief is the default, for the title.
+    ///   - sources: Which authenticated account and Chief are active.
+    ///   - recorder: Records audio into the current account's outbox.
+    ///   - transcriber: Produces the on-device transcript.
+    ///   - microphone: Requests recording permission.
+    ///   - notesRoot: Parent directory for account-scoped outboxes.
+    ///   - noTranscript: Builds the fallback message for an untranscribed note.
     ///   - interruptions: Yields when another audio user takes the session; each ends the call.
-    public init(coordinator: ChiefCallCoordinator, sources: ChiefSources, interruptions: AsyncStream<Void>) {
-        self.coordinator = coordinator
+    public init(sources: ChiefSources, recorder: any VoiceRecording, transcriber: any VoiceTranscribing,
+                microphone: any MicrophoneAuthorizing, notesRoot: URL,
+                noTranscript: @escaping @Sendable (TimeInterval) -> String,
+                interruptions: AsyncStream<Void>) {
         self.sources = sources
-        self.interruptions = Task { [coordinator] in
-            for await _ in interruptions { await coordinator.interrupted() }
+        self.recorder = recorder
+        self.transcriber = transcriber
+        self.microphone = microphone
+        self.notesRoot = notesRoot
+        self.noTranscript = noTranscript
+        self.interruptions = Task { [weak self] in
+            for await _ in interruptions { await self?.end() }
         }
     }
 
@@ -47,21 +68,55 @@ public final class ChiefVoiceController {
             .first?.appendingPathComponent("ChiefVoiceNotes", isDirectory: true)
             ?? FileManager.default.temporaryDirectory.appendingPathComponent("ChiefVoiceNotes", isDirectory: true)
         let recorder = AudioSessionRecorder(session: .sharedInstance())
-        let delivery = ChiefVoiceTextDelivery(
-            send: { text in sources.primary.send(ConversationComposeMessage(text: text)) },
-            noTranscript: { seconds in VoiceText.noTranscript(seconds: Int(seconds.rounded())) }
+        return ChiefVoiceController(
+            sources: sources, recorder: recorder, transcriber: OnDeviceSpeechTranscriber(locale: .current),
+            microphone: MicrophonePermission(), notesRoot: directory,
+            noTranscript: { seconds in VoiceText.noTranscript(seconds: Int(seconds.rounded())) },
+            interruptions: recorder.interruptions()
         )
-        let coordinator = ChiefCallCoordinator(
-            recorder: recorder, transcriber: OnDeviceSpeechTranscriber(locale: .current),
-            microphone: MicrophonePermission(), delivery: delivery,
-            outbox: VoiceNoteOutbox(directory: directory)
-        )
-        return ChiefVoiceController(coordinator: coordinator, sources: sources, interruptions: recorder.interruptions())
+    }
+
+    /// Selects the authenticated account and its private pending-note outbox.
+    ///
+    /// A recording owned by the previous account is stopped and retained in
+    /// that account's outbox; its delivery guard refuses the new account.
+    /// - Parameter userID: The active account, or `nil` after sign-out.
+    public func selectAccount(_ userID: String?) async {
+        await enqueue { controller in await controller.selectAccountNow(userID) }
+    }
+
+    private func selectAccountNow(_ userID: String?) async {
+        if userID == accountID {
+            await resumePending(for: userID)
+            return
+        }
+        let previous = coordinator
+        if let pending, pending.accountID != nil, pending.accountID != userID { self.pending = nil }
+        accountID = userID
+        coordinator = nil
+        presented = nil
+        await previous?.end()
+        guard let userID else { return }
+        coordinator = makeCoordinator(accountID: userID)
+        await resumePending(for: userID)
     }
 
     /// Opens the call screen for `request` and starts, or ends, the call.
     /// - Parameter request: A call or a voice note.
     public func handle(_ request: ChiefVoiceRequest) async {
+        await enqueue { controller in await controller.handleNow(request) }
+    }
+
+    private func handleNow(_ request: ChiefVoiceRequest) async {
+        guard let userID = sources.activeUserID else {
+            pending = PendingRequest(request: request, accountID: accountID)
+            return
+        }
+        await selectAccountNow(userID)
+        guard let coordinator else {
+            pending = PendingRequest(request: request, accountID: userID)
+            return
+        }
         if presented == nil { presented = request }
         await coordinator.handle(request)
     }
@@ -69,13 +124,65 @@ public final class ChiefVoiceController {
     /// Closes the screen; a running recording ends and is sent first.
     public func dismiss() {
         presented = nil
-        guard case .recording = coordinator.state else { return }
-        Task { await coordinator.end() }
+        guard let coordinator, case .recording = coordinator.state else { return }
+        Task { [weak self] in await self?.end() }
+    }
+
+    /// Ends the current account's recording, if one is running.
+    public func end() async {
+        await enqueue { controller in await controller.coordinator?.end() }
     }
 
     /// Sends notes an earlier call left in the outbox.
     public func drainOutbox() async {
-        await coordinator.drainOutbox()
+        await enqueue { controller in
+            guard let userID = controller.sources.activeUserID else { return }
+            await controller.selectAccountNow(userID)
+            await controller.coordinator?.drainOutbox()
+        }
     }
+
+    private func makeCoordinator(accountID: String) -> ChiefCallCoordinator {
+        let delivery = ChiefVoiceTextDelivery(
+            send: { [weak self, weak sources] text in
+                guard let self, let sources, self.accountID == accountID, sources.activeUserID == accountID else {
+                    throw AccountChanged()
+                }
+                try await sources.primary.send(ConversationComposeMessage(text: text))
+            },
+            noTranscript: noTranscript
+        )
+        return ChiefCallCoordinator(
+            recorder: recorder, transcriber: transcriber, microphone: microphone, delivery: delivery,
+            outbox: VoiceNoteOutbox(rootDirectory: notesRoot, accountID: accountID)
+        )
+    }
+
+    private func resumePending(for accountID: String?) async {
+        guard let accountID, let pending,
+              pending.accountID == nil || pending.accountID == accountID else { return }
+        self.pending = nil
+        await handleNow(pending.request)
+    }
+
+    private func enqueue(_ operation: @escaping @MainActor @Sendable (ChiefVoiceController) async -> Void) async {
+        operationGeneration += 1
+        let generation = operationGeneration
+        let preceding = operationTail
+        let task = Task { @MainActor [weak self] in
+            await preceding?.value
+            guard let self else { return }
+            await operation(self)
+        }
+        operationTail = task
+        await task.value
+        if generation == operationGeneration { operationTail = nil }
+    }
+
+    private struct PendingRequest {
+        var request: ChiefVoiceRequest
+        var accountID: String?
+    }
+    private struct AccountChanged: Error {}
 }
 #endif

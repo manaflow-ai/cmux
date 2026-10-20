@@ -20,12 +20,21 @@ use crate::fold::TurnFold;
 use crate::state::{SpawnRecord, SpawnRef, SubRecord, SubStatus};
 use crate::subagents::{PROMPT_PREFIX, SpawnPlan};
 
+/// Characters of a task kept for `control status`.
+const TASK_KEPT: usize = 600;
+
 fn busy(status: SessionStatus) -> bool {
     matches!(status, SessionStatus::Running | SessionStatus::Waiting)
 }
 
 fn now_ms() -> u64 {
     super::now_ms()
+}
+
+/// Only an explicitly persisted approve-all policy authorizes effects from a
+/// completed report. Missing/legacy/unknown policy provenance fails closed.
+fn report_requires_approval(policy: Option<&str>) -> bool {
+    policy != Some("approve-all")
 }
 
 impl Brain {
@@ -140,7 +149,13 @@ impl Brain {
             self.cloud_paused.remove(p);
             self.cloud_idle_since.remove(p);
         }
-        let first = self.state.next_subagent.max(1);
+        // Never below an id already handed out: a reset or unreadable
+        // counter must not give `a<N>` twice (persistent-ids-DESIGN.md).
+        let prior = self.state.next_subagent;
+        let first = self
+            .state
+            .next_subagent
+            .max(highest_subagent(&self.state.spawns) + 1);
         let ids: Vec<String> = (0..tasks.len() as u64)
             .map(|k| format!("a{}", first + k))
             .collect();
@@ -165,6 +180,7 @@ impl Brain {
                     SubRecord {
                         id: id.clone(),
                         title: crate::workspaces::name(id, task),
+                        task: task.chars().take(TASK_KEPT).collect(),
                         run_ms: now_ms(),
                         status,
                         peer: peer.clone(),
@@ -187,7 +203,13 @@ impl Brain {
             .map(|s| s.id.clone())
             .collect();
         self.state.spawns.insert(spawn.clone(), record);
-        self.save();
+        // The ids are durable before anyone sees them: a failed save hands
+        // out none, so a crash can never give them again.
+        if let Err(e) = self.file.save_with(&self.state, Vec::new()) {
+            self.state.spawns.remove(&spawn);
+            self.state.next_subagent = prior;
+            return Err(format!("spawn not saved, no ids given: {e}"));
+        }
         (self.log)(&format!("spawn {spawn}: {}", ids.join(", ")));
         Ok(SpawnPlan {
             spawn,
@@ -255,6 +277,10 @@ impl Brain {
         };
         sub.status = SubStatus::Done;
         sub.awaiting_task = false;
+        // Startup failures may contain harness/repository-controlled text.
+        // They never enter an approve-all Chief turn, regardless of the
+        // policy the session would have used had it started successfully.
+        sub.policy = Some(crate::approval::ASK.to_owned());
         sub.report = Some(format!("(did not start: {error})"));
         sub.stopped = false;
         let spawn = self.state.sub(id).map(|(s, _)| s.clone());
@@ -306,6 +332,8 @@ impl Brain {
                     sub.status = SubStatus::Running;
                     sub.run_ms = now_ms();
                     sub.stuck_noted = false;
+                    sub.auto_continues = 0;
+                    sub.continued_ms = 0;
                 }
                 self.save();
                 self.mark_workspace(&id, false);
@@ -342,14 +370,15 @@ impl Brain {
             }
         };
         let (replies, last_end, cancelled) = ended_replies(&events);
-        // Idle before its prompt started (a new session is ready first).
+        // Idle before its prompt started (a new session is ready first); the
+        // tick settles one that stays idle with no turn end (#7).
         let Some(last_end) = last_end else { return };
         self.trace_sub_events(id, &events, floor);
         let report = report_of(&replies, cancelled);
         self.sub_done(id, report, cancelled, Some(last_end), Some(&events));
     }
 
-    fn sub_done(
+    pub(super) fn sub_done(
         &mut self,
         id: &str,
         report: String,
@@ -380,7 +409,11 @@ impl Brain {
                     self.trace.emit("subagent.after_stop", json!({"id": id}));
                     return;
                 }
-                Err(e) => (self.log)(&format!("subagent {id}: its follow-up failed: {e}")),
+                Err(e) => {
+                    (self.log)(&format!("subagent {id}: its follow-up failed: {e}"));
+                    // Kept: the inbox flush below sends it again.
+                    self.keep_tell(id, message, &e);
+                }
             }
         }
         // A run that stopped on an error: its report becomes "stopped: ..."
@@ -391,13 +424,32 @@ impl Brain {
         } else {
             self.plan_auto_resume(id, &report, stopped)
         };
-        let (report, stopped) = match planned {
+        let resuming = planned.is_some();
+        let (mut report, mut stopped) = match planned {
             Some((note, quiet)) => (note, quiet),
             None => (report, stopped),
         };
+        if let Some(events) = events {
+            let mut watch = crate::sub_watch::Watch::after(0);
+            for e in events {
+                watch.apply(e);
+            }
+            // #13: a stopped run says where it stopped.
+            if report.starts_with("(stopped by the user)") {
+                let state = watch.summary(self.now()).join("\n");
+                report = format!("{report}\n{state}");
+            }
+            // #20: a short acknowledgement of a Chief message starts no turn.
+            if !resuming && !stopped && watch.told_by_chief() && crate::sub_watch::is_ack(&report) {
+                stopped = true;
+                self.trace.emit("subagent.ack_quiet", json!({"id": id}));
+            }
+        }
         let run_ms = if let Some(sub) = self.state.sub_mut(id) {
             sub.status = SubStatus::Done;
             sub.awaiting_task = false;
+            sub.auto_continues = 0;
+            sub.continued_ms = 0;
             sub.report = Some(report.clone());
             sub.stopped = stopped;
             if let Some(floor) = floor {
@@ -430,7 +482,43 @@ impl Brain {
         (self.log)(&format!("subagent {id} finished"));
         self.mark_workspace(id, true);
         self.deliver(&spawn);
+        // A tell that could not reach its run goes as its next prompt.
+        self.flush_inbox(id);
         self.start_queued();
+    }
+
+    /// A tell that neither steered nor prompted (``Input::TellUndelivered``):
+    /// back into the inbox, before what came after it. A subagent whose run
+    /// already ended gets it now; else with its next prompt (its run end
+    /// flushes the inbox). The Chief gets a quiet note.
+    pub(super) fn tell_undelivered(&mut self, id: &str, message: String, error: &str) {
+        if self.keep_tell(id, message, error) {
+            self.flush_inbox(id);
+        }
+    }
+
+    /// `message` back first into subagent `id`'s inbox, with a quiet note to
+    /// the Chief; true when the subagent's run has already ended.
+    fn keep_tell(&mut self, id: &str, message: String, error: &str) -> bool {
+        let Some(sub) = self.state.sub_mut(id) else {
+            return false;
+        };
+        sub.inbox.insert(
+            0,
+            crate::state::InboxMessage {
+                text: message,
+                at_ms: now_ms(),
+            },
+        );
+        let ended = matches!(sub.status, SubStatus::Done | SubStatus::Reported);
+        self.save();
+        self.trace
+            .emit("tell.undelivered", json!({"id": id, "error": error}));
+        self.queue(
+            format!("[{id}] did not get your last message yet ({error}); it is kept and goes with its next prompt."),
+            Source::Note,
+        );
+        ended
     }
 
     /// Auto-resume (auto_resume.rs) of subagent `id`, whose run just ended
@@ -636,6 +724,7 @@ impl Brain {
         let Some(record) = self.state.spawns.get(spawn) else {
             return;
         };
+        let show = self.chief.show_after_report;
         let done: Vec<(String, String, u64, bool, bool)> = record
             .subs
             .iter()
@@ -643,11 +732,18 @@ impl Brain {
             .map(|s| {
                 let report = s.report.as_deref().unwrap_or("");
                 let footer = crate::agent_chat::footer(&s.id);
+                // What the work left to show, for the "After work" rule; a
+                // stopped run's quiet report shows nothing.
+                let block = (show && !s.stopped)
+                    .then(|| crate::show::block(report))
+                    .flatten()
+                    .map(|b| format!("\n{b}"))
+                    .unwrap_or_default();
                 (
                     s.id.clone(),
-                    format!("[{}] {report}\n{footer}", s.id),
+                    format!("[{}] {report}\n{footer}{block}", s.id),
                     s.floor,
-                    s.policy.as_deref() == Some(crate::approval::ASK),
+                    report_requires_approval(s.policy.as_deref()),
                     s.stopped,
                 )
             })
@@ -713,6 +809,18 @@ impl Brain {
         id: &str,
         message: &str,
         key: Option<&str>,
+    ) -> Result<String, String> {
+        self.tell_with(id, message, key, false)
+    }
+
+    /// `tell_keyed` with `queue` (true: wait for the running turn, a
+    /// low-priority FYI; false: steer it in, else interrupt the turn).
+    pub(super) fn tell_with(
+        &mut self,
+        id: &str,
+        message: &str,
+        key: Option<&str>,
+        queue: bool,
     ) -> Result<String, String> {
         let Some((_, sub)) = self.state.sub(id) else {
             return Err(format!("no subagent {id}"));
@@ -794,8 +902,77 @@ impl Brain {
                 "outcome: queued. Queued for delivery to {id} ({waiting} waiting): {why}. You get a note when it is delivered."
             ));
         }
-        self.tell(id, message)
+        self.tell_mode(id, message, queue)
             .map(|answer| format!("outcome: done. {answer}"))
+    }
+
+    /// `peers` for subagent `caller`: the subagents at work (starting,
+    /// queued, running, or with a report not read yet), one line each, the
+    /// caller marked; then how many finished.
+    pub(super) fn agents_list(&self, caller: &str) -> String {
+        let mut lines = Vec::new();
+        let mut finished = 0usize;
+        for sub in self.state.spawns.values().flat_map(|r| r.subs.iter()) {
+            if sub.cancelled || sub.status == SubStatus::Reported {
+                finished += 1;
+                continue;
+            }
+            let state = match sub.status {
+                SubStatus::Starting => "starting",
+                SubStatus::Queued => "queued",
+                SubStatus::Running if sub.paused => "paused",
+                SubStatus::Running => "at work",
+                SubStatus::Done => "finished, report not read yet",
+                SubStatus::Reported => "finished",
+            };
+            let title = sub
+                .title
+                .split_once(" · ")
+                .map_or(sub.title.as_str(), |(_, t)| t);
+            let you = if sub.id == caller { " (you)" } else { "" };
+            let workspace = sub
+                .workspace
+                .as_deref()
+                .map(|w| format!(", workspace {w}"))
+                .unwrap_or_default();
+            lines.push(format!("- {}{you}: {title} ({state}{workspace})", sub.id));
+        }
+        if lines.is_empty() {
+            lines.push("No other subagent is at work.".to_owned());
+        }
+        lines.push(format!(
+            "{finished} more finished. tell(id, message) sends one a message from you; zoom(\"aN\") reads its chat."
+        ));
+        lines.join("\n")
+    }
+
+    /// `tell` from subagent `from` to subagent `id` (acp-chief-issues.md
+    /// #11): `tell_keyed` with a first line that names the sender, so the
+    /// receiver knows who asks and how to answer. Never to itself.
+    pub(super) fn peer_tell(
+        &mut self,
+        from: &str,
+        id: &str,
+        message: &str,
+        key: Option<&str>,
+    ) -> Result<String, String> {
+        if from == id {
+            return Err(format!("tell: {id} is you; write to Chief in your report"));
+        }
+        if self.state.sub(from).is_none() {
+            return Err(format!("tell: no subagent {from} sends it"));
+        }
+        let text = format!(
+            "Message from {from} (another subagent of Chief; answer it with tell(\"{from}\", ...) when it asks something):\n\n{message}"
+        );
+        // A peer never cuts another subagent's turn: it waits when the
+        // agent cannot take it mid-turn (a `queue` tell).
+        let answer = self.tell_with(id, &text, key, true)?;
+        self.trace.emit(
+            "tell.peer",
+            json!({"from": from, "id": id, "message": self.trace.text(message)}),
+        );
+        Ok(answer)
     }
 
     /// Delivers subagent `id`'s inbox now that it can take it (its session
@@ -815,7 +992,10 @@ impl Brain {
         };
         self.save();
         let text = inbox_text(&messages);
-        match self.tell(id, &text) {
+        // Held for a subagent that was starting, queued or paused: they were
+        // written to follow its task (or its resume), so they wait for that
+        // turn instead of cutting it.
+        match self.tell_mode(id, &text, true) {
             Ok(_) => {
                 self.trace
                     .emit("tell.delivered", json!({"id": id, "count": messages.len()}));
@@ -836,9 +1016,22 @@ impl Brain {
         }
     }
 
-    /// `tell(id, message)`: a prompt to the subagent's session (acpmux runs
-    /// it after the current turn).
+    /// `tell(id, message)`: the default `tell_mode` (it interrupts).
     pub(super) fn tell(&mut self, id: &str, message: &str) -> Result<String, String> {
+        self.tell_mode(id, message, false)
+    }
+
+    /// A message to the subagent's session. Into a running turn it is
+    /// steered (read between its tool calls); when the agent cannot steer
+    /// now, the turn is interrupted and the message is its next prompt
+    /// (`tell_unsteered`), or with `queue` it waits for the turn to end
+    /// (acpmux queues it). An idle session runs it as a new turn.
+    pub(super) fn tell_mode(
+        &mut self,
+        id: &str,
+        message: &str,
+        queue: bool,
+    ) -> Result<String, String> {
         let (spawn, session) = match self.state.sub(id) {
             Some((spawn, sub)) => (
                 spawn.clone(),
@@ -848,23 +1041,41 @@ impl Brain {
             ),
             None => return Err(format!("no subagent {id}")),
         };
-        let prompt_id = format!("{PROMPT_PREFIX}tell:{id}:{}", now_ms());
+        // A `queue` tell is `fyi:`, so a reconnect never flushes it as an
+        // interrupt (`flush_queued_tells` takes `tell:` ones only).
+        let kind = if queue { "fyi" } else { "tell" };
+        let prompt_id = format!("{PROMPT_PREFIX}{kind}:{id}:{}", now_ms());
         let blocks = vec![json!({"type": "text", "text": message})];
         let running = self
             .state
             .sub(id)
             .is_some_and(|(_, s)| matches!(s.status, SubStatus::Running | SubStatus::Starting));
         let (agents, forward, sub_id) = (self.agents.clone(), self.tx.clone(), id.to_owned());
+        let text = message.to_owned();
         let steered = if running {
             // Reference parity S4: into the running session, read between
-            // its tool calls; one that cannot steer now takes it as its next
-            // prompt (acpmux queues it after the current turn).
+            // its tool calls. One that cannot steer now is interrupted, and
+            // the message is its next prompt (user 2026-10-20: "interrupt
+            // instead of queuing"); a `queue` tell waits after the turn.
             let log = self.log.clone();
+            let message = message.to_owned();
             std::thread::spawn(move || {
                 if let Err(e) = agents.steer(&session, blocks.clone(), &prompt_id) {
+                    if !queue {
+                        log(&format!(
+                            "subagent {sub_id}: the tell could not be steered ({e}); its turn is interrupted"
+                        ));
+                        let _ = forward.send(super::Input::TellUnsteered {
+                            id: sub_id,
+                            session,
+                            message,
+                        });
+                        return;
+                    }
                     log(&format!(
                         "subagent {sub_id}: the tell could not be steered ({e}); it goes after the current turn"
                     ));
+                    let back = forward.clone();
                     if let Err(e) = tell_prompt(
                         &*agents,
                         &session,
@@ -874,8 +1085,13 @@ impl Brain {
                         sub_id.clone(),
                     ) {
                         log(&format!(
-                            "subagent {sub_id}: the tell did not reach it: {e}"
+                            "subagent {sub_id}: the tell did not reach it: {e}; it is kept for its next prompt"
                         ));
+                        let _ = back.send(super::Input::TellUndelivered {
+                            id: sub_id,
+                            message: text,
+                            error: e,
+                        });
                     }
                 }
             });
@@ -899,11 +1115,15 @@ impl Brain {
         }
         self.trace.emit(
             "tell",
-            json!({"id": id, "spawn": spawn, "from": "chief", "steered": steered, "message": self.trace.text(message)}),
+            json!({"id": id, "spawn": spawn, "from": "chief", "steered": steered, "queue": queue, "message": self.trace.text(message)}),
         );
-        let answer = if steered {
+        let answer = if steered && queue {
             format!(
-                "sent to {id}; it reads it between its tool calls, and its report answers it as a \"[{id}] ...\" message"
+                "sent to {id}; it reads it between its tool calls, or after its current turn when its agent cannot take it mid-turn; its report answers it as a \"[{id}] ...\" message"
+            )
+        } else if steered {
+            format!(
+                "sent to {id}; it reads it between its tool calls, or, when its agent cannot take it mid-turn, its turn stops now and this is its next prompt; its report answers it as a \"[{id}] ...\" message"
             )
         } else {
             format!(
@@ -911,6 +1131,140 @@ impl Brain {
             )
         };
         Ok(answer)
+    }
+
+    /// A tell whose steer the running turn refused (`tell_mode`): the turn
+    /// is interrupted as `control interrupt` does it (`after_stop`, then
+    /// `session/cancel`), so the message is its next prompt and the cut run
+    /// reports nothing. A second one while the stop is pending joins the
+    /// same next prompt. One that ended meanwhile gets it as a new turn;
+    /// when the cancel fails it waits after the turn, as a `queue` tell.
+    pub(super) fn tell_unsteered(&mut self, id: &str, session: &str, message: &str) {
+        let Some((_, sub)) = self.state.sub(id) else {
+            return;
+        };
+        let same = sub.session_id.as_deref() == Some(session);
+        let running = same && sub.status == SubStatus::Running && !sub.paused && !sub.cancelled;
+        if !running {
+            if same
+                && !sub.cancelled
+                && let Err(e) = self.tell(id, message)
+            {
+                (self.log)(&format!("subagent {id}: the tell did not reach it: {e}"));
+                self.tell_undelivered(id, message.to_owned(), &e);
+            }
+            return;
+        }
+        let pending = sub.after_stop.is_some();
+        if let Some(sub) = self.state.sub_mut(id) {
+            sub.after_stop = Some(match sub.after_stop.take() {
+                Some(earlier) => format!("{earlier}\n\n{message}"),
+                None => message.to_owned(),
+            });
+        }
+        self.save();
+        if pending {
+            self.trace
+                .emit("tell.interrupt", json!({"id": id, "joined": true}));
+            return;
+        }
+        match self.agents.cancel(session) {
+            Ok(()) => self
+                .trace
+                .emit("tell.interrupt", json!({"id": id, "joined": false})),
+            Err(e) => {
+                (self.log)(&format!(
+                    "subagent {id}: the tell could not interrupt it ({e}); it goes after the current turn"
+                ));
+                let text = self
+                    .state
+                    .sub_mut(id)
+                    .and_then(|s| s.after_stop.take())
+                    .unwrap_or_else(|| message.to_owned());
+                self.save();
+                let prompt_id = format!("{PROMPT_PREFIX}tell:{id}:{}", now_ms());
+                let blocks = vec![json!({"type": "text", "text": text.clone()})];
+                if let Err(e) = tell_prompt(
+                    &*self.agents,
+                    session,
+                    blocks,
+                    &prompt_id,
+                    self.tx.clone(),
+                    id.to_owned(),
+                ) {
+                    (self.log)(&format!("subagent {id}: the tell did not reach it: {e}"));
+                    self.tell_undelivered(id, text, &e);
+                }
+            }
+        }
+    }
+
+    /// Chief tells an older host left in a running subagent's acpmux queue
+    /// (before tell interrupted by default): taken out of the queue and
+    /// sent again now, as one default tell, so none waits behind a long
+    /// turn. Read from the session's events since the subagent's floor.
+    pub(super) fn flush_queued_tells(&mut self, id: &str) {
+        let Some((_, sub)) = self.state.sub(id) else {
+            return;
+        };
+        let Some(session) = sub.session_id.clone() else {
+            return;
+        };
+        if sub.status != SubStatus::Running || sub.paused || sub.cancelled {
+            return;
+        }
+        let events = match self.agents.events(&session, sub.floor) {
+            Ok(events) => events,
+            Err(e) => {
+                (self.log)(&format!(
+                    "subagent {id}: its queued tells could not be read: {e}"
+                ));
+                return;
+            }
+        };
+        let mine = format!("{PROMPT_PREFIX}tell:");
+        let mut waiting: Vec<(String, String)> = Vec::new();
+        for e in &events {
+            let Some(prompt) = e.msg.get("promptId").and_then(Value::as_str) else {
+                continue;
+            };
+            match e.kind.as_str() {
+                "queued" if prompt.starts_with(&mine) => {
+                    waiting.retain(|(p, _)| p != prompt);
+                    waiting.push((prompt.to_owned(), user_text(&e.msg)));
+                }
+                "user_message" | "queue_removed" | "prompt_refused" => {
+                    waiting.retain(|(p, _)| p != prompt);
+                }
+                _ => {}
+            }
+        }
+        let mut texts = Vec::new();
+        for (prompt, text) in waiting {
+            match self.agents.remove_queued(&session, &prompt) {
+                Ok(true) => texts.push(crate::state::InboxMessage {
+                    text,
+                    at_ms: now_ms(),
+                }),
+                Ok(false) => {}
+                Err(e) => {
+                    (self.log)(&format!(
+                        "subagent {id}: its queued tell {prompt} stays queued: {e}"
+                    ));
+                }
+            }
+        }
+        if texts.is_empty() {
+            return;
+        }
+        let text = inbox_text(&texts);
+        self.trace
+            .emit("tell.flushed", json!({"id": id, "count": texts.len()}));
+        if let Err(e) = self.tell(id, &text) {
+            (self.log)(&format!(
+                "subagent {id}: its flushed tells did not reach it: {e}"
+            ));
+        }
     }
 
     /// After a reconnect: subagents that finished or vanished meanwhile.
@@ -962,6 +1316,17 @@ impl Brain {
         let spawns: Vec<String> = self.state.spawns.keys().cloned().collect();
         for spawn in spawns {
             self.deliver(&spawn);
+        }
+        let running: Vec<String> = self
+            .state
+            .spawns
+            .values()
+            .flat_map(|r| r.subs.iter())
+            .filter(|s| s.status == SubStatus::Running && s.session_id.is_some())
+            .map(|s| s.id.clone())
+            .collect();
+        for id in running {
+            self.flush_queued_tells(&id);
         }
         self.start_queued();
     }
@@ -1131,6 +1496,20 @@ impl Brain {
     }
 }
 
+#[cfg(test)]
+#[allow(clippy::items_after_test_module)] // impl Brain items follow; moving them is the owner's change
+mod security_tests {
+    use super::report_requires_approval;
+
+    #[test]
+    fn unknown_subagent_policy_fails_closed() {
+        assert!(report_requires_approval(None));
+        assert!(report_requires_approval(Some("ask")));
+        assert!(report_requires_approval(Some("unknown")));
+        assert!(!report_requires_approval(Some("approve-all")));
+    }
+}
+
 impl Brain {
     /// `Subagents at work now: a1, a3.` when any runs (a turn's line after
     /// the view); None when none does.
@@ -1252,4 +1631,14 @@ fn user_text(msg: &serde_json::Map<String, Value>) -> String {
         .filter_map(|b| b.get("text").and_then(Value::as_str))
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+/// The highest `a<N>` any recorded spawn gave, 0 when none did.
+pub(crate) fn highest_subagent(spawns: &std::collections::BTreeMap<String, SpawnRecord>) -> u64 {
+    spawns
+        .values()
+        .flat_map(|record| record.subs.iter())
+        .filter_map(|sub| sub.id.strip_prefix('a')?.parse::<u64>().ok())
+        .max()
+        .unwrap_or(0)
 }

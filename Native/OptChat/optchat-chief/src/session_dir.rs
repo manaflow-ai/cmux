@@ -131,8 +131,10 @@ pub fn mcp_json_for(setup: &SessionSetup, paths: &Paths, subagent: bool) -> Valu
     // Claude Code starts a stdio server without the turn's env and expands
     // `${VAR}` from its own, so the file names the variable, never the
     // value. A subagent's server gets none.
+    // A subagent's server learns which subagent it serves (escalate_auth)
+    // from its acpmux session name, named here, never copied.
     let env = if subagent {
-        json!({})
+        json!({"ACPMUX_SESSION_NAME": "${ACPMUX_SESSION_NAME:-}"})
     } else {
         let key = crate::chief_profile::TURN_KEY_ENV;
         let mut env = serde_json::Map::new();

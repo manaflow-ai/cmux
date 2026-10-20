@@ -238,7 +238,15 @@ final class CEFRuntime {
             readyAfterLaunch = ProcessInfo.processInfo.systemUptime - Self.launchUptime
             logger.notice("CEF ready trigger=\(trigger, privacy: .public) shim_abi=\(CEFShimABI.short(library.shimABI), privacy: .public) fork_api=\(library.shim.forkAPIVersion()) load=\(library.loadDuration, privacy: .public) initialize=\(clock.now - started, privacy: .public)")
         } catch {
-            let reason = "\(Strings.cefUnavailable) (\(error))"
+            // A trust failure names the rejected item in the log, but the
+            // user-facing refusal stays the existing localized summary.
+            let untrusted: Bool
+            if case .untrusted = error {
+                untrusted = true
+            } else {
+                untrusted = false
+            }
+            let reason = untrusted ? Strings.cefUnavailable : "\(Strings.cefUnavailable) (\(error))"
             logger.error("CEF start failed: \(String(describing: error), privacy: .public)")
             state = .failed(reason)
             onStartFailed?()
@@ -248,6 +256,7 @@ final class CEFRuntime {
 
     enum BootError: Error, CustomStringConvertible {
         case notEmbedded
+        case untrusted(String)
         case shim(CEFShimLibrary.LoadError)
         case framework(String)
         /// NSApp is not a CefAppProtocol NSApplication subclass.
@@ -257,6 +266,7 @@ final class CEFRuntime {
         var description: String {
             switch self {
             case .notEmbedded: "runtime not embedded"
+            case .untrusted(let item): "runtime signature: \(item)"
             case .shim(let error): "shim: \(error)"
             case .framework(let message): message
             case .application: "NSApp does not conform to CefAppProtocol"
@@ -267,8 +277,18 @@ final class CEFRuntime {
 
     /// Maps the shim and the framework (`cef_load_library`, fork API lookup).
     /// Thread-safe: plain `dlopen`/`dlsym`, no Chromium code runs yet.
-    nonisolated static func loadLibrary(_ candidate: CEFRuntimeLayout?) -> Result<CEFLoadedLibrary, BootError> {
+    nonisolated static func loadLibrary(
+        _ candidate: CEFRuntimeLayout?,
+        signatureChecker: (any CEFCodeSignatureChecking)? = nil
+    ) -> Result<CEFLoadedLibrary, BootError> {
         guard let layout = candidate else { return .failure(.notEmbedded) }
+        if case .downloaded(let teamID) = layout.trust {
+            guard let teamID else { return .failure(.untrusted("missing Developer ID team")) }
+            let checker = signatureChecker ?? SecCodeCEFCodeSignatureChecker()
+            if let invalid = checker.invalidItem(in: layout, teamID: teamID) {
+                return .failure(.untrusted(invalid))
+            }
+        }
         let clock = ContinuousClock()
         let started = clock.now
         let shim: CEFShimLibrary

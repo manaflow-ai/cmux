@@ -8,7 +8,16 @@ import { act } from "react";
 import type { Root } from "react-dom/client";
 
 const scope = globalThis as Record<string, unknown>;
-const keys = ["window", "document", "navigator", "HTMLElement", "location", "IS_REACT_ACT_ENVIRONMENT", "Node", "Element"] as const;
+const keys = [
+  "window",
+  "document",
+  "navigator",
+  "HTMLElement",
+  "location",
+  "IS_REACT_ACT_ENVIRONMENT",
+  "Node",
+  "Element",
+] as const;
 const saved = keys.map((key) => [key, key in scope, scope[key]] as const);
 let dom: JSDOM;
 let root: Root | undefined;
@@ -105,7 +114,12 @@ test("the popover groups the rest of the update under New, Improved and Fixed", 
   const { UpdateReadyHighlights } = await import("../src/pages/changelog/UpdateSurfaces");
   const { createStrings } = await import("../src/pages/shared/i18n");
   const table = (await import("../src/pages/changelog/generated/strings.json")).default;
-  const item = (n: number, category: "new" | "improved" | "fixed") => ({ id: `c${n}`, title: `Change ${n}`, summary: null, category });
+  const item = (n: number, category: "new" | "improved" | "fixed") => ({
+    id: `c${n}`,
+    title: `Change ${n}`,
+    summary: null,
+    category,
+  });
   const host = dom.window.document.createElement("div");
   dom.window.document.body.append(host);
   root = createRoot(host);

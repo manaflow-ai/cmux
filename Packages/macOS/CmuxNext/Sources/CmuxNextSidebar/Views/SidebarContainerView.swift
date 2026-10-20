@@ -323,7 +323,7 @@ public final class SidebarContainerView: NSView {
         // Constraint animators ignore SwiftUI springs (they fall back to
         // AppKit's 0.25 s default), so this is the tokens' timed equivalent.
         // A toggle mid-animation starts from the constant on screen.
-        Motion.animateTimed(hidden ? .disappear : .appear, in: self, {
+        Motion.sidebar.animateTimed(hidden ? .disappear : .appear, in: self, {
             Motion.animator(widthConstraint, in: self).constant = target
         }, completion: { [weak self] in
             guard let self, generation == self.animationGeneration else { return }
@@ -336,7 +336,7 @@ public final class SidebarContainerView: NSView {
         // a quick reveal over the structural slide instead of extending the
         // opacity animation to the sidebar's full travel time.
         if collapseMotion.fadesPanel {
-            Motion.animateTimed(hidden ? .fadeOut : .fadeIn, in: self, {
+            Motion.sidebar.animateTimed(hidden ? .fadeOut : .fadeIn, in: self, {
                 panel.animator().alphaValue = hidden ? 0 : 1
             }, completion: { [weak self] in
                 guard let self, generation == self.animationGeneration else { return }
