@@ -52,11 +52,12 @@ public final class LinkRouter {
         return target
     }
 
-    /// Opens `url` in `target` whatever the setting (a menu's Open in cmux Browser, Open in
-    /// Default Browser). A non-web URL never opens in cmux.
+    /// Opens `url` in `target` whatever the link setting (a menu's Open in cmux Browser, Open in
+    /// Default Browser). A non-web URL never opens in cmux, nor any URL while the cmux browser is
+    /// off (`browser.enabled`).
     public func open(_ url: URL, in target: LinkRouting.Target, background: Bool = false) {
         let web = url.scheme?.lowercased() == "http" || url.scheme?.lowercased() == "https"
-        if target == .cmuxBrowser, web {
+        if target == .cmuxBrowser, web, routing().browserEnabled {
             record((background ? "browser-background:" : "browser:") + url.absoluteString)
             openInCmux(url, background)
             return

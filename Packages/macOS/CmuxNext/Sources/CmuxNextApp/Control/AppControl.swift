@@ -150,7 +150,8 @@ final class AppControl {
             .mainActor("debug.hover_cards") { [weak services] call in
                 guard let services else { return .value(.null) }
                 if call.params["dismiss"]?.boolValue == true { services.hoverCards.dismiss(.action) }
-                return .value(.object(services.hoverCards.report.mapValues(JSONValue.string)))
+                // `gallery: sidebar|tabs|none` shows the card kinds over fixture data (HoverCardGallery).
+                return .value(.object((HoverCardGallery.show(call.params["gallery"]?.stringValue) ?? services.hoverCards.report).mapValues(JSONValue.string)))
             },
             // Pane chrome alignment: tab pill gaps, border, first terminal cell.
             .mainActor("debug.pane_chrome") { [weak services] _ in
@@ -255,6 +256,10 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugOmnibar.mouse(call.params, services: services))
             },
+            // One omnibar click from rest to the frame that shows focus and select-all (omnibar-mousedown-latency).
+            .async("debug.omnibar_bench") { [weak services] call in
+                await DebugOmnibarClickBench.run(call.params, services)
+            }.withDeadline(.fixed(.seconds(15))),
             .mainActor("debug.omnibar_type") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugOmnibar.type(call.params, services: services))

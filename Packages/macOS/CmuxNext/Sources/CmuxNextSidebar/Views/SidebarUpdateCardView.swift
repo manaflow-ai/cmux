@@ -117,6 +117,9 @@ final class SidebarUpdateCardView: NSView {
         detailLabel.lineBreakMode = .byTruncatingTail
         detailLabel.maximumNumberOfLines = 1
         [titleLabel, detailLabel, checkbox, button, closeButton].forEach(addSubview)
+        checkbox.setAccessibilityIdentifier("cmux.sidebar.update.automatic")
+        button.setAccessibilityIdentifier("cmux.sidebar.update.install")
+        closeButton.setAccessibilityIdentifier("cmux.sidebar.update.hide")
         button.onPress = { [weak self] in self?.onInstall?() }
         closeButton.onPress = { [weak self] in self?.closePressed() }
         checkbox.onToggle = { [weak self] on in self?.onAutomaticUpdates?(on) }

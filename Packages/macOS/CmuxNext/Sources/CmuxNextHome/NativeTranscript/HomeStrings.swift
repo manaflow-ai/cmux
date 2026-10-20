@@ -84,6 +84,24 @@ enum HomeStrings {
     static var firstRunStartAgent: String {
         String(localized: "home.firstRun.startAgent", defaultValue: "Start an agent", bundle: .module)
     }
+    /// The first-run panel's title under the Chief's character (`HomeFirstRunHero`).
+    static var firstRunHeroTitle: String {
+        String(localized: "home.firstRun.hero.title", defaultValue: "Your Chief", bundle: .module)
+    }
+    /// What the Chief does today, under the title.
+    static var firstRunHeroBody: String {
+        String(localized: "home.firstRun.hero.body",
+               defaultValue: "Tell it what you want done. It handles quick things itself and hands longer work to agents, each in its own workspace you can watch and join. It reports back here.",
+               bundle: .module)
+    }
+    /// The first-run row that shows the floating Chief pet (`home.toggleChiefPet`).
+    static var firstRunShowPet: String {
+        String(localized: "home.firstRun.showPet", defaultValue: "Show Chief Pet", bundle: .module)
+    }
+    /// The same row while the pet shows.
+    static var firstRunHidePet: String {
+        String(localized: "home.firstRun.hidePet", defaultValue: "Hide Chief Pet", bundle: .module)
+    }
     /// The heading of the first-run "Switching" card (`HomeFirstRunSwitchCard`).
     static var switchKeysHeader: String {
         String(localized: "home.firstRun.switchKeys.header", defaultValue: "Switching", bundle: .module)

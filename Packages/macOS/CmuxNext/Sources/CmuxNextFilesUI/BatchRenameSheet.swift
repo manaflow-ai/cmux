@@ -25,6 +25,8 @@ final class BatchRenameSheet: NSObject {
         formatStyle.addItems(withTitles: [FilesStrings.renameNameIndex, FilesStrings.renameNameCounter, FilesStrings.renameNameDate])
         position.addItems(withTitles: [FilesStrings.renameAfter, FilesStrings.renameBefore])
         caseSensitive.state = .on
+        first.focusRingType = .none
+        second.focusRingType = .none
         for control in [mode, formatStyle, position, caseSensitive] as [NSControl] {
             control.target = self
             control.action = #selector(changed)

@@ -37,12 +37,13 @@ AGENT_PANE = re.compile(r"(?:agent.?pane|agent-session|AgentPane|acpmux)", re.IG
 NOW_PLAYING = re.compile(r"(?:now.?playing|music)", re.IGNORECASE)
 # Pinned tabs and the tab strip's close rules: the pinned-tabs tour pins, closes others and unpins.
 PINNED_TABS = re.compile(r"(?:Pinned|PinCommands|/Pins/)")
-# The sidebar's workspace hover card (its surface and content), in dark, light and over art.
-HOVER_CARD = re.compile(r"(?:WorkspaceHoverCard|HoverCards/HoverCardPanel)")
+# The hover cards (the sidebar workspace card, the tab card, their shared rows and panel), in dark, light and over art.
+HOVER_CARD = re.compile(r"(?:WorkspaceHoverCard|TabHoverCard|HoverCards/|HoverCardGallery)")
 # The sidebar's native Update Ready card and its popup window (the popup's React page is gallery work).
 UPDATE_CARD = re.compile(r"(?:SidebarUpdateCard|SidebarUpdateNotes|UpdateReadyCard|UpdateSurfaceIsland)")
-# The Chief's settings popover and the Home view that opens it.
-CHIEF_SETTINGS = re.compile(r"(?:HomeChiefSettings|HomeHostView|HomeEngineStrings)")
+# The Chief's settings popover, the Home view that opens it, and the empty Chief conversation's
+# front page (its hero, rows and the Chief's default face) that the same tour shows first.
+CHIEF_SETTINGS = re.compile(r"(?:HomeChiefSettings|HomeHostView|HomeEngineStrings|HomeFirstRun|HomeChiefFace|ChiefPetMascot)")
 # Themes, glass and background art: the glass tour shows them over art and opaque.
 GLASS = re.compile(r"(?:theme|glass|backdrop|WindowBackground|SurfaceBackground|TerminalHostView|cmux-themes|composerStates\.css)", re.IGNORECASE)
 # Home's conversation list column: its header, rows and width (the home tour's widths, light and dark).

@@ -8,18 +8,28 @@ public enum HomeFirstRunAction: Sendable, Equatable {
     case openTerminal
     /// A new agent chat (`palette.newAgentChat`).
     case startAgent
+    /// Show or hide the floating Chief pet (`home.toggleChiefPet`).
+    case togglePet
 }
 
-/// The empty Chief conversation's first-run panel: things to do now, each a
-/// row with its shortcut (open a terminal, start an agent), then the user's
-/// agents at a glance, most urgent first, each opening its tab, then the
-/// "Switching" card with the core switching keys (`HomeFirstRunSwitchCard`,
-/// hidden for good by its Hide button). Labels and actions only, no lines about what the
-/// Chief is. Hidden once the conversation has a message
-/// (`HomeNativeTranscriptView.updateFirstRun`).
+/// The empty Chief conversation's first-run panel, the Chief's front page: the Chief's face
+/// and what it does (`HomeFirstRunHero`), then things to do now, each a row with its shortcut
+/// (start an agent, open a terminal) and the Chief pet's Show / Hide, then the user's agents
+/// at a glance, most urgent first, each opening its tab, then the "Switching" card with the
+/// core switching keys (`HomeFirstRunSwitchCard`, hidden for good by its Hide button). Hidden
+/// once the conversation has a message (`HomeNativeTranscriptView.updateFirstRun`). A short
+/// pane drops agent rows first, then the hero.
 final class HomeFirstRunView: NSView {
     let terminal = HomeFirstRunRow(title: HomeStrings.firstRunOpenTerminal, icon: .terminalNew)
     let agent = HomeFirstRunRow(title: HomeStrings.firstRunStartAgent, icon: .agentChat)
+    /// Show Chief Pet, or Hide Chief Pet while it shows (`setPetShown`).
+    let pet = HomeFirstRunRow(title: HomeStrings.firstRunShowPet, icon: .agentChief)
+    /// The Chief's face and what it does; out of the layout when the tunable hides it or it does not fit.
+    let hero = HomeFirstRunHero()
+    private lazy var heroHeight = hero.heightAnchor.constraint(equalToConstant: 0)
+    private lazy var heroWidth = hero.widthAnchor.constraint(equalToConstant: Self.maxWidth)
+    /// `HomeTunables.firstRunHero`: false keeps the rows-only panel.
+    var showsHero = true { didSet { if showsHero != oldValue { needsLayout = true } } }
     /// "Your agents", over the agent rows; out of the stack with no agents.
     let agentsHeader = ChromeLabel(labelWithString: HomeStrings.firstRunAgentsHeader)
     /// One row per listed agent (`setAgents`), the status word at the trailing edge.
@@ -40,11 +50,13 @@ final class HomeFirstRunView: NSView {
 
     static let maxWidth: CGFloat = 340
 
-    var rows: [HomeFirstRunRow] { [terminal, agent] + agentRows }
+    var rows: [HomeFirstRunRow] { actionRows + agentRows }
+    /// The action rows, in panel order.
+    var actionRows: [HomeFirstRunRow] { [agent, terminal, pet] }
 
     /// The theme's colours, kept for agent rows made after the last theme pass.
     private struct Colors {
-        var primary, tertiary, fill, hover, border, attention, danger, done: NSColor
+        var primary, secondary, tertiary, fill, hover, border, attention, danger, done: NSColor
     }
 
     override init(frame: NSRect) {
@@ -53,6 +65,9 @@ final class HomeFirstRunView: NSView {
         switchCard.translatesAutoresizingMaskIntoConstraints = false
         cardHeight.isActive = true
         cardWidth.isActive = true
+        hero.translatesAutoresizingMaskIntoConstraints = false
+        heroHeight.isActive = true
+        heroWidth.isActive = true
         agentsHeader.font = .systemFont(ofSize: 12, weight: .medium)
         agentsHeader.isSelectable = false
         agentsHeader.lineBreakMode = .byTruncatingTail
@@ -60,6 +75,7 @@ final class HomeFirstRunView: NSView {
         headerWidth.isActive = true
         terminal.onClick = { [weak self] in self?.onAction(.openTerminal) }
         agent.onClick = { [weak self] in self?.onAction(.startAgent) }
+        pet.onClick = { [weak self] in self?.onAction(.togglePet) }
         stack.orientation = .vertical
         stack.alignment = .centerX
         stack.spacing = 6
@@ -105,7 +121,7 @@ final class HomeFirstRunView: NSView {
     private func arrange() {
         for view in stack.arrangedSubviews { stack.removeArrangedSubview(view); view.removeFromSuperview() }
         let listed: [NSView] = agentRows.isEmpty ? [] : [agentsHeader] + agentRows
-        for view in [terminal, agent] + listed + [switchCard] as [NSView] { stack.addArrangedSubview(view) }
+        for view in [hero] + actionRows + listed + [switchCard] as [NSView] { stack.addArrangedSubview(view) }
         applySpacing()
     }
 
@@ -117,7 +133,12 @@ final class HomeFirstRunView: NSView {
     private func fitAgentRows() {
         let row = HomeFirstRunRow.height * scale, gap = 6 * scale, group = 14 * scale
         let card = switchCard.isHidden ? 0 : group + cardHeight.constant
-        let base = 2 * row + gap + card
+        let actions = CGFloat(actionRows.count) * row + CGFloat(actionRows.count - 1) * gap
+        // The hero goes before any action row does: it shows only when it fits with them and the card.
+        let heroPart = heroHeight.constant + Self.heroGap * scale
+        let heroFits = showsHero && actions + card + heroPart <= bounds.height
+        if hero.isHidden != !heroFits { hero.isHidden = !heroFits }
+        let base = actions + card + (heroFits ? heroPart : 0)
         let header = group + ceil(agentsHeader.intrinsicContentSize.height)
         var shown = agentRows.count
         while shown > 0, base + header + CGFloat(shown) * (gap + row) > bounds.height { shown -= 1 }
@@ -132,7 +153,20 @@ final class HomeFirstRunView: NSView {
 
     private func applySpacing() {
         stack.spacing = 6 * scale
-        stack.setCustomSpacing(14 * scale, after: agent)
+        stack.setCustomSpacing(14 * scale, after: pet)
+        stack.setCustomSpacing(Self.heroGap * scale, after: hero)
+    }
+
+    /// The space between the hero and the first row.
+    static let heroGap: CGFloat = 20
+
+    /// The pet row reads as the change it makes: Hide Chief Pet while the pet shows.
+    func setPetShown(_ shown: Bool) {
+        let title = shown ? HomeStrings.firstRunHidePet : HomeStrings.firstRunShowPet
+        guard pet.title != title else { return }
+        pet.label.stringValue = title
+        pet.setAccessibilityLabel(title)
+        pet.needsLayout = true
     }
 
     /// Applies the live interface scale to this native empty state.
@@ -140,6 +174,7 @@ final class HomeFirstRunView: NSView {
         guard self.scale != scale else { return }
         self.scale = scale
         switchCard.applyScale(scale)
+        hero.applyScale(scale)
         agentsHeader.font = .systemFont(ofSize: 12 * scale, weight: .medium)
         applySpacing()
         for row in rows { row.applyScale(scale) }
@@ -160,9 +195,9 @@ final class HomeFirstRunView: NSView {
     /// Colours from the theme (caller runs inside `performWithTheme`): text
     /// tiers, the rows' raised fill, hover fill and hairline, and the status
     /// words' colours (needs you, failed, done; the rest stay quiet).
-    func applyColors(primary: NSColor, tertiary: NSColor, fill: NSColor, hover: NSColor, border: NSColor,
+    func applyColors(primary: NSColor, secondary: NSColor, tertiary: NSColor, fill: NSColor, hover: NSColor, border: NSColor,
                      attention: NSColor, danger: NSColor, done: NSColor) { // theme-scoped
-        colors = Colors(primary: primary, tertiary: tertiary, fill: fill, hover: hover, border: border,
+        colors = Colors(primary: primary, secondary: secondary, tertiary: tertiary, fill: fill, hover: hover, border: border,
                         attention: attention, danger: danger, done: done)
         applyStoredColors()
     }
@@ -171,7 +206,8 @@ final class HomeFirstRunView: NSView {
         guard let colors else { return }
         switchCard.applyColors(primary: colors.primary, tertiary: colors.tertiary, fill: colors.fill, border: colors.border)
         agentsHeader.textColor = colors.tertiary
-        for row in [terminal, agent] {
+        hero.applyColors(primary: colors.primary, secondary: colors.secondary)
+        for row in actionRows {
             row.applyColors(text: colors.primary, quiet: colors.tertiary, fill: colors.fill, hover: colors.hover, border: colors.border)
         }
         for (row, glance) in zip(agentRows, agents) {
@@ -191,6 +227,9 @@ final class HomeFirstRunView: NSView {
         for row in rows { row.width = width }
         if headerWidth.constant != width { headerWidth.constant = width }
         if cardWidth.constant != width { cardWidth.constant = width }
+        if heroWidth.constant != width { heroWidth.constant = width }
+        let heroTall = hero.height(for: width)
+        if heroHeight.constant != heroTall { heroHeight.constant = heroTall }
         let card = switchCard.height(for: width)
         if cardHeight.constant != card { cardHeight.constant = card }
         fitAgentRows()

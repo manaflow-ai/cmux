@@ -26,6 +26,8 @@ final class BrowserPageRequests: BrowserTabDelegate {
                                      tab: { [weak self] id in self?.services?.cache.browsers.values.first { $0.tab.id == id }?.tab })
             // A popup panel's page gets the same rows, acting for its opener's tab.
             services?.popups.hitItems = { [weak self] target, openerKey in self?.hitItems(for: target, tab: openerKey) ?? [] }
+            // A popup window's omnibar suggests from its page's profile, as a tab's does.
+            services?.popups.suggestionEngine = { [weak self] page in self?.services?.cache.suggestionEngine(forPage: page) }
             // A reopened tab restores one history, not two (cx-d0d.11).
             services?.cache.browserTabs.restoredInMemory = { [weak self] tab, engine in self?.closedHistories.takeRestored(tab, engine: engine) ?? false }
             // The Downloads list a relaunch shows keeps ended downloads (cx-d0d.72).

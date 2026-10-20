@@ -31,11 +31,6 @@ final class HomeHostView: NSView {
     private var toggleObserver: (any NSObjectProtocol)?
     /// `home.toggleChiefSettings` (palette, `cmux action run`, preflight).
     static let toggleSettings = Notification.Name("HomeHostView.toggleChiefSettings")
-    /// The Chief's avatar when its profile sets none: the bundled cat
-    /// (160 px, sharp on the 40 pt header disc up to 4x).
-    static let defaultAvatar = Bundle.module.image(forResource: "ChiefAvatar")
-    /// The same cat for the Chief's tile in the conversation list.
-    static let defaultTileAvatar = Bundle.module.url(forResource: "ChiefAvatar", withExtension: "png").map(HomeChiefAvatar.picture)
     private var firstPage: Task<Void, Never>?
     /// Which brain answers this conversation (this Mac's or a paired server's).
     private var control: HomeChiefControl
@@ -58,7 +53,13 @@ final class HomeHostView: NSView {
         super.init(frame: .zero)
         transcript.linkScheme = services.linkScheme  // "Copy Link" names messages in this build's scheme
         transcript.setNamePillHelp(HomeEngineStrings.pillHelp)
-        transcript.onNamePill = { [weak self] in self?.toggleChiefSettings() }
+        // The header's name: the Chief's settings over a Chief; a DM's or group's info otherwise.
+        transcript.onNamePill = { [weak self, weak services] in
+            guard let self else { return }
+            if isChief || settings.isShown { return toggleChiefSettings() }
+            _ = services?.registry.perform("home.conversationInfo",
+                                           invocation: ActionInvocation(arguments: ["conversation": .string(conversation)], origin: .user))
+        }
         loadAvatar()
         settingsView.onAvatar = { [weak self, weak service] in
             self?.loadAvatar()
@@ -135,6 +136,7 @@ final class HomeHostView: NSView {
             let id: ActionID = switch action {
             case .openTerminal: Self.openTerminalAction
             case .startAgent: Self.startAgentAction
+            case .togglePet: "home.toggleChiefPet"
             }
             _ = registry.perform(id, invocation: ActionInvocation(origin: .user))
         }
@@ -296,10 +298,9 @@ final class HomeHostView: NSView {
             let avatar = await Task.detached { files.headerAvatar() }.value
             // A read for the Chief shown before (the conversation's Chief came in since) is dropped.
             guard let self, control.brainHome == home else { return }
-            let picture = avatar.picture.flatMap(NSImage.init(data:)) ?? (avatar.text == nil ? Self.defaultAvatar : nil)
-            transcript.avatarPicture = picture
-            transcript.avatarText = avatar.text
-            settingsView.setAvatar(picture: picture, text: avatar.text)
+            // No picture and no text: the Chief pet's character (HomeChiefFace), live.
+            transcript.setChiefAvatar(picture: avatar.picture.flatMap(NSImage.init(data:)), text: avatar.text)
+            settingsView.setAvatar(picture: transcript.avatarPicture, text: avatar.text)
         }
     }
 
@@ -309,6 +310,9 @@ final class HomeHostView: NSView {
     /// `debug.home.drive` chief_control: the named Chief this view's controls name (nil: the default).
     var debugNamedChief: String? { control.named }
     #endif
+
+    /// The transcript header's height (New Message's To: field covers it).
+    var headerHeight: CGFloat { transcript.headerHeight }
 
     /// The view that takes the keyboard when the tab's pane is focused.
     /// Home's primary input: the message box itself. Focusing the transcript
