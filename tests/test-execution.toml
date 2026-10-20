@@ -233,6 +233,10 @@ path = "tests/test_ci_nightly_push_throttle.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_nightly_off_blacksmith.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_no_shallow_dev_fetch.py"
 lane = "linux-guard"
 
@@ -1386,6 +1390,14 @@ path = "tests/test_ci_media_module_cache_stamp.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_media_app_cache.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_next_media_tree_fallback.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cmux_tui_feat_publish_order.py"
 lane = "linux-guard"
 
@@ -1499,6 +1511,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_risk_tier.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_next_pr_autofix_push_gate.py"
 lane = "linux-guard"
 
 [[test]]
