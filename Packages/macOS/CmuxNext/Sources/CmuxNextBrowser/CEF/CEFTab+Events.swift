@@ -10,6 +10,11 @@ extension CEFTab {
     /// the address and the loading state.
     func handle(_ event: CEFShimEvent) {
         defer { CEFAgentURLGuard.check(self, after: event) }
+        if case .title = event {} else if let waiting = titleCoalescer.flush(now: ProcessInfo.processInfo.systemUptime) {
+            // A title that waited goes before this event, so the state sees them in order.
+            titleTimer.cancel()
+            machine.apply(.titleChanged(waiting.title))
+        }
         switch event {
         case .loadingState(_, let loading, let back, let forward):
             nativeHistory = (back, forward)
@@ -66,7 +71,7 @@ extension CEFTab {
         case .address(_, let url):
             machine.apply(.urlChanged(URL(string: url)))
         case .title(_, let title):
-            machine.apply(.titleChanged(title.isEmpty ? nil : title))
+            offerTitle(title.isEmpty ? nil : title)
             if capturesTitleBeforeCommit, state.phase == .provisional { titleBeforeCommit = title.isEmpty ? nil : title }
         case .favicon(_, let url):
             let faviconURL = URL(string: url)
@@ -176,6 +181,23 @@ extension CEFTab {
         }
         let json = try await runtime.devTools(browserID, method: "Runtime.evaluate", params: params)
         return try CEFDevToolsResult.evaluation(json)
+    }
+
+    /// Applies a page title now, or keeps the latest for the end of the
+    /// coalescing interval (`TitleCoalescer`): a title that changes every
+    /// frame re-rendered the toolbar and the tab's rows every frame.
+    private func offerTitle(_ title: String?) {
+        let now = ProcessInfo.processInfo.systemUptime
+        switch titleCoalescer.offer(title, now: now) {
+        case .apply(let update):
+            machine.apply(.titleChanged(update.title))
+        case .wait(let until):
+            titleTimer.scheduleIfIdle(after: .milliseconds(Int64(max(0, until - now) * 1000) + 1)) { @MainActor [weak self] in
+                guard let self, !self.isClosed,
+                      let update = self.titleCoalescer.fire(now: ProcessInfo.processInfo.systemUptime) else { return }
+                self.machine.apply(.titleChanged(update.title))
+            }
+        }
     }
 
     /// Runs a DevTools protocol method on this tab in process (diagnostics
