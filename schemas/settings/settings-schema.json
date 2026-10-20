@@ -62,7 +62,8 @@
               "layout.minimumPaneWidth",
               "layout.minimumPaneHeight",
               "layout.newPanePlacement",
-              "layout.tileBrowsers"
+              "layout.tileBrowsers",
+              "layout.linkPlacement"
             ],
             "title" : {
               "key" : "settings.group.columns",
@@ -374,6 +375,7 @@
               "sidebar.minimal",
               "sidebar.density",
               "sidebar.detailedStatusIcons",
+              "sidebar.showTimestamps",
               "sidebar.minimalMode",
               "sidebar.cards.tips",
               "sidebar.side",
@@ -774,6 +776,7 @@
         "trail" : [
           "harnesses",
           "agentHarnesses",
+          "chiefs",
           "computerUse"
         ]
       },
@@ -899,6 +902,7 @@
               "browser.omnibar.inlineAutocomplete",
               "browser.omnibar.maxRows",
               "browser.omnibar.calculator",
+              "browser.omnibar.showFullURLs",
               "browser.omnibar.glass",
               "browser.omnibar.glassTint",
               "browser.omnibar.glassTintStrength",
@@ -968,6 +972,7 @@
           {
             "key" : "settings.group.openingLinks",
             "rows" : [
+              "browser.enabled",
               "browser.openLinksInCmuxBrowser",
               "browser.hostsToOpenInEmbeddedBrowser",
               "browser.urlsToAlwaysOpenExternally"
@@ -2582,7 +2587,7 @@
       "range" : {
         "max" : 320,
         "min" : 16,
-        "placeholder" : 32,
+        "placeholder" : 48,
         "step" : 1,
         "unit" : "points"
       },
@@ -5150,6 +5155,83 @@
     },
     {
       "accepts" : [
+        "split-right",
+        "new-column",
+        "same-pane"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.linkPlacementSplitRight",
+            "text" : "Split Right"
+          },
+          "value" : "split-right"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.linkPlacementNewColumn",
+            "text" : "New Column on the Right"
+          },
+          "value" : "new-column"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.linkPlacementSamePane",
+            "text" : "Tab in the Same Pane"
+          },
+          "value" : "same-pane"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "split-right",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.columns",
+        "text" : "Columns"
+      },
+      "help" : {
+        "key" : "settings.layout.linkPlacement.help",
+        "text" : "Where a link or file you open from a terminal, an agent chat, Home or a page appears. Split Right uses the pane on the right, or makes one."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "layout.linkPlacement",
+      "keywords" : [
+        "link",
+        "url",
+        "path",
+        "file",
+        "open",
+        "split",
+        "right",
+        "column",
+        "pane",
+        "tab"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "layout",
+        "linkPlacement"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.layout.linkPlacement",
+        "text" : "Open Links and Files"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "top",
         "afterCurrent",
         "bottom"
@@ -6683,7 +6765,7 @@
         true,
         false
       ],
-      "agent_refusal" : null,
+      "agent_refusal" : "privacy",
       "agent_settable" : false,
       "consumers" : [
         "cmux-next"
@@ -6737,7 +6819,7 @@
           "~/notes"
         ]
       ],
-      "agent_refusal" : null,
+      "agent_refusal" : "privacy",
       "agent_settable" : false,
       "consumers" : [
         "cmux-next"
@@ -19003,6 +19085,60 @@
     },
     {
       "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.showTimestamps.help",
+        "text" : "Workspace rows show when they last changed: a time today, else an age such as 3d. Off, rows show no times; the hover card still does."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.showTimestamps",
+      "keywords" : [
+        "sidebar",
+        "timestamps",
+        "time",
+        "times",
+        "age",
+        "ago",
+        "elapsed",
+        "duration",
+        "last activity",
+        "clock",
+        "rows"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "showTimestamps"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.showTimestamps",
+        "text" : "Show Timestamps"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "off",
         "bottom",
         "top",
@@ -25688,6 +25824,56 @@
     },
     {
       "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.addressBar",
+        "text" : "Address Bar"
+      },
+      "help" : {
+        "key" : "settings.browser.omnibar.showFullURLs.help",
+        "text" : "Shows the whole address, with https:// and www., when you are not editing it."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.omnibar.showFullURLs",
+      "keywords" : [
+        "url",
+        "address",
+        "https",
+        "www",
+        "full",
+        "omnibox"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "browser",
+        "omnibar",
+        "showFullURLs"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "browser",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.browser.omnibar.showFullURLs",
+        "text" : "Always Show Full URLs"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "transparent",
         "regular",
         "clear",
@@ -26508,6 +26694,54 @@
       "title" : {
         "key" : "settings.browser.links.middleClick",
         "text" : "Middle-Click"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.openingLinks",
+        "text" : "Opening Links"
+      },
+      "help" : {
+        "key" : "settings.browser.enabled.help",
+        "text" : "When off, cmux opens no browser tabs for web pages and every link opens in your default browser."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.enabled",
+      "keywords" : [
+        "browser",
+        "disable",
+        "turn off",
+        "default browser",
+        "web"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "browser",
+        "enabled"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "browser",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.browser.enabled",
+        "text" : "Enable cmux Browser"
       },
       "validation" : "portable"
     },
