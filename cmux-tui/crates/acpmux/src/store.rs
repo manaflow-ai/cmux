@@ -240,6 +240,11 @@ pub struct SubsessionLink {
     pub short_name: String,
     /// 1 for a child of a root session, 2 for a grandchild, and so on.
     pub depth: u32,
+    /// The person started it from its parent's suggested task
+    /// (`hub/offers.rs`), in a mode they chose: the parent's agent reads
+    /// it but does not prompt, stop or close it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub offered: bool,
 }
 
 /// Limit overrides of one session; `None` inherits its parent's, then the

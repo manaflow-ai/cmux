@@ -1,0 +1,62 @@
+name: cmux-next perf bench
+
+# Nightly xbench (msg 2654): cmux NEXT against Chrome, Helium, Ardia, Dia and
+# Safari on one fleet mini (scripts/perf-bench/README.md). The step builds a
+# Release app at the feat-cmux-next tip, runs alone on an idle worker
+# (class exclusive) and fails when a cmux row regressed past
+# scripts/perf-bench/baseline/<chip>-macos<major>.json. It goes through the
+# build-fleet gateway runner (the one CI_SWIFT_PACKAGE_TESTS_STEP_GATEWAY names),
+# which only hands the step to the controller with `cmux-ci run`.
+
+on:
+  schedule:
+    - cron: "17 9 * * *"
+  workflow_dispatch:
+    inputs:
+      rounds:
+        description: "rounds (each browser once per round)"
+        default: "3"
+      browsers:
+        description: "browsers"
+        default: "cmux-chromium,cmux-webkit,cmux-terminal,chrome,helium,ardia,dia,safari"
+      worker:
+        description: "fleet worker (empty: any idle measure worker)"
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cmux-next-perf-bench
+  cancel-in-progress: false
+
+jobs:
+  bench:
+    if: github.repository_owner == 'manaflow-ai' && vars.CI_SWIFT_PACKAGE_TESTS_STEP_GATEWAY != ''
+    runs-on: ${{ vars.CI_SWIFT_PACKAGE_TESTS_STEP_GATEWAY }}
+    timeout-minutes: 420
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: feat-cmux-next
+          fetch-depth: 1
+          submodules: false
+      - name: xbench on a fleet mini
+        env:
+          ROUNDS: ${{ inputs.rounds || '3' }}
+          BROWSERS: ${{ inputs.browsers || 'cmux-chromium,cmux-webkit,cmux-terminal,chrome,helium,ardia,dia,safari' }}
+          WORKER: ${{ inputs.worker || '' }}
+        run: |
+          set -uo pipefail
+          sha="$(git rev-parse HEAD)"
+          target=()
+          [ -n "$WORKER" ] && target=(--target-worker "$WORKER")
+          status=0
+          "${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}" run --class exclusive --measurement --label measure \
+            --script scripts/measure/perf-bench.sh --ref "$sha" --timeout 23400 \
+            --artifact artifacts/perf-bench/results.json ${target[@]+"${target[@]}"} \
+            --arg="rounds=$ROUNDS" --arg="browsers=$BROWSERS" --arg=gate=1 | tee "$RUNNER_TEMP/bench.log" || status=$?
+          # The report prints BENCH.md into the step log; show it on the run page.
+          sed -n '/^# xbench, /,$p' "$RUNNER_TEMP/bench.log" | grep -v '^PERF-BENCH-' >> "$GITHUB_STEP_SUMMARY" || true
+          grep '^PERF-BENCH-GATE' "$RUNNER_TEMP/bench.log" >> "$GITHUB_STEP_SUMMARY" || true
+          exit "$status"

@@ -147,7 +147,7 @@ extension WorkspaceRowView {
         let pinStart = layoutPin(showMore: showMore, control: control, fades: fades)
         let overlayStart = [showClose ? closeButton.frame.minX : nil, showMore ? moreButton.frame.minX : nil, pinStart].compactMap { $0 }.min()
         let ind = SidebarStyle.indicatorSize
-        trailing = layoutRowBadge(style: rowBadgeStyle, trailing: trailing, cy: cy)
+        trailing = layoutRowBadge(trailing: trailing, cy: cy)
         let markReplacesStatus = !agentMark.isHidden && agentMarkVariant == .replacesStatus
         activity.isHidden = markReplacesStatus
         if markReplacesStatus {
@@ -167,7 +167,14 @@ extension WorkspaceRowView {
             trailing -= w + Metrics.space2
         }
 
-        var textX = side > 0 ? icon.frame.maxX + Metrics.space3 : leading - Self.labelInset // the title's text starts at `leading`
+        // The title's text starts a Chrome-like 6 pt after the icon's drawing (a favicon or an
+        // emoji draws at `kindGlyphSize`, centered in its box; Lawrence 2026-10-19: "slightly too
+        // much space between the favicon and the name"); without an icon, at `leading`.
+        let iconTextGap: CGFloat = switch iconKind {
+        case .swatch?: Metrics.space3 // a color dot keeps its spacing
+        default: Metrics.space3 - Self.labelInset - max(0, (side - SidebarStyle.kindGlyphSize) / 2)
+        }
+        var textX = side > 0 ? icon.frame.maxX + iconTextGap : leading - Self.labelInset
         if !agentMark.isHidden && agentMarkVariant == .besideTitle {
             agentMark.frame = NSRect(x: textX + Self.labelInset, y: cy - ind / 2, width: ind, height: ind)
             textX = agentMark.frame.maxX + Metrics.space1
