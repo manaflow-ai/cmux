@@ -73,7 +73,10 @@ export function SummaryBody({
       ? file.path
       : summary.outputs
           .filter((output) => changedByTools(file, [output]))
-          .reduce<string | undefined>((best, output) => (!best || output.path.length < best.length ? output.path : best), undefined);
+          .reduce<string | undefined>(
+            (best, output) => (!best || output.path.length < best.length ? output.path : best),
+            undefined,
+          );
   const turnOf = new Map<string, (typeof lastTurn)[number]>();
   const checkpointOnly: (typeof lastTurn)[number][] = [];
   for (const file of lastTurn) {
