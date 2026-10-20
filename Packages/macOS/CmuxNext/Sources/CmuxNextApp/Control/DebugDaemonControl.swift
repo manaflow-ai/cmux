@@ -3,6 +3,9 @@ import CmuxNextDaemon
 import CmuxNextSettings
 
 #if DEBUG
+/// CmuxNextDaemon has a `JSONValue` too; the control socket speaks the settings one.
+private typealias JSONValue = CmuxNextSettings.JSONValue
+
 /// `debug.daemon` (DEBUG builds; a release router drops every `debug.*`
 /// method): the local daemon's connection and recovery as the app shows them,
 /// for the restore journey's daemon variants (scripts/cmux-next/restore-journey.py:
@@ -42,7 +45,7 @@ enum DebugDaemonControl {
     /// `disconnected`, `failed` with the reason), the daemon's pid while
     /// connected, the recovery's state, and per window what it shows:
     /// `content` (a workspace), `connecting` (DaemonConnectingView) or `none`.
-    static func report(_ services: AppServices) -> JSONValue {
+    static func report(_ services: AppServices) -> CmuxNextSettings.JSONValue {
         let daemon = services.daemon
         let (startup, startupError): (String, String?) = switch daemon.startup {
         case .connecting: ("connecting", nil)
@@ -56,25 +59,26 @@ enum DebugDaemonControl {
         case .failed(let why): ("failed", why)
         }
         let recovery = daemon.recovery
-        let windows: [JSONValue] = services.windows.controllers.map { controller in
+        var windows: [JSONValue] = []
+        for controller in services.windows.controllers {
             let shows = controller.content != nil ? "content" : controller.connectingView != nil ? "connecting" : "none"
-            return .object(["id": .string(controller.state.id), "shows": .string(shows)])
+            windows.append(.object(["id": .string(controller.state.id), "shows": .string(shows)]))
         }
-        return .object([
-            "machine": .string(daemon.machineID),
-            "startup": .string(startup),
-            "startup_error": startupError.map(JSONValue.string) ?? .null,
-            "connection": .string(connection),
-            "connection_reason": reason.map(JSONValue.string) ?? .null,
-            "pid": daemon.store.identity.map { .number(Double($0.pid)) } ?? .null,
-            "recovery": .object([
-                "can_retry": .bool(recovery.canRetry),
-                "offers_restart": .bool(recovery.offersRestart),
-                "is_restarting": .bool(recovery.isRestarting),
-                "restart_failure": recovery.restartFailure.map(JSONValue.string) ?? .null,
-            ]),
-            "windows": .array(windows),
-        ])
+        var recoveryFields: [String: JSONValue] = [:]
+        recoveryFields["can_retry"] = .bool(recovery.canRetry)
+        recoveryFields["offers_restart"] = .bool(recovery.offersRestart)
+        recoveryFields["is_restarting"] = .bool(recovery.isRestarting)
+        recoveryFields["restart_failure"] = recovery.restartFailure.map { JSONValue.string($0) } ?? .null
+        var fields: [String: JSONValue] = [:]
+        fields["machine"] = .string(daemon.machineID)
+        fields["startup"] = .string(startup)
+        fields["startup_error"] = startupError.map { JSONValue.string($0) } ?? .null
+        fields["connection"] = .string(connection)
+        fields["connection_reason"] = reason.map { JSONValue.string($0) } ?? .null
+        fields["pid"] = daemon.store.identity.map { JSONValue.number(Double($0.pid)) } ?? .null
+        fields["recovery"] = .object(recoveryFields)
+        fields["windows"] = .array(windows)
+        return .object(fields)
     }
 }
 #endif
