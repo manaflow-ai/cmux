@@ -38,6 +38,10 @@ public final class StreamedBrowserDirectory {
             }
             return try await link.openBrowser(tab: tab, url: (current ?? url)?.absoluteString, sink: sink)
         }
+        model.openedHidden = { [weak self] in
+            guard let self else { return }
+            for shown in models.values where shown.isShown { shown.reassertShown() }
+        }
         models[tab] = model
         if !appActive { model.setAppActive(false) }
         warmMedia()

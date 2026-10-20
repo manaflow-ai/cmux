@@ -83,8 +83,9 @@ public final class DaemonTerminalSession: TerminalSession {
     /// `connecting` until the first attach, `reattaching` after a dropped
     /// link, `attached` while the screen mirrors the Mac's terminal.
     public var connectionState: TerminalConnectionState {
-        // An ended terminal shows its last screen, not a spinner.
-        if attached || ended { return .attached }
+        // An ended terminal, or a reattach that gave up (its line says to type
+        // to try again), shows its last screen, not a spinner.
+        if attached || ended || gaveUp { return .attached }
         return everAttached ? .reattaching(mac: macName) : .connecting(mac: macName)
     }
 
@@ -163,15 +164,22 @@ public final class DaemonTerminalSession: TerminalSession {
     /// attaching, before `start`, and after the surface ended.
     public func reconnect() {
         guard handler != nil, !attached, !attaching, !ended else { return }
-        gaveUp = false
+        if gaveUp {
+            // A fresh round of retries, from the shortest delay.
+            gaveUp = false
+            attachRetries = 0
+        }
         Task { await attach() }
     }
 
     /// Where the terminal is now, asked by its durable id before a reattach.
     enum Resolved: Equatable {
         case surface(Int)
-        /// The Mac has no such terminal (closed), or it is on no surface.
+        /// The Mac has no such terminal (closed).
         case gone
+        /// Known but on no surface yet (a daemon still adopting its terminal
+        /// hosts after a restart): try again later.
+        case notYet
         /// The daemon cannot say (an older one): attach by number.
         case unknown
     }
@@ -184,7 +192,7 @@ public final class DaemonTerminalSession: TerminalSession {
         }
         let data = object["data"] as? [String: Any] ?? object
         if let surface = data["surface"] as? Int { return .surface(surface) }
-        return data.keys.contains("surface") ? .gone : .unknown
+        return data.keys.contains("surface") ? .notYet : .unknown
     }
 
     /// The terminal is no longer on the Mac: say so and stop, never wait
@@ -226,6 +234,9 @@ public final class DaemonTerminalSession: TerminalSession {
                 case .gone:
                     terminalGone()
                     return
+                case .notYet:
+                    // Into the reattach backoff, keeping the last frame.
+                    throw LinkError(code: "attach", message: "the terminal is not on a surface yet")
                 case .surface, .unknown:
                     break
                 }

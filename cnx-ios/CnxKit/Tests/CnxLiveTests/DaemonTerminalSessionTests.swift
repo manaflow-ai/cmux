@@ -19,6 +19,8 @@ final class FakeTerminalDaemon: @unchecked Sendable {
     /// `resolve-terminal` answers: terminal id to its surface (nil: the
     /// daemon does not know the command).
     var terminals: [String: Int]? = nil
+    /// The next N `resolve-terminal` answers have a null surface (restoring).
+    var restoring = 0
 
     var recorded: [[String: Any]] { lock.withLock { commands } }
 
@@ -41,6 +43,12 @@ final class FakeTerminalDaemon: @unchecked Sendable {
             guard let terminals = lock.withLock({ self.terminals }) else {
                 return [Self.line(["id": id, "ok": false, "error": "unknown command resolve-terminal"])]
             }
+            let restoringNow: Bool = lock.withLock {
+                guard restoring > 0 else { return false }
+                restoring -= 1
+                return true
+            }
+            if restoringNow { return [reply(["surface": NSNull(), "terminal_id": object["terminal_id"] ?? ""])] }
             guard let id2 = object["terminal_id"] as? String, let surface = terminals[id2] else {
                 return [Self.line(["id": id, "ok": false, "error": "terminal_not_found"])]
             }
@@ -473,6 +481,27 @@ final class ChannelLog: @unchecked Sendable {
         #expect(session.connectionState != .reattaching(mac: nil), "never stuck reattaching")
         // Never attached to whatever the old number names now.
         #expect(daemon.recorded.filter { $0["cmd"] as? String == "attach-surface" }.count == 1)
+    }
+
+    /// Review finding 1: a daemon still adopting its terminals answers a null
+    /// surface for a moment; the reattach waits and attaches, never ends.
+    @Test func aTerminalNotOnASurfaceYetIsWaitedFor() async throws {
+        let daemon = FakeTerminalDaemon()
+        daemon.terminals = ["term_a": 7]
+        let channels = ChannelLog()
+        let session = session(daemon, channels)
+        var events: [TerminalSessionEvent] = []
+        session.start { events.append($0) }
+        try await waitUntil { session.isAttached }
+        await channels.last?.close(code: "link_closed", reason: "Mac app restarted")
+        try await waitUntil { !session.isAttached }
+        daemon.liveSurface = 15
+        daemon.restoring = 2
+        daemon.terminals = ["term_a": 15]
+        session.reconnect()
+        try await waitUntil(attempts: 400) { session.isAttached }
+        #expect(session.surface == 15)
+        #expect(!events.contains(.exited(code: 0)))
     }
 
     @Test func aDaemonWithoutResolveStillReattachesByNumber() async throws {

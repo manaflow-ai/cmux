@@ -134,17 +134,33 @@ final class FakeOpener: BrowserStreamOpening, @unchecked Sendable {
         #expect(stream.lock.withLock { stream.messages.compactMap { $0["visible"] as? Bool } } == [false, true])
     }
 
-    @Test func aStreamOpenedForAHiddenTabSaysSoAfterItsOpen() async throws {
+    /// Review finding 3: a hidden page never opens by itself (an open takes
+    /// the lane); one hidden while its open was on the way says so after its
+    /// `rb.open`, and the shown tab tells the Mac again that it is shown.
+    @Test func aHiddenPageNeverOpensAndALateHiddenOpenGivesTheLaneBack() async throws {
+        let directory = StreamedBrowserDirectory()
         let opener = FakeOpener()
-        let model = StreamedBrowserModel(tab: "s1", url: nil) { sink in
-            try await opener.openBrowser(tab: "s1", url: nil, sink: sink)
-        }
-        model.setVisible(false)
-        model.layout(points: CGSize(width: 402, height: 700), screenScale: 3)
-        await until { opener.sink("s1") != nil }
-        opener.sink("s1")?.browserMessage(Data(#"{"t":"welcome","caps":[]}"#.utf8))
+        directory.opener = { opener }
+        let a = try #require(directory.model(tab: "s1", url: nil))
+        await show(a, on: opener)
+        let b = try #require(directory.model(tab: "s2", url: nil))
+        b.setVisible(false)
+        b.layout(points: CGSize(width: 402, height: 700), screenScale: 3)
         await settle()
-        #expect(opener.stream("s1")?.sent == ["rb.open", "rb.visibility"])
+        #expect(opener.tabs == ["s1"], "a hidden page does not open on layout")
+        // Shown, then hidden again before its stream's welcome.
+        a.setVisible(false)
+        b.setVisible(true)
+        b.setVisible(false)
+        a.setVisible(true)
+        await until { opener.sink("s2") != nil }
+        let shown = try #require(opener.stream("s1"))
+        func shownSaid() -> Int { shown.lock.withLock { shown.messages.filter { $0["visible"] as? Bool == true }.count } }
+        let before = shownSaid()
+        opener.sink("s2")?.browserMessage(Data(#"{"t":"welcome","caps":[]}"#.utf8))
+        await settle()
+        #expect(opener.stream("s2")?.sent == ["rb.open", "rb.visibility"])
+        #expect(shownSaid() == before + 1, "the shown tab claims the lane again")
     }
 
     @Test func aShownPageTheMacStoppedOpensAgainAtItsAddress() async throws {
