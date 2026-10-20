@@ -16,6 +16,9 @@ public nonisolated enum BackdropSelection: Equatable, Hashable, Sendable {
     /// The main screen's current desktop picture, read when a window loads its backdrop. Only
     /// shown when chosen; never the default.
     case desktop
+    /// A collage the person made (backgrounds plan phase 7): several pictures arranged on one
+    /// canvas, saved as `Backgrounds/Collages/<id>.json` and drawn to `<id>.png` (``BackdropCollages``).
+    case collage(id: String)
 
     /// The persisted id of ``desktop``.
     public static let desktopID = "desktop"
@@ -27,6 +30,7 @@ public nonisolated enum BackdropSelection: Equatable, Hashable, Sendable {
         case .system(let path): return "system:\(path)"
         case .file(let path): return "file:\(path)"
         case .desktop: return Self.desktopID
+        case .collage(let id): return "collage:\(id)"
         }
     }
 
@@ -37,6 +41,7 @@ public nonisolated enum BackdropSelection: Equatable, Hashable, Sendable {
         case .system(let path): return Self.systemTitle(path)
         case .file(let path): return URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent
         case .desktop: return String(localized: "backdrop.desktop.title", defaultValue: "Desktop Wallpaper", bundle: .module)
+        case .collage(let id): return BackdropCollages.default?.name(id).flatMap { $0.isEmpty ? nil : $0 } ?? BackdropCollages.untitled
         }
     }
 
@@ -53,7 +58,7 @@ public nonisolated enum BackdropSelection: Equatable, Hashable, Sendable {
     public var isVideo: Bool {
         switch self {
         case .system(let path), .file(let path): return AppleWallpapers.isVideo(path)
-        case .art, .desktop: return false
+        case .art, .desktop, .collage: return false
         }
     }
 
@@ -66,6 +71,7 @@ public nonisolated enum BackdropSelection: Equatable, Hashable, Sendable {
         case .file: return isVideo ? Self.videoCollection : (BackdropUserImages.collection, BackdropUserImages.collectionTitle)
         case .system: return isVideo ? Self.videoCollection : (AppleWallpapers.collection, AppleWallpapers.collectionTitle)
         case .desktop: return nil
+        case .collage: return (BackdropCollages.collection, BackdropCollages.collectionTitle)
         }
     }
 
@@ -85,6 +91,8 @@ public nonisolated enum BackdropSelection: Equatable, Hashable, Sendable {
                 .replacingOccurrences(of: "%@", with: URL(fileURLWithPath: path).lastPathComponent)
         case .desktop:
             return String(localized: "backdrop.desktop.attribution", defaultValue: "Your current macOS desktop picture", bundle: .module)
+        case .collage:
+            return String(localized: "backdrop.collage.attribution", defaultValue: "Your collage", bundle: .module)
         }
     }
 
@@ -92,7 +100,7 @@ public nonisolated enum BackdropSelection: Equatable, Hashable, Sendable {
     public var sourceURL: URL? {
         switch self {
         case .art(let art): return art.sourceURL
-        case .system, .file, .desktop: return nil
+        case .system, .file, .desktop, .collage: return nil
         }
     }
 
@@ -114,7 +122,7 @@ public nonisolated enum BackdropSelection: Equatable, Hashable, Sendable {
         switch self {
         case .art(let art): return art.thumbnailURL
         case .system(let path): return appleWallpaper(path, downloads: false).map(\.thumbnail) ?? imageURL
-        case .file, .desktop: return imageURL
+        case .file, .desktop, .collage: return imageURL
         }
     }
 
@@ -143,6 +151,7 @@ public nonisolated enum BackdropSelection: Equatable, Hashable, Sendable {
             return appleWallpaper(path)?.imageURL(for: appearance) ?? URL(fileURLWithPath: path)
         case .file(let path): return URL(fileURLWithPath: path)
         case .desktop: return nil
+        case .collage(let id): return BackdropCollages.default?.imageURL(id)
         }
     }
 
@@ -183,7 +192,7 @@ public nonisolated enum BackdropSelection: Equatable, Hashable, Sendable {
             // macOS can report a file that is gone, a folder or a wallpaper description; resolve
             // it to a picture that decodes (the fill color when there is none).
             return DesktopPicture(screen: NSScreen.main ?? NSScreen.screens.first).resolvedURL(dark: dark)
-        case .art, .file: return imageURL
+        case .art, .file, .collage: return imageURL
         }
     }
 
@@ -210,6 +219,10 @@ public nonisolated enum BackdropSelection: Equatable, Hashable, Sendable {
             let path = String(id.dropFirst("system:".count))
             guard path.hasPrefix("/"), !path.isEmpty else { return nil }
             self = .system(path: path)
+        } else if id.hasPrefix("collage:") {
+            let name = String(id.dropFirst("collage:".count))
+            guard BackdropCollages.isValidID(name) else { return nil }
+            self = .collage(id: name)
         } else if id.hasPrefix("file:") {
             let path = String(id.dropFirst("file:".count))
             guard path.hasPrefix("/") else { return nil }
