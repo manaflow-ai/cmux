@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "build": "3943804503401",
+  "notes": "notes/3943804503401.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 12381,
+      "title": "fix(cmux-next): rebuild the mirror from a resized replay in replay fallback",
+      "author": "lawrencecchen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22426,
+      "title": "cmux NEXT Accounts: connect, remove and reauthenticate never answer success for work they skipped",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22428,
+      "title": "cmux NEXT Accounts: the showcase profile shows fixture sign-ins, never this Mac's",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22427,
+      "title": "cmux NEXT Accounts: a failed list reload after Connect or Remove keeps the accounts shown",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22472,
+      "title": "lint: restore vendored CmuxConversation namespace markers; give PaneBackgroundsSetting an init",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22497,
+      "title": "fix(settings): the Screenshots rows have a home on the Settings page",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22378,
+      "title": "cmux-next Settings: over a picture the Opacity slider starts where it changes the window",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
