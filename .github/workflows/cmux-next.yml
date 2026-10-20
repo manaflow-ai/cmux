@@ -139,6 +139,7 @@ on:
       - schemas/build-identity/vectors.json
       - scripts/cmux-next/skew-matrix*
       - scripts/cmux-next/check-capability-text.py
+      - scripts/cmux-next/check-single-omnibar.py
       - scripts/cmux-next/gen-protected-folders.py
       - cmux-tui/crates/acpmux/data/protected-folders.json
       - scripts/cmux-next/gen-settings-sources.py
@@ -161,6 +162,8 @@ on:
       - .github/workflows/intent-familiar-review.yml
       - .github/review-bot-rules/familiar-intent.md
       - tests/test_cmux_next_checks_workflow.py
+      - tests/test_cmux_next_pr_autofix_push_gate.py
+      - .github/workflows/cmux-next-pr-autofix.yml
       - scripts/ci/run-checks-concurrently.sh
       - tests/test_run_checks_concurrently.py
       - tests/test_cmux_next_release_build_retention.py
@@ -336,6 +339,7 @@ on:
       - schemas/build-identity/vectors.json
       - scripts/cmux-next/skew-matrix*
       - scripts/cmux-next/check-capability-text.py
+      - scripts/cmux-next/check-single-omnibar.py
       - scripts/cmux-next/gen-protected-folders.py
       - cmux-tui/crates/acpmux/data/protected-folders.json
       - scripts/cmux-next/gen-settings-sources.py
@@ -358,6 +362,8 @@ on:
       - .github/workflows/intent-familiar-review.yml
       - .github/review-bot-rules/familiar-intent.md
       - tests/test_cmux_next_checks_workflow.py
+      - tests/test_cmux_next_pr_autofix_push_gate.py
+      - .github/workflows/cmux-next-pr-autofix.yml
       - scripts/ci/run-checks-concurrently.sh
       - tests/test_run_checks_concurrently.py
       - tests/test_cmux_next_release_build_retention.py
@@ -952,9 +958,14 @@ jobs:
     # red shows on that push, and a pull request's red has a base run to be compared with.
     if: ${{ inputs.dev_daily != true && (inputs.same_tree_sha == '' && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/next-batch/'))) }}
     name: cmux-next checks (god files, concurrency, crash safety, l10n)
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # Blacksmith runners are free here; 16 vCPU runs the script tests 32 at once
+    # (scripts/ci/run-checks-concurrently.sh) and the god-file scans faster.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-16vcpu-ubuntu-2404' }}
     timeout-minutes: 10
-    # Pull requests into feat-cmux-next run the cheap static checks. The size
+    # Pull requests into feat-cmux-next run the cheap static checks, and so does
+    # every feat-cmux-next push: gh-merge-green excuses a PR's red lint only when
+    # the base's latest push run prints every finding too, so a base red no longer
+    # refuses every PR (2026-10-19). The size
     # cap and crash ratchet are cadence checks: they run on pushes and on the
     # full-ci batched integration PR, not on every contributor PR. God files and types are warn-only
     # (Lawrence 2026-10-10): over the hard ceiling (GODFILES_WARN_SLACK: allowance
@@ -962,8 +973,8 @@ jobs:
     # warning and passes. Other style ratchets warn under a hard ceiling and fail
     # over it: l10n style errors and custom scrollbars (by count).
     # A warning is ratchet debt: an annotation on the PR run (the issue-writing
-    # ratchet-debt job was removed 2026-10-13: it needed a push run, which skips
-    # this job, and never filed an issue). Concurrency, notification
+    # ratchet-debt job was removed 2026-10-13: push runs skipped this job then,
+    # and it never filed an issue). Concurrency, notification
     # centers and crash safety have no warning tier. Each ceiling is set on its
     # own step only: the script tests below expect every hit to fail.
     steps:
@@ -1051,6 +1062,11 @@ jobs:
         id: no-swift-closed-history
         continue-on-error: true
         run: scripts/cmux-next/check-no-swift-closed-history.sh "$GITHUB_WORKSPACE"
+
+      - name: One omnibar (popups, New Tab and tabs share AddressBarView)
+        id: single-omnibar
+        continue-on-error: true
+        run: python3 -I scripts/cmux-next/check-single-omnibar.py "$GITHUB_WORKSPACE"
 
       - name: No process scanning (holders register themselves, plans/cmux-next/pty-holder.md 4)
         id: no-process-scan
@@ -1177,15 +1193,20 @@ jobs:
         id: script-tests
         continue-on-error: true
         run: |
-          # Independent scripts, run a few at a time: one after another they took 203 s,
-          # most of it two scripts (scripts/ci/run-checks-concurrently.sh). Those two assert
-          # wall-clock limits, so they run after the pool, beside each other only.
-          status=0
-          scripts/ci/run-checks-concurrently.sh <<'CHECKS' || status=$?
+          # Independent scripts, run a few at a time: one after another they took 203 s
+          # (scripts/ci/run-checks-concurrently.sh). The two pin-cmux-tui waits run on a
+          # virtual clock (tests/lib/fake-clock.sh), so a busy pool cannot fail them; they
+          # are the longest, so they start first.
+          scripts/ci/run-checks-concurrently.sh <<'CHECKS'
+            bash scripts/cmux-next/tests/pin-cmux-tui-run-check.test.sh
+            bash scripts/cmux-next/tests/pin-cmux-tui-probe.test.sh
+            bash scripts/cmux-next/tests/fake-clock.test.sh
             python3 tests/test_intent_familiar_warning.py
             python3 tests/test_ci_launch_budget_gate.py
             python3 tests/test_strings_output_encoding.py
             bash tests/test_strip_release_bundle.sh
+            # The pre-push gate refuses a push that adds a violation and names the commit in CI.
+            python3 tests/test_cmux_next_prepush_gate.py
             python3 tests/test_app_symbol_map.py
             bash scripts/cmux-next/tests/pin-cmux-tui.test.sh
             bash scripts/cmux-next/tests/bundle-acpmux-alias.test.sh
@@ -1230,11 +1251,14 @@ jobs:
             bash scripts/cmux-next/tests/fast-tier.test.sh
             bash scripts/cmux-next/tests/check-scrollbars.test.sh
             bash scripts/cmux-next/tests/check-no-process-scan.test.sh
+          bash scripts/cmux-next/tests/check-single-omnibar.test.sh
             bash scripts/cmux-next/tests/check-state-roots.test.sh
             bash scripts/cmux-next/tests/check-dialog-key-hints.test.sh
             bash scripts/cmux-next/tests/check-test-notification-centers.test.sh
             python3 scripts/cmux-next/tests/count-swift-code-lines.test.py
             bash scripts/cmux-next/tests/check-app-size.test.sh
+            python3 -I scripts/cmux-next/tests/test_bundle_size.py
+            bash tests/test_strip_release_bundle_atom_info.sh
             bash scripts/cmux-next/tests/version-surfaces.test.sh
             bash scripts/cmux-next/tests/ratchet-tiers.test.sh
             bash scripts/cmux-next/tests/base-autofix.test.sh
@@ -1261,11 +1285,6 @@ jobs:
             python3 -I scripts/cmux-next/tests/test_sidebar_perf_validate.py
             bash scripts/cef/tests/test-embedder-step.test.sh
           CHECKS
-          scripts/ci/run-checks-concurrently.sh --jobs 2 <<'CHECKS' || status=$?
-            bash scripts/cmux-next/tests/pin-cmux-tui-run-check.test.sh
-            bash scripts/cmux-next/tests/pin-cmux-tui-probe.test.sh
-          CHECKS
-          exit "$status"
 
       # The app's Ghostty shell integration comes from ghostty-next (the
       # Ghostty of GhosttyNextKit and libghostty-vt): the bundle phase output
@@ -1311,6 +1330,7 @@ jobs:
         continue-on-error: true
         run: |
           python3 tests/test_cmux_next_checks_workflow.py
+          python3 tests/test_cmux_next_pr_autofix_push_gate.py
           python3 tests/test_run_checks_concurrently.py
           python3 tests/test_cmux_next_release_build_retention.py
           python3 tests/test_cmux_next_dev_daily_tree_wait.py
@@ -1413,6 +1433,27 @@ jobs:
         id: capability-text
         continue-on-error: true
         run: bash scripts/cmux-next/tests/capability-text.test.sh
+      # The pre-push gate again (scripts/cmux-next/prepush-gate.py, same pinned tools): on a push,
+      # each pushed commit against its parent, so a commit pushed with --no-verify that adds a
+      # violation is named; on a pull request, what the PR adds over its base (HEAD^1).
+      - name: Pushed commits add no violations
+        id: pushed-commits
+        continue-on-error: true
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          if [[ "$EVENT_NAME" != push ]]; then
+            python3 -I scripts/cmux-next/prepush-gate.py --base HEAD^1 --head HEAD
+            exit
+          fi
+          range="HEAD^1..HEAD"
+          if [[ -n "$BEFORE" && "$BEFORE" != 0000000000000000000000000000000000000000 ]]; then
+            git fetch --no-tags --quiet --depth=200 origin "$GITHUB_SHA" "$BEFORE" || true
+            if git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then range="$BEFORE..HEAD"; fi
+          fi
+          python3 -I scripts/cmux-next/prepush-gate.py --commits "$range" | tee -a "$GITHUB_STEP_SUMMARY"
+
       # `outcome`, not `conclusion`: continue-on-error makes every conclusion success.
       - name: Fail on any red check
         if: always()
@@ -1423,6 +1464,7 @@ jobs:
             ${{ steps.app-size.outcome }}|CmuxNextApp size cap
             ${{ steps.no-swift-cli.outcome }}|No Swift CLI (the cmux CLI is Rust, plans/cmux-next/cli.md)
             ${{ steps.no-swift-closed-history.outcome }}|No Swift closed history (the daemon owns it, plans/cmux-next/reopen-closed.md 9)
+            ${{ steps.single-omnibar.outcome }}|One omnibar (popups, New Tab and tabs share AddressBarView)
             ${{ steps.no-process-scan.outcome }}|No process scanning (holders register themselves, plans/cmux-next/pty-holder.md 4)
             ${{ steps.state-roots.outcome }}|No literal state roots (per-build isolation S7, cx-is1kf.8)
             ${{ steps.dialog-key-hints.outcome }}|Dialog buttons show their keys (u2647)
@@ -1454,6 +1496,7 @@ jobs:
             ${{ steps.app-ffi-pin.outcome }}|Check the app FFI pin
             ${{ steps.daemon-capabilities-fresh.outcome }}|Daemon capabilities export is fresh
             ${{ steps.app-capability-references.outcome }}|App capability references are listed
+            ${{ steps.pushed-commits.outcome }}|Pushed commits add no violations
         run: |
           failed=()
           # `outcome|name`: an empty outcome (a check that never ran) still names its step.
@@ -2329,7 +2372,7 @@ jobs:
         env:
           CMUX_NEXT_TEST_HANG_SECONDS: "900"
           SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH: "6"
-        run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --filter '^(CmuxNextDaemonTests|CmuxNextMobileTests)\.|FirstLaunchTests' --skip BranchStateResourcesTests
+        run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --filter '^(CmuxNextDaemonTests|CmuxNextMobileTests)\.|FirstLaunchTests|ClassicImportTests|ClassicMigrationTests' --skip BranchStateResourcesTests
 
       - name: Run state-resource regressions
         if: ${{ !cancelled() && steps.build-tests.outcome == 'success' }}
@@ -2789,7 +2832,7 @@ jobs:
   request-nightly-next:
     needs: release-compile
     if: github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.release-compile.result == 'success'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ubuntu-latest # github-hosted-required: nightly path never waits on Blacksmith
     timeout-minutes: 5
     permissions:
       actions: write
@@ -3195,6 +3238,73 @@ jobs:
           curl -fsS -o /dev/null -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
             "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/statuses/$STATUS_SHA" -d "$body" \
             || echo "::warning::could not post the $CONTEXT status"
+
+  # GITHUB_TOKEN workflow_dispatch does not emit workflow_run, so hand the
+  # exact successful DEV artifact to the publisher here instead of waiting for
+  # the cron dispatcher. The dispatcher remains the retry/backstop for a lost
+  # or failed handoff.
+  request-cmux-next-dev-publish:
+    needs: cmux-scheme-compile
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.dev_daily == true && needs.cmux-scheme-compile.result == 'success' && github.ref == 'refs/heads/feat-cmux-next' && github.repository == 'manaflow-ai/cmux' }}
+    name: Request cmux NEXT DEV publication
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - name: Record source queue and handoff receipt
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          SOURCE_SHA: ${{ inputs.dev_daily_sha }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/cmux-next-dev-handoff"
+          gh api "repos/$GH_REPO/actions/runs/$RUN_ID/jobs?filter=latest&per_page=100" > "$RUNNER_TEMP/cmux-next-dev-handoff/jobs.json"
+          gh api "repos/$GH_REPO/actions/runs/$RUN_ID" > "$RUNNER_TEMP/cmux-next-dev-handoff/run.json"
+          python3 - "$RUNNER_TEMP/cmux-next-dev-handoff/jobs.json" "$RUNNER_TEMP/cmux-next-dev-handoff/run.json" "$RUN_ID" "$SOURCE_SHA" "$GITHUB_STEP_SUMMARY" "$RUNNER_TEMP/cmux-next-dev-handoff/receipt.json" <<'PY'
+          import datetime as dt, json, pathlib, sys
+          jobs = json.loads(pathlib.Path(sys.argv[1]).read_text())["jobs"]
+          run = json.loads(pathlib.Path(sys.argv[2]).read_text())
+          run_id, source_sha, summary, receipt_path = sys.argv[3:]
+          candidates = [j for j in jobs if j.get("name") == "cmux NEXT DEV Release compile"]
+          if len(candidates) != 1 or candidates[0].get("conclusion") != "success":
+              raise SystemExit(f"DEV Release compile receipt invalid: {candidates}")
+          job = candidates[0]
+          parse = lambda value: dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+          run_started, compile_started, completed = map(parse, (run["created_at"], job["started_at"], job["completed_at"]))
+          receipt = {
+              "schema": "cmux-next-dev-handoff-v1", "source_run_id": int(run_id), "source_sha": source_sha,
+              "source_run_started_at": run_started.isoformat(), "compile_started_at": compile_started.isoformat(),
+              "compile_completed_at": completed.isoformat(), "handoff_requested_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+              "queue_ms": max(0, int((compile_started - run_started).total_seconds() * 1000)),
+              "compile_ms": max(0, int((completed - compile_started).total_seconds() * 1000)),
+              "runner_name": job.get("runner_name"), "runner_labels": job.get("labels", []),
+          }
+          out = pathlib.Path(receipt_path)
+          out.write_text(json.dumps(receipt, indent=2) + "\n")
+          pathlib.Path(summary).write_text("## cmux NEXT DEV handoff\n" + "\n".join(f"- {k}: `{receipt[k]}`" for k in ("source_run_id", "source_sha", "queue_ms", "compile_ms", "runner_name")) + "\n")
+          print(json.dumps(receipt, sort_keys=True))
+          PY
+      - name: Upload queue-delay receipt
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-next-dev-handoff-${{ inputs.dev_daily_sha }}
+          path: ${{ runner.temp }}/cmux-next-dev-handoff/receipt.json
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+      - name: Dispatch the exact source run to the publisher
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          SOURCE_RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          gh workflow run cmux-next-dev-daily.yml --repo "$GH_REPO" --ref main -f "source_run_id=$SOURCE_RUN_ID"
+          echo "Requested cmux NEXT DEV publication for source run $SOURCE_RUN_ID"
 
   # The checks job's red sub-checks join the PR's red-checks line (pr-red-checks-comment.yml), each
   # compared with the base's run: ci.yml and cmux-next-guards.yml call it after their own checks.

@@ -8974,6 +8974,9 @@
     "request:identify": {
       "/machine_metadata": {
         "ty": "boolean"
+      },
+      "/revisions": {
+        "ty": "boolean"
       }
     },
     "request:ids": {
@@ -10903,6 +10906,10 @@
         "ty": "string",
         "nullable": true
       },
+      "/install": {
+        "ty": "string",
+        "nullable": true
+      },
       "/kind": {
         "ty": "string",
         "nullable": true
@@ -10912,6 +10919,10 @@
         "nullable": true
       },
       "/user_id": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/version": {
         "ty": "string",
         "nullable": true
       }
@@ -16288,6 +16299,10 @@
         "ty": "string",
         "nullable": true
       },
+      "/data/crate_version": {
+        "ty": "string",
+        "nullable": true
+      },
       "/data/daemon_handoff": {
         "ty": "literal",
         "required": true,
@@ -16300,6 +16315,10 @@
         "required": true
       },
       "/data/ghostty_commit": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/install": {
         "ty": "string",
         "nullable": true
       },
@@ -16359,6 +16378,10 @@
       "/data/terminal_revision": {
         "ty": "uint64",
         "required": true
+      },
+      "/data/update_command": {
+        "ty": "string",
+        "nullable": true
       },
       "/data/version": {
         "ty": "string",

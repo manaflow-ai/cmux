@@ -111,6 +111,9 @@ enum Action {
     /// Delete… in the menu: the message leaves this device's transcript (no row stays).
     case delete(ID)
     case attach(Attachment)
+    /// cmux: an attachment enters the field's text at a UTF-16 offset (the caret), as in
+    /// Messages and Notes (Draft+InlineMarks.swift); `.attach` puts it at the end.
+    case attachAt(Attachment, Int?)
     case removeDraftAttachment(ID)
     case typing(ID, Bool)
     case receive(Message)
@@ -173,7 +176,7 @@ enum Reducer {
     /// Whether `.send` takes DRAFT: text other than white space, or an attachment. Return on any
     /// other draft does nothing (`Store.apply` drops the rejected send; the hosts do not dispatch it).
     static func canSend(_ d: Draft) -> Bool {
-        !d.attachments.isEmpty || !d.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        !d.attachments.isEmpty || !d.plainText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty  // cmux: marks are not text
     }
     /// Pure state transition. `now` stamps new records; `newID` names them.
     static func reduce(_ s: inout AppState, _ action: Action, now: Date, newID: () -> ID) -> Message? {
@@ -184,7 +187,7 @@ enum Reducer {
         case .send:
             let d = s.ui.draft
             guard canSend(d) else { return nil }
-            let text = d.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            let text = d.plainText.trimmingCharacters(in: .whitespacesAndNewlines)  // cmux: without the attachment marks
             var parts = d.attachments.map { Part.attachment($0) }
             if !text.isEmpty { parts += TextParts.parts(for: text) }
             var m = Message(id: newID(), senderId: s.me, sentAt: stamp, parts: parts,
@@ -262,9 +265,11 @@ enum Reducer {
             // Tree mode: a deleted branch closes back to its parent's branch.
             if let k = s.ui.threadPath.firstIndex(where: { $0.messageId == id }) { s.ui.threadPath = Array(s.ui.threadPath.prefix(k)) }
         case let .attach(a):
-            s.ui.draft.attachments.append(a)
+            s.ui.draft.insert(a, at: nil)  // cmux: the attachment's mark goes in the text (Draft+InlineMarks.swift)
+        case let .attachAt(a, offset):
+            s.ui.draft.insert(a, at: offset)
         case let .removeDraftAttachment(id):
-            s.ui.draft.attachments.removeAll { $0.id == id }
+            s.ui.draft.remove(id)  // cmux: with its mark
         case let .typing(who, on):
             s.ui.typing.removeAll { $0 == who }
             if on { s.ui.typing.append(who) }
