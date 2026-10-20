@@ -131,9 +131,9 @@ import Testing
     /// agent chat: the subject stays whole and visible, measured, for all but a few very wide
     /// works (`scripts/cmux-next/art/framing_sheet.py` prints the same counts and draws them).
     @Test(arguments: [
-        (CGSize(width: 1512, height: 945), [ClosedRange<CGFloat>](), 174),
-        (CGSize(width: 1512, height: 945), [0...240, 240...660], 172),
-        (CGSize(width: 2560, height: 1080), [0...240, 240...660], 174),
+        (CGSize(width: 1512, height: 945), [ClosedRange<CGFloat>](), 146),
+        (CGSize(width: 1512, height: 945), [0...240, 240...660], 144),
+        (CGSize(width: 2560, height: 1080), [0...240, 240...660], 146),
     ])
     func everyPaintingKeepsItsSubjectInTheCommonLayouts(view: CGSize, covered: [ClosedRange<CGFloat>], least: Int) {
         let visible = BackdropVisibleSpan.uncovered(width: view.width, by: covered)

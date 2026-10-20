@@ -58,6 +58,7 @@ public struct BackdropSelectionSetting: Sendable {
                 return Self.defaultSelection
             }
             if raw == "none" { return nil }
+            if BackdropArt.removedIDs.contains(raw) { return Self.defaultSelection }
             if raw == Self.dailyID { return .art(.daily(on: Date())) }
             guard let selection = BackdropSelection(id: raw) else {
                 diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "appearance.background",
@@ -66,7 +67,8 @@ public struct BackdropSelectionSetting: Sendable {
             }
             return selection
         }
-        guard root.value(at: BackdropArtSetting().configPath) != nil else { return Self.defaultSelection }
+        guard let legacy = root.value(at: BackdropArtSetting().configPath) else { return Self.defaultSelection }
+        if let raw = legacy.stringValue, BackdropArt.removedIDs.contains(raw) { return Self.defaultSelection }
         return BackdropArtSetting().parse(root, diagnostics: &diagnostics).map(BackdropSelection.art)
     }
 }

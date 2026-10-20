@@ -1431,66 +1431,40 @@
 			<array>
 				<string>none</string>
 				<string>david-death-of-marat</string>
-				<string>goya-saturn</string>
 				<string>velde-small-ship-storm</string>
-				<string>bosch-garden-right</string>
 				<string>bosch-ascent-blessed</string>
 				<string>goya-witches-flight</string>
-				<string>bocklin-self-portrait-death</string>
-				<string>caravaggio-medusa</string>
 				<string>martin-pandemonium</string>
 				<string>moran-burning-philadelphia</string>
 				<string>goya-burial-sardine</string>
 				<string>arbo-wild-hunt</string>
-				<string>caravaggio-david-goliath</string>
-				<string>van-gogh-skeleton-cigarette</string>
 				<string>altdorfer-battle-of-issus</string>
-				<string>gentileschi-judith</string>
 				<string>munch-madonna</string>
-				<string>bocklin-isle-of-the-dead</string>
 				<string>klee-fish-magic</string>
 				<string>friedrich-forest-moonlight</string>
-				<string>goya-witches-sabbath</string>
 				<string>bosch-garden-left</string>
 				<string>rembrandt-storm-galilee</string>
 				<string>cole-voyage-manhood</string>
-				<string>fuseli-nightmare-2</string>
-				<string>hiremy-hirschl-souls-of-acheron</string>
 				<string>munch-scream</string>
-				<string>klimt-judith</string>
-				<string>repin-ivan</string>
-				<string>millais-ophelia</string>
 				<string>bruegel-fall-rebel-angels</string>
-				<string>fuseli-nightmare</string>
-				<string>bundy-death-general</string>
 				<string>wright-vesuvius</string>
 				<string>gerome-botsaris</string>
-				<string>durer-knight-death-devil</string>
 				<string>martin-joshua</string>
 				<string>velde-gale</string>
 				<string>hogai-nio</string>
-				<string>klimt-death-and-life</string>
-				<string>klimt-medicine</string>
 				<string>bosch-garden-central</string>
 				<string>martin-great-day-wrath</string>
 				<string>bonheur-wounded-eagle</string>
-				<string>gerome-pollice-verso</string>
 				<string>cole-voyage-old-age</string>
 				<string>friedrich-abbey-oakwood</string>
 				<string>goya-sleep-of-reason</string>
 				<string>bosch-garden-fragment</string>
-				<string>bruegel-triumph-death</string>
 				<string>spilliaert-vertigo</string>
 				<string>rothaug-melpomene</string>
-				<string>schiele-death-and-the-maiden</string>
 				<string>aivazovsky-ship-stormy-seas</string>
-				<string>vereshchagin-apotheosis-war</string>
-				<string>ensor-skeleton-painter</string>
 				<string>cabanel-fallen-angel</string>
 				<string>spilliaert-woman-shoreline</string>
 				<string>el-greco-view-of-toledo</string>
-				<string>gericault-raft-of-the-medusa</string>
-				<string>moreau-apparition</string>
 				<string>rembrandt-prodigal-son</string>
 				<string>velazquez-las-meninas</string>
 				<string>matejko-stanczyk</string>
@@ -1500,7 +1474,6 @@
 				<string>rembrandt-night-watch</string>
 				<string>vigee-lebrun-madame-grand</string>
 				<string>waterhouse-lady-shalott</string>
-				<string>draper-lament-icarus</string>
 				<string>fragonard-swing</string>
 				<string>rubens-st-francis-xavier</string>
 				<string>vermeer-pearl-earring</string>
@@ -1597,7 +1570,6 @@
 				<string>hokusai-umezawa</string>
 				<string>whistler-falling-rocket</string>
 				<string>dore-fall-of-satan</string>
-				<string>dore-flood</string>
 				<string>dore-wolves-sheep</string>
 				<string>dore-leviathan</string>
 				<string>dore-paradise-lost-book-vi</string>
@@ -1622,66 +1594,40 @@
 				<string>none</string>
 				<string>daily</string>
 				<string>david-death-of-marat</string>
-				<string>goya-saturn</string>
 				<string>velde-small-ship-storm</string>
-				<string>bosch-garden-right</string>
 				<string>bosch-ascent-blessed</string>
 				<string>goya-witches-flight</string>
-				<string>bocklin-self-portrait-death</string>
-				<string>caravaggio-medusa</string>
 				<string>martin-pandemonium</string>
 				<string>moran-burning-philadelphia</string>
 				<string>goya-burial-sardine</string>
 				<string>arbo-wild-hunt</string>
-				<string>caravaggio-david-goliath</string>
-				<string>van-gogh-skeleton-cigarette</string>
 				<string>altdorfer-battle-of-issus</string>
-				<string>gentileschi-judith</string>
 				<string>munch-madonna</string>
-				<string>bocklin-isle-of-the-dead</string>
 				<string>klee-fish-magic</string>
 				<string>friedrich-forest-moonlight</string>
-				<string>goya-witches-sabbath</string>
 				<string>bosch-garden-left</string>
 				<string>rembrandt-storm-galilee</string>
 				<string>cole-voyage-manhood</string>
-				<string>fuseli-nightmare-2</string>
-				<string>hiremy-hirschl-souls-of-acheron</string>
 				<string>munch-scream</string>
-				<string>klimt-judith</string>
-				<string>repin-ivan</string>
-				<string>millais-ophelia</string>
 				<string>bruegel-fall-rebel-angels</string>
-				<string>fuseli-nightmare</string>
-				<string>bundy-death-general</string>
 				<string>wright-vesuvius</string>
 				<string>gerome-botsaris</string>
-				<string>durer-knight-death-devil</string>
 				<string>martin-joshua</string>
 				<string>velde-gale</string>
 				<string>hogai-nio</string>
-				<string>klimt-death-and-life</string>
-				<string>klimt-medicine</string>
 				<string>bosch-garden-central</string>
 				<string>martin-great-day-wrath</string>
 				<string>bonheur-wounded-eagle</string>
-				<string>gerome-pollice-verso</string>
 				<string>cole-voyage-old-age</string>
 				<string>friedrich-abbey-oakwood</string>
 				<string>goya-sleep-of-reason</string>
 				<string>bosch-garden-fragment</string>
-				<string>bruegel-triumph-death</string>
 				<string>spilliaert-vertigo</string>
 				<string>rothaug-melpomene</string>
-				<string>schiele-death-and-the-maiden</string>
 				<string>aivazovsky-ship-stormy-seas</string>
-				<string>vereshchagin-apotheosis-war</string>
-				<string>ensor-skeleton-painter</string>
 				<string>cabanel-fallen-angel</string>
 				<string>spilliaert-woman-shoreline</string>
 				<string>el-greco-view-of-toledo</string>
-				<string>gericault-raft-of-the-medusa</string>
-				<string>moreau-apparition</string>
 				<string>rembrandt-prodigal-son</string>
 				<string>velazquez-las-meninas</string>
 				<string>matejko-stanczyk</string>
@@ -1691,7 +1637,6 @@
 				<string>rembrandt-night-watch</string>
 				<string>vigee-lebrun-madame-grand</string>
 				<string>waterhouse-lady-shalott</string>
-				<string>draper-lament-icarus</string>
 				<string>fragonard-swing</string>
 				<string>rubens-st-francis-xavier</string>
 				<string>vermeer-pearl-earring</string>
@@ -1788,7 +1733,6 @@
 				<string>hokusai-umezawa</string>
 				<string>whistler-falling-rocket</string>
 				<string>dore-fall-of-satan</string>
-				<string>dore-flood</string>
 				<string>dore-wolves-sheep</string>
 				<string>dore-leviathan</string>
 				<string>dore-paradise-lost-book-vi</string>
