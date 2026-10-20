@@ -61,7 +61,8 @@ const codexCall = (id: string, tool: string, args: unknown, output?: string): Ac
   kind: "tool",
   text: `codex_apps.${tool} call`,
   tool: {
-    id,
+    // Its own ids: an opened group stays open by id across renders (transcriptDisclosure.tsx).
+    id: `codex-${id}`,
     title: `codex_apps.${tool} call`,
     kind: "execute",
     status: "completed",
