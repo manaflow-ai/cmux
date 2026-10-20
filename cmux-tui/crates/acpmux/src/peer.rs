@@ -221,10 +221,10 @@ impl Peer {
             "error": self.last_error.lock().unwrap().clone(),
             "remoteVersion": self.remote_version.lock().unwrap().as_ref().map(|(v, _)| v.clone()),
             "remoteBuild": self.remote_version.lock().unwrap().as_ref().map(|(_, b)| b.clone()),
-            "localBuild": crate::hub::BUILD,
+            "localBuild": crate::hub::build(),
             "servedAs": self.served_as.lock().unwrap_or_else(|e| e.into_inner()).clone(),
             "peerTokenWithheld": self.withheld.load(Ordering::SeqCst),
-            "outdated": self.remote_version.lock().unwrap().as_ref().map(|(_, b)| b != crate::hub::BUILD).unwrap_or(false),
+            "outdated": self.remote_version.lock().unwrap().as_ref().map(|(_, b)| b != crate::hub::build()).unwrap_or(false),
         })
     }
 

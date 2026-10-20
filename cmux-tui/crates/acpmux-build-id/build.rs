@@ -1,18 +1,39 @@
-// Stamp the binary with a build id so peers can tell whether they run the
+// Stamp acpmux with a build id so peers can tell whether they run the
 // same code: <git short hash>[+dirty.<diff fingerprint>] <UTC date>, where the date
-// comes from SOURCE_DATE_EPOCH when it is set. The crate lives inside the
+// comes from SOURCE_DATE_EPOCH when it is set. acpmux lives inside the
 // cmux repository, so git paths are resolved by git and the dirty check is
-// limited to this crate's directory. Without git (a source archive) the hash
-// comes from CMUX_GIT_SHORT_SHA and there is no dirty tag.
+// limited to the acpmux crate's directory (../acpmux). Without git (a source
+// archive) the hash comes from CMUX_GIT_SHORT_SHA and there is no dirty tag.
+//
+// This script is in its own leaf crate, not in acpmux: a build script that
+// reruns makes Cargo recompile every target of its package, and this one
+// reruns on every new stamp (CMUX_GIT_SHORT_SHA, SOURCE_DATE_EPOCH) and every
+// commit. See src/lib.rs.
+use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::OnceLock;
 
 #[path = "src/git_short_sha.rs"]
 mod git_short_sha;
 #[path = "src/source_date_epoch.rs"]
 mod source_date_epoch;
 
+/// The acpmux crate: every git call runs there, as when this script was
+/// acpmux's own.
+fn acpmux_dir() -> &'static Path {
+    static DIR: OnceLock<PathBuf> = OnceLock::new();
+    DIR.get_or_init(|| {
+        let manifest = std::env::var_os("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is unset");
+        Path::new(&manifest)
+            .parent()
+            .expect("acpmux-build-id has no parent directory")
+            .join("acpmux")
+    })
+}
+
 fn git(args: &[&str]) -> Option<String> {
     Command::new("git")
+        .current_dir(acpmux_dir())
         .args(args)
         .output()
         .ok()
@@ -23,7 +44,7 @@ fn git(args: &[&str]) -> Option<String> {
 fn main() {
     // Git counts only when it tracks this crate, so an archive unpacked inside
     // some other repository does not take that repository's commit.
-    let git_hash = git(&["ls-files", "--error-unmatch", "--", "build.rs"])
+    let git_hash = git(&["ls-files", "--error-unmatch", "--", "Cargo.toml"])
         .and_then(|_| git(&["rev-parse", "--short=9", "HEAD"]));
     println!("cargo:rerun-if-env-changed=CMUX_GIT_SHORT_SHA");
     let env_hash = match std::env::var("CMUX_GIT_SHORT_SHA") {
@@ -100,7 +121,7 @@ fn main() {
     }
     for path in &git_paths {
         if let Some(p) = git(&["rev-parse", "--path-format=absolute", "--git-path", path])
-            && std::path::Path::new(&p).exists()
+            && Path::new(&p).exists()
         {
             println!("cargo:rerun-if-changed={p}");
         }
@@ -109,6 +130,6 @@ fn main() {
     for dir in
         ["src", "docs", "web", "skills", "catalog", "data", "harnesses", "sandbox", "Cargo.toml"]
     {
-        println!("cargo:rerun-if-changed={dir}");
+        println!("cargo:rerun-if-changed={}", acpmux_dir().join(dir).display());
     }
 }

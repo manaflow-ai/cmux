@@ -6,6 +6,8 @@
 
 mod adoption;
 mod aside;
+mod build;
+pub use build::{build, install_build, version_line};
 pub(crate) mod auto_resume;
 mod btw;
 mod exit_reason;
@@ -126,9 +128,6 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// How long a session's harness may sit unused (no client, no turn, no
 /// activity) before it exits; the session resumes on its next prompt.
 pub const IDLE_CHILD: std::time::Duration = std::time::Duration::from_secs(5 * 60);
-/// Git hash and date stamped at build time (see build.rs).
-pub const BUILD: &str = env!("ACPMUX_BUILD");
-
 /// Fan-out item: one appended record for one session. `remote` carries the
 /// peer name and the peer's session summary when the session lives elsewhere.
 #[derive(Debug, Clone)]
