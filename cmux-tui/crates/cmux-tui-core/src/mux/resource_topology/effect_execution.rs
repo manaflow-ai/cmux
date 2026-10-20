@@ -2,6 +2,7 @@
 
 use super::client_ids::{
     requested_client_pane_id, requested_client_split_id, requested_client_tab_id,
+    requested_reopen_tab_id,
 };
 use super::*;
 use crate::state::app_workspaces::{APP_WORKSPACE_FIELD, APP_WORKSPACE_NAME_FIELD};
@@ -63,7 +64,11 @@ impl Mux {
                 "mutation_origin":mutation.origin,
                 "mutation_actor":mutation.actor.wire(),
             });
-            if let Some(tab_id) = requested_client_tab_id(fields, state, registry)? {
+            let tab_id = match requested_client_tab_id(fields, state, registry)? {
+                Some(tab_id) => Some(tab_id),
+                None => requested_reopen_tab_id(fields, state, registry)?,
+            };
+            if let Some(tab_id) = tab_id {
                 intent["terminal_reservation"]["tab_id"] = json!(tab_id);
             }
         }
@@ -110,8 +115,12 @@ impl Mux {
                 Some(id) => Mux::unbound_frontend_browser_id(&registry.connection.get(), id)?,
                 None => BrowserPublicId::random()?,
             };
+            let tab_id = match requested_reopen_tab_id(fields, state, registry)? {
+                Some(tab_id) => tab_id,
+                None => TabPublicId::random()?,
+            };
             intent["browser_reservation"] = json!({
-                "tab_id":TabPublicId::random()?,
+                "tab_id":tab_id,
                 "browser_id":browser_id,
             });
         }
