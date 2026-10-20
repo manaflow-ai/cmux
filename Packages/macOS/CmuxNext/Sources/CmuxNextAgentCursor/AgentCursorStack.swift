@@ -11,7 +11,7 @@ public final class AgentCursorStack {
     public let host: AgentCursorLayerHost
     public init(
         hostLayer: CALayer, resolver: AgentCursorTargetResolving,
-        color: @escaping AgentCursorLayerHost.Coloring = AgentCursorStack.sessionColor,
+        color: @escaping AgentCursorLayerHost.Coloring = { _ in AgentCursorLayer.gray },
         label: @escaping AgentCursorLayerHost.Labeling = { AgentCursorSessionLabel(sessionID: $0).text }
     ) {
         let host = AgentCursorLayerHost(hostLayer: hostLayer, color: color, label: label)

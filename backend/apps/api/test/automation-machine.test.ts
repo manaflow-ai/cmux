@@ -8,6 +8,7 @@ import { describe, expect, it } from "vitest"
 import { exports } from "cloudflare:workers"
 import { invalidStepRef, machineStepCommand, machineStepStdin, runMachineStep, STEP_OUTPUT_MAX, type MachineExec } from "../src/automation-machine.ts"
 import { invalidBody } from "../src/domains/scheduler-code.ts"
+import { runLimitMs, RUN_GRACE_MS } from "../src/domains/scheduler-runs.ts"
 import { fireAlarm } from "./setup/alarm.ts"
 
 /** Org workflows (plans/cmux-next/org-workflows-DESIGN.md): machine and agent steps on the team's own machines. */
@@ -32,12 +33,14 @@ const fakePort = (answer: Awaited<ReturnType<MachineExec["exec"]>>) => {
 describe("machine and agent step specs", () => {
   it("accepts a machine step and an agent step, and refuses bad machines, harnesses and timeouts", () => {
     expect(Exit.isSuccess(decodeStep({ type: "machine", machine: VM, command: "echo hi", timeout_seconds: 60 }))).toBe(true)
-    expect(Exit.isSuccess(decodeStep({ type: "agent", machine: VM, harness: "claude", prompt: "Say hi", input_from: 0, timeout_seconds: 600 }))).toBe(true)
+    expect(Exit.isSuccess(decodeStep({ type: "agent", machine: VM, harness: "claude", prompt: "Say hi", input_from: 0, timeout_seconds: 300 }))).toBe(true)
     expect(Exit.isSuccess(decodeStep({ type: "machine", machine: "vm-83d983e7", command: "echo hi", timeout_seconds: 60 }))).toBe(false)
     expect(Exit.isSuccess(decodeStep({ type: "agent", machine: VM, harness: "bash", prompt: "x", timeout_seconds: 60 }))).toBe(false)
     expect(Exit.isSuccess(decodeStep({ type: "machine", machine: VM, command: "", timeout_seconds: 60 }))).toBe(false)
     expect(Exit.isSuccess(decodeStep({ type: "machine", machine: VM, command: "x", timeout_seconds: 0 }))).toBe(false)
-    expect(Exit.isSuccess(decodeStep({ type: "machine", machine: VM, command: "x", timeout_seconds: 3601 }))).toBe(false)
+    // One provider exec answers within about 300 s; longer work belongs in a durable terminal.
+    expect(Exit.isSuccess(decodeStep({ type: "machine", machine: VM, command: "x", timeout_seconds: 300 }))).toBe(true)
+    expect(Exit.isSuccess(decodeStep({ type: "machine", machine: VM, command: "x", timeout_seconds: 301 }))).toBe(false)
   })
 
   it("input_from must name an earlier machine or agent step", () => {
@@ -68,7 +71,7 @@ describe("deterministic commands", () => {
 
   it("an agent prompt and step input go on stdin, never into the command line", () => {
     const c = machineStepCommand(agent, { run: RUN, index: 1 })
-    expect(c).toContain("acpmux run -m codex")
+    expect(c).toContain("acpmux run -m codex --on-permission fail --timeout 290 -- \"$p\"")
     // acpmux lives in the work user's ~/.local/bin, which a login shell does not always put on PATH.
     expect(c).toContain('PATH="$HOME/.local/bin:$PATH"')
     expect(c).not.toContain("Summarize")
@@ -77,6 +80,13 @@ describe("deterministic commands", () => {
     expect(text(machineStepStdin(agent, "abc123"))).toBe(`${agent.prompt}\n\nInput:\nabc123`)
     expect(machineStepStdin(machine, null)).toBeNull()
     expect(text(machineStepStdin(machine, "abc123"))).toBe("abc123")
+  })
+})
+
+describe("run deadline", () => {
+  it("covers every machine and agent step's timeout, not only sleeps", () => {
+    const body = { type: "steps", steps: [{ type: "machine", machine: VM, command: "x", timeout_seconds: 300 }, { type: "agent", machine: VM, harness: "claude", prompt: "p", timeout_seconds: 200 }, { type: "sleep", seconds: 10 }] } as never
+    expect(runLimitMs(body, undefined)).toBe((300 + 200 + 10) * 1000 + RUN_GRACE_MS)
   })
 })
 
@@ -100,6 +110,7 @@ describe("runMachineStep", () => {
     expect(await runMachineStep(fakePort({ ok: false, refusal: "not_found" }).port, step, { run: RUN, index: 0 }, null)).toMatchObject({ ok: false, code: "machine.not_found" })
     expect(await runMachineStep(fakePort({ ok: false, refusal: "not_running" }).port, step, { run: RUN, index: 0 }, null)).toMatchObject({ ok: false, code: "machine.not_running" })
     expect(await runMachineStep(fakePort({ ok: false, refusal: "provider_failed" }).port, step, { run: RUN, index: 0 }, null)).toMatchObject({ ok: false, code: "machine.unavailable" })
+    expect(await runMachineStep(fakePort({ ok: false, refusal: "forbidden" }).port, step, { run: RUN, index: 0 }, null)).toMatchObject({ ok: false, code: "machine.forbidden" })
   })
 })
 
