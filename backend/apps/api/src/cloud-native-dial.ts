@@ -2,7 +2,7 @@ import type { Principal } from "@cmux/ownership"
 import { CloudVmNetwork, ServerNetworkProof } from "@cmux/protocol"
 import { Schema } from "effect"
 import { can, hostByInstall } from "./domains/team-members.ts"
-import { identityMatches, peerAuthorityVersion, pointOf, type NetworkHost, type NetworkIdentity } from "./host-network-peers.ts"
+import { cloudClientIdentity, peerAuthorityVersion, pointOf, type NetworkHost, type NetworkIdentity } from "./host-network-peers.ts"
 import { networkOrigin, verifyNetworkIdentity, type NetworkIdentityDeps } from "./network-policy-read.ts"
 
 export type NativeDialDeps = Omit<NetworkIdentityDeps, "stream" | "submitSystem" | "key"> & {
@@ -32,7 +32,7 @@ type Failure = { readonly ok: false; readonly code: string; readonly message: st
 export type NativeDialReply = { readonly ok: true; readonly permit: NativeDialPermit } | Failure
 const forbidden = (): Failure => ({ ok: false, code: "auth.forbidden", message: "the current client network policy does not authorize this dial" })
 const dialIdentity = (host: NetworkHost, own: NetworkIdentity | null, p: Principal, now: number): own is NetworkIdentity =>
-  identityMatches(host, own, now) && Array.isArray(own.op_classes) && (own.op_classes.includes("execute") || own.op_classes.includes("cloud-link"))
+  cloudClientIdentity(host, own, now)
     && (p.install_authority === undefined || p.install_authority === own.authority_version)
 
 /** A historical confirmation is a locator. Current grant, key, membership and policy decide access. */
@@ -62,20 +62,26 @@ const vmServices = (policy: Record<string, unknown>, target: NativeDialTarget, s
   if (entries.length !== 1) return false
   const vm = entries[0] as Record<string, unknown>
   if (vm.kind !== "vm" || vm.address !== target.network.ipv4 || !Array.isArray(vm.allow) || vm.allow.length > 4096) return false
+  const available = vmRuleServices(vm.allow)
+  return available !== null && services.every((service) => available.includes(service))
+}
+
+/** Service rules shared by the signed dial issuer and VM receiving policy. */
+export const vmRuleServices = (allow: ReadonlyArray<unknown>): string[] | null => {
   const ports = new Set<number>()
   let anyTcp = false
-  for (const entry of vm.allow as unknown[]) {
-    if (!entry || typeof entry !== "object" || Array.isArray(entry)) return false
+  for (const entry of allow) {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) return null
     const rule = entry as { protocol?: unknown; port?: unknown }
     if (!["tcp", "udp", "icmp", "any"].includes(String(rule.protocol))
       || (rule.port !== undefined && (!Number.isInteger(rule.port) || Number(rule.port) < 1 || Number(rule.port) > 65535))
-      || ((rule.protocol === "any" || rule.protocol === "icmp") && rule.port !== undefined)) return false
+      || ((rule.protocol === "any" || rule.protocol === "icmp") && rule.port !== undefined)) return null
     if (rule.protocol !== "tcp" && rule.protocol !== "any") continue
     if (rule.port === undefined) anyTcp = true
     else ports.add(Number(rule.port))
   }
   const covers = (port: number) => anyTcp || ports.has(port)
-  return services.every((service) => service === "ssh" ? covers(22) : service === "daemon" && covers(22) && covers(4100))
+  return ["daemon", "ssh"].filter((service) => service === "ssh" ? covers(22) : covers(22) && covers(4100))
 }
 
 /** A fresh, one-use device proof joins this install to its own Native VM permissions. */

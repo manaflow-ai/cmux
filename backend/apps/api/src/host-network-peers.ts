@@ -51,3 +51,29 @@ export const peerAuthorityVersion = (d: Pick<PeerDeps, "state" | "rows" | "team"
 export const identityMatches = (host: NetworkHost, identity: NetworkIdentity | null, now: number): identity is NetworkIdentity =>
   identity !== null && (identity.expires_at === null || identity.expires_at > now) && /^[0-9a-f]{64}$/.test(identity.authority_version)
     && (host.kind === "server" ? identity.kind === "daemon" : ["mac", "ios", "cli"].includes(identity.kind)) && pointOf(identity) !== null
+
+export const sameNetwork = (a: NetworkHost, b: NetworkHost): boolean => a.network?.tenant === b.network?.tenant && a.network?.mesh === b.network?.mesh
+export const sameCandidate = (a: NetworkHost, b: NetworkHost): boolean => a.network?.device === b.network?.device || a.wg_public_key === b.wg_public_key || a.enrolled_by === b.enrolled_by
+export const boundedIdentities = async (d: PeerDeps, hosts: NetworkHost[], deadline = Infinity) => {
+  const found = new Map<string, NetworkIdentity | null>(), owners = new Map<string, NetworkHost[]>()
+  for (const host of hosts) if (host.owner_user) owners.set(host.owner_user, [...(owners.get(host.owner_user) ?? []), host])
+  const chunks = [...owners].flatMap(([user, values]) => Array.from({ length: Math.ceil(values.length / 128) }, (_, index) => ({ user, hosts: values.slice(index * 128, (index + 1) * 128) })))
+  for (let offset = 0; offset < chunks.length; offset += 16) {
+    if (d.now() >= deadline) throw new Error("identity snapshot deadline exceeded")
+    await Promise.all(chunks.slice(offset, offset + 16).map(async ({ user, hosts }) => {
+      const entries = hosts.map((h) => ({ install: h.enrolled_by, grant: h.network?.state === "confirmed" ? h.network.install_grant ?? "" : "" }))
+      const values = await d.identities(user, entries)
+      if (values.length !== hosts.length) throw new Error("unavailable identity snapshot")
+      hosts.forEach((h, i) => found.set(h.id, values[i] ?? null))
+    }))
+  }
+  return found
+}
+export const pointUnique = (d: PeerDeps, hosts: NetworkHost[], identities: Map<string, NetworkIdentity | null>, point: string): boolean =>
+  hosts.filter((h) => identityMatches(h, identities.get(h.id) ?? null, d.now()) && pointOf(identities.get(h.id) ?? null) === point).length === 1
+
+
+/** The exact client/grant classes accepted by the Cloud token issuer and receiver projection. */
+export const cloudClientIdentity = (host: NetworkHost, own: NetworkIdentity | null, now: number): own is NetworkIdentity =>
+  host.kind !== "server" && identityMatches(host, own, now) && ["mac", "ios", "cli"].includes(own.kind)
+    && Array.isArray(own.op_classes) && (own.op_classes.includes("execute") || own.op_classes.includes("cloud-link"))

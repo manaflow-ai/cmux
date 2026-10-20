@@ -1,6 +1,7 @@
 import type { Principal } from "@cmux/ownership"
 import { expect } from "vitest"
 import { b64u, call, inDO, testEnv } from "./pairing-harness.ts"
+import { installPublicPoint } from "../src/install-public-point.ts"
 import { DAEMON, vmKey, WG_KEY } from "./cloud-bind-support.ts"
 import { MESH, VM, withMeshMachine } from "./cloud-vm-api-machine-mesh-support.ts"
 
@@ -13,6 +14,10 @@ export const withReceiver = async (run: (f: {
   native: Record<string, unknown>; requests: Request[]; read: (p?: Principal, params?: unknown) => Promise<any>;
   self: () => Promise<any>; sessionOp: (op: string, params: unknown) => Promise<any>;
   onRead: (hook: () => Promise<void>) => void; remove: () => Promise<unknown>;
+  grant: (which: "vm" | "client", patch: Record<string, unknown>) => Promise<void>;
+  audit: () => Promise<Array<Record<string, unknown>>>;
+  nativeResponse: (make: () => Response) => void;
+  badAllocation: () => void;
 }) => Promise<void>) => withMeshMachine({}, async (w) => {
   await w.create()
   const bind = w.bindFile()
@@ -45,16 +50,18 @@ export const withReceiver = async (run: (f: {
     { op, params, idempotency_key: crypto.randomUUID(), origin: "cli" }, { "x-cmux-team": w.team })
   const enrolled = await op("host.enroll", { name: "Receiver client", platform: "macos" })
   expect(enrolled.json.ok).toBe(true)
-  const point = btoa(String.fromCharCode(4, ...Uint8Array.from(atob(pair.jwk.x.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0)),
-    ...Uint8Array.from(atob(pair.jwk.y.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0))))
+  const point = installPublicPoint(pair.jwk)
   const client = { host: enrolled.json.value.id as string, user: w.user, install, grant: issued.json.grant as string,
     device: "dev_" + "2".repeat(26), wg: btoa("c".repeat(32)), point }
   const requests: Request[] = []
   const native: Record<string, unknown> = { schemaVersion: 1, tenantId: w.tenant, meshId: MESH, vmId: VM, ipv4: "10.128.0.5",
     aclVersion: 1, checkedAt: Date.now(), expiresAt: Date.now() + 30_000, policyDigest: "a".repeat(64), peers: [] }
   let hook: (() => Promise<void>) | undefined
+  let response: (() => Response) | undefined
+  let badAllocation = false
   w.setNativeRead(async (r) => {
     const path = new URL(r.url).pathname
+    if (badAllocation && path === "/v1/vms" && r.method === "GET") return Response.json({ items: [], nextCursor: null })
     if (path === `/v1/devices/${client.device}/signed/overlay-policy`) {
       expect(r.headers.has("authorization")).toBe(false)
       return Response.json({ tenantId: w.tenant, meshId: MESH, deviceId: client.device, wgPublicKey: client.wg, installPublicKey: point })
@@ -66,7 +73,7 @@ export const withReceiver = async (run: (f: {
     expect(r.headers.get("x-cmux-team-id")).toBe(w.tenant)
     expect(r.headers.has("cookie")).toBe(false)
     const before = hook; hook = undefined; await before?.()
-    return Response.json(native)
+    return response ? response() : Response.json(native)
   })
   const signedAt = Date.now(), nonce = b64u(crypto.getRandomValues(new Uint8Array(16)).buffer)
   const message = ["cmux-mesh-v1", "overlay-policy", client.device, "", point, "", String(signedAt), nonce].join("\n")
@@ -76,5 +83,11 @@ export const withReceiver = async (run: (f: {
   await run({ team: w.team, user: w.user, tenant: w.tenant, machine, host: value.host, principal, client, native, requests,
     read: (p = principal, params = { machine }) => w.owner().readOp(w.team, p, "cloud.vm.network_policy", params),
     self: () => w.owner().readOp(w.team, principal, "cloud.vm.self.get", { machine }), sessionOp,
-    onRead: (value) => { hook = value }, remove: () => w.remove(machine) })
+    onRead: (value) => { hook = value }, remove: () => w.remove(machine),
+    nativeResponse: (make) => { response = make }, badAllocation: () => { badAllocation = true },
+    audit: async () => (await w.owner().fakeControl({})).audit,
+    grant: async (which, patch) => inDO(testEnv.USER_DO.get(testEnv.USER_DO.idFromName(w.user)), async (owner) => {
+      const state = owner.bind(w.user).currentState, id = which === "vm" ? value.install.grant : client.grant
+      state.grants[id] = { ...state.grants[id], ...patch }
+    }) })
 })

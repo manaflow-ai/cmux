@@ -1,4 +1,6 @@
 import { CloudNetworkObservation } from "./cloud-network-observation.ts"
+import { cloudVmReceiverPolicy } from "./cloud-vm-receiver-policy.ts"
+import { cloudDriverFor } from "./cloud-vm-api-driver.ts"
 import type { NativeLinkAuthority } from "./cloud-connect.ts"
 import { vmApiConnection } from "./cloud-vm-api-config.ts"
 import type { NativeDialPermit, NativeDialReply, NativeDialTarget } from "./cloud-native-dial.ts"
@@ -37,6 +39,23 @@ export class CloudDO extends CloudIdle {
     // G8 (cx-wb5.65): the person's own session reads the exact Cloud request it is asked to approve.
     if (op === "integration.approval.get") return ((r) => (r.ok ? { ...r, revision: String(this.boundEngine?.currentSeq ?? 0) } : r))(readCloudApproval(this.ctx.storage.sql, principal, params))
     if (op === "cloud.vm.self.get") return ((r) => (r.ok ? { ...r, revision: String(this.boundEngine?.currentSeq ?? 0) } : r))(vmSelfGet(entity, principal, params, this.isBound(entity) ? this.bind(entity).rows : undefined))
+    if (op === "cloud.vm.network_policy") {
+      const result = await cloudVmReceiverPolicy({ team: entity, now: () => Date.now() + this.skewMs,
+        connection: () => vmApiConnection(this.env), revision: () => String(this.boundEngine?.currentSeq ?? 0), http: (r) => fetch(r),
+        row: (machine) => this.isBound(entity) ? this.bind(entity).rows.get<MachineRow>(TABLE_MACHINE, machine)?.row : undefined,
+        own: (user, install, grant, machine) => this.env.USER_DO.get(this.env.USER_DO.idFromName(user)).vmNetworkIdentity(user, install, grant, entity, machine),
+        peers: (target) => this.env.TEAM_DO.get(this.env.TEAM_DO.idFromName(entity)).vmReceiverPeers(entity, target),
+        allocation: async (row, signal) => {
+          const driver = await cloudDriverFor(this.env, this.sqlStore, entity, row, "operate", (r) => fetch(new Request(r, { signal: AbortSignal.any([r.signal, signal]) })))
+          if (!driver || signal.aborted) return null
+          const found = await driver.peek(row.provider_name)
+          return found?.state === "running" && found.tag.cmux_next_team === entity && found.tag.cmux_next_machine === row.id ? found.id : null
+        }
+      }, principal, params)
+      if (this.isBound(entity)) this.audit.record({ op: "vm_network_policy", machine: principal.bound_machine ?? null, user: principal.user ?? null,
+        install: principal.install ?? null, at: Date.now() + this.skewMs, outcome: result.ok ? "ok" : "refused" })
+      return result
+    }
     if (op === "cloud.machine.connect_info") {
       if (principal.kind !== "session" && !principal.grant_classes?.includes("read")) return { ok: false, code: "auth.forbidden", message: "grant does not cover read" }
       if (!this.isBound(entity)) return { ok: false, code: "cloud.machine.not_found", message: "no such machine in this team" }
