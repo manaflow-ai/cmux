@@ -436,3 +436,75 @@ async fn a_restored_agent_session_is_told_every_rule_again() {
     assert!(got.contains("<restored_transcript"), "{got}");
     assert!(got.contains("Mailbox is cmux-lawrence."), "{got}");
 }
+
+#[tokio::test]
+async fn a_prompt_that_starts_with_a_path_still_gets_the_rules() {
+    let hub = hub();
+    let mut app = Client::person(&hub).await;
+    let s = app.new_session().await;
+    app.ok(ANNOUNCE, json!({"key": "tests", "body": "Tests run on the fleet.", "account": "leo"}))
+        .await;
+    let got = app.prompt(&s, "/src/main.rs needs a fix").await;
+    assert!(got.contains("Tests run on the fleet."), "{got}");
+}
+
+#[tokio::test]
+async fn a_failed_prompt_after_clear_keeps_the_retell() {
+    let hub = hub();
+    let mut app = Client::person(&hub).await;
+    let s = app.new_session().await;
+    app.ok(ANNOUNCE, json!({"key": "disk", "body": "Keep target dirs small.", "account": "leo"}))
+        .await;
+    assert!(app.prompt(&s, "hello").await.contains("Keep target dirs small."));
+    app.prompt(&s, "/clear").await;
+    // The first prompt after the clear fails before the agent answers it.
+    let r = app
+        .call(
+            "session/prompt",
+            json!({"sessionId": s, "prompt": [{"type": "text", "text": "fail-streamed: boom"}]}),
+        )
+        .await;
+    assert!(r.get("error").is_some(), "{r}");
+    let got = app.prompt(&s, "next").await;
+    assert!(got.contains("Keep target dirs small."), "{got}");
+    // Told again once answered: not repeated after that.
+    assert!(!app.prompt(&s, "after").await.contains("target dirs"));
+}
+
+#[tokio::test]
+async fn an_agent_whose_rule_a_person_retires_is_told() {
+    let hub = hub();
+    let mut app = Client::person(&hub).await;
+    let a = app.new_session().await;
+    app.prompt(&a, "warm up").await;
+    let mut sa = Client::as_session(&hub, &a).await;
+    sa.ok(ANNOUNCE, json!({"key": "notes", "body": "Notes go in hq issues."})).await;
+    let u = app
+        .ok(ANNOUNCE, json!({"key": "notes", "retire": true, "urgent": true, "account": "leo"}))
+        .await;
+    assert_eq!(u["pushed"], json!([a.as_str()]), "{u}");
+    app.ok("_acpmux/wait", json!({"sessions": [a], "until": ["ready"], "timeoutMs": 20000})).await;
+    let replies = app.replies(&a).await.join("\n");
+    assert!(replies.contains("retired by leo"), "{replies}");
+}
+
+#[tokio::test]
+async fn an_urgent_retirement_reaches_a_session_still_answering_the_rule() {
+    let hub = hub();
+    let mut app = Client::person(&hub).await;
+    let s = app.new_session().await;
+    app.prompt(&s, "warm up").await;
+    app.ok(ANNOUNCE, json!({"key": "ci", "body": "CI waits use glaeda-gh.", "account": "leo"}))
+        .await;
+    // The held turn's prompt carries the rule; it is not answered yet.
+    let gate = Gate::new();
+    gate.hold(&hub, &s).await;
+    let u = app
+        .ok(ANNOUNCE, json!({"key": "ci", "retire": true, "urgent": true, "account": "leo"}))
+        .await;
+    assert_eq!(u["pushed"], json!([s.as_str()]), "{u}");
+    gate.open().await;
+    app.ok("_acpmux/wait", json!({"sessions": [s], "until": ["ready"], "timeoutMs": 20000})).await;
+    let replies = app.replies(&s).await.join("\n");
+    assert!(replies.contains("retired by leo"), "{replies}");
+}
