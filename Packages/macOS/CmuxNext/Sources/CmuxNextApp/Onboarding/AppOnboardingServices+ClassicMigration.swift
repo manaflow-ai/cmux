@@ -55,9 +55,7 @@ extension AppOnboardingServices {
         guard classicMigrationRunsAtLaunch else { return }
         do {
             let outcome = try await migrateClassic(.automatic, firstWorkspace: firstWorkspace)
-            guard !outcome.opened.isEmpty else { return }
-            let notice = ClassicImportStrings.notice(outcome.summary)
-            owner.classicImportNotice = notice
+            guard !outcome.opened.isEmpty, let notice = owner.classicImportNotice else { return }
             ClassicImportStrings.toast(notice, in: services.windows.active?.window)
         } catch {
             services.daemon.logger.error("classic migration failed: \(String(describing: error), privacy: .public)")
@@ -194,6 +192,8 @@ extension AppOnboardingServices {
         try await save(ledger, to: repository)
         // One workspace that did not open is logged; none opening is the run's failure.
         if outcome.opened.isEmpty, let lastError { throw lastError }
+        // Set within the run, so whoever awaits the run reads it.
+        if mode == .automatic, !outcome.opened.isEmpty { owner.classicImportNotice = ClassicImportStrings.notice(outcome.summary) }
 
         if let reveal { _ = windows.reveal(workspaceID: reveal) }
         // The New Tab page launch made for an empty tree gives way to classic's workspaces.
