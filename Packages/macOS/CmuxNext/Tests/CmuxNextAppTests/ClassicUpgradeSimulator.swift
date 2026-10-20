@@ -246,6 +246,24 @@ final class ClassicUpgradeSimulator {
         NSApp.modalWindow != nil || NSApp.windows.contains { $0.attachedSheet != nil }
     }
 
+    /// Waits until the tree stops changing (the daemon's last events of a run
+    /// land after the run returns): unchanged for 0.5 s, at most 10 s.
+    /// Test-side sampling of the store, as the person's sidebar would show it.
+    func settle() async {
+        let clock = ContinuousClock()
+        let deadline = clock.now + .seconds(10)
+        var last = "\(made().sorted { $0.key < $1.key })\(windows())"
+        var stableSince = clock.now
+        while clock.now < deadline, clock.now - stableSince < .milliseconds(500) {
+            try? await Task.sleep(for: .milliseconds(100))
+            let now = "\(made().sorted { $0.key < $1.key })\(windows())"
+            if now != last {
+                last = now
+                stableSince = clock.now
+            }
+        }
+    }
+
     /// Checks `profile`'s promise against the tree after the run(s).
     /// - Parameter source: the classic file the run read (default: the session file).
     ///   - ignoring: cmux-next workspaces that are not classic's (one the person made before).

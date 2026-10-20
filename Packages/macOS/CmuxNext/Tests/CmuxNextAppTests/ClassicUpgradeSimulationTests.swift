@@ -43,12 +43,14 @@ struct ClassicUpgradeSimulationTests {
         #expect(launch.outcome?.decision == .firstRun, "\(String(describing: launch.outcome))")
         #expect(launch.firstWindow < Self.firstWindowBudget, "first window after \(launch.firstWindow)")
         #expect(launch.migration < .seconds(max(20, Double(profile.expectedCount) * 0.5)), "migration took \(launch.migration)")
+        await sim.settle()
         try sim.verify(profile, classicBefore: before)
 
         let again = try await sim.relaunch()
         #expect(again.decision == .skip(.unchanged) && again.opened.isEmpty, "\(again)")
         let manual = try await sim.manualImport()
         #expect(manual.opened.isEmpty, "\(manual)")
+        await sim.settle()
         try sim.verify(profile, classicBefore: before)
         await sim.shutdown()
     }
@@ -75,6 +77,7 @@ struct ClassicUpgradeSimulationTests {
         let merge = try await sim.relaunch()
         #expect(merge.decision == .merge && merge.opened.count == profile.expectedCount, "\(merge)")
         // The New Tab page from the first launch is the person's now; it stays.
+        await sim.settle()
         try sim.verify(saved, classicBefore: before, ignoring: own)
         await sim.shutdown()
     }
@@ -89,6 +92,7 @@ struct ClassicUpgradeSimulationTests {
         let sim = try ClassicUpgradeSimulator(mac: mac)
         let launch = await sim.launch()
         #expect(launch.outcome?.decision == .firstRun, "\(String(describing: launch.outcome))")
+        await sim.settle()
         try sim.verify(profile, classicBefore: before, source: mac.session(suffix: "-previous"))
         #expect(try await sim.relaunch().opened.isEmpty)
         await sim.shutdown()
@@ -109,6 +113,7 @@ struct ClassicUpgradeSimulationTests {
         let before = try mac.classicDigest()
         let sim = try ClassicUpgradeSimulator(mac: mac)
         _ = await sim.launch()
+        await sim.settle()
         try sim.verify(profile, classicBefore: before, source: newest)
         await sim.shutdown()
     }
@@ -122,6 +127,7 @@ struct ClassicUpgradeSimulationTests {
         let sim = try ClassicUpgradeSimulator(mac: mac)
         let launch = await sim.launch()
         #expect(launch.outcome?.decision == .firstRun, "\(String(describing: launch.outcome))")
+        await sim.settle()
         try sim.verify(profile, classicBefore: before, source: mac.session(suffix: "-previous"))
         await sim.shutdown()
     }
@@ -149,6 +155,7 @@ struct ClassicUpgradeSimulationTests {
         try JSONEncoder().encode(ledger).write(to: mac.ledger, options: .atomic)
         let resume = try await sim.relaunch()
         #expect(resume.decision == .resume && resume.opened.count == 3, "\(resume)")
+        await sim.settle()
         try sim.verify(profile, classicBefore: before)
         await sim.shutdown()
     }
@@ -174,6 +181,7 @@ struct ClassicUpgradeSimulationTests {
         let before = try mac.classicDigest()
         let merge = try await sim.relaunch()
         #expect(merge.decision == .merge && merge.opened.count == 3, "\(merge)")
+        await sim.settle()
         try sim.verify(later, classicBefore: before)
         await sim.shutdown()
     }
@@ -194,6 +202,7 @@ struct ClassicUpgradeSimulationTests {
         _ = await sim.launch()
         _ = try await manual.value
         _ = try await services.onboarding.classicMigrationRun?.value
+        await sim.settle()
         try sim.verify(profile, classicBefore: before)
         await sim.shutdown()
     }
@@ -221,6 +230,7 @@ struct ClassicUpgradeSimulationTests {
         }
         #expect(launch.outcome?.summary.leftSSH == true, "\(String(describing: launch.outcome))")
         #expect(launch.migration < .seconds(30), "migration took \(launch.migration)")
+        await sim.settle()
         try sim.verify(profile, classicBefore: before)
         await sim.shutdown()
     }

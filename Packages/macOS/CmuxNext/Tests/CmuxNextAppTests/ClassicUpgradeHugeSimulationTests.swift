@@ -18,8 +18,12 @@ struct ClassicUpgradeHugeSimulationTests {
                      profile.expectedCount, launch.firstWindow.simSeconds, launch.migration.simSeconds,
                      launch.migration.simSeconds * 1000 / Double(profile.expectedCount)))
         #expect(launch.failure == nil, "\(String(describing: launch.failure))")
+        if let outcome = launch.outcome {
+            print("CLASSIC-SIM huge opened=\(outcome.opened.count) failed=\(outcome.failures.count) first=\(outcome.failures.values.first ?? "-")")
+        }
         #expect(launch.firstWindow < ClassicUpgradeSimulationTests.firstWindowBudget, "first window after \(launch.firstWindow)")
         #expect(launch.migration < .seconds(150), "migration took \(launch.migration)")
+        await sim.settle()
         try sim.verify(profile, classicBefore: before)
         let clock = ContinuousClock()
         let start = clock.now
