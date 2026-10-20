@@ -67,6 +67,7 @@ fn builtin_routes() -> Vec<Route> {
             fallback: vec![],
             auto_fallback: false,
             notes: Some("built in: open-source models through the cmux model router".into()),
+            account_home: None,
         },
         path: PathBuf::new(),
     }]
@@ -205,6 +206,10 @@ pub struct RouteFile {
     pub auto_fallback: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub notes: Option<String>,
+    /// A direct-subscription route's account home: the CLI's own config
+    /// folder for one login (route_account.rs).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub account_home: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -269,6 +274,7 @@ impl Route {
             "fallback": self.file.fallback,
             "autoFallback": self.file.auto_fallback,
             "notes": self.file.notes,
+            "accountHome": self.file.account_home,
             "path": self.path,
         })
     }
@@ -447,7 +453,7 @@ pub fn validate(file: &RouteFile) -> Result<(), RouteError> {
     if file.kind == RouteKind::CustomOpenai && file.openai_base_url.is_none() {
         return Err(RouteError::BadParams("a custom-openai route needs openaiBaseUrl".into()));
     }
-    Ok(())
+    crate::route_account::validate(file)
 }
 
 /// Every route in `dir`, sorted by id, and the problems of the files that do
@@ -547,6 +553,7 @@ pub fn file_from_json(params: &Value) -> Result<RouteFile, RouteError> {
         fallback: strings("fallback"),
         auto_fallback: params.get("autoFallback").and_then(Value::as_bool).unwrap_or(false),
         notes: text("notes"),
+        account_home: text("accountHome"),
     };
     validate(&file)?;
     Ok(file)
@@ -576,6 +583,7 @@ pub fn add(
         )));
     }
     validate(file)?;
+    crate::route_account::prepare(file)?;
     let dir = dir.ok_or_else(|| RouteError::Failed("no cmux config folder".into()))?;
     let path = dir.join(format!("{id}.toml"));
     if path.exists() && !replace {
@@ -905,6 +913,7 @@ pub fn env_for(route: &Route, family: &str, home: &Path) -> Result<RouteEnv, Rou
             .collect();
         out.set.insert("ANTHROPIC_CUSTOM_HEADERS".into(), lines.join("\n"));
     }
+    crate::route_account::set_env(route, family, &mut out.set);
     Ok(out)
 }
 
