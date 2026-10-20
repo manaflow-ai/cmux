@@ -550,6 +550,16 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelector('.ui-context-menu [role="menuitem"]') !== null);
       },
     },
+    "now-playing-off": {
+      note: "Show Now Playing on New Tab off (or nothing plays): the host sends no track, so the page draws no card and keeps no space; it is the plain New Tab page from the first frame.",
+      ready: newTab(),
+      snapshot: noChat(manySessions(2)),
+      native: { "nowPlaying.command": null },
+      play: async (ctx) => {
+        ctx.document.defaultView?.cmuxAcpmuxBridge?.applyNowPlaying?.(null);
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-screen") !== null && ctx.document.querySelector(".nt-player") === null);
+      },
+    },
     "now-playing-hidden": {
       note: "After Hide Now Playing: the card is gone and one quiet line says it is hidden and can come back in Settings, with Undo; the next New Tab page draws nothing and keeps no space.",
       ready: newTab(),

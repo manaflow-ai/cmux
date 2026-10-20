@@ -5,8 +5,7 @@
 // one soft surface with a hairline edge and concentric rounded artwork; Previous and Next fill a
 // soft round under the pointer while Play or Pause is the one filled control; the right-click menu
 // opens at the pointer with its items; and once the host clears the track (the setting turned off)
-// the content below moves up by exactly the card, its margin and its parent's gap, so no space is
-// kept.
+// the page lays out exactly as the page that never had a track, so no space is kept.
 //
 // It renders the real New Tab screen on the gallery stage. CI fails the file when it cannot launch
 // (requireBrowserLane). Locally: CMUX_BROWSER_TESTS=1 bun test test/new-tab-now-playing-look.test.ts
@@ -61,7 +60,7 @@ await requireBrowserLane("new-tab-now-playing-look.test.ts", async () => {
       }
     }
     await page.evaluate(() => document.fonts.ready);
-    await page.waitForSelector(".nt-player, .nt-player-note");
+    if (variant !== "now-playing-off") await page.waitForSelector(".nt-player, .nt-player-note");
     await page.mouse.move(1, 1);
     await page.waitForTimeout(250);
     return page;
@@ -159,36 +158,29 @@ await requireBrowserLane("new-tab-now-playing-look.test.ts", async () => {
     await page.close();
   });
 
-  test("once the host clears the track the content below moves up by exactly the card", async () => {
+  test("once the host clears the track the page lays out as if it never had the card", async () => {
+    // Where each of the screen's blocks sits, and how tall the screen is.
+    const layout = (page: Page) =>
+      page.evaluate(() => {
+        const screen = document.querySelector<HTMLElement>(".nt-screen")!;
+        return {
+          height: Math.round(screen.scrollHeight),
+          blocks: [...screen.querySelectorAll<HTMLElement>(":scope > *")]
+            .filter((element) => element.getBoundingClientRect().height > 0)
+            .map((element) => `${element.className.split(" ")[0]}@${Math.round(element.getBoundingClientRect().top)}`),
+        };
+      });
+    const never = await open("now-playing-off");
+    const plain = await layout(never);
+    await never.close();
     const page = await open("now-playing-paused");
-    const shift = await page.evaluate(async () => {
-      const card = document.querySelector<HTMLElement>(".nt-player")!;
-      const rect = card.getBoundingClientRect();
-      const margin = parseFloat(getComputedStyle(card).marginTop);
-      // A flex or grid parent's gap goes with the card too.
-      const parent = getComputedStyle(card.parentElement!);
-      const gap = /flex|grid/.test(parent.display) ? parseFloat(parent.rowGap) || 0 : 0;
-      // The first box after the card in document order, whatever the template draws there.
-      const after = [...document.querySelectorAll<HTMLElement>("body *")].find(
-        (element) =>
-          card.compareDocumentPosition(element) & Node.DOCUMENT_POSITION_FOLLOWING &&
-          !card.contains(element) &&
-          element.getBoundingClientRect().height > 0 &&
-          !element.closest(".ui-context-menu-backdrop"),
-      );
-      if (!after) return null;
-      const before = after.getBoundingClientRect().top;
+    expect((await layout(page)).height, "the card took no space").toBeGreaterThan(plain.height);
+    await page.evaluate(async () => {
       document.defaultView?.cmuxAcpmuxBridge?.applyNowPlaying?.(null);
       await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-      return {
-        gone: document.querySelector(".nt-player") === null,
-        moved: before - after.getBoundingClientRect().top,
-        card: rect.height + margin + gap,
-      };
     });
+    expect(await page.locator(".nt-player").count()).toBe(0);
+    expect(await layout(page), "space was kept for the hidden card").toEqual(plain);
     await page.close();
-    expect(shift, "nothing below the card on the stage to measure").not.toBeNull();
-    expect(shift!.gone).toBe(true);
-    expect(shift!.moved, "space was kept for the hidden card").toBeCloseTo(shift!.card, 0);
   });
 });
