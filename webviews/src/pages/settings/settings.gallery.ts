@@ -506,7 +506,9 @@ Object.assign(variants, {
   }),
   "theme-long-name": variant("theme", {
     allThemes: true,
-    options: { values: { "appearance.theme": "Builtin Pastel Dark Solarized Tango Long Name", "appearance.accent": "blue" } },
+    options: {
+      values: { "appearance.theme": "Builtin Pastel Dark Solarized Tango Long Name", "appearance.accent": "blue" },
+    },
     note: "A long theme name ellipsizes; every popup keeps its one width.",
   }),
   "theme-accent": variant("theme", {
