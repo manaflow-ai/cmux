@@ -1,4 +1,4 @@
-import CmuxAuthRuntime
+package import CmuxAuthRuntime
 import Foundation
 
 /// Keeps owner observation independent of startup work and retains original-record reconciliation authority.
