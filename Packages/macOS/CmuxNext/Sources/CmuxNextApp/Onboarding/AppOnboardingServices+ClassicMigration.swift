@@ -309,14 +309,14 @@ extension AppOnboardingServices {
         }
     }
 
-    /// Whether classic cmux looks like it is running and may still save: it
-    /// autosaves at least once a minute while it runs, so a session file
-    /// changed in the last 90 seconds means it is. No process scan
-    /// (plans/cmux-next/pty-holder.md).
+    /// Whether classic cmux is running and may still save (``ClassicRunningProbe``:
+    /// its launch sentinel and a recent save). No process scan (plans/cmux-next/pty-holder.md).
     private func classicIsRunning(_ source: ClassicMigrationSource?) -> Bool {
         if let seam = owner.classicRunning { return seam() }
         guard let source else { return false }
-        return Date().timeIntervalSince1970 - source.modifiedAt < 90
+        let root = owner.classicStateRoot ?? ClassicRunningProbe.defaultStateRoot(
+            home: FileManager.default.homeDirectoryForCurrentUser, environment: ProcessInfo.processInfo.environment)
+        return ClassicRunningProbe(stateRoot: root).isRunning(source, now: Date().timeIntervalSince1970)
     }
 
     /// `frame` when some screen shows most of it, else nil (the window opens at the default place).

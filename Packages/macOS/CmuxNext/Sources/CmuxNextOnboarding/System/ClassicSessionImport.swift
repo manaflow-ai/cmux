@@ -109,6 +109,27 @@ public nonisolated struct ClassicSessionImporter: Sendable {
         try decodeSnapshot(data).workspaces
     }
 
+    /// The folder of scrollback checkpoints classic keeps beside `sessionFile`
+    /// (`session-<bundle>-scrollback/`, one `<panel id>.json` per terminal);
+    /// nil for a `session-history` archive, whose terminals are older.
+    public static func checkpointFolder(for sessionFile: URL) -> URL? {
+        let name = sessionFile.lastPathComponent
+        guard name.hasPrefix("session-"), name.hasSuffix(".json"), sessionFile.deletingLastPathComponent().lastPathComponent != "session-history"
+        else { return nil }
+        var stem = String(name.dropLast(".json".count))
+        if stem.hasSuffix("-previous") { stem = String(stem.dropLast("-previous".count)) }
+        return sessionFile.deletingLastPathComponent().appendingPathComponent("\(stem)-scrollback", isDirectory: true)
+    }
+
+    /// ``decodeSnapshot(_:)``, with each terminal's scrollback taken from
+    /// classic's checkpoint in `checkpoints` when the snapshot itself carries
+    /// no scrollback at all: an 8 s autosave, the last save before classic
+    /// crashed, was force quit or the Mac lost power. A quit save's own
+    /// scrollback always wins, as in classic's restore.
+    public func decodeSnapshot(_ data: Data, checkpoints: URL?) throws -> ClassicSessionSnapshot {
+        try decodeSnapshot(data)
+    }
+
     /// Decodes the snapshot with its windows, groups, and each workspace's
     /// key, color, pin and group. Names are made unique across all windows.
     public func decodeSnapshot(_ data: Data) throws -> ClassicSessionSnapshot {
