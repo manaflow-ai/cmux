@@ -15,13 +15,17 @@ export type AccentChoice = {
   art: boolean;
 };
 
+/** Art Color's swatch: every hue, since the color comes from the art a window shows. */
+const ART_WHEEL = "conic-gradient(in oklch longer hue, oklch(0.72 0.16 20), oklch(0.72 0.16 19.9))";
+
 function Swatch({ choice }: { choice: AccentChoice }) {
+  const background = choice.art ? ART_WHEEL : choice.swatch;
   return (
     <span
       className="accent-swatch"
       data-accent-swatch={choice.value}
       data-accent-art={choice.art ? "" : undefined}
-      style={!choice.art && choice.swatch ? { background: choice.swatch } : undefined}
+      style={background ? { background } : undefined}
     />
   );
 }
