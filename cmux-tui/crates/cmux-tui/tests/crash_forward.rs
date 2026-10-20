@@ -134,7 +134,7 @@ fn seed_panics(dir: &Path, session: &str) {
 }
 
 #[test]
-fn the_owner_sends_unsent_panics_once_and_never_test_lines() {
+fn crash_forward_sends_unsent_panics_once_and_never_test_lines() {
     let (dsn, requests) = sentry();
     let dir = temp_dir("send");
     let session = "cf-send";
@@ -163,7 +163,7 @@ fn the_owner_sends_unsent_panics_once_and_never_test_lines() {
 }
 
 #[test]
-fn the_telemetry_setting_off_sends_nothing() {
+fn crash_forward_sends_nothing_with_telemetry_off() {
     let (dsn, requests) = sentry();
     let dir = temp_dir("off");
     let session = "cf-off";
