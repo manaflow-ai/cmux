@@ -3,12 +3,13 @@ import CmuxNextLayout
 import CoreGraphics
 import Testing
 
-/// `layout.focusPaneOnScroll` (u2246): a scroll over an unfocused pane focuses it, the same for
-/// every pane kind, since the layout routes it before the pane's own view sees it. Momentum, a
-/// pane the layout scrolls itself, recent typing, a background window and the setting turned off
-/// leave focus where it was.
+/// `layout.focusFollowsMouse`: off by default, so hovering or scrolling another pane keeps focus
+/// where the person types (the user, Oct 20). Turned on, the pointer entering a pane or a scroll
+/// over it focuses it, the same for every pane kind, since the layout routes it before the pane's
+/// own view sees it. Momentum, a pane the layout scrolls itself, recent typing, a held mouse
+/// button and a background window leave focus where it was.
 @MainActor
-struct FocusPaneOnScrollTests {
+struct FocusFollowsMouseTests {
     final class Panes: LayoutPaneContentProvider {
         func makeContentView(for pane: PaneID) -> NSView { NSView() }
     }
@@ -22,13 +23,15 @@ struct FocusPaneOnScrollTests {
                               backing: .buffered, defer: false)
         var secondsSinceKeyDown: TimeInterval = 60
         var windowIsKey = true
+        var mouseButtonsDown = false
 
-        init(focusOnScroll: Bool = true) {
+        init(focusOnScroll: Bool? = true) {
             var signals = ScrollFocusSignals()
             let box = Box()
             signals.secondsSinceKeyDown = { box.window?.secondsSinceKeyDown ?? 60 }
             signals.windowIsKey = { _ in box.window?.windowIsKey ?? true }
-            model.focusPaneOnScrollOverride = focusOnScroll
+            signals.mouseButtonsDown = { box.window?.mouseButtonsDown ?? false }
+            model.focusFollowsMouseOverride = focusOnScroll
             root = LayoutRootView(model: model, contentProvider: provider, scrollFocusSignals: signals)
             window.contentView = root
             root.layoutSubtreeIfNeeded()
@@ -52,6 +55,10 @@ struct FocusPaneOnScrollTests {
             let event = NSEvent(cgEvent: cg)!
             return root.handleScroll(event, locationInWindow: point)
         }
+
+        /// The pointer moving to `point` (window coordinates).
+        @discardableResult
+        func hover(at point: CGPoint) -> PaneID? { root.focusPaneForPointerHover(at: point) }
 
         /// A trackpad gesture over `point`: began, changes, ended.
         func gesture(at point: CGPoint) {
@@ -105,10 +112,63 @@ struct FocusPaneOnScrollTests {
         #expect(w.model.focusedPane == "p1")
     }
 
+    /// The default (no override, no cmux.json key): scrolling another pane keeps focus where the
+    /// person is typing (the user, Oct 20).
+    @Test func byDefaultAScrollOverAnotherPaneKeepsFocus() throws {
+        let w = Window(focusOnScroll: nil)
+        w.gesture(at: try w.center("p2"))
+        w.scroll(at: try w.center("p2"), dy: -1, units: .line)
+        #expect(w.model.focusedPane == "p1")
+    }
+
+    @Test func byDefaultHoveringAnotherPaneKeepsFocus() throws {
+        let w = Window(focusOnScroll: nil)
+        w.hover(at: try w.center("p2"))
+        #expect(w.model.focusedPane == "p1")
+    }
+
+    @Test func turnedOnTheSettingFocusesAPaneThePointerEnters() throws {
+        let w = Window()
+        w.hover(at: try w.center("p1"))
+        #expect(w.hover(at: try w.center("p2")) == "p2")
+        #expect(w.model.focusedPane == "p2")
+        #expect(w.model.lastFocusSource == .pointer)
+    }
+
+    @Test func hoverDoesNotUndoAKeyboardMoveInsideTheSamePane() throws {
+        let w = Window()
+        let p2 = try w.center("p2")
+        w.hover(at: p2)
+        #expect(w.model.focusedPane == "p2")
+        w.model.focus("p1", source: .keyboard)
+        // The pointer twitches but stays in p2: focus stays where the keyboard put it.
+        w.hover(at: CGPoint(x: p2.x + 3, y: p2.y + 2))
+        #expect(w.model.focusedPane == "p1")
+    }
+
+    @Test func hoverWhileTypingOrDraggingOrInABackgroundWindowKeepsFocus() throws {
+        let w = Window()
+        let p1 = try w.center("p1"), p2 = try w.center("p2")
+        w.secondsSinceKeyDown = 0.3
+        w.hover(at: p2)
+        #expect(w.model.focusedPane == "p1")
+        w.hover(at: p1)
+        w.secondsSinceKeyDown = 60
+        w.mouseButtonsDown = true
+        w.hover(at: p2)
+        #expect(w.model.focusedPane == "p1")
+        w.hover(at: p1)
+        w.mouseButtonsDown = false
+        w.windowIsKey = false
+        w.hover(at: p2)
+        #expect(w.model.focusedPane == "p1")
+    }
+
     @Test func theSettingTurnedOffKeepsFocus() throws {
         let w = Window(focusOnScroll: false)
         w.gesture(at: try w.center("p2"))
         w.scroll(at: try w.center("p2"), dy: -1, units: .line)
+        w.hover(at: try w.center("p2"))
         #expect(w.model.focusedPane == "p1")
     }
 
