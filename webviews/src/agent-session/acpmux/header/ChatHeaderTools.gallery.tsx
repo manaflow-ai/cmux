@@ -299,7 +299,7 @@ export default componentEntry<HeaderToolsProps>({
       props: base,
     },
     "panels-open": {
-      note: "Changes, Preview, Terminal and Browser are lit while their panels are open beside the chat (cx-00n1); Hide tabs is in the chat menu.",
+      note: "Changes, Terminal and Browser are lit while their panels are open beside the chat (cx-00n1); Browser holds the chat's page; Hide tabs is in the chat menu.",
       props: {
         ...base,
         sideTabs: true,
@@ -309,6 +309,10 @@ export default componentEntry<HeaderToolsProps>({
         onPreview: () => undefined,
       },
       play: panelsOpen,
+    },
+    "browser-preview": {
+      note: "The chat's last turn named a local page: Browser opens it beside the chat and its tooltip names it; there is no separate Preview button.",
+      props: { ...base, previewUrl: "http://localhost:5173/", onPreview: () => undefined },
     },
     "grouped-controls": {
       note: "Quick actions and session metadata are separated without changing the existing button hit targets.",

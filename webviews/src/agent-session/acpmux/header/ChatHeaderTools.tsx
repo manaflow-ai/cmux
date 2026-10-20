@@ -1,6 +1,7 @@
 // The chat header's top right: the quick actions (quickActions.ts: which show, in which order, and
-// whether each toggles or opens; by default Changes and Preview, each while it applies, then Terminal
-// and Browser, which split the pane in the chat's folder and toggle, as in T3 Chat and ChatGPT); the
+// whether each toggles or opens; by default Changes, while it applies, then Terminal and Browser, which
+// split the pane in the chat's folder and toggle, as in T3 Chat and ChatGPT; Browser opens the chat's
+// local page when there is one, the job of the Preview button a person can still show); the
 // summary (Sources) button, whose popover also opens the last turn's changes; and the "..." chat menu,
 // which starts with the quick actions not shown as buttons ([+] New tab, which reads Hide tabs in place,
 // Files and Split Down; each while it applies). Before them, the chat branch's pull request with its
@@ -218,7 +219,13 @@ export function ChatHeaderTools({
         shortcutAction: HEADER_ACTIONS.changes,
         onSelect: () => onChanges("toggle"),
       });
-    if (onPreview && !shownIds.has("preview") && (previewUrl || lit.includes(HEADER_ACTIONS.preview)))
+    // Browser opens the chat's page itself (browserTarget), so Preview folds only without a Browser button.
+    if (
+      onPreview &&
+      !shownIds.has("preview") &&
+      !shownIds.has("browser") &&
+      (previewUrl || lit.includes(HEADER_ACTIONS.preview))
+    )
       folded.push({
         key: "quick-preview",
         label: t("header.preview"),
@@ -250,6 +257,17 @@ export function ChatHeaderTools({
     return folded;
   };
   const rows = () => menuGroups(foldedRows(), menu());
+  // Browser without its own Preview button (the default): the chat's local page when it has one, so the
+  // globe opens what the chat is about, not a blank tab (Leo 2026-10-20). A toggle click closes whichever
+  // browser it opened: the page's preview or the plain split.
+  const previewInBrowser = onPreview !== undefined && !actions.some((action) => action.id === "preview");
+  const browserRun = (mode: QuickActionMode) => {
+    if (previewInBrowser && on(HEADER_ACTIONS.preview, mode)) return onPreview(undefined, mode);
+    if (previewInBrowser && previewUrl && !on(HEADER_ACTIONS.browser, mode)) return onPreview(previewUrl, mode);
+    onBrowser(mode);
+  };
+  const browserPressed = (mode: QuickActionMode) =>
+    previewInBrowser && on(HEADER_ACTIONS.preview, mode) ? true : on(HEADER_ACTIONS.browser, mode);
   const buttons = tabTools && actions.length > 0 && (
     <>
       {actions.map(({ id, mode }) =>
@@ -351,9 +369,11 @@ export function ChatHeaderTools({
             type="button"
             className="acpmux-header-tool"
             aria-label={t("header.browser")}
-            aria-pressed={on(HEADER_ACTIONS.browser, mode)}
-            {...tooltipProps(t("header.browser"), browserKey)}
-            onClick={() => onBrowser(mode)}
+            aria-pressed={browserPressed(mode)}
+            {...(previewInBrowser && previewUrl
+              ? tooltipProps(t("header.previewAddress", { address: previewAddress(previewUrl) }), undefined)
+              : tooltipProps(t("header.browser"), browserKey))}
+            onClick={() => browserRun(mode)}
           >
             <Icon name="browser" size={15} />
           </button>
