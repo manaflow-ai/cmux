@@ -5,7 +5,7 @@ import { useLayoutEffect, useRef, useState } from "react";
 import { StreamReveal } from "../streamReveal";
 import { Markdown } from "./Markdown";
 import { MessageBoundary } from "./MessageBoundary";
-import { entranceAllowed } from "../../shared/pageReveal";
+import { pageAway } from "../../shared/pageReveal";
 
 /// The display frames the reveal runs on (tests drive their own).
 export const revealFrames = {
@@ -58,7 +58,7 @@ export function useStreamReveal(
       // arrive. WebKit runs no frames while a page is hidden, so this tick usually runs as the page
       // shows again: until its first frame back has passed, the backlog counts as away too
       // (shared/pageReveal.ts), and its blocks draw in place (Markdown's awayBlocks).
-      const away = !entranceAllowed();
+      const away = pageAway();
       const before = latest.current.shown;
       let length = current.advance(latest.current.text, now, !latest.current.streaming);
       // After `advance`, which takes in the text received meanwhile: all of it shows.
