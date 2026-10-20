@@ -16,7 +16,7 @@ and the Mac host run 0.11.0 (internal testers update to the next TestFlight buil
 | Phone approval signature context | `cnx-link-auth-v1` | `cmux-mobile-link-auth-v1` |
 | Mac identity signature context | `cnx-mac-identity-v1` | `cmux-mobile-mac-identity-v1` |
 | Chief answer signature context | `cnx-chief-answer-v1` | `cmux-mobile-chief-answer-v1` |
-| Video tag context | `cnx-video-tag-v1` | `cmux-mobile-video-tag-v1` |
+| H.264 SEI tag UUID | `cnx-video-tag-v1` | `cmux-mobile-vid1` (16 bytes) |
 | Worker to hub headers | `x-cnx-claim`, `x-cnx-subprotocol`, `x-cnx-attachment`, `x-cnx-owner-key` | `x-cmux-mobile-claim`, `x-cmux-mobile-subprotocol`, `x-cmux-mobile-attachment`, `x-cmux-mobile-owner-key` |
 | WebRTC data channel labels | `cnx-link`, `cnx-input` | `cmux-mobile-link`, `cmux-mobile-input` |
 | Push payload key, categories | `cnx`, `CNX_<KIND>` | `cmuxMobile`, `CMUX_MOBILE_<KIND>` |
@@ -576,7 +576,7 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   the lane, or an older one, ignores the field and streams on the channel.
   `"video_tag": N` (u32, random per channel): hostd appends it to each of
   this tab's lane access units as an H.264 SEI NAL unit after the slices
-  (user data unregistered, UUID `cmux-mobile-video-tag-v1` in ASCII, then N as 8
+  (user data unregistered, UUID `cmux-mobile-vid1` in ASCII (16 bytes), then N as 8
   lowercase hex digits, then the stop bit `0x80`; no byte is zero, so no
   emulation prevention). The phone keeps a lane frame only when it carries
   its own channel's tag, strips the SEI before decoding, and starts at its

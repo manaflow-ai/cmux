@@ -19,8 +19,8 @@ use bytes::{BufMut, Bytes, BytesMut};
 /// User data unregistered (H.264 D.1.6).
 const SEI_USER_DATA_UNREGISTERED: u8 = 5;
 const NAL_SEI: u8 = 6;
-/// Our SEI's UUID ("cmux-mobile-video-tag-v1"), no zero bytes.
-const UUID: [u8; 16] = *b"cmux-mobile-video-tag-v1";
+/// Our SEI's UUID ("cmux-mobile-vid1", 16 ASCII bytes), no zero bytes.
+const UUID: [u8; 16] = *b"cmux-mobile-vid1";
 /// UUID plus 8 hex digits.
 const PAYLOAD: usize = 16 + 8;
 /// Start code, NAL header, payload type, payload size, payload, RBSP stop bit.
