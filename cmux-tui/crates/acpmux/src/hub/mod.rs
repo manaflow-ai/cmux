@@ -862,9 +862,11 @@ impl Hub {
                 continue;
             }
             // Scan the whole log: a long turn can stream far more records
-            // than any fixed tail window after its `turn_started`.
+            // than any fixed tail window after its `turn_started`. Only the
+            // two kinds it reads are parsed; every chunk is skipped unparsed.
             let mut open: Option<(u64, Value)> = None;
-            let scanned = self.store.scan(&session.id, 0, &mut |e: EventRecord| {
+            let kinds = ["turn_started", "turn_result"];
+            let scanned = self.store.scan_kinds(&session.id, 0, &kinds, &mut |e: EventRecord| {
                 match e.kind.as_str() {
                     "turn_started" => {
                         open = Some((e.seq, e.msg.get("turnId").cloned().unwrap_or(Value::Null)))

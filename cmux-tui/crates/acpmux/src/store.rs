@@ -33,6 +33,25 @@ pub struct EventRecord {
     pub host_seq: Option<u64>,
 }
 
+/// The two fields of an [`EventRecord`] a scan decides on. Parsing only
+/// these skips the record's `msg` without building it, so a scan that wants
+/// a few kinds, or only records past a sequence, costs a fraction of a full
+/// parse of every line (a daemon start scans every session's whole log).
+#[derive(Deserialize)]
+struct RecordHead<'a> {
+    seq: u64,
+    #[serde(borrow)]
+    kind: std::borrow::Cow<'a, str>,
+}
+
+/// Whether a log line is a record [`LocalStore`] hands to a scan: past
+/// `after` and, with `kinds`, one of them. A line that is not a record is
+/// skipped here, as the full parse would skip it.
+fn head_wanted(line: &str, after: u64, kinds: Option<&[&str]>) -> bool {
+    let Ok(head) = serde_json::from_str::<RecordHead<'_>>(line) else { return false };
+    head.seq > after && kinds.is_none_or(|kinds| kinds.contains(&head.kind.as_ref()))
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Copy)]
 #[serde(rename_all = "snake_case")]
 pub enum SessionStatus {
@@ -431,6 +450,18 @@ pub trait Store: Send + Sync {
         }
         Ok(())
     }
+    /// [`Store::scan`] of only the records whose `kind` is in `kinds`. A
+    /// store that can skip the other records without parsing them does
+    /// (the daemon start's scans of every log want two to ten kinds).
+    fn scan_kinds(
+        &self,
+        id: &str,
+        after: u64,
+        kinds: &[&str],
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        self.scan(id, after, &mut |rec| !kinds.contains(&rec.kind.as_str()) || visit(rec))
+    }
     /// Visit records with `after < seq < before` newest first until `visit`
     /// returns false: the reverse of `scan`, for pages taken from the end.
     fn scan_back(
@@ -583,6 +614,32 @@ impl LocalStore {
         let written = file.metadata().map(|m| m.len()).unwrap_or(0);
         Ok(SegmentWriter { index, file, written })
     }
+
+    /// Records with `seq > after` (and, with `kinds`, of those kinds) in
+    /// order until `visit` returns false; every other line is skipped after
+    /// parsing its seq and kind only ([`RecordHead`]).
+    fn scan_filtered(
+        &self,
+        id: &str,
+        after: u64,
+        kinds: Option<&[&str]>,
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        for (_, path) in self.segments(id)? {
+            let file = crate::config::private_state_file(&path)?;
+            for line in BufReader::new(file).lines() {
+                let line = line?;
+                if line.trim().is_empty() || !head_wanted(&line, after, kinds) {
+                    continue;
+                }
+                let Ok(rec) = serde_json::from_str::<EventRecord>(&line) else { continue };
+                if !visit(rec) {
+                    return Ok(());
+                }
+            }
+        }
+        Ok(())
+    }
 }
 
 /// The seq of a segment's first readable record.
@@ -668,20 +725,17 @@ impl Store for LocalStore {
     }
 
     fn scan(&self, id: &str, after: u64, visit: &mut dyn FnMut(EventRecord) -> bool) -> Result<()> {
-        for (_, path) in self.segments(id)? {
-            let file = crate::config::private_state_file(&path)?;
-            for line in BufReader::new(file).lines() {
-                let line = line?;
-                if line.trim().is_empty() {
-                    continue;
-                }
-                let Ok(rec) = serde_json::from_str::<EventRecord>(&line) else { continue };
-                if rec.seq > after && !visit(rec) {
-                    return Ok(());
-                }
-            }
-        }
-        Ok(())
+        self.scan_filtered(id, after, None, visit)
+    }
+
+    fn scan_kinds(
+        &self,
+        id: &str,
+        after: u64,
+        kinds: &[&str],
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        self.scan_filtered(id, after, Some(kinds), visit)
     }
 
     /// Segments newest first, so a page from the end reads only the segments it
@@ -732,15 +786,15 @@ impl Store for LocalStore {
                 if line.trim().is_empty() {
                     continue;
                 }
-                let rec: EventRecord = match serde_json::from_str(&line) {
-                    Ok(r) => r,
-                    Err(_) => continue,
-                };
-                if rec.seq > after {
-                    out.push(rec);
-                    if out.len() >= limit {
-                        return Ok(out);
-                    }
+                // The daemon start reads each log past its saved sequence:
+                // the records before it are skipped unparsed.
+                if !head_wanted(&line, after, None) {
+                    continue;
+                }
+                let Ok(rec) = serde_json::from_str::<EventRecord>(&line) else { continue };
+                out.push(rec);
+                if out.len() >= limit {
+                    return Ok(out);
                 }
             }
         }
@@ -903,5 +957,83 @@ mod permission_tests {
             .unwrap();
         assert!(status.success());
         assert!(LocalStore::new(root, 64 * 1024).is_err());
+    }
+
+    fn record(seq: u64, kind: &str, msg: serde_json::Value) -> EventRecord {
+        EventRecord { seq, at: seq, dir: "in".into(), kind: kind.into(), msg, host_seq: None }
+    }
+
+    /// A log as a long chat leaves it: chunks between turn records, a line a
+    /// crash cut short, and a record that is not one, over two segments.
+    fn long_log(store: &LocalStore) -> Vec<EventRecord> {
+        let mut all = Vec::new();
+        let mut seq = 0;
+        for turn in 0..6 {
+            seq += 1;
+            all.push(record(
+                seq,
+                "turn_started",
+                serde_json::json!({"turnId": format!("t{turn}")}),
+            ));
+            for i in 0..400 {
+                seq += 1;
+                all.push(record(seq, "agent_message_chunk", serde_json::json!({"params": {"update": {"content": {"text": format!(" tok{i}")}}}})));
+            }
+            seq += 1;
+            all.push(record(seq, "turn_result", serde_json::json!({"turnId": format!("t{turn}")})));
+        }
+        for rec in &all {
+            store.append("long", rec).unwrap();
+        }
+        let events = store.dir("long").join("events");
+        let last = std::fs::read_dir(&events).unwrap().map(|e| e.unwrap().path()).max().unwrap();
+        let mut file = OpenOptions::new().append(true).open(last).unwrap();
+        file.write_all(b"{\"seq\":99999,\"kind\":\"turn_started\"}\n{\"seq\":100000,\"at\":1,\"dir\":\"in\",\"ki").unwrap();
+        all
+    }
+
+    #[test]
+    fn scan_kinds_and_events_after_match_a_full_parse_of_the_log() {
+        let temp = TempDir::new();
+        let store = LocalStore::new(temp.0.join("sessions"), 64 * 1024).unwrap();
+        let all = long_log(&store);
+        assert!(store.segments("long").unwrap().len() > 1, "the log spans segments");
+
+        let kinds = ["turn_started", "turn_result"];
+        let mut seen = Vec::new();
+        store
+            .scan_kinds("long", 0, &kinds, &mut |rec| {
+                seen.push(rec);
+                true
+            })
+            .unwrap();
+        let want: Vec<_> =
+            all.iter().filter(|r| kinds.contains(&r.kind.as_str())).cloned().collect();
+        assert_eq!(seen, want, "the turn records only, whole, in order");
+
+        // The trait's own default (any other store) agrees.
+        let mut by_default = Vec::new();
+        Store::scan(&store, "long", 0, &mut |rec| {
+            if kinds.contains(&rec.kind.as_str()) {
+                by_default.push(rec);
+            }
+            true
+        })
+        .unwrap();
+        assert_eq!(by_default, want);
+
+        let after = all[1000].seq;
+        let tail = store.events("long", after, usize::MAX).unwrap();
+        assert_eq!(tail, all[1001..].to_vec(), "records past `after` only, unparsed ones skipped");
+        assert_eq!(store.events("long", after, 3).unwrap(), all[1001..1004].to_vec());
+
+        let mut stopped = Vec::new();
+        store
+            .scan_kinds("long", 0, &["turn_result"], &mut |rec| {
+                stopped.push(rec.seq);
+                stopped.len() < 2
+            })
+            .unwrap();
+        assert_eq!(stopped.len(), 2, "a visit that returns false ends the scan");
     }
 }

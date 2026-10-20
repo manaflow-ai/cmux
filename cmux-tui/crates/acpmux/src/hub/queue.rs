@@ -8,6 +8,24 @@
 use super::*;
 use std::sync::atomic::Ordering;
 
+/// The record kinds `restore_queue` reads from a log at load; the rest of a
+/// log (agent chunks, tool calls) is skipped unparsed. The match in
+/// `restore_queue` and this list name the same kinds (a test checks it).
+pub(super) const RESTORE_QUEUE_KINDS: &[&str] = &[
+    "queued",
+    "transfer_out",
+    "transfer_aborted",
+    "imported",
+    "dequeued",
+    "queue_removed",
+    "user_message",
+    "turn_started",
+    "queue_updated",
+    "queue_paused",
+    "queue_resumed",
+    "queue_order",
+];
+
 /// A prompt waiting for the running turn to end.
 #[derive(Debug, Clone)]
 pub struct QueuedPrompt {
@@ -477,6 +495,7 @@ impl Hub {
     }
 
     /// One session's queue, from its log (also a chat moved here, `transfer_in.rs`).
+    /// It reads only [`RESTORE_QUEUE_KINDS`]; a kind its match reads must be listed there.
     pub(super) fn restore_queue(&self, session: &Arc<Session>) {
         if session.meta().status == SessionStatus::Closed {
             return;
@@ -487,44 +506,53 @@ impl Hub {
         // A move that began and neither committed nor aborted (`transfer_out.rs`); a chat
         // moved here was the source's until its `imported` record.
         let mut moving: Option<String> = None;
-        let scanned = self.store.scan(&session.id, 0, &mut |e: EventRecord| {
-            let turn_id = e.msg.get("turnId");
-            match e.kind.as_str() {
-                "queued" => waiting.push(e),
-                "transfer_out" => moving = e.msg["transferId"].as_str().map(str::to_owned),
-                "transfer_aborted" | "imported" => moving = None,
-                "dequeued" | "queue_removed" | "user_message" | "turn_started" => {
-                    waiting.retain(|q| q.msg.get("turnId") != turn_id);
-                }
-                // An edit (`queue_edit.rs`): the prompt and its rules replace the queued ones,
-                // and it has no `_meta.provenance` (the person rewrote it).
-                "queue_updated" => {
-                    if let Some(q) = waiting.iter_mut().find(|q| q.msg.get("turnId") == turn_id) {
-                        for k in ["text", "prompt", "control", "trustGate"] {
-                            q.msg[k] = e.msg.get(k).cloned().unwrap_or(Value::Null);
-                        }
-                        if let Some(meta) = q.msg.get_mut("_meta").and_then(Value::as_object_mut) {
-                            meta.remove("provenance");
+        // Only the kinds the match below reads are parsed (`RESTORE_QUEUE_KINDS`).
+        let scanned =
+            self.store.scan_kinds(&session.id, 0, RESTORE_QUEUE_KINDS, &mut |e: EventRecord| {
+                let turn_id = e.msg.get("turnId");
+                match e.kind.as_str() {
+                    "queued" => waiting.push(e),
+                    "transfer_out" => moving = e.msg["transferId"].as_str().map(str::to_owned),
+                    "transfer_aborted" | "imported" => moving = None,
+                    "dequeued" | "queue_removed" | "user_message" | "turn_started" => {
+                        waiting.retain(|q| q.msg.get("turnId") != turn_id);
+                    }
+                    // An edit (`queue_edit.rs`): the prompt and its rules replace the queued ones,
+                    // and it has no `_meta.provenance` (the person rewrote it).
+                    "queue_updated" => {
+                        if let Some(q) = waiting.iter_mut().find(|q| q.msg.get("turnId") == turn_id)
+                        {
+                            for k in ["text", "prompt", "control", "trustGate"] {
+                                q.msg[k] = e.msg.get(k).cloned().unwrap_or(Value::Null);
+                            }
+                            if let Some(meta) =
+                                q.msg.get_mut("_meta").and_then(Value::as_object_mut)
+                            {
+                                meta.remove("provenance");
+                            }
                         }
                     }
-                }
-                "queue_paused" => {
-                    let ids = e.msg.get("held").and_then(Value::as_array);
-                    held.extend(ids.into_iter().flatten().cloned());
-                }
-                "queue_resumed" => held.clear(),
-                "queue_order" => {
-                    // Sent now (`put_next`): no longer held.
-                    if e.msg.get("next") == Some(&Value::Bool(true)) {
-                        held.retain(|id| Some(id) != e.msg.get("promptId"));
+                    "queue_paused" => {
+                        let ids = e.msg.get("held").and_then(Value::as_array);
+                        held.extend(ids.into_iter().flatten().cloned());
                     }
-                    order =
-                        e.msg.get("order").and_then(Value::as_array).cloned().unwrap_or_default()
+                    "queue_resumed" => held.clear(),
+                    "queue_order" => {
+                        // Sent now (`put_next`): no longer held.
+                        if e.msg.get("next") == Some(&Value::Bool(true)) {
+                            held.retain(|id| Some(id) != e.msg.get("promptId"));
+                        }
+                        order = e
+                            .msg
+                            .get("order")
+                            .and_then(Value::as_array)
+                            .cloned()
+                            .unwrap_or_default()
+                    }
+                    _ => {}
                 }
-                _ => {}
-            }
-            true
-        });
+                true
+            });
         session.moving.lock().unwrap_or_else(|e| e.into_inner()).clone_from(&moving);
         if scanned.is_err() || waiting.is_empty() {
             return;
@@ -615,5 +643,30 @@ impl Hub {
                 });
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod restore_kinds_tests {
+    use std::collections::BTreeSet;
+
+    /// `restore_queue` parses only [`super::RESTORE_QUEUE_KINDS`]: a kind its
+    /// match reads but the list leaves out would be skipped at load.
+    #[test]
+    fn restore_queue_kinds_name_every_kind_its_match_reads() {
+        let source = include_str!("queue.rs");
+        let body = source.split("pub(super) fn restore_queue(").nth(1).unwrap();
+        let body = body.split("session.moving.lock()").next().unwrap();
+        let read: BTreeSet<&str> = body
+            .lines()
+            .filter_map(|line| line.split_once("=>").map(|(arm, _)| arm))
+            .flat_map(|arm| arm.split('"').skip(1).step_by(2))
+            .collect();
+        assert!(
+            read.contains("queued") && read.contains("queue_order"),
+            "parsed the match: {read:?}"
+        );
+        let listed: BTreeSet<&str> = super::RESTORE_QUEUE_KINDS.iter().copied().collect();
+        assert_eq!(read, listed, "RESTORE_QUEUE_KINDS and the kinds restore_queue reads differ");
     }
 }
