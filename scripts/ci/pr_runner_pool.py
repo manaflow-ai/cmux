@@ -328,11 +328,14 @@ RUN_CLASSES = ("std", "light")
 XCODE_VERSION = r"[0-9]+(?:\.[0-9]+)*"
 # Optional namespaces keep explicitly configured fleets (such as AWS) out of
 # the ordinary mini family while retaining the role labels' semantics.
-OWNED_LABEL = re.compile(rf"glaeda-(?:aws-)?(?:root-|side-|gui-|fast-)?(?:xl|std|light)-xcode-{XCODE_VERSION}")
+# `glaeda-session-...` (glaeda#1530) is carried by each mini's console gui runner and by its extra
+# session runners: jobs that need a logged-in session but not the console gui token (session_label()).
+OWNED_LABEL = re.compile(rf"glaeda-(?:aws-)?(?:root-|side-|gui-|session-|fast-)?(?:xl|std|light)-xcode-{XCODE_VERSION}")
 ROOT_PREFIX = "glaeda-root-"
 SIDE_PREFIX = "glaeda-side-"
 GUI_PREFIX = "glaeda-gui-"
-ROLE_NAMES = ("root", "side", "gui")
+SESSION_PREFIX = "glaeda-session-"
+ROLE_NAMES = ("root", "side", "gui", "session")
 # Capability labels glaeda puts on some runners of an owned pool, requested
 # beside the pool label, never alone. `glaeda-ios-sim`: a mini with an iOS
 # simulator role and an iOS 26.x runtime (ios_runner_pool.py). They are not
@@ -529,6 +532,22 @@ def gui_label(label: str) -> str:
     return _role_label(label, "gui")
 
 
+def session_label(label: str) -> str:
+    """The session runners' label for an owned pool label, or "" for any other label.
+
+    glaeda#1530: a mini's console gui runner carries it beside the gui label,
+    and with `guiRunners` 2 the mini runs a session runner carrying only it,
+    whose gate does not hold for the gui token or the canonical roots. A job
+    that needs a logged-in session but not the console gui token takes it, so
+    it runs beside a console GUI job. Callers take it only while a runner
+    carries it (side_lane_placement.session_route_label(), the tour's slots
+    count), else the gui label.
+    """
+    if not persistent(label) or _role_name(label):
+        return ""
+    return _role_label(label, "session")
+
+
 def _role_label(label: str, role: str) -> str:
     """Insert a role after an optional namespace and before class metadata."""
     parts = label.split("-")
@@ -616,7 +635,7 @@ def pool_label(label: str) -> str:
     if not persistent(label):
         return label
     parts = label.split("-")
-    for role in ("root", "side", "gui"):
+    for role in ROLE_NAMES:
         if role in parts[1:3]:
             parts.remove(role)
             return "-".join(parts)
@@ -994,6 +1013,8 @@ def _slots(raw: str | None, pr_xcode_app: str | None = None) -> tuple[dict[str, 
     #   {"root-std": 10}               a class's root runners, one per mini
     #   {"glaeda-root-std-xcode-26.6": 10}  (root_label()), beside its pool
     #   {"gui-std": 10}                a class's gui runners, one per mini (gui_runner())
+    #   {"session-std": 20}            the runners carrying a class's session label (session_label()),
+    #                                  up to guiRunners per mini, so not bounded by its machines
     #   {"glaeda-ios-sim": 2}          a capability label (capability_slots()), no pool
     text = (raw or "").strip()
     if not text:
@@ -1033,7 +1054,7 @@ def _slots(raw: str | None, pr_xcode_app: str | None = None) -> tuple[dict[str, 
                                 "names no Xcode version to pair it with")
         else:
             problems.append(f"{SLOTS_VARIABLE} entry {label!r} is not an owned pool label "
-                            "(glaeda-[root-|gui-]<class>-xcode-<version>) or class (std, light, xl, root-std, gui-std, ...)")
+                            "(glaeda-[root-|gui-|session-]<class>-xcode-<version>) or class (std, light, xl, root-std, gui-std, ...)")
     # A full label is more specific than its class, so it wins.
     counted = {**by_class, **counted}
     for label, count in list(counted.items()):

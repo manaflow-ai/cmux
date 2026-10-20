@@ -127,6 +127,9 @@ pub(super) async fn check(
         return Err(super::conn_auth::refused());
     }
     let web = origin.web_class();
+    if m == method::SESSION_CANCEL && web {
+        check_cancel_ownership(hub, params)?;
+    }
     // A per-session env is set over the unix socket only (session_env.rs).
     if matches!(m, method::SESSION_NEW | method::SESSION_FORK)
         && crate::session_env::present(params.pointer("/_meta/acpmux"))
@@ -278,6 +281,30 @@ pub(super) async fn check(
         web_starts_asking(hub, control_of(origin, auth, params), m, params).await?;
     }
     Ok(())
+}
+
+/// A remote connection may stop only a session that was created by a remote
+/// origin. Local-origin sessions belong to the person at this daemon, even
+/// when a Web/Peer caller can resolve their id.
+fn check_cancel_ownership(
+    hub: &std::sync::Arc<crate::hub::Hub>,
+    params: &Value,
+) -> Result<(), RpcError> {
+    let key = super::session_key(params)?;
+    match hub.resolve(key) {
+        Ok(session) if session.meta().remote_origin => Ok(()),
+        Ok(_) => Err(
+            RpcError::invalid_params(
+                "session/cancel is refused for a local-origin session; only its local owner may cancel it",
+            )
+            .with_data(serde_json::json!({"reason": "remote.session_cancel_ownership"})),
+        ),
+        Err(_) if hub.resolve_remote(key).is_some() => Ok(()),
+        Err(e) => Err(RpcError::invalid_params(format!(
+            "session/cancel from a remote WebSocket connection is refused: the session cannot be resolved ({})",
+            e.message
+        ))),
+    }
 }
 
 /// The asking modes for `family`: the merged table (`web_modes.rs`).
@@ -468,6 +495,7 @@ async fn web_starts_asking(
     let controls = matches!(
         m,
         method::SESSION_PROMPT
+            | method::SESSION_CANCEL
             | method::MUX_QUEUE_EDIT
             | method::MUX_PERMISSION_RESPOND
             | method::MUX_PERMISSION_GROUP_RESPOND

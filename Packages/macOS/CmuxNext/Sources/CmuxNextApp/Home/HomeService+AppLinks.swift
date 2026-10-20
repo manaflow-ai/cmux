@@ -26,6 +26,7 @@ extension HomeService {
             Task { @MainActor [weak self] in
                 guard let self, self.homeOpened else { return }
                 self.publishAppLinks()
+                self.requests.refresh()
             }
         }
     }

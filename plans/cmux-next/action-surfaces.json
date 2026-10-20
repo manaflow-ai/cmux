@@ -19021,12 +19021,7 @@
 
       ],
       "default_chord" : null,
-      "default_shortcut" : {
-        "key" : "p",
-        "modifiers" : [
-          "cmd"
-        ]
-      },
+      "default_shortcut" : null,
       "id" : "agentPane.searchFiles",
       "main_menu" : null,
       "mcp" : "guiOnly",
@@ -34686,7 +34681,7 @@
       "entries" : [
         {
           "enabled_when" : "can_perform",
-          "id" : "tab.restart",
+          "id" : "newTab.toRight",
           "kind" : "action",
           "order" : 0,
           "visible_when" : {
@@ -34699,7 +34694,7 @@
         },
         {
           "enabled_when" : "can_perform",
-          "id" : "renameTab",
+          "id" : "tabGroup.create",
           "kind" : "action",
           "order" : 1,
           "visible_when" : {
@@ -34712,7 +34707,7 @@
         },
         {
           "enabled_when" : "can_perform",
-          "id" : "palette.toggleTabPin",
+          "id" : "tabGroup.addTab",
           "kind" : "action",
           "order" : 2,
           "visible_when" : {
@@ -34725,9 +34720,26 @@
         },
         {
           "enabled_when" : "can_perform",
-          "id" : "newTab.toRight",
+          "id" : "tabGroup.removeTab",
           "kind" : "action",
           "order" : 3,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+
+            ]
+          }
+        },
+        {
+          "kind" : "separator",
+          "order" : 4
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "reloadTab",
+          "kind" : "action",
+          "order" : 5,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -34740,23 +34752,6 @@
           "enabled_when" : "can_perform",
           "id" : "duplicateTab",
           "kind" : "action",
-          "order" : 4,
-          "visible_when" : {
-            "debug_only" : false,
-            "feature" : null,
-            "requires" : [
-
-            ]
-          }
-        },
-        {
-          "kind" : "separator",
-          "order" : 5
-        },
-        {
-          "enabled_when" : "can_perform",
-          "id" : "tabGroup.create",
-          "kind" : "action",
           "order" : 6,
           "visible_when" : {
             "debug_only" : false,
@@ -34768,7 +34763,7 @@
         },
         {
           "enabled_when" : "can_perform",
-          "id" : "tabGroup.addTab",
+          "id" : "palette.toggleTabPin",
           "kind" : "action",
           "order" : 7,
           "visible_when" : {
@@ -34781,7 +34776,7 @@
         },
         {
           "enabled_when" : "can_perform",
-          "id" : "tabGroup.removeTab",
+          "id" : "toggleTabAudioMute",
           "kind" : "action",
           "order" : 8,
           "visible_when" : {
@@ -34793,11 +34788,20 @@
           }
         },
         {
-          "kind" : "separator",
-          "order" : 9
-        },
-        {
           "children" : [
+            {
+              "enabled_when" : "can_perform",
+              "id" : "tab.restart",
+              "kind" : "action",
+              "order" : 0,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
             {
               "children" : [
                 {
@@ -34842,14 +34846,14 @@
               ],
               "folder" : "new",
               "kind" : "folder",
-              "order" : 0,
+              "order" : 1,
               "title" : "New",
               "title_key" : "menu.folder.new",
               "title_table" : "Localizable"
             },
             {
               "kind" : "separator",
-              "order" : 1
+              "order" : 2
             },
             {
               "children" : [
@@ -34895,20 +34899,33 @@
               ],
               "folder" : "openIn",
               "kind" : "folder",
-              "order" : 2,
+              "order" : 3,
               "title" : "Open In",
               "title_key" : "menu.folder.openIn",
               "title_table" : "Localizable"
             },
             {
               "kind" : "separator",
-              "order" : 3
+              "order" : 4
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "renameTab",
+              "kind" : "action",
+              "order" : 5,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
             },
             {
               "enabled_when" : "can_perform",
               "id" : "browser.resetPinnedTab",
               "kind" : "action",
-              "order" : 4,
+              "order" : 6,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -34921,26 +34938,9 @@
               "children" : [
                 {
                   "enabled_when" : "can_perform",
-                  "id" : "reloadTab",
-                  "kind" : "action",
-                  "order" : 0,
-                  "visible_when" : {
-                    "debug_only" : false,
-                    "feature" : null,
-                    "requires" : [
-
-                    ]
-                  }
-                },
-                {
-                  "kind" : "separator",
-                  "order" : 1
-                },
-                {
-                  "enabled_when" : "can_perform",
                   "id" : "palette.clearTabName",
                   "kind" : "action",
-                  "order" : 2,
+                  "order" : 0,
                   "visible_when" : {
                     "debug_only" : false,
                     "feature" : null,
@@ -34953,20 +34953,7 @@
                   "enabled_when" : "can_perform",
                   "id" : "palette.toggleTabUnread",
                   "kind" : "action",
-                  "order" : 3,
-                  "visible_when" : {
-                    "debug_only" : false,
-                    "feature" : null,
-                    "requires" : [
-
-                    ]
-                  }
-                },
-                {
-                  "enabled_when" : "can_perform",
-                  "id" : "toggleTabAudioMute",
-                  "kind" : "action",
-                  "order" : 4,
+                  "order" : 1,
                   "visible_when" : {
                     "debug_only" : false,
                     "feature" : null,
@@ -35081,7 +35068,7 @@
                   "enabled_when" : "can_perform",
                   "id" : "terminal.setTheme",
                   "kind" : "choices",
-                  "order" : 5,
+                  "order" : 2,
                   "visible_when" : {
                     "debug_only" : false,
                     "feature" : null,
@@ -35095,7 +35082,7 @@
                   "id" : "agentChat.toggleNotificationMute",
                   "kind" : "action",
                   "label" : "Mute\/Unmute Chat Notifications",
-                  "order" : 6,
+                  "order" : 3,
                   "visible_when" : {
                     "debug_only" : false,
                     "feature" : null,
@@ -35108,7 +35095,7 @@
                   "enabled_when" : "can_perform",
                   "id" : "terminal.clearTheme",
                   "kind" : "action",
-                  "order" : 7,
+                  "order" : 4,
                   "visible_when" : {
                     "debug_only" : false,
                     "feature" : null,
@@ -35122,7 +35109,7 @@
                   "id" : "tab.setIcon",
                   "kind" : "action",
                   "label" : "Set Icon…",
-                  "order" : 8,
+                  "order" : 5,
                   "visible_when" : {
                     "debug_only" : false,
                     "feature" : null,
@@ -35136,7 +35123,7 @@
                   "id" : "tab.clearIcon",
                   "kind" : "action",
                   "label" : "Remove Icon",
-                  "order" : 9,
+                  "order" : 6,
                   "visible_when" : {
                     "debug_only" : false,
                     "feature" : null,
@@ -35149,7 +35136,7 @@
                   "enabled_when" : "can_perform",
                   "id" : "terminal.keep",
                   "kind" : "action",
-                  "order" : 10,
+                  "order" : 7,
                   "visible_when" : {
                     "debug_only" : false,
                     "feature" : null,
@@ -35160,13 +35147,13 @@
                 },
                 {
                   "kind" : "separator",
-                  "order" : 11
+                  "order" : 8
                 },
                 {
                   "enabled_when" : "can_perform",
                   "id" : "palette.toggleFullWidthTab",
                   "kind" : "action",
-                  "order" : 12,
+                  "order" : 9,
                   "visible_when" : {
                     "debug_only" : false,
                     "feature" : null,
@@ -35177,13 +35164,13 @@
                 },
                 {
                   "kind" : "separator",
-                  "order" : 13
+                  "order" : 10
                 },
                 {
                   "enabled_when" : "can_perform",
                   "id" : "hibernateTab",
                   "kind" : "action",
-                  "order" : 14,
+                  "order" : 11,
                   "visible_when" : {
                     "debug_only" : false,
                     "feature" : null,
@@ -35196,7 +35183,7 @@
                   "enabled_when" : "can_perform",
                   "id" : "wakeTab",
                   "kind" : "action",
-                  "order" : 15,
+                  "order" : 12,
                   "visible_when" : {
                     "debug_only" : false,
                     "feature" : null,
@@ -35209,7 +35196,7 @@
                   "enabled_when" : "can_perform",
                   "id" : "disconnectRemoteTab",
                   "kind" : "action",
-                  "order" : 16,
+                  "order" : 13,
                   "visible_when" : {
                     "debug_only" : false,
                     "feature" : "remoteHosts",
@@ -35220,13 +35207,13 @@
                 },
                 {
                   "kind" : "separator",
-                  "order" : 17
+                  "order" : 14
                 },
                 {
                   "enabled_when" : "can_perform",
                   "id" : "tab.showResources",
                   "kind" : "action",
-                  "order" : 18,
+                  "order" : 15,
                   "visible_when" : {
                     "debug_only" : false,
                     "feature" : null,
@@ -35238,14 +35225,14 @@
               ],
               "folder" : "options",
               "kind" : "folder",
-              "order" : 5,
+              "order" : 7,
               "title" : "Options",
               "title_key" : "menu.folder.options",
               "title_table" : "Localizable"
             },
             {
               "kind" : "separator",
-              "order" : 6
+              "order" : 8
             },
             {
               "children" : [
@@ -35464,14 +35451,14 @@
               ],
               "folder" : "move",
               "kind" : "folder",
-              "order" : 7,
+              "order" : 9,
               "title" : "Move",
               "title_key" : "menu.folder.move",
               "title_table" : "Localizable"
             },
             {
               "kind" : "separator",
-              "order" : 8
+              "order" : 10
             },
             {
               "children" : [
@@ -35556,81 +35543,71 @@
               ],
               "folder" : "copy",
               "kind" : "folder",
-              "order" : 9,
+              "order" : 11,
               "title" : "Copy",
               "title_key" : "menu.folder.copy",
               "title_table" : "Localizable"
             },
             {
               "kind" : "separator",
-              "order" : 10
+              "order" : 12
             },
             {
-              "children" : [
-                {
-                  "enabled_when" : "can_perform",
-                  "id" : "closeTabsToLeft",
-                  "kind" : "action",
-                  "order" : 0,
-                  "visible_when" : {
-                    "debug_only" : false,
-                    "feature" : null,
-                    "requires" : [
+              "enabled_when" : "can_perform",
+              "id" : "closeTabsToLeft",
+              "kind" : "action",
+              "order" : 13,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
 
-                    ]
-                  }
-                },
-                {
-                  "enabled_when" : "can_perform",
-                  "id" : "closeTabsToRight",
-                  "kind" : "action",
-                  "order" : 1,
-                  "visible_when" : {
-                    "debug_only" : false,
-                    "feature" : null,
-                    "requires" : [
-
-                    ]
-                  }
-                },
-                {
-                  "enabled_when" : "can_perform",
-                  "id" : "closeOtherTabsInPane",
-                  "kind" : "action",
-                  "order" : 2,
-                  "visible_when" : {
-                    "debug_only" : false,
-                    "feature" : null,
-                    "requires" : [
-
-                    ]
-                  }
-                }
-              ],
-              "folder" : "close",
-              "kind" : "folder",
-              "order" : 11,
-              "title" : "Close",
-              "title_key" : "menu.folder.close",
-              "title_table" : "Localizable"
+                ]
+              }
             }
           ],
           "folder" : "more",
           "kind" : "folder",
-          "order" : 10,
+          "order" : 9,
           "title" : "More",
           "title_key" : "menu.folder.more",
           "title_table" : "Localizable"
         },
         {
           "kind" : "separator",
-          "order" : 11
+          "order" : 10
         },
         {
           "enabled_when" : "can_perform",
           "id" : "closeTab",
           "kind" : "action",
+          "order" : 11,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+
+            ]
+          }
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "closeOtherTabsInPane",
+          "kind" : "action",
           "order" : 12,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+
+            ]
+          }
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "closeTabsToRight",
+          "kind" : "action",
+          "order" : 13,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,

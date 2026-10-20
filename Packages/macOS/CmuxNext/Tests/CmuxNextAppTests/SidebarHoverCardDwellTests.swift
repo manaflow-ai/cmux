@@ -85,4 +85,58 @@ import Testing
         if let id = coordinator.machine.shownTarget?.id, shown.last != id { shown.append(id) }
         #expect(shown.isEmpty, "the sweep showed \(shown.count) cards: \(shown)")
     }
+
+    /// Lawrence 2026-10-19: "there's a slight delay from when I mouse over the card for our own
+    /// workspace and then leave it before it disappears. We need it to instantly disappear with
+    /// fade opacity when I mouse out." The card touches its row; the pointer moving from the row
+    /// onto it keeps it, and leaving the row and the card starts the fade at once: no grace timer
+    /// first, and the card is clear within the fade.
+    @Test func leavingTheRowAndTheCardFadesTheCardOutAtOnce() async throws {
+        let clock = ManualClock()
+        let (list, window, coordinator, rows) = Self.sidebar(clock: clock)
+        defer { Self.tearDown(list, window, coordinator) }
+        let row = try #require(rows.first)
+        Self.move(list, to: (row.y + row.maxY) / 2)
+        try await clock.waitForSleeper()
+        clock.advance(by: DesignSettings.shared.hoverCardDelay + .milliseconds(100))
+        try await Self.settle(until: { coordinator.machine.shownTarget != nil })
+        let shown = try #require(coordinator.machine.shownTarget, "resting on the row showed no card")
+        let panel = try #require(coordinator.panel)
+        let card = panel.cardFrame
+
+        // From the row straight onto the card (a pointer move over the card, as the coordinator's move monitor reports it): it stays.
+        coordinator.pointerMoved(to: CGPoint(x: card.minX + 4, y: card.maxY - 4))
+        #expect(coordinator.isShowing(shown.id), "moving from the row onto its card hid it")
+
+        // Off the card to the right, away from the sidebar: the fade starts on this move.
+        coordinator.pointerMoved(to: CGPoint(x: card.maxX + 60, y: card.midY))
+        #expect(coordinator.machine.shownTarget == nil, "the card waited (\(coordinator.machine.phase)) after the pointer left it")
+        #expect(!panel.isShowingCard, "the fade did not start on the move off the card")
+        try await Self.expectClearWithinTheFade(panel)
+
+        // Again, leaving the row itself (not onto the card): the same at once.
+        clock.advance(by: HoverCardTiming.reshowWindow + .milliseconds(100))
+        try await Self.settle()
+        Self.move(list, to: (row.y + row.maxY) / 2)
+        try await clock.waitForSleeper()
+        clock.advance(by: DesignSettings.shared.hoverCardDelay + .milliseconds(100))
+        try await Self.settle(until: { coordinator.machine.shownTarget != nil })
+        try #require(coordinator.machine.shownTarget != nil, "the second rest showed no card")
+        list.updateHover(list.convert(NSPoint(x: list.bounds.midX, y: list.bounds.maxY + 40), to: nil))
+        #expect(coordinator.machine.shownTarget == nil, "the card waited (\(coordinator.machine.phase)) after the pointer left the sidebar")
+        try await Self.expectClearWithinTheFade(panel)
+    }
+
+    /// The card is fully clear (alpha 0, or ordered out) within the fade-out duration, plus
+    /// scheduling slack for a loaded runner.
+    private static func expectClearWithinTheFade(_ panel: HoverCardPanel) async throws {
+        let fade = Motion.duration(.fadeOut)
+        let start = ContinuousClock.now
+        while panel.isVisible, panel.alphaValue > 0.001, ContinuousClock.now - start < .seconds(fade + 1) {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        let took = ContinuousClock.now - start
+        #expect(!panel.isVisible || panel.alphaValue <= 0.001, "the card was still at alpha \(panel.alphaValue)")
+        #expect(took <= .seconds(fade + 0.25), "the fade took \(took), past its \(fade) s")
+    }
 }

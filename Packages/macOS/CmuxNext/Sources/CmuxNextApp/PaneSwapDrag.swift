@@ -25,6 +25,10 @@ final class PaneSwapDrag: NSObject, NSGestureRecognizerDelegate {
         self.swap = swap
         super.init()
         let recognizer = NSPanGestureRecognizer(target: self, action: #selector(pan(_:)))
+        // A press on a tab goes to the strip at once, which selects on mouse-down (u2814): while a
+        // recognizer that delays the primary button is possible, AppKit holds the mouse-down from the
+        // view until the recognizer fails at the release, so every pane tab switched on mouse-up.
+        recognizer.delaysPrimaryMouseButtonEvents = false
         recognizer.delegate = self
         strip.addGestureRecognizer(recognizer)
     }
@@ -58,8 +62,11 @@ final class PaneSwapDrag: NSObject, NSGestureRecognizerDelegate {
     }
 
     func gestureRecognizer(_ recognizer: NSGestureRecognizer, shouldAttemptToRecognizeWith event: NSEvent) -> Bool {
-        if event.type == .leftMouseDown { armed = strip.map { Self.starts(event, on: $0) } ?? false }
-        return true
+        // Only a press that drags the pane (empty strip space) is tried; a press on a tab, chip or +
+        // is the strip's alone.
+        guard event.type == .leftMouseDown else { return true }
+        armed = strip.map { Self.starts(event, on: $0) } ?? false
+        return armed
     }
 
     func gestureRecognizerShouldBegin(_ recognizer: NSGestureRecognizer) -> Bool { armed }

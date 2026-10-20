@@ -12,6 +12,7 @@ so it can never mask the Swift god-type check.
 from __future__ import annotations
 
 import fnmatch
+import json
 import os
 import re
 import subprocess
@@ -23,6 +24,7 @@ from pathlib import Path
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 WORKFLOW = ROOT / ".github/workflows/cmux-next.yml"
 ARTIFACTS_WORKFLOW = WORKFLOW.parent / "cmux-tui-artifacts.yml"
 TREE_JOBS = ("daemon-test", "cmux-scheme-compile")
@@ -541,10 +543,11 @@ class PathRoutingStructure(unittest.TestCase):
         text = WORKFLOW.read_text(encoding="utf-8")
         stale = "(github.run_attempt <= 3 || github.triggering_actor != 'github-actions[bot]') && needs.macos-placement.outputs."
         self.assertNotIn(stale, text)
-        self.assertEqual(
-            text.count("(github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && needs.macos-placement.outputs."),
-            13,
-        )
+        guard = "(github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && "
+        # The session-only jobs read `(session_runner || gui_runner)`, the rest one output.
+        self.assertEqual(text.count(guard + "needs.macos-placement.outputs."), 9)
+        self.assertEqual(text.count(guard + "(needs.macos-placement.outputs.session_runner || "
+                                    "needs.macos-placement.outputs.gui_runner)"), 4)
         self.assertIn("bot attempt 3 is the measured Blacksmith overflow", text)
         self.assertIn("bot attempt 3\n# drops the stale placement output and takes the Blacksmith fallback", text)
 
@@ -923,36 +926,6 @@ class FastTierBuildsLibghosttyVt(unittest.TestCase):
                     if "scripts/ci/init-submodule.sh ghostty-next" in step.get("run", ""))
         self.assertIn("scripts/ci/init-submodule.sh ghostty-next", init["run"])
 
-    def test_fast_tier_restores_shared_build_caches_and_only_seeds_on_push(self):
-        job = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["fast-tier"]
-        steps = job["steps"]
-        restores = [step for step in steps if "cache-restore" in str(step.get("uses", ""))]
-        saves = [step for step in steps if "cache-save" in str(step.get("uses", ""))]
-        self.assertEqual(len(restores), 3)
-        self.assertEqual(len(saves), 3)
-        self.assertTrue(any("Packages/Shared/CmuxHomeRender/.build" in str(step.get("with", {}).get("path", ""))
-                            for step in restores))
-        self.assertTrue(any("cmux-tui/target" in str(step.get("with", {}).get("path", ""))
-                            for step in restores))
-        for step in restores + saves:
-            self.assertIn(step.get("with", {}).get("backend"), ("r2", "${{ vars.CI_CACHE_BACKEND || 'r2' }}"))
-        cargo_steps = [step for step in steps if "Cargo fast-tier cache" in step.get("name", "")]
-        for step in cargo_steps:
-            self.assertIn("!contains(runner.name, '-glaeda')", step.get("if", ""))
-        for save in saves:
-            self.assertIn("github.event_name == 'push'", save.get("if", ""))
-            self.assertIn("refs/heads/feat-cmux-next", save.get("if", ""))
-
-    def test_every_fast_tier_cache_step_names_one_directory(self):
-        """scripts/ci/r2-cache.sh takes one directory per call and exits 2 on a multi-line path,
-        so a two-directory cache step never restored or saved anything on the r2 backend."""
-        job = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["fast-tier"]
-        for step in job["steps"]:
-            uses = str(step.get("uses", ""))
-            if "cache-restore" in uses or "cache-save" in uses:
-                path = str(step.get("with", {}).get("path", "")).strip()
-                self.assertNotIn("\n", path, step.get("name"))
-
     def test_fast_tier_emits_a_json_timing_receipt(self):
         job = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["fast-tier"]
         run = next(step for step in job["steps"] if "scripts/cmux-next/fast-tier.py" in step.get("run", ""))
@@ -980,6 +953,238 @@ class FastTierBuildsLibghosttyVt(unittest.TestCase):
         self.assertEqual(len(reuse), 1)
         self.assertIn("--reuse ghostty-next", reuse[0]["run"])
         self.assertNotIn("--all", reuse[0]["run"])
+
+
+SEED_WORKFLOW = WORKFLOW.parent / "cmux-next-fast-tier-seed.yml"
+CACHE_KEY_SCRIPT = ROOT / "scripts/cmux-next/fast-tier-cache-key.sh"
+SEED_DUE_SCRIPT = ROOT / "scripts/cmux-next/fast-tier-seed-due.py"
+FAST_TIER_SCRIPT = ROOT / "scripts/cmux-next/fast-tier.py"
+FAST_CACHE_DIRS = {"swift": "Packages/macOS/CmuxNext/.build", "home": "Packages/Shared/CmuxHomeRender/.build",
+                   "cargo": "cmux-tui/target"}
+FAST_CACHE_MANIFEST = "Packages/macOS/CmuxNext/.build/cmux-fast-tier-input-mtimes.json"
+NEXT_BUCKET = "cmux-ci-cache-next"
+NEXT_PUBLIC_URL = "https://ci-cache-next.cmux.com"
+NEXT_WRITER = "${{ github.ref == 'refs/heads/feat-cmux-next' && 'next-cache-writer' || '' }}"
+
+
+def is_cache_restore(step: dict) -> bool:
+    uses = str(step.get("uses", ""))
+    return "cache-restore" in uses or uses.startswith("actions/cache/restore@")
+
+
+def is_cache_save(step: dict) -> bool:
+    uses = str(step.get("uses", ""))
+    return "cache-save" in uses or uses.startswith("actions/cache/save@") or uses.startswith("actions/cache@")
+
+
+def index_of(steps: list[dict], predicate) -> int:
+    return next(i for i, step in enumerate(steps) if predicate(step))
+
+
+class FastTierStartsWarm(unittest.TestCase):
+    """The fast tier restores the build a feat-cmux-next push seeded into NEXT's own R2 bucket.
+
+    The old R2 saves needed main's ci-cache-writer environment, so nothing was ever saved
+    and every Blacksmith fast tier built cold (~6.5 of 7 min). NEXT now writes
+    cmux-ci-cache-next through next-cache-writer (feat-cmux-next only), and pull requests
+    read its public URL with no credential.
+    """
+
+    def fast_tier(self) -> dict:
+        return yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["fast-tier"]
+
+    def seed(self) -> dict:
+        self.assertTrue(SEED_WORKFLOW.is_file(), "the seed workflow exists")
+        return yaml.safe_load(SEED_WORKFLOW.read_text(encoding="utf-8"))
+
+    def test_fast_tier_reads_next_bucket_publicly_and_never_saves(self):
+        job = self.fast_tier()
+        steps = job["steps"]
+        restores = [s for s in steps if is_cache_restore(s)]
+        self.assertEqual(sorted(cache["with"]["path"] for cache in restores), sorted(FAST_CACHE_DIRS.values()))
+        key_step = steps[index_of(steps, lambda s: "scripts/cmux-next/fast-tier-cache-key.sh" in s.get("run", ""))]
+        for restore in restores:
+            with self.subTest(restore=restore["name"]):
+                self.assertEqual(restore["with"]["backend"], "r2")
+                self.assertEqual(restore.get("env", {}).get("CI_CACHE_R2_PUBLIC_URL"), NEXT_PUBLIC_URL)
+                self.assertIs(restore.get("continue-on-error"), True)
+        self.assertIn("!contains(runner.name, '-glaeda')", key_step.get("if", ""))
+        self.assertEqual([s.get("name") for s in steps if is_cache_save(s)], [])
+        self.assertNotIn("secrets.", yaml.safe_dump(job))
+        self.assertNotIn("ci-cache-writer", str(job.get("environment", "")).replace("github.ref == 'refs/heads/main' && 'ci-cache-writer'", ""))
+
+    def test_fast_tier_takes_every_directory_from_one_seed(self):
+        """Only the swift build is restored by prefix. The others take that seed's exact
+        commit, so a directory from another seed never meets this seed's manifest."""
+        steps = self.fast_tier()["steps"]
+        key_id = steps[index_of(steps, lambda s: "scripts/cmux-next/fast-tier-cache-key.sh" in s.get("run", ""))]["id"]
+        by_path = {s["with"]["path"]: s for s in steps if is_cache_restore(s)}
+        swift = by_path[FAST_CACHE_DIRS["swift"]]
+        self.assertEqual(swift["with"]["key"], "${{ steps.%s.outputs.swift-key }}" % key_id)
+        self.assertEqual(swift["with"]["restore-keys"], "${{ steps.%s.outputs.swift-prefix }}" % key_id)
+        seed = steps[index_of(steps, lambda s: "cache-matched-key" in json.dumps(s.get("env", {})) and "commit=" in s.get("run", ""))]
+        for name in ("home", "cargo"):
+            with self.subTest(name=name):
+                step = by_path[FAST_CACHE_DIRS[name]]
+                self.assertEqual(step["with"]["key"], "${{ steps.%s.outputs.%s-prefix }}${{ steps.%s.outputs.commit }}" % (key_id, name, seed["id"]))
+                self.assertFalse(step["with"].get("restore-keys"), "an exact key, never a prefix")
+                self.assertIn("steps.%s.outputs.commit != ''" % seed["id"], step.get("if", ""))
+        # The commit is the matched key minus the swift prefix.
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "out"
+            env = dict(os.environ, GITHUB_OUTPUT=str(out), MATCHED="cmux-next-fast-v2-swift-macOS-a-b-c-0123abc", PREFIX="cmux-next-fast-v2-swift-macOS-a-b-c-")
+            subprocess.run(["bash", "-c", seed["run"]], env=env, check=True)
+            self.assertEqual(out.read_text().strip(), "commit=0123abc")
+
+    def test_fast_tier_replays_the_seed_input_times_before_building(self):
+        steps = self.fast_tier()["steps"]
+        names = [s.get("name") for s in steps]
+        last_restore = max(i for i, s in enumerate(steps) if is_cache_restore(s))
+        replay = index_of(steps, lambda s: "e2e_warm_derived_data.py replay" in s.get("run", ""))
+        tier = index_of(steps, lambda s: "scripts/cmux-next/fast-tier.py" in s.get("run", ""))
+        ghostty = index_of(steps, lambda s: "init-submodule.sh ghostty-next" in s.get("run", ""))
+        self.assertLess(last_restore, replay, names)
+        self.assertLess(ghostty, replay, "replay sees the same submodule files the seed recorded")
+        self.assertLess(replay, tier, names)
+        self.assertIn(FAST_CACHE_MANIFEST, steps[replay]["run"])
+        self.assertIn(".outputs.commit != ''", steps[replay].get("if", ""))
+        self.assertIs(steps[replay].get("continue-on-error"), True)
+        self.assertIn("CMUX_FAST_CACHE_MATCHED_KEY", steps[tier].get("env", {}))
+
+    def test_seed_writes_only_next_bucket_from_feat_cmux_next_pushes(self):
+        seed = self.seed()
+        triggers = seed.get("on", seed.get(True))
+        self.assertEqual(set(triggers), {"push"}, "no pull_request, pull_request_target or dispatch")
+        self.assertEqual(triggers["push"]["branches"], ["feat-cmux-next"])
+        self.assertEqual(seed["env"]["CI_CACHE_R2_BUCKET"], NEXT_BUCKET)
+        self.assertEqual(seed["env"]["CI_CACHE_R2_PUBLIC_URL"], NEXT_PUBLIC_URL)
+        text = SEED_WORKFLOW.read_text(encoding="utf-8")
+        self.assertNotIn("vars.CI_CACHE_R2_BUCKET", text)
+        self.assertNotIn("ci-cache-writer", text.replace("next-cache-writer", ""))
+        for name, job in seed["jobs"].items():
+            with self.subTest(job=name):
+                self.assertIn("github.repository == 'manaflow-ai/cmux'", job.get("if", ""))
+                self.assertIn("github.ref == 'refs/heads/feat-cmux-next'", job.get("if", ""))
+                self.assertEqual(job.get("environment"), NEXT_WRITER)
+        self.assertFalse(seed.get("concurrency", {}).get("cancel-in-progress", True),
+                         "a running seed finishes; a newer push only replaces the pending one")
+
+    def test_seed_saves_what_the_fast_tier_restores(self):
+        build = self.seed()["jobs"]["seed"]
+        steps = build["steps"]
+        saves = [s for s in steps if is_cache_save(s)]
+        key_id = steps[index_of(steps, lambda s: "scripts/cmux-next/fast-tier-cache-key.sh" in s.get("run", ""))]["id"]
+        self.assertEqual([s["with"]["path"] for s in saves],
+                         [FAST_CACHE_DIRS["home"], FAST_CACHE_DIRS["cargo"], FAST_CACHE_DIRS["swift"]],
+                         "the swift archive, whose pointer readers follow, goes last")
+        for name, save in zip(("home", "cargo", "swift"), saves):
+            with self.subTest(name=name):
+                self.assertEqual(save["with"]["key"], "${{ steps.%s.outputs.%s-key }}" % (key_id, name))
+                self.assertEqual(save["with"]["backend"], "r2")
+                self.assertIn("github.ref == 'refs/heads/feat-cmux-next'", save.get("if", ""))
+                self.assertIn("github.event_name == 'push'", save.get("if", ""))
+        record = index_of(steps, lambda s: "e2e_warm_derived_data.py record" in s.get("run", ""))
+        tier = index_of(steps, lambda s: "scripts/cmux-next/fast-tier.py" in s.get("run", ""))
+        ghostty = index_of(steps, lambda s: "init-submodule.sh ghostty-next" in s.get("run", ""))
+        self.assertLess(ghostty, record)
+        self.assertLess(record, tier)
+        self.assertLess(tier, steps.index(saves[0]))
+        self.assertIn(FAST_CACHE_MANIFEST, steps[record]["run"])
+        self.assertIn("'blacksmith-12vcpu-macos-26'", str(build["runs-on"]))
+        self.assertIn("needs.due.outputs.due == 'true'", build.get("if", ""))
+
+    def test_seed_key_matches_the_fast_tier_key_for_one_tree(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp) / "repo"
+            (repo / "Packages/macOS/A").mkdir(parents=True)
+            (repo / "cmux-tui").mkdir()
+            (repo / "scripts/ci").mkdir(parents=True)
+            (repo / "Packages/macOS/A/Package.swift").write_text("// swift-tools-version:6.0\n")
+            (repo / "Packages/macOS/A/Package.resolved").write_text("{}\n")
+            (repo / "Packages/macOS/A/Source.swift").write_text("let a = 1\n")
+            (repo / "cmux-tui/Cargo.lock").write_text("version = 4\n")
+            (repo / "scripts/ci/swiftpm-cache-layout").write_text("2\n")
+            git = lambda *args: subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True, text=True).stdout.strip()
+            commit = lambda message, *paths: (paths and git("add", *paths), git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", message))
+            git("init", "-q")
+            git("add", ".")
+            git("update-index", "--add", "--cacheinfo", "160000,1111111111111111111111111111111111111111,ghostty-next")
+            commit("base")
+
+            def keys(**overrides) -> dict[str, str]:
+                env = {k: v for k, v in os.environ.items() if not k.startswith(("GITHUB_", "RUNNER_", "CMUX_FAST_CACHE_"))}
+                env.update({"CMUX_FAST_CACHE_XCODE_VERSION": "Xcode 26.6\nBuild version 17F1",
+                            "CMUX_FAST_CACHE_RUST_VERSION": "rustc 1.95.0", "GITHUB_WORKSPACE": "/Users/runner/_work/cmux/cmux",
+                            "RUNNER_OS": "macOS", "RUNNER_ARCH": "ARM64", "GITHUB_SHA": "abc123"})
+                env.update(overrides)
+                out = subprocess.run(["bash", str(CACHE_KEY_SCRIPT), str(repo)], env=env, check=True, capture_output=True, text=True).stdout
+                return dict(line.split("=", 1) for line in out.splitlines())
+
+            base = keys()
+            self.assertEqual(sorted(base), sorted(f"{d}-{kind}" for d in FAST_CACHE_DIRS for kind in ("prefix", "key")))
+            stems = set()
+            for name in FAST_CACHE_DIRS:
+                self.assertTrue(base[f"{name}-prefix"].startswith(f"cmux-next-fast-v2-{name}-macOS-ARM64-"), base)
+                self.assertEqual(base[f"{name}-key"], base[f"{name}-prefix"] + "abc123")
+                self.assertRegex(base[f"{name}-key"], r"^[A-Za-z0-9._-]+$", "r2-cache.sh's key alphabet")
+                stems.add(base[f"{name}-prefix"].removeprefix(f"cmux-next-fast-v2-{name}-"))
+            self.assertEqual(len(stems), 1, "one stem: home and cargo keys follow the swift seed's commit")
+            prefix = base["swift-prefix"]
+            self.assertEqual(keys(GITHUB_SHA="def456")["swift-prefix"], prefix, "a newer commit is a fallback, not a miss")
+            for change in ({"CMUX_FAST_CACHE_XCODE_VERSION": "Xcode 26.7"}, {"CMUX_FAST_CACHE_RUST_VERSION": "rustc 1.96.0"},
+                           {"GITHUB_WORKSPACE": "/Users/runner/work/cmux/cmux"}):
+                with self.subTest(change=change):
+                    self.assertNotEqual(keys(**change)["swift-prefix"], prefix)
+            (repo / "Packages/macOS/A/Source.swift").write_text("let a = 2\n")
+            commit("source", "Packages/macOS/A/Source.swift")
+            self.assertEqual(keys()["swift-prefix"], prefix, "a source edit reuses the seed; replay rebuilds what changed")
+            for path, text in (("Packages/macOS/A/Package.resolved", "{\"pins\": []}\n"), ("cmux-tui/Cargo.lock", "version = 5\n")):
+                with self.subTest(path=path):
+                    before = keys()["swift-prefix"]
+                    (repo / path).write_text(text)
+                    commit(path, path)
+                    self.assertNotEqual(keys()["swift-prefix"], before)
+            before = keys()["swift-prefix"]
+            git("update-index", "--cacheinfo", "160000,2222222222222222222222222222222222222222,ghostty-next")
+            commit("ghostty")
+            self.assertNotEqual(keys()["swift-prefix"], before)
+
+    def test_seed_is_due_only_when_the_newest_seed_is_old(self):
+        def due(objects: list[dict], now: str = "2026-10-19T22:00:00Z") -> str:
+            with tempfile.TemporaryDirectory() as tmp:
+                listing = Path(tmp) / "objects.json"
+                listing.write_text(json.dumps(objects))
+                return subprocess.run([sys.executable, "-I", str(SEED_DUE_SCRIPT), "--minutes", "30", "--now", now,
+                                       "--listing", str(listing)], check=True, capture_output=True, text=True).stdout.strip()
+
+        swift = lambda modified, name="cmux-next-fast-v2-swift-macOS-ARM64-a-b-c-abc": {
+            "key": f"v1/macOS-ARM64/objects/{name}.tar.zst", "last_modified": modified}
+        self.assertEqual(due([]), "due=true")
+        self.assertEqual(due([swift("2026-10-19T21:45:00.000Z")]), "due=false")
+        self.assertEqual(due([swift("2026-10-19T21:20:00.000Z")]), "due=true")
+        self.assertEqual(due([swift("2026-10-19T21:20:00.000Z"), swift("2026-10-19T21:50:00.000Z")]), "due=false")
+        self.assertEqual(due([swift("2026-10-19T21:59:00.000Z", name="cmux-next-fast-v2-cargo-macOS-ARM64-a-b-c-abc")]), "due=true",
+                         "the swift archive is written last; only it marks a finished seed")
+        self.assertEqual(due([{"key": "v1/macOS-ARM64/latest/cmux-next-fast-v2-swift-", "last_modified": "2026-10-19T21:59:00.000Z"}]),
+                         "due=true", "pointers are not archives")
+
+    def test_receipt_names_the_seed_a_prefix_restore_picked(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "bin").mkdir()
+            (root / "bin/pass.sh").write_text("exit 0\n")
+            (root / "registry.json").write_text(json.dumps({"entries": [
+                {"name": "pass", "kind": "script", "path": "bin/pass.sh", "args": [], "owner": "op-test", "bead": "cx-test"}]}))
+            (root / "quarantine.json").write_text('{"entries": []}')
+            receipt = root / "receipt.json"
+            env = dict(os.environ, CMUX_FAST_SWIFT_CACHE_KEY="cmux-next-fast-v2-swift-x-new", CMUX_FAST_SWIFT_CACHE_HIT="false",
+                       CMUX_FAST_CACHE_MATCHED_KEY="cmux-next-fast-v2-swift-x-old")
+            subprocess.run([sys.executable, "-I", str(FAST_TIER_SCRIPT), "--root", str(root), "--registry", str(root / "registry.json"),
+                            "--quarantine", str(root / "quarantine.json"), "--receipt", str(receipt)],
+                           env=env, check=True, capture_output=True, text=True)
+            cache = json.loads(receipt.read_text())["cache"]
+            self.assertEqual(cache["matched_key"], "cmux-next-fast-v2-swift-x-old")
+            self.assertFalse(cache["swift"]["exact_hit"])
 
 
 class FastTierTriggers(unittest.TestCase):
@@ -1042,11 +1247,18 @@ FAST_LANE_CLAUSE = (
 # The fast tier's runs-on before CI_FAST_LANE_RUNNER: with the variable unset it must route exactly so.
 FAST_TIER_RUNNER_WITHOUT_FAST_LANE = (
     "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || " + FAST_TIER_FORK_CLAUSE
-    + "(github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && needs.macos-placement.outputs.runner || "
+    # next_macos_cascade.py: a free Blacksmith slot (12 vCPU, then 6) the placement found.
+    + "(github.run_attempt == 1 || github.run_attempt == 2 && github.triggering_actor == 'github-actions[bot]') "
+    "&& contains(needs.macos-placement.outputs.blacksmith_12_jobs, ' fast-tier ') "
+    "&& 'blacksmith-12vcpu-macos-26' || "
+    "(github.run_attempt == 1 || github.run_attempt == 2 && github.triggering_actor == 'github-actions[bot]') "
+    "&& contains(needs.macos-placement.outputs.blacksmith_6_jobs, ' fast-tier ') "
+    "&& 'blacksmith-6vcpu-macos-26' || "
+    "(github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && needs.macos-placement.outputs.runner || "
     "github.repository_owner != 'manaflow-ai' && 'macos-26' || (" + FAST_TIER_FORK_CLAUSE
     + "vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('[\"pull_request\",\"push\",\"workflow_dispatch\"]'), github.event_name) "
     "&& (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && vars.CI_SIDE_LANE_RUNNER || "
-    "vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}"
+    "needs.macos-placement.outputs.retry_runner || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}"
 )
 
 
@@ -1064,6 +1276,123 @@ class FastTierRunner(unittest.TestCase):
         # No env value mirrors runs-on with the old route.
         for value in (job.get("env") or {}).values():
             self.assertNotIn("CI_SIDE_LANE_RUNNER", str(value))
+
+
+class _UnsetIsEmpty(dict):
+    def __missing__(self, key):
+        return ""
+
+
+def evaluate(expression: str, context: dict):
+    """Evaluate a job `if:` or `runs-on:` against literal context values.
+
+    Covers the subset of GitHub's expression syntax this workflow uses: `&&`, `||`, `!`,
+    `==`, `!=`, `<=`, contains(), startsWith(), fromJSON() and `!cancelled()` (true: the
+    run was not cancelled). A context name the test does not set reads as '' (unset).
+    """
+    text = expression.strip()
+    if text.startswith("${{"):
+        text = text[3:].rsplit("}}", 1)[0]
+    text = text.replace("!cancelled()", "True")
+    text = re.sub(r"\b(?:github|needs|inputs|vars)\.[A-Za-z0-9_.*-]+",
+                  lambda match: f"_ctx[{match.group(0)!r}]", text)
+    text = text.replace("&&", " and ").replace("||", " or ")
+    text = re.sub(r"!(?!=)", " not ", text)
+    text = re.sub(r"(?<!')\btrue\b(?!')", "True", text)
+    names = {
+        "_ctx": _UnsetIsEmpty(context),
+        "contains": lambda haystack, needle: needle in haystack,
+        "startsWith": lambda value, prefix: str(value).startswith(prefix),
+        "fromJSON": json.loads,
+    }
+    return eval(text, {"__builtins__": {}}, names)  # noqa: S307 - this repository's workflow, not input
+
+
+class ReleaseCompileOnCmuxNextSwiftPullRequests(unittest.TestCase):
+    """A PR that changes any CmuxNext package Swift file runs the Release compile; a web-only PR does not.
+
+    #20543 left ordinary PRs only the Debug fast tier. A Release-only swift-frontend crash
+    (EarlyPerfInliner on a main-actor generic class's isolated deinit, cx-ebm.59.5,
+    PageCallDeadline.Once) then reached feat-cmux-next through a PR that changed CmuxNext
+    Swift sources: Debug `swift build` cannot see an optimizer crash. Fixed in #20876.
+    """
+
+    def job(self) -> dict:
+        return yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["release-compile"]
+
+    def context(self, changed: list[str], *, event: str = "pull_request", labels: tuple[str, ...] = ()) -> dict:
+        from cmux_next_route import outputs, route
+
+        routed = outputs(route(ROOT, event, changed, set(labels)))
+        context = {f"needs.path_route.outputs.{key}": value for key, value in routed.items()}
+        context.update({
+            "github.event_name": event,
+            "github.ref": "refs/pull/1/merge" if event == "pull_request" else "refs/heads/feat-cmux-next",
+            "github.repository": "manaflow-ai/cmux",
+            "github.repository_owner": "manaflow-ai",
+            "github.event.pull_request.head.repo.full_name": "manaflow-ai/cmux",
+            "github.event.pull_request.labels.*.name": list(labels),
+            "github.run_attempt": 1,
+            "github.triggering_actor": "someone",
+            "needs.push-head-preflight.outputs.current": "true",
+            # An ordinary PR skips macos-placement (full-ci gated), so its outputs are empty.
+            "needs.macos-placement.outputs.runner": "",
+            "vars.CI_PR_POOL_OWNED": "1",
+            "vars.CI_SIDE_LANE_RUNNER": "shared-side-route",
+            "vars.CI_NEXT_PROMOTE_POOL": "reserved-promotion-runner",
+            "vars.MACOS_RUNNER_26": "hosted-macos",
+        })
+        return context
+
+    def runs(self, context: dict) -> bool:
+        return bool(evaluate(self.job()["if"], context))
+
+    def test_a_cmuxnext_swift_pr_runs_the_release_compile_on_the_shared_route(self):
+        context = self.context(["Packages/macOS/CmuxNext/Sources/CmuxNextApp/WorkspaceSpawn.swift"])
+        self.assertEqual(context["needs.path_route.outputs.cmuxnext_swift"], "true")
+        self.assertTrue(self.runs(context))
+        # Never the reserved promotion runner on a PR, with macos-placement skipped.
+        self.assertEqual(evaluate(self.job()["runs-on"], context), "shared-side-route")
+        self.assertEqual(evaluate(self.job()["env"]["CMUX_NEXT_RUNNER"], context), "shared-side-route")
+
+    def test_the_cx_ebm_59_5_file_mix_runs_the_release_compile(self):
+        # 67ab9281307a: two CmuxNext Sources files and a proof script. The script made
+        # swift_canary false, so a swift_canary gate would not have run this job.
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        self.assertEqual(jobs["path_route"]["outputs"].get("cmuxnext_swift"),
+                         "${{ steps.route.outputs.cmuxnext_swift }}")
+        for changed in (
+            ["Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/ChiefProfilePageRelay.swift",
+             "Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/PageCallDeadline.swift",
+             "scripts/cmux-next/chief-create-click-proof.py"],
+            ["Packages/macOS/CmuxNext/Sources/CmuxNextApp/WorkspaceSpawn.swift",
+             "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/WorkspaceSpawnFirstTabTests.swift"],
+        ):
+            with self.subTest(changed=changed):
+                context = self.context(changed)
+                self.assertEqual(context["needs.path_route.outputs.swift_canary"], "false")
+                self.assertEqual(context["needs.path_route.outputs.cmuxnext_swift"], "true")
+                self.assertTrue(self.runs(context))
+                self.assertEqual(evaluate(self.job()["runs-on"], context), "shared-side-route")
+
+    def test_a_web_only_pr_skips_the_release_compile(self):
+        for changed in (["web/app/page.tsx"], ["webviews/src/app/Thing.tsx"]):
+            with self.subTest(changed=changed):
+                context = self.context(changed)
+                self.assertEqual(context["needs.path_route.outputs.cmuxnext_swift"], "false")
+                self.assertFalse(self.runs(context))
+
+    def test_a_native_pr_without_cmuxnext_swift_keeps_the_full_ci_cadence(self):
+        context = self.context(["App/Info.plist"])
+        self.assertEqual(context["needs.path_route.outputs.native"], "true")
+        self.assertEqual(context["needs.path_route.outputs.cmuxnext_swift"], "false")
+        self.assertFalse(self.runs(context))
+        self.assertTrue(self.runs(self.context(["App/Info.plist"], labels=("full-ci",))))
+
+    def test_base_pushes_still_run_it_on_the_promotion_runner(self):
+        context = self.context([], event="push")
+        self.assertTrue(self.runs(context))
+        self.assertEqual(evaluate(self.job()["runs-on"], context), "reserved-promotion-runner")
 
 if __name__ == "__main__":
     unittest.main()
