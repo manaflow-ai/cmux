@@ -27,8 +27,17 @@ Variants:
   update  what Sparkle does before it relaunches into an update
           (`debug.updater {action: "relaunch"}`: the updater's relaunch hook, then terminate);
   crash   the app's exact pid is killed (SIGKILL), so none of its quit path runs;
-  daemon  the app keeps running and its cmux-tui daemon is killed (SIGKILL), as a daemon crash:
-          the app must start a new one, reconnect and re-attach every view by itself, no input;
+  daemon  the app keeps running and its cmux-tui daemon is killed (SIGKILL) while an agent chat
+          turn is in flight, as a daemon crash: the app must start a new one, reconnect and
+          re-attach every view by itself, no input. Rows give the seconds from the kill to a new
+          daemon, to the app connected to it and to restore settled; the UI, sampled every
+          250 ms meanwhile, must show the designed recovery state (`debug.daemon`,
+          `debug.surfaces`: each window its workspace or the connecting view, no blank pane, every
+          shown terminal connected, restoring or reconnecting), and the turn must finish;
+  daemon-stop  the daemon is frozen (SIGSTOP) instead, as a wedged owner: the app must notice
+          (its heartbeat), offer Restart cmux-tui, and Restart (`debug.daemon {action: restart}`,
+          the button's path after its confirm) must bring a new daemon and every view back. The
+          stopped process is ended at the end if it is still there;
   reboot  the quit path, then every process the app's bundle started is killed with all its
           children (daemon, terminal hosts and their programs, acpmux, agent hosts), as a
           reboot or logout ends them. Running programs cannot come back (their rows are n/a);
@@ -100,9 +109,10 @@ import build_names  # noqa: E402  (next to this script; restore-journey-slot.sh 
 HERE = os.path.dirname(os.path.abspath(__file__))
 parser = argparse.ArgumentParser()
 parser.add_argument("--socket", required=True, help="the app's control socket")
-parser.add_argument("--variants", default="quit,update,crash")
+parser.add_argument("--variants", default=None, help="comma list (default quit,update,crash)")
 parser.add_argument("--continuity", action="store_true",
-                    help="the session continuity gate: --variants quit,crash,daemon,reboot with only the agent parts "
+                    help="the session continuity gate: --variants quit,crash,daemon,daemon-stop,reboot (or the --variants "
+                         "given) with only the agent parts "
                          "(--skip web,w2,cloud,split) and one session per kind, so it fits one capture-slot lease")
 parser.add_argument("--out", default="/tmp/restore-journey")
 parser.add_argument("--fake-agent", default=os.path.join(HERE, "../../cmux-tui/crates/acpmux/tests/fake_agent.py"))
@@ -126,7 +136,9 @@ parser.add_argument("--allow-non-slot", action="store_true",
                     help="drive a tagged DEV build that is not in a capture slot (it closes rj-* workspaces, quits and relaunches it)")
 opts = parser.parse_args()
 if opts.continuity:
-    opts.variants, opts.skip, opts.agents_per_kind = "quit,crash,daemon,reboot", "web,w2,cloud,split", 1
+    opts.variants = opts.variants or "quit,crash,daemon,daemon-stop,reboot"
+    opts.skip, opts.agents_per_kind = "web,w2,cloud,split", 1
+opts.variants = opts.variants or "quit,update,crash"
 os.makedirs(opts.out, exist_ok=True)
 SKIP = {s.strip() for s in opts.skip.split(",") if s.strip()}
 AGENTS_N = max(1, opts.agents_per_kind)
@@ -278,6 +290,19 @@ class App:
                 except OSError:
                     pass
             RESULTS.append(("daemon: the app's daemon is found and killed", bool(pids), f"pids {pids}", "app quit"))
+            return bool(pids)
+        if variant == "daemon-stop":
+            # A wedged owner: the daemon stops answering but keeps its socket open (SIGSTOP).
+            pids = self.daemon_pids()
+            self.killed_daemons = set(pids)
+            STOPPED.update(pids)
+            say(f"  daemon-stop: SIGSTOP {pids}")
+            for pid in pids:
+                try:
+                    os.kill(pid, signal.SIGSTOP)
+                except OSError:
+                    pass
+            RESULTS.append(("daemon-stop: the app's daemon is found and stopped", bool(pids), f"pids {pids}", "app quit"))
             return bool(pids)
         if variant == "crash":
             # A crash: the app's exact pid ends at once (SIGKILL); nothing of the app's own quit runs.
@@ -1992,6 +2017,204 @@ def load_rows(variant, launched):
                         f"read {read} after the reopen, {LIVE_READ.get('hist')} on the page loaded fresh (1 read, 0 refused, -1 no probe)", "browser"))
 
 
+# ---- the daemon variants: a killed or stopped cmux-tui under a running app -----------------
+
+DAEMON_VARIANTS = ("daemon", "daemon-stop")
+STOPPED = set()  # daemon pids daemon-stop froze; ended at exit if still there
+
+
+def end_stopped_daemons():
+    """A frozen daemon that Restart did not end: let it run, then end it (SIGKILL)."""
+    for pid in sorted(STOPPED):
+        try:
+            os.kill(pid, signal.SIGCONT)
+            os.kill(pid, signal.SIGKILL)
+            say(f"  ended the stopped daemon {pid}")
+        except OSError:
+            pass
+    STOPPED.clear()
+
+
+atexit.register(end_stopped_daemons)
+
+
+def daemon_state():
+    """`debug.daemon`: the app's daemon connection and recovery; None when it does not answer."""
+    answer = rpc("debug.daemon", timeout=3)
+    return answer if isinstance(answer, dict) and "error" not in answer else None
+
+
+def reconnected(old):
+    """The app is connected to a daemon that is not one of `old`; its pid, or None."""
+    state = daemon_state() or {}
+    pid = state.get("pid")
+    return int(pid) if state.get("connection") == "connected" and pid and int(pid) not in old else None
+
+
+def daemon_recovery(variant, started, sampler, turn):
+    """After the kill or stop: the seconds to a new daemon and to the app connected to it; for
+    daemon-stop, the seconds until the app offers Restart, then Restart through `debug.daemon`."""
+    old = set(APP.killed_daemons)
+    if variant == "daemon-stop":
+        offered = wait(lambda: ((daemon_state() or {}).get("recovery") or {}).get("offers_restart") is True, 150, 0.25)
+        at = time.time() - started
+        RESULTS.append((f"{variant}: the app offers Restart cmux-tui", bool(offered),
+                        f"{at:.1f} s after the stop" if offered else f"not within {at:.0f} s: {json.dumps(daemon_state())[:300]}",
+                        "app quit"))
+        pressed = rpc("debug.daemon", {"action": "restart"}, timeout=10)
+        say(f"  daemon-stop: Restart -> {json.dumps(pressed)[:200]}")
+        restarted_at = time.time()
+    fresh = wait(lambda: [p for p in APP.daemon_pids() if p not in old], 90, 0.25)
+    new_at = time.time() - started
+    RESULTS.append((f"{variant}: a new daemon starts", bool(fresh),
+                    f"{new_at:.1f} s after the {'stop' if variant == 'daemon-stop' else 'kill'}, pids {fresh}" if fresh
+                    else f"none within {new_at:.0f} s", "app quit"))
+    pid = wait(lambda: reconnected(old), 90, 0.25)
+    at = time.time() - started
+    detail = f"{at:.1f} s after the {'stop' if variant == 'daemon-stop' else 'kill'}, daemon {pid}"
+    if variant == "daemon-stop":
+        detail += f", {time.time() - restarted_at:.1f} s after Restart"
+    RESULTS.append((f"{variant}: the app reconnects to the new daemon", bool(pid),
+                    detail if pid else f"not within {at:.0f} s: {json.dumps(daemon_state())[:300]}", "app quit"))
+    if variant == "daemon-stop":
+        alive = [p for p in old if _pid_alive(p)]
+        RESULTS.append((f"{variant}: Restart ends the stopped daemon", not alive,
+                        f"still there: {alive}" if alive else "gone", "app quit"))
+        end_stopped_daemons()
+
+
+class RecoverySampler:
+    """What the app shows while its daemon is gone, every 250 ms (`debug.daemon`, `debug.surfaces`).
+    The designed recovery state: each window shows its workspace or the connecting view
+    (DaemonConnectingView), no pane is blank, and every shown terminal is connected, restoring, or
+    disconnected and reconnecting. A terminal disconnected for good (no reconnect) for over a
+    second, a window with nothing, or one blank pane is not."""
+
+    def __init__(self):
+        self.samples, self.stop, self.thread = [], threading.Event(), None
+
+    def start(self, started):
+        self.started = started
+
+        def run():
+            while not self.stop.is_set():
+                at = time.time() - self.started
+                self.samples.append((at, daemon_state(), rpc("debug.surfaces", timeout=3)))
+                self.stop.wait(0.25)
+        self.thread = threading.Thread(target=run, daemon=True)
+        self.thread.start()
+
+    @staticmethod
+    def problems(state, surfaces):
+        """(hard problems, terminals disconnected for good) of one sample."""
+        hard, dead = [], []
+        for window in (state or {}).get("windows") or []:
+            if window.get("shows") not in ("content", "connecting"):
+                hard.append(f"window {window.get('id')} shows {window.get('shows')}")
+        if isinstance(surfaces, dict) and "error" not in surfaces:
+            if surfaces.get("blank_panes"):
+                hard.append(f"{surfaces.get('blank_panes')} blank pane(s)")
+            for window in surfaces.get("windows") or []:
+                for pane in window.get("panes") or []:
+                    if pane.get("kind") != "terminal" or pane.get("presence") != "visible":
+                        continue
+                    link = str(pane.get("link"))
+                    if link in ("connected", "restoring") or (link.startswith("disconnected:") and link.endswith(":reconnecting")):
+                        continue
+                    dead.append(f"pane {pane.get('pane')} {link}")
+        return hard, dead
+
+    def finish(self, variant):
+        self.stop.set()
+        if self.thread:
+            self.thread.join(5)
+        seen, violations, dead_since = {}, [], None
+        for at, state, surfaces in self.samples:
+            hard, dead = self.problems(state, surfaces)
+            violations += [f"{at:.2f} s: {h}" for h in hard]
+            if dead:
+                dead_since = at if dead_since is None else dead_since
+                if at - dead_since > 1.0:
+                    violations.append(f"{at:.2f} s: {', '.join(dead)} since {dead_since:.2f} s")
+            else:
+                dead_since = None
+            shows = ",".join(sorted({w.get("shows", "?") for w in (state or {}).get("windows") or []})) or "no answer"
+            links = set()
+            for window in (surfaces or {}).get("windows") or [] if isinstance(surfaces, dict) else []:
+                links |= {str(p.get("link")).split(":")[0] for p in window.get("panes") or []
+                          if p.get("kind") == "terminal" and p.get("presence") == "visible"}
+            key = f"{(state or {}).get('connection', 'no answer')}/{shows}/{'+'.join(sorted(links)) or '-'}"
+            seen[key] = seen.get(key, 0) + 1
+        dump(f"{variant}-recovery-samples.json", [{"at": round(at, 2), "daemon": state, "blank_panes": (surfaces or {}).get("blank_panes")
+                                                     if isinstance(surfaces, dict) else None} for at, state, surfaces in self.samples])
+        answered = sum(1 for _, state, _ in self.samples if state)
+        ok = answered > 0 and not violations
+        detail = (f"{len(self.samples)} samples ({answered} answered); states {json.dumps(seen)[:400]}"
+                  + (f"; NOT designed: {'; '.join(violations[:5])}" if violations else ""))
+        RESULTS.append((f"{variant}: the UI shows the designed recovery state meanwhile (no blank pane)", ok, detail, "layout"))
+
+
+def start_turn_in_flight(variant):
+    """An agent chat turn in flight at the kill: the first seeded chat's `gate:` turn (the test
+    agent streams before-gate, then waits on a FIFO the journey writes after the reconnect)."""
+    client = acpmux_client() if CHATS else None
+    if not client:
+        return None
+    chat = CHATS[0]
+    fifo = os.path.join(opts.out, f"rj-gate-{variant}-{RUN}")
+    try:
+        os.mkfifo(fifo)
+    except FileExistsError:
+        pass
+    box = {}
+
+    def run():
+        try:
+            box["answer"] = Acpmux(acpmux_socket_of(ACPMUX["home"])).request(
+                "session/prompt", {"sessionId": chat["session"], "prompt": [{"type": "text", "text": f"gate: {fifo}"}],
+                                   "_meta": {"acpmux": {"promptId": f"rj-{RUN}-gate-{variant}"}}}, timeout=400)
+        except Exception as error:
+            box["answer"] = {"error": {"message": str(error)}}
+    thread = threading.Thread(target=run, daemon=True)
+    thread.start()
+
+    def streaming():
+        events = ((client.request("_acpmux/events", {"sessionId": chat["session"], "afterSeq": 0, "limit": 5000}).get("result") or {})
+                  .get("events")) or []
+        return any("before-gate" in json.dumps(event) for event in events[-50:])
+    began = wait(streaming, 20, 0.25)
+    RESULTS.append((f"{variant}: an agent chat turn is in flight at the {'stop' if variant == 'daemon-stop' else 'kill'}",
+                    bool(began), "streamed before-gate, waiting on its gate" if began else "the turn never started", "agents"))
+    return {"chat": chat, "fifo": fifo, "thread": thread, "box": box}
+
+
+def finish_turn_in_flight(variant, turn):
+    """Opens the turn's gate; it must end (end_turn) and its answer show on the chat's page."""
+    try:
+        fd = os.open(turn["fifo"], os.O_WRONLY | os.O_NONBLOCK)
+        os.write(fd, b"go")
+        os.close(fd)
+    except OSError as error:
+        say(f"  the gate turn is not waiting: {error}")
+    turn["thread"].join(60)
+    answer = turn["box"].get("answer") or {}
+    stop = (answer.get("result") or {}).get("stopReason")
+    topo = topology()
+    tab = next((t for ws in rj_workspaces(topo) for t in tabs_of(ws) if t.get("agent_session") == turn["chat"]["session"]), None)
+    shown = None
+    if tab:
+        with visiting("rj-chats"):
+            pane = place_of(tab.get("id"), topo)[1]
+            shown = wait(lambda: "after-gate" in str(((page(pane, "chat_state") or {}).get("lastAssistant") or {}).get("text")), 20, 0.5)
+    RESULTS.append((f"{variant}: the turn in flight finishes and its page shows it", stop == "end_turn" and bool(shown),
+                    f"stopReason {stop}, page {'shows' if shown else 'does not show'} after-gate"
+                    + (f"; {json.dumps(answer)[:200]}" if stop != "end_turn" else ""), "agents"))
+    try:
+        os.remove(turn["fifo"])
+    except OSError:
+        pass
+
+
 def journey(base):
     global SINCE
     seed(base)
@@ -2015,18 +2238,20 @@ def journey(base):
                             f"read {LIVE_READ['hist']} (1 read, 0 refused, -1 no probe)", "seed"))
             RESULTS.append(("seed web: the file page loaded fresh shows nothing outside its folder", LIVE_READ["hist_ext"] == 0,
                             f"probe {LIVE_READ['hist_ext']} (1 shown, 0 refused, -1 no probe)", "seed"))
+        turn = start_turn_in_flight(variant) if variant in DAEMON_VARIANTS else None
+        sampler = RecoverySampler() if variant in DAEMON_VARIANTS else None
         started = SINCE = time.time()
+        if sampler:
+            sampler.start(started)
         if not APP.quit(variant):
             RESULTS.append((f"{variant}: app ends ({'killed' if variant == 'crash' else 'its quit path'})", False, "still running", "app quit"))
             return
         # Reports count from here: the old app's pages keep reporting until its process ends, and
         # one of those would pass for a reopened page that has not reported yet (cx-p1xs5).
         launched = SINCE = time.time()
-        if variant == "daemon":
-            # No relaunch: the running app must start a new daemon and bring every view back itself.
-            fresh = wait(lambda: [p for p in APP.daemon_pids() if p not in APP.killed_daemons], 60, 0.25)
-            RESULTS.append((f"{variant}: the app starts a new daemon by itself", bool(fresh),
-                            f"new pids {fresh}" if fresh else "none within 60 s", "app quit"))
+        if variant in DAEMON_VARIANTS:
+            # No relaunch: the running app must bring a new daemon and every view back.
+            daemon_recovery(variant, started, sampler, turn)
         elif not APP.relaunch({"CMUX_NEXT_DEBUG_SLOW_ATTACH": SLOW_ATTACH} if variant == "slow" else None):
             RESULTS.append((f"{variant}: app relaunches", False, "no socket", "app quit"))
             return
@@ -2047,6 +2272,10 @@ def journey(base):
         took = time.time() - started
         say(f"  restore {'settled' if ok else 'did NOT settle'} {took:.1f} s after the quit")
         RESULTS.append((f"{variant}: restore settles", bool(ok), f"{took:.1f} s after the quit", "layout"))
+        if sampler:
+            sampler.finish(variant)
+        if turn:
+            finish_turn_in_flight(variant, turn)
         # The counter's next tick, in the view (it must keep counting after the reopen).
         if isinstance(before.get("counter.tick_in_view"), int):
             wait(lambda: view_tick() > before["counter.tick_in_view"], 10, 0.5)
