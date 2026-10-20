@@ -240,7 +240,7 @@ final class WindowManager {
         registry.isLaunching = false
         fullScreenRestoreReady = true
         enterRestoredFullScreens()
-        FirstWorkspaceLaunch(manager: self).land(firstWorkspace) // its New Tab page, not Home
+        FirstWorkspaceLaunch(manager: self).land(firstWorkspace) // Home, or a New Tab workspace (FirstWorkspace)
     }
 
     /// The launch window takes the frontmost saved window's identity and

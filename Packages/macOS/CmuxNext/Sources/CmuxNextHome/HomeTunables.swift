@@ -26,5 +26,13 @@ public nonisolated struct HomeTunables {
         help: "A flight recorder dump also saves about 0.5 s of captures of the window (pictures of your conversation). Needs Flight recorder.",
         default: devDefault, code: "HomeTunables.flightRecorderCaptures")
 
-    public static var all: [TunableDescriptor] { [flightRecorder.descriptor, flightRecorderCaptures.descriptor] }
+    /// A launch with no workspace of the person's own lands on Home (the Chief's workspace) instead
+    /// of making an empty New Tab workspace (`FirstWorkspaceLaunch`; Leo 2026-10-19). Off restores
+    /// the New Tab workspace.
+    public static let launchIntoHome = Tunable<Bool>.toggle(
+        "home.launchIntoHome", section, "First launch opens Home",
+        help: "With no workspace of your own, launch shows Home and its Chief instead of making an empty workspace on its New Tab page.",
+        default: true, code: "HomeTunables.launchIntoHome")
+
+    public static var all: [TunableDescriptor] { [flightRecorder.descriptor, flightRecorderCaptures.descriptor, launchIntoHome.descriptor] }
 }
