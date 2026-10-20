@@ -8,7 +8,7 @@ import Testing
 
 /// Leo, 2026-10-19: "the dragged workspaces and dragged tabs turning from glassy to solid themed is
 /// so shitty". In a translucent window a picked-up tab, a lifted sidebar row and the drag ghost are
-/// glass over the window's art and tint (`DragGlass`), not a flat theme card; a window opened for a
+/// glass over the window's art and tint (`WindowBackdrop.dragsOnGlass`), not a flat theme card; a window opened for a
 /// torn-off workspace or tab gets the same backdrop as the window it left.
 @MainActor @Suite(.serialized) struct DragGlassTests {
     /// Runs `body` with the app theme translucent and frosted, as cmux.json's
@@ -30,13 +30,14 @@ import Testing
         input.backgroundOpacity = 0.65
         let glass = WindowBackdrop(ThemeTokens.derive(from: input))
         let opaque = WindowBackdrop(ThemeTokens.derive(from: .ghosttyDefault))
-        #expect(DragGlass.isGlass(glass))
-        #expect(!DragGlass.isGlass(opaque))
-        let lift = DragGlass.liftFill(.red, over: glass).alphaComponent
+        #expect(glass.dragsOnGlass)
+        #expect(!opaque.dragsOnGlass)
+        let lift = glass.dragLiftFill(.red).alphaComponent
         #expect(lift > CGFloat(glass.tintOpacity) && lift < 1, "a thicker piece of the window's glass, never solid")
-        #expect(DragGlass.liftFill(.red, over: opaque).alphaComponent == 1)
-        #expect(DragGlass.cardFill(.red, over: glass) == nil, "the ghost's glass is the card")
-        #expect(DragGlass.cardFill(.red, over: opaque)?.alphaComponent == 1)
+        #expect(lift == glass.dragLiftAlpha)
+        #expect(opaque.dragLiftFill(.red).alphaComponent == 1)
+        #expect(glass.dragCardFill(.red) == nil, "the ghost's glass is the card")
+        #expect(opaque.dragCardFill(.red)?.alphaComponent == 1)
     }
 
     @Test func aLiftedSidebarRowIsGlassInATranslucentWindow() throws {

@@ -198,10 +198,9 @@ extension TabStripView {
         model.send(.dragBegan(start))
     }
 
-    /// The drag image of `layers` (`TabSnapshotRenderer`): on a window-colored rounded card in an
-    /// opaque window; in a translucent one on none, so the ghost's glass shows under it (`DragGlass`).
+    /// The drag image of `layers` (`TabSnapshotRenderer`), on a window-colored card only in an opaque window.
     func snapshot(of layers: [CALayer], frame: CGRect) -> TabImage? {
-        let background = performWithTheme { DragGlass.cardFill(Palette.windowBackground, over: DragGlass.backdrop(themeTokens))?.cgColor }
+        let background = performWithTheme { WindowBackdrop.dragPreview(themeTokens).dragCardFill(Palette.windowBackground)?.cgColor }
         return TabSnapshotRenderer(metrics: metrics, scale: window?.backingScaleFactor ?? 2, background: background).image(of: layers, frame: frame)
     }
 

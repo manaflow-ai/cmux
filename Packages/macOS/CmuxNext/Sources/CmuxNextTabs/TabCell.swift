@@ -279,9 +279,8 @@ final class TabCell {
             let fill: NSColor? = fillsSelection ? Palette.selectionFill : (isHovered ? Palette.hoverFill : nil)
             backgroundLayer.backgroundColor = fill?.cgColor
             if isLifted, let lift = Palette.windowBackground.blended(withFraction: 0.08, of: Palette.textPrimary) {
-                // A lifted tab keeps the tabs sliding under it quiet: solid in an opaque window, a
-                // thicker piece of the window's glass in a translucent one (`DragGlass`).
-                backgroundLayer.backgroundColor = DragGlass.liftFill(lift, over: DragGlass.backdrop(themeScope.tokens)).cgColor
+                // Keeps the tabs sliding under it quiet: solid when opaque, thicker glass when translucent.
+                backgroundLayer.backgroundColor = WindowBackdrop.dragPreview(themeScope.tokens).dragLiftFill(lift).cgColor
             }
             // A hibernated tab keeps its title color (Chrome's discarded tabs do too); the ring marks it.
             let text = isSelected ? Palette.textPrimary : Palette.textSecondary

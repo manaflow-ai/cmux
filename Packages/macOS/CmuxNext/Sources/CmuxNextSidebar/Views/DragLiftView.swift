@@ -4,7 +4,7 @@ import QuartzCore
 
 /// The row being dragged: a live row view on a card with a shadow. In a
 /// translucent window the card is glass over the window's art and tint, like
-/// the sidebar it was lifted from (`DragGlass`); in an opaque one it is the
+/// the sidebar it was lifted from (`WindowBackdrop.dragsOnGlass`); in an opaque one it is the
 /// solid elevated surface. Multi-item drags show stacked cards behind it and
 /// a count badge.
 final class DragLiftView: NSView {
@@ -120,14 +120,14 @@ final class DragLiftView: NSView {
 
     private func updateColors() {
         performWithTheme {
-            let backdrop = DragGlass.backdrop(themeTokens)
-            isGlass = DragGlass.isGlass(backdrop)
+            let backdrop = WindowBackdrop.dragPreview(themeTokens)
+            isGlass = backdrop.dragsOnGlass
             glass.isHidden = !isGlass
             glass.tintColor = Palette.glassTint
-            card.layer?.backgroundColor = DragGlass.cardFill(Palette.elevatedBackground, over: backdrop)?.cgColor
+            card.layer?.backgroundColor = backdrop.dragCardFill(Palette.elevatedBackground)?.cgColor
             layer?.shadowColor = Palette.shadow.cgColor
             for back in stack {
-                let fill = DragGlass.liftFill(Palette.elevatedBackground, over: backdrop)
+                let fill = backdrop.dragLiftFill(Palette.elevatedBackground)
                 back.layer?.backgroundColor = fill.withAlphaComponent(fill.alphaComponent * 0.85).cgColor
                 back.layer?.borderColor = Palette.separator.cgColor
             }

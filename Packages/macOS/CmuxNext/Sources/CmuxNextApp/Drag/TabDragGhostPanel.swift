@@ -9,7 +9,7 @@ import QuartzCore
 /// and, as `cardness` rises, unfolds a Liquid Glass preview card under it
 /// with a live content thumbnail (terminal or browser snapshot). Over a
 /// strip the card folds back into an inline tab. In a translucent window the
-/// tab image has no card of its own (`DragGlass`): the glass is under it from
+/// tab image has no card of its own (`WindowBackdrop.dragsOnGlass`): the glass is under it from
 /// the first frame, shaped like the tab until the card unfolds, so a picked-up
 /// tab stays glass instead of turning into a solid theme block.
 ///
@@ -35,17 +35,14 @@ final class TabDragGhostPanel {
     /// cardness, and the glass edge, not a shadow, lifts it.
     let onGlass: Bool
 
-    /// - Parameter onGlass: The image was rendered without a card (`DragGlass.cardFill`); by
-    ///   default whether the app's theme draws translucent windows.
-    init(tabImage: CGImage?, tabSize: CGSize, grabOffset: CGPoint, aspect: CGFloat?, scale: CGFloat,
-         onGlass: Bool = DragGlass.isGlass(DragGlass.backdrop(ThemeScope.app.tokens))) {
+    /// - Parameter onGlass: The image was rendered without a card (`WindowBackdrop.dragCardFill`);
+    ///   by default whether the app's theme draws translucent windows.
+    init(tabImage: CGImage?, tabSize: CGSize, grabOffset: CGPoint, aspect: CGFloat?, scale: CGFloat, onGlass: Bool = WindowBackdrop.dragPreview(ThemeScope.app.tokens).dragsOnGlass) {
         self.onGlass = onGlass
         self.tabSize = tabSize
         self.grabOffset = grabOffset
-        let pad = DragTunables.ghostPanelPad.value
-        let inset = DragTunables.ghostCardInset.value
-        self.pad = pad
-        self.inset = inset
+        pad = DragTunables.ghostPanelPad.value
+        inset = DragTunables.ghostCardInset.value
         cardSize = TabDragGeometry.cardSize(tabSize: tabSize, aspect: aspect, inset: inset)
         panelSize = CGSize(width: max(cardSize.width, tabSize.width * 1.6, 320) + pad * 2,
                            height: max(cardSize.height, tabSize.height * 1.6) + pad * 2)
