@@ -12,6 +12,11 @@ module dependencies), so a hit replays exactly what a cold compile of the same
 inputs produces; it is the warm state main restores from R2 (hq-25), kept on
 the dedicated worker's disk instead. Earlier revisions of this script also
 kept DerivedData there and replayed old input times; prepare deletes that state.
+
+`cache-dir NAME` names a directory beside them for another content-addressed
+source cache (for example the third-party notices' crates, one directory per
+crate name and version, extracted only after its sha256 matched Cargo.lock).
+It prints nothing on any other runner, so the caller keeps its per-job cache.
 """
 from __future__ import annotations
 
@@ -69,7 +74,20 @@ def prepare(workspace: Path, home: Path, runner: str, track: str, toolchain: str
     return True
 
 
+def cache_dir(home: Path, runner: str, name: str) -> Path | None:
+    """A per-runner directory that outlives the job, only on a trusted NEXT worker."""
+    if not owned(runner) or re.fullmatch(r'[a-z0-9][a-z0-9-]*', name) is None:
+        return None
+    return home / STATE_ROOT / runner / 'caches' / name
+
+
 def main(argv: list[str]) -> int:
+    if len(argv) == 3 and argv[1] == 'cache-dir':
+        path = cache_dir(Path.home(), os.environ.get('RUNNER_NAME', ''), argv[2])
+        if path is not None:
+            path.mkdir(parents=True, exist_ok=True)
+            print(path)
+        return 0
     workspace = Path(os.environ.get('GITHUB_WORKSPACE', '.')).resolve()
     if len(argv) == 3 and argv[1] == 'prepare':
         runner = os.environ.get('RUNNER_NAME', '')
@@ -79,7 +97,7 @@ def main(argv: list[str]) -> int:
             toolchain += subprocess.check_output(['xcrun', '--sdk', 'macosx', '--show-sdk-build-version'], text=True)
             prepare(workspace, Path.home(), runner, argv[2], toolchain)
         return 0
-    print('usage: nightly_build_state.py prepare TRACK', file=sys.stderr)
+    print('usage: nightly_build_state.py prepare TRACK | cache-dir NAME', file=sys.stderr)
     return 2
 
 

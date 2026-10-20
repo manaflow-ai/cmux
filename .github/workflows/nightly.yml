@@ -2025,12 +2025,20 @@ jobs:
       # from `cargo tree` (this runner has cargo). The Release build copies the
       # regenerated file; the sign job verifies the bundle against
       # scripts/cmux-next/notices/bundle-map.json.
+      # The source cache holds one directory per crate name and version (each
+      # extracted only after its sha256 matched Cargo.lock) and per git
+      # revision, so a trusted NEXT worker keeps it between runs. A per-job
+      # cache downloaded all 1132 crates on every build: 79 s of a 140 s step
+      # in the warm build slot (run 39373745957). Elsewhere it stays per job.
       - name: Generate third-party notices (cmux-next)
         if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.track == 'nightly-next')
         env:
           CMUX_NOTICES_ALLOW_CARGO: "1"
-          CMUX_NOTICES_CACHE: ${{ runner.temp }}/cmux-notices
         run: |
+          set -euo pipefail
+          notices_cache="$(python3 scripts/ci/nightly_build_state.py cache-dir notices-sources)"
+          export CMUX_NOTICES_CACHE="${notices_cache:-$RUNNER_TEMP/cmux-notices}"
+          echo "notices source cache: $CMUX_NOTICES_CACHE"
           ./scripts/cmux-next/generate-third-party-notices.sh --tui-source tree \
             --cargo-trees "$RUNNER_TEMP/cmux-notices-cargo-trees" --write-cargo-trees
 
