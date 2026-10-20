@@ -420,9 +420,9 @@
   width: auto;
   gap: 4px;
 }
-:is(.acpmux-composer-bar, .nt-pickers) .acpmux-model .acpmux-picker-button,
-:is(.acpmux-composer-bar, .nt-pickers) .acpmux-effort .acpmux-picker-button,
-:is(.acpmux-composer-bar, .nt-pickers) .acpmux-access .acpmux-picker-button {
+:is(.acpmux-composer-bar, .nt-pickers, .nt-footer) .acpmux-model .acpmux-picker-button,
+:is(.acpmux-composer-bar, .nt-pickers, .nt-footer) .acpmux-effort .acpmux-picker-button,
+:is(.acpmux-composer-bar, .nt-pickers, .nt-footer) .acpmux-access .acpmux-picker-button {
   height: 28px;
   border-radius: 999px;
   color: var(--agent-muted);

@@ -353,16 +353,16 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
    wash) and the ring sits on the wash's edge: one outline on a visible control, as Send's ring
    circles its own disc. Press still takes the row's press step (composerLocation.css loads after this
    file). Increase Contrast keeps the shared offset ring. */
-:is(.acpmux-composer-bar, .nt-pickers) .acpmux-picker-button:focus-visible {
+:is(.acpmux-composer-bar, .nt-pickers, .nt-footer) .acpmux-picker-button:focus-visible {
   background: var(--acpmux-row-hover, var(--acpmux-composer-hover));
   outline-offset: 0;
 }
 /* Its ink steps up as on hover, so focus reads as hover with a ring. */
-:is(.acpmux-composer-bar, .nt-pickers) :is(.acpmux-model, .acpmux-effort, .acpmux-access) .acpmux-picker-button:focus-visible {
+:is(.acpmux-composer-bar, .nt-pickers, .nt-footer) :is(.acpmux-model, .acpmux-effort, .acpmux-access) .acpmux-picker-button:focus-visible {
   color: var(--agent-text);
 }
 @media (prefers-contrast: more) {
-  :is(.acpmux-composer-bar, .nt-pickers) .acpmux-picker-button:focus-visible { outline-offset: 2px; }
+  :is(.acpmux-composer-bar, .nt-pickers, .nt-footer) .acpmux-picker-button:focus-visible { outline-offset: 2px; }
 }
 .acpmux-composer[data-shell] .acpmux-composer-box:has(:focus-visible) {
   --acpmux-card-ring: inset 0 0 0 var(--cmux-hairline-ring, 1px) color-mix(in srgb, var(--acpmux-shell-accent) 85%, transparent);

@@ -94,6 +94,7 @@ await requireBrowserLane("composer-caret-focus.test.ts", async () => {
       variant: "reasoning-chip",
       field: ".nt-field",
       box: ".nt-box",
+      // The default (Cards) template's row under its pill field.
       row: ".nt-pickers",
     },
     // The Default template's stage layout: the chips are the footer's under the box.

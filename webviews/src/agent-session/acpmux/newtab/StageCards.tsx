@@ -37,8 +37,8 @@ export function EnvironmentCard({
 }) {
   const t = useT();
   const nt = useNt();
-  // This Mac's projects, without the private agent-home folders a chat with no project runs in
-  // (named after workspace ids; widgets.ts recentProjects drops them too).
+  // A chat with no project runs in a private agent-home folder (sessionList.ts isAgentHome); it is
+  // no environment to offer, as recentProjects keeps it out too.
   const local = projects.filter((project) => !project.peer && !isAgentHome(project.cwd));
   const shown = current ? local.find((project) => project.cwd === current) : undefined;
   const others = local.filter((project) => project.cwd !== current).slice(0, OTHER_PROJECTS);

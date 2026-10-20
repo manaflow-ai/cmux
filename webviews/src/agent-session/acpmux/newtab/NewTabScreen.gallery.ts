@@ -25,6 +25,22 @@ const reasoningChat = () =>
 const ALBUM_ART =
   "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAACU0lEQVR42tXPCTcTAAAH8P8nkZJyC8uSRUNzX8uRNS0amvvMckSOJkcTOXJHJCJHkyOyHJEjckS8Xr16vXr1en2E9jX+3+D3g5labZ6ttrxx0yorxyYr1zYz1y4jzyEjX5B+yzGtQJha4JRa6JxyW5Rc5JJc7JpULE4scUso9Ui4I4nXeKo03qoyn+t3/eLKA2IrAmMrgmMqpcqqEOW9sGva8GhtRFS1LOq+/GpNpKJGoaiNuvIgOrJOKa+PkdfHXW5QyRrjZQ8TI5qSLjWlhDenhbekh7VmhrZlhbZlh7SrL3bkSB/lSTvzgzsLgroKgx4XBXaXBPSU+vdo/J+U+fWW+z6t9O0Dtb7Kpw/Ueq13P6j11V7PQK2v8RoAtb7WcwDU+jrJIKj1DZLnoNY3XhgCtb7JYxjU+mb3YVDrW91HQK1vdxsFtb5D/ALU+k6xDtT6rvM6UOu7XcdAre9xeQlqfa/LOKj1fecmQK3vF02AWj8gmgS1ftB5CtT6obOvQK0fcZoGtX7UEKDW687MgFo/JnwNav24cBbU+klHPaj1U6f1oNZPC96AWj8jmAO1ftZhHtR6vf08qPVz9gug1i/YLYJav3jqLaj1S7ZLoNYvGwLU+hWbZVDr16zfgVq/br0Cav2G1Sqo9ZuWq6DWb1msgVq/Y7EOav2u+XtQ6/fMNkCt3zcEqPUHJzdBrT888QHU+s+mW6DWfzHdBrX+6/FtUOu/meyAWv/dZBfU+h/HPoJa//PoHqj1v4z3QK3/bbwPav2fI59Arf9rdABq/T+jw/8n7vrBWnViYgAAAABJRU5ErkJggg==";
 
+/// The typed-tab-match variants' omnibar: open tabs, a workspace and visited pages that match "release".
+const RELEASE_OMNIBAR = {
+  tabs: [
+    { id: "tab-1", kind: "browser", title: "Release notes", detail: "cmux.dev", icon: SITE_ICON },
+    { id: "tab-2", kind: "terminal", title: "release build", detail: "~/src/release" },
+  ],
+  workspaces: [{ id: "workspace-1", name: "Release", detail: "~/src/release" }],
+  folders: [CWD],
+  commands: [],
+  // A visited page with its site's icon, and one whose icon is still loading (the glyph).
+  history: [
+    { url: "https://cmux.dev/release", title: "cmux release notes", icon: OTHER_SITE_ICON },
+    { url: "https://example.com/release", title: "example release" },
+  ],
+};
+
 const newTab = (fields: Record<string, unknown> = {}) => ({
   newTab: {
     layout: "b",
@@ -612,23 +628,15 @@ export default agentPaneEntry({
         );
       },
     },
+    "typed-tab-match-stage": {
+      note: "The Default template's stage layout with text that matches open tabs: the composer at the foot, so the rows open above it (popup-escape).",
+      ready: newTab({ template: "default", omnibar: RELEASE_OMNIBAR }),
+      snapshot: noChat(manySessions(3)),
+    },
     "typed-tab-match": {
       note: "Text that matches open tabs, workspaces and visited pages: Ask first (Return's), a web search, then those rows (with their favicons, a glyph while one loads) in the popover; Down to the last row scrolls to it (dogfood 2026-10-08).",
       ready: newTab({
-        omnibar: {
-          tabs: [
-            { id: "tab-1", kind: "browser", title: "Release notes", detail: "cmux.dev", icon: SITE_ICON },
-            { id: "tab-2", kind: "terminal", title: "release build", detail: "~/src/release" },
-          ],
-          workspaces: [{ id: "workspace-1", name: "Release", detail: "~/src/release" }],
-          folders: [CWD],
-          commands: [],
-          // A visited page with its site's icon, and one whose icon is still loading (the glyph).
-          history: [
-            { url: "https://cmux.dev/release", title: "cmux release notes", icon: OTHER_SITE_ICON },
-            { url: "https://example.com/release", title: "example release" },
-          ],
-        },
+        omnibar: RELEASE_OMNIBAR,
       }),
       snapshot: noChat(manySessions(3)),
       play: async (ctx) => {

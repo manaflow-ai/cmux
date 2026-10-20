@@ -394,37 +394,24 @@ export function recentChatCards(
 /// The stage layout's needs-you rows (NewTabScreen's suggestions card).
 export const MAX_NEEDS_YOU = 3;
 
-/// The chats waiting on the user (asking for input, or hit an error or lost their agent), the ones
-/// asking first, then newest first, as `recentSessions` orders them. Picked from every chat before
-/// the cap, so an older one is never hidden behind newer idle chats as `recentChatCards`' trimmed
-/// list would hide it; one pass keeps only the first `count`, and only those become cards (a
-/// snapshot with a thousand chats sorts none of them again).
+/// The chats waiting on the user (asking for input, or hit an error or lost their agent), newest
+/// first, picked from every chat before the cap: an older one is never hidden behind newer idle
+/// chats, as `recentChatCards`' trimmed list would hide it.
 export function needsYouCards(
   sessions: AcpmuxSnapshot["sessions"],
   now: number,
   t: Translate,
   count = MAX_NEEDS_YOU,
 ): ChatCard[] {
-  const kept: { entry: AcpmuxSessionEntry; urgency: number }[] = [];
-  const before = (a: (typeof kept)[number], b: (typeof kept)[number]) =>
-    a.urgency - b.urgency ||
-    (b.entry.updatedAt ?? 0) - (a.entry.updatedAt ?? 0) ||
-    a.entry.sessionId.localeCompare(b.entry.sessionId);
-  for (const raw of sessions) {
-    const entry = normalizedSessionEntry(raw as Parameters<typeof normalizedSessionEntry>[0]);
-    if (!listed(entry) || entry.unsent) continue;
-    const mark = sessionMark(entry, false);
-    if (entry.indicator !== "failed" && mark !== "input" && mark !== "error") continue;
-    const candidate = { entry, urgency: mark === "input" ? 0 : 1 };
-    const at = kept.findIndex((other) => before(candidate, other) < 0);
-    if (at < 0) {
-      if (kept.length < count) kept.push(candidate);
-      continue;
-    }
-    kept.splice(at, 0, candidate);
-    if (kept.length > count) kept.pop();
-  }
-  return kept.map(({ entry }) => sessionCard(entry, now, t));
+  // One pass keeps the waiting chats (sessionCard's state, read without building a card); only
+  // those few are sorted and carded, never the whole list (greptile on #22119).
+  const waiting = sessions.filter((raw) => {
+    const session = normalizedSessionEntry(raw as Parameters<typeof normalizedSessionEntry>[0]);
+    if (session.indicator === "failed") return true;
+    const mark = sessionMark(session, false);
+    return mark === "input" || mark === "error";
+  });
+  return liveChatCards(waiting, now, t, count, false);
 }
 
 function liveChatCards(
