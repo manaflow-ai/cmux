@@ -289,3 +289,74 @@ fn a_pane_with_no_kept_tab_drops_out_of_the_reopened_tree() {
     assert!(matches!(*first, Shape::Leaf { ref tabs, .. } if tabs == &[0]));
     assert!(matches!(*second, Shape::Leaf { ref tabs, .. } if tabs == &[1]));
 }
+
+/// A browser tab named `name` in `pane`.
+fn named_browser(mux: &Arc<Mux>, pane: PaneId, name: &str) -> SurfaceId {
+    let record = crate::workspace_registry::FrontendBrowserRecord {
+        engine: "cef".into(),
+        url: format!("https://example.com/{name}"),
+        title: None,
+        favicon_url: None,
+        profile_id: None,
+        owner: None,
+    };
+    let surface = mux.new_frontend_browser_tab(Some(pane), record, None).unwrap().id;
+    assert!(mux.rename_surface(surface, name.to_string()));
+    surface
+}
+
+/// The terminal a reopened screen starts with stands for the first
+/// terminal record. When the first pane holds only browser tabs, that
+/// terminal belongs on the other side of a split: it moves there, and the
+/// first pane is filled before it leaves. Pins of tabs other than that
+/// terminal come back too.
+#[test]
+fn a_reopened_workspace_whose_first_pane_has_no_terminal_keeps_its_splits() {
+    let mux = Mux::new_for_test("closed-layout-browser-first", SurfaceOptions::default());
+    mux.new_workspace(Some("keeper".into()), None).unwrap();
+    let terminal = mux.new_workspace(Some("web".into()), None).unwrap().id;
+    assert!(mux.rename_surface(terminal, "t1".into()));
+    let a = pane_of(&mux, terminal);
+    let w1 = named_browser(&mux, a, "w1");
+    named_browser(&mux, a, "w2");
+    mux.move_tab_to_split(terminal, a, TabDropEdge::Right, Some(0.35), None).unwrap();
+    let t = pane_of(&mux, terminal);
+    named_tab(&mux, t, "t2");
+    mutate(&mux, "tab.pin", json!({"tab": tab_id(&mux, w1)}), "pin-w1");
+    mux.select_tab(Some(a), Some(1), None);
+    mux.select_tab(Some(t), Some(0), None);
+    assert!(mux.focus_pane(a));
+    let before = layout_of(&mux, "web");
+    let screen = &before["screens"][0];
+    assert_eq!(screen["dir"], "Right", "{before}");
+    assert_eq!(screen["a"]["tabs"], json!(["pin:w1", "w2"]), "{before}");
+    assert_eq!(screen["b"]["tabs"], json!(["t1", "t2"]), "{before}");
+
+    let workspace = mux.with_state(|state| {
+        let (index, _) = state.screen_of(a).unwrap();
+        state.workspaces[index].id
+    });
+    let id = workspace_public_id(&mux, workspace);
+    mutate(&mux, "workspace.close", json!({"workspace": id}), "close");
+    mutate(&mux, "closed.reopen", json!({}), "reopen");
+    assert_eq!(layout_of(&mux, "web"), before);
+}
+
+/// The splits a reopen rebuilds are not the user's moves: layout undo right
+/// after it has nothing to fold back.
+#[test]
+fn layout_undo_after_a_reopen_leaves_the_reopened_splits() {
+    let mux = Mux::new_for_test("closed-layout-undo", SurfaceOptions::default());
+    mux.new_workspace(Some("keeper".into()), None).unwrap();
+    let (workspace, _) = nested_workspace(&mux, "undo");
+    let before = layout_of(&mux, "undo");
+    let id = workspace_public_id(&mux, workspace);
+    mutate(&mux, "workspace.close", json!({"workspace": id}), "close");
+    mutate(&mux, "closed.reopen", json!({}), "reopen");
+    let focused = mux.with_state(|state| {
+        let workspace = state.workspaces.iter().find(|workspace| workspace.name == "undo").unwrap();
+        workspace.screens[0].active_pane
+    });
+    assert!(mux.undo_layout(focused, None, true).is_err(), "nothing to undo");
+    assert_eq!(layout_of(&mux, "undo"), before);
+}

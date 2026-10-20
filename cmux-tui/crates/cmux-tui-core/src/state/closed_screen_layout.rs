@@ -26,7 +26,7 @@ pub(super) enum Shape {
         /// The closed pane ids this pane stands for (a stack's every pane).
         panes: Vec<String>,
         tabs: Vec<usize>,
-        /// The selected tab's index in `tabs`.
+        /// The selected tab's index in `tabs` (kept tabs only).
         active: usize,
     },
     Split {
@@ -153,6 +153,10 @@ impl Shape {
     }
 }
 
+/// A rebuilt screen: each record's index with the tab made from it, in
+/// record order, and the pane to focus.
+type Rebuilt = (Vec<(usize, SurfaceId)>, Option<PaneId>);
+
 /// A rebuild in progress: the closed screen's tab records and the tabs
 /// made from them so far.
 struct Build<'a> {
@@ -162,6 +166,24 @@ struct Build<'a> {
     /// Each rebuilt pane: (pane, its tabs in order, selected index, the
     /// closed pane ids it stands for).
     leaves: Vec<(PaneId, Vec<usize>, usize, Vec<String>)>,
+}
+
+impl Build<'_> {
+    /// Merge rebuilt panes that ended up the same pane (a split that failed
+    /// built both sides in it) into one strip: earlier tabs first, the
+    /// earlier selection.
+    fn join_shared_panes(&mut self) {
+        let mut joined: Vec<(PaneId, Vec<usize>, usize, Vec<String>)> = Vec::new();
+        for (pane, tabs, active, panes) in self.leaves.drain(..) {
+            if let Some(entry) = joined.iter_mut().find(|entry| entry.0 == pane) {
+                entry.1.extend(tabs);
+                entry.3.extend(panes);
+            } else {
+                joined.push((pane, tabs, active, panes));
+            }
+        }
+        self.leaves = joined;
+    }
 }
 
 impl Mux {
@@ -176,7 +198,7 @@ impl Mux {
         reused: Option<usize>,
         screen: &Value,
         shape: &Shape,
-    ) -> anyhow::Result<(Vec<(usize, SurfaceId)>, Option<PaneId>)> {
+    ) -> anyhow::Result<Rebuilt> {
         let pane =
             self.with_state(|state| state.pane_of(first)).context("new screen has no pane")?;
         let tabs = screen["tabs"].as_array().map(Vec::as_slice).unwrap_or_default();
@@ -185,6 +207,7 @@ impl Mux {
             build.made[reused] = Some(first);
         }
         self.build_shape(&mut build, shape, pane)?;
+        build.join_shared_panes();
         // Every tab in its strip place, then each pane's selected tab.
         for (pane, order, active, _) in &build.leaves {
             for (index, tab) in order.iter().enumerate() {
@@ -215,6 +238,9 @@ impl Mux {
         {
             eprintln!("cmux-tui: a reopened screen could not zoom its pane again: {error:#}");
         }
+        // The splits were rebuilt with undoable moves; undo must not fold them back.
+        self.forget_layout_undo(pane);
+        // A focused pane a stash emptied: focus stays where the last selection left it.
         let focus = screen["active_pane"].as_str().and_then(pane_of);
         if let Some(focus) = focus {
             self.focus_pane_as(actor, focus);
@@ -290,6 +316,7 @@ impl Mux {
                         self.build_shape(build, second, outcome.pane)
                     }
                     // The tabs stay in this pane rather than not reopening.
+                    // Both sides join this pane as one strip, first side first.
                     Err(error) => {
                         eprintln!("cmux-tui: a reopened screen could not split again: {error:#}");
                         self.build_shape(build, first, pane)?;
