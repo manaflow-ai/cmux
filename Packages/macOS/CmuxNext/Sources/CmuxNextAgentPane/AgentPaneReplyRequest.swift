@@ -128,8 +128,12 @@ public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
             defer { try? handle.close() }
             var info = stat()
             guard fstat(descriptor, &info) == 0, (info.st_mode & S_IFMT) == S_IFREG else { return nil }
-            guard let read = try? handle.read(upToCount: Self.maximumBytes + 1) else { return nil }
-            let body = read ?? Data()
+            let body: Data
+            do {
+                body = try handle.read(upToCount: Self.maximumBytes + 1) ?? Data()
+            } catch {
+                return nil
+            }
             let size = Int(clamping: info.st_size)
             bytes = max(size, body.count)
             truncated = body.count > Self.maximumBytes
