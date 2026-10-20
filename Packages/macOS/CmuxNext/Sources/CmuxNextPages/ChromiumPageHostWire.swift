@@ -102,9 +102,14 @@ nonisolated struct ChromiumPageHostWire {
     static func resolveExpression(seq: Int, reply: Any?) -> String {
         let value: String
         if let reply, !(reply is NSNull) {
-            value = (try? JSONSerialization.data(withJSONObject: reply, options: [.fragmentsAllowed]))
-                .flatMap { String(data: $0, encoding: .utf8) }
-                ?? #"{"ok":false,"error":{"code":"native.invalid_reply","userMessage":"Invalid reply"}}"#
+            // `JSONSerialization` raises an Objective-C exception (it does not throw) for a value
+            // that is not JSON, such as a `Date`: check first, wrapped in an array so a bare string
+            // or number counts too.
+            let invalid = #"{"ok":false,"error":{"code":"native.invalid_reply","userMessage":"Invalid reply"}}"#
+            value = JSONSerialization.isValidJSONObject([reply])
+                ? (try? JSONSerialization.data(withJSONObject: reply, options: [.fragmentsAllowed]))
+                    .flatMap { String(data: $0, encoding: .utf8) } ?? invalid
+                : invalid
         } else {
             value = "null"
         }
