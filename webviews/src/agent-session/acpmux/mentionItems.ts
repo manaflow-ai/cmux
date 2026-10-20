@@ -15,27 +15,32 @@ export type MentionItem =
 export const MENTION_SESSIONS = 5;
 export const MENTION_FOLDERS = 3;
 
-/// The indexes of `text` that `query` matches, case aside: its first run as written, else its
-/// characters in order (greedy, the way the host's file search marks a path). Undefined when it
-/// does not match; an empty query matches with none.
+/// The string indexes of `text` that `query` matches, case aside: its first run as written, else
+/// its characters in order (greedy, the way the host's file search marks a path). A character
+/// outside the BMP (an emoji) covers both of its string units, so a row bolds it whole and the
+/// letters after it stay where they are. Undefined when it does not match; an empty query
+/// matches with none.
 export function fuzzyIndices(query: string, text: string): number[] | undefined {
   const q = query.toLowerCase();
   const t = text.toLowerCase();
   if (!q) return [];
   const at = t.indexOf(q);
-  if (at >= 0) return Array.from(q, (_, offset) => at + offset);
+  if (at >= 0) return Array.from({ length: q.length }, (_, offset) => at + offset);
   const out: number[] = [];
   let from = 0;
   for (const char of q) {
     const index = t.indexOf(char, from);
     if (index < 0) return undefined;
-    out.push(index);
-    from = index + 1;
+    for (let unit = 0; unit < char.length; unit++) out.push(index + unit);
+    from = index + char.length;
   }
   return out;
 }
 
-const titleOf = (entry: AcpmuxSessionEntry) => entry.displayTitle?.trim() || sessionTitle(entry);
+/// A chat's title on one line: a custom name may hold newlines, which would turn the inserted
+/// mention into markdown blocks (a heading, a list) and move the caret off its paragraph.
+const titleOf = (entry: AcpmuxSessionEntry) =>
+  (entry.displayTitle?.trim() || sessionTitle(entry)).replace(/\s+/g, " ").trim();
 
 /// Other listed chats whose title matches `query`, best first; for no query, the most recent.
 function sessionItems(
@@ -43,15 +48,21 @@ function sessionItems(
   chatId: string | undefined,
   query: string,
 ): MentionItem[] {
+  // One pass that keeps only the best MENTION_SESSIONS (ties keep history order): typing runs this
+  // on every key over the whole chat history, so it never sorts the history.
   const ranked: { entry: AcpmuxSessionEntry; title: string; score: number }[] = [];
   for (const entry of sessions) {
     if (entry.sessionId === chatId || !listed(entry)) continue;
     const title = titleOf(entry);
     const score = query ? fuzzyScore(query, title) : (entry.updatedAt ?? 0);
-    if (score != null) ranked.push({ entry, title, score });
+    if (score == null) continue;
+    if (ranked.length === MENTION_SESSIONS && score <= ranked[ranked.length - 1]!.score) continue;
+    let at = ranked.length;
+    while (at > 0 && ranked[at - 1]!.score < score) at--;
+    ranked.splice(at, 0, { entry, title, score });
+    if (ranked.length > MENTION_SESSIONS) ranked.pop();
   }
-  ranked.sort((a, b) => b.score - a.score);
-  return ranked.slice(0, MENTION_SESSIONS).map(({ entry, title }) => ({
+  return ranked.map(({ entry, title }) => ({
     kind: "session",
     key: `session:${entry.sessionId}`,
     sessionId: entry.sessionId,

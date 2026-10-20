@@ -150,3 +150,36 @@ test("picking a row hands back the row, and each kind writes what the agent read
     "@terminal-lab/ios/project.yml ",
   ]);
 });
+
+test("a long history lists its five best chats, best first and ties in history order", () => {
+  const history: AcpmuxSessionEntry[] = Array.from({ length: 2000 }, (_, index) => ({
+    sessionId: `chat-${index}`,
+    title: `Chat ${index}`,
+    // Recency repeats, so ties have to keep the order the history lists them in.
+    updatedAt: index % 700,
+  }));
+  const names = (query: string) =>
+    mentionItems({ query, files: [], sessions: history }).map((item) => (item.kind === "session" ? item.title : ""));
+  expect(names("")).toEqual(["Chat 699", "Chat 1399", "Chat 698", "Chat 1398", "Chat 697"]);
+  expect(names("chat 1999")).toEqual(["Chat 1999"]);
+});
+
+test("an emoji in a chat's name bolds whole, and the letters after it bold where they are", async () => {
+  const container = installDom();
+  const sessions: AcpmuxSessionEntry[] = [{ sessionId: "emoji-chat", title: "😀 launch" }];
+  await render(container, mentionItems({ query: "😀l", files: [], sessions }));
+  expect(bold(rows(container)[0]!)).toBe("😀l");
+  await render(container, mentionItems({ query: "😀", files: [], sessions }));
+  expect(bold(rows(container)[0]!)).toBe("😀");
+});
+
+test("a chat named across lines is offered and written on one line", async () => {
+  const container = installDom();
+  const sessions: AcpmuxSessionEntry[] = [{ sessionId: "multi-line", displayTitle: "Task\n# heading\n- item" }];
+  const items = mentionItems({ query: "task", files: [], sessions });
+  await render(container, items);
+  expect(rows(container)[0]!.querySelector(".acpmux-slash-name")?.textContent).toBe("Task # heading - item");
+  const { markdown, shown } = mentionInsert(items[0]!);
+  expect(shown).toBe('cmux session "Task # heading - item" (multi-line) ');
+  expect(markdown).not.toContain("\n");
+});
