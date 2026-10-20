@@ -123,6 +123,13 @@ def push_event():
                        "event": {"before": "f" * 40}}, "vars": {}}
 
 
+def dispatch_event(base_sha=""):
+    """The batch queue's tour of a group branch (docs/ci/cmux-next-batch.md#groups)."""
+    return {"github": {"event_name": "workflow_dispatch", "repository": REPO, "repository_owner": "manaflow-ai",
+                       "ref": "refs/heads/next-batch/1-1", "sha": "c" * 40, "run_id": 9002, "event": {}},
+            "inputs": {"base_sha": base_sha}, "vars": {}}
+
+
 def main():
     workflow = yaml.safe_load(open(WORKFLOW, encoding="utf-8"))
     triggers = workflow.get(True) or workflow.get("on")
@@ -147,6 +154,8 @@ def main():
          pr_event("labeled", [LABEL, "dev-build"], label="dev-build"), False),
         ("a fork pull request never tours", pr_event("synchronize", [LABEL], fork=True), False),
         ("a merge to feat-cmux-next tours", push_event(), True),
+        ("a batch dispatch with a base tours", dispatch_event("d" * 40), True),
+        ("a dispatch without a base tours nothing", dispatch_event(""), False),
     ]
     for why, context, want in cases:
         got = bool(expression(route_if, context))
@@ -173,6 +182,15 @@ def main():
     _check("TOUR_TAG" not in tour_env, "no per-pull-request tag")
     _check(str(expression(tour_env["CMUX_MEDIA_TOUR_SLOTS"], push_event())) == "2",
            "two warm tour slots per Mac unless vars.CMUX_MEDIA_TOUR_SLOTS says otherwise")
+    _check(expression(tour_env["BASE_SHA"], dispatch_event("d" * 40)) == "d" * 40,
+           "a batch tour compares against the stack's base, so it maps the union of the group's tours")
+    _check(expression(tour_env["HEAD_SHA"], dispatch_event("d" * 40)) == "c" * 40, "a batch tour tours the group branch")
+    _check(str(expression(route_env["SAME_REPO"], dispatch_event("d" * 40))).lower() == "true",
+           "a batch dispatch counts as same-repository, so an owned Mac takes the tour")
+    _check(bool(expression(route_env["PR_XCODE_APP"], dict(dispatch_event("d" * 40), vars={"CMUX_CI_XCODE_APP_PR": "x"}))),
+           "a batch dispatch gets the PR Xcode pin")
+    _check(not expression(jobs["publish"]["if"], dispatch_event("d" * 40)),
+           "a batch dispatch publishes nothing; the queue reads the tour's artifact")
 
     # The publish job comments on the merged pull request for a merge tour.
     publish = jobs["publish"]

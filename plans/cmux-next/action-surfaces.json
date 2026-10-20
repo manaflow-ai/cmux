@@ -21550,7 +21550,7 @@
       "title_table" : "ActionCatalog"
     },
     {
-      "cli" : "guiOnly",
+      "cli" : "offered",
       "cli_name" : "cloud open-mobile-pairing",
       "context_menu" : "noObject",
       "context_menus" : [
@@ -21562,8 +21562,8 @@
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "palette.mobileConnect",
-      "main_menu" : null,
-      "mcp" : "guiOnly",
+      "main_menu" : "window",
+      "mcp" : "offered",
       "palette" : "offered",
       "palette_section" : {
         "id" : "category.cloud",

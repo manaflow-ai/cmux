@@ -44,8 +44,10 @@ import yaml
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SCRIPT = os.path.join(ROOT, "scripts", "ci", "media_module_cache_stamp.py")
+BUILD_SCRIPT = os.path.join(ROOT, "scripts", "ci", "media_build_app.sh")
+CACHE_SCRIPT = os.path.join(ROOT, "scripts", "ci", "media_app_cache.py")
 WORKFLOW = os.path.join(ROOT, ".github", "workflows", "cmux-next-media.yml")
-STEP_NAME = "Build base and head tagged apps"
+STEP_NAMES = ("Build the base app", "Build the head app")
 PIN_A = "a" * 64
 PIN_B = "b" * 64
 MODULES = "Build/Intermediates.noindex/SwiftExplicitPrecompiledModules"
@@ -181,13 +183,12 @@ def make_derived_modules_again(derived):
         os.makedirs(os.path.join(derived, relative), exist_ok=True)
 
 
-def build_step():
+def build_steps():
     with open(WORKFLOW) as handle:
         workflow = yaml.safe_load(handle)
-    for step in workflow["jobs"]["tour"]["steps"]:
-        if step.get("name") == STEP_NAME:
-            return step
-    return None
+    by_name = {step.get("name"): step for step in workflow["jobs"]["tour"]["steps"]}
+    steps = [by_name.get(name) for name in STEP_NAMES]
+    return None if None in steps else steps
 
 
 def fake_checkout(path, pin):
@@ -195,13 +196,14 @@ def fake_checkout(path, pin):
     write(os.path.join(path, "scripts", "reload.sh"), FAKE_RELOAD)
     os.chmod(os.path.join(path, "scripts", "reload.sh"), 0o755)
     os.makedirs(os.path.join(path, "scripts", "ci"))
-    shutil.copy(SCRIPT, os.path.join(path, "scripts", "ci"))
+    for script in (SCRIPT, BUILD_SCRIPT, CACHE_SCRIPT):
+        shutil.copy(script, os.path.join(path, "scripts", "ci"))
 
 
 def scenario_workflow_step():
-    step = build_step()
-    _check(step is not None, f"the tour job has a '{STEP_NAME}' step")
-    if step is None:
+    steps = build_steps()
+    _check(steps is not None, f"the tour job has {STEP_NAMES} steps")
+    if steps is None:
         return
     with tempfile.TemporaryDirectory() as tmp:
         home = os.path.join(tmp, "home")
@@ -217,12 +219,20 @@ def scenario_workflow_step():
             GITHUB_WORKSPACE=workspace,
             RUNNER_TEMP=runner_temp,
             GITHUB_OUTPUT=os.path.join(tmp, "output"),
+            RUNNER_NAME="runner-1",
+            MEDIA_TOUR_CI=os.path.join(workspace, "scripts", "ci"),
+            MEDIA_APP_RECIPE="0123456789ab",
+            MERGE_BASE="0" * 40,
+            BASE_APP="",
         )
 
         def tour(slot=0):
-            result = subprocess.run(["bash", "-c", step["run"]], cwd=workspace,
-                                    env=dict(env, TOUR_TAG=f"ci-media-slot{slot}"), capture_output=True, text=True)
-            print(result.stdout + result.stderr)
+            for step in steps:
+                result = subprocess.run(["bash", "-c", step["run"]], cwd=workspace, env=dict(env, TOUR_TAG=f"ci-media-slot{slot}"),
+                                        capture_output=True, text=True)
+                print(result.stdout + result.stderr)
+                if result.returncode != 0:
+                    break
             return result
 
         def head_pin(slot=0):
