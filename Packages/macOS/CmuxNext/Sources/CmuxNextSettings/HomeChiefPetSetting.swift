@@ -95,15 +95,23 @@ extension HomeChiefPetSetting {
                 return registry.refuse(SettingUserOnly(key: Self.configPath.joined(separator: "."), writer: SettingWriter(invocation.origin)).description)
             }
             guard let settings = settings() else { return registry.refuse(unavailable) }
-            guard !settings.snapshot.homeChiefPetEnabled else { return summon() }
-            // task-owner: one write; ends with the reload, then the summon
+            let enabled = toggles.pending ?? settings.snapshot.homeChiefPetEnabled
+            guard !enabled || toggles.pending != nil else { return summon() }
+            let previous = toggles.last
+            if !enabled { toggles.pending = true }
+            // task-owner: one write after the toggle's in-flight one (or just a wait for it); ends with the reload, then the summon
             let work = ActionWork { @MainActor in
-                do { try await settings.setSetting(at: Self.configPath, to: .bool(true), by: .user) } catch {
-                    return ActionWorkFailure(refusal: .unavailable, reason: String(describing: error))
+                _ = await previous?.value
+                if !enabled {
+                    defer { if toggles.pending == true { toggles.pending = nil } }
+                    do { try await settings.setSetting(at: Self.configPath, to: .bool(true), by: .user) } catch {
+                        return ActionWorkFailure(refusal: .unavailable, reason: String(describing: error))
+                    }
                 }
                 summon()
                 return nil
             }
+            if !enabled { toggles.last = work }
             registry.track(work)
         })
     }

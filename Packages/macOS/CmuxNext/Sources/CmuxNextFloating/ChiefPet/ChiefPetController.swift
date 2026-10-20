@@ -7,8 +7,8 @@ import CmuxNextWakeups
 /// show and kept, with its spot, while hidden), and the notice bubble over it
 /// (`ChiefPetFeed`). A finished notice leaves on its own after
 /// `doneSeconds`; one that waits for the user stays until its tab is read.
-/// The rail's chevron folds and unfolds the notices; a click on the pet or the rail's compose
-/// opens the reply box (`ChiefPetController+Reply`).
+/// The rail's chevron folds and unfolds the notices; a click on the pet, the rail's compose or
+/// Message the Chief opens the reply box (`ChiefPetController+Reply`).
 @MainActor
 public final class ChiefPetController {
     /// How long a finished notice stays up.
