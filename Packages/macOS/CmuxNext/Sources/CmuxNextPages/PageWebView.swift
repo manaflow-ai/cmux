@@ -198,6 +198,9 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         bridge = webKitBridge
         scripts = PageScriptPipeline { script in webKitBridge.evaluate(script) }
         super.init(frame: .zero)
+        // The web view got the keyboard: WebKit focuses no element by itself, so the page focuses its
+        // primary input (Monaco) when nothing has focus (pane-focus-DESIGN.md P1).
+        webView.onBecameFirstResponder = { [weak self] in self?.send(command: PageNativeOp.focusContent) }
         SystemScrollers.observe(self) { [weak self] _ in self?.applyTheme() } // theme carries data-scrollers
         observeStatusLook()
         wantsLayer = true

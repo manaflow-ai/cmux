@@ -47,9 +47,21 @@ nonisolated enum Strings {
     static var calculatorCopyHint: String {
         String(localized: "browser.suggestion.calculatorCopyHint", defaultValue: "Return Copies", bundle: .module)
     }
+    /// Chromium's `IDS_OMNIBOX_KEYWORD_TEXT`: the chip of a search engine keyword session.
+    static func searchKeyword(engine: String) -> String {
+        String(localized: "browser.omnibar.searchKeyword", defaultValue: "Search \(engine)", bundle: .module)
+    }
     /// Chromium's `IDS_OMNIBOX_EMPTY_HINT`.
     static var omnibarPlaceholder: String {
         String(localized: "browser.omnibar.placeholder", defaultValue: "Search or type URL", bundle: .module)
+    }
+    /// Chromium `IDS_CONTEXT_MENU_SHOW_FULL_URLS`.
+    static var alwaysShowFullURLs: String {
+        String(localized: "browser.omnibar.alwaysShowFullURLs", defaultValue: "Always Show Full URLs", bundle: .module)
+    }
+    /// Chromium `IDS_MANAGE_SEARCH_ENGINES_AND_SITE_SEARCH`: opens Settings at the search engine.
+    static var manageSearchEngines: String {
+        String(localized: "browser.omnibar.manageSearchEngines", defaultValue: "Manage Search Engines…", bundle: .module)
     }
     static var pasteAndGo: String { String(localized: "browser.omnibar.pasteAndGo", defaultValue: "Paste and Go", bundle: .module) }
     static var pasteAndSearch: String { String(localized: "browser.omnibar.pasteAndSearch", defaultValue: "Paste and Search", bundle: .module) }

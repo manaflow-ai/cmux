@@ -1,6 +1,7 @@
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextHomeEngine
 import enum CmuxNextLayout.DockEdge
 import enum CmuxNextLayout.DockMode
 import enum CmuxNextLayout.DockRole
@@ -227,6 +228,12 @@ enum TabMoves {
     /// incognito page's title stays in memory (R102): the daemon stores the
     /// workspace name and keeps it in closed history.
     static func nameInput(_ tab: TabModel, services: AppServices) -> NewWorkspaceName.Tab {
+        // A conversation, page or app tab's record is titled `about:blank`, a placeholder (a New
+        // Tab page dragged to the sidebar named its workspace "about:blank"): only a name the tab
+        // shows of its own names the workspace.
+        if tab.kind == .conversation || tab.appTab != nil {
+            return NewWorkspaceName.Tab(kind: .page, userName: tab.name, title: ownName(tab, services: services), pageTitle: nil, url: nil, cwd: nil)
+        }
         let kind: NewWorkspaceName.Tab.Kind = switch tab.kind {
         case .pty: .terminal
         case .browser: .browser
@@ -236,8 +243,23 @@ enum TabMoves {
         }
         let offTheRecord = tab.kind == .browser && services.cache.browserTabs.isIncognitoTab(tab.id) == true
         let pageTitle = tab.kind == .browser && !offTheRecord ? services.cache.existingBrowser(tab.id)?.tab.state.title : nil
-        return NewWorkspaceName.Tab(kind: kind, userName: tab.name, title: tab.title, pageTitle: pageTitle,
+        return NewWorkspaceName.Tab(kind: kind, userName: tab.name, title: tab.titleText, pageTitle: pageTitle,
                                     url: tab.url, cwd: tab.cwd)
+    }
+
+    /// The name a conversation, page or app tab shows of its own: its page's or app's title, its
+    /// Home conversation's title or the Chief's name. Nil for an agent chat or New Tab page (named
+    /// from its chat, `WorkspaceAutoNameReader`), an app with no page, and an untitled Home
+    /// conversation: a generic label ("New Tab", "Home") written now would stay as the user's name.
+    private static func ownName(_ tab: TabModel, services: AppServices) -> String? {
+        if tab.agentSession != nil { return nil }
+        if let app = tab.appTab {
+            guard let provider = services.apps.pageProvider(appID: app.app, codeRouterAsPage: false) else { return nil }
+            return services.pages.storeTabItem(tab, page: provider.page)?.title
+        }
+        if tab.page != nil { return services.pages.storeTabItem(tab)?.title }
+        let title = services.home.tabTitle(for: tab)
+        return title == HomeStrings.title ? nil : title
     }
 
     /// The other tabs of a multi-tab move follow the first into the workspace its move made (`key`), in order.

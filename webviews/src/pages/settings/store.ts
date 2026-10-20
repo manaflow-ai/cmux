@@ -159,8 +159,12 @@ export class SettingsStore {
     this.transport = options.transport ?? pageTransport(client);
     this.queryClient = options.queryClient ?? createSettingsQueryClient();
     // Each key's read, so a cache observer (useSettingsState) and a refetch know how to read it.
-    this.queryClient.setQueryDefaults(settingsKeys.scope("user"), { queryFn: this.scopeQuery().queryFn });
-    this.queryClient.setQueryDefaults(settingsKeys.host, { queryFn: () => this.native("cmux.settings.host.lists") });
+    this.queryClient.setQueryDefaults(settingsKeys.scope("user"), {
+      queryFn: this.scopeQuery().queryFn,
+    });
+    this.queryClient.setQueryDefaults(settingsKeys.host, {
+      queryFn: () => this.native("cmux.settings.host.lists"),
+    });
     this.queryClient.setQueryDefaults(settingsKeys.accounts, {
       queryFn: () => this.native("cmux.settings.accounts.state"),
     });
@@ -177,6 +181,20 @@ export class SettingsStore {
 
   /** Subscribes to changes and the connection, then reads everything once. */
   async start(): Promise<void> {
+    // Every subscription at once (one round trip, not two), then the reads, so no change can land
+    // between a read and its subscription.
+    const listening = Promise.all([
+      this.listen("cmux.settings.host.changed", (host) => this.queryClient.setQueryData(settingsKeys.host, host)),
+      this.listen("cmux.settings.accounts.changed", (accounts) =>
+        this.queryClient.setQueryData(settingsKeys.accounts, accounts),
+      ),
+      this.listen("cmux.settings.harnesses.changed", (harnesses) =>
+        this.queryClient.setQueryData(settingsKeys.harnesses, harnesses),
+      ),
+      this.listen("cmux.page.command", (event) => {
+        for (const listener of this.commandListeners) listener(event.command);
+      }),
+    ]);
     const stopTransport = await this.transport.subscribe({
       changed: (event) => {
         if (this.disposed) return;
@@ -197,18 +215,7 @@ export class SettingsStore {
     });
     if (this.disposed) stopTransport();
     else this.unsubscribers.push(stopTransport);
-    await Promise.all([
-      this.listen("cmux.settings.host.changed", (host) => this.queryClient.setQueryData(settingsKeys.host, host)),
-      this.listen("cmux.settings.accounts.changed", (accounts) =>
-        this.queryClient.setQueryData(settingsKeys.accounts, accounts),
-      ),
-      this.listen("cmux.settings.harnesses.changed", (harnesses) =>
-        this.queryClient.setQueryData(settingsKeys.harnesses, harnesses),
-      ),
-      this.listen("cmux.page.command", (event) => {
-        for (const listener of this.commandListeners) listener(event.command);
-      }),
-    ]);
+    await listening;
     await Promise.all([this.refresh(), this.refreshHost()]);
   }
 
@@ -409,14 +416,20 @@ export class SettingsStore {
 
   /** Saves the workspace `id`'s own background; null follows appearance.background again. */
   async setWorkspaceBackground(id: string, value: string | null): Promise<boolean> {
-    const reply = await this.request("cmux.settings.backdrop.workspace.set", { workspace: id, value });
+    const reply = await this.request("cmux.settings.backdrop.workspace.set", {
+      workspace: id,
+      value,
+    });
     if (!reply.ok) this.setError("appearance.background", rowError(reply.error));
     return reply.ok;
   }
 
   /** Saves the workspace `id`'s own glass tint over art; null follows the work's own tint. */
   async setWorkspaceOpacity(id: string, opacity: number | null): Promise<boolean> {
-    const reply = await this.request("cmux.settings.backdrop.workspace.set", { workspace: id, opacity });
+    const reply = await this.request("cmux.settings.backdrop.workspace.set", {
+      workspace: id,
+      opacity,
+    });
     if (!reply.ok) this.setError("appearance.backgroundOpacity", rowError(reply.error));
     return reply.ok;
   }
@@ -726,7 +739,10 @@ export class SettingsStore {
    */
   private async write(write: Write): Promise<WriteResult> {
     if (!this.ui.connected) {
-      return { ok: false, error: { code: "cmux.page.unavailable", message: "cmux is not connected" } };
+      return {
+        ok: false,
+        error: { code: "cmux.page.unavailable", message: "cmux is not connected" },
+      };
     }
     const key = settingsKeys.scope("user");
     const queryClient = this.queryClient;
