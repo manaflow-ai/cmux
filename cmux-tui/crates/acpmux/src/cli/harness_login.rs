@@ -13,7 +13,9 @@
 //!   in the Keychain (`cmux harness secret set`).
 //!
 //! Claude Code (acpmux's own adapter) has no ACP sign-in: its login runs
-//! `claude auth login` in this terminal.
+//! `claude auth login` in this terminal. Neither has Codex through `codex
+//! app-server` (the in-process bridge, which speaks app-server, not ACP):
+//! its login runs `codex login` here, and `--status` asks `codex login status`.
 //!
 //! Sign-in types and the terminal hand-off follow the ACP auth methods that
 //! t3code's ACP Registry auth uses (apps/server/src/provider/acp/
@@ -199,11 +201,56 @@ fn not_acp(id: &str, profile: &HarnessProfile) -> Option<String> {
     }
 }
 
+/// Whether a profile runs `codex app-server` through the in-process bridge:
+/// `session/new` and `authenticate` are not app-server methods, so its
+/// sign-in goes through the codex CLI.
+fn codex_bridge(profile: &HarnessProfile) -> bool {
+    matches!(profile.kind, HarnessKind::Acp)
+        && crate::codex_app_server::is_profile_launch(&profile.argv)
+}
+
+/// The bridge's env as its launch builds it: the profile's own, then the
+/// family's and the profile's `defaults` (`hub::spawn`), references resolved.
+fn codex_env(cfg: &Config, id: &str, profile: &HarnessProfile) -> Result<BTreeMap<String, String>> {
+    let mut layered = profile.clone();
+    for (k, v) in cfg.defaults_for(id).env {
+        layered.env.entry(k).or_insert(v);
+    }
+    Ok(resolved(&layered)?.env)
+}
+
+/// The codex binary the bridge runs: `CODEX_PATH` of its env, as the
+/// launch picks it (`agent::command`), else its command.
+fn codex_program(profile: &HarnessProfile, env: &BTreeMap<String, String>) -> String {
+    env.get("CODEX_PATH")
+        .filter(|p| !p.is_empty())
+        .cloned()
+        .unwrap_or_else(|| profile.argv[0].clone())
+}
+
 /// Whether harness `id` is signed in.
 pub async fn auth_state(cfg: &Config, id: &str, timeout: Duration) -> Result<AuthState> {
     let profile = profile(cfg, id)?;
     if let Some(hint) = not_acp(id, profile) {
         return Ok(AuthState::NotAcp { hint });
+    }
+    if codex_bridge(profile) {
+        let env = codex_env(cfg, id, profile)?;
+        let codex = codex_program(profile, &env);
+        let status = tokio::task::spawn_blocking(move || {
+            crate::harness_health::probe::codex_login_status_of(&codex, &env)
+        })
+        .await?;
+        return match status {
+            Some(true) => Ok(AuthState::SignedIn { methods: vec![] }),
+            Some(false) => Ok(AuthState::Required {
+                methods: vec![],
+                message: "`codex login status`: not logged in".into(),
+            }),
+            None => Err(anyhow!(
+                "`codex login status` did not say: a custom provider, a config error or an older codex"
+            )),
+        };
     }
     let mut started = start(id, profile, timeout).await?;
     let methods = auth_methods(&started.init);
@@ -284,6 +331,19 @@ pub async fn login(
             };
         }
         _ => bail!("{}", not_acp(id, profile).unwrap_or_default()),
+    }
+    if codex_bridge(profile) {
+        if let Some(m) = method {
+            bail!("{id} signs in with `codex login`; it has no sign-in method {m:?}");
+        }
+        let env = codex_env(cfg, id, profile)?;
+        let argv = vec![codex_program(profile, &env), "login".into()];
+        let code = terminal(&argv, &env)?;
+        return if code == 0 {
+            Ok(format!("{id}: signed in"))
+        } else {
+            Err(anyhow!("`codex login` exited {code}"))
+        };
     }
     let mut started = start(id, profile, timeout).await?;
     let methods = auth_methods(&started.init);
@@ -386,4 +446,107 @@ pub async fn run_cmd(
         println!("{outcome}");
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn acp(argv: &[&str], env: &[(&str, &str)]) -> HarnessProfile {
+        HarnessProfile {
+            kind: HarnessKind::Acp,
+            argv: argv.iter().map(|s| s.to_string()).collect(),
+            env: env.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(),
+            description: None,
+            fallback: None,
+            family: None,
+            models: vec![],
+            model: None,
+            effort: None,
+            policy: None,
+        }
+    }
+
+    fn config(profile: HarnessProfile) -> Config {
+        let mut cfg = Config::default();
+        cfg.harnesses.insert("codex".into(), profile);
+        cfg
+    }
+
+    /// The commands a login ran in the terminal (each exits 0).
+    async fn ran(cfg: &Config, method: Option<&str>) -> (Result<String>, Vec<Vec<String>>) {
+        let ran = std::sync::Mutex::new(Vec::new());
+        let terminal = |argv: &[String], _: &BTreeMap<String, String>| {
+            ran.lock().unwrap().push(argv.to_vec());
+            Ok(0)
+        };
+        let outcome = login(cfg, "codex", method, Duration::from_secs(5), &terminal).await;
+        (outcome, ran.into_inner().unwrap())
+    }
+
+    /// A fake `codex` that answers `login status` with `out` and exit `code`.
+    fn fake_codex(test: &str, out: &str, code: i32) -> String {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("acpmux-login-{test}-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("codex");
+        std::fs::write(&path, format!("#!/bin/sh\necho '{out}'\nexit {code}\n")).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        path.to_string_lossy().into_owned()
+    }
+
+    #[tokio::test]
+    async fn codex_bridge_login_runs_codex_login_in_this_terminal() {
+        let (outcome, ran) = ran(&config(acp(&["/opt/bin/codex", "app-server"], &[])), None).await;
+        assert_eq!(outcome.unwrap(), "codex: signed in");
+        assert_eq!(ran, vec![vec!["/opt/bin/codex".to_owned(), "login".to_owned()]]);
+    }
+
+    #[tokio::test]
+    async fn codex_bridge_login_runs_the_codex_path_binary_like_the_launch() {
+        let profile = acp(&["codex", "app-server"], &[("CODEX_PATH", "/opt/codex-new")]);
+        let (outcome, ran) = ran(&config(profile), None).await;
+        assert_eq!(outcome.unwrap(), "codex: signed in");
+        assert_eq!(ran, vec![vec!["/opt/codex-new".to_owned(), "login".to_owned()]]);
+    }
+
+    #[tokio::test]
+    async fn codex_bridge_login_takes_codex_path_from_the_family_defaults() {
+        let mut cfg = config(acp(&["codex", "app-server"], &[]));
+        let mut defaults = crate::config::SessionDefaults::default();
+        defaults.env.insert("CODEX_PATH".into(), "/opt/codex-family".into());
+        cfg.defaults.insert("codex".into(), defaults);
+        let (outcome, ran) = ran(&cfg, None).await;
+        assert_eq!(outcome.unwrap(), "codex: signed in");
+        assert_eq!(ran, vec![vec!["/opt/codex-family".to_owned(), "login".to_owned()]]);
+    }
+
+    #[tokio::test]
+    async fn codex_bridge_login_refuses_an_acp_method() {
+        let (outcome, ran) =
+            ran(&config(acp(&["/opt/bin/codex", "app-server"], &[])), Some("chatgpt")).await;
+        let err = outcome.unwrap_err().to_string();
+        assert!(err.contains("codex login"), "{err}");
+        assert!(ran.is_empty());
+    }
+
+    #[tokio::test]
+    async fn codex_bridge_status_asks_codex_login_status() {
+        let timeout = Duration::from_secs(5);
+        let signed_in =
+            config(acp(&[&fake_codex("in", "Logged in using ChatGPT", 0), "app-server"], &[]));
+        assert_eq!(
+            auth_state(&signed_in, "codex", timeout).await.unwrap(),
+            AuthState::SignedIn { methods: vec![] }
+        );
+        let signed_out = config(acp(&[&fake_codex("out", "Not logged in", 1), "app-server"], &[]));
+        assert!(matches!(
+            auth_state(&signed_out, "codex", timeout).await.unwrap(),
+            AuthState::Required { .. }
+        ));
+        // A failure that is not Codex's own "Not logged in" says nothing about a sign-in.
+        let broken =
+            config(acp(&[&fake_codex("err", "Error loading config.toml", 1), "app-server"], &[]));
+        assert!(auth_state(&broken, "codex", timeout).await.is_err());
+    }
 }
