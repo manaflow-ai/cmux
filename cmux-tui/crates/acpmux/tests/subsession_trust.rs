@@ -96,8 +96,11 @@ impl Client {
 
     /// Waits until the session asks the person something.
     async fn until_waiting(&mut self, id: &str) {
-        self.ok("_acpmux/wait", json!({"sessions": [id], "until": ["permission"], "timeoutMs": 20000}))
-            .await;
+        self.ok(
+            "_acpmux/wait",
+            json!({"sessions": [id], "until": ["permission"], "timeoutMs": 20000}),
+        )
+        .await;
     }
 }
 
@@ -126,14 +129,16 @@ fn card_of(hub: &Arc<Hub>, parent: &str) -> (String, Value) {
 #[tokio::test]
 async fn a_folder_nobody_answered_for_waits_on_a_card_and_resumes_by_itself() {
     let root = std::fs::canonicalize({
-        let d = std::env::temp_dir().join(format!("acpmux-subsession-trust-{}", uuid::Uuid::now_v7()));
+        let d =
+            std::env::temp_dir().join(format!("acpmux-subsession-trust-{}", uuid::Uuid::now_v7()));
         std::fs::create_dir_all(&d).unwrap();
         d
     })
     .unwrap();
     let mine = root.join("mine");
     let elsewhere = root.join("elsewhere");
-    for folder in ["parent", "mine/app", "elsewhere/a", "elsewhere/b", "elsewhere/c", "elsewhere/d"] {
+    for folder in ["parent", "mine/app", "elsewhere/a", "elsewhere/b", "elsewhere/c", "elsewhere/d"]
+    {
         std::fs::create_dir_all(root.join(folder)).unwrap();
     }
     std::fs::create_dir_all(root.join("home")).unwrap();
@@ -170,9 +175,8 @@ async fn a_folder_nobody_answered_for_waits_on_a_card_and_resumes_by_itself() {
 
     // 1. Under a project root: no card, the child starts at once.
     let mut agent = Client::as_session(&hub, &parent).await;
-    let own = agent
-        .ok(START, json!({"prompt": "echo hi", "name": "own", "cwd": mine.join("app")}))
-        .await;
+    let own =
+        agent.ok(START, json!({"prompt": "echo hi", "name": "own", "cwd": mine.join("app")})).await;
     assert_eq!(own["depth"], 1, "{own}");
     assert_eq!(app.summary(&parent).await["pendingPermissions"], 0);
 

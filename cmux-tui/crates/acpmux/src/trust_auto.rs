@@ -144,11 +144,13 @@ struct Defaults {
 
 fn defaults() -> &'static Defaults {
     static DEFAULTS: std::sync::OnceLock<Defaults> = std::sync::OnceLock::new();
-    DEFAULTS.get_or_init(|| parse_defaults(CATALOG_SOURCE).unwrap_or(Defaults {
-        enabled: true,
-        roots: vec!["~/Projects".to_owned()],
-        orgs: vec!["teamleaderleo".to_owned(), "manaflow-ai".to_owned()],
-    }))
+    DEFAULTS.get_or_init(|| {
+        parse_defaults(CATALOG_SOURCE).unwrap_or(Defaults {
+            enabled: true,
+            roots: vec!["~/Projects".to_owned()],
+            orgs: vec!["teamleaderleo".to_owned(), "manaflow-ai".to_owned()],
+        })
+    })
 }
 
 fn parse_defaults(source: &str) -> Option<Defaults> {
@@ -278,7 +280,11 @@ mod tests {
         ] {
             assert_eq!(github_owner(url).as_deref(), Some("manaflow-ai"), "{url}");
         }
-        for url in ["git@gitlab.com:manaflow-ai/cmux.git", "/srv/git/cmux", "https://github.com.evil.example/manaflow-ai/x"] {
+        for url in [
+            "git@gitlab.com:manaflow-ai/cmux.git",
+            "/srv/git/cmux",
+            "https://github.com.evil.example/manaflow-ai/x",
+        ] {
             assert_eq!(github_owner(url), None, "{url}");
         }
     }
@@ -314,7 +320,13 @@ mod tests {
         let mixed = d.join("mixed");
         let none = d.join("none");
         repo(&own, &[("origin", "git@github.com:teamleaderleo/x.git")]);
-        repo(&mixed, &[("origin", "git@github.com:manaflow-ai/x.git"), ("up", "https://github.com/someone/x")]);
+        repo(
+            &mixed,
+            &[
+                ("origin", "git@github.com:manaflow-ai/x.git"),
+                ("up", "https://github.com/someone/x"),
+            ],
+        );
         repo(&none, &[]);
         let auto = rules_at(&d, json!({"agents": {"trust": {"projectRoots": []}}}));
         assert_eq!(auto.reason(own.to_str().unwrap()), Some(Reason::Org("teamleaderleo".into())));
@@ -340,7 +352,8 @@ mod tests {
         let auto = rules_at(&d, json!({"agents": {"trust": {"projectRoots": []}}}));
         // The repository does not name this folder back: a `.git` file written by hand.
         assert_eq!(auto.reason(tree.to_str().unwrap()), None);
-        std::fs::write(gitdir.join("gitdir"), format!("{}\n", tree.join(".git").display())).unwrap();
+        std::fs::write(gitdir.join("gitdir"), format!("{}\n", tree.join(".git").display()))
+            .unwrap();
         assert_eq!(auto.reason(tree.to_str().unwrap()), Some(Reason::Org("manaflow-ai".into())));
     }
 
@@ -354,7 +367,10 @@ mod tests {
         let typo = rules_at(&d, json!({"agents": {"trust": {"autoTrust": "false"}}}));
         assert_eq!(typo.reason(d.join("r").to_str().unwrap()), None);
         let on = rules_at(&d, json!({}));
-        assert_eq!(on.reason(d.join("r").to_str().unwrap()), Some(Reason::Org("manaflow-ai".into())));
+        assert_eq!(
+            on.reason(d.join("r").to_str().unwrap()),
+            Some(Reason::Org("manaflow-ai".into()))
+        );
         let bad_orgs = rules_at(&d, json!({"agents": {"trust": {"ownOrgs": "manaflow-ai"}}}));
         assert_eq!(bad_orgs.reason(d.join("r").to_str().unwrap()), None);
         assert_eq!(AutoTrust::default().reason(d.join("r").to_str().unwrap()), None);
@@ -367,7 +383,10 @@ mod tests {
         let doc = json!({"agents": {"trust": {"projectRoots": [d.to_string_lossy(), "~/work"]}}});
         let auto = AutoTrust::from_doc(&doc, Some(&d));
         assert_eq!(auto.roots, [d.join("work")]);
-        assert_eq!(auto.reason(d.join("work").to_str().unwrap()), Some(Reason::Root(d.join("work"))));
+        assert_eq!(
+            auto.reason(d.join("work").to_str().unwrap()),
+            Some(Reason::Root(d.join("work")))
+        );
         assert_eq!(auto.reason(d.to_str().unwrap()), None);
     }
 

@@ -47,7 +47,10 @@ impl Waits {
     }
 
     fn decline(&self, key: &str) {
-        self.declined.lock().unwrap_or_else(|e| e.into_inner()).insert(key.to_owned(), Instant::now());
+        self.declined
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(key.to_owned(), Instant::now());
     }
 
     fn forget(&self, key: &str) {
@@ -170,7 +173,9 @@ impl Hub {
                 // Without a readable record no answer can be kept: say so rather than ask.
                 return Err(refused(
                     "subsessions.trust_unreadable",
-                    format!("start_session refused: the folder trust record cannot be read ({message})"),
+                    format!(
+                        "start_session refused: the folder trust record cannot be read ({message})"
+                    ),
                     &asked,
                 ));
             }
@@ -196,9 +201,7 @@ impl Hub {
         let mut answer = {
             let (hub, parent, request, turn) =
                 (self.clone(), parent.clone(), card(&key, short), turn_id);
-            tokio::spawn(async move {
-                hub.handle_permission(&parent, request, epoch, turn).await
-            })
+            tokio::spawn(async move { hub.handle_permission(&parent, request, epoch, turn).await })
         };
         let deadline = tokio::time::sleep(WAIT);
         tokio::pin!(deadline);
@@ -288,7 +291,9 @@ impl Hub {
             // Cancelled: the turn ended, the chat closed or the card was withdrawn.
             _ => Err(refused(
                 "subsessions.trust_cancelled",
-                format!("start_session refused: the trust question for {key} was withdrawn before it was answered. Start the sub-session again when the user is ready."),
+                format!(
+                    "start_session refused: the trust question for {key} was withdrawn before it was answered. Start the sub-session again when the user is ready."
+                ),
                 key,
             )),
         }
@@ -315,7 +320,9 @@ impl Hub {
 fn declined(key: &str) -> RpcError {
     refused(
         "subsessions.trust_declined",
-        format!("start_session refused: the user chose not to trust {key} for now. Do not ask again; continue without a sub-session there, or use a folder the user already trusts."),
+        format!(
+            "start_session refused: the user chose not to trust {key} for now. Do not ask again; continue without a sub-session there, or use a folder the user already trusts."
+        ),
         key,
     )
 }
