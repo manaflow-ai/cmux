@@ -65,6 +65,7 @@ import subprocess
 import sys
 import time
 import urllib.parse
+import urllib.error
 import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -332,6 +333,23 @@ class ChromiumBrowser(Browser):
     def activate(self, handle: str):
         self.cdp(f"/json/activate/{handle}")
 
+    def probe_cdp(self):
+        """Turns off switching and closing when this browser's CDP lacks /json/activate or
+        /json/close, so the session goes on to its other rows instead of ending."""
+        if not self.tabs:
+            return
+        for path, attr in ((f"/json/activate/{self.tabs[-1]}", "can_switch"), ("/json/close/xbench-missing-target", "can_close")):
+            try:
+                self.cdp(path)
+            except urllib.error.HTTPError as error:
+                # Chrome answers a missing target with 404 "No such target id"; a 404 without
+                # that text means the endpoint itself does not exist.
+                if error.code == 404 and "no such target" not in error.read().decode(errors="replace").lower():
+                    setattr(self, attr, False)
+                    log(f"{self.name}: CDP {path.split('/')[2]} unsupported (404), its rows are skipped")
+            except OSError:
+                pass
+
     def close(self, handle: str):
         self.cdp(f"/json/close/{handle}")
         if handle in self.tabs:
@@ -372,17 +390,24 @@ class CmuxBrowser(Browser):
                 json.dump({"updates": {"checkAutomatically": False, "downloadAutomatically": False}}, handle)
         env = {"HOME": home, "CFFIXED_USER_HOME": home, "USER": os.environ.get("USER", ""), "TMPDIR": tmp + "/",
                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1",
-               "CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_NEXT_CONFIG_FILE": config}
+               "CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_NEXT_CONFIG_FILE": config,
+               # As the Chromium browsers' --use-mock-keychain: a locked login keychain on a bench
+               # host otherwise holds CEF at a keychain prompt and no Chromium tab loads.
+               "CMUX_MOCK_KEYCHAIN": "1"}
         argv = ["open", "-n", "-g"] + [x for k, v in env.items() for x in ("--env", f"{k}={v}")] + ["-a", self.bundle]
         subprocess.run(argv, check=True, timeout=60)
         self.instance = procs.Instance(self.bundle, self.wait_main())
         self._tmp = tmp
+        self._state = os.path.join(home, ".local/state/cmux")
 
     def ready(self, timeout: float = 90):
         import bench_memory as bm
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
-            path = bm.control_socket(self.bundle, self.instance.pid, ["/tmp", self._tmp])
+            # The app binds in its HOME's state folder; /tmp holds only a symlink, which a later
+            # instance may leave pointing at the previous session's socket.
+            dirs = [d for d in (self._state, self._tmp, "/tmp") if os.path.isdir(d)]
+            path = bm.control_socket(self.bundle, self.instance.pid, dirs)
             if path:
                 self.socket = path
                 self.app = bm.App(self.bundle, path)
@@ -391,14 +416,16 @@ class CmuxBrowser(Browser):
         raise RuntimeError("cmux: no control socket within 90 s")
 
     def act(self, action: str, **args) -> dict:
-        reply = self.app.action(action, **args)
+        # focus: a user's Cmd-T / Cmd-1..9 shows the tab (Chrome's /json/new opens a foreground tab);
+        # a background cmux tab does not load at all, so no paint or visibility row would exist.
+        reply = self.app.action(action, focus=True, **args)
         if reply.get("error"):
             raise RuntimeError(f"cmux {action}: {reply['error']}")
         return reply
 
     def start_workspace(self):
         self.act("workspace.newAtBottom")
-        self.app.action("workspace.selectLast")
+        self.app.action("workspace.selectLast", focus=True)
 
     def new_tab(self, url: str, tab_id: str) -> str:
         if self.engine == "terminal":
@@ -630,6 +657,8 @@ class Run:
             sleep(a.settle)
             self.window(browser, round_no, {"power-idle-visible": "mw", "idle-cpu-20": "cpu_pct",
                                             "idle-wakeups-20": "wakeups_per_s"}, a.idle)
+            if isinstance(browser, ChromiumBrowser):
+                browser.probe_cdp()  # Ardia's CDP has no /json/activate or /json/close
             if browser.can_switch or browser.name == "cmux-terminal":
                 latencies = []
 
@@ -806,7 +835,10 @@ def tab_switch_rows(path: str | None) -> tuple[dict, list[str]]:
         kind, count = scenario["kind"], scenario["count"]
         cells, late = [], []
         for input_kind in ("ctrl_tab", "cmd_shift_bracket", "click"):
-            line = ((scenario.get(input_kind) or {}).get("table") or {}).get(kind) or {}
+            table = (scenario.get(input_kind) or {}).get("table") or {}
+            # Keyed by the switched-to surface's kind: Markdown and chat tabs are both `page`.
+            line = table.get(kind) or table.get("page") or next(
+                (v for k, v in table.items() if k != "terminal"), {})
             e2e = line.get("e2e") or line.get("commit") or {}
             if e2e.get("p50") is None:
                 cells.append("–")

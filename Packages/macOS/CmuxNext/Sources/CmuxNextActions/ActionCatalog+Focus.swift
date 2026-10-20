@@ -11,12 +11,12 @@ nonisolated extension ActionCatalog {
         "tab.focus", "pane.focus", "screen.focus", "navigate.next", "navigate.previous", "nextSurface", "prevSurface", "selectSurfaceByNumber", "tab.search",
         // Panes and focus targets
         "focusLeft", "focusRight", "focusUp", "focusDown", "focusPreviousPane", "focusNextPane", "focusPaneByNumber", "focusSidebar",
-        "column.focusLeft", "column.focusRight", "canvasRevealFocusedPane", "focusBrowserAddressBar", "focusTextBoxInput", "focusRightSidebar",
+        "column.focusLeft", "column.focusRight", "canvasRevealFocusedPane", "focusBrowserAddressBar", "browser.focusSearch", "focusTextBoxInput", "focusRightSidebar",
         // Screens
         "screen.next", "screen.previous", "screen.select", "screen.selectLast",
         // Workspaces and rooms
         "nextSidebarTab", "prevSidebarTab", "nextSidebarTabInGroup", "prevSidebarTabInGroup", "nextWorkspaceGroup", "prevWorkspaceGroup", "selectWorkspaceByNumber",
-        "goToWorkspace", "workspace.selectFirst", "workspace.selectLast", "workspace.selectLastUsed",
+        "goToWorkspace", "search.chats", "workspace.selectFirst", "workspace.selectLast", "workspace.selectLastUsed",
         "space.next", "space.previous", "space.selectByNumber", "space.switch", "home.show", "home.switchView", "home.openConversation", "home.previousConversation", "home.nextConversation",
         // Focus history and notifications
         "focusHistoryBack", "focusHistoryForward", "focusHistoryLast", "jumpToUnread", "jumpToLastPrompt", "markOldestUnreadAndJumpNext",

@@ -75,7 +75,7 @@ struct AppInstalledRow: View {
         }
         .padding(Metrics.space3)
         .background(RoundedRectangle(cornerRadius: Metrics.itemCornerRadius + 2, style: .continuous).fill(colors.hover))
-        .animation(Motion.animation(.focus), value: app)
+        .animation(Motion.feedback.animation(.focus), value: app)
     }
 
     /// The supervisor's refusal of the last change, else a crashed host.

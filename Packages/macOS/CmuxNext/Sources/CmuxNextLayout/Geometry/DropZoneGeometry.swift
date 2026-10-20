@@ -43,10 +43,10 @@ public nonisolated enum DropZoneGeometry {
         return candidates.min { $0.1 < $1.1 }?.0 ?? .center
     }
 
-    /// An edge band: a share of the extent between the style's floor and
-    /// cap (`dropEdgeFraction` 0.25 within 40...120 pt), and never more than
-    /// a third of it, so every pane keeps a center of at least a third of
-    /// each axis to join (DESIGN.md (c)2).
+    /// An edge band: a share of the extent above the style's floor
+    /// (`dropEdgeFraction` 0.25, at least 48 pt, no cap), and never more
+    /// than a third of it, so every pane keeps a center of at least a third
+    /// of each axis to join (plans/cmux-next/drop-zones/DESIGN.md).
     static func band(for extent: CGFloat, style: LayoutStyle) -> CGFloat {
         let raw = extent * style.dropEdgeFraction
         let clamped = min(max(raw, style.dropEdgeRange.lowerBound), style.dropEdgeRange.upperBound)
@@ -63,6 +63,26 @@ public nonisolated enum DropZoneGeometry {
         }
         let candidates = geometry.panes.map { (pane: $0.key, cell: $0.value, visible: $0.value) }
         return paneTarget(at: point, candidates, headers: headers, footers: footers, style: style, previous: previous)
+    }
+
+    /// bonsplit's shared edge (#22287): a terminal tab dragged out of
+    /// `source` onto the band of the pane beside it that faces `source`
+    /// joins that pane instead of splitting it; the pane's outer edge still
+    /// splits. Only left and right, as in bonsplit. `frames` are the panes
+    /// in one logical line (`ScreenContentView.navigationFrames`); the
+    /// neighbor is `FocusNavigation`'s, and must overlap `source` vertically
+    /// (its fallback to the nearest pane shares no edge).
+    public static func joiningSharedEdge(_ target: DropTarget, from source: PaneID?, frames: [PaneID: CGRect]) -> DropTarget {
+        guard let source, case let .pane(pane, zone) = target, pane != source else { return target }
+        let toward: LayoutDirection
+        switch zone {
+        case .left: toward = .right
+        case .right: toward = .left
+        case .top, .bottom, .center: return target
+        }
+        guard let from = frames[source], let to = frames[pane], min(from.maxY, to.maxY) > max(from.minY, to.minY),
+              FocusNavigation.neighbor(of: source, direction: toward, frames: frames) == pane else { return target }
+        return .pane(pane, .center)
     }
 
     /// The tab bar height of `pane` measured from its cell top: the cell's

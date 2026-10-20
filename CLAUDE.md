@@ -27,6 +27,14 @@ Read the matching skill before changing an area, then only the references needed
   for commands and cache reuse; team fleet tasks start at
   [Fleet and CI: start here](https://github.com/manaflow-ai/cmuxterm-hq/blob/main/build-fleet/FLEET-AND-CI.md).
   Never use bare `xcodebuild` or an untagged `cmux DEV.app`. Clean up only your own tags.
+- **Agents never compile or test on the person's Mac.** No local `swift build`/`swift test`,
+  `xcodebuild build|test`, `cargo build|test|clippy` or `scripts/reload.sh`: run them as a
+  fleet step (`cmux-ci run --class isolated --script ... --ref SHA`, `cmux-ci build cmux --ref SHA`).
+  Several agents' local SwiftPM test runs pegged the Mac at 100% CPU (2026-10-20). The PATH
+  guards (`~/.local/lib/cmux-local-build-guards`) queue or refuse these; never bypass them.
+- **Scope every search.** `rg`/`find`/`fd` only inside your worktree or a named subfolder, never
+  `..`, `~`, `~/fun`, `/`, `$TMPDIR` or `/var/folders` (worktrees and caches there hold millions of
+  files). Prefer `git grep` or `rg` with a path; prefix long scans with `nice -n 10`.
 - A same-repo app PR gets a fleet dogfood build and link comment only while it has the
   `dev-build` label. Add it when someone will dogfood the PR, not by default; under load
   the fleet builds the newest push, and the comment says how to build a skipped commit.
@@ -69,10 +77,29 @@ Swift/Rust builds and tests stay on the fleet.
   `Thread.sleep`, `.wait()`, `readDataToEndOfFile()`, `waitUntilExit()` or `NSWorkspace.shared.open`.
 - No `try!`: throw or handle a typed error.
 - Fonts come from `TypeScale` or `Typography`, never a literal size.
+- Every animation goes through a motion gate with a category: `Motion.<category>.animate(...)`,
+  `.set(...)`, `.duration(...)`, `.animation(...)` (`sidebar`, `tabs`, `panes`, `overlays`,
+  `hoverCards`, `home`, `cursor`, `indicators`, `feedback`, `web`; for a new area, add a
+  `MotionCategory` case with its setting, action and strings). The gate obeys the master switch
+  `ui.animations.enabled`, the category's `ui.animations.<category>`, `ui.animationSpeed` and
+  Reduce Motion, so a person can turn all animation or one area off. Code must work with no
+  animation at all: the change applies in one frame and completions still run. No raw
+  `NSAnimationContext`, `withAnimation`, `.animation(...)`, `CABasicAnimation`, `animator()` outside
+  a gate group, window `animationBehavior` or SwiftUI transition; a reviewed exception says
+  `// motion: allow <how it still obeys the switches>`. App web pages get this from the shared
+  `WebTheme` bootstrap (`data-cmux-motion`); do not bypass it. `check-motion.sh` enforces this;
+  see [motion-DESIGN.md](plans/cmux-next/motion-DESIGN.md).
 - Dialogs use the standard key-hint components (`CmuxDialogSpec`, `CmuxDialogActionButton`,
   `ThemedBezelButton.keyHint`, web `ui/DialogButton`), never `NSAlert`, `.alert` or `.confirmationDialog`.
 - An escape comment (`// concurrency-allow:`, `// crash-allow:`, `dialog-keys-exempt:`)
   needs a reason that proves the code is safe; it is not a way to pass the gate.
+- Never change a Ghostty-default shortcut without the user's explicit OK. Ghostty's split keys
+  (Cmd-Opt-arrows focus a pane, Cmd-D / Cmd-Shift-D split, Ctrl-Cmd-arrows resize,
+  Cmd-Shift-Return zoom) are reserved in `schemas/keybindings/ghostty-reserved-keys.json`;
+  no other action may take one, in any pane. `GhosttyReservedKeysTests` and the gate's
+  "Ghostty-default keys" check enforce it, and `CMUX_NEXT_CHECKS_SKIP_REASON` does not skip
+  it: only a `Ghostty-defaults-OK: <the user's words>` commit trailer does. (2f3e1f95983 made
+  Cmd-Opt-Left / Right sidebar keys; Lawrence 2026-10-20: "ensure this never happens again".)
 
 ## Swift namespace convention
 
@@ -139,29 +166,34 @@ Do not edit `CHANGELOG.md` in feature PRs; release tooling owns it.
   `docs/mdm/*`). On a conflict take either side; the PR or base autofix regenerates them (#21946, #21985).
 - Webview UI screenshots come from the gallery advisory run: add a gallery entry with fixture states.
   Mac captures (the `cmux-next media` tours) are only for native/AppKit UI or real end-to-end flows.
-- Every `feat-cmux-next` PR gets a `risk:low|medium|high` label from its paths, and the
-  `risk evidence` check stays red until the description has that tier's evidence
-  ([risk tiers](docs/ci/risk-tiers.md)). Low: no red of its own (green CI into main). Medium (UI): a screenshot under
-  `## Proof`, next to its cmux-design-references match. High (release, migrations, defaults,
-  protocol spec, pins and merge gates at any size; daemon and runtime changes over 40 lines;
-  taking back a change merged in the last week): also `Review:` with the reviewed SHA and
-  `Runtime test:` with the run that executed it; PRs here skip Swift tests, so dispatch `cmux-next.yml`.
-  Ship user-visible high-tier behavior behind a default-off setting. After merging high tier,
-  check the first nightly-next that has it; revert with `gh-merge-green --revert` if it broke
-  and the fix misses the next cut. Never add `risk:waived`; only a maintainer does.
+- Every `feat-cmux-next` PR gets a `risk:low|normal|high` label ([risk tiers](docs/ci/risk-tiers.md)).
+  Low (docs, copy, generated, tests) and normal (most UI and logic) never wait for a person:
+  agent review and the relevant checks, then merge. High (auth, socket and relay policy,
+  migrations, release/signing/updater, the risk gate and its enforcers (`gh-merge-green`,
+  `next_batch.py`), a new delete of user data, a new
+  `pull_request_target` or `workflow_run` trigger) holds `risk evidence` until a collaborator approves the
+  head or a maintainer adds `risk:human-ok`. Any tier is held while it takes back a change
+  merged in the last week, until the description has `Takes back #N: <why>`. Ship
+  user-visible high-tier behavior behind a default-off setting; revert with
+  `gh-merge-green --revert` if it breaks nightly-next and the fix misses the next cut. Never add
+  `risk:human-ok` or `risk:waived`; only a maintainer does.
 - Before opening a PR and before merging, check it against [REVIEW.md](REVIEW.md) (draft),
   the mistakes our review history keeps catching.
 - Before merging, use a [review subagent](skills/cmux-review/SKILL.md), correctness
-  first; a second model is not a review gate. Into `main`, wait for checks relevant to the
-  change; into `feat-cmux-next`, pending checks don't hold it (below). Disclose skipped verification on the PR. `main` is nightly: fix forward,
-  do not revert.
-- Into `main`, app/runtime/UI merges require the user’s explicit approval after dogfood **or a direct merge directive**
-  (`merge`, `merge it`, `auto-merge`; not `finish`, `lgtm` or `ship it`). Into `feat-cmux-next`, the
-  `ready-to-land` label after your review is the hand-off (below). Follow
+  first; a second model is not a review gate. Disclose skipped verification on the PR.
+  `main` is nightly: fix forward, do not revert.
+- On either branch, a PR merges when an independent review subagent passes it and it causes no
+  red of its own; base reds, flakes and pending checks don't hold it. Don't wait for a person.
+  Ship risky user-visible behavior behind a setting or Debug toggle and fix a bad default in the
+  next nightly. Only the `risk:high` tier, the take-back hold (above) and merge freezes hold a
+  reviewed PR. On `main`, `gh-merge-green` still waits for the checks it requires; never get around it
+  with `--override` or the API merge path. Into `feat-cmux-next`, the `ready-to-land`
+  label after your review is the hand-off (below). Follow
   [dogfood, re-dogfood and merge receipts](skills/cmux-review/SKILL.md#dogfood-and-merge).
   Notify with `cmux notify` when a socket is available.
-- A red on every PR is a base red: fix it first in its own PR, which lands at once. Two fixes that
-  are each red on the other's red get combined into one PR. A base lint red also skips the tests
+- A red base (it doesn't compile, or CI is red on every PR) is priority zero: fix it directly in
+  its own PR, which lands at once; don't note it and leave it for an owner. Two fixes that are
+  each red on the other's red get combined into one PR. A base lint red also skips the tests
   after it in the same job (#22197), which is why it goes first.
 - Classify each non-green check on the current head before changing source: a changed-file
   defect (fix it), a base finding (the same check red at the base tip or on several unrelated PRs
@@ -192,6 +224,7 @@ Use these existing owners instead of duplicating their checklists here:
 | Packages, workspace groups, lockfiles or feature flags | [cmux-architecture](skills/cmux-architecture/SKILL.md) |
 | Submodules or GhosttyKit | [cmux-ghostty](skills/cmux-ghostty/SKILL.md) |
 | User-facing strings, docs or help | [cmux-localization](skills/cmux-localization/SKILL.md); report the localization audit |
+| A change people will notice (What's New, update card) | [release-notes/next/WRITING.md](release-notes/next/WRITING.md); add one curated highlight file in the same commit, never a commit subject |
 | New cmux shortcuts | [cmux-keyboard-shortcuts](skills/cmux-keyboard-shortcuts/SKILL.md) |
 | Tests or target wiring | [cmux-testing](skills/cmux-testing/SKILL.md); CmuxNext tests need no wiring; the `cmux` CLI is cmux-tui Rust (tests run with cargo on a Testbox or CI) |
 | Multiple entrypoints or a bug that tests previously missed | [cmux-shared-behavior](skills/cmux-shared-behavior/SKILL.md); share action/mutation paths, verify every entrypoint, and cover the missed repro |

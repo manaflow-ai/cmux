@@ -68,7 +68,7 @@ class FakeApi:
     def get(self, path: str):
         if path.startswith(f"repos/o/r/actions/artifacts?name=cmux-next-tree-wait-{KEY}"):
             return {"total_count": len(self.artifacts), "artifacts": self.artifacts}
-        if path == "repos/o/r/git/ref/heads/feat-cmux-next":
+        if path.startswith("repos/o/r/git/ref/heads/"):
             return {"object": {"sha": self.branch_head}}
         if path == "repos/o/r/pulls/7":
             return self.pr
@@ -106,6 +106,31 @@ class Notify(unittest.TestCase):
         self.assertEqual(body["inputs"]["same_tree_state"], "ready")
         self.assertEqual(body["inputs"]["same_tree_origin"], "push")
         self.assertEqual(api.deleted, [100])
+
+    def test_a_branch_dispatch_runs_again_on_its_branch_as_a_dispatch(self):
+        """#22303: a dispatch on a working branch whose tree was still building gets its
+        daemon tests once the tree publishes; origin push would skip them (daemon-test)."""
+        api = FakeApi([push_marker(origin="dispatch", branch="lane/x")])
+        self.assertEqual(run(api), 1)
+        [body] = api.dispatched
+        self.assertEqual(body["ref"], "lane/x")
+        self.assertEqual(body["inputs"]["same_tree_origin"], "dispatch")
+        moved = FakeApi([push_marker(origin="dispatch", branch="lane/x")], branch_head=NEWER)
+        self.assertEqual(run(moved), 0)
+        self.assertEqual(moved.dispatched, [])
+
+    def test_a_tag_dispatch_runs_again_on_its_tag(self):
+        """A tag has no branch head to move: its marker is current, like the DEV daily's SHA.
+        Looking it up under refs/heads/ would fail and its tree jobs would never start."""
+        api = FakeApi([push_marker(origin="dispatch", branch="v1.2.3", ref_kind="tags")], branch_head=NEWER)
+        self.assertEqual(run(api), 1)
+        [body] = api.dispatched
+        self.assertEqual(body["ref"], "v1.2.3")
+        self.assertEqual(body["inputs"]["same_tree_origin"], "dispatch")
+        for bad in (push_marker(origin="dispatch", branch="lane/x", ref_kind="pull"),
+                    push_marker(origin="push", branch="v1", ref_kind="tags")):
+            with self.subTest(marker=bad):
+                self.assertEqual(run(FakeApi([bad])), 0)
 
     def test_a_superseded_push_is_not_dispatched(self):
         api = FakeApi([push_marker()], branch_head=NEWER)
