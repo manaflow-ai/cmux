@@ -3021,7 +3021,7 @@
     },
     "sidebar.nowPlaying.enabled" : {
       "default" : false,
-      "description" : "A player for what is playing, at the bottom of the sidebar and on the new chat page.",
+      "description" : "A player for what is playing, at the bottom of the sidebar.",
       "title" : "Show Now Playing",
       "type" : "boolean"
     },
@@ -3628,6 +3628,12 @@
       "default" : false,
       "description" : "When off, Cmd-W on a pinned tab selects the next tab and keeps the pinned tab. Close a pinned tab from its menu.",
       "title" : "Cmd-W Closes Pinned Tabs",
+      "type" : "boolean"
+    },
+    "tabs.newTabNowPlaying" : {
+      "default" : true,
+      "description" : "A player for what is playing, on the New Tab page.",
+      "title" : "Show Now Playing on New Tab",
       "type" : "boolean"
     },
     "tabs.newTabPosition" : {

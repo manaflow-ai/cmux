@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR a453986b67d167174f384a45b851ba6779b4ecfde280ba17c07ea656ab7e84b0. */
+/* cmux-tui mux protocol 12, IR 799b8337576dcd8bee3b1fe1fd6fd45ca0838886c6e828df95369ebbfa1dd913. */
 
 
 import type * as T from "./types.js";
@@ -1482,6 +1482,14 @@ export interface MoveBrowserProfileRequest extends CmuxRequestBase {
   "index": bigint;
 }
 export type MoveBrowserProfileResult = T.JsonValue;
+
+/** Protocol v12; authority: control. */
+export interface MoveColumnRequest extends CmuxRequestBase {
+  cmd: "move-column";
+  "direction": T.ColumnMoveDirection;
+  "pane": T.Id;
+}
+export type MoveColumnResult = T.JsonValue;
 
 /** Protocol v12; authority: control. */
 export interface MovePersonalGroupRequest extends CmuxRequestBase {
@@ -2968,6 +2976,7 @@ export type CmuxRequest =
   | MintTerminalRendererByTerminalRequest
   | MoveBookmarkRequest
   | MoveBrowserProfileRequest
+  | MoveColumnRequest
   | MovePersonalGroupRequest
   | MoveProfileRequest
   | MoveScreenRequest
@@ -4262,6 +4271,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 12;
     capability: "browser-profiles-v1";
+    stream: null;
+  };
+  "move-column": {
+    request: MoveColumnRequest;
+    result: MoveColumnResult;
+    authority: "control";
+    since: 12;
+    capability: "column-move-v1";
     stream: null;
   };
   "move-personal-group": {

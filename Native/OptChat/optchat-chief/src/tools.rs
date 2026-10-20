@@ -630,6 +630,31 @@ fn connection(conn: UnixStream, served: &Served) {
         let answer = match serde_json::from_str::<Value>(&line) {
             Ok(req) => {
                 let tool = req.get("tool").and_then(Value::as_str).unwrap_or("");
+                // These are owner/host controls, not model tools. A caller
+                // bound to one of this Chief's subagent sessions never gets
+                // them, even if it clears the advisory `from` marker.
+                if matches!(
+                    tool,
+                    "settings"
+                        | "spawn_policy"
+                        | "engine"
+                        | "stop"
+                        | "inspect"
+                        | "grant"
+                        | "browse"
+                ) && role() == crate::turn_caller::Role::Subagent
+                {
+                    if writeln!(
+                        out,
+                        "{}",
+                        json!({"error": "subagents have no owner controls"})
+                    )
+                    .is_err()
+                    {
+                        return;
+                    }
+                    continue;
+                }
                 // Not a model tool: the `browse` command asks the live host.
                 if tool == "settings" || tool == "spawn_policy" {
                     let ask = match req.get("key").and_then(Value::as_str) {

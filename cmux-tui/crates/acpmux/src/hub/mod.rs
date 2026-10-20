@@ -74,6 +74,7 @@ pub use new_request::{
 };
 pub use paging::{EventFilter, EventPage};
 pub use spawn::expand_env_value;
+pub mod approvers;
 mod peers;
 pub(crate) use peers::PEER_PERMISSION_PENDING;
 mod permission_groups;
