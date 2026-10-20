@@ -118,6 +118,12 @@ impl Translator {
                             *self.loop_model.lock().await = m.to_owned();
                         }
                     }
+                    // A tool call is named as its block starts (early_calls.rs).
+                    Some("content_block_start") => {
+                        if let Some(call) = self.announce_tool(&ev, &sid).await {
+                            out.push(upd(call));
+                        }
+                    }
                     Some("content_block_delta") => {
                         let d = ev.get("delta").cloned().unwrap_or(Value::Null);
                         match d.get("type").and_then(Value::as_str) {
@@ -220,6 +226,12 @@ impl Translator {
                             (call.get("content"), c.get("id").and_then(Value::as_str))
                         {
                             self.edits.lock().await.insert(id.to_owned(), diffs.clone());
+                        }
+                        // Named early (early_calls.rs): the whole call is that call's update.
+                        if let Some(id) = c.get("id").and_then(Value::as_str)
+                            && self.take_announced(id).await
+                        {
+                            call["sessionUpdate"] = json!("tool_call_update");
                         }
                         out.push(upd(call));
                     }
@@ -482,6 +494,8 @@ impl Translator {
                 if startup_noise {
                     return out;
                 }
+                // A call named early whose whole call never came ends with its turn.
+                out.extend(self.end_announced().await);
                 // The window Claude Code reports for the chat's model: the pane's
                 // context ring fills by used over it (cx-ncc.79).
                 if let Some(window) = self.result_context_window(line).await {

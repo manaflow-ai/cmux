@@ -173,6 +173,7 @@ pub fn models() -> &'static [(String, String)] {
     &MODELS
 }
 
+mod early_calls;
 #[cfg(test)]
 mod early_calls_tests;
 #[cfg(test)]
