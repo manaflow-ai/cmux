@@ -26,8 +26,13 @@ FAKE_GH = textwrap.dedent("""\
     if "--slurp" in args:
         sys.stderr.write("unknown flag: --slurp\\n")
         sys.exit(1)
+    if args[:2] == ["run", "view"]:
+        sys.exit(0)  # gh 2.45 prints nothing for `run view --job --log` on today's log archives
     route = args[1]
-    if "check-runs" in route:
+    if route.endswith("/logs"):
+        sys.stdout.write("2026-10-20T03:14:40.1Z ##[group]Run check\\n"
+                         "2026-10-20T03:14:44.0Z ##[error]red check: Type scale\\n")
+    elif "check-runs" in route:
         sys.stdout.write('{"total_count":2,"check_runs":[{"id":1,"name":"lint","app":{"slug":"github-actions"}}]}')
         sys.stdout.write('{"total_count":2,"check_runs":[{"id":2,"name":"swift test","app":{"slug":"github-actions"}}]}\\n')
     elif "/files" in route:
@@ -61,6 +66,12 @@ class PaginateWithoutSlurp(unittest.TestCase):
     def test_array_pages_iterate_as_files(self):
         pages = evidence.GitHub().json("repos/o/r/pulls/1/files?per_page=100", paginate=True)
         self.assertEqual([f["filename"] for page in pages for f in page], ["a.py", "b.py"])
+
+    def test_an_empty_run_view_log_falls_back_to_the_job_log_without_step_names(self):
+        log = evidence.GitHub().log("o/r", {"id": 7, "run_id": 3, "name": "checks"})
+        self.assertEqual(log.splitlines(), [
+            "checks\tUNKNOWN STEP\t2026-10-20T03:14:40.1Z ##[group]Run check",
+            "checks\tUNKNOWN STEP\t2026-10-20T03:14:44.0Z ##[error]red check: Type scale"])
 
     def test_an_unpaginated_read_is_one_document(self):
         self.assertEqual(evidence.GitHub().json("repos/o/r/commits/abc")["sha"], "abc")
