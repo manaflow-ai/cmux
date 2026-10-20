@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import type { DictationField } from "../dictation";
 import { FOCUS_LOCATION_EVENT, type NewTabHost } from "../NewTabPage";
@@ -104,6 +104,9 @@ type Props = NewTabScreenActions & {
   projects?: Project[];
   /// The host's folder panel; resolves with the folder picked, if any.
   onBrowseProject?(): Promise<string | undefined>;
+  /// The folder the project chip names (askFolder), for the host's `pane.context`: a terminal
+  /// opened from this tab starts there (#22225). Null once the screen is gone.
+  folderRef?: React.Ref<string | undefined>;
   chips?: NewTabChips;
   /// false: the field does not take the keyboard when the screen appears (Cmd-L gave it to the
   /// omnibar); Cmd-L on the page still focuses it when the page shows no omnibar.
@@ -189,6 +192,7 @@ export function NewTabScreen(props: Props) {
   // the host's start folder, as a new chat's hero does; never the home ~ a fresh workspace's tab
   // inherits, nor the private agent-home folder a chat with neither starts in (cx-7fje0, cx-nn3e).
   const askFolder = none ? undefined : project && project !== props.cwd ? project : props.startCwd;
+  useImperativeHandle(props.folderRef, () => askFolder, [askFolder]);
   // A prompt's chat, in no project when that was the pick.
   const askChat = (agent: string, prompt: string, cwd?: string, model?: string) =>
     none ? props.onAsk(agent, prompt, cwd, model, true) : props.onAsk(agent, prompt, cwd, model);
