@@ -14,6 +14,7 @@ import { CloudIdle } from "./cloud-do-idle.ts"
 import { deliverCloudAnswers, readCloudApproval } from "./cloud-approvals.ts"
 import type { DeliverResult, TargetItem } from "./do-outbox.ts"
 import { acpmuxKeyedStartOn, acpmuxPersonHoldsOn, type AcpmuxHost, type AcpmuxReply } from "./cloud-acpmux-do.ts"
+import type { MachineExecReply } from "./automation-machine.ts"
 
 /** How often connect_info and link_token may read a machine's real state from the provider. */
 const STATE_CHECK_EVERY_MS = 30_000
@@ -210,6 +211,25 @@ export class CloudDO extends CloudIdle {
   async acpmuxPersonHolds(entity: string, principal: Principal, machine: string, nonce: string): Promise<AcpmuxReply<{ instance: string; proof: string }>> {
     const host = this.acpmuxHost(entity)
     return host ? acpmuxPersonHoldsOn(host, principal, machine, nonce) : { ok: false, refusal: "not_found" }
+  }
+
+  /**
+   * Org workflows (plans/cmux-next/org-workflows-DESIGN.md): one machine or agent step of an
+   * automation run of this team, from AutomationRunWorkflow. NOT an op: the run's own journal
+   * (the Workflow's durable step) is the record. The machine must be a running machine of THIS
+   * team: the object is per team, so another team's machine id is not found. No answer carries
+   * a provider error; stdout and stderr go back to the run only.
+   */
+  async automationExec(entity: string, machine: string, command: string, stdin: Uint8Array | null, timeoutMs: number): Promise<MachineExecReply> {
+    if (!this.isBound(entity)) return { ok: false, refusal: "not_found" }
+    const row = this.bind(entity).rows.get<MachineRow>(TABLE_MACHINE, machine)?.row
+    if (!row) return { ok: false, refusal: "not_found" }
+    if (row.status !== "running") return { ok: false, refusal: "not_running" }
+    const driver = await Promise.resolve().then(() => this.driverFor(row)).catch(() => null)
+    if (!driver) return { ok: false, refusal: "provider_failed" }
+    const r = await driver.execStdin(row.provider_name, { team: entity, machine: row.id }, command, stdin, timeoutMs).catch(() => null)
+    this.audit.record({ action: "automation.exec", machine, who: `automation:${entity}`, at: Date.now(), outcome: r ? `exit ${r.exitCode}` : "provider_failed" })
+    return r ? { ok: true, exitCode: r.exitCode, stdout: r.stdout, stderr: r.stderr } : { ok: false, refusal: "provider_failed" }
   }
 
   private readonly acpmuxStarting = new Set<string>()
