@@ -254,7 +254,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             )
         )
         settings.start()
-        ChatSettingsPush.start(settings: settings, environment: QuitAgents.environment(services))
+        ChatSettingsPush.start(settings: settings, socketPath: QuitAgents.environment(services)?.socketPath)
         KeepAwakeService.shared.start(settings: settings, store: services.daemon.store)
         services.mobile.follow(settings, launch: services.environment.launch)
         services.chatsFeed?.keepCurrent()
