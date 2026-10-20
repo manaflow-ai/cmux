@@ -88,11 +88,17 @@ impl FakeSignaling {
         self.state.lock().unwrap_or_else(PoisonError::into_inner).refused_binary_frames
     }
 
-    /// Drop every socket of `device` (simulates a signaling outage).
+    /// Drop every socket of `device` (simulates a signaling outage). A
+    /// socket whose handshake just finished may not be registered yet: wait
+    /// up to a second for it.
     pub fn kick(&self, device: &str) {
-        let removed = self.state.lock().unwrap_or_else(PoisonError::into_inner).devices.remove(device);
-        if let Some(device) = removed {
-            let _ = device.out.send(Message::Close(None));
+        for _ in 0..50 {
+            let removed = self.state.lock().unwrap_or_else(PoisonError::into_inner).devices.remove(device);
+            if let Some(device) = removed {
+                let _ = device.out.send(Message::Close(None));
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
         }
     }
 }

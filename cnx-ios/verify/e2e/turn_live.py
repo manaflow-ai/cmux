@@ -55,6 +55,7 @@ def main():
     ap.add_argument("--mac-app", required=True)
     ap.add_argument("--udid", required=True)
     ap.add_argument("--samples", type=int, default=8)
+    ap.add_argument("--modes", default="turn_udp,turn_tls")
     a = ap.parse_args()
     stamp = datetime.datetime.now()
     out = os.path.join(CNX, "verify/evidence", stamp.strftime("%Y-%m-%d"), "turn-live", stamp.strftime("%H%M%S"))
@@ -71,11 +72,34 @@ def main():
     mac = Mac(rig, a.mac_app)
     sim = Sim(a.udid, os.path.join(out, "shots"))
     j = Journey(sim, mac, out, None, log)
+
+    def to_list():
+        """Back to the Workspaces list by its Back buttons (the journey's own
+        back_to_list taps a hidden sheet's Done on this app version)."""
+        for _ in range(6):
+            els = sim.tree()
+            if any(e.ident == "workspaces.list" for e in els) and any(
+                    e.label == "Workspaces" and e.kind == "RadioButton" for e in els):
+                return
+            j.hide_keyboard()
+            back = [e for e in sim.find(kind="Button", elements=els)
+                    if e.ident == "chevron.left" or e.label == "Back"]
+            back = [e for e in back if 0 <= e.center[1] <= 874]
+            if back:
+                sim.tap_el(back[0])
+            else:
+                j.tab("Workspaces")
+            time.sleep(1.0)
+
+    j.back_to_list = to_list
     j.seed_mac()
     term = j.seed["term1"]
     results = {"mac_app": os.path.basename(a.mac_app), "modes": {}}
     j.settings_transport("WireGuard")
+    wanted = set(a.modes.split(","))
     for mode, on, off, want in MODES:
+        if mode not in wanted:
+            continue
         log(f"=== {mode}")
         since = time.time()
         j.relay_toggle("0", off)
