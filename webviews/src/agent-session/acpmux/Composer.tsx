@@ -194,6 +194,8 @@ type Props = {
   onConnect?(kind: "ssh" | "cloud"): void;
   /// This Mac's name for the location row.
   localName?: string;
+  /// Preview features on: the location row's computer is the environment picker (ComposerContext).
+  environments?: boolean;
   /// A started chat's folder menu: a new chat in `cwd`, in a tab of its own.
   onNewChat?(cwd: string): void;
   /// Shell mode (`!` first): runs `command` on the chat's machine in its folder, its block in the
@@ -251,6 +253,7 @@ export function Composer({
   onBrowseFolder,
   onConnect,
   localName,
+  environments,
   onNewChat,
   onShell,
   onShellInterrupt,
@@ -1070,6 +1073,8 @@ export function Composer({
       summary={snapshot.summary}
       sessions={snapshot.sessions}
       peers={snapshot.peers}
+      {...(snapshot.peerKinds ? { peerKinds: snapshot.peerKinds } : {})}
+      environments={environments}
       onProject={
         onProject &&
         ((cwd, peer) => {

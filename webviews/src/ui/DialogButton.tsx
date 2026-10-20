@@ -5,13 +5,16 @@
 import { useEffect, useRef, type ButtonHTMLAttributes, type ReactNode, type Ref } from "react";
 import { cx } from "./cx";
 
-/** The key that presses a dialog button: Return, Escape, or Command plus one character. */
-export type DialogKey = "return" | "escape" | { command: string };
+/** The key that presses a dialog button: Return, Escape, an arrow (viewers step with them), or
+ * Command plus one character. */
+export type DialogKey = "return" | "escape" | "left" | "right" | { command: string };
 
 /** The keycap text, as macOS menus write keys. */
 export function dialogKeyGlyph(key: DialogKey): string {
   if (key === "return") return "↩";
   if (key === "escape") return "⎋";
+  if (key === "left") return "←";
+  if (key === "right") return "→";
   return `⌘${key.command.toUpperCase()}`;
 }
 
@@ -19,7 +22,16 @@ export function dialogKeyGlyph(key: DialogKey): string {
 export function dialogKeyAria(key: DialogKey): string {
   if (key === "return") return "Enter";
   if (key === "escape") return "Escape";
+  if (key === "left") return "ArrowLeft";
+  if (key === "right") return "ArrowRight";
   return `Meta+${key.command.toUpperCase()}`;
+}
+
+/** The props that name an icon-only button's key: its label for VoiceOver, the key in
+ * `aria-keyshortcuts`, and a tooltip of the label and the keycap ("Close ⎋"). The dialog answers
+ * the key; spread these on the button. */
+export function keyedIconProps(label: string, key: DialogKey) {
+  return { "aria-label": label, "aria-keyshortcuts": dialogKeyAria(key), title: `${label} ${dialogKeyGlyph(key)}` };
 }
 
 export interface DialogButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, "children"> {
