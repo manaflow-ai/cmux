@@ -17879,6 +17879,22 @@
             },
             "description": "Indexes into the group's `members` to reopen. Omit to reopen every member; the rest stay in the group."
           },
+          "tab": {
+            "required": false,
+            "type": {
+              "kind": "resource_id",
+              "resource": "tab"
+            },
+            "description": "Reopen the member of the newest group that holds this tab (a tab member, or the screen or workspace member that contains it), under the SAME tab id, so a `cmux://tab/` link to it keeps working. Excludes `closed` and `members`. `resource.not_found` when no group holds it: the tab is open, or its record was deleted."
+          },
+          "fallback_pane": {
+            "required": false,
+            "type": {
+              "kind": "resource_id",
+              "resource": "pane"
+            },
+            "description": "Where a reopened tab goes when its own pane and workspace are gone, instead of the session's focused pane (a link clicked in Home passes the pane right of Home)."
+          },
           "expected_revision": {
             "required": false,
             "type": {
@@ -17891,7 +17907,8 @@
         "extra": false,
         "constraints": [
           "One close gesture is one group; reopen restores its members in order.",
-          "A tab reopens in its pane at its old index when that pane is live, else in the focused pane of its workspace; a screen reopens in its workspace; a workspace reopens as a new workspace."
+          "A tab reopens in its pane at its old index when that pane is live, else in the focused pane of its workspace, else in `fallback_pane`; a screen reopens in its workspace; a workspace reopens as a new workspace.",
+          "A reopened tab keeps its tab id."
         ]
       },
       "result": {
@@ -31864,6 +31881,14 @@
               "name": "boolean"
             },
             "description": "An ephemeral workspace is closed by the daemon at its next start."
+          },
+          "focus": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "Make the new workspace the focused one. Default false: the focused workspace stays."
           },
           "cwd": {
             "required": false,
