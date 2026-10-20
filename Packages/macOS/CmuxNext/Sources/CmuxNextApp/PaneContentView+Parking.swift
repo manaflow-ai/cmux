@@ -29,10 +29,13 @@ struct ParkedContent {
     weak var view: NSView?
 }
 
+/// What bounds the parked set is not a count: every parked view is the live content of a tab in this
+/// pane (`PaneController.dropClosedParked` drops a closed, moved or replaced one on each strip update),
+/// and what it costs is held by its owner anyway: an evicted terminal leaves the window with its surface
+/// (`TabContentCache.evict`), a hibernated page keeps only its picture. A count cap (8) made a pane with
+/// more tabs than that pay a window move on every switch of a cycle: held Ctrl-Tab over 10 or 30 tabs
+/// evicted each view 8 switches before its turn came back (pane-tab-switch-fast).
 extension PaneContentView {
-    /// The most terminals, browsers and agent pages one pane keeps hidden. Older ones leave the window
-    /// (the old cost, paid once for a tab visited long ago).
-    static let parkLimit = 8
 
     /// Puts `view` on screen as the pane's content: unhides it when it is
     /// parked here, else adds it (also from another pane, a moved tab).
@@ -59,7 +62,7 @@ extension PaneContentView {
         if view is PaneParkableContent { view.isHidden = false }
     }
 
-    /// The pane stops showing `view`: a terminal, browser or agent page stays here, hidden; other
+    /// The pane stops showing `view`: a terminal, browser, agent or internal page stays here, hidden; other
     /// content leaves the pane. A view another pane took is not touched.
     func retire(_ view: NSView) {
         guard view.superview === contentHost else { return }
@@ -84,8 +87,8 @@ extension PaneContentView {
         prunePark()
     }
 
-    /// Drops parked views that are gone, moved to another pane, past
-    /// ``parkLimit``, or not `live` (a closed tab, a replaced view).
+    /// Drops parked views that are gone, moved to another pane, or not
+    /// `live` (a closed tab, a replaced view).
     func prunePark(live: ((NSView) -> Bool)? = nil) {
         parked.removeAll { entry in
             guard let view = entry.view, view.superview === contentHost, view !== content else { return true }
@@ -94,10 +97,6 @@ extension PaneContentView {
                 return true
             }
             return false
-        }
-        while parked.count > Self.parkLimit {
-            let oldest = parked.removeFirst()
-            if let view = oldest.view, view.superview === contentHost, view !== content { view.removeFromSuperview() }
         }
     }
 
