@@ -36,7 +36,8 @@ final class HomeChatRig {
         chief = await source.chief.id
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: 900), styleMask: [.titled], backing: .buffered, defer: true)
         window.isReleasedWhenClosed = false
-        view = MessagesLabHomeView(store: store, conversation: Self.conversation, me: me, wake: NoWake())
+        // The order, property and stress tests check the stream bubbles (HomeReplyDisplay.streaming).
+        view = MessagesLabHomeView(store: store, conversation: Self.conversation, me: me, wake: NoWake(), replies: .streaming)
         view.frame = NSRect(x: 0, y: 0, width: width, height: 900)
         window.contentView = view
         view.layoutSubtreeIfNeeded()

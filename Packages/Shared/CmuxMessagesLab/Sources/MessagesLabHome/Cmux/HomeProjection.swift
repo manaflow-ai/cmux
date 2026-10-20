@@ -112,13 +112,14 @@ final class HomeProjection: @preconcurrency ChatIntents {
     let linkPreviews: HomeLinkPreviews?
 
     init(store: HomeStore, conversation: ConversationID, me: ParticipantID, controller: ChatController,
-         linkPreviews: HomeLinkPreviews? = nil) {
+         linkPreviews: HomeLinkPreviews? = nil, replies: HomeReplyDisplay = .wholeMessages) {
         homeStore = store
         self.linkPreviews = linkPreviews
         self.conversation = conversation
         self.me = me
         self.controller = controller
         core = ProjectionCore(me: me)
+        core.replies = replies
         let media = self.media
         core.media = { [weak media] in media?.asset($0) }
         if let linkPreviews { core.links = { [weak linkPreviews] in linkPreviews?.cached($0) } }
@@ -169,8 +170,9 @@ final class HomeProjection: @preconcurrency ChatIntents {
     /// The whole current value; unchanged values return before any work.
     func apply(items: [TranscriptItem], summary: ConversationSummary?, typing wantedTyping: Set<ParticipantID>,
                hasOlder newHasOlder: Bool, streams: [HomeStreamRow] = []) {
-        // MessagesLab hides a sender's typing dots while its stream has text (ask 11).
-        let typing = wantedTyping
+        // MessagesLab hides a sender's typing dots while its stream has text (ask 11). Whole
+        // messages: each running reply is its author's typing dots until its messages post.
+        let typing = wantedTyping.union(core.replyTypists(streams))
         guard let store = controller.store else {
             install(items: items, summary: summary, typing: typing, hasOlder: newHasOlder)
             restoreDraft()
@@ -742,6 +744,8 @@ struct ProjectionCore {
     var links: HomeMapping.Links = { _ in nil }
     /// The running replies on screen, in begin order (`streams(_:state:)`, MessagesLab ask 11).
     var shownStreams: [ShownStream] = []
+    /// Whole messages (default) or the growing stream bubbles (`HomeReplyDisplay`).
+    var replies: HomeReplyDisplay = .wholeMessages
 
     init(me: ParticipantID) { self.me = me }
 

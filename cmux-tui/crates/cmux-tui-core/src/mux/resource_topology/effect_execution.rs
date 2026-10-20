@@ -650,13 +650,17 @@ impl Mux {
         // `workspace.create {ephemeral: true}` stages the flag with the
         // workspace row; the request's fields are part of its fingerprint.
         let ephemeral = intent["fields"]["ephemeral"].as_bool().unwrap_or(false);
+        // `workspace.create` from a caller: the resource router sends
+        // `focus: false` unless it asked. Other creations focus.
+        let focus = intent["fields"][WORKSPACE_CREATE_FOCUS_FIELD].as_bool().unwrap_or(true);
         crate::debug_spans::mark("effect.workspace_reserved");
-        let placement = self.create_empty_workspace_for_resource_effect(
+        let placement = self.create_empty_workspace_for_resource_effect_focus(
             workspace_name,
             Some(workspace_key),
             workspace_public_id,
             &workspace_mutation,
             crate::state::home_store::EmptyWorkspaceMark::ephemeral(ephemeral),
+            focus,
         )?;
         crate::debug_spans::mark("effect.workspace_created");
         self.effect_create_terminal_in_workspace(intent, placement.workspace, options)

@@ -43,12 +43,12 @@ public final class LayoutModel {
     public var acceptsRowOps = false
     /// Pins `layout.rows` (tests, the demo); nil follows cmux.json.
     public var rowsEnabledOverride: Bool?
-    /// Pins `layout.focusPaneOnScroll` (tests, the demo); nil follows cmux.json.
-    public var focusPaneOnScrollOverride: Bool?
-    /// Scrolling over a pane focuses it (cmux.json `layout.focusPaneOnScroll`):
-    /// the override, else the live setting while `followsDesignMetrics` is on, else on.
-    public var focusesPaneOnScroll: Bool {
-        focusPaneOnScrollOverride ?? (followsDesignMetrics ? DesignSettings.shared.focusPaneOnScroll : true)
+    /// Pins `layout.focusFollowsMouse` (tests, the demo); nil follows cmux.json.
+    public var focusFollowsMouseOverride: Bool?
+    /// Hovering or scrolling over a pane focuses it (cmux.json `layout.focusFollowsMouse`):
+    /// the override, else the live setting while `followsDesignMetrics` is on, else off.
+    public var focusFollowsMouse: Bool {
+        focusFollowsMouseOverride ?? (followsDesignMetrics ? DesignSettings.shared.focusFollowsMouse : false)
     }
     /// Column centering mode: the override, else the live setting
     /// while `followsDesignMetrics` is on, else `.never`.
