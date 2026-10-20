@@ -100,6 +100,9 @@ fn an_account_home_is_one_clis_absolute_folder_on_a_subscription_route() {
         .contains("absolute")
     );
     // An empty or non-string home is refused, never the default login.
+    let own = dirs::home_dir().unwrap().join(".claude");
+    let params = json!({"kind": "direct-subscription", "families": ["claude"], "accountHome": own});
+    assert!(bad(params).contains("own folder"));
     for empty in [json!(""), json!(7)] {
         let params = json!({"kind": "direct-subscription", "families": ["claude"],
                             "accountHome": empty});
@@ -248,7 +251,11 @@ impl Client {
 
 fn hub(root: &Path) -> Arc<Hub> {
     let mut cfg: Config = serde_json::from_value(json!({
-        "harnesses": {"fake": {"argv": ["python3", FAKE], "family": "claude"}},
+        "harnesses": {
+            "fake": {"argv": ["python3", FAKE], "family": "claude"},
+            "pinned": {"argv": ["python3", FAKE], "family": "claude",
+                       "env": {"CLAUDE_CONFIG_DIR": "/tmp/acpmux-pinned-home"}},
+        },
         "defaultHarness": "fake",
         "permissionPolicy": "approve-all",
     }))
@@ -292,6 +299,14 @@ async fn a_chat_on_a_second_claude_account_keeps_that_account() {
             json!({"scope": "family:claude", "routeId": "claude-work"}),
         )
         .await;
+    // A profile that pins its own home keeps it under a family default.
+    let new = json!({"cwd": std::env::temp_dir(), "mcpServers": [],
+                     "_meta": {"acpmux": {"harness": "pinned"}}});
+    let pinned = local.ok("session/new", new).await["sessionId"].as_str().unwrap().to_owned();
+    assert_eq!(
+        local.env_of(&pinned, "CLAUDE_CONFIG_DIR").await,
+        "CLAUDE_CONFIG_DIR=/tmp/acpmux-pinned-home"
+    );
     let chat = local.new_chat().await;
     assert_eq!(
         local.env_of(&chat, "CLAUDE_CONFIG_DIR").await,

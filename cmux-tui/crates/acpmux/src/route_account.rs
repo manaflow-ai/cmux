@@ -60,6 +60,13 @@ pub fn validate(file: &RouteFile) -> Result<(), RouteError> {
     {
         return Err(RouteError::BadParams(format!("accountHome {home:?} is not an absolute path")));
     }
+    // The CLI's own folder is its default login, never a second account.
+    let default = [".claude", ".codex"].map(|d| dirs::home_dir().map(|h| h.join(d)));
+    if default.iter().flatten().any(|d| d == Path::new(home)) {
+        return Err(RouteError::BadParams(format!(
+            "accountHome {home:?} is the CLI's own folder; pick a new folder for another account"
+        )));
+    }
     Ok(())
 }
 
@@ -123,14 +130,15 @@ pub fn record(meta: &mut SessionMeta, home: Option<&Path>) -> bool {
 }
 
 /// The folder `meta`'s conversation is kept in when it is not the CLI's
-/// default: its recorded store, else its own or its profile's variable.
+/// default: its recorded store, else its own or its harness env's variable
+/// (profile and preset, `Hub::harness_env`).
 pub fn current_home(
     meta: &SessionMeta,
     family: &str,
-    profile_env: &BTreeMap<String, String>,
+    harness_env: &BTreeMap<String, String>,
 ) -> Option<PathBuf> {
     let var = home_var(family)?;
-    let mut env = profile_env.clone();
+    let mut env = harness_env.clone();
     env.extend(meta.session_env.clone());
     meta.apply_chat_store(&mut env);
     env.get(var).map(PathBuf::from)
