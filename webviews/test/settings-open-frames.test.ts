@@ -81,6 +81,10 @@ await requireBrowserLane("settings-open-frames.test.ts", async () => {
       const gate = (window as unknown as { __cmuxPaintAfter?: Promise<unknown> }).__cmuxPaintAfter;
       const show = () => requestAnimationFrame(() => (shown = true));
       if (gate && typeof gate.then === "function") gate.then(show, show);
+      // In the app the page's module sets the gate before the probe's document-end read; on the
+      // dev server its top-level awaits (strings, mock timing) set it after DOMContentLoaded. Wait
+      // for it while nothing is drawn; a page that draws without a gate is shown at once.
+      else if (!document.getElementById("root")?.firstChild) requestAnimationFrame(showAfterGate);
       else show();
     };
     (window as unknown as { showAfterGate: () => void }).showAfterGate = showAfterGate;
