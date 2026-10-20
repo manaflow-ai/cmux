@@ -66,6 +66,10 @@ public actor PlatformPhoneBackend: PhoneBackend {
         try await route(id).screenPoints(id)
     }
 
+    public func logCommand(_ id: PhoneDeviceID) async throws -> [String] {
+        try await route(id).logCommand(id)
+    }
+
     /// Turns an Android emulator a quarter turn.
     public func rotate(_ id: PhoneDeviceID) async throws {
         guard id.mode.isAndroid, let android else { throw PhoneError.unsupported(mode: id.mode, what: "rotate") }

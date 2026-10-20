@@ -168,6 +168,10 @@ public actor AndroidPhoneBackend: PhoneBackend {
         return PhonePoint(x: w / scale, y: h / scale)
     }
 
+    public func logCommand(_ id: PhoneDeviceID) async throws -> [String] {
+        [sdk.adb, "-s", try await serial(id), "logcat", "-v", "color"]
+    }
+
     /// Rotates an emulator a quarter turn (the console's `rotate`).
     public func rotate(_ id: PhoneDeviceID) async throws {
         guard id.mode == .emulator else { throw PhoneError.unsupported(mode: id.mode, what: "rotate") }

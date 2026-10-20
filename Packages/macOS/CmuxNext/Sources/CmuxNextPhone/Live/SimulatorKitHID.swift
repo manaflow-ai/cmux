@@ -26,13 +26,14 @@ public final class SimulatorKitHID: SimulatorHIDSending {
         self.clock = clock
     }
 
-    /// The active Xcode's Developer folder: `DEVELOPER_DIR`, else `xcode-select -p`. Nil without Xcode.
-    public nonisolated static func activeDeveloperDirectory(runner: any PhoneCommandRunning = PhoneProcessRunner(launcher: nil)) async -> String? {
-        if let dir = ProcessInfo.processInfo.environment["DEVELOPER_DIR"], !dir.isEmpty { return dir }
-        guard let result = try? await runner.run(["/usr/bin/xcode-select", "-p"], stdin: nil, deadline: .seconds(10)),
-              result.status == 0 else { return nil }
-        let dir = String(decoding: result.stdout, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
-        return dir.isEmpty ? nil : dir
+    /// The selected Xcode's Developer folder without running a process: `DEVELOPER_DIR`, else the
+    /// link `xcode-select -s` writes, else the App Store Xcode.
+    public nonisolated static func selectedDeveloperDirectory(environment: [String: String] = ProcessInfo.processInfo.environment) -> String {
+        if let dir = environment["DEVELOPER_DIR"], !dir.isEmpty { return dir }
+        if let linked = try? FileManager.default.destinationOfSymbolicLink(atPath: "/var/db/xcode_select_link"), !linked.isEmpty {
+            return linked
+        }
+        return "/Applications/Xcode.app/Contents/Developer"
     }
 
     /// Whether this Xcode's SimulatorKit loads (live screens and input work).

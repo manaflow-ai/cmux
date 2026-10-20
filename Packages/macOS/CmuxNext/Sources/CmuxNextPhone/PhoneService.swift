@@ -103,6 +103,23 @@ public final class PhoneService {
         try await send(moved ? .swipe(from: a, to: b, seconds: max(0.1, seconds)) : .tap(a), to: id)
     }
 
+    /// The developer tools the last device list found missing (Xcode, the Android SDK).
+    public var missingTools: Set<PhoneTool> {
+        get async { await (backend as? PlatformPhoneBackend)?.missingTools ?? [] }
+    }
+
+    /// The shell line that streams `id`'s log, for a terminal tab.
+    public func logShellLine(_ id: PhoneDeviceID) async throws -> String {
+        try await backend.logCommand(id).map { "'" + $0.replacingOccurrences(of: "'", with: "'\\''") + "'" }.joined(separator: " ")
+    }
+
+    /// Turns the phone a quarter turn (Android emulators; iOS rotation comes later).
+    public func rotate(_ id: PhoneDeviceID) async throws {
+        guard let platform = backend as? PlatformPhoneBackend else { throw PhoneError.unsupported(mode: id.mode, what: "rotate") }
+        try await platform.rotate(id)
+        changeCount += 1
+    }
+
     /// The screen's accessibility tree (frames in tap points).
     public func accessibilityTree(_ id: PhoneDeviceID) async throws -> PhoneElement {
         let device = try await device(id)

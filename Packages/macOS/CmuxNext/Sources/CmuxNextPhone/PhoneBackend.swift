@@ -22,11 +22,17 @@ public protocol PhoneBackend: Sendable {
     func accessibilityTree(_ id: PhoneDeviceID) async throws -> PhoneElement
     /// The screen size in the points taps use (iOS points, Android dp), current orientation.
     func screenPoints(_ id: PhoneDeviceID) async throws -> PhonePoint
+    /// The argv that streams the device log to a terminal (`cmux phone logs` opens it in a terminal tab).
+    func logCommand(_ id: PhoneDeviceID) async throws -> [String]
 }
 
 extension PhoneBackend {
     public func screenPoints(_ id: PhoneDeviceID) async throws -> PhonePoint {
         throw PhoneError.unsupported(mode: id.mode, what: "touch")
+    }
+
+    public func logCommand(_ id: PhoneDeviceID) async throws -> [String] {
+        throw PhoneError.unsupported(mode: id.mode, what: "logs")
     }
 
     public func accessibilityTree(_ id: PhoneDeviceID) async throws -> PhoneElement {

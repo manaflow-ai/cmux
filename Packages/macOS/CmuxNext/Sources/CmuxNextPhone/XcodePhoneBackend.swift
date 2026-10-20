@@ -145,6 +145,11 @@ public struct XcodePhoneBackend: PhoneBackend {
         return PhonePoint(x: size.width, y: size.height)
     }
 
+    public func logCommand(_ id: PhoneDeviceID) async throws -> [String] {
+        guard id.mode == .simulator else { throw PhoneError.unsupported(mode: id.mode, what: "logs") }
+        return ["/usr/bin/xcrun", "simctl", "spawn", id.raw, "log", "stream", "--style", "compact", "--level", "info"]
+    }
+
     private func requireHID(_ input: PhoneInput) throws -> any SimulatorHIDSending {
         guard let hid else { throw PhoneError.unsupported(mode: .simulator, what: input.kind) }
         return hid
