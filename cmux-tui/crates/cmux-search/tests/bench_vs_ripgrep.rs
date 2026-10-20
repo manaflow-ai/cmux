@@ -86,6 +86,12 @@ fn cmux_search_search_bench_vs_ripgrep_report() {
             hits = result.hits.iter().filter(|hit| !hit.is_name).count();
         }
         engine_times.sort();
+        let mut first = Query::new(engine_query.as_str(), now);
+        first.budget = Some(Duration::from_millis(10));
+        let begin = Instant::now();
+        let first_result = engine.search(&first);
+        let first_ms = begin.elapsed();
+        let first_hits = first_result.hits.iter().filter(|hit| !hit.is_name).count();
         let scan = lowered.as_deref().map(|corpus| naive_scan(corpus, text));
         let (rg_full, rg_first) = match &rg {
             Some(rg) => (
@@ -102,6 +108,8 @@ fn cmux_search_search_bench_vs_ripgrep_report() {
             scan,
             rg_full,
             rg_first,
+            first: first_ms,
+            first_hits,
         });
     }
 
@@ -120,6 +128,9 @@ struct Row {
     scan: Option<Duration>,
     rg_full: Option<Duration>,
     rg_first: Option<Duration>,
+    /// The window's first results: 10 ms budget.
+    first: Duration,
+    first_hits: usize,
 }
 
 #[derive(Default)]
@@ -165,13 +176,54 @@ impl Samples {
     }
 }
 
+/// ripgrep from PATH or Homebrew; else (macOS arm64 only) the pinned
+/// 14.1.1 release, downloaded once into `.build/tools` and checked against
+/// its published sha256, as the fleet step does for cargo-nextest.
 fn ripgrep() -> Option<String> {
     for candidate in ["rg", "/opt/homebrew/bin/rg", "/usr/local/bin/rg"] {
         if Command::new(candidate).arg("--version").output().is_ok_and(|out| out.status.success()) {
             return Some(candidate.to_owned());
         }
     }
-    None
+    pinned_ripgrep()
+}
+
+const RG_RELEASE: &str = "ripgrep-14.1.1-aarch64-apple-darwin";
+const RG_SHA256: &str = "24ad76777745fbff131c8fbc466742b011f925bfa4fffa2ded6def23b5b937be";
+
+fn pinned_ripgrep() -> Option<String> {
+    if !(cfg!(target_os = "macos") && cfg!(target_arch = "aarch64")) {
+        return None;
+    }
+    let tools = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../.build/tools");
+    let binary = tools.join(RG_RELEASE).join("rg");
+    if !binary.exists() {
+        std::fs::create_dir_all(&tools).ok()?;
+        let archive = tools.join(format!("{RG_RELEASE}.tar.gz"));
+        let url = format!(
+            "https://github.com/BurntSushi/ripgrep/releases/download/14.1.1/{RG_RELEASE}.tar.gz"
+        );
+        let fetched = Command::new("curl").args(["-fsSL", "-o"]).arg(&archive).arg(&url).status();
+        if !fetched.is_ok_and(|status| status.success()) {
+            return None;
+        }
+        let sum = Command::new("shasum").args(["-a", "256"]).arg(&archive).output().ok()?;
+        if !String::from_utf8_lossy(&sum.stdout).starts_with(RG_SHA256) {
+            eprintln!("ripgrep archive sha256 does not match the pin; rg columns stay n/a");
+            let _ = std::fs::remove_file(&archive);
+            return None;
+        }
+        let unpacked = Command::new("tar").arg("xzf").arg(&archive).arg("-C").arg(&tools).status();
+        if !unpacked.is_ok_and(|status| status.success()) {
+            return None;
+        }
+    }
+    let path = binary.to_string_lossy().into_owned();
+    Command::new(&path)
+        .arg("--version")
+        .output()
+        .is_ok_and(|out| out.status.success())
+        .then_some(path)
 }
 
 /// Median of 3 warm runs (one warmup first).
@@ -196,9 +248,9 @@ fn run_rg(rg: &str, dir: &Path, text: &str, first: bool) -> Duration {
 }
 
 /// The corpus files, ASCII-lowercased once (the scan's best case); `None`
-/// over 2 GiB, where holding a second copy is not worth it.
+/// over 4 GiB, where holding a second copy is not worth it.
 fn lowered_corpus(dir: &Path, bytes: usize) -> Option<Vec<Vec<u8>>> {
-    if bytes > 2 << 30 {
+    if bytes > 4 << 30 {
         return None;
     }
     let mut files: Vec<PathBuf> =
@@ -291,20 +343,22 @@ fn render(
     );
     let _ = writeln!(
         out,
-        "| class | query | engine ms | content hits | rg -c ms | rg -m 50 ms | 1-thread scan ms | rg -c / engine |"
+        "| class | query | engine ms | content hits | first results ms (10 ms budget) | hits then | rg -c ms | rg -m 50 ms | 1-thread scan ms | rg -c / engine |"
     );
-    let _ = writeln!(out, "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |");
+    let _ = writeln!(out, "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |");
     for row in rows {
         let ratio = row.rg_full.map_or("n/a".to_owned(), |rg| {
             format!("{:.0}x", rg.as_secs_f64() / row.engine.as_secs_f64().max(1e-9))
         });
         let _ = writeln!(
             out,
-            "| {} | `{}` | {} | {} | {} | {} | {} | {} |",
+            "| {} | `{}` | {} | {} | {} | {} | {} | {} | {} | {} |",
             row.class,
             row.text,
             ms(row.engine),
             row.hits,
+            ms(row.first),
+            row.first_hits,
             row.rg_full.map_or("n/a".to_owned(), ms),
             row.rg_first.map_or("n/a".to_owned(), ms),
             row.scan.map_or("n/a".to_owned(), ms),
