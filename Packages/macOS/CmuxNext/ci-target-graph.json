@@ -148,6 +148,19 @@
         "CmuxAgentQuestion"
       ]
     },
+    "CmuxNextAgentUpdates": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextAgentUpdates",
+      "targets": [
+        "CmuxNextActions",
+        "CmuxNextCompat",
+        "CmuxNextDaemon",
+        "CmuxNextDaemonService",
+        "CmuxNextPages",
+        "CmuxNextSettings"
+      ],
+      "packages": []
+    },
     "CmuxNextApp": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp",
@@ -161,6 +174,7 @@
         "CmuxNextAgentLanes",
         "CmuxNextAgentPane",
         "CmuxNextAgentQuestion",
+        "CmuxNextAgentUpdates",
         "CmuxNextApps",
         "CmuxNextBookmarks",
         "CmuxNextBridge",
@@ -212,7 +226,6 @@
         "CmuxNextRemoteLocalhostService",
         "CmuxNextRemoteView",
         "CmuxNextResources",
-        "CmuxNextScreenshots",
         "CmuxNextServer",
         "CmuxNextServerHelper",
         "CmuxNextSettings",
@@ -255,6 +268,7 @@
         "CmuxNextActions",
         "CmuxNextAgentCursor",
         "CmuxNextAgentLanes",
+        "CmuxNextAgentUpdates",
         "CmuxNextApp",
         "CmuxNextApps",
         "CmuxNextBrowserHistory",
@@ -267,7 +281,6 @@
         "CmuxNextDaemonRecovery",
         "CmuxNextDaemonService",
         "CmuxNextDiff",
-        "CmuxNextFileGrid",
         "CmuxNextFloating",
         "CmuxNextFocus",
         "CmuxNextFocusUI",
@@ -279,7 +292,6 @@
         "CmuxNextProcessEnvironment",
         "CmuxNextRemote",
         "CmuxNextRemoteLocalhostService",
-        "CmuxNextScreenshots",
         "CmuxNextTabs",
         "CmuxNextTasks",
         "CmuxNextTerminalGeometry",
@@ -653,12 +665,6 @@
         "CmuxNextIcons",
         "CmuxNextWakeups"
       ],
-      "packages": []
-    },
-    "CmuxNextFileGrid": {
-      "kind": "regular",
-      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextFileGrid",
-      "targets": [],
       "packages": []
     },
     "CmuxNextFiles": {
@@ -1044,24 +1050,6 @@
         "CmuxNextWakeups"
       ],
       "packages": []
-    },
-    "CmuxNextScreenshots": {
-      "kind": "regular",
-      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextScreenshots",
-      "targets": [
-        "CmuxNextFileGrid"
-      ],
-      "packages": []
-    },
-    "CmuxNextScreenshotsTests": {
-      "kind": "test",
-      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextScreenshotsTests",
-      "targets": [
-        "CmuxNextFileGrid",
-        "CmuxNextScreenshots"
-      ],
-      "packages": [],
-      "reads": []
     },
     "CmuxNextServer": {
       "kind": "regular",
