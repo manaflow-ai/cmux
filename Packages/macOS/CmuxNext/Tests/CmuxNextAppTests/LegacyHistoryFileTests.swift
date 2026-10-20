@@ -99,6 +99,24 @@ import Testing
         #expect(FileManager.default.fileExists(atPath: wal.path))
     }
 
+    @Test func anUnchangedSQLiteGenerationIsRemovedTogether() throws {
+        let root = try temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let support = root.appending(path: "support", directoryHint: .isDirectory)
+        let profile = support.appending(path: "BrowserProfiles/default", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: profile, withIntermediateDirectories: true)
+        let history = profile.appending(path: "History.sqlite")
+        let wal = URL(fileURLWithPath: history.path + "-wal")
+        let shm = URL(fileURLWithPath: history.path + "-shm")
+        for file in [history, wal, shm] { try Data(file.lastPathComponent.utf8).write(to: file) }
+        let tracked = try [shm, wal, history].map {
+            try #require(LegacyHistoryFile(url: $0, supportDirectory: support))
+        }
+
+        #expect(LegacyHistoryFile.removeGenerationIfUnchanged(tracked, missing: []))
+        for file in [history, wal, shm] { #expect(!FileManager.default.fileExists(atPath: file.path)) }
+    }
+
     private func temporaryRoot() throws -> URL {
         let root = FileManager.default.temporaryDirectory.resolvingSymlinksInPath().appending(
             path: "cmux-legacy-history-\(UUID().uuidString)",
