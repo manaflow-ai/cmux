@@ -36,18 +36,27 @@ pub(super) enum Access {
 
 /// Why a harness `argv` runs with no permission check or no sandbox: Claude
 /// Code's skip flags or `--permission-mode bypassPermissions`, Codex's bypass
-/// flags, `--yolo`, or a `danger-full-access` sandbox (`--sandbox`, `-s`,
-/// `-c sandbox_mode=`).
+/// flags, `--yolo`, a `danger-full-access` sandbox (`--sandbox`, `-s`,
+/// `-c sandbox_mode=`, also attached as `-sdanger-full-access`), or Gemini
+/// CLI's and Qwen Code's `-y` and `--approval-mode yolo` or `auto_edit`.
 pub(super) fn argv_full_access(argv: &[String]) -> Option<String> {
-    const SKIPS: [&str; 3] =
-        ["--dangerously-skip-permissions", "--dangerously-bypass-approvals-and-sandbox", "--yolo"];
+    const SKIPS: [&str; 4] = [
+        "--dangerously-skip-permissions",
+        "--dangerously-bypass-approvals-and-sandbox",
+        "--yolo",
+        "-y",
+    ];
+    // `--flag value`, `--flag=value`, and for a short flag `-fvalue`.
     let value = |i: usize, flag: &str| -> Option<String> {
         let a = &argv[i];
         if a == flag {
-            argv.get(i + 1).cloned()
-        } else {
-            a.strip_prefix(&format!("{flag}=")).map(str::to_owned)
+            return argv.get(i + 1).cloned();
         }
+        if let Some(v) = a.strip_prefix(&format!("{flag}=")) {
+            return Some(v.to_owned());
+        }
+        let short = flag.len() == 2 && !flag.starts_with("--");
+        a.strip_prefix(flag).filter(|v| short && !v.is_empty()).map(str::to_owned)
     };
     for (i, a) in argv.iter().enumerate() {
         if SKIPS.contains(&a.as_str()) {
@@ -55,6 +64,9 @@ pub(super) fn argv_full_access(argv: &[String]) -> Option<String> {
         }
         if value(i, "--permission-mode").is_some_and(|m| m == "bypassPermissions") {
             return Some("its command runs --permission-mode bypassPermissions".into());
+        }
+        if let Some(m) = value(i, "--approval-mode").filter(|m| m == "yolo" || m == "auto_edit") {
+            return Some(format!("its command runs --approval-mode {m}"));
         }
         let sandbox = value(i, "--sandbox").or_else(|| value(i, "-s"));
         let config = value(i, "-c").or_else(|| value(i, "--config"));
