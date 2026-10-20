@@ -78,9 +78,10 @@ enum SidebarStyle {
     /// the line runs unbroken from the header to the last member.
     static var groupGutter: CGFloat { groupBarX + groupBarWidth + Metrics.space1 }
     /// The deliberate cut between a group's header bar and its members' line
-    /// (Leo 2026-10-19, Chrome's tab groups: "a neat little cut"), unless
+    /// (Leo 2026-10-19, Chrome's tab groups: "a neat little cut", then after
+    /// the renders "a liiiitle more cut-y": 8 pt to Chrome's 6), unless
     /// `sidebar.groupLineJoinsHeader` joins them.
-    static var groupLineCut: CGFloat { Metrics.space3 }
+    static var groupLineCut: CGFloat { Metrics.space4 }
     /// The group header bar's corners (Chrome's, about 6 pt).
     static var groupHeaderCornerRadius: CGFloat { Metrics.space3 }
     /// The group header's color dot, on the line's x (cx-25az).
