@@ -26,6 +26,8 @@ public final class ChiefPetPanel: NSPanel, NSWindowDelegate {
     var visibleFrame: () -> CGRect? = { nil }
     /// The pet was pulled back on its screen after a screen change (the bubble and reply box take their side again).
     var onKeptOnScreen: (() -> Void)?
+    /// The didChangeScreenParameters observer's token, kept for the panel's life.
+    private var screenObserver: (any NSObjectProtocol)?
 
     public init(mascot: ChiefPetMascot = .initial, defaults: UserDefaults = .standard) {
         placement = ChiefPetPlacement(defaults: defaults)
@@ -62,8 +64,10 @@ public final class ChiefPetPanel: NSPanel, NSWindowDelegate {
         visibleFrame = { [weak self] in self?.screen?.visibleFrame }
         // A resolution change, or the Dock or menu bar resizing, keeps the screen, so AppKit sends no
         // didChangeScreen; the visible frame still changes under the pet.
-        NotificationCenter.default.addObserver(self, selector: #selector(screenParametersChanged),
-                                               name: NSApplication.didChangeScreenParametersNotification, object: nil)
+        screenObserver = NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification,
+                                                                object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.keepOnScreen() } // main-proof: observer on queue: .main
+        }
     }
 
     /// The chevron points down while the notices are unfolded.
@@ -90,10 +94,6 @@ public final class ChiefPetPanel: NSPanel, NSWindowDelegate {
 
     /// A screen change (a display unplugged, the pet dragged onto another) keeps it on its screen.
     public func windowDidChangeScreen(_ notification: Notification) {
-        keepOnScreen()
-    }
-
-    @objc private func screenParametersChanged(_ notification: Notification) {
         keepOnScreen()
     }
 
