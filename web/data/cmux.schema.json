@@ -1176,7 +1176,7 @@
             "enabled": {
               "type": "boolean",
               "default": false,
-              "description": "Monitor pane process trees for runaway memory use."
+              "description": "Stop a pane's runaway jobs when its process tree crosses the threshold under critical memory pressure."
             },
             "thresholdGB": {
               "type": "number",

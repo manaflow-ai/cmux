@@ -60,7 +60,12 @@ final class PaneMemoryGuardrail {
     // MARK: Settings
 
     private var isEnabled: Bool {
-        Self.enabledSetting.value(in: .standard)
+        Self.isConfiguredEnabled()
+    }
+
+    /// Whether the Runaway Memory Guardrail setting is on.
+    static func isConfiguredEnabled() -> Bool {
+        enabledSetting.value(in: .standard)
     }
 
     private func thresholdBytes() -> Int64 {

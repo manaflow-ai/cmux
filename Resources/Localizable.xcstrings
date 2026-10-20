@@ -561974,55 +561974,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Warns when the processes in one pane use too much memory."
+            "value": "Stops a pane's runaway jobs when its processes push memory use to a critical level."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Warnt, wenn die Prozesse in einem Teilfenster zu viel Speicher verbrauchen."
+            "value": "Beendet die außer Kontrolle geratenen Jobs eines Teilfensters, wenn dessen Prozesse die Speicherauslastung auf ein kritisches Niveau treiben."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Avertit lorsque les processus d’un volet utilisent trop de mémoire."
+            "value": "Arrête les tâches incontrôlées d’un volet lorsque ses processus poussent l’utilisation de la mémoire à un niveau critique."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "ينبّه عندما تستهلك العمليات في جزء واحد ذاكرة أكثر من اللازم."
+            "value": "يوقف المهام الخارجة عن السيطرة في جزء ما عندما ترفع عملياته استخدام الذاكرة إلى مستوى حرج."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Avisa cuando los procesos de un panel usan demasiada memoria."
+            "value": "Detiene los trabajos desbocados de un panel cuando sus procesos llevan el uso de memoria a un nivel crítico."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "單一窗格中的處理程序使用過多記憶體時發出警告。"
+            "value": "當窗格中的處理程序使記憶體使用量達到臨界水準時，停止該窗格中失控的工作。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "某个窗格中的进程占用过多内存时发出警告。"
+            "value": "当窗格中的进程使内存使用达到临界水平时，停止该窗格中失控的作业。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "한 분할 창의 프로세스가 메모리를 너무 많이 사용하면 경고합니다."
+            "value": "분할 창의 프로세스가 메모리 사용량을 위험 수준까지 끌어올리면 해당 분할 창의 폭주 작업을 중지합니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "1 つのペインのプロセスがメモリを使いすぎると警告します。"
+            "value": "ペインのプロセスがメモリ使用量を危険な水準まで押し上げると、そのペインで暴走しているジョブを停止します。"
           }
         }
       }
