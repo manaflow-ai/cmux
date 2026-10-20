@@ -56,7 +56,7 @@ fn one_transcript_write_merges_one_chat() {
     writeln!(f, "{}", line(7, 3599, "next prompt")).unwrap();
     drop(f);
 
-    let changes = index.paths_changed(&[file.clone()]);
+    let changes = index.paths_changed(std::slice::from_ref(&file));
     assert_eq!(changes.len(), 1, "one chat changed: {changes:?}");
     assert!(
         index.merge_visits() <= 2,
