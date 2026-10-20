@@ -6,13 +6,20 @@ extension DaemonStore {
         case none
         /// Refetch `list-workspaces` and apply it.
         case resync
+        /// Refetch `list-personal` alone and apply it (`personal-changed`).
+        case personal
     }
 
     /// Applies one event in place. Returns `.resync` when the event cannot be
     /// applied exactly (revision gap, generation change, coarse invalidation).
     @discardableResult
     public func apply(_ event: DaemonEvent) -> Followup {
-        let followup = withOverlayLifted { applyEvent(event, sequence: nil) }
+        var followup = withOverlayLifted { applyEvent(event, sequence: nil) }
+        // One event without a sequence: its personal state is fetched now (no barrier to hold back).
+        if followup == .personal {
+            followup = .none
+            refetchPersonal()
+        }
         workspaceListMayHaveChanged()
         // Waiters see the visible state, so they run once the overlay is back.
         flushAppliedWaiters()
@@ -57,7 +64,13 @@ extension DaemonStore {
             var followup = Followup.none
             for envelope in batch {
                 if envelope.sequence > snapshotBarrier || envelope.event.outlivesSnapshot {
-                    if applyEvent(envelope.event, sequence: envelope.sequence, envelope: envelope) == .resync { followup = .resync }
+                    switch applyEvent(envelope.event, sequence: envelope.sequence, envelope: envelope) {
+                    case .resync: followup = .resync
+                    case .personal:
+                        personalRefetch.saw(envelope.sequence)
+                        if followup == .none { followup = .personal }
+                    case .none: break
+                    }
                 } else if let transaction = envelope.event.clientTransactionID {
                     // Superseded by the snapshot (which holds its result),
                     // but its echo still settles the patch and the intent,
@@ -71,8 +84,11 @@ extension DaemonStore {
                 }
             }
             // A batch that needs a resync is reflected only once the snapshot
-            // lands (`resync` advances to its barrier).
-            if followup == .none, let last = batch.map(\.sequence).max() { advanceAppliedSequence(to: last) }
+            // lands (`resync` advances to its barrier); one with a personal change
+            // only up to that change, until `list-personal` lands (`refetchPersonal`).
+            if followup != .resync, let last = batch.map(\.sequence).max() {
+                advanceAppliedSequence(to: personalRefetch.reachable(applying: last))
+            }
             return followup
         }
     }
@@ -251,6 +267,8 @@ extension DaemonStore {
             return applyLayoutChange(screen: screen, layout: layout)
         case .treeChanged, .layoutChanged:
             return .resync
+        case .personalChanged:
+            return .personal
         case .overflow:
             clearPresence()
             return .resync

@@ -10,11 +10,11 @@ head, next to the check scripts (from the head) and their baselines (from each s
 runs on both trees; a finding is new when the head has it and the base does not. A finding is keyed
 by file, rule and the text of its source line, not its line number, so moving code is not new.
 
-Layers (each one only on files the push changes under Packages/macOS/CmuxNext, cmux-tui, webviews):
+Layers (each one only on files the push changes under Packages/macOS/CmuxNext, cmux-tui, webviews, cnx-ios):
   scanners     the CI job's line scanners: concurrency, crash safety, dialog key hints, type scale,
                motion, scrollbars, state roots, process scan, Swift CLI, closed history, test
                notification centers, string tables, module resources, capability text, browser
-               chrome icons
+               chrome icons, App Store review rules (also on cnx-ios/ changes)
   ast-grep     scripts/cmux-next/lint/ast-grep-rules: try!, blocking calls, raw font sizes, system
                dialogs (tree-sitter, so comments, strings and `case .alert` never match)
   swiftformat  --lint with scripts/cmux-next/lint/swiftformat.conf
@@ -69,6 +69,7 @@ CONTEXT = (
     PKG + "/Sources/CmuxNextIcons/IconName+Members.swift",
     PKG + "/Sources/CmuxNextIcons/Resources/icon-catalog.json",
     "cmux.xcodeproj/project.pbxproj",
+    "cnx-ios/project.yml",
 )
 DATA_SUFFIXES = (".tsv", ".json")
 
@@ -94,6 +95,8 @@ SCANNERS = (
     ("Module resource bundles", ["/bin/bash", "{s}/check-module-resources.sh", "{pkg}"], (PKG + "/",)),
     ("Capability texts never say update the app", ["python3", "-I", "{s}/check-capability-text.py", "--root", "{root}"], ("cmux-tui/",)),
     ("Browser chrome icons", ["python3", "-I", "{s}/lint-browser-chrome-icons.py"], (PKG + "/",)),
+    ("App Store review rules (cnx-ios intents, Info.plist)",
+     ["python3", "-I", "{s}/check-app-store-rules.py", "--source", "{root}"], ("cnx-ios/",)),
 )
 
 # Ghostty's default split keys stay Ghostty's (Lawrence 2026-10-20, after 2f3e1f95983).
@@ -169,7 +172,7 @@ def pushed_ranges(repo: Path, lines: list[str]) -> list[tuple[str, str]]:
 
 def changed_files(repo: Path, base: str, head: str) -> list[str]:
     names = git(repo, "diff", "--name-only", "--no-renames", "--diff-filter=ACMRT", "-z", base, head).decode()
-    return sorted(n for n in names.split("\0") if n and n.startswith(SCOPES + ("Packages/Shared/",)))
+    return sorted(n for n in names.split("\0") if n and n.startswith(SCOPES + ("Packages/Shared/", "cnx-ios/")))
 
 
 # ---------------------------------------------------------------- pinned tools

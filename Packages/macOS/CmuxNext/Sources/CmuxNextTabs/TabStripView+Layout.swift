@@ -123,9 +123,9 @@ extension TabStripView {
     /// The motion of a strip change on `token`, or nil when it applies at once (the token does not
     /// animate, or the window has no screen, where Core Animation would never end it).
     func stripMove(_ token: MotionTween) -> TabStripMove? {
-        guard let motion = MotionMove.tween(token), Motion.canAnimate(in: self) else { return nil }
+        guard let motion = MotionMove.tween(token, in: Motion.tabs), Motion.canAnimate(in: self) else { return nil }
         moveGeneration += 1
-        return TabStripMove(generation: moveGeneration, motion: motion, closing: token == .tabClose ? nil : MotionMove.tween(.tabClose))
+        return TabStripMove(generation: moveGeneration, motion: motion, closing: token == .tabClose ? nil : MotionMove.tween(.tabClose, in: Motion.tabs))
     }
 
     /// Every move of `generation` ended: a closing tab or chip it carried goes, and the masks and
@@ -172,7 +172,7 @@ extension TabStripView {
         let from = scrollMapping
         scrollOffset = target
         var move: TabStripMove?
-        if animated, !reduceMotion, Motion.canAnimate(in: self), let motion = MotionMove.spring(.scroll) {
+        if animated, !reduceMotion, Motion.canAnimate(in: self), let motion = MotionMove.spring(.scroll, in: Motion.tabs) {
             moveGeneration += 1
             move = TabStripMove(generation: moveGeneration, motion: motion, closing: nil, isScroll: true)
         }

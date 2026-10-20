@@ -39,3 +39,10 @@ export function designSelectionChips(value: unknown): ComposerAttachment[] {
   }
   return chips;
 }
+
+/// The chip ids a `{removed: id}` push takes out of the composer: the highlight's text chip and its
+/// screenshot chip. None for any other value.
+export function designSelectionRemovals(value: unknown): string[] {
+  const removed = (value as { removed?: unknown } | null)?.removed;
+  return typeof removed === "string" && removed ? [removed, `${removed}-shot`] : [];
+}

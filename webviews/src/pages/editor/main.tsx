@@ -15,7 +15,13 @@ import { EditorEmptyState } from "../../viewer-empty/EditorEmptyState";
 import { viewerEmptyStrings } from "../../viewer-empty/strings";
 import table from "./generated/strings.json";
 import { EditorPage, StatusStore } from "./EditorPage";
-import { APP_ACTION_RUN_OP, EDITOR_FLUSH_OP, EDITOR_KEY_SEQUENCE_OP, EDITOR_OPEN_LINK_OP } from "./host";
+import {
+  APP_ACTION_RUN_OP,
+  EDITOR_FLUSH_OP,
+  EDITOR_SELECTION_OP,
+  EDITOR_KEY_SEQUENCE_OP,
+  EDITOR_OPEN_LINK_OP,
+} from "./host";
 import { isEditorCommand } from "./keys";
 import { applyEditorLook, PREFERENCE_KEYS, resolveEditorSettings } from "./settings";
 import { EditorStore } from "./store";
@@ -144,6 +150,7 @@ export function mountEditorPage(root: HTMLElement, client: PageClient | null = c
           else if (command === "findNext") find.next();
           else if (command === "findPrevious") find.previous();
           else if (command === "useSelectionForFind") find.useSelection();
+          else if (command === "replace") find.showReplace(text);
           else find.hide();
           return true;
         },
@@ -168,6 +175,8 @@ export function mountEditorPage(root: HTMLElement, client: PageClient | null = c
     });
     // The host asks before it closes the tab or quits: pending edits are written first.
     client.handle(EDITOR_FLUSH_OP, () => store.flush());
+    // Comment… and Quote in Chat on selected text: the host asks for the selection and its lines.
+    client.handle(EDITOR_SELECTION_OP, () => view?.selectionQuote() ?? null);
   }
   // Leaving the page (tab closed, app quit) writes pending edits, unless the user turned saving off.
   const saveOnLeave = () => {

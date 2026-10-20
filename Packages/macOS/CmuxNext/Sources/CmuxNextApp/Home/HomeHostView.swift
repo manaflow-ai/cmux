@@ -82,8 +82,18 @@ final class HomeHostView: NSView {
                 self?.settingsView.setHost(place: host.place, switchTo: host.switchTo)
             }
         }
-        settingsView.onShowMemory = { [weak services] in
-            _ = services?.registry.perform(ChiefInspectorHandlers.actionID, invocation: ActionInvocation(origin: .user))
+        // Show Memory: this conversation's Chief (a named local Chief, or a
+        // cloud Chief's paired server), not only the default one.
+        settingsView.onShowMemory = { [weak self, weak services] in
+            var invocation = ActionInvocation(origin: .user)
+            if let control = self?.control {
+                if let machine = control.server?.machineID {
+                    invocation.arguments["server"] = .string(machine)
+                } else if let chief = control.named {
+                    invocation.arguments["chief"] = .string(chief)
+                }
+            }
+            _ = services?.registry.perform(ChiefInspectorHandlers.actionID, invocation: invocation)
         }
         settingsView.onRename = { [weak service] name in
             // One op; the daemon refusing it (or no daemon, or one without the op) is false, and the card says so.
@@ -117,6 +127,10 @@ final class HomeHostView: NSView {
         }
         // A link pressed and moved: dragged into the layout's drop zones, a split or a pane opens it (LinkDragSession).
         transcript.onDragLink = { [weak services] url, point in services?.linkDrags.begin(url, screenPoint: point) ?? false }
+        // Forward… on a bubble: Send to… with its text (the palette asks where).
+        transcript.onForward = { text in
+            _ = registry.perform("home.sendSelectionTo", invocation: ActionInvocation(arguments: ["text": .string(text)], origin: .user))
+        }
         stopObserver = NotificationCenter.default.addObserver(forName: HomeChiefControl.stopNotification, object: nil, queue: .main) { [weak self] _ in
             // task-owner: one hop to the main actor for the stop
             Task { @MainActor in self?.stopIfFront() }
