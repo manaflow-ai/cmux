@@ -31,6 +31,8 @@ public final class TaskManagerModel {
     @ObservationIgnored private let killAction: @MainActor (ProcessKey) -> Void
     @ObservationIgnored private var previous: TaskManagerSampleSet?
     @ObservationIgnored private var running = false
+    /// The first sample start() takes; stop() cancels it.
+    @ObservationIgnored private var firstSample: Task<Void, Never>?
     /// Bumped by stop(), so a sample or deadline of an earlier start does nothing.
     @ObservationIgnored private var generation: UInt64 = 0
 
@@ -55,22 +57,26 @@ public final class TaskManagerModel {
         guard !running else { return }
         running = true
         let generation = generation
-        Task { [weak self] in await self?.sample(generation) }
+        firstSample = Task { [weak self] in await self?.sample(generation) }
     }
 
     /// Stops sampling and forgets the last sample (the next start has no CPU until its second sample).
     public func stop() {
+        firstSample?.cancel()
+        firstSample = nil
         timer.cancel()
         generation &+= 1
         running = false
         previous = nil
     }
 
-    /// One periodic sample, then the deadline for the next; nothing once stop() ran.
+    /// One periodic sample, then the deadline for the next. A sample that returns after stop() is
+    /// dropped before it touches the snapshot.
     private func sample(_ generation: UInt64) async {
-        guard generation == self.generation else { return }
-        await refresh()
-        guard generation == self.generation else { return }
+        guard generation == self.generation, let source else { return }
+        let set = await source.sample()
+        guard generation == self.generation, !Task.isCancelled else { return }
+        apply(set)
         timer.schedule(after: interval) { @MainActor [weak self] in
             await self?.sample(generation)
         }
@@ -79,7 +85,10 @@ public final class TaskManagerModel {
     /// Takes one sample now and updates the rows.
     public func refresh() async {
         guard let source else { return }
-        let set = await source.sample()
+        apply(await source.sample())
+    }
+
+    private func apply(_ set: TaskManagerSampleSet) {
         snapshot = TaskManagerSnapshot(current: set, previous: previous)
         previous = set
         sampleCount += 1

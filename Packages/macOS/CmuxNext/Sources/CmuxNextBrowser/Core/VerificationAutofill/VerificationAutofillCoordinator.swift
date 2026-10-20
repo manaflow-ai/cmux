@@ -28,6 +28,8 @@ public final class VerificationAutofillCoordinator {
     private var tabs: [BrowserTabID: WeakTab] = [:]
     private var shown: [BrowserTabID: (prompt: BrowserPrompt, emailID: String)] = [:]
     private var responses: [Task<Void, Never>] = []
+    /// True while a poll's read runs: no next read is armed until it ends (one osascript at a time).
+    private var polling = false
 
     /// The last error of the mail source (for example ``MailAppVerificationSource/Failure/notAuthorized``),
     /// nil after a good read.
@@ -100,12 +102,16 @@ public final class VerificationAutofillCoordinator {
 
     // MARK: - Private
 
-    /// Arms the next read unless one is pending: a source with no change signal is read once per
-    /// `pollInterval` only while a page waits and the setting is on.
+    /// Arms the next read unless one is pending or running: a source with no change signal is read
+    /// once per `pollInterval` only while a page waits and the setting is on, and reads never overlap
+    /// (an older read finishing last would replace a newer offer).
     private func schedulePoll() {
+        guard !polling else { return }
         pollTimer.scheduleIfIdle(after: pollInterval) { @MainActor [weak self] in
             guard let self else { return }
+            self.polling = true
             await self.pollOnce()
+            self.polling = false
             guard self.inbox.hasWaitingPages, self.isEnabled() else { return }
             self.schedulePoll()
         }
