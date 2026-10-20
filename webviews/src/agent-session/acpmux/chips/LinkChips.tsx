@@ -6,7 +6,7 @@
 // pane after a real click; its icon is the site's favicon when cmux already has one.
 import { useEffect, useRef, useState, type PointerEvent, type ReactNode } from "react";
 import { callChipHost } from "./host";
-import { FileDoc, Folder, Globe, Lock } from "../conversation/icons";
+import { FileDoc, Folder, GitHubMark, Globe, Lock } from "../conversation/icons";
 import { usePathInfo, useSiteInfo } from "./linkStore";
 import { isDeniedPath, pathName, textLinks } from "./paths";
 import { HOVER_INTENT } from "../../../ui/hoverIntent";
@@ -48,7 +48,13 @@ function HostPathChip({ path, label, written }: { path: string; label?: ReactNod
 export function UrlChip({ href, icon, children }: { href: string; icon?: ReactNode; children: ReactNode }) {
   const t = useT();
   const site = useSiteInfo(href);
-  const mark = site?.icon ? (
+  // A pull request or issue is a reference chip (Leo 2026-10-19, as Claude desktop draws them): a
+  // pill with the GitHub mark, `owner/repo#N`, and the title cmux already has for it.
+  const ref = githubRefLabel(href);
+  const refTitle = ref ? githubRefTitle(site?.title) : undefined;
+  const mark = ref ? (
+    <GitHubMark size={13} className="cv-chip__icon cv-chip__icon--gh" />
+  ) : site?.icon ? (
     <img className="cv-chip__icon cv-chip__favicon" src={site.icon} alt="" width={14} height={14} />
   ) : (
     (icon ?? <Globe size={15} strokeWidth={1.1} className="cv-chip__icon" />)
@@ -96,7 +102,7 @@ export function UrlChip({ href, icon, children }: { href: string; icon?: ReactNo
     <>
       <a
         ref={anchor}
-        className="cv-link cv-chip is-web"
+        className={`cv-link cv-chip is-web${ref ? " is-ref" : ""}`}
         href={href}
         rel="noreferrer"
         onPointerEnter={onPointerEnter}
@@ -106,6 +112,7 @@ export function UrlChip({ href, icon, children }: { href: string; icon?: ReactNo
       >
         {mark}
         <span className="cv-chip__label">{children}</span>
+        {refTitle && <span className="cv-chip__title">{refTitle}</span>}
       </a>
       <AnchoredCard
         anchor={cardOpen ? anchor.current : null}
@@ -162,7 +169,7 @@ export function linkedText(text: string, key: string): ReactNode[] {
         <PathChip key={`${key}-${index}`} path={link.path!} written={link.value} />
       ) : (
         <UrlChip key={`${key}-${index}`} href={link.value}>
-          {link.value}
+          {githubRefLabel(link.value) ?? link.value}
         </UrlChip>
       ),
     );
@@ -170,4 +177,23 @@ export function linkedText(text: string, key: string): ReactNode[] {
   });
   if (at < text.length) out.push(text.slice(at));
   return out;
+}
+
+const GITHUB_REF = /^https:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/(?:pull|issues)\/(\d+)\/?(?:[?#].*)?$/;
+
+/// `owner/repo#N` for a GitHub pull request or issue address, else undefined.
+export function githubRefLabel(href: string): string | undefined {
+  const match = GITHUB_REF.exec(href);
+  return match ? `${match[1]}#${match[2]}` : undefined;
+}
+
+/// A pull request's or issue's own title from GitHub's page title ("Fix the thing by leo ·
+/// Pull Request #12 · owner/repo · GitHub"), or undefined when cmux has no title for it.
+export function githubRefTitle(page: string | undefined): string | undefined {
+  if (!page) return undefined;
+  const title = page
+    .split(" · ")[0]!
+    .replace(/ by [\w-]+$/, "")
+    .trim();
+  return title && !/^(GitHub|Pull Request|Issue)\b/.test(title) ? title : undefined;
 }

@@ -40,20 +40,23 @@ public nonisolated struct VerificationMessageParser: Sendable {
 
     // MARK: - Codes
 
+    // The patterns are constants that VerificationMessageParserTests exercise; were one ever to
+    // fail to compile, the parser finds nothing rather than crash.
+
     /// A code word, in English and the most common other languages. Words
     /// that put a number next to "code" without it being one are excluded.
-    private static let codeWord = try! NSRegularExpression(
+    private static let codeWord = try? NSRegularExpression(
         pattern: #"(code|c[oó]digo|verif|vérif|bestätigung|one-time|\botp\b|passcode|\bpin\b|\b2fa\b|コード|認証|验证码|驗證碼|인증|код)"#,
         options: [.caseInsensitive]
-    ) // swiftlint:disable:this force_try
-    private static let notACodeWord = try! NSRegularExpression(
+    )
+    private static let notACodeWord = try? NSRegularExpression(
         pattern: #"\b(zip|postal|post|promo|discount|coupon|gift|area|country|tracking|source|qr|bar)\s?code"#,
         options: [.caseInsensitive]
-    ) // swiftlint:disable:this force_try
+    )
 
     private static func hasCodeWord(_ line: String) -> Bool {
         let range = NSRange(line.startIndex..., in: line)
-        guard codeWord.firstMatch(in: line, range: range) != nil else { return false }
+        guard let codeWord, let notACodeWord, codeWord.firstMatch(in: line, range: range) != nil else { return false }
         // A line whose only code words are excluded ones ("zip code 94107") has none.
         let all = codeWord.numberOfMatches(in: line, range: range)
         let excluded = notACodeWord.numberOfMatches(in: line, range: range)
@@ -62,12 +65,13 @@ public nonisolated struct VerificationMessageParser: Sendable {
 
     /// A candidate code: not glued to letters, digits, `#`, `$`, link or
     /// decimal punctuation, and not one group of a longer digit run.
-    private static let candidate = try! NSRegularExpression(
+    private static let candidate = try? NSRegularExpression(
         pattern: #"(?<![A-Za-z0-9#$€£¥=/._?&@:+-])(?<![0-9] )([0-9]{3}[ -][0-9]{3}|[0-9]{4,8}|(?=[A-Z0-9]*[0-9])(?=[A-Z0-9]*[A-Z])[A-Z0-9]{6,8})(?![A-Za-z0-9_/=%+-]|[.,][0-9]| [0-9])"#
-    ) // swiftlint:disable:this force_try
+    )
 
     private static func codes(in line: String) -> [String] {
-        candidate.matches(in: line, range: NSRange(line.startIndex..., in: line)).compactMap { match in
+        guard let candidate else { return [] }
+        return candidate.matches(in: line, range: NSRange(line.startIndex..., in: line)).compactMap { match in
             guard let range = Range(match.range(at: 1), in: line) else { return nil }
             let code = String(line[range].filter { $0 != " " && $0 != "-" })
             return isYear(code) ? nil : code
@@ -83,10 +87,10 @@ public nonisolated struct VerificationMessageParser: Sendable {
 
     /// `@example.com #123456` alone on the last line. The embedded form
     /// (`@top #code @frame`) has more after the code and does not match.
-    private static let originBound = try! NSRegularExpression(pattern: #"^@([A-Za-z0-9.-]+) #([A-Za-z0-9]{4,12})$"#) // swiftlint:disable:this force_try
+    private static let originBound = try? NSRegularExpression(pattern: #"^@([A-Za-z0-9.-]+) #([A-Za-z0-9]{4,12})$"#)
 
     private static func originBoundCode(_ line: String) -> OriginBoundCode? {
-        guard let match = originBound.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)),
+        guard let match = originBound?.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)),
               let hostRange = Range(match.range(at: 1), in: line), let codeRange = Range(match.range(at: 2), in: line)
         else { return nil }
         return OriginBoundCode(host: String(line[hostRange]).lowercased(), code: String(line[codeRange]))
