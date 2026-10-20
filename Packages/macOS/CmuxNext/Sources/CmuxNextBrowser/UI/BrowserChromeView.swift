@@ -212,8 +212,8 @@ public final class BrowserChromeView: NSView {
 
         _ = toolbarHeight  // binds it here, in the same order as before
         density.update { [extensionSlot, toolbarButtons] in
-            extensionSlot.spacing = BrowserMetrics.buttonSpacing
-            toolbarButtons.spacing = BrowserMetrics.buttonSpacing
+            extensionSlot.spacing = OmnibarStyle.buttonSpacing
+            toolbarButtons.spacing = OmnibarStyle.buttonSpacing
             navigation.spacing = OmnibarStyle.buttonSpacing
         }
         NSLayoutConstraint.activate([
@@ -228,7 +228,7 @@ public final class BrowserChromeView: NSView {
                 OmnibarStyle.barTop(scale: self?.window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2)
             },
             density.bind(extensionSlot.leadingAnchor.constraint(equalTo: addressBar.trailingAnchor)) { OmnibarStyle.barMargin },
-            density.bind(toolbarButtons.leadingAnchor.constraint(equalTo: extensionSlot.trailingAnchor)) { BrowserMetrics.buttonSpacing },
+            density.bind(toolbarButtons.leadingAnchor.constraint(equalTo: extensionSlot.trailingAnchor)) { OmnibarStyle.buttonSpacing },
             density.bind(toolbarButtons.trailingAnchor.constraint(equalTo: toolbar.trailingAnchor)) { -OmnibarStyle.toolbarInset },
             // On the omnibar's vertical center, wherever the row places the omnibar.
             toolbarButtons.centerYAnchor.constraint(equalTo: addressBar.centerYAnchor),
