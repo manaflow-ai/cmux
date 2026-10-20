@@ -301,7 +301,7 @@ pub(crate) fn target<C: ControlPlane>(
     machine: &str,
 ) -> Result<DialTarget, CloudError> {
     let info = crate::link::info::connect_info(server, machine)?;
-    if !info.daemon.capabilities.iter().any(|c| c == FS_CAPABILITY) {
+    if !info.daemon.has_capability(FS_CAPABILITY) {
         return Err(CloudError::new(
             codes::UNSUPPORTED,
             format!("The machine's cmux daemon has no file ops yet (needs {FS_CAPABILITY})"),
@@ -313,7 +313,7 @@ pub(crate) fn target<C: ControlPlane>(
             "The machine is paused: start it to use its files",
         ));
     }
-    if !info.services.iter().any(|s| s == "daemon") {
+    if !info.has_service("daemon") {
         return Err(CloudError::new(
             codes::FORBIDDEN,
             "This Mac may not reach the machine's cmux daemon (team policy)",

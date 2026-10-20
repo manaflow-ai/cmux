@@ -350,6 +350,23 @@ class ReviewFabricTests(unittest.TestCase):
         self.assertFalse(report["passed"])
         self.assertTrue(any("unknown run missing" in reason for reason in report["reasons"]))
 
+    def test_finding_head_must_match_referenced_run(self):
+        report = review_fabric.evaluate(
+            document(
+                [
+                    run("opus", "session-opus"),
+                    run("sol", "session-sol"),
+                ],
+                [finding("f1", "opus", head=OLD_HEAD)],
+            ),
+            policy(),
+        )
+        self.assertFalse(report["passed"])
+        self.assertIn(
+            "finding f1 head_sha does not match run opus head_sha",
+            report["reasons"],
+        )
+
     def test_repository_policy_is_provider_neutral(self):
         raw = POLICY.read_text(encoding="utf-8").lower()
         for provider_name in ("greptile", "coderabbit", "anthropic", "openai", "claude", "codex"):

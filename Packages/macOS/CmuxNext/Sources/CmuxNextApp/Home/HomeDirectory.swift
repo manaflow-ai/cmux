@@ -32,6 +32,9 @@ final class HomeDirectory {
     /// The Chief's avatar for its list tile, the one its header shows: read
     /// by `HomeService.refreshChiefAvatar()`, set by the header's avatar picker.
     var chiefAvatar: HomeChiefAvatar?
+    /// The engine each of this Mac's Chiefs runs on, by participant id (a Chief on the brain's
+    /// own default is not listed), for the Home list's badges: read by `HomeService.refreshChiefHarnesses()`.
+    var chiefHarnesses: [String: String] = [:]
     @ObservationIgnored private let call: Call
     /// The signed-in account's Worker user id (`CloudIdentity.workerUserID`), left out of the contacts.
     @ObservationIgnored private let me: @MainActor () -> String?

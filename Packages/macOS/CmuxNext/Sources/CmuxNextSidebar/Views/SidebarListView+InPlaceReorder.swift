@@ -5,7 +5,7 @@ import CoreGraphics
 // lifted view) and the other rows spring out of the way; there is no
 // placeholder underlay. On release the model takes the same order, so the
 // lifted view settles into a slot that does not move.
-extension SidebarListView {
+extension SidebarListViewComponents {
     /// The layout the list shows: the model's, or during an internal drag
     /// over a slot, the model with the dragged rows moved to that slot.
     func displayLayout() -> SidebarLayout {

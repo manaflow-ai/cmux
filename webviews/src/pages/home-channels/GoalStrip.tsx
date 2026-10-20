@@ -22,10 +22,11 @@ export function GoalStrip({
   const goal = useMemo(() => projectGoal(entry ? [entry] : [], now), [entry, now]);
   if (!goal) return null;
   const statusKey = goal.state === "stalled" ? "stale" : goal.state === "working" ? "running" : "failed";
+  const title = goal.title || strings.t("run.title");
   return (
     <output
       className={`lg-goal-strip ${goal.state}`}
-      aria-label={goal.title}
+      aria-label={title}
       aria-live="polite"
       aria-busy={goal.state === "working"}
     >
@@ -33,7 +34,7 @@ export function GoalStrip({
       <span className="lg-goal-copy">
         <span className="lg-goal-state">{strings.t(`run.status.${statusKey}`)}</span>
         <strong className="lg-goal-title" dir="auto">
-          {goal.title}
+          {title}
         </strong>
         {goal.detail && (
           <span className="lg-goal-detail" dir="auto">

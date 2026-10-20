@@ -220,7 +220,7 @@ impl MuxEventFilter {
                 MuxEvent::TreeChanged
                     | MuxEvent::TreeSelectionChanged
                     | MuxEvent::TreeDelta(_)
-                    | MuxEvent::LayoutChanged(_)
+                    | MuxEvent::LayoutChanged(..)
                     | MuxEvent::PersonalChanged { .. }
                     | MuxEvent::FrontendProjectionChanged { .. }
                     | MuxEvent::Empty
@@ -258,7 +258,7 @@ impl SurfaceSessionScope {
             // A surface-only client always renders its target across the full
             // host terminal. Screen layout churn therefore carries no useful
             // state and would only force repeated whole-tree refreshes.
-            MuxEvent::LayoutChanged(_) => false,
+            MuxEvent::LayoutChanged(..) => false,
             MuxEvent::ClientAttached { .. }
             | MuxEvent::ClientChanged { .. }
             | MuxEvent::ClientDetached(_)

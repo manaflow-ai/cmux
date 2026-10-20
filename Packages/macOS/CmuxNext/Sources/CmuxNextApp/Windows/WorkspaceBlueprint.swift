@@ -107,7 +107,7 @@ extension WorkspaceBlueprint.Node {
         case .leaf(let pane):
             let found = tabs(pane)
             return found.isEmpty ? nil : .pane(found)
-        case .split(_, let direction, let ratio, let a, let b):
+        case .split(_, _, let direction, let ratio, let a, let b):
             switch (capture(a, tabs: tabs), capture(b, tabs: tabs)) {
             case let (a?, b?): return .split(direction: direction, ratio: ratio, a: a, b: b)
             case let (a?, nil): return a

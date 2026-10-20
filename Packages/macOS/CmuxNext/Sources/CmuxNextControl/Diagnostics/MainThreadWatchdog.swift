@@ -29,8 +29,10 @@ public final class MainThreadWatchdog: Sendable {
         public var hangReportInterval: Duration
         /// Debug builds: when explicitly enabled, a hang still running this
         /// long fails an assertion (10 s; nil by default and in release
-        /// builds). Dogfood builds keep the hang report and stack sample
-        /// without terminating the app; set `CMUX_NEXT_ASSERT_HANGS=1` when
+        /// builds), if the main thread used CPU for at least half of it
+        /// (``hangFailsAssertion(elapsedNanos:mainThreadCPUNanos:assertNanos:)``).
+        /// Dogfood builds keep the hang report and stack sample without
+        /// terminating the app; set `CMUX_NEXT_ASSERT_HANGS=1` when
         /// deliberately testing the crash path.
         public var hangAssertThreshold: Duration?
 
@@ -43,10 +45,10 @@ public final class MainThreadWatchdog: Sendable {
         }
 
         static func defaultHangAssertThreshold(environment: [String: String], isDebugBuild: Bool) -> Duration? {
-            guard isDebugBuild else { return nil }
             let enabled = environment["CMUX_NEXT_ASSERT_HANGS"]?.lowercased()
             guard enabled == "1" || enabled == "true" || enabled == "yes" else { return nil }
-            return .seconds(10)
+            return hangAssertThreshold(debugBuild: isDebugBuild,
+                                       noActivate: environment["CMUX_NEXT_NO_ACTIVATE"] == "1")
         }
 
         /// The opt-in debug crash threshold. Hang reports stay enabled by
@@ -54,6 +56,15 @@ public final class MainThreadWatchdog: Sendable {
         public static var environmentHangAssertThreshold: Duration? {
             defaultHangAssertThreshold(environment: ProcessInfo.processInfo.environment,
                                         isDebugBuild: ControlService.isDebugBuild)
+        }
+
+        /// The debug assertion is useful for interactive launches, but a
+        /// `CMUX_NEXT_NO_ACTIVATE=1` diagnostic launch must stay alive long
+        /// enough to preserve its watchdog evidence after reporting a hang.
+        /// Policy seam kept explicit so diagnostic-launch behavior is tested
+        /// without mutating the process environment.
+        public static func hangAssertThreshold(debugBuild: Bool, noActivate: Bool) -> Duration? {
+            debugBuild && !noActivate ? .seconds(10) : nil
         }
 
         public init(threshold: Duration = Configuration.environmentThreshold, capacity: Int = 128, sampleStacks: Bool = true,
@@ -86,6 +97,15 @@ public final class MainThreadWatchdog: Sendable {
         set { hangSink.withLock { $0 = newValue } }
     }
     private let hangSink = Mutex<(@Sendable (Hang) -> Void)?>(nil)
+    /// Receives each finished stall (a ``HangRecord`` of kind `stall`, with
+    /// its raw stack) on the MAIN thread, right after the stall ended: the
+    /// app sends lag spikes to crash reporting. It must return at once: no
+    /// symbolication, I/O or allocation-heavy work on this thread.
+    public var onStall: (@Sendable (HangRecord) -> Void)? {
+        get { stallSink.withLock { $0 } }
+        set { stallSink.withLock { $0 = newValue } }
+    }
+    private let stallSink = Mutex<(@Sendable (HangRecord) -> Void)?>(nil)
     private let hangNanos: UInt64
     private let hangIntervalNanos: UInt64
     private let hangAssertNanos: UInt64?
@@ -268,6 +288,7 @@ public final class MainThreadWatchdog: Sendable {
             // No symbolication here (main thread); `debug.hangs` resolves the stack.
             logger.error("main thread stalled \(record.duration.fractionalMilliseconds, format: .fixed(precision: 1)) ms (hang \(record.sequence), \(addresses.count) frames; see debug.hangs)")
         }
+        stallSink.withLock { $0 }?(record)
     }
 
     // MARK: - Watchdog thread
@@ -345,10 +366,20 @@ public final class MainThreadWatchdog: Sendable {
             }
         }
         if let hangAssertNanos, elapsed >= hangAssertNanos, state.assertedBeat != beat,
-           !assertionsEnded.load(ordering: .acquiring) {
+           !assertionsEnded.load(ordering: .acquiring),
+           Self.hangFailsAssertion(elapsedNanos: elapsed, mainThreadCPUNanos: mainThreadCPU(sinceBeat: beat),
+                                   assertNanos: hangAssertNanos) {
             state.assertedBeat = beat
             assertionFailure("main thread hang: busy over \(configuration.hangAssertThreshold ?? .zero); see debug.hangs and the crash report")
         }
+    }
+
+    /// Main-thread CPU used since heartbeat `beat` began the stall (its
+    /// `beatCPUNanos` stamp); nil when the reading failed or `beat` ended.
+    private func mainThreadCPU(sinceBeat beat: UInt64) -> UInt64? {
+        let start = beatCPUNanos.load(ordering: .acquiring)
+        guard beatSequence.load(ordering: .acquiring) == beat, let now = busy.mainThreadCPUNanos() else { return nil }
+        return now > start ? now - start : 0
     }
 
     private static func nanos(_ duration: Duration) -> UInt64 {

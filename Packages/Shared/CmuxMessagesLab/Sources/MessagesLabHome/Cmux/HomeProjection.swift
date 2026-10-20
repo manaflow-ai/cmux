@@ -42,6 +42,8 @@ final class HomeProjection: @preconcurrency ChatIntents {
     private var shownNotice: String? { sendNotice ?? notice }
     /// The Chief's activity line under the transcript (`chief-live-v1`).
     let liveLine = HomeLiveLine()
+    /// The status line's details, made on the first click.
+    private(set) var turnPopover: HomeTurnStatusPopover?
     /// The window is key and visible: the read cursor may advance.
     var isVisibleToUser = false { didSet { if isVisibleToUser { reportReadIfNeeded() } } }
     var onSummaryChange: (ConversationSummary?) -> Void = { _ in }
@@ -112,6 +114,8 @@ final class HomeProjection: @preconcurrency ChatIntents {
         if let linkPreviews { core.links = { [weak linkPreviews] in linkPreviews?.cached($0) } }
         controller.intents = self
         liveLine.dispatch = { [weak controller] text in if controller?.store != nil { controller?.dispatch(.setNotice(text)) } }
+        liveLine.onTick = { [weak self] in self?.turnPopover?.refresh() }
+        liveLine.onClose = { [weak self] in self?.turnPopover?.close() }
         video.controller = controller
         media.onReady = { [weak self] _ in self?.refreshAttachments() }
     }
@@ -124,6 +128,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
     func stop() {
         stopped = true
         liveLine.stop()
+        turnPopover?.close()
         controller.intents = nil
     }
 
@@ -139,7 +144,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
         // A running Chief run (`chief-live-v1`) owns the Chief's bubble: its typing dots until text comes.
         let live = homeStore.liveRun(in: conversation)
         apply(items: homeStore.transcript(for: conversation), summary: homeStore.summary(conversation),
-              typing: (homeStore.typing[conversation] ?? []).union(live.map { [$0.participant] } ?? []),
+              typing: homeStore.typists(in: conversation),
               hasOlder: homeStore.hasOlderMessages(in: conversation), draft: live.map(\.turnDraft) ?? homeStore.drafts[conversation])
         // The line closes on the frame after the one that shows the reply in the bubble's place (cx-zz30r, cx-06vn1).
         if let activity = live?.activity { liveLine.show(activity) } else { liveLine.hide(after: controller) }
@@ -323,6 +328,8 @@ final class HomeProjection: @preconcurrency ChatIntents {
         if homeStore.summary(conversation) == nil { _ = noteSend("sent: the store has not listed this conversation") }
         if !store.state.atNewest { _ = noteSend("sent: an older window shows, no local bubble") }
         if store.state.atNewest {
+            // A reply still streaming stays one bubble, the newest row, below this send: the owner posts it
+            // after the send, so it lands in the bubble's place (HomeProjection+Draft, send order).
             controller.dispatch(.send)
             // The local bubble morphs into HomeStore's item; without it the item shows on its own.
             _ = core.recordSend(key, in: store.state)
@@ -509,6 +516,22 @@ final class HomeProjection: @preconcurrency ChatIntents {
     func pickAttachments() { onPickAttachments() }
     func takeAttachments(from pasteboard: NSPasteboard) -> Bool { onAttachmentPasteboard(pasteboard) }
     func acceptsAttachments(from pasteboard: NSPasteboard) -> Bool { acceptsAttachmentDrag(pasteboard) }
+    func statusLineClicked(_ rect: CGRect, in view: NSView) {
+        let popover = turnPopover ?? {
+            let made = HomeTurnStatusPopover { [weak self] in self?.liveLine.details() }
+            // Closed by Esc or a click outside: the field takes the keyboard back (a click elsewhere keeps its own).
+            made.onClosed = { [weak self] in
+                guard let self, let window = view.window else { return }
+                // A click that closed it in another text field keeps that field's keyboard.
+                if let other = window.firstResponder as? NSText, other !== self.controller.demo?.compose.textView.view { return }
+                self.controller.focusCompose()
+            }
+            turnPopover = made
+            return made
+        }()
+        popover.toggle(relativeTo: rect, of: view)
+    }
+
     func draftChanged() {
         if sendNotice == CmuxStrings.threadRootNotReady { sendNotice = nil }  // the user moved on
         homeStore.setDraft(controller.store?.state.ui.draft.text ?? "", for: conversation)

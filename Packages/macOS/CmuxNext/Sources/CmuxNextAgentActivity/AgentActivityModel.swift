@@ -53,8 +53,17 @@ public final class AgentActivityModel {
     /// Every acpmux session with its lane (cx-v9k2f), when the lanes view is on (Labs preview
     /// features); nil hides it.
     public var lanes: [AgentActivityLane]? {
-        didSet { if lanes != oldValue { notifyChange() } }
+        didSet {
+            guard lanes != oldValue else { return }
+            priorityRevision &+= 1
+            priorityChangedSessionID = Self.changedLaneID(old: oldValue, new: lanes)
+            notifyChange()
+        }
     }
+    /// Monotonic hook revision used by the web priority view to animate only
+    /// the row changed by the native `_acpmux/watch` event.
+    public private(set) var priorityRevision: UInt64 = 0
+    public private(set) var priorityChangedSessionID: String?
     /// Opens a lane's chat (the page's row click); the App reveals or opens its tab.
     @ObservationIgnored public var onJump: ((AgentActivityLane) -> Void)?
 
@@ -65,6 +74,23 @@ public final class AgentActivityModel {
     @ObservationIgnored private let source: any AgentActivitySource
     @ObservationIgnored private var followed: [String] = []
     @ObservationIgnored private var extraFollowed: Set<String> = []
+
+    private static func changedLaneID(old: [AgentActivityLane]?, new: [AgentActivityLane]?) -> String? {
+        let oldByID = Dictionary(uniqueKeysWithValues: (old ?? []).map { ($0.id, $0) })
+        let newByID = Dictionary(uniqueKeysWithValues: (new ?? []).map { ($0.id, $0) })
+        // Keep this projection linear on the main actor. The sorted union
+        // allocated and sorted every lane ID for each ACPmux update.
+        var firstChanged: String?
+        for id in oldByID.keys where oldByID[id] != newByID[id] {
+            if let firstChanged, id >= firstChanged { continue }
+            firstChanged = id
+        }
+        for id in newByID.keys where newByID[id] != oldByID[id] {
+            if let firstChanged, id >= firstChanged { continue }
+            firstChanged = id
+        }
+        return firstChanged
+    }
 
     public init(source: any AgentActivitySource) {
         self.source = source

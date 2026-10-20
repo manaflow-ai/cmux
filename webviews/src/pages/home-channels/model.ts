@@ -87,7 +87,10 @@ export function railSections(conversations: Iterable<HomeConversation>, me?: str
 /** The rail and header name: the title, else the other participants' names. */
 export function conversationName(conversation: HomeConversation, me: string | undefined): string {
   if (conversation.title) return conversation.title;
-  const names = conversation.participants.filter((p) => p.id !== me).map((p) => p.name);
+  const names = conversation.participants
+    .filter((p) => p.id !== me)
+    .map((p) => p.name)
+    .filter(Boolean);
   return names.join(", ");
 }
 

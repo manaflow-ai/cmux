@@ -11,7 +11,14 @@ import { RECEIVE_NAME } from "../shared/pageClient";
 import { createStrings } from "../shared/i18n";
 import { devOp, showDevPicker } from "../../viewer-empty/dev";
 import table from "./generated/strings.json";
-import { EDITOR_CHANGES, EDITOR_CHOOSE_FILE_OP, EDITOR_LOOK, EDITOR_OPEN_OP, EDITOR_RECENTS_OP } from "./host";
+import {
+  APP_ACTION_RUN_OP,
+  EDITOR_CHANGES,
+  EDITOR_CHOOSE_FILE_OP,
+  EDITOR_LOOK,
+  EDITOR_OPEN_OP,
+  EDITOR_RECENTS_OP,
+} from "./host";
 import { DEV_DISPATCHER } from "./devKeys";
 import { EMPTY } from "./strings";
 
@@ -32,6 +39,8 @@ const seqs = new Map<number, number>();
 const handlers = new Map<number, (value: unknown) => void>();
 let nextSub = 1;
 let nextCall = 1_000_000;
+/** The app actions the page asked the host to run (`cmux.app.action.run`), oldest first. */
+const appActions: unknown[] = [];
 
 function receive(message: unknown): void {
   (globalThis as unknown as Record<string, (message: unknown) => void>)[RECEIVE_NAME]?.(message);
@@ -89,6 +98,11 @@ async function postMessage(message: Envelope): Promise<unknown> {
       }),
     };
   }
+  if (message.op === APP_ACTION_RUN_OP) {
+    // The app runs its action (the native command palette); here it is only noted, for the tests.
+    appActions.push((message.params as { action?: unknown } | undefined)?.action);
+    return { t: "ok", id: message.id, value: { ran: true } };
+  }
   if (message.op === EDITOR_RECENTS_OP) {
     try {
       return { t: "ok", id: message.id, value: await devOp("/__cmux-viewer/op", EDITOR_RECENTS_OP, {}) };
@@ -112,7 +126,7 @@ async function postMessage(message: Envelope): Promise<unknown> {
 }
 
 (window as unknown as { webkit: unknown }).webkit = { messageHandlers: { cmuxPage: { postMessage } } };
-(window as unknown as { __cmuxEditorDev: unknown }).__cmuxEditorDev = { callPage, emit };
+(window as unknown as { __cmuxEditorDev: unknown }).__cmuxEditorDev = { callPage, emit, appActions };
 
 // The app's key dispatcher: its chords become page commands or are swallowed, never Monaco's.
 addEventListener(

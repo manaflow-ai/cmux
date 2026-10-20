@@ -39,10 +39,12 @@ extension CEFTab: BrowserEmulating {
                 // handler still holds its last metrics and skips equal ones: clear them first.
                 let reset = self.deviceEmulationNeedsReset && emulation != nil ? CEFDeviceEmulation.reset : []
                 self.deviceEmulationNeedsReset = false
+                var touch = false
                 for (method, params) in reset + CEFDeviceEmulation.calls(emulation, viewport: viewport) {
                     let metrics = method.hasSuffix("DeviceMetricsOverride")
                     do {
                         _ = try await runtime.devTools(browserID, method: method, params: params)
+                        if method == "Emulation.setTouchEmulationEnabled" { touch = params["enabled"] as? Bool ?? false }
                     } catch {
                         if metrics { inputScale = 1 }
                         runtime.logger.error("device emulation \(method, privacy: .public) failed: \(String(describing: error), privacy: .public)")
@@ -51,6 +53,7 @@ extension CEFTab: BrowserEmulating {
                     if metrics, self.emulationInputScale != inputScale { self.emulationInputScale = inputScale }
                 }
                 if self.emulationInputScale != inputScale { self.emulationInputScale = inputScale }
+                if self.emulationTouch != touch { self.emulationTouch = touch }
             }
             self?.deviceEmulationTask = nil
         }
@@ -62,6 +65,7 @@ extension CEFTab: BrowserEmulating {
         deviceEmulationNeedsReset = true
         deviceEmulationViewport = nil
         if emulationInputScale != 1 { emulationInputScale = 1 }
+        if emulationTouch { emulationTouch = false }
         container.needsLayout = true
     }
 
