@@ -17,6 +17,8 @@ final class OmnibarPillView: NSView {
     private var isHovering: Bool { hover?.isHovering ?? false }
     /// Whether the pointer is over the bar (`debug.omnibar`).
     var debugHovering: Bool { isHovering }
+    /// A fill, ring or shadow animation is still running on the bar's layer.
+    var debugIsFading: Bool { !(layer?.animationKeys() ?? []).isEmpty }
     /// The look in effect; follows cmux.json live.
     private(set) var look = OmnibarGlassLook.current { didSet { if oldValue != look { rebuildMaterial() } } }
     /// The glass under the bar, built while the look has a material.
