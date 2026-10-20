@@ -9,7 +9,7 @@ const binding = { version: 1 as const, tenant: "team_native", mesh: "mesh_" + "0
 const claims = { iss: "cmux:cloud:test", aud: "host_00000000000000000002", sub: install, team, svc: ["ssh"], epoch: 2,
   iat: now, exp: now + 300, jti: "A".repeat(22), network: binding }
 const options = () => ({ aud: claims.aud, epoch: 2, now, keyset: vectors.keysets.both,
-  native: { issuer: claims.iss, team, install, service: "ssh", binding } })
+  seen: new Set<string>(), native: { issuer: claims.iss, team, install, service: "ssh", binding } })
 // Independent signing keeps malformed-but-authentic claim cases outside the producer's validator.
 const sign = async (value: Record<string, unknown>) => new SignJWT(value)
   .setProtectedHeader({ alg: "EdDSA", typ: "cmux-link+jwt", kid: "test-k1" })
@@ -43,4 +43,10 @@ it("does not spend a token on a failed authority match and refuses it after succ
   expect(seen.size).toBe(0)
   expect(await verifyLinkToken(token, { ...expected, seen })).toMatchObject({ ok: true })
   expect(await verifyLinkToken(token, { ...expected, seen })).toMatchObject({ ok: false, error: "replay" })
+})
+
+
+it("refuses Native verification without an owned replay set", async () => {
+  const { seen: _seen, ...withoutReplay } = options()
+  expect(await verifyLinkToken(await sign(claims), withoutReplay)).toMatchObject({ ok: false, error: "native_identity" })
 })

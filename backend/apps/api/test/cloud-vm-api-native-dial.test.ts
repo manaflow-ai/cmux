@@ -13,7 +13,7 @@ const GRANT = "grant_00000000000000000001", HOST = "host_00000000000000000001"
 const MESH = "mesh_" + "0".repeat(26), DEVICE = "dev_" + "0".repeat(26), VM = "vm_" + "1".repeat(26)
 const ORIGIN = "https://vm.example.test", TENANT = "team_native"
 const wg = btoa(String.fromCharCode(...new Uint8Array(32).fill(9)))
-const principal: Principal = { kind: "install", identity: INSTALL, team: TEAM, user: USER, install: INSTALL, grant: GRANT, install_kind: "mac", grant_classes: ["read", "mutate-own", "execute"] }
+const principal: Principal = { kind: "install", identity: INSTALL, team: TEAM, user: USER, install: INSTALL, grant: GRANT, install_kind: "mac", grant_classes: ["read", "mutate-own", "execute"], install_authority: "1".padStart(64, "0") }
 const target = { vm: VM, origin: ORIGIN, network: { tenant: TENANT, mesh: MESH, ipv4_cidr: "10.128.0.0/20", ipv4: "10.128.0.5" } }
 
 /** Only the Native boundary is replaced; the fixture verifies real one-use P-256 proofs. */
@@ -30,6 +30,7 @@ const fixture = async () => {
   } }
   let currentKey: JsonWebKey | null = jwk
   let incarnation = 1, grantExpiresAt: number | null = null
+  let currentClasses: ReadonlyArray<string> = principal.grant_classes ?? []
   let services: ReadonlyArray<string> = ["daemon", "ssh"]
   let policy: Record<string, unknown> = { tenantId: TENANT, meshId: MESH, deviceId: DEVICE, wgPublicKey: wg, installPublicKey: point, aclVersion: 1, policyDigest: "a".repeat(64), peers: [],
     vms: [{ kind: "vm", id: VM, address: target.network.ipv4, allow: [{ protocol: "tcp", port: 22 }, { protocol: "tcp", port: 4100 }] }] }
@@ -51,7 +52,7 @@ const fixture = async () => {
       used.add(proof.nonce); reads++; onRead?.()
       return Response.json(policy)
     }
-  }, { identity: async () => currentKey ? { key: currentKey, kind: "mac", expires_at: grantExpiresAt, authority_version: String(incarnation).padStart(64, "0") } : null })
+  }, { identity: async () => currentKey ? { key: currentKey, kind: "mac", expires_at: grantExpiresAt, op_classes: currentClasses, authority_version: String(incarnation).padStart(64, "0") } : null })
   const proof = async () => {
     const signedAt = Date.now(), nonce = btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(16)))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")
     const message = ["cmux-mesh-v1", "overlay-policy", DEVICE, "", point, "", String(signedAt), nonce].join("\n")
@@ -60,6 +61,7 @@ const fixture = async () => {
   }
   return { deps, proof, reads: () => reads, authorize: async (requested = ["daemon", "ssh"]) => authorizeNativeDial(deps, principal, target, await proof(), requested),
     policy: () => policy, setPolicy: (value: Record<string, unknown>) => { policy = value },
+    dropDialClass: () => { currentClasses = ["read", "mutate-own"] },
     renewAuthority: () => { incarnation++ }, limitGrant: (expires: number) => { grantExpiresAt = expires },
     revoke: () => { currentKey = null }, leave: () => { state = { ...state, members: {} } },
     legacy: () => { const host = state.hosts![HOST]!; if (host.network?.state !== "confirmed") throw new Error("missing binding"); const { install_grant: _old, ...network } = host.network; state = { ...state, hosts: { [HOST]: { ...host, network } } } },
@@ -200,4 +202,19 @@ it("drops a signed credential when the service policy is removed before final ad
   f.denyAtFinalPolicy()
   expect(await f.mint(await f.proof())).toMatchObject({ ok: false, code: "auth.forbidden" })
   expect(f.audit).toHaveLength(0)
+})
+
+
+it("does not substitute the key for the current grant's dial class", async () => {
+  const f = await fixture()
+  f.dropDialClass()
+  expect(await f.authorize()).toMatchObject({ ok: false, code: "auth.forbidden" })
+  expect(f.reads()).toBe(0)
+})
+
+it("refuses a request whose authenticated install incarnation changed before the Native lookup", async () => {
+  const f = await fixture()
+  f.renewAuthority()
+  expect(await f.authorize()).toMatchObject({ ok: false, code: "auth.forbidden" })
+  expect(f.reads()).toBe(0)
 })
