@@ -186,7 +186,10 @@ const time = (value: unknown) => (typeof value === "number" && Number.isFinite(v
  *  no turn ended here (adopted, or never answered), from when it was made: it never jumps to now. */
 export function summaryActivityAt(session: Record<string, any>): number | undefined {
   const updated = time(session.updatedAt);
-  if (session.status === "running" || (session.turn && typeof session.turn === "object")) return updated;
+  if (session.status === "running") return updated;
+  // A turn that never ended on a chat no longer running (disconnected, unreachable) counts from its
+  // start, so retries to reach the agent move nothing.
+  if (session.turn && typeof session.turn === "object") return time(session.turn.startedAt) ?? updated;
   const waiting = time(session.inputSince);
   if (waiting !== undefined) return waiting;
   if (session.status === "waiting" || Number(session.pendingPermissions) > 0) return updated;

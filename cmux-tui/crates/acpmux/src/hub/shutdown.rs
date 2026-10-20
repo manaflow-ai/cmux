@@ -134,12 +134,10 @@ impl Hub {
     fn settle_cancelled(&self, s: &Arc<Session>) {
         let Some(turn) = s.turn.lock().unwrap().take() else { return };
         self.settled_by_shutdown.lock().unwrap().insert(turn.turn_id.clone());
-        self.append(
-            s,
-            "mux",
-            "turn_result",
-            json!({"status": "cancelled", "stopReason": "cancelled", "detail": "quit", "turnId": turn.turn_id, "promptId": turn.prompt_id, "turnSeq": turn.turn_seq}),
-        );
+        let result = json!({"status": "cancelled", "stopReason": "cancelled", "detail": "quit", "turnId": turn.turn_id, "promptId": turn.prompt_id, "turnSeq": turn.turn_seq});
+        // `lastTurn` too, as every other turn end: the chat lists date a chat by its last turn's end.
+        self.record_last_turn(s, &result);
+        self.append(s, "mux", "turn_result", result);
     }
 
     /// Save every session's meta and sync the event log to disk.
