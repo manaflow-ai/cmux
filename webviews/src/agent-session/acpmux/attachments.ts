@@ -28,6 +28,8 @@ export type PromptBlock =
 
 /** Anthropic's per-image limit. */
 export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+/** The longest side an image over MAX_IMAGE_BYTES is scaled to (AgentPaneCapture.maxSide). */
+export const MAX_IMAGE_SIDE = 2560;
 /** Keep PDF prompts bounded while leaving room for the rest of the request. */
 export const MAX_DOCUMENT_BYTES = 20 * 1024 * 1024;
 /** A text file this large is already a lot of prompt. */
@@ -81,7 +83,18 @@ export async function readAttachment(file: File, allowImages: boolean): Promise<
   }
   if (IMAGE_TYPES.has(file.type)) {
     if (!allowImages) return { name, reason: "imagesUnsupported" };
-    if (file.size > MAX_IMAGE_BYTES) return { name, reason: "tooLarge" };
+    if (file.size > MAX_IMAGE_BYTES) {
+      const fitted = await fitImage(file);
+      if (!fitted) return { name, reason: "tooLarge" };
+      return {
+        id,
+        kind: "image",
+        name: fitted.mimeType === "image/jpeg" ? name.replace(/(\.[^./]*)?$/, ".jpg") : name,
+        mimeType: fitted.mimeType,
+        size: fitted.bytes.length,
+        data: base64(fitted.bytes),
+      };
+    }
     return {
       id,
       kind: "image",
@@ -95,6 +108,42 @@ export async function readAttachment(file: File, allowImages: boolean): Promise<
   const text = decodeText(new Uint8Array(await file.arrayBuffer()));
   if (text === undefined) return { name, reason: "unsupported" };
   return { id, kind: "text", name, mimeType: file.type || "text/plain", size: file.size, text };
+}
+
+/// An image over MAX_IMAGE_BYTES scaled to MAX_IMAGE_SIDE as PNG, else as JPEG (on white, which
+/// has no alpha), as the host fits a screenshot (AgentPaneCapture.fit), so a pasted Retina
+/// screenshot attaches instead of being refused. Undefined when the engine cannot decode or scale
+/// the image, or no encoding fits.
+async function fitImage(file: Blob): Promise<{ mimeType: "image/png" | "image/jpeg"; bytes: Uint8Array } | undefined> {
+  if (typeof createImageBitmap !== "function" || typeof OffscreenCanvas !== "function") return undefined;
+  try {
+    const bitmap = await createImageBitmap(file);
+    const scale = Math.min(1, MAX_IMAGE_SIDE / Math.max(bitmap.width, bitmap.height, 1));
+    const width = Math.max(1, Math.round(bitmap.width * scale));
+    const height = Math.max(1, Math.round(bitmap.height * scale));
+    const canvas = new OffscreenCanvas(width, height);
+    const context = canvas.getContext("2d");
+    if (!context) {
+      bitmap.close();
+      return undefined;
+    }
+    context.drawImage(bitmap, 0, 0, width, height);
+    bitmap.close();
+    const png = await canvas.convertToBlob({ type: "image/png" });
+    if (png.size <= MAX_IMAGE_BYTES) return { mimeType: "image/png", bytes: new Uint8Array(await png.arrayBuffer()) };
+    const flat = new OffscreenCanvas(width, height);
+    const flatContext = flat.getContext("2d");
+    if (!flatContext) return undefined;
+    flatContext.fillStyle = "#fff";
+    flatContext.fillRect(0, 0, width, height);
+    flatContext.drawImage(canvas, 0, 0);
+    const jpeg = await flat.convertToBlob({ type: "image/jpeg", quality: 0.85 });
+    if (jpeg.size <= MAX_IMAGE_BYTES)
+      return { mimeType: "image/jpeg", bytes: new Uint8Array(await jpeg.arrayBuffer()) };
+    return undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /// UTF-8 text without NUL bytes, else undefined (a binary file).
