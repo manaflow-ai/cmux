@@ -3085,7 +3085,9 @@ function AcpmuxPane() {
   /// A fresh chat shows its empty state until something is in it: a prompt, or a command it ran.
   const freshView = freshChat && chatShellRuns.length === 0;
   // Turn shape: work folds under "Worked for" until opened; shell mode's blocks sit where they ran.
-  const chatName = snapshot.summary?.title || snapshot.summary?.name || "";
+  // A chat with no title yet goes by the name the pane's header and label give it, so a subagent's
+  // "Subagent of" pill never ends in nothing.
+  const chatName = snapshot.summary?.title || snapshot.summary?.name || t("header.agentChat");
   const childRows = useMemo(
     () =>
       subagentView ? childView(subagentView, snapshot.rows, snapshot.subagentViews, expanded, chatName) : undefined,
