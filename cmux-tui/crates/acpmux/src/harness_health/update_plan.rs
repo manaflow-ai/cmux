@@ -34,6 +34,7 @@ pub(super) fn fixed_argv(row: &HarnessHealth, cli: &str) -> Option<Vec<String>> 
         // updatable checks the exact package, absolute prefix and fixed
         // install flags, preserving a recorded fork and all argument bytes.
         Channel::Npm => Some(argv),
+        Channel::Bun => Some(argv),
         Channel::Native => {
             let [program, verb] = argv.as_slice() else { return None };
             let path = Path::new(program);
@@ -48,8 +49,7 @@ pub(super) fn fixed_argv(row: &HarnessHealth, cli: &str) -> Option<Vec<String>> 
                 && verb == expected)
                 .then_some(argv)
         }
-        // Old bun/brew argv select whichever global target the current
-        // environment chooses. They need explicit installation binding.
+        // Brew still needs explicit installation binding.
         _ => None,
     }
 }
