@@ -16,7 +16,7 @@ extension KeyboardShortcutSettings {
             managedBySettingsFile: managedBySettingsFile
         )
 
-        if action == .reopenClosedBrowserPanel || action == .jumpToLastPrompt,
+        if [.reopenClosedBrowserPanel, .jumpToLastPrompt, .copyUnwrapped].contains(action),
            resolvedShortcut == action.defaultShortcut,
            configuredShortcut != resolvedShortcut {
             return defaultShortcutResolvingLegacyConflicts(

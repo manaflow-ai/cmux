@@ -87,7 +87,7 @@ extension ShortcutAction {
     /// another action on that stroke keeps it. Cmd+Shift+B was Open Browser's
     /// default before it moved to Cmd+Shift+L.
     private var builtInDefaultYieldsToExplicitBindings: Bool {
-        self == .jumpToLastPrompt
+        self == .jumpToLastPrompt || self == .copyUnwrapped
     }
 
     private var legacyActionDisplacingBuiltInDefault: ShortcutAction? {

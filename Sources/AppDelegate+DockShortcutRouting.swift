@@ -48,7 +48,7 @@ extension KeyboardShortcutSettings.Action {
              .closeTab, .closeOtherTabsInPane,
              .reopenClosedBrowserPanel,
              .newSurface,
-             .copyUnwrapped, .toggleTerminalCopyMode,
+             .toggleTerminalCopyMode,
              .focusTextBoxInput, .attachTextBoxFile,
              .sendCtrlFToTerminal,
              .pasteLastScreenshot,
@@ -65,7 +65,7 @@ extension KeyboardShortcutSettings.Action {
              .toggleReactGrab:
             .dockScoped
 
-        case .commandPaletteNext, .commandPalettePrevious,
+        case .copyUnwrapped, .commandPaletteNext, .commandPalettePrevious,
              .toggleChecklistItemComplete,
              .cycleTextBoxSubmitAction,
              .fileExplorerOpenSelection,

@@ -8,14 +8,19 @@ public struct TerminalUnwrappedCopy: Equatable, Sendable {
     /// Whether the selection is rectangular and must retain row boundaries.
     public var rectangular: Bool
 
+    /// The selected first row's viewport column, or nil when unavailable.
+    public var firstLineStartColumn: Int?
+
     /// Creates an unwrapper for a terminal selection.
     ///
     /// - Parameters:
     ///   - terminalColumns: Grid width. Zero disables hard-wrap reflow.
     ///   - rectangular: Whether to preserve all row boundaries.
-    public init(terminalColumns: Int, rectangular: Bool = false) {
+    ///   - firstLineStartColumn: Selection start column; nil preserves the indentation heuristic.
+    public init(terminalColumns: Int, rectangular: Bool = false, firstLineStartColumn: Int? = nil) {
         self.terminalColumns = terminalColumns
         self.rectangular = rectangular
+        self.firstLineStartColumn = firstLineStartColumn
     }
 
     /// Trims, dedents, and reflows selected plain text.
@@ -45,13 +50,17 @@ public struct TerminalUnwrappedCopy: Equatable, Sendable {
             }
             return line
         }
-        let widths = lines.map(width)
-        let widest = widths.max() ?? 0
+        var widths = lines.map(width)
+        if !widths.isEmpty { widths[0] += firstLineStartColumn ?? 0 }
+        let widest = lines.indices.filter { !protected[$0] && widths[$0] <= terminalColumns }
+            .map { widths[$0] }.max() ?? 0
+        // A second row near the widest one shows the widest width is the real wrap width.
+        let wrapWidthConfirmed = lines.indices.filter { !protected[$0] && widths[$0] <= widest && widths[$0] >= widest - 8 }.count > 1
         let nonblank = lines.indices.filter { !lines[$0].isEmpty }
         let restIndent = nonblank.dropFirst().map { indent(lines[$0]) }.min()
         let partialFirst = nonblank.first.map {
-            indent(lines[$0]) < (restIndent ?? 0)
-                && !startsStructure(lines[$0].drop(while: \.isWhitespace))
+            firstLineStartColumn.map { $0 > 0 } ?? (indent(lines[$0]) < (restIndent ?? 0)
+                && !startsStructure(lines[$0].drop(while: \.isWhitespace)))
         } ?? false
         let common = (partialFirst ? Array(nonblank.dropFirst()) : nonblank)
             .map { indent(lines[$0]) }.min() ?? 0
@@ -68,19 +77,21 @@ public struct TerminalUnwrappedCopy: Equatable, Sendable {
                 continue
             }
             let content = line.drop(while: \.isWhitespace)
+            let separator = index > 0 ? rowJoinSeparator(
+                after: dedented[index - 1], before: content, fillsWidth: widths[index - 1] == widest,
+                wrapWidthConfirmed: wrapWidthConfirmed
+            ) : nil
             let joins = canReflow && index > 0 && !protected[index] && !protected[index - 1]
-                && !line.isEmpty && !dedented[index - 1].isEmpty
+                && !line.isEmpty && !dedented[index - 1].isEmpty && separator != nil
+                && widths[index - 1] <= terminalColumns
                 && !endsWithContinuation(dedented[index - 1])
                 && !startsStructure(content)
                 && indent(line) == continuationIndent
                 && !isColumnar(line) && !isColumnar(dedented[index - 1])
-                && ((partialFirst && index - 1 == nonblank.first)
+                && ((firstLineStartColumn == nil && partialFirst && index - 1 == nonblank.first)
                     || widths[index - 1] + 1 + width(String(content.prefix(while: { !$0.isWhitespace }))) > widest)
             if joins, let previous = result.popLast() {
-                let token = dedented[index - 1].split(whereSeparator: \.isWhitespace).last ?? ""
-                let splitToken = widths[index - 1] == widest
-                    && (token.contains("://") || token.hasPrefix("www.") || token.contains("/"))
-                result.append(previous + (splitToken ? "" : " ") + content)
+                result.append(previous + (separator ?? " ") + content)
             } else {
                 result.append(line)
                 continuationIndent = indent(line) + listPrefixLength(content)
@@ -102,18 +113,6 @@ public struct TerminalUnwrappedCopy: Equatable, Sendable {
         guard let first = content.first, first == "`" || first == "~" else { return "" }
         let run = content.prefix(while: { $0 == first })
         return run.count >= 3 ? run : ""
-    }
-
-    private func listPrefixLength(_ content: Substring) -> Int {
-        if let first = content.first, "-*+•".contains(first), content.dropFirst().first == " " {
-            return content.prefix(2).count + content.dropFirst(2).prefix(while: { $0 == " " }).count
-        }
-        let digits = content.prefix(while: \.isNumber)
-        let rest = content.dropFirst(digits.count)
-        if !digits.isEmpty, rest.hasPrefix(". ") || rest.hasPrefix(") ") {
-            return digits.count + 2 + rest.dropFirst(2).prefix(while: { $0 == " " }).count
-        }
-        return 0
     }
 
     private func startsStructure(_ content: Substring) -> Bool {
