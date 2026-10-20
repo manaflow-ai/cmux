@@ -288,6 +288,20 @@ class RegistryBlastRadiusTests(unittest.TestCase):
         errors, _, _ = validator.validate(root, added=set())
         self.assertEqual(errors, [])
 
+    def test_write_only_registers_the_named_tests(self) -> None:
+        """The pre-commit hook passes only the commit's own tests (#21946): registering every
+        unregistered test the base carries wrote the same entries into every pull request."""
+        root = self.make_root(tests=["test_kept.py", "test_base.py", "test_mine.py"], registry=self.kept_registry())
+        workflow = root / ".github" / "workflows" / "ci-guards.yml"
+        workflow.write_text(
+            GUARD_WORKFLOW + "      - run: python3 tests/test_base.py\n      - run: python3 tests/test_mine.py\n",
+            encoding="utf-8",
+        )
+
+        self.assertEqual(validator.register_derivable(root, only={"tests/test_mine.py"}), ["tests/test_mine.py"])
+        self.assertEqual(validator.register_derivable(root, only=set()), [])
+        self.assertEqual(validator.register_derivable(root), ["tests/test_base.py"])  # unrestricted, as before
+
     def test_write_leaves_a_test_no_workflow_runs_for_a_person_to_place(self) -> None:
         root = self.make_root(tests=["test_kept.py", "test_orphan.py"], registry=self.kept_registry())
         before = (root / "tests" / "test-execution.toml").read_text(encoding="utf-8")

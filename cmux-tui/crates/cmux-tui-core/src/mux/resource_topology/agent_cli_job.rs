@@ -28,7 +28,7 @@ impl Mux {
         let correlation = format!("agent-cli-job:{:x}", Sha256::digest(mutation.id.as_bytes()));
         let fingerprint = self.agent_cli_job_fingerprint(cli, mutation);
         let registry =
-            self.workspace_registry.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
         let previous = registry
             .lookup_resource_creation(
                 &correlation,
@@ -90,7 +90,7 @@ impl Mux {
         let previous = self
             .workspace_registry
             .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .unwrap_or_else(PoisonError::into_inner)
             .lookup_resource_creation(
                 &correlation,
                 &mutation.id,
@@ -99,8 +99,7 @@ impl Mux {
                 true,
             )
             .map_err(|error| job_lookup_error(error, mutation))?;
-        let mut fields =
-            serde_json::Map::from_iter([("correlation_key".to_owned(), json!(correlation))]);
+        let mut fields = Map::from_iter([("correlation_key".to_owned(), json!(correlation))]);
         match previous {
             // The same intent replays with acpmux offline or a different
             // version/cache. Blocked/failed effects use their durable result.

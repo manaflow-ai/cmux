@@ -254,5 +254,39 @@ await requireBrowserLane("chat-find.test.ts", async () => {
       expect(seen.size).toBe(total);
       await page.close();
     });
+
+    // A starved page (#19761, op-next-cmdclick's runs on 10-13) measures the fold Find opened for
+    // seconds, and each late measure pushes the match down. Find holds it in view until it stops
+    // moving, not for a fixed 600 ms: here the match's block grows for 2 s from when it is drawn.
+    test("keeps a Find match in view while what is above it keeps measuring", async () => {
+      if (!installed) return;
+      const page = await browser!.newPage({ viewport: { width: 900, height: 700 } });
+      await openChat(page);
+      await page.evaluate((text) => window.cmuxAcpmuxActions?.["chat.find"]?.({ text }), "1504.40ms");
+      await page.waitForSelector(".acpmux-find__field");
+      // As soon as the match is drawn, while Find is still bringing it into view.
+      await page.waitForFunction(
+        () =>
+          ((CSS as unknown as { highlights: Map<string, Set<Range>> }).highlights.get("acpmux-find-active")?.size ??
+            0) > 0,
+        null,
+        { timeout: 10_000 },
+      );
+      await page.evaluate(async () => {
+        const range = [
+          ...((CSS as unknown as { highlights: Map<string, Set<Range>> }).highlights.get("acpmux-find-active") ?? []),
+        ][0];
+        const block = range?.startContainer.parentElement;
+        if (!block) throw new Error("no current match");
+        // 40 steps of 20 px over 2 s: more than the viewport, in steps the transcript measures.
+        for (let step = 1; step <= 40; step += 1) {
+          block.style.marginTop = `${step * 20}px`;
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        }
+      });
+      await settleInView(page);
+      expect((await state(page)).inView).toBe(true);
+      await page.close();
+    });
   });
 });
