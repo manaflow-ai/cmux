@@ -9,10 +9,10 @@ import Testing
 /// that context's catalog menu (so the palette, CLI and MCP run the same
 /// action) and its section is generated for the right-click.
 @Suite struct BrowserHitMenuChromeParityTests {
-    static let link = URL(string: "https://example.com/a")!
-    static let image = URL(string: "https://example.com/a.png")!
+    nonisolated static let link = URL(string: "https://example.com/a")!
+    nonisolated static let image = URL(string: "https://example.com/a.png")!
 
-    static let targets: [BrowserContextMenuTarget] = [
+    nonisolated static let targets: [BrowserContextMenuTarget] = [
         BrowserContextMenuTarget(linkURL: link, linkText: "A"),
         BrowserContextMenuTarget(linkURL: link),
         BrowserContextMenuTarget(sourceURL: image, imageURL: image),

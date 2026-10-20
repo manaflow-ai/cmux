@@ -9,15 +9,15 @@ import Testing
 /// either stays (Chromium runs it) or is replaced by the cmux row named in
 /// ``BrowserContextMenuItem/replacedChromiumRows(for:)``; none is lost.
 @Suite struct BrowserContextMenuParityTests {
-    static func rows(_ ids: [Int]) -> [BrowserContextMenuItem] {
+    nonisolated static func rows(_ ids: [Int]) -> [BrowserContextMenuItem] {
         ids.map { $0 == 0 ? BrowserContextMenuItem(id: 0, title: "", kind: .separator) : BrowserContextMenuItem(id: $0, title: "\($0)") }
     }
 
-    static let link = URL(string: "https://example.com/a")!
-    static let image = URL(string: "https://example.com/a.png")!
+    nonisolated static let link = URL(string: "https://example.com/a")!
+    nonisolated static let image = URL(string: "https://example.com/a.png")!
 
     /// (name, Chromium's rows, the right-click) for every context.
-    static let contexts: [(String, [Int], BrowserContextMenuTarget)] = [
+    nonisolated static let contexts: [(String, [Int], BrowserContextMenuTarget)] = [
         ("page", [33000, 33001, 33002, 0, 35004, 35003, 35011, 51034, 50161, 0, 35002, 50162],
          BrowserContextMenuTarget(pageURL: link)),
         ("link", [50100, 50101, 50102, 0, 50103, 50104, 50107, 0, 50162],
