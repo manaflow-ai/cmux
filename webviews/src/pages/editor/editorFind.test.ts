@@ -114,3 +114,41 @@ test("an edit searches again and keeps the active match's place", () => {
   expect(find.getState().matches).toHaveLength(2);
   expect(find.getState().active).toBe(1);
 });
+
+test("typing the query a letter at a time stays on the first match (search starts at the selection)", () => {
+  // Selecting a match moves the editor's caret to its end, as Monaco does; the search starts from
+  // the selection's start, so each new letter keeps the match it is on.
+  const lines = ["alpha beta", "alpha gamma", "Alpha delta"];
+  let selection = { start: { lineNumber: 1, column: 1 }, end: { lineNumber: 1, column: 1 } };
+  const find = new EditorFind();
+  find.attach({
+    findMatches(query) {
+      const out: FindRange[] = [];
+      lines.forEach((line, i) => {
+        for (let at = line.toLowerCase().indexOf(query); at >= 0; at = line.toLowerCase().indexOf(query, at + 1))
+          out.push({
+            startLineNumber: i + 1,
+            startColumn: at + 1,
+            endLineNumber: i + 1,
+            endColumn: at + 1 + query.length,
+          });
+      });
+      return out;
+    },
+    caret: () => selection.start,
+    selectedText: () => "",
+    show(matches, active) {
+      const range = matches[active];
+      if (range)
+        selection = {
+          start: { lineNumber: range.startLineNumber, column: range.startColumn },
+          end: { lineNumber: range.endLineNumber, column: range.endColumn },
+        };
+    },
+    focus: () => undefined,
+  });
+  find.show();
+  for (const query of ["a", "al", "alp", "alph", "alpha"]) find.setQuery(query);
+  expect(find.getState().matches).toHaveLength(3);
+  expect(find.getState().active).toBe(0);
+});

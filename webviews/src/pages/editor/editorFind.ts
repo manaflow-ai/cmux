@@ -16,7 +16,10 @@ export interface FindRange {
 export interface FindTarget {
   /** Every match of `query` in the document, in order (literal text, not a pattern). */
   findMatches(query: string, matchCase: boolean): FindRange[];
-  /** The caret, to start from the first match at or after it. */
+  /**
+   * Where the search starts: the start of the selection (the caret when nothing is selected), so
+   * the match the pill selected stays the first candidate as the query grows a letter at a time.
+   */
   caret(): { lineNumber: number; column: number };
   /** The selected text (one line), or empty. */
   selectedText(): string;
