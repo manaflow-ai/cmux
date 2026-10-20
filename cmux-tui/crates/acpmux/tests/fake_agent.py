@@ -23,6 +23,9 @@ long as a real agent's, for checks that refuse short ones).
 
 FAKE_EXIT_AFTER_NEW=1: the agent exits once its session starts, before any prompt.
 
+FAKE_DIE_AT_START=<text>: on `initialize` the agent prints <text> to stderr and
+exits 1 without answering, as a harness wrapper that refuses to start does.
+
 FAKE_CODEX_STORE=1 (with CODEX_HOME): Codex's own store, as codex-acp keeps it:
 each session is <CODEX_HOME>/sessions/YYYY/MM/DD/rollout-<time>-<uuid>.jsonl,
 a session_meta line, then per prompt task_started, the user message and
@@ -692,6 +695,10 @@ def main():
         m = msg["method"]
         rid = msg.get("id")
         params = msg.get("params") or {}
+        if m == "initialize" and os.environ.get("FAKE_DIE_AT_START"):
+            sys.stderr.write(os.environ["FAKE_DIE_AT_START"] + "\n")
+            sys.stderr.flush()
+            sys.exit(1)
         if m in ("session/new", "session/load", "session/fork"):
             LAST_MCP_SERVERS = params.get("mcpServers")
         # FAKE_PICKER=1: a harness with session/set_model and an "effort" option (no model
