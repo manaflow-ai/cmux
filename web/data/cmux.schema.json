@@ -1986,8 +1986,8 @@
             "notifications",
             "full"
           ],
-          "default": "cmuxOnly",
-          "description": "Socket control mode. Legacy aliases are accepted and normalized."
+          "default": "automation",
+          "description": "Socket control mode. The automation default admits processes running as the same OS user; choose cmuxOnly to restrict calls to processes started inside this cmux. Legacy aliases are accepted and normalized."
         },
         "socketPassword": {
           "oneOf": [
