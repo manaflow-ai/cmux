@@ -827,7 +827,7 @@ fn explicit_daemon_route(global: &GlobalArgs) -> Option<&'static str> {
 pub(super) fn app_owns_daemon(identity: &AppIdentity, daemon: &Path) -> bool {
     #[cfg(target_os = "macos")]
     if let Some(own) = crate::app_identity::app_daemon_socket(identity) {
-        let canonical = |path: &std::path::Path| {
+        let canonical = |path: &Path| {
             std::fs::canonicalize(path).unwrap_or_else(|_| path.to_owned())
         };
         // Two spellings of one socket (`/var` is `/private/var` on macOS).
