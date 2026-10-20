@@ -28,16 +28,17 @@ await requireBrowserLane("agent-pane-agents-pill.test.ts", async () => {
   const BUSY = "0190a000-0000-7000-8000-0000000000a1";
   const QUIET = "0190a000-0000-7000-8000-0000000000a2";
   const STUCK = "0190a000-0000-7000-8000-0000000000a3";
+  const NESTED = "0190a000-0000-7000-8000-0000000000a4";
   const START = Date.now() - 90_000;
   const update = (update: Record<string, unknown>, meta?: Record<string, unknown>) => ({
     method: "session/update",
     params: { sessionId: "agent-1", update, ...(meta ? { _meta: { acpmux: meta } } : {}) },
   });
   type Step = [dir: string, kind: string, msg: Record<string, unknown>];
-  const spawned = (id: string, name: string): Step => [
+  const spawned = (id: string, name: string, parent: string | null = null): Step => [
     "in",
     "subagent_spawned",
-    update({ sessionUpdate: "subagent_spawned" }, { subagents: [{ id, parent: null, name, state: "running" }] }),
+    update({ sessionUpdate: "subagent_spawned" }, { subagents: [{ id, parent, name, state: "running" }] }),
   ];
   const finished = (id: string, name: string): Step => [
     "in",
@@ -91,6 +92,14 @@ await requireBrowserLane("agent-pane-agents-pill.test.ts", async () => {
   ];
   // The turn ended (cancelled, or the daemon reconnected) with an agent never reported done.
   const stuck: Step[] = [...start, spawned("a1", "Reviewer"), reading, ["mux", "turn_result", { status: "cancelled" }]];
+  // Reviewer spawned an agent of its own after Tester started.
+  const nested: Step[] = [
+    ...start,
+    spawned("a1", "Reviewer"),
+    spawned("a2", "Tester"),
+    spawned("a5", "Scout", "a1"),
+    reading,
+  ];
   const record = (session: string, step: Step, seq: number) => {
     const [dir, kind, msg] = step;
     return { sessionId: session, seq, at: START + seq * 1000, dir, kind, msg };
@@ -99,6 +108,7 @@ await requireBrowserLane("agent-pane-agents-pill.test.ts", async () => {
     [BUSY]: busy.map((step, index) => record(BUSY, step, index + 1)),
     [QUIET]: quiet.map((step, index) => record(QUIET, step, index + 1)),
     [STUCK]: stuck.map((step, index) => record(STUCK, step, index + 1)),
+    [NESTED]: nested.map((step, index) => record(NESTED, step, index + 1)),
   };
   const session = (sessionId: string) => ({
     sessionId,
@@ -116,7 +126,9 @@ await requireBrowserLane("agent-pane-agents-pill.test.ts", async () => {
       case "initialize":
         return { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [], operations: [] } } };
       case "_acpmux/watch":
-        return { sessions: [session(BUSY), session(QUIET), { ...session(STUCK), status: "idle" }] };
+        return {
+          sessions: [session(BUSY), session(QUIET), { ...session(STUCK), status: "idle" }, session(NESTED)],
+        };
       case "_acpmux/attach": {
         const id = typeof params.sessionId === "string" && chats[params.sessionId] ? params.sessionId : BUSY;
         return { session: session(id), lastSeq: chats[id]!.length, events: chats[id] };
@@ -259,6 +271,25 @@ await requireBrowserLane("agent-pane-agents-pill.test.ts", async () => {
     ]);
     const colors = await dots(page);
     expect(new Set(Object.values(colors)).size).toBe(3);
+    await page.close();
+  });
+
+  test("an agent spawned by another sits right under it, indented", async () => {
+    const page = await open(NESTED);
+    await pill(page).click();
+    await list(page).waitFor({ timeout: 5_000 });
+    const rows = await list(page)
+      .locator(".acpmux-agents-list__row")
+      .evaluateAll((nodes) =>
+        nodes.map((node) => ({
+          name: node.querySelector(".acpmux-agents-list__name")!.textContent,
+          dot: node.querySelector(".acpmux-agents-list__dot")!.getBoundingClientRect().left,
+        })),
+      );
+    expect(rows.map((row) => row.name)).toEqual(["Reviewer", "Scout", "Tester"]);
+    const [reviewer, scout, tester] = rows;
+    expect(scout!.dot).toBeGreaterThan(reviewer!.dot + 8);
+    expect(tester!.dot).toBe(reviewer!.dot);
     await page.close();
   });
 
