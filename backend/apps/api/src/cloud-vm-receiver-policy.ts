@@ -11,6 +11,7 @@ import { addressInMesh } from "./cloud-vm-api-network.ts"
 import type { VmReceiverPeers, VmReceiverPeerTarget } from "./cloud-vm-receiver-peers.ts"
 import { readNativeVmReceiverPolicy } from "./cloud-vm-receiver-native.ts"
 import type { Http } from "./team-domain-external.ts"
+import { vmReceiverStamp as stamp, liveVmReceiver as live, originalVmReceiverGrant as ownMatches } from "./cloud-vm-receiver-identity.ts"
 
 interface Deps {
   team: string; now(): number; connection(): VmApiConnection | null; revision(): string; http: Http;
@@ -20,13 +21,6 @@ interface Deps {
 }
 const unavailable = (): ReadResult => ({ ok: false, code: "owner.unreachable", message: "the current VM receiving policy is unavailable" })
 const forbidden = (): ReadResult => ({ ok: false, code: "auth.forbidden", message: "the original bound VM authority is unavailable" })
-const stamp = (r: MachineRow) => digest([r.id, r.team, r.creator, r.status, r.transport, r.provider_name, r.vm_install, r.epoch, r.host, r.host_id, r.wg_public_key, r.network])
-const live = (row: MachineRow, p: Principal): boolean => row.team === p.team && row.transport === "vm-api" && row.status === "running" && row.creator === p.user
-  && row.host !== undefined && row.host === row.host_id && row.wg_public_key !== undefined && Number.isSafeInteger(row.epoch) && Number(row.epoch) > 0
-  && row.network !== undefined && row.vm_install === p.install
-const ownMatches = (p: Principal, own: NetworkIdentity | null, now: number): own is NetworkIdentity => own !== null && own.kind === "vm"
-  && own.op_classes.includes("vm-self") && (own.expires_at === null || own.expires_at > now) && pointOf(own) !== null
-  && /^[0-9a-f]{64}$/.test(own.authority_version) && (p.install_authority === undefined || p.install_authority === own.authority_version)
 
 /** CloudDO owns the VM fence; TeamDO/UserDO own client grants. Nothing is persisted by this read. */
 export const cloudVmReceiverPolicy = (d: Deps, p: Principal, params: unknown): Promise<ReadResult> => Effect.runPromise(

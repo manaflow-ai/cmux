@@ -24,6 +24,7 @@ it("persists one receiver incarnation and never revives a stopped attempt", asyn
   expect(first.generation).not.toBe(initial.generation)
   expect(value(await call(request))).toEqual(first)
   expect(value(await call({ phase: "ready", expected: first.generation })).phase).toBe("ready")
+  expect(await call({ phase: "begin", expected: first.generation, attempt: "b".repeat(32) })).toMatchObject({ ok: false, code: "revision.conflict" })
   expect(value(await call(request)).phase).toBe("ready")
   expect(value(await call({ phase: "end", expected: first.generation })).phase).toBe("stopped")
   expect(value(await call(request)).phase).toBe("stopped")
