@@ -61,7 +61,7 @@ public final class MockAgentSession: AgentSessionSource {
 
     public func send(_ intent: AgentClientIntent) {
         switch intent {
-        case .prompt(let text, let attachments, let steer):
+        case .prompt(let text, let attachments, let steer, _, _):
             let promptID = UUID().uuidString
             if running != nil, !steer {
                 queued.append((promptID, text, attachments))

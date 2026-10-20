@@ -1,5 +1,6 @@
 #if os(iOS)
 import CnxAuth
+import CnxBrowserStream
 import CnxDesign
 import CnxFeed
 import CnxLive
@@ -510,6 +511,10 @@ private struct LinkSettingsObserver: ViewModifier {
             }
             .onChange(of: scenePhase) { _, phase in
                 if phase == .active { shell.live?.foreground() }
+                // Inactive (Control Center, a banner, the app switcher's first
+                // moment) still shows the page: only the background hides it.
+                // Hidden pages stop painting on the Mac and give up the lane.
+                StreamedBrowserDirectory.shared.setAppActive(phase != .background)
             }
     }
 }

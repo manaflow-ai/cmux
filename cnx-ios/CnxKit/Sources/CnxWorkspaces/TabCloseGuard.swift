@@ -53,3 +53,77 @@ public struct TabCloseGuard: Sendable {
         TerminalProcessInfo(command: command, foregroundExecutable: foregroundExecutable).runningProgram
     }
 }
+
+/// The foreground programs the Mac last reported per terminal tab
+/// (`process-info`), read when the grid opens so a close of a busy tab asks
+/// at once (full verify 2026-10-19 D7: the question came 2.1-2.4 s after the
+/// tap). Entries older than `maxAge` are unknown.
+public struct TabProgramCache: Sendable {
+    public static let maxAge: Double = 5
+    private var entries: [String: (programs: [String], at: Double)] = [:]
+
+    public init() {}
+
+    public mutating func record(tabID: String, programs: [String], at time: Double) {
+        entries[tabID] = (programs, time)
+    }
+
+    public mutating func forget(tabID: String) {
+        entries[tabID] = nil
+    }
+
+    /// The programs of all `tabIDs` (sorted, unique), or nil when any is unknown or stale.
+    public func programs(of tabIDs: [String], now: Double) -> [String]? {
+        var all = Set<String>()
+        for id in tabIDs {
+            guard let entry = entries[id], now - entry.at <= Self.maxAge else { return nil }
+            all.formUnion(entry.programs.filter { !$0.isEmpty })
+        }
+        return all.sorted()
+    }
+}
+
+/// What a close shows and when (D7): a working agent, or a program the grid
+/// already knows about, asks at once (`immediate`). Otherwise the Mac is
+/// asked; if it has not answered within `pendingAfter` the question shows as
+/// pending (`pending`), and the reply then fills it in, or closes the tab
+/// when the shell is idle (`afterReply`).
+public struct TabClosePromptPlan: Sendable {
+    public static let pendingAfter: Duration = .milliseconds(250)
+    public static let checkingMessage = "Checking what\u{2019}s running on the Mac\u{2026}"
+
+    public enum Outcome: Equatable, Sendable {
+        case ask(TabCloseGuard.Prompt)
+        case close
+    }
+
+    private let tabs: [WorkspaceTab]
+    private let guardrail = TabCloseGuard()
+    public let immediate: TabCloseGuard.Prompt?
+
+    public init(closing tabs: [WorkspaceTab], cached: [String]?) {
+        self.tabs = tabs
+        let guardrail = TabCloseGuard()
+        if tabs.contains(where: { guardrail.workingAgent($0) != nil }) {
+            immediate = guardrail.prompt(closing: tabs, programs: [])
+        } else if let cached, !cached.isEmpty {
+            immediate = guardrail.prompt(closing: tabs, programs: cached)
+        } else {
+            immediate = nil
+        }
+    }
+
+    /// The question while the Mac is being asked.
+    public var pending: TabCloseGuard.Prompt {
+        TabCloseGuard.Prompt(title: tabs.count == 1 ? "Close \u{201C}\(tabs[0].title)\u{201D}?" : "Close \(tabs.count) tabs?",
+                             message: Self.checkingMessage)
+    }
+
+    /// The Mac answered with `programs`. A question already asked from the
+    /// cache stays asked (an idle reply never closes a tab the person was asked about).
+    public func afterReply(programs: [String]) -> Outcome {
+        if let prompt = guardrail.prompt(closing: tabs, programs: programs) { return .ask(prompt) }
+        if let immediate { return .ask(immediate) }
+        return .close
+    }
+}

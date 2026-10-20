@@ -30,7 +30,12 @@ private let log = Logger(subsystem: "dev.cmux.cnx", category: "terminal")
 /// size.
 @MainActor
 public final class DaemonTerminalSession: TerminalSession {
-    public let surface: Int
+    /// The daemon surface the terminal is on. A daemon that restarted
+    /// (crash, update) numbers its surfaces again; a reattach follows the
+    /// terminal by ``terminalID`` (`resolve-terminal`).
+    public private(set) var surface: Int
+    /// The Mac terminal's durable id (`terminal_id`, `term_…`), when known.
+    public let terminalID: String?
     public private(set) var programName: String
     public private(set) var isAlternateScreen = false
     /// The Mac terminal's rows (`vt-state`, `resized`), else the size asked for.
@@ -45,12 +50,24 @@ public final class DaemonTerminalSession: TerminalSession {
     private var client: DaemonClient?
     /// The input-lane channel for `send`, once open.
     private var inputClient: DaemonClient?
-    /// Keystrokes not yet sent; sent as one `send` while none is out.
-    private var input: [Data] = []
+    /// Keystrokes not yet sent, with when they were typed; sent as one
+    /// `send` while none is out. Keys older than `inputHoldLimit` when the
+    /// terminal can take them are dropped, never sent late (termfix-r13 D5:
+    /// a command typed during an outage ran 15.4 minutes later).
+    private var input: [(bytes: Data, at: TimeInterval, detached: Bool)] = []
+    /// Keys queued while detached expired: everything typed until the next
+    /// attach is refused, so no fragment of a command (its last 2 s) can
+    /// reach the shell after the rest was dropped (r13 review).
+    private var refusingInput = false
+    /// How long typed keys may wait for the terminal (a blip) before they
+    /// are dropped and the screen is told (seconds).
+    public static let inputHoldLimit: TimeInterval = 2
+    /// The clock the hold is measured on (tests inject one).
+    var now: () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
     private var inputDraining = false
     private var handler: (@MainActor (TerminalSessionEvent) -> Void)?
     /// Decodes lines given to `handle(_:)` (the attach stream has its own, off the main actor).
-    private lazy var lineParser = DaemonTerminalEventParser(surface: surface)
+    private var lineParser: DaemonTerminalEventParser
     private var inbox: DaemonTerminalInbox?
     private var outputPaused = false
     private var eventTask: Task<Void, Never>?
@@ -76,10 +93,31 @@ public final class DaemonTerminalSession: TerminalSession {
     public var macName: String?
 
     /// `connecting` until the first attach, `reattaching` after a dropped
-    /// link, `attached` while the screen mirrors the Mac's terminal.
+    /// link, `offline` while the Mac is gone (`setMacOffline`), `attached`
+    /// while the screen mirrors the Mac's terminal.
     public var connectionState: TerminalConnectionState {
-        if attached { return .attached }
+        // An ended terminal shows its last screen, not a spinner; a Mac that is
+        // gone says so; a reattach that gave up (its line says to type to try
+        // again) shows its last screen too.
+        if attached || ended { return .attached }
+        if macOffline { return .offline(mac: macName) }
+        if gaveUp { return .attached }
         return everAttached ? .reattaching(mac: macName) : .connecting(mac: macName)
+    }
+
+    /// The coordinator's word on the Mac (`LinkMachine.Phase.showsTerminalsOffline`).
+    private var macOffline = false
+
+    /// The Mac is offline or out of reach (true), or back (false). A
+    /// detached session then says so instead of "Reattaching…" forever
+    /// (termfix-r13 D4, T-LIFE-13); an attached one is unaffected.
+    public func setMacOffline(_ offline: Bool) {
+        guard offline != macOffline else { return }
+        let before = connectionState
+        macOffline = offline
+        let after = connectionState
+        if after != before, handler != nil, !ended { handler?(.connection(after)) }
+        if offline { expireInput() }
     }
 
     /// `open` returns a client on a fresh `daemon` channel to the Mac;
@@ -93,12 +131,15 @@ public final class DaemonTerminalSession: TerminalSession {
     /// (termqa V2-5).
     public init(
         surface: Int,
+        terminalID: String? = nil,
         programName: String = "zsh",
         clientInfo: [String: String] = [:],
         open: @escaping @Sendable () async throws -> DaemonClient,
         openInput: (@Sendable () async throws -> DaemonClient)? = nil
     ) {
         self.surface = surface
+        self.terminalID = terminalID
+        lineParser = DaemonTerminalEventParser(surface: surface)
         self.programName = programName
         self.clientInfo = clientInfo
         self.open = open
@@ -114,8 +155,52 @@ public final class DaemonTerminalSession: TerminalSession {
 
     public func send(_ bytes: Data) {
         guard !bytes.isEmpty else { return }
-        input.append(bytes)
-        drainInput()
+        // A reattach that gave up: typing tries again (the line it printed says so).
+        if gaveUp { reconnect() }
+        if refusingInput, !attached {
+            log.notice("surface \(self.surface, privacy: .public): \(bytes.count, privacy: .public) typed bytes refused (earlier keys were already dropped)")
+            handler?(.inputNotSent(bytes: bytes.count))
+            return
+        }
+        input.append((bytes, now(), !attached))
+        if attached {
+            drainInput()
+        } else {
+            // Dropped once they are too old to send, not at the reattach:
+            // the screen says so while the person still remembers typing.
+            let limit = Self.inputHoldLimit
+            Task { [weak self] in
+                try? await Task.sleep(for: .seconds(limit))
+                self?.expireInput()
+            }
+        }
+    }
+
+    /// The terminal is unreachable: every key still queued now waits for a
+    /// detached terminal, from when it was typed.
+    private func markInputDetached() {
+        input = input.map { ($0.bytes, $0.at, true) }
+        guard !input.isEmpty else { return }
+        let limit = Self.inputHoldLimit
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(limit))
+            self?.expireInput()
+        }
+    }
+
+    /// Keys that waited for a detached terminal longer than
+    /// `inputHoldLimit`: all queued keys are dropped (never only the oldest:
+    /// the rest of a command must not run alone), input is refused until the
+    /// next attach, and the screen is told. Keys typed while attached (a
+    /// slow but live link) never expire here.
+    private func expireInput() {
+        let cutoff = now() - Self.inputHoldLimit
+        guard input.contains(where: { $0.detached && $0.at <= cutoff }) else { return }
+        let bytes = input.reduce(0) { $0 + $1.bytes.count }
+        input.removeAll()
+        if !attached { refusingInput = true }
+        log.notice("surface \(self.surface, privacy: .public): \(bytes, privacy: .public) typed bytes dropped (the terminal was unreachable for longer than \(Self.inputHoldLimit, privacy: .public) s)")
+        handler?(.inputNotSent(bytes: bytes))
     }
 
     public func resize(columns: Int, rows: Int) {
@@ -152,7 +237,57 @@ public final class DaemonTerminalSession: TerminalSession {
     /// attaching, before `start`, and after the surface ended.
     public func reconnect() {
         guard handler != nil, !attached, !attaching, !ended else { return }
+        if gaveUp {
+            // A fresh round of retries, from the shortest delay.
+            gaveUp = false
+            attachRetries = 0
+        }
         Task { await attach() }
+    }
+
+    /// Where the terminal is now, asked by its durable id before a reattach.
+    enum Resolved: Equatable {
+        case surface(Int)
+        /// The Mac has no such terminal (closed).
+        case gone
+        /// The terminal's process exited (or it was tombstoned) while no
+        /// surface shows it: say so at once instead of retrying (PR #22555 review).
+        case exited(code: Int?)
+        /// Known but on no surface yet (a daemon still adopting its terminal
+        /// hosts after a restart): try again later.
+        case notYet
+        /// The daemon cannot say (an older one): attach by number.
+        case unknown
+    }
+
+    static func resolved(_ reply: Data) -> Resolved {
+        guard let object = try? JSONSerialization.jsonObject(with: reply) as? [String: Any] else { return .unknown }
+        if object["ok"] as? Bool == false || object["error"] != nil {
+            let error = (object["error"] as? String) ?? ""
+            return error.contains("terminal_not_found") ? .gone : .unknown
+        }
+        let data = object["data"] as? [String: Any] ?? object
+        if let surface = data["surface"] as? Int { return .surface(surface) }
+        if let lifecycle = data["lifecycle"] as? String, lifecycle == "exited" || lifecycle == "tombstoned" {
+            return .exited(code: (data["exit"] as? [String: Any])?["code"] as? Int)
+        }
+        return data.keys.contains("surface") ? .notYet : .unknown
+    }
+
+    /// The terminal is no longer on the Mac: say so and stop, never wait
+    /// "Reattaching…" forever.
+    private func terminalGone(exitCode: Int? = nil, exited: Bool = false) {
+        guard handler != nil, !ended else { return }
+        ended = true
+        attached = false
+        log.notice("surface \(self.surface, privacy: .public): terminal \(self.terminalID ?? "-", privacy: .public) is no longer on the Mac (exited=\(exited, privacy: .public))")
+        if let client { self.client = nil; Task { await client.close() } }
+        let line = exited
+            ? "[The terminal's process exited\(exitCode.map { " (code \($0))" } ?? "")]"
+            : "[This terminal is no longer open on the Mac]"
+        emitText("\r\n\u{1B}[2m\(line)\u{1B}[0m\r\n")
+        handler?(.connection(.attached))
+        handler?(.exited(code: Int32(clamping: exitCode ?? 0)))
     }
 
     // MARK: Attach
@@ -166,6 +301,36 @@ public final class DaemonTerminalSession: TerminalSession {
             guard handler != nil else { return }
             self.client = client
             await client.start()
+            // A reattach (or a retry) first asks where the terminal is: a Mac
+            // daemon that restarted numbers its surfaces again, and the old
+            // number may now name another terminal (defect 2 of
+            // verify/transport-verify-20261019.md).
+            if let terminalID, everAttached || attachRetries > 0 {
+                let reply = try await client.request("resolve-terminal", params: ["terminal_id": terminalID])
+                guard self.client === client else { return }
+                switch Self.resolved(reply) {
+                case .surface(let moved) where moved != surface:
+                    log.notice("surface \(self.surface, privacy: .public): terminal \(terminalID, privacy: .public) is now surface \(moved, privacy: .public)")
+                    surface = moved
+                    lineParser = DaemonTerminalEventParser(surface: moved)
+                case .exited(let code):
+                    terminalGone(exitCode: code, exited: true)
+                    return
+                case .gone where attachRetries + 1 >= reattachBackoff.count:
+                    terminalGone()
+                    return
+                case .gone:
+                    // Right after the Mac app or its daemon restarts, a terminal
+                    // can be missing from the registry for a moment: only a
+                    // terminal still missing after the retries is gone.
+                    throw LinkError(code: "attach", message: "terminal_not_found")
+                case .notYet:
+                    // Into the reattach backoff, keeping the last frame.
+                    throw LinkError(code: "attach", message: "the terminal is not on a surface yet")
+                case .surface, .unknown:
+                    break
+                }
+            }
             let events = client.events
             eventTask?.cancel()
             inbox?.close()
@@ -243,13 +408,19 @@ public final class DaemonTerminalSession: TerminalSession {
             // tells the screen where the Mac's screen starts in its taller
             // mirror (TerminalRowShift).
             log.notice("surface \(self.surface, privacy: .public): mirror reset cause=\(self.everAttached ? "reattach" : "attach", privacy: .public) size=\(self.attachedWithSize.map { "\($0.columns)x\($0.rows)" } ?? "-", privacy: .public)")
-            setAlternate(false)
+            // The alternate screen is not touched here: the replay's
+            // `vt-state` says its own final state before its rows (held or
+            // still coming). Set to the primary screen first, a reattach to a
+            // TUI left TUI mode and came back: the page showed the empty
+            // primary screen with nothing held over it (termfix-r13 D2, `top`:
+            // blank for ~170 ms, then half drawn).
             handler?(.output(Data("\u{1B}c".utf8)))
             let held = heldEvents ?? []
             heldEvents = nil
             for event in held { apply(event) }
             attachRetries = 0
             attached = true
+            refusingInput = false
             everAttached = true
             handler?(.connection(.attached))
             lastError = nil
@@ -265,9 +436,9 @@ public final class DaemonTerminalSession: TerminalSession {
             heldEvents = nil
             lastError = LinkController.reason(error)
             log.error("attach surface \(self.surface): \(String(describing: error), privacy: .public)")
-            if everAttached, attachRetries < Self.reattachBackoff.count, handler != nil, !ended {
+            if everAttached, attachRetries < reattachBackoff.count, handler != nil, !ended {
                 // A reattach: keep the last frame and try again (bounded backoff).
-                let delay = Self.reattachBackoff[attachRetries]
+                let delay = reattachBackoff[attachRetries]
                 attachRetries += 1
                 if let client = self.client { self.client = nil; Task { await client.close() } }
                 Task { [weak self] in
@@ -276,7 +447,19 @@ public final class DaemonTerminalSession: TerminalSession {
                 }
                 return
             }
-            emitText("\r\n\u{1B}[2m[\(lastError ?? "Can't attach to this terminal")]\u{1B}[0m\r\n")
+            if everAttached {
+                // Retries ran out: say what happened and how to go on. The failed
+                // attach's channel closes now, not at the next reconnect (PR #22555 review).
+                if let client = self.client { self.client = nil; Task { await client.close() } }
+                eventTask?.cancel()
+                eventTask = nil
+                inbox?.close()
+                inbox = nil
+                gaveUp = true
+                emitText("\r\n\u{1B}[2m[Can't reattach: \(lastError ?? "no answer from the Mac"). Type to try again.]\u{1B}[0m\r\n")
+            } else {
+                emitText("\r\n\u{1B}[2m[\(lastError ?? "Can't attach to this terminal")]\u{1B}[0m\r\n")
+            }
         }
     }
 
@@ -287,6 +470,7 @@ public final class DaemonTerminalSession: TerminalSession {
         self.client = nil
         dropInputLane()
         attached = false
+        markInputDetached()
         draining = false
         guard handler != nil, !ended else { return }
         handler?(.connection(connectionState))
@@ -433,11 +617,15 @@ public final class DaemonTerminalSession: TerminalSession {
     }
 
     /// Sends queued keystrokes as one `send`, one request at a time, on the
-    /// input lane when open, else on the attach channel.
+    /// input lane when open, else on the attach channel. Keys that waited
+    /// longer than `inputHoldLimit` are dropped first.
     private func drainInput() {
-        guard attached, !inputDraining, !input.isEmpty, let target = inputClient ?? client else { return }
+        guard attached, !inputDraining else { return }
+        expireInput()
+        guard !input.isEmpty, let target = inputClient ?? client else { return }
         inputDraining = true
-        let batch = input.reduce(into: Data()) { $0.append($1) }
+        let typedAt = input[0].at
+        let batch = input.reduce(into: Data()) { $0.append($1.bytes) }
         input.removeAll()
         let surface = surface
         Task { [weak self] in
@@ -470,7 +658,8 @@ public final class DaemonTerminalSession: TerminalSession {
                 // Keep the keystrokes: retry on the attach channel when the
                 // lane failed, or after the reattach when the link dropped.
                 lastError = LinkController.reason(error)
-                input.insert(batch, at: 0)
+                input.insert((batch, typedAt, true), at: 0)
+                markInputDetached()
                 if inputClient === target {
                     dropInputLane()
                 } else if self.client === target {
@@ -517,8 +706,11 @@ public final class DaemonTerminalSession: TerminalSession {
     private var heldEvents: [DaemonTerminalInbound]?
     /// Failed reattach attempts since the last good attach.
     private var attachRetries = 0
+    /// The reattach retries ran out; the next keystroke tries again.
+    private var gaveUp = false
     /// Delays before retrying a failed reattach (seconds); then the error shows.
-    static let reattachBackoff: [Double] = [0.25, 0.5, 1, 2, 4, 8]
+    static let defaultReattachBackoff: [Double] = [0.25, 0.5, 1, 2, 4, 8]
+    var reattachBackoff = DaemonTerminalSession.defaultReattachBackoff
 
     /// The size the attach already carried (no separate resize needed).
     private var attachedWithSize: (columns: Int, rows: Int)?
@@ -531,6 +723,16 @@ public final class DaemonTerminalSession: TerminalSession {
     nonisolated public static func surfacesToReattach(_ sessions: [Int], tree: Set<Int>?) -> [Int] {
         guard let tree else { return sessions }
         return sessions.filter(tree.contains)
+    }
+
+    /// Whether a session attaches again on a new link: its surface is still
+    /// listed, or its terminal is (on another surface after the Mac's daemon
+    /// restarted; the reattach finds it by id). Before the tree is known, yes.
+    nonisolated public static func shouldReattach(surface: Int, terminalID: String?, tree: DaemonTree?) -> Bool {
+        guard let tree else { return true }
+        if tree.surfaces.values.contains(surface) { return true }
+        guard let terminalID else { return false }
+        return tree.terminals.values.contains { $0.resourceID == terminalID || $0.id == terminalID }
     }
 
     /// Whether the daemon takes the viewer's size in `attach-surface`.

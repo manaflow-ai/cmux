@@ -30,12 +30,13 @@ extension IPhoneHostService {
     ///   - computerName: How phones list this Mac.
     ///   - processEnvironment: Read for the Debug-only overrides.
     ///   - acpmuxEnvironment: The app's acpmux, for the phones' approval keys (nil: none).
-    ///   - agentTabHost: This Mac's agent tab host (`install:<id>`), for agent tabs a phone creates.
+    ///   - chief: This app's Chief owner (session, and socket once connected), which hostd serves to phones.
     public func wire(auth: CloudAuth, daemon: DaemonService,
                      acpmuxHost: @escaping @MainActor @Sendable () -> (any AgentPaneHostProviding)?,
                      acpmuxEnvironment: AcpmuxEnvironment? = nil,
                      agentTabHost: @escaping @MainActor () -> String? = { nil },
                      newChatPicks: @escaping @MainActor @Sendable () -> NewChatPicks = { NewChatPicks() },
+                     chief: (@MainActor () async -> ChiefPlacement?)? = nil,
                      settings: @escaping @MainActor @Sendable () -> SettingsController?,
                      bundleID: String?, computerName: @escaping @Sendable () async -> String,
                      processEnvironment: [String: String] = ProcessInfo.processInfo.environment) {
@@ -106,7 +107,8 @@ extension IPhoneHostService {
             computerName: computerName,
             acpmuxEnvironment: acpmuxEnvironment,
             browserHosts: browserHosts,
-            pairingSeed: IPhonePairingSeed.fromEnvironment(processEnvironment)
+            pairingSeed: IPhonePairingSeed.fromEnvironment(processEnvironment),
+            chief: chief
         )
     }
 

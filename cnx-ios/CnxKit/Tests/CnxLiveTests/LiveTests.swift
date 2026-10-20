@@ -103,6 +103,106 @@ import Testing
         #expect(machine.handle(.foreground) == [.dial(generation: 5, macID: "m1", transport: .wireGuard)])
     }
 
+    /// termfix-r13 D2a (T-LIFE-17): a signaling reset makes presence say the
+    /// Mac is offline for a moment, but the link is peer to peer and still
+    /// up. The link is kept and only probed (quickly); a healthy probe keeps it.
+    @Test func presenceOfflineKeepsAConnectedLinkAndProbesIt() {
+        var machine = LinkMachine(transport: .webRTC)
+        _ = machine.handle(.target(mac))
+        _ = machine.handle(.dialSucceeded(generation: 1, path: .direct))
+        var offline = mac
+        offline.isOnline = false
+        #expect(machine.handle(.target(offline)) == [.quickProbe(generation: 1)])
+        #expect(machine.phase == .connected(.webRTC, .direct, rttMillis: nil))
+        // Back online with the link still up: nothing to do (no second link).
+        #expect(machine.handle(.target(mac)) == [])
+        #expect(machine.phase.isConnected)
+        #expect(machine.handle(.linkUpdated(generation: 1, path: .direct, rttMillis: 3)) == [])
+        #expect(machine.phase == .connected(.webRTC, .direct, rttMillis: 3))
+    }
+
+    /// termfix-r13 D2b (T-LIFE-12): the Mac's host restarted (its signaling
+    /// socket came back, a presence frame says so) while the phone still
+    /// holds the dead link. The phone probes at once instead of waiting for
+    /// the 15 s heartbeat, and redials as soon as the probe fails.
+    @Test func macSignalingBackProbesTheLinkAndRedialsWhenItIsDead() {
+        var machine = LinkMachine(transport: .webRTC)
+        _ = machine.handle(.target(mac))
+        _ = machine.handle(.dialSucceeded(generation: 1, path: .direct))
+        #expect(machine.handle(.macSignaled) == [.quickProbe(generation: 1)])
+        #expect(machine.handle(.probeFailed(generation: 1, reason: "timeout")) == [.close, .dial(generation: 2, macID: "m1", transport: .webRTC)])
+        // A dial in flight when the host's socket connects again is restarted
+        // (its offer may have gone to the old socket): D2b.
+        #expect(machine.handle(.macSignaled) == [.dial(generation: 3, macID: "m1", transport: .webRTC)])
+    }
+
+    /// The link really died while presence says the Mac is offline: no dial
+    /// until presence brings it back (then at once).
+    @Test func aDeadLinkToAnOfflineMacWaitsForPresence() {
+        var machine = LinkMachine(transport: .webRTC)
+        _ = machine.handle(.target(mac))
+        _ = machine.handle(.dialSucceeded(generation: 1, path: .direct))
+        var offline = mac
+        offline.isOnline = false
+        _ = machine.handle(.target(offline))
+        #expect(machine.handle(.probeFailed(generation: 1, reason: "timeout")) == [.close])
+        #expect(machine.phase == .macOffline)
+        #expect(machine.handle(.target(mac)) == [.dial(generation: 3, macID: "m1", transport: .webRTC)])
+    }
+
+    /// A Mac that comes back online while the phone waits out a backoff is
+    /// dialed now, not at the end of the backoff.
+    @Test func macBackOnlineEndsTheBackoff() {
+        var machine = LinkMachine(transport: .webRTC)
+        _ = machine.handle(.target(mac))
+        _ = machine.handle(.dialFailed(generation: 1, reason: "x"))
+        _ = machine.handle(.dialFailed(generation: 2, reason: "x"))
+        guard case .waiting = machine.phase else { Issue.record("expected waiting"); return }
+        #expect(machine.handle(.macSignaled) == [.dial(generation: 4, macID: "m1", transport: .webRTC)])
+    }
+
+    /// termfix-r13 D2b (T-LIFE-12): after a cnx-hostd kill the phone's redial
+    /// sent its offer while the host was down; the offer was never answered
+    /// and the dial waited out its 25 s timeout (link back 26.7 s after the
+    /// kill). The host's signaling socket coming back abandons that dial and
+    /// dials again at once.
+    @Test func macSignalingBackRestartsADialInFlight() {
+        var machine = LinkMachine(transport: .webRTC)
+        _ = machine.handle(.target(mac))
+        _ = machine.handle(.dialSucceeded(generation: 1, path: .direct))
+        _ = machine.handle(.linkDropped(generation: 1, reason: "keepalive timed out"))
+        guard case .connecting(_, attempt: 1) = machine.phase else { Issue.record("expected a redial"); return }
+        #expect(machine.handle(.macSignaled) == [.dial(generation: 3, macID: "m1", transport: .webRTC)])
+        // The abandoned dial's late failure changes nothing.
+        #expect(machine.handle(.dialFailed(generation: 2, reason: "answer timeout")) == [])
+        guard case .connecting = machine.phase else { Issue.record("expected connecting"); return }
+    }
+
+    /// termfix-r13 D4 (T-LIFE-13: offline label ≤ 5 s): terminals say the Mac
+    /// is offline at once when presence says so, and after a bounded time
+    /// when the link just cannot be brought back; never while connected.
+    @Test func terminalsShowOfflineWithinABoundedTime() {
+        let offline = LinkMachine.Phase.macOffline
+        #expect(offline.showsTerminalsOffline(notConnectedFor: .zero))
+        let connected = LinkMachine.Phase.connected(.webRTC, .direct, rttMillis: 3)
+        #expect(!connected.showsTerminalsOffline(notConnectedFor: .seconds(60)))
+        let connecting = LinkMachine.Phase.connecting(.webRTC, attempt: 2)
+        #expect(!connecting.showsTerminalsOffline(notConnectedFor: .seconds(1)))
+        #expect(connecting.showsTerminalsOffline(notConnectedFor: LinkMachine.Phase.offlineAfter))
+        #expect(LinkMachine.Phase.offlineAfter <= .seconds(4))
+        // A first dial under way is not "offline" (a slow connect is not a dead Mac).
+        #expect(!LinkMachine.Phase.connecting(.webRTC, attempt: 1).showsTerminalsOffline(notConnectedFor: .seconds(7)))
+        // ...but not forever: a redial after a lost link can last its whole timeout.
+        #expect(LinkMachine.Phase.connecting(.webRTC, attempt: 1).showsTerminalsOffline(notConnectedFor: LinkMachine.Phase.offlineAfter * 2))
+        let failed = LinkMachine.Phase.waiting(.webRTC, attempt: 2, reason: "ICE timed out", retryIn: .seconds(1))
+        #expect(!failed.showsTerminalsOffline(notConnectedFor: .seconds(1)))
+        #expect(failed.showsTerminalsOffline(notConnectedFor: .seconds(4)))
+        let refused = LinkMachine.Phase.waiting(.webRTC, attempt: 2, reason: LinkController.reason(LinkError(code: "offline", message: "")),
+                                                retryIn: .seconds(1))
+        #expect(refused.showsTerminalsOffline(notConnectedFor: .zero))
+        #expect(!LinkMachine.Phase.idle.showsTerminalsOffline(notConnectedFor: .seconds(60)))
+    }
+
     @Test func sameTargetKeepsLinkAndNilTargetCloses() {
         var machine = LinkMachine(transport: .wireGuard)
         _ = machine.handle(.target(mac))
@@ -1078,5 +1178,20 @@ final class Seen: @unchecked Sendable {
         #expect(names.contains("transcript"))
         #expect(names.contains("queue_updated"))
         #expect(names.contains("queue_order"))
+    }
+}
+
+/// r13 live rig (D4, T-LIFE-13): with two Macs on the account, a quit Mac's
+/// terminal goes offline even though the link moved to the other Mac.
+@Suite struct TerminalOfflinePerMacTests {
+    @Test func aTerminalFollowsItsOwnMac() {
+        // Its Mac is linked: the link's phase decides.
+        #expect(!LinkMachine.terminalOffline(macID: "a", linkedMacID: "a", linkOffline: false))
+        #expect(LinkMachine.terminalOffline(macID: "a", linkedMacID: "a", linkOffline: true))
+        // The link serves another Mac: this terminal cannot reattach.
+        #expect(LinkMachine.terminalOffline(macID: "a", linkedMacID: "b", linkOffline: false))
+        #expect(LinkMachine.terminalOffline(macID: "a", linkedMacID: nil, linkOffline: false))
+        // Unknown Mac (no target when opened): the link's phase decides.
+        #expect(!LinkMachine.terminalOffline(macID: nil, linkedMacID: "b", linkOffline: false))
     }
 }

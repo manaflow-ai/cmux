@@ -56,6 +56,8 @@ public final class StreamedBrowserModel: BrowserTabState {
         case unavailable
     }
 
+    /// The tab's key for its Mac browser host (a new workspace's page keeps
+    /// its placeholder tab's key after the Mac names the tab).
     public let tab: String
     public private(set) var url: URL?
     public private(set) var title = ""
@@ -73,14 +75,39 @@ public final class StreamedBrowserModel: BrowserTabState {
 
     @ObservationIgnored public let decoder = BrowserVideoDecoder()
     @ObservationIgnored let wire = RemoteBrowserWire()
-    @ObservationIgnored private let open: @Sendable (_ sink: any BrowserStreamSink) async throws -> any BrowserStreamConnection
+    @ObservationIgnored private let open: @Sendable (_ sink: any BrowserStreamSink, _ tab: String, _ url: URL?) async throws -> any BrowserStreamConnection
     @ObservationIgnored private var connection: (any BrowserStreamConnection)?
     @ObservationIgnored private var sink: Sink?
     @ObservationIgnored private var screen: RemoteBrowserWire.Screen?
     @ObservationIgnored private var appliedScreen: RemoteBrowserWire.Screen?
     @ObservationIgnored private var screenSeq = 0
     @ObservationIgnored private var welcomed = false
+    /// The page is on screen and the app is active: its stream keeps the
+    /// WebRTC media session beside a WireGuard link open (verify/hybrid-link.md).
+    /// Pages showing this model now: a tab's new page can appear before its
+    /// old one disappears (a new workspace's tab getting the Mac's id), and a
+    /// page that was never shown (a neighbour laid out ahead) is not on screen.
+    @ObservationIgnored private var shownBy = 0
+    private var onScreen: Bool { shownBy > 0 }
+    @ObservationIgnored private var appActive = true
+    private var visible: Bool { onScreen && appActive }
     @ObservationIgnored private var connecting = false
+    /// Opens again after the Mac stopped the page (its host limit) while no
+    /// frame came in between: two, then the page waits for Reopen, so two
+    /// viewers can never take one page back and forth forever.
+    @ObservationIgnored private var autoReopens = 0
+    /// When the page last started showing frames: the reopen count is
+    /// forgiven only after it stayed live a while, so two viewers evicting
+    /// each other stop after two rounds (review finding 2).
+    @ObservationIgnored private var liveSince: ContinuousClock.Instant?
+    static let forgiveAfter: Duration = .seconds(20)
+    /// A stream opened while hidden (it said so after its `rb.open`): the
+    /// directory reminds the Mac which tab is shown, so the lane goes back.
+    @ObservationIgnored var openedHidden: (@MainActor () -> Void)?
+    static let maxAutoReopens = 2
+    /// The stream closed and only ``reopen()`` (or showing the page again)
+    /// opens it: the Mac stopped the page, or another viewer took it.
+    public private(set) var canReopen = false
     @ObservationIgnored private var samples: [Meter.Sample] = []
     /// A Back or Forward sent and not yet committed on the Mac (finding 5 of
     /// verify/parity-mac.md): the browser reports the old history while the page loads, so
@@ -125,7 +152,13 @@ public final class StreamedBrowserModel: BrowserTabState {
     }
 
     /// `open` opens the `browser` service on the current link.
-    public init(tab: String, url: URL?, open: @escaping @Sendable (_ sink: any BrowserStreamSink) async throws -> any BrowserStreamConnection) {
+    public convenience init(tab: String, url: URL?, open: @escaping @Sendable (_ sink: any BrowserStreamSink) async throws -> any BrowserStreamConnection) {
+        self.init(tab: tab, url: url) { sink, _, _ in try await open(sink) }
+    }
+
+    /// `open` opens the `browser` service on the current link, at the page's
+    /// current address (the Mac starts the page there when its host is gone).
+    public init(tab: String, url: URL?, open: @escaping @Sendable (_ sink: any BrowserStreamSink, _ tab: String, _ url: URL?) async throws -> any BrowserStreamConnection) {
         self.tab = tab
         self.url = url
         self.open = open
@@ -143,22 +176,29 @@ public final class StreamedBrowserModel: BrowserTabState {
         guard next != screen else { return }
         screen = next
         sendScreen()
-        connect()
+        // A hidden page never opens by itself: each open takes the link's
+        // media lane and a Mac host (verify/redial-video.md).
+        if visible { connect() }
     }
 
     /// Connects when there is no stream (first layout, a new link).
     public func connect() {
         guard connection == nil, !connecting, screen != nil else { return }
         connecting = true
+        canReopen = false
         phase = .connecting
         let sink = Sink(model: self)
         self.sink = sink
         let open = open
         let tab = tab
+        // A page the Mac stopped starts again where it was, not at its first address.
+        // (A cnx-hostd restart stops every host too: the page comes back where it was.)
+        let url = url.flatMap { $0.absoluteString == "about:blank" ? nil : $0 }
+        log.notice("browser \(tab, privacy: .public): open at \(url?.absoluteString ?? "-", privacy: .public)")
         // task-owner: one dial per connect; the result lands on the main actor
         Task { [weak self] in
             do {
-                let connection = try await open(sink)
+                let connection = try await open(sink, tab, url)
                 self?.opened(connection, sink: sink)
             } catch {
                 log.error("browser \(tab, privacy: .public): \(String(describing: error), privacy: .public)")
@@ -171,8 +211,54 @@ public final class StreamedBrowserModel: BrowserTabState {
         }
     }
 
-    /// The link changed: a dropped stream comes back on the new link.
+    /// The page appeared or disappeared. A page shown again opens when its
+    /// stream is gone (a link that dropped while it was hidden, or a page the
+    /// Mac stopped).
+    public func setVisible(_ visible: Bool) {
+        let before = self.visible
+        shownBy = visible ? shownBy + 1 : max(0, shownBy - 1)
+        visibilityChanged(from: before)
+    }
+
+    /// The app went to the background or came back (a page shown when the
+    /// app comes back opens if its stream dropped meanwhile).
+    public func setAppActive(_ active: Bool) {
+        let before = visible
+        appActive = active
+        visibilityChanged(from: before)
+    }
+
+    /// Whether the page is on screen now (and laid out): what opens again on
+    /// a new link (``StreamedBrowserDirectory/linkChanged()``).
+    public var isShown: Bool { visible && screen != nil }
+
+    /// Tells the Mac again that this tab is shown (another tab's stream
+    /// opened, and an open takes the lane).
+    func reassertShown() {
+        guard visible, welcomed else { return }
+        send(wire.visibility(true))
+    }
+
+    /// The Mac learns which tab is shown (`rb.visibility`): the shown tab
+    /// takes the link's media lane back from a hidden one (PROTOCOL.md
+    /// `browser`), and a hidden page stops painting.
+    private func visibilityChanged(from before: Bool) {
+        guard visible != before else { return }
+        connection?.setVisible(visible)
+        if welcomed { send(wire.visibility(visible)) }
+        // Shown again (on screen, app active) with its stream gone: open it.
+        if visible { reconnect() }
+    }
+
+    /// The link changed or the page was shown: a dropped stream comes back.
     public func reconnect() {
+        if connection == nil { connect() }
+    }
+
+    /// The person asked for the page again (after the Mac stopped it or
+    /// another viewer took it).
+    public func reopen() {
+        autoReopens = 0
         if connection == nil { connect() }
     }
 
@@ -189,6 +275,7 @@ public final class StreamedBrowserModel: BrowserTabState {
             return
         }
         self.connection = connection
+        if !visible { connection.setVisible(false) }
         welcomed = false
         let decoder = decoder
         decoder.requestKeyframe = { [weak connection] in connection?.requestKeyframe() }
@@ -217,6 +304,11 @@ public final class StreamedBrowserModel: BrowserTabState {
             if let screen, let connection {
                 screenSeq = 0
                 try? connection.send(message: wire.open(tab: tab, viewer: "phone", screen: screen))
+                // The host keeps its last viewer's visibility: a page hidden on
+                // the last link (the person went to Settings to switch the
+                // transport) would stay hidden, blank, under this new viewer.
+                try? connection.send(message: wire.visibility(visible))
+                if !visible { openedHidden?() }
             }
         case "refused", "ended":
             phase = .waiting(json["reason"] as? String ?? "The Mac ended the page")
@@ -234,10 +326,45 @@ public final class StreamedBrowserModel: BrowserTabState {
         guard sink === self.sink else { return }
         connection = nil
         self.sink = nil
+        welcomed = false
+        liveSince = nil
         decoder.reset()
-        phase = .waiting(code == "unavailable" || code == "forbidden" ? reason : "Reconnecting to the Mac…")
         log.info("browser \(self.tab, privacy: .public) closed: \(code, privacy: .public) \(reason, privacy: .public)")
-        // A replaced or dropped stream reconnects when the link does.
+        switch Self.afterClose(code: code, shown: visible, autoReopens: autoReopens) {
+        case .reopen:
+            // The Mac stopped this page to make room (its host limit): a shown
+            // page opens again at once, never a frozen frame.
+            autoReopens += 1
+            phase = .waiting(String(localized: "Reopening the page…"))
+            connect()
+        case .waitForView:
+            // Opens when it is shown again (``setVisible(_:)``).
+            phase = .waiting(String(localized: "Reopening the page…"))
+        case .offerReopen:
+            canReopen = true
+            phase = .waiting(code == "replaced"
+                ? String(localized: "This page is open on another device.")
+                : String(localized: "Your Mac stopped this page."))
+        case .waitForLink:
+            phase = .waiting(code == "unavailable" || code == "forbidden" ? reason : String(localized: "Reconnecting to the Mac…"))
+        }
+    }
+
+    enum AfterClose: Equatable { case reopen, waitForView, offerReopen, waitForLink }
+
+    /// What a closed stream does next. `evicted`: cnx-hostd's host limit
+    /// stopped the page; `replaced`: another viewer opened the tab. A dropped
+    /// link reopens when the next link is up (``StreamedBrowserDirectory``).
+    static func afterClose(code: String, shown: Bool, autoReopens: Int) -> AfterClose {
+        switch code {
+        case "evicted":
+            if !shown { return .waitForView }
+            return autoReopens < maxAutoReopens ? .reopen : .offerReopen
+        case "replaced":
+            return .offerReopen
+        default:
+            return .waitForLink
+        }
     }
 
     private func sendScreen() {
@@ -248,6 +375,12 @@ public final class StreamedBrowserModel: BrowserTabState {
 
     private func note(_ shown: BrowserVideoDecoder.Shown) {
         if phase != .live { phase = .live }
+        let instant = ContinuousClock.now
+        if let liveSince {
+            if liveSince.duration(to: instant) >= Self.forgiveAfter { autoReopens = 0 }
+        } else {
+            liveSince = instant
+        }
         let now = connection?.nowMicros() ?? 0
         samples.append(.init(at: now, bytes: shown.bytes, latency: shown.latencyMicros, decode: shown.decodeMicros))
         samples.removeAll { now &- $0.at > 1_000_000 }
