@@ -48,6 +48,12 @@ and the child drains and is reaped before completion is acknowledged. Root
 retires the generation before conditionally advancing its still-current, wanted
 ticket. A stopped or obsolete worker cannot create a replacement ticket.
 
+The machine owner also retires the stored attempt when a committed transition
+leaves the machine outside running state. Provider retries repeat that fence
+before I/O to cover a crash after the intent committed. Retirement and its
+private audit entry commit together. Returning to running state never restores
+the old READY record; the original worker must begin a fresh attempt.
+
 The VM-self policy has `schema_version: 2` and `receiver_generation`. It publishes
 the generation during starting and ready, and `null` while closed. Its authority
 version includes the generation. A receiving process rejects a fresh policy

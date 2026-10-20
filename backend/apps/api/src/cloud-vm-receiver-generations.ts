@@ -44,6 +44,20 @@ export class VmReceiverGenerations {
     return viewOf(machine, scope, this.saved(machine))
   }
 
+  /** The trusted machine owner closes authority before a power transition.
+   * Keep the generation tombstone so a delayed READY or begin retry cannot revive it.
+   */
+  close(machine: string, audit: (entry: ReceiverTransitionAudit) => void): void {
+    if (!Number(this.sql.exec<{ n: number }>("SELECT count(*) AS n FROM sqlite_master WHERE name = 'cloud_vm_receiver_generation'")[0]?.n ?? 0)) return
+    this.ensure()
+    this.sql.transaction(() => {
+      const row = this.saved(machine)
+      if (!row || row.phase === "stopped") return
+      this.sql.exec("UPDATE cloud_vm_receiver_generation SET phase = 'stopped' WHERE machine = ? AND generation = ?", machine, row.generation)
+      audit({ phase: "end", machine, changed: true, outcome: "ok", generation: row.generation })
+    })
+  }
+
   /** Private lookup context, never permission. The caller must revalidate the
    * original grant and scope; a ready phase alone cannot authorize a token.
    * Older rows without this context remain closed until a fresh attempt.
