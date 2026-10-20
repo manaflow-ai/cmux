@@ -120,8 +120,10 @@ const retireMemo = new Map<string, { done: boolean; until: number }>()
  */
 const retireOnce = async (env: Env, name: string, via: string, deviceIds: ReadonlyArray<string>): Promise<number> => {
   const hit = retireMemo.get(name)
-  if (hit && (hit.done || Date.now() < hit.until)) return 0
-  const retryMs = Number(env.TEAM_HUB_RETIRE_RETRY_MS ?? 10_000)
+  // The sweep ignores a request's backoff: it carries every device of the team, a request only some.
+  if (hit && (hit.done || (via !== "sweep" && Date.now() < hit.until))) return 0
+  const configured = Number(env.TEAM_HUB_RETIRE_RETRY_MS)
+  const retryMs = Number.isFinite(configured) && configured >= 0 ? configured : 10_000
   retireMemo.set(name, { done: false, until: Date.now() + retryMs })
   const stub = env.TEAM_HUB.get(env.TEAM_HUB.idFromName(name))
   try {
@@ -159,11 +161,8 @@ export const retireAllTeamHubs = async (env: Env): Promise<{ teams: number; clos
   } finally {
     await store.close().catch(() => {})
   }
-  const byName = new Map<string, Array<string>>()
-  for (const s of scopes) {
-    const name = s.project ? `${s.project}:${s.teamId}` : s.teamId
-    byName.set(name, [...(byName.get(name) ?? []), ...s.deviceIds])
-  }
+  // Only teams with devices: a team known only from prefs never had a socket (and would create a hub).
+  const byName = new Map(scopes.filter((s) => s.deviceIds.length).map((s) => [s.project ? `${s.project}:${s.teamId}` : s.teamId, s.deviceIds]))
   const names = [...byName.keys()]
   let closed = 0
   let failed = 0
@@ -475,7 +474,7 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
     const deviceId = (url.searchParams.get("deviceId") ?? "").toLowerCase()
     if (!UUID.test(deviceId)) throw new HttpError(400, "bad_request", "deviceId must be a UUID")
     await requireMember(env, teamId, caller)
-    retireTeamHub(env, ctx, caller, teamId)
+    retireTeamHub(env, ctx, caller, teamId, [deviceId])
     // Echo only cnx.v1; the bearer subprotocol is never selected (it would echo the token back).
     const subprotocol = bearer?.viaSubprotocol || (req.headers.get("sec-websocket-protocol") ?? "").split(",").some((p) => p.trim() === "cnx.v1")
     const hub = userHub(env, caller)
@@ -558,8 +557,8 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
 }
 
 export default {
-  async scheduled(_event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
-    ctx.waitUntil(retireAllTeamHubs(env).then(() => {}))
+  async scheduled(_event: ScheduledController, env: Env): Promise<void> {
+    await retireAllTeamHubs(env).catch((e) => console.log(JSON.stringify({ msg: "team hub sweep failed", error: String(e) })))
   },
   async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const t = timingFor(ctx)

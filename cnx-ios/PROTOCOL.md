@@ -132,7 +132,11 @@ The Worker then calls the previous class's own `forgetMac` for each device
 the database has in that team, which closes that device's socket with 4001
 `moved` (clients reconnect, into their user hub), and retires the hub for
 good once it runs the new class. A retired hub remembers it, so later
-sweeps cost one wake per team. Clients reconnect as
+sweeps cost at most one wake per team. The fallback reaches the devices the
+database has in that team now; a socket of a device registered elsewhere
+since (a phone that switched team) stays until the hub runs the new class
+and is retired. The sweep and the lazy path are temporary: remove them once
+the sweep log shows every team retired across deploys. Clients reconnect as
 after any drop (hostd in under a second) and land in their user's hub.
 A user hub is never retired. A new hub is seeded once from the database
 with the user's Macs (offline until they connect), so `hello` lists a
