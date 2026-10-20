@@ -92,6 +92,12 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
     /// Documents this tab has shown (it may reopen them, its own back and forward).
     private var shown: Set<String> = []
     private(set) var isClosed = false
+    /// Where the markdown page keeps table column widths between opens (nil: the page keeps
+    /// none past the tab). ``FilePageProvider+TableWidths.swift``.
+    let tableWidths: (any MarkdownTableWidthStoring)?
+    /// The table the page last reported under a right-click (its index), for the native menu's
+    /// Reset Column Widths; nil when the right-click was outside every table.
+    var contextTable: Int?
 
     static let preferenceValueLimit = 2048
     nonisolated static let listLimit = 50
@@ -101,8 +107,10 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
     /// page's to show, and writable only inside a root the user chose. `readOnly`: the host opens
     /// the document read only whoever opened it (a chat transcript).
     init(kind: FilePageKind, file: URL?, userChose: Bool = true, readOnly: Bool = false, host: any FilePageHosting,
-         clock: any Clock<Duration> = ContinuousClock(), libraries: URL?, images: any RemoteImageFetching) {
+         clock: any Clock<Duration> = ContinuousClock(), libraries: URL?, images: any RemoteImageFetching,
+         tableWidths: (any MarkdownTableWidthStoring)? = nil) {
         self.kind = kind
+        self.tableWidths = tableWidths
         self.file = file.map(Self.canonical)
         if let file = self.file {
             shown.insert(file.path)
@@ -178,6 +186,11 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
             return try await resolveLinks(params, host: host)
         case kind.op("listFiles") where kind == .markdown:
             return try await listFiles(params)
+        case kind.op("setTableWidths") where kind == .markdown:
+            return try await setTableWidths(params)
+        case kind.op("contextTable") where kind == .markdown:
+            contextTable = params["table"]?.intValue.flatMap { $0 >= 0 ? $0 : nil }
+            return .object([:])
         default:
             throw PageError.unknownOp(op)
         }
@@ -307,6 +320,8 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
             if let repository = await AgentPaneGitHubRepository.read(at: file.url.deletingLastPathComponent().path) {
                 config["githubRepository"] = .string(repository)
             }
+            // Read before the page's first layout, so a saved table never jumps from its natural width.
+            if let widths = await savedTableWidths(file.url) { config["tableWidths"] = widths }
         case .editor:
             config["size"] = JSONValue(file.size)
         }
