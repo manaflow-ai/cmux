@@ -98,7 +98,7 @@ enum DebugOmnibar {
     }
     #endif
 
-    private static func addressBar(_ params: [String: JSONValue], services: AppServices) -> AddressBarView? {
+    static func addressBar(_ params: [String: JSONValue], services: AppServices) -> AddressBarView? {
         entry(params, services: services)?.chrome.addressBar
     }
 

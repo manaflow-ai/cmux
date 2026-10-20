@@ -847,6 +847,9 @@ impl Selector {
         if is_registered_public_id(value) {
             return Ok(Self::Id(value.to_string()));
         }
+        if let Some(reason) = mistyped_id_reason(value) {
+            return Err(ResourceError::validation_invalid(None, reason));
+        }
         if value.contains('_') || is_reserved_selector_token(value) {
             return Err(ResourceError::validation_invalid(
                 None,
@@ -857,31 +860,56 @@ impl Selector {
     }
 }
 
+/// Every public id prefix, with the CLI scope that lists such ids (if any).
+const PUBLIC_ID_PREFIXES: &[(&str, Option<&str>)] = &[
+    ("machine", Some("machine")),
+    ("session", Some("session")),
+    ("ws", Some("workspace")),
+    ("screen", Some("screen")),
+    ("pane", Some("pane")),
+    ("tab", Some("tab")),
+    ("term", Some("terminal")),
+    ("browser", Some("browser")),
+    ("client", None),
+    ("split", None),
+    ("stream", None),
+    ("notification", Some("notification")),
+    ("agent", Some("agent")),
+    ("projection", None),
+    ("pairing", None),
+    ("sidebar_view", None),
+    ("sidebar_plugin", None),
+];
+
 fn is_registered_public_id(value: &str) -> bool {
     let Some((prefix, payload)) = value.rsplit_once('_') else {
         return false;
     };
-    matches!(
-        prefix,
-        "machine"
-            | "session"
-            | "ws"
-            | "screen"
-            | "pane"
-            | "tab"
-            | "term"
-            | "browser"
-            | "client"
-            | "split"
-            | "stream"
-            | "notification"
-            | "agent"
-            | "projection"
-            | "pairing"
-            | "sidebar_view"
-            | "sidebar_plugin"
-    ) && payload.len() == 32
+    PUBLIC_ID_PREFIXES.iter().any(|(known, _)| *known == prefix)
+        && payload.len() == 32
         && payload.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
+/// Why `value` looks like a public id but is not one (a digit too few or
+/// many, uppercase), with where real ids come from; `None` when it does not
+/// look like an id. An agent that copies an id wrong gets this instead of
+/// the name rules.
+fn mistyped_id_reason(value: &str) -> Option<String> {
+    let (prefix, payload) = value.rsplit_once('_')?;
+    let (_, scope) = PUBLIC_ID_PREFIXES.iter().find(|(known, _)| *known == prefix)?;
+    if payload.is_empty() || !payload.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return None;
+    }
+    let shape = if payload.len() == 32 {
+        format!("ids are lowercase: {prefix}_ and 32 hex digits in lowercase")
+    } else {
+        format!("an id is {prefix}_ and 32 hex digits, and this one has {}", payload.len())
+    };
+    let source = match scope {
+        Some(scope) => format!("copy one from `cmux {scope} list --json`, or "),
+        None => String::new(),
+    };
+    Some(format!("{value} is not an id: {shape}; {source}pass name:{value} for a name"))
 }
 
 #[cfg(test)]

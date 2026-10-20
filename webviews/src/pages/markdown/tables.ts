@@ -5,11 +5,14 @@
 //   selection to a caret.
 // - Copying a cell selection writes a Markdown table (text/plain) and an HTML table (text/html, for
 //   spreadsheets).
+// - A drag that starts in a cell and leaves the table selects text from the press to the pointer
+//   (MARKDOWN-SELECTION). prosemirror-tables kept a one-cell selection for the rest of such a drag:
+//   it holds the selection while its drag runs and finds no cell under the pointer.
 // - Column widths: a handle on each column's right edge; a drag sets the width, a double-click fits
 //   the column to its content. Widths are a view setting kept per file (`TableWidths`), never
 //   written to the file: GFM has no column widths, and a resize must not mark the file edited.
 import type { Node as ProseNode, Schema } from "@milkdown/kit/prose/model";
-import { TextSelection, type EditorState } from "@milkdown/kit/prose/state";
+import { Plugin, TextSelection, type EditorState } from "@milkdown/kit/prose/state";
 import {
   CellSelection,
   TableMap,
@@ -20,6 +23,7 @@ import {
   selectedRect,
 } from "@milkdown/kit/prose/tables";
 import type { EditorView, ViewMutationRecord } from "@milkdown/kit/prose/view";
+import { $prose } from "@milkdown/kit/utils";
 
 /** Column widths, in CSS pixels, for each table of the open file (by its index in the file). */
 export interface TableWidths {
@@ -120,8 +124,52 @@ export class ResizableTableView extends TableView {
     });
     this.handle.addEventListener("mousedown", this.startDrag);
     this.handle.addEventListener("dblclick", this.fit);
+    this.dom.addEventListener("scroll", this.markOverflow, { passive: true });
+    this.dom.addEventListener("wheel", this.shiftWheel, { passive: false });
+    // The box and the table change size with the pane, the text width, an edit and a column drag.
+    this.resize = new ResizeObserver(this.markOverflow);
+    this.resize.observe(this.dom);
+    this.resize.observe(this.table);
     this.applySaved();
   }
+
+  private readonly resize: ResizeObserver;
+
+  /**
+   * Marks which edges have more table past them (`data-overflow`: "start", "end" or both; absent
+   * when the table fits). The stylesheet fades those edges, so a wide table shows that it scrolls
+   * even with overlay scrollbars hidden (MARKDOWN-TABLE-SCROLL, user 2026-10-20).
+   */
+  private readonly markOverflow = (): void => {
+    const box = this.dom;
+    const max = box.scrollWidth - box.clientWidth;
+    const edges = [box.scrollLeft > 1 && "start", box.scrollLeft < max - 1 && "end"].filter(Boolean).join(" ");
+    if (max > 1 && edges) {
+      if (box.dataset.overflow !== edges) box.dataset.overflow = edges;
+    } else if (box.dataset.overflow !== undefined) {
+      delete box.dataset.overflow;
+    }
+  };
+
+  /**
+   * Shift and a vertical wheel scroll a wide table sideways. macOS turns a mouse's Shift-wheel into
+   * a horizontal one before the page sees it, but not every engine or device does (WebKit keeps
+   * it vertical when the event arrives as deltaY), and then the page scrolled down instead.
+   */
+  private readonly shiftWheel = (event: WheelEvent): void => {
+    if (!event.shiftKey || event.deltaX !== 0 || event.deltaY === 0 || event.ctrlKey || event.metaKey) return;
+    const box = this.dom;
+    const max = box.scrollWidth - box.clientWidth;
+    if (max <= 1) return;
+    const step =
+      event.deltaMode === WheelEvent.DOM_DELTA_LINE
+        ? 16
+        : event.deltaMode === WheelEvent.DOM_DELTA_PAGE
+          ? box.clientWidth
+          : 1;
+    event.preventDefault();
+    box.scrollLeft = Math.max(0, Math.min(max, box.scrollLeft + event.deltaY * step));
+  };
 
   override update(node: ProseNode): boolean {
     if (!super.update(node)) return false;
@@ -267,6 +315,9 @@ export class ResizableTableView extends TableView {
 
   destroy(): void {
     this.dom.removeEventListener("mousemove", this.hover);
+    this.dom.removeEventListener("scroll", this.markOverflow);
+    this.dom.removeEventListener("wheel", this.shiftWheel);
+    this.resize.disconnect();
   }
 }
 
@@ -450,3 +501,45 @@ export function tableClipboard(
   }
   return true;
 }
+
+/**
+ * A drag from a cell out of its table selects text from the press to the pointer, as a drag
+ * between paragraphs does. Inside the table, prosemirror-tables' cell selection stays.
+ */
+export const tableDragOutPlugin = $prose(
+  () =>
+    new Plugin({
+      props: {
+        handleDOMEvents: {
+          mousedown(view, event) {
+            if (event.button !== 0 || event.shiftKey || event.metaKey || event.ctrlKey || event.altKey) return false;
+            if (!(event.target as Element | null)?.closest?.("td, th")) return false;
+            const press = view.posAtCoords({ left: event.clientX, top: event.clientY });
+            const table = press ? findTable(view.state.doc.resolve(press.pos)) : null;
+            if (!press || !table) return false;
+            const anchor = press.pos;
+            const tablePos = table.pos;
+            const window = view.dom.ownerDocument.defaultView;
+            if (!window) return false;
+            const move = (moved: MouseEvent) => {
+              if (moved.buttons === 0 || view.isDestroyed) return stop();
+              const hit = view.posAtCoords({ left: moved.clientX, top: moved.clientY });
+              if (!hit) return;
+              const { doc } = view.state;
+              const $head = doc.resolve(hit.pos);
+              if (findTable($head)?.pos === tablePos) return;
+              const selection = TextSelection.between(doc.resolve(Math.min(anchor, doc.content.size)), $head);
+              if (!selection.eq(view.state.selection)) view.dispatch(view.state.tr.setSelection(selection));
+            };
+            const stop = () => {
+              window.removeEventListener("mousemove", move);
+              window.removeEventListener("mouseup", stop);
+            };
+            window.addEventListener("mousemove", move);
+            window.addEventListener("mouseup", stop);
+            return false;
+          },
+        },
+      },
+    }),
+);

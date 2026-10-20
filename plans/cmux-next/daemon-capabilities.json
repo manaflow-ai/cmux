@@ -124,6 +124,7 @@
     "window-records-v1",
     "workspace-agent-folder-v1",
     "workspace-agent-start-v1",
+    "workspace-description-v1",
     "workspace-group-icon-v1",
     "workspace-group-pin-v1",
     "workspace-groups-v1",
@@ -131,6 +132,7 @@
     "workspace-metadata-v1",
     "workspace-name-source-v1",
     "workspace-pin-v1",
+    "workspace-status-v1",
     "ws-listen-origins-v1",
     "ws-listen-v1"
   ],

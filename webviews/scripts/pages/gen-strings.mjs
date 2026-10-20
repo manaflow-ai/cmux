@@ -128,6 +128,22 @@ export const PAGES = {
         file: `${sources}/CmuxNextActions/ActionCatalog.xcstrings`,
         keys: () => ["action.reloadConfiguration"],
       },
+      {
+        // Agents > Chiefs (u2586) draws the channels Home's Chief editor (ChiefPage.tsx).
+        file: "webviews/src/pages/home-channels/Localizable.xcstrings",
+        keys: (all) =>
+          all.filter(
+            (key) =>
+              key.startsWith("chief.") ||
+              [
+                "sheet.newChief.title",
+                "sheet.newChief.lead",
+                "sheet.editChief.title",
+                "sheet.editChief.lead",
+                "edit.cancel",
+              ].includes(key),
+          ),
+      },
     ],
   },
   history: {

@@ -272,6 +272,78 @@ fn workspace_update_carries_identity_through_snapshot_events_and_replay() {
     );
 }
 
+/// workspace-description-v1 and workspace-status-v1: Edit Workspace
+/// Description and the task status (Mark as Done, Set Workspace Status) write
+/// through `workspace.update`; every client reads them from the workspace's
+/// `extra`, a rename keeps them, and null clears each one alone.
+#[test]
+fn workspace_update_sets_and_clears_description_and_task_status() {
+    let mux = Mux::new_for_test("state-workspace-notes", SurfaceOptions::default());
+    let workspace = empty_workspace(&mux, "notes");
+    let before = revision(&mux);
+    let params = json!({
+        "workspace": workspace,
+        "description": "Ship the release\n- changelog",
+        "task_status": "needs-attention",
+    });
+    let updated = mutate(&mux, "workspace.update", params, "notes-1");
+    assert_eq!(updated["extra"]["description"], "Ship the release\n- changelog");
+    assert_eq!(updated["extra"]["task_status"], "needs-attention");
+    let listed = snapshot(&mux)["workspaces"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|value| value["id"] == workspace)
+        .cloned()
+        .unwrap();
+    assert_eq!(listed["extra"]["task_status"], "needs-attention");
+    assert!(changes_after(&mux, before).iter().any(|change| change["resource"] == "workspace"
+        && change["value"]["extra"]["description"] == "Ship the release\n- changelog"));
+
+    let renamed = mutate(
+        &mux,
+        "workspace.rename",
+        json!({"workspace": workspace, "name": "notes-2"}),
+        "notes-rename",
+    );
+    assert_eq!(renamed["extra"]["task_status"], "needs-attention", "a rename keeps the status");
+    let done = mutate(
+        &mux,
+        "workspace.update",
+        json!({"workspace": workspace, "task_status": "done"}),
+        "notes-2",
+    );
+    assert_eq!(done["extra"]["task_status"], "done");
+    assert_eq!(done["extra"]["description"], "Ship the release\n- changelog");
+    let cleared = mutate(
+        &mux,
+        "workspace.update",
+        json!({"workspace": workspace, "description": null}),
+        "notes-3",
+    );
+    assert!(cleared["extra"].get("description").is_none());
+    assert_eq!(
+        cleared["extra"]["task_status"], "done",
+        "clearing the description keeps the status"
+    );
+    let automatic = mutate(
+        &mux,
+        "workspace.update",
+        json!({"workspace": workspace, "task_status": null}),
+        "notes-4",
+    );
+    assert!(automatic["extra"].get("task_status").is_none());
+    for (key, bad) in [
+        ("notes-5", json!({"workspace": workspace, "task_status": "inProgress"})),
+        ("notes-6", json!({"workspace": workspace, "description": "  "})),
+    ] {
+        assert_eq!(
+            error_code(send(&mux, "workspace.update", bad, Some(key))),
+            "validation.invalid"
+        );
+    }
+}
+
 #[test]
 fn tab_pin_moves_the_tab_first_and_unpin_returns_it_behind_the_pinned_run() {
     let mux = Mux::new_for_test("state-pins", SurfaceOptions::default());
