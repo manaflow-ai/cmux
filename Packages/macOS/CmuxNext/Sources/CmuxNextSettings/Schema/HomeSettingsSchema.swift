@@ -35,6 +35,29 @@ nonisolated enum HomeSettingsSchema {
                 ]),
                 default: .string(ChiefPictureMotion.hover.rawValue), keywords: ["chief", "avatar", "picture", "gif", "animation", "motion"]
             ),
+            SettingDescriptor(
+                HomeChiefPetSetting.configPath, section: .home, group: SettingsText.keyed("settings.group.chiefPet", "Chief Pet"),
+                title: SettingsText.keyed("settings.home.chiefPetEnabled", "Show Chief Pet"),
+                help: SettingsText.keyed("settings.home.chiefPetEnabled.help",
+                                         "A small Chief floats over every app and shows agent events above it. Drag it anywhere; click it to message the Chief or reply to a session."),
+                kind: .toggle, default: .bool(false), keywords: ["chief", "pet", "mascot", "floating", "notifications", "reply", "dock"]
+            ),
+            SettingDescriptor(
+                HomeChiefPetSetting.mascotPath, section: .home, group: SettingsText.keyed("settings.group.chiefPet", "Chief Pet"),
+                title: SettingsText.keyed("settings.home.chiefPetMascot", "Character"),
+                kind: .choice([
+                    SettingChoice("orb", SettingsText.keyed("settings.choice.chiefPetMascot.orb", "Orb")),
+                    SettingChoice("orb-spark", SettingsText.keyed("settings.choice.chiefPetMascot.orb-spark", "Orb Spark")),
+                    SettingChoice("orb-hood", SettingsText.keyed("settings.choice.chiefPetMascot.orb-hood", "Hooded Orb")),
+                    SettingChoice("machine", SettingsText.keyed("settings.choice.chiefPetMascot.machine", "Machine")),
+                    SettingChoice("machine-cyan", SettingsText.keyed("settings.choice.chiefPetMascot.machine-cyan", "Cyan Machine")),
+                    SettingChoice("machine-blue", SettingsText.keyed("settings.choice.chiefPetMascot.machine-blue", "Blue Machine")),
+                    SettingChoice("moon", SettingsText.keyed("settings.choice.chiefPetMascot.moon", "Moon")),
+                    SettingChoice("moon-blue", SettingsText.keyed("settings.choice.chiefPetMascot.moon-blue", "Blue Moon")),
+                    SettingChoice("fox", SettingsText.keyed("settings.choice.chiefPetMascot.fox", "Fox")),
+                ]),
+                default: .string(HomeChiefPetSetting.defaultMascot), keywords: ["chief", "pet", "mascot", "character", "avatar", "pixel"]
+            ),
         ]
     }
 }
