@@ -187,28 +187,38 @@ penalty for gaps and for path depth. The basename of `Sources/App/ContentView.sw
 million paths ~ 60 MiB), prefiltered by a 64-bit "letters present" mask per name, so fuzzy over a
 million names is a linear pass of mask checks plus scoring the survivors (target under 5 ms).
 
-### 7.3 Content ranking
+### 7.3 Ranking: one list across all sources
 
-Score of a content hit (higher first):
+The engine returns one list, names and content together, best first (section 10.3). Every hit
+gets a match tier on one shared scale, so a terminal error can beat a file name:
 
-1. Match class: whole doc equals the query > every word matched at word boundaries > phrase
-   (words adjacent, in order) > all words anywhere.
-2. Source weight: `chief` 1.2, `chat` 1.15, `command` 1.1, `scrollback` 1.0, `screen` 0.9,
-   `file` 1.0, `page` 0.95.
-3. Recency: `exp(-age / 7 days)`, so a 1-week-old hit is worth e^-1 of a fresh one at equal match.
-4. Frecency: hits whose target the user opened before (same Raycast/Alfred idea; +1 per open,
-   half-life 3 days, keyed by target).
-5. Current context: same workspace +10%.
+| tier | content hit (scrollback, chat, Chief, file text, ...) | name hit (workspace, tab, file path, page) |
+| --- | --- | --- |
+| 5 | a doc line is the whole query | the name (or a path's basename) is the query |
+| 4 | the query as a phrase, every word a whole word | the name or basename starts with the query |
+| 3 | every word starts a word (`migrat` in `migration failed`) | the query is contiguous at a word start (`migrat` in `db-migrations-DESIGN.md`) |
+| 2 | the query as a phrase anywhere | the query is contiguous anywhere |
+| 1 | every word somewhere in the doc | fuzzy: letters in order (fzf style, quality 0..99 breaks ties) |
 
-Collection order and ranking interact: the engine collects up to 4x `limit` candidates newest
-first, scores them, and returns the top `limit`. Names (7.2) come in a separate list.
+Score = tier x 1000 + (kind weight - 1) x 500 + 400 x recency + frecency (at most 300) + name
+quality (0..99). Kind weights: `chief` 1.2, `chat` 1.15, `command` 1.1, names 1.1, `scrollback`
+and `file` 1.0, `page` 0.95, `screen` 0.9. Recency = `exp(-age / 7 days)` (a name's age is its last
+use; a file's is its mtime). Frecency: +1 per open of the hit's target, half-life 3 days, keyed by
+target (Raycast/Alfred), 100 points per unit up to 300.
+
+Example ("migrat"): the 2-minute-old scrollback line `error: migration 0042 failed` and the file
+`db-migrations-DESIGN.md` (edited yesterday) are both tier 3 with weight 1.0, so recency puts the
+error first. A tier never crosses another (recency + frecency + weight stay under 1000).
+
+Collection: the engine collects up to 4x `limit` content candidates newest first and every name
+candidate that passes the letter mask, scores them all, and returns the top `limit`.
 
 ### 7.4 What the window shows
 
-A "Top hit" row (best name match when its fuzzy score is in the top class, else best content
-hit), then sections in fixed order with up to 5 rows each until the user expands: Actions,
-Workspaces & tabs, Chats, Chief, Terminal, Files, Pages, Settings. In a scope (Cmd+Shift+A)
-only those sections, flat and longer. Ownership of visuals: UI agent (section 10).
+One ranked list (section 10.2): the first hit is the "Best match", the rest follow in score order,
+not grouped by source. App rows (actions, settings) merge into it with the same tiers (10.3).
+In a scope (Cmd+Shift+A, a source chip) the list holds only those kinds. Visuals: UI agent
+(section 10).
 
 ## 8. Benchmark and the 100x goal
 
