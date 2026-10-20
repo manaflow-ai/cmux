@@ -103,7 +103,10 @@ fn require_safe_host_user(_verb: &str) -> anyhow::Result<()> {
 
 #[cfg(unix)]
 fn require_safe_host_user_for(verb: &str, uid: u32) -> anyhow::Result<()> {
-    if uid == 0 && verb == "enable" {
+    // Hosting serves this user's sessions. A privileged listener would hand
+    // root's terminals to the remote owner (for example after `sudo` starts
+    // `serve` directly), so every listener-starting verb shares this guard.
+    if uid == 0 && matches!(verb, "enable" | "serve" | "serve-detached") {
         bail!(
             "remote hosting runs as a user, not root: run `cmux host enable` as the user whose sessions to serve"
         );
