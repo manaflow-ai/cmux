@@ -1,3 +1,4 @@
+@testable import CmuxNextDaemon
 @testable import CmuxNextSidebar
 import Testing
 
@@ -32,8 +33,8 @@ import Testing
     }
 
     @Test func aDocumentGroupItemNamesItsPersonalGroup() {
-        #expect(SidebarDocRecords.personalGroupID(item: "itm_g_old") == "old")
-        #expect(SidebarDocRecords.personalGroupID(item: "grp_new") == "grp_new")
+        #expect(PersonalStore.legacyGroupID(item: "itm_g_old") == WorkspaceGroupID(rawValue: "old"))
+        #expect(PersonalStore.legacyGroupID(item: "grp_new") == nil, "a group the document made is looked up by its own id")
     }
 
     @Test func aGroupInPinnedReadsAsPinned() {

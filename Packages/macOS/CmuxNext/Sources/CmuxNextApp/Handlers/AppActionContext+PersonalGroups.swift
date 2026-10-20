@@ -1,6 +1,5 @@
 import CmuxNextActions
 import CmuxNextDaemon
-import CmuxNextSidebar
 
 /// Workspace groups when the home session serves personal state
 /// (plans/cmux-next/data-model.md 1.2c): groups and membership are personal
@@ -16,8 +15,7 @@ extension AppActionContext {
         let explicit = [invocation.target, invocation["group"]?.targetValue].compactMap { $0 }.first { $0.kind == .workspaceGroup }
         if let explicit {
             // A sidebar-document row names its group item (`itm_g_<id>`), not the personal group.
-            let ids = [explicit.id, SidebarDocRecords.personalGroupID(item: explicit.id)]
-            guard let group = ids.lazy.compactMap({ self.personal.group(WorkspaceGroupID(rawValue: $0)) }).first else {
+            guard let group = personal.group(item: explicit.id) else {
                 throw ActionFailure.notFound(RefusalStrings.noWorkspaceGroup(explicit.id))
             }
             return group

@@ -76,6 +76,8 @@ public final class SidebarDocStore {
     /// The app's one document store (one home session per app); the
     /// App's composition root sets it.
     public static var current: SidebarDocStore?
+    /// The records of the current document while the sidebar draws it; nil on the older path.
+    public static var activeRecords: SidebarDocRecords? { current.flatMap { $0.isActive && $0.shown != nil ? $0.records : nil } }
 
     public init(remote: (any SidebarDocRemote)?, mirror: SidebarMirror? = SidebarMirror.make()) {
         self.remote = remote

@@ -270,11 +270,6 @@ public nonisolated struct SidebarDocRecords: Hashable, Sendable {
         [Self.groupItemPrefix + id, id].first { items[$0]?.body.isGroup == true }
     }
 
-    /// The personal group of group item `item` (the daemon's `legacy_group_id`).
-    public static func personalGroupID(item: String) -> String {
-        item.hasPrefix(groupItemPrefix) ? String(item.dropFirst(groupItemPrefix.count)) : item
-    }
-
     /// Group item `item` sits in Pinned.
     public func isPinned(group item: String) -> Bool {
         items[item].map { $0.body.isGroup && $0.section == SidebarDocStore.pinnedSection } ?? false
