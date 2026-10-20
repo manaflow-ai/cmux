@@ -62,6 +62,17 @@ export async function mountMarkdownPage(state: MarkdownPageVariant, context: Sta
       ...(context.env.fontFamily && { family: context.env.fontFamily }),
       ...(context.env.fontSize && { size: context.env.fontSize }),
     };
+  // Table column widths outlive the page as the app keeps them with the file (its extended
+  // attribute, MARKDOWN-TABLE-WIDTHS-DESIGN.md): here the frame's session storage, so a reload
+  // gets them back in the config.
+  const widthsKey = (path: string) => `cmux.gallery.markdown.tableWidths:${path}`;
+  const savedTableWidths = (path: string): unknown => {
+    try {
+      return JSON.parse(sessionStorage.getItem(widthsKey(path)) ?? "null") ?? undefined;
+    } catch {
+      return undefined;
+    }
+  };
   const config = (path: string) => {
     const file = files.get(path);
     if (!file) throw new HostError("cmux.markdown.not_found", path);
@@ -76,6 +87,7 @@ export async function mountMarkdownPage(state: MarkdownPageVariant, context: Sta
       settings,
       themeCSS: state.themeCSS ?? "",
       appearance: context.appearance,
+      tableWidths: savedTableWidths(path),
     };
   };
   const dir = state.path.replace(/[^/]*$/, "");
@@ -104,6 +116,15 @@ export async function mountMarkdownPage(state: MarkdownPageVariant, context: Sta
       "cmux.markdown.listFiles": () => ({ entries: [...files.keys()].map((path) => path.slice(dir.length)) }),
       "cmux.markdown.loadRemoteImages": () => ({ remoteImageBase: "/__gallery/none/" }),
       "cmux.markdown.openLink": () => null,
+      "cmux.markdown.setTableWidths": (params: { path: string; value: unknown }) => {
+        try {
+          if (params.value === null) sessionStorage.removeItem(widthsKey(params.path));
+          else sessionStorage.setItem(widthsKey(params.path), JSON.stringify(params.value));
+        } catch {
+          return { attribute: false, fallback: false };
+        }
+        return { attribute: true, fallback: true };
+      },
       "cmux.markdown.recents": () => ({
         items: Object.keys(state.files ?? {}).map((path, index) => ({
           path,
