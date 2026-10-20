@@ -92,6 +92,7 @@ function Slider({
   return (
     <label className="density-field">
       <span>{label}</span>
+      {/* oxlint-disable-next-line jsx-a11y/control-has-associated-label -- the <label> around it carries its text */}
       <input
         type="range"
         name={name}
@@ -186,6 +187,7 @@ export function DensityCard() {
             <button
               key={density.id}
               type="button"
+              // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a preview tile in a radio group; a native radio cannot draw the tile
               role="radio"
               aria-checked={on}
               className="density-tile"
@@ -247,6 +249,7 @@ export function DensityCard() {
           <div className="density-fields">
             <label className="density-field">
               <span>{t("settingsWindow.density.name")}</span>
+              {/* oxlint-disable-next-line jsx-a11y/control-has-associated-label -- the <label> around it carries its text */}
               <input
                 type="text"
                 name="density-name"

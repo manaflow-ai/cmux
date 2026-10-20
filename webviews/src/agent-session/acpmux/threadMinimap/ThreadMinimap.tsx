@@ -334,6 +334,9 @@ export function ThreadMinimap({
   // geometry, so no commit reads layout for it.
   const glide = useRef<Animation | undefined>(undefined);
   const holding = useRef(false);
+  // Runs after every commit on purpose: `added` is measured in render, and the state it sets is
+  // guarded by it, so a second pass finds nothing to move.
+  // oxlint-disable-next-line react-hooks/exhaustive-deps -- every commit, as above
   useLayoutEffect(() => {
     const was = anchor.current;
     anchor.current = undefined;

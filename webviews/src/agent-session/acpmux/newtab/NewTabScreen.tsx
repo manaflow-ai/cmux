@@ -829,6 +829,7 @@ export function NewTabScreen(props: Props) {
     <span
       ref={modeSwitch}
       className="nt-mode"
+      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a pointer convenience around the mode buttons; a fieldset would bring its own box
       role="group"
       aria-label={nt("mode.label")}
       data-mode={mode}

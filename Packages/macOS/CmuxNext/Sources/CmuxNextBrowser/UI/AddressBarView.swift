@@ -101,7 +101,7 @@ public final class AddressBarView: NSView {
     public var isReadOnly = false {
         didSet {
             field.isEditable = !isReadOnly
-            field.isSelectable = true
+            field.isSelectable = true // text-focus-allow: AddressField is a ChromeTextField, whose init sets focusRingType = .none
         }
     }
 

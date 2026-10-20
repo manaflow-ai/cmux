@@ -164,6 +164,7 @@ export function NowPlayingPlayer({ onCommand }: { onCommand?(command: NowPlaying
   if (!onCommand) return null;
   if (hidden)
     return (
+      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a live note in the widget, not a form result
       <div className="nt-player-note" role="status">
         <span className="nt-player-note-text">{nt("nowPlaying.hidden")}</span>
         <button

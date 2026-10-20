@@ -66,6 +66,7 @@ export function ChatDisplayRows() {
         onChange={(value) => changeChatDisplay(c.width.key, value)}
       />
       <label className="acpmux-display-row acpmux-display-check">
+        {/* oxlint-disable-next-line jsx-a11y/control-has-associated-label -- the <label> around it carries its text */}
         <input
           type="checkbox"
           checked={display.fullWidth}
@@ -103,6 +104,7 @@ export function ChatDisplayRows() {
       />
       <label className="acpmux-display-row">
         <span>{t("chatDisplay.codeFont")}</span>
+        {/* oxlint-disable-next-line jsx-a11y/control-has-associated-label -- the <label> around it carries its text */}
         <input
           type="text"
           list={listId}
@@ -113,6 +115,7 @@ export function ChatDisplayRows() {
         />
         <datalist id={listId}>
           {CODE_FONT_SUGGESTIONS.map((name) => (
+            // oxlint-disable-next-line jsx-a11y/control-has-associated-label -- a datalist suggestion: its value is its text
             <option key={name} value={name} />
           ))}
         </datalist>
@@ -149,6 +152,7 @@ function Slider({
   return (
     <label className="acpmux-display-row">
       <span>{label}</span>
+      {/* oxlint-disable-next-line jsx-a11y/control-has-associated-label -- the <label> around it carries its text */}
       <input
         type="range"
         min={range.min}
