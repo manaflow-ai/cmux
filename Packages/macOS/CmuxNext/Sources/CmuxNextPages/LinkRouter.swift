@@ -43,20 +43,29 @@ public final class LinkRouter {
     }
 
     /// Opens a clicked link where the rule sends it; `otherTarget` is Shift-Command on the click.
-    /// Returns where it went, nil for an app link.
+    /// Returns where it went, nil for an app link. `inCmux` opens a cmux-browser link where the
+    /// caller wants it (a terminal's right side); when it returns false, ``openInCmux`` does.
     @discardableResult
-    public func open(_ url: URL, otherTarget: Bool = false, explicit: Bool = false) -> LinkRouting.Target? {
+    public func open(_ url: URL, otherTarget: Bool = false, explicit: Bool = false,
+                     inCmux: ((URL) -> Bool)? = nil) -> LinkRouting.Target? {
         if appLink(url) { return nil }
         let target = target(for: url, otherTarget: otherTarget, explicit: explicit)
+        if target == .cmuxBrowser, Self.isWeb(url), inCmux?(url) == true {
+            record("browser:" + url.absoluteString)
+            return target
+        }
         open(url, in: target)
         return target
+    }
+
+    private static func isWeb(_ url: URL) -> Bool {
+        url.scheme?.lowercased() == "http" || url.scheme?.lowercased() == "https"
     }
 
     /// Opens `url` in `target` whatever the setting (a menu's Open in cmux Browser, Open in
     /// Default Browser). A non-web URL never opens in cmux.
     public func open(_ url: URL, in target: LinkRouting.Target, background: Bool = false) {
-        let web = url.scheme?.lowercased() == "http" || url.scheme?.lowercased() == "https"
-        if target == .cmuxBrowser, web {
+        if target == .cmuxBrowser, Self.isWeb(url) {
             record((background ? "browser-background:" : "browser:") + url.absoluteString)
             openInCmux(url, background)
             return

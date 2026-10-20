@@ -219,6 +219,7 @@
         "CmuxNextTerminal",
         "CmuxNextTerminalFind",
         "CmuxNextTerminalGeometry",
+        "CmuxNextTerminalLinks",
         "CmuxNextUpdater",
         "CmuxNextWakeups",
         "CmuxNextWorkspaceNaming",
@@ -770,6 +771,15 @@
       ],
       "packages": []
     },
+    "CmuxNextLayoutTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextLayoutTests",
+      "targets": [
+        "CmuxNextLayout"
+      ],
+      "packages": [],
+      "reads": []
+    },
     "CmuxNextMallocZone": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextMallocZone",
@@ -1124,6 +1134,23 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextTerminalGeometry",
       "targets": [],
       "packages": []
+    },
+    "CmuxNextTerminalLinks": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextTerminalLinks",
+      "targets": [
+        "CmuxNextBrowser"
+      ],
+      "packages": []
+    },
+    "CmuxNextTerminalLinksTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextTerminalLinksTests",
+      "targets": [
+        "CmuxNextTerminalLinks"
+      ],
+      "packages": [],
+      "reads": []
     },
     "CmuxNextUpdater": {
       "kind": "regular",

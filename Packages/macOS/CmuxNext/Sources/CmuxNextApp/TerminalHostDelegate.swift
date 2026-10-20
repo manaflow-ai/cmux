@@ -1,9 +1,11 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextCompat
+import CmuxNextLayout
 import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextTerminal
+import CmuxNextTerminalLinks
 
 /// Handles terminal requests that need the app: Ghostty keybinds for splits,
 /// tabs, and windows, the right-click menu, and links. OSC 9/777/99
@@ -41,7 +43,7 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
     func linkMenu(_ session: TerminalSession, text: String? = nil, services: AppServices) -> (rows: [LinkMenuRow], items: [NSMenuItem]) {
         let target = target(of: session, in: services)
         // main-actor-ok: a right-click resolves one path (a few stat calls), as the click does.
-        switch (text ?? session.model.hoveredLink).flatMap({ TerminalLinkResolver.resolve($0, cwd: cwd(of: session)) }) {
+        switch (text ?? session.model.hoveredLink).flatMap({ TerminalLinkResolver().resolve($0, cwd: cwd(of: session)) }) {
         case .url(let link)?:
             let menu = LinkMenu { [weak services] url in
                 services?.registry.perform("browser.link.openInNewTab", invocation: ActionInvocation(target: target, arguments: ["url": .string(url.absoluteString)]))
@@ -73,7 +75,7 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
     func terminalSession(_ session: TerminalSession, openLink text: String) -> Bool {
         let request = linkRequest(session), cwd = cwd(of: session)
         Task { @MainActor [weak self] in
-            let target = await Task.detached(priority: .userInitiated) { TerminalLinkResolver.resolve(text, cwd: cwd) }.value
+            let target = await Task.detached(priority: .userInitiated) { TerminalLinkResolver().resolve(text, cwd: cwd) }.value
             switch target {
             case .url(let url)?: self?.openWeb(url, request)
             case .file(let url, isDirectory: true)?: LinkRouter.shared.showInFinder(url)
@@ -95,7 +97,7 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
     /// or a path that names a file or folder (``TerminalLinkResolver``, the click's own rule).
     func terminalSessionLinkCheck(_ session: TerminalSession) -> TerminalLinkCheck? {
         let start = services.flatMap { services in target(of: session, in: services).flatMap { services.cache.tabModel($0.id)?.cwd } }
-        return { text, cwd in TerminalLinkResolver.resolve(text, cwd: cwd ?? start) != nil }
+        return { text, cwd in TerminalLinkResolver().resolve(text, cwd: cwd ?? start) != nil }
     }
 
     /// What the click carried: Cmd-Option (`browserProfile.openLink` without a profile: the
@@ -108,7 +110,8 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
     }
 
     /// Cmd-Option asks for cmux (a profile), so only the external rules and host list route it out;
-    /// every other link goes through the shared rule (``LinkRouter``).
+    /// every other link goes through the shared rule (``LinkRouter``), a cmux-browser one beside the
+    /// terminal as in classic cmux (``openBeside``).
     private func openWeb(_ url: URL, _ request: (option: Bool, other: Bool, tab: ActionTargetRef?)) {
         if let services, url.scheme == "http" || url.scheme == "https", request.option, services.browserProfiles.ordered.count > 1,
            LinkRouter.shared.target(for: url, explicit: true) == .cmuxBrowser {
@@ -116,51 +119,25 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
                 target: request.tab, arguments: ["url": .string(url.absoluteString)]))
             return
         }
-        guard LinkRouter.shared.appLink(url) == false else { return }
-        let target = LinkRouter.shared.target(for: url, otherTarget: request.other, explicit: request.option)
-        if target == .cmuxBrowser, let services,
-           openTerminalBrowser(url, from: request.tab, services: services) {
-            LinkRouter.shared.record("browser:" + url.absoluteString)
-            return
+        LinkRouter.shared.open(url, otherTarget: request.other, explicit: request.option) { [weak self] in
+            self?.openBeside($0, from: request.tab) ?? false
         }
-        LinkRouter.shared.open(url, in: target)
     }
 
-    /// Opens a terminal link in the nearest right-side pane, creating a new
-    /// horizontal split when no pane is available there.
-    private func openTerminalBrowser(_ url: URL, from target: ActionTargetRef?, services: AppServices) -> Bool {
-        guard let target,
-              let (_, sourcePane) = services.locateTab(target.id),
-              let source = services.paneController(for: sourcePane),
-              let content = source.workspace,
-              let screen = content.layoutModel.screen(containing: source.layoutPaneID) else { return false }
-        switch TerminalLinkBrowserPlacement().destination(
-            for: source.layoutPaneID,
-            in: screen.layout,
-            frames: content.layoutView.navigationFrames
-        ) {
-        case .reuse(let paneID):
-            guard let pane = content.panes[paneID] else { return false }
-            return pane.newBrowserTab(url: url)
-        case .split:
-            do {
-                try BrowserHandlers.splitBrowser(
-                    from: source,
-                    direction: .right,
-                    url: url,
-                    byPerson: true,
-                    context: AppActionContext(services: services)
-                )
-                return true
-            } catch {
-                return false
-            }
-        }
+    /// The nearest pane on the clicked terminal's right (``TerminalLinkBrowserPlacement``),
+    /// else a new right split; false (a focused-pane tab) when the split has no room.
+    private func openBeside(_ url: URL, from tab: ActionTargetRef?) -> Bool {
+        guard let services, let source = tab.flatMap({ services.locateTab($0.id) }).flatMap({ services.paneController(for: $0.1) }),
+              let content = source.workspace else { return false }
+        let beside = TerminalLinkBrowserPlacement().pane(beside: source.layoutPaneID, in: content.layoutModel, frames: content.layoutView.navigationFrames)
+        if let pane = beside.flatMap({ content.panes[$0] }) { return pane.newBrowserTab(url: url) }
+        let context = AppActionContext(services: services)
+        return (try? BrowserHandlers.splitBrowser(from: source, direction: .right, url: url, byPerson: true, context: context)) != nil
     }
 
     /// Every surface's links go through ``LinkRouter`` (cx-ir3z4), wired here once: a Chief
-    /// subagent's link runs `link.open`; a terminal web link opens in the nearest right-side browser pane on
-    /// the default engine, reusing one when available. With no window it waits for one, never the system, which may be cmux
+    /// subagent's link runs `link.open`; a cmux link opens a browser tab in the focused pane on
+    /// the default engine. With no window it waits for one, never the system, which may be cmux
     /// itself as the default browser (a loop).
     private static func routeLinks(to services: AppServices) {
         let router = LinkRouter.shared

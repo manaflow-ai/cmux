@@ -1,8 +1,8 @@
 import CmuxNextBrowser
-import Foundation
+public import Foundation
 
 /// Where a Cmd-clicked terminal link goes (cx-do47).
-nonisolated enum TerminalLinkTarget: Equatable, Sendable {
+public nonisolated enum TerminalLinkTarget: Equatable, Sendable {
     /// A URL with a scheme, or a web host typed without one (`localhost:3000/docs`, `docs.rs/serde`).
     case url(URL)
     /// A file or folder that exists.
@@ -16,21 +16,23 @@ nonisolated enum TerminalLinkTarget: Equatable, Sendable {
 /// exists is a link. Text without a scheme is a web link only when its host is localhost, an
 /// IP address with a port, or a name under a real top-level domain, so `build-fleet/x.md`
 /// never opens https://build-fleet/x.md.
-nonisolated enum TerminalLinkResolver {
+public nonisolated struct TerminalLinkResolver {
+    public init() {}
+
     /// The target of `text`, or nil when it is no link (a path that exists nowhere, a bogus
     /// host). Reads the file system: call it off the main thread.
-    static func resolve(_ text: String, cwd: String?, fileManager: FileManager = .default,
+    public func resolve(_ text: String, cwd: String?, fileManager: FileManager = .default,
                         isTopLevelDomain: (String) -> Bool = { $0.isTopLevelDomain }) -> TerminalLinkTarget? {
-        let trimmed = trim(text)
+        let trimmed = Self.trim(text)
         guard !trimmed.isEmpty, !trimmed.contains("\u{0}") else { return nil }
-        if hasScheme(trimmed), let url = URL(string: trimmed) {
-            return url.isFileURL ? existing(url.path, fileManager: fileManager) : .url(url)
+        if Self.hasScheme(trimmed), let url = URL(string: trimmed) {
+            return url.isFileURL ? Self.existing(url.path, fileManager: fileManager) : .url(url)
         }
-        let path = withoutLocation(trimmed)
-        for candidate in candidates(path, cwd: cwd, fileManager: fileManager) {
-            if let target = existing(candidate, fileManager: fileManager) { return target }
+        let path = Self.withoutLocation(trimmed)
+        for candidate in Self.candidates(path, cwd: cwd, fileManager: fileManager) {
+            if let target = Self.existing(candidate, fileManager: fileManager) { return target }
         }
-        return webURL(trimmed, isTopLevelDomain: isTopLevelDomain).map(TerminalLinkTarget.url)
+        return Self.webURL(trimmed, isTopLevelDomain: isTopLevelDomain).map(TerminalLinkTarget.url)
     }
 
     private static let openers: Set<Character> = ["\"", "'", "`", "“", "‘", "<", "[", "{", "("]
