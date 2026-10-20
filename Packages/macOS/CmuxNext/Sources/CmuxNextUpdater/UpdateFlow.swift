@@ -35,7 +35,10 @@ nonisolated public struct UpdateFlow: Equatable, Sendable {
         case .installRequested:
             switch phase {
             case .ready:
+                // The staged update card took the click: its own button says
+                // Installing…, so the notice card does not take its place.
                 installRequested = true
+                userAsked = false
                 return installIfStaged()
             case .downloading, .checking:
                 // Installs once staged; the progress shows meanwhile.
@@ -81,8 +84,9 @@ nonisolated public struct UpdateFlow: Equatable, Sendable {
             userAsked = false
             return installIfStaged()
         case .installing:
+            // A person who watched the check and download on the notice card
+            // keeps watching it there until the relaunch (``card``).
             installRequested = false
-            userAsked = false
             return []
         case .hidden, .note:
             // The flow ended, failed or was cancelled: a held click does not
@@ -110,8 +114,10 @@ nonisolated public struct UpdateFlow: Equatable, Sendable {
     /// check, its download, its result), and a found update that waits for
     /// a click (`updates.downloadAutomatically` off), which needs no check.
     /// A scheduled check, its download and its result show nothing.
-    /// A staged or installing update is never this card (the staged update
-    /// card, ``footerPill(preferences:)``).
+    /// A staged update is never this card (the staged update card,
+    /// ``footerPill(preferences:)``); an install shows here only when the
+    /// person followed it here (Attempt Update), so the loading card never
+    /// swaps for another card halfway.
     ///
     /// - Parameter downloadsAutomatically: `updates.downloadAutomatically`.
     ///   While on, a found update that is not downloaded yet (the download
@@ -123,9 +129,10 @@ nonisolated public struct UpdateFlow: Equatable, Sendable {
         guard userAsked else { return nil }
         switch phase {
         case .checking: return .checking
-        case .downloading(let progress): return .downloading(progress: progress)
+        case .downloading(let transfer): return .downloading(transfer)
+        case .installing: return .installing
         case .note(let note): return .note(note)
-        case .hidden, .available, .ready, .installing: return nil
+        case .hidden, .available, .ready: return nil
         }
     }
 
