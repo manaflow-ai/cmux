@@ -91,7 +91,7 @@ describe("audit per device", () => {
     expect(mine).toHaveLength(3);
     const hostOnly = (await viewer.call("GET", `/v1/audit?limit=200&device=${host.id}`)).json.entries as any[];
     expect(hostOnly.length).toBeGreaterThan(0);
-    expect(hostOnly.every((e) => e.hostId === host.id || e.viewerId === host.id || e.deviceId === host.id)).toBe(true);
-    expect(hostOnly.length).toBeLessThan(all.length);
+    expect(hostOnly.every((e) => e.hostId === host.id || e.viewerId === host.id || e.event === "device_added")).toBe(true);
+    expect(mine.length).toBeLessThan(all.length);
   });
 });
