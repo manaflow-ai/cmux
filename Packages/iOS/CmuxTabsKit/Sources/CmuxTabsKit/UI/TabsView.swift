@@ -390,7 +390,10 @@ struct TabsScreen<Source: TabsDataSource>: View {
         // size (fading in with progress) and is the active card's close
         // button on the settled grid (this layer covers that card).
         .overlay(alignment: .topTrailing) {
-            if zoomTabId != TabsScreenSpace.newTabMarker || phase == .overview, let id = activeID {
+            // Not on a settled page: it is invisible there (opacity 0) and
+            // its `accessibilityHidden` did not keep it out of the page's
+            // accessibility tree (full verify 2026-10-19 D7, T-TABS-14).
+            if zoomTabId != TabsScreenSpace.newTabMarker || phase == .overview, !settled, let id = activeID {
                 Button {
                     if !UIAccessibility.isReduceMotionEnabled { cardSwipes.holdCountForTapClose(max(1, tabs.count)) }
                     Task { _ = await closeFromGrid(id) }
