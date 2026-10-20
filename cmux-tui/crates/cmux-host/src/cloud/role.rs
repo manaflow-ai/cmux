@@ -443,7 +443,7 @@ impl Worker {
                 return Ok(());
             }
             let now = self.now();
-            self.clients.retain(|c| !c.write_deadline.is_some_and(|at| at <= now));
+            self.clients.retain(|c| c.write_deadline.is_none_or(|at| at > now));
             self.fire_deadlines();
         }
     }
