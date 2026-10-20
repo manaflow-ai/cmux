@@ -294,14 +294,29 @@ pub struct LastTurn {
     pub ended_at: u64,
 }
 
+/// Also the page fields of `_acpmux/watch` (`hub::session_pages`).
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
 #[schemars(deny_unknown_fields)]
-pub struct SessionsParams {}
+pub struct SessionsParams {
+    /// Page size, at least 1. Without it the reply is the whole list.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(range(min = 1))]
+    pub limit: Option<u64>,
+    /// A previous reply's `nextCursor`: the page starts after that session.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<String>,
+}
 
 #[derive(Debug, Clone, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct SessionsResult {
-    /// Local and peer sessions, newest first.
+    /// Local and peer sessions, newest first, then by `sessionId`.
     pub sessions: Vec<SessionSummary>,
+    /// With `limit`: the cursor for the next page, null when the list is
+    /// done. Absent without `limit`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next_cursor: Option<Option<String>>,
 }
 
 /// A purged session: only its id is left.
