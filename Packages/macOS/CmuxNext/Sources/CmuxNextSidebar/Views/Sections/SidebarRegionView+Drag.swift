@@ -52,7 +52,7 @@ extension SidebarRegionView {
         let point = convert(event.locationInWindow, from: nil)
         if reorder == nil {
             let origin = convert(start, from: nil)
-            guard hypot(point.x - origin.x, point.y - origin.y) >= SidebarStyle.dragThreshold else { return false }
+            guard SidebarPress.movedPastThreshold(from: origin, to: point) else { return false }
             beginDrag(subject, at: origin)
         }
         updateDrag(to: point)

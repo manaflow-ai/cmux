@@ -43,7 +43,6 @@ enum SidebarStyle {
     static var avatarDiameter: CGFloat { iconBox }
     static var footerHeight: CGFloat { Metrics.sidebarRowHeightWithSubtitle - Metrics.space2 }
     static var autoscrollZone: CGFloat { Metrics.sidebarRowHeight }
-    static var dragThreshold: CGFloat { Metrics.space2 }
     /// Rows realized past each edge of the visible list. A scroll draws rows as they come in
     /// (one or two a frame), so a deep overscan bought nothing and cost every frame: each realized
     /// or parked row view is a subtree AppKit walks per scroll frame (tracking areas, layout,

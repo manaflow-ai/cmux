@@ -9,6 +9,16 @@ struct SidebarPress {
     var cancelled = false
     /// An item row that switched on mouse-down (`LayoutItemRef.activatesOnPress`): its release does not run it again.
     var activatedOnPress = false
+
+    /// How far a press moves before it drags (Leo 2026-10-20: a plain click must never start a drag). A click's
+    /// jitter on a trackpad reaches 4-5 pt; at the old 4 pt (`Metrics.space2`) such clicks lifted the row, or a
+    /// group header with all its members. Fixed points, not a density token: it is about the hand, not the layout.
+    static let dragThreshold: CGFloat = 6
+
+    /// The pointer at `point` has moved from `start` far enough to start a drag.
+    static func movedPastThreshold(from start: NSPoint, to point: NSPoint) -> Bool {
+        hypot(point.x - start.x, point.y - start.y) >= dragThreshold
+    }
 }
 
 /// MIDDLE-CLICK-CLOSES-WORKSPACE: a middle click on a sidebar workspace row
