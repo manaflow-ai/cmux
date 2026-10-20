@@ -99,6 +99,7 @@ import { ToolCards } from "./toolCards/ToolCards";
 import { uploadToMachine } from "./cloudUploads";
 import { useToolCards } from "./toolCards/toolCardStore";
 import { PermissionCard } from "./PermissionCard";
+import { cardTakesShortcuts } from "./permissionKeys";
 import { QuestionCard } from "./question/QuestionCard";
 import { QUESTION_RECORD } from "./question/record";
 import type { QuestionReply } from "./question/model";
@@ -2550,11 +2551,14 @@ function PermissionAsk({
   permission,
   harness,
   focusComposer,
+  shortcuts,
   waiting = 0,
 }: {
   permission: AcpmuxPermission;
   harness?: string;
   focusComposer?: () => void;
+  /// False while a permission group's panel takes the shortcuts (permissionKeys.ts `cardTakesShortcuts`).
+  shortcuts?: boolean;
   /// More asks waiting behind this one (snapshot `permissionsWaiting`).
   waiting?: number;
 }) {
@@ -2565,6 +2569,7 @@ function PermissionAsk({
         permission={permission}
         harness={harness}
         focusComposer={focusComposer}
+        shortcuts={shortcuts}
         onAnswer={answerPermission(permission)}
         waiting={waiting}
       />
@@ -5587,6 +5592,7 @@ function AcpmuxPane() {
             <PermissionAsk
               key={individualPermission.permissionId}
               permission={individualPermission}
+              shortcuts={cardTakesShortcuts(snapshot.permissionGroups)}
               waiting={snapshot.permissionsWaiting}
               harness={snapshot.summary?.harness}
               focusComposer={() => composerHandle.current?.focus()}

@@ -10,7 +10,7 @@ import { formatDuration } from "../conversation/turns";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { usePopover } from "../summary/usePopover";
-import { STATUS_LABEL, subagentStatus } from "../summary/SubagentStatusList";
+import { subagentStatus, subagentStatusLabel } from "../summary/SubagentStatusList";
 import { elapsed, running, useNow } from "./SubagentGroup";
 import type { Subagent } from "./subagentFold";
 
@@ -95,7 +95,8 @@ export const AgentsPill = memo(function AgentsPill({
               <ul>
                 {nestAgents(section.agents).map(({ agent, depth }) => {
                   const status = subagentStatus(agent, waiting);
-                  const state = status === "running" && agent.action ? agent.action : t(STATUS_LABEL[status]);
+                  const state =
+                    status === "running" && agent.action ? agent.action : t(subagentStatusLabel(agent, waiting));
                   return (
                     <li key={agent.id}>
                       <button
