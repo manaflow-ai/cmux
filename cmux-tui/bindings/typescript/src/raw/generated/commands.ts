@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 2a92c275db7a027c723c340c0ce4726a1392c28e4ff8e8160548cc2669c5ad93. */
+/* cmux-tui mux protocol 12, IR 9392cc109f8bc0c8c0f000289c18ad6bb03e6eb1a959c08811fc510fb5f822e0. */
 
 
 import type * as T from "./types.js";
@@ -2211,6 +2211,7 @@ export type SelectWorkspaceResult = T.EmptyResult;
 export interface SendRequest extends CmuxRequestBase {
   cmd: "send";
   "bytes"?: (T.Base64) | null;
+  "expect_foreground"?: (string) | null;
   "paste"?: boolean;
   "surface"?: (T.Id) | null;
   "terminal_id"?: (string) | null;

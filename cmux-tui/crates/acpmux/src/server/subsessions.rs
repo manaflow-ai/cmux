@@ -88,6 +88,7 @@ async fn handle(
                 harness: text("harness"),
                 model: text("model"),
                 cwd: text("cwd").map(PathBuf::from),
+                worktree: params.get("worktree").and_then(Value::as_bool).unwrap_or(false),
             };
             hub.start_subsession(&caller, req).await
         }
@@ -104,7 +105,7 @@ async fn handle(
         method::MUX_SUBSESSION_SEND => {
             let key = str_param(params, "sessionId")
                 .ok_or_else(|| RpcError::invalid_params("sessionId is required"))?;
-            let target = hub.subsession_target(&caller, key, true)?;
+            let target = hub.subsession_write_target(&caller, key, true)?;
             let text = str_param(params, "text").unwrap_or_default();
             let interrupt = params.get("interrupt").and_then(Value::as_bool).unwrap_or(false);
             let prompt_id = str_param(params, "promptId").map(str::to_owned);
@@ -113,7 +114,7 @@ async fn handle(
         method::MUX_SUBSESSION_STOP => {
             let key = str_param(params, "sessionId")
                 .ok_or_else(|| RpcError::invalid_params("sessionId is required"))?;
-            let target = hub.subsession_target(&caller, key, false)?;
+            let target = hub.subsession_write_target(&caller, key, false)?;
             let close = params.get("close").and_then(Value::as_bool).unwrap_or(false);
             hub.subsession_stop(&target, close).await
         }

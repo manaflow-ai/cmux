@@ -41,6 +41,7 @@ extension SettingsSchema {
         .union(AgentPaneEditedFilesSettingsSchema.agentSettableKeys)
 .union(["agentPane.zoom"]) // display-only agent surface zoom
         .union(AgentPaneComposerSettingsSchema.agentSettableKeys) // the composer's context ring and mic (looks only)
+        .union(HomeSettingsSchema.agentSettableKeys) // the Chief chat's bubble style (looks only)
 
     private static let agentSettableTable: Set<String> = [
         "window.titlebar",
@@ -194,6 +195,7 @@ extension SettingsSchema {
     public static let agentRefusedKeys: [String: AgentRefusal] = Dictionary(uniqueKeysWithValues: OmnibarSettingsSchema.privacyKeys.map { ($0, AgentRefusal.privacy) })
         .merging(refusedTable) { first, _ in first }
         .merging(BrowserPasswordsSettingsSchema.refusedKeys) { first, _ in first }
+        .merging(BrowserVerificationAutofillSettingsSchema.refusedKeys) { first, _ in first }
 
     private static let refusedTable: [String: AgentRefusal] = [
         // What leaves the machine: a device proof to the Cloud service (cx-ds09i).
