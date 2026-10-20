@@ -47,14 +47,18 @@ final class BrowserDesignModeController {
             return
         }
         guard var tracker = cards[key] else { return }
-        let made = tracker.receive(message, pageURL: page.state.url)
+        let change = tracker.change(message, pageURL: page.state.url)
         cards[key] = tracker
-        guard !made.isEmpty else { return }
+        guard !change.cards.isEmpty || !change.removed.isEmpty else { return }
         // The Chief's Home chat in the browser's window first (Home on the left, the page on the
         // right), else the workspace's last-used agent chat. A variation pick is sent to Home at once
         // through a304's `home.sendMessage`; other highlights wait in the composer.
         let home = HomeNativeTranscriptView.shown(in: page.contentView.window).flatMap { $0.canAttach ? $0 : nil }
         let chat = home == nil ? chatView(near: key) : nil
+        // A highlight removed on the page takes its card out of whichever composer holds it.
+        for id in change.removed { takeOut(id, home: home, chat: chat) }
+        let made = change.cards
+        guard !made.isEmpty else { return }
         let deliveries = made.map { BrowserDesignModeDelivery($0, homeShown: home != nil, agentChat: chat != nil) }
         if deliveries.contains(.nowhere) {
             services.cache.existingBrowser(key)?.chrome.showNotice(strings.noAgentChat)
@@ -65,17 +69,30 @@ final class BrowserDesignModeController {
         }
         let rest = zip(made, deliveries).filter { if case .sendToHome = $0.1 { return false } else { return true } }.map(\.0)
         guard !rest.isEmpty else { return }
-        Task { [weak page, weak chat, weak home] in
+        Task { [weak self, weak page, weak chat, weak home] in
             guard let page else { return }
             let shot = await Self.capture(page)
             for card in rest {
                 let png = shot.flatMap { Self.crop($0, to: card) }
                 if let home {
-                    Self.attach(card, png: png, to: home)
+                    await self?.attach(card, png: png, to: home)
                 } else if let chat {
+                    // The same id replaces an edited card's chips in the agent chat composer.
                     AgentPaneDesignSelection(id: card.id, name: card.name, text: card.text, png: png).push(to: chat)
                 }
             }
+        }
+    }
+
+    /// The Home draft attachments each card added, by card id, so an edit or a removal takes them back.
+    private var homeAttachments: [String: [String]] = [:]
+
+    /// Takes card `id` out of the Home composer (its attachments) or the agent chat composer (its chips).
+    private func takeOut(_ id: String, home: HomeNativeTranscriptView?, chat: AgentPaneView?) {
+        if let hashes = homeAttachments.removeValue(forKey: id) {
+            home?.removeDraftAttachments(hashes)
+        } else if let chat {
+            AgentPaneDesignSelection.remove(id, from: chat)
         }
     }
 
@@ -84,22 +101,24 @@ final class BrowserDesignModeController {
     nonisolated static let tempFiles = BrowserDesignModeTempFiles(
         root: FileManager.default.temporaryDirectory.appendingPathComponent("cmux-design-mode", isDirectory: true))
 
-    /// Gives the Home composer `card` as files, through its own intake (as a drop), then removes
-    /// them once the draft holds Home's own copies.
-    private static func attach(_ card: BrowserDesignModeCard, png: Data?, to home: HomeNativeTranscriptView) {
-        let folder = tempFiles.newFolder()
+    /// Gives the Home composer `card` as files, through its own intake (as a drop), replacing what an
+    /// earlier version of the card added, then removes the files once the draft holds Home's copies.
+    private func attach(_ card: BrowserDesignModeCard, png: Data?, to home: HomeNativeTranscriptView) async {
+        if let old = homeAttachments.removeValue(forKey: card.id) { home.removeDraftAttachments(old) }
+        let temp = Self.tempFiles, folder = temp.newFolder()
         guard let files = try? BrowserDesignModeCardFiles(folder: folder).write(card, png: png) else {
-            tempFiles.remove(folder)
+            temp.remove(folder)
             return
         }
+        await home.attachmentsReady()
+        let before = Set(home.draftAttachmentHashes)
         guard home.attachFiles(paths: files.map(\.path), via: .drop) == .accepted else {
-            tempFiles.remove(folder)
+            temp.remove(folder)
             return
         }
-        Task { [weak home] in
-            await home?.attachmentsReady()
-            tempFiles.remove(folder)
-        }
+        await home.attachmentsReady()
+        temp.remove(folder)
+        homeAttachments[card.id] = home.draftAttachmentHashes.filter { !before.contains($0) }
     }
 
     /// The agent chat in the workspace of browser tab `key` whose pane was focused last.
