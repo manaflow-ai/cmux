@@ -31,6 +31,7 @@ public struct CmuxNextApp {
         Self.prepareLaunchEnvironment()
         // Pure launch work (action catalog, string tables) overlaps AppKit's start.
         LaunchWarmup.start()
+        DebugTimings.markLaunch("main.warmup_started")
         var environment = AppEnvironment.current()
         environment.marksRun = true
         environment.sidebarSnapshotFile = SidebarSnapshotFile.standard(launch: environment.launch)
@@ -40,6 +41,7 @@ public struct CmuxNextApp {
         let prestart = DaemonService.prestart(launch: environment.launch, terminalEnvironment: environment.terminalEnvironment,
                                               terminalEnvironmentProvider: environment.terminalEnvironmentProvider(),
                                               resolvesShellIntegration: environment.resolvesShellIntegration)
+        DebugTimings.markLaunch("main.prestart")
         // DEV and NIGHTLY crash at an exception's throw site (cx-r3q), before NSApp exists.
         CrashOnExceptions.register()
         // Instantiate the CEF-ready subclass before anything touches NSApp.
@@ -48,8 +50,10 @@ public struct CmuxNextApp {
         let delegate = AppDelegate(environment: environment, daemonPrestart: prestart)
         app.delegate = delegate
         app.setActivationPolicy(.regular)
+        DebugTimings.markLaunch("main.nsapp")
         // WebKit and the agent pages' first web content process start while the windows build.
         AgentPaneView.startWarmup()
+        DebugTimings.markLaunch("main.run")
         // NSApplication.delegate is weak; keep the delegate alive for the run.
         withExtendedLifetime(delegate) {
             app.run()
