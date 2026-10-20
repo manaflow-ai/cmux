@@ -16,9 +16,14 @@ public final class MessagesLabHomeView: NSView {
     /// - Parameters:
     ///   - store: the app's HomeStore (one per daemon session; the view never creates one).
     ///   - wake: the engine clock's one-shot timer (CmuxNext: DemandTimer).
-    public init(store: HomeStore, conversation: ConversationID, me: ParticipantID, wake: any ChatWakeScheduler) {
+    ///   - diagrams: draws ```` ```mermaid ```` fences as diagram bubbles (CmuxNext: the
+    ///     JavaScriptCore Ondine renderer); nil keeps them as text.
+    public init(store: HomeStore, conversation: ConversationID, me: ParticipantID, wake: any ChatWakeScheduler,
+                diagrams: (any HomeDiagramRendering)? = nil) {
         MessagesLabHomeView.liveFormatting()
         HomeMarkdownPolicy.install()
+        // Before the projection maps its first messages, so a diagram never shows as text first.
+        if let diagrams { HomeDiagramRowProvider.install(diagrams) }
         controller = ChatController(wake: wake)
         // Link cards fetch their preview (title, image) for links the user or an agent sent (README).
         projection = HomeProjection(store: store, conversation: conversation, me: me, controller: controller,
@@ -150,11 +155,16 @@ public final class MessagesLabHomeView: NSView {
     }
 
     /// A click (or Space/Return with the keyboard) on the header's name
-    /// pill: cmux shows the Chief's settings sidebar there.
+    /// pill: cmux shows the Chief's settings popover under it.
     public var onNamePill: () -> Void {
         get { controller.host.paneHeader.onContact }
         set { controller.host.paneHeader.onContact = newValue }
     }
+
+    /// The header's name pill: the view a popover from it anchors to.
+    public var namePill: NSView { controller.host.paneHeader.pill }
+    /// The header views a click on which runs ``onNamePill``: the pill and the avatar.
+    public var namePillToggles: [NSView] { [controller.host.paneHeader.pill, controller.host.paneHeader.avatar] }
 
     /// The header avatar's text (one or two characters, an emoji); nil
     /// shows the conversation's initials.
