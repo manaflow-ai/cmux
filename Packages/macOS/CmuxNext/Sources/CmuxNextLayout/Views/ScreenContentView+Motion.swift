@@ -4,15 +4,18 @@ extension ScreenContentView {
     // MARK: Animation
     var hasMotion: Bool {
         if !isUserScrolling && (scroll.value != scroll.target || scroll.velocity != 0) { return true }
-        if rowsMoving { return true }
+        if rowsMoving || areasMoving { return true }
         return paneFrames.values.contains { $0.rect != $0.targetRect || $0.alpha.value != $0.alpha.target }
             || dividerFrames.values.contains { $0.rect != $0.targetRect || $0.alpha.value != $0.alpha.target }
     }
     /// Advances springs by `dt` with the frame's motion `policy`. Returns
     /// true while anything still moves. A screen at rest (a drag frame that
     /// moved nothing, a still pointer) does no work.
-    func step(_ dt: Double, policy: MotionPolicy = Motion.policy) -> Bool {
-        guard hasMotion || reportScrollOnSettle else { return false }
+    func step(_ dt: Double, policy: MotionPolicy = Motion.panes.policy) -> Bool {
+        guard hasMotion || reportScrollOnSettle else {
+            scrollRidesFrames = false
+            return false
+        }
         var moving = false
         let frameSpring = policy.spring(motionState.frameSpring), appear = policy.spring(.appear)
         // The panes and dividers are one motion: none settles on its own (an edge with a shorter
@@ -32,14 +35,18 @@ extension ScreenContentView {
         } else {
             moving = true
         }
-        if stepRows(dt, policy: policy) { moving = true }
+        // A close's camera shift (strip and rows) stays on the close spring until it rests, not only while
+        // the panes move: closing the last column moves no pane, and a switch to the scroll spring
+        // when the panes land changes the curve mid-motion (Lawrence 2026-10-20).
+        let cameraSpring = scrollRidesFrames ? frameSpring : policy.spring(.scroll)
+        if stepRows(dt, spring: cameraSpring) { moving = true }
+        if stepAreas(dt, policy: policy) { moving = true }
         if MotionTrace.isEnabled { MotionTrace.sample("layout.travel", Double(travelLeft)) }
         let panesMoving = paneFrames.values.contains { $0.rect != $0.targetRect }
-        if scrollRidesFrames, !panesMoving { scrollRidesFrames = false }
         // The panes landed: their terminals' grids go to the PTY once, now.
         if closing, !panesMoving { closing = false }
         if !isUserScrolling {
-            if scroll.advance(dt, parameters: scrollRidesFrames ? frameSpring : policy.spring(.scroll), epsilon: 0.25) {
+            if scroll.advance(dt, parameters: cameraSpring, epsilon: 0.25) {
                 moving = true
                 scrollbarFlash = true
             } else if reportScrollOnSettle {
@@ -47,21 +54,26 @@ extension ScreenContentView {
                 reportLeadingColumn()
             }
         }
+        if !moving { scrollRidesFrames = false }
         applyPresentation()
         // A zoom that landed in this frame lets go of the panes it covered.
         releaseCovered()
         return moving
     }
-    /// A close's first frame of the pane, divider and (riding them) camera springs, in the change
-    /// that starts them, once `syncScroll` placed the camera: the frame that drops the closed pane
-    /// already shows its neighbours covering some of its space.
-    func leadIfPending(_ dt: Double = 1.0 / 120, policy: MotionPolicy = Motion.policy) {
+    /// A close's first frame of the pane, divider and (riding them) camera springs, the strip's and
+    /// each row column's, in the change that starts them, once `syncScroll` placed the camera: the
+    /// frame that drops the closed pane already shows its neighbours covering some of its space,
+    /// and the shift the close needs (the last column or row closed) already under way.
+    func leadIfPending(_ dt: Double = 1.0 / 120, policy: MotionPolicy = Motion.panes.policy) {
         guard leadsFrame else { return }
         leadsFrame = false
         let frameSpring = policy.spring(motionState.frameSpring), appear = policy.spring(.appear)
         for key in Array(paneFrames.keys) { _ = paneFrames[key]?.advance(dt, parameters: frameSpring, alphaParameters: appear) }
         for key in Array(dividerFrames.keys) { _ = dividerFrames[key]?.advance(dt, parameters: frameSpring) }
-        if scrollRidesFrames, !isUserScrolling { _ = scroll.advance(dt, parameters: frameSpring, epsilon: 0.25) }
+        if scrollRidesFrames {
+            if !isUserScrolling { _ = scroll.advance(dt, parameters: frameSpring, epsilon: 0.25) }
+            _ = stepRows(dt, spring: frameSpring)
+        }
         applyPresentation()
     }
 
@@ -81,9 +93,9 @@ extension ScreenContentView {
             if arriving.contains(pane), frame.rect == frame.targetRect { arriving.remove(pane) }
             // On the pixel grid, each edge rounded on its own: two edges a whole number of pixels
             // apart (a pane and the divider beside it, both on the one spring) stay that far apart.
-            let placed = frame.rect.pixelEdges(scale).offsetBy(dx: scrolls ? strip : 0, dy: -rowOffset(of: pane))
+            let placed = frame.rect.pixelEdges(scale).offsetBy(dx: (scrolls ? strip : 0) - areaOffset(of: pane), dy: -rowOffset(of: pane))
             // Before the frame moves: chrome that re-checks itself on the move reads the rest.
-            let rest = frame.targetRect.offsetBy(dx: scrolls ? restStrip : 0, dy: -rowOffset(of: pane))
+            let rest = frame.targetRect.offsetBy(dx: (scrolls ? restStrip : 0) - areaOffset(of: pane), dy: -rowOffset(of: pane))
             host.restOffset = CGVector(dx: rest.minX - placed.minX, dy: rest.minY - placed.minY)
             // On a spring until the frame it lands at is laid out (`PaneHostView.isOnLayoutSpring`).
             let springing = frame.rect != frame.targetRect
@@ -110,10 +122,11 @@ extension ScreenContentView {
         for (kind, frame) in dividerFrames {
             guard let view = dividerViews[kind] else { continue }
             let scrolls = self.scrolls(kind)
-            view.frame = frame.rect.pixelEdges(scale).offsetBy(dx: scrolls ? strip : 0, dy: -rowOffset(of: kind))
+            view.frame = frame.rect.pixelEdges(scale).offsetBy(dx: (scrolls ? strip : 0) - areaOffset(of: kind), dy: -rowOffset(of: kind))
             view.alphaValue = frame.alpha.value
-            // A strip divider under a docked column must not take its clicks.
-            let hidden = scrolls && !geometry.dock.isEmpty && view.frame.intersection(uncovered).width < 0.5
+            // A strip divider under a docked column must not take its clicks, nor one scrolled out of its area.
+            let hidden = (scrolls && !geometry.dock.isEmpty && view.frame.intersection(uncovered).width < 0.5)
+                || areaWindow(of: kind).map { !$0.contains(CGPoint(x: view.frame.midX, y: view.frame.midY)) } == true
             if view.isHidden != hidden { view.isHidden = hidden }
         }
         updateScrollbar()
@@ -144,5 +157,13 @@ extension CGRect {
         let minX = (self.minX * scale).rounded() / scale, maxX = (self.maxX * scale).rounded() / scale
         let minY = (self.minY * scale).rounded() / scale, maxY = (self.maxY * scale).rounded() / scale
         return CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
+    }
+}
+
+extension ScreenContentView {
+    /// The local window of the scroll area holding a split divider, if any.
+    func areaWindow(of kind: DividerHandleView.Kind) -> CGRect? {
+        guard case let .split(id) = kind, let area = baseGeometry.scrollAreaOfSplit[id] else { return nil }
+        return displayedAreaWindow(area)
     }
 }

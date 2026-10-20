@@ -505,7 +505,7 @@ pane <selector> viewport width set
 pane <selector> tab ...
 
 tab list
-tab create terminal|browser
+tab create terminal|browser [--engine chromium|webkit]
 tab <selector> show|rename|move|focus|close
 tab <selector> terminal|browser ...
 
@@ -520,12 +520,12 @@ terminal <selector> output read [--after <offset>] [--max-bytes <n>]
 terminal <selector> process show|wait
 terminal <selector> viewport scroll
 
-browser open <url> | --url <url> [OPTIONS]
+browser open <url> | --url <url> [--engine chromium|webkit] [OPTIONS]
 browser list
 browser profile list
 browser profile create --name <name> [--color <value>] [--icon <value>] [--index <n>]
 browser profile move --profile <id-or-name> --index <n>
-browser profile open <url> | --url <url> --profile <id-or-name> [--engine webkit|cef] [--pane <selector>] [--title <value>] [--background true|false]
+browser profile open <url> | --url <url> --profile <id-or-name> [--engine chromium|webkit] [--pane <selector>] [--title <value>] [--background true|false]
 browser <selector> show|navigate|back|forward|reload|activate
 browser <selector> key|text|attach|close
 browser <selector> mouse|wheel --pointer-frame-seq <decimal>
@@ -563,6 +563,7 @@ conversation <conv_id> events [--tail <0..500>] [--cursor-rev <rev>]
 chief [-p <text>] [--timeout <seconds>] [--history <n>]   (also `cmux chief`)
 chief engine [--harness <h>] [--model <m>] [--effort <e>] [--speed <s>] [--compactor-speed <s>] [--compactor-harness <h>] [--compactor-model <m>] | chief stop [<subagent>]
 chief list | chief new --name <name> [<profile>] | chief edit <chief> [<profile>] [--clear-avatar] | chief delete <chief> | chief history <chief> [--limit <n>] | chief undo <chief> [--to-rev <n>]
+chief usage [--chief <id>] [--since <24h|7d|30d|90d|1y|all>] [--until <d>] [--bucket hour|day|week|month] [--by chief|agent|model|harness|kind] [--top <n>] [--json]
 agent list|message|inbox|report
 agent plugin list|install|use|update|remove
 pairing request list
@@ -711,7 +712,9 @@ the input stay at the bottom; Enter sends, Alt+Enter or Ctrl+J adds a line,
 Ctrl+D quits, Ctrl+C stops the Chief's turn (`chief.stop`), `/model` and
 `/effort` read or set the engine (`chief.engine.get|set`), `/help` lists the
 commands. `chief engine` and `chief stop` make one such call without the
-chat. `chief list`, `chief new`, `chief edit` and `chief delete` make the
+chat. `chief usage` reads this Mac's Chief usage ledgers (tokens by kind, cost, cache hit,
+turn time over time; plans/cmux-next/chief-usage-analytics-DESIGN.md) through the bundled
+`optchat-chief usage`; no daemon or brain needs to run. `chief list`, `chief new`, `chief edit` and `chief delete` make the
 person's Chiefs with the Chief registry (`chief.profile.list`, `chief.profile.create`,
 `chief.profile.update`, `chief.profile.delete`, `chief.profile.avatar.set`): `<chief>` is an id or one
 Chief's display name; `<profile>` is `--name`, `--role`, `--personality`,
@@ -902,6 +905,15 @@ daemon has loaded, it hands the agent's queued messages to Codex as one input
 and marks them `delivered`. Any other terminal agent's message, or one Codex
 cannot take now, stays `queued` until the agent's hooks take it. The command exits 1 when this message's own delivery failed; the message is
 stored either way, and problems with older messages are reported on stderr.
+
+`terminal <t> write` (and `send-keys -l`) into a terminal whose hooks report a
+live agent (any state but `done`) still types the text, then prints on stderr
+the `agent message` command that would send it as a message instead, with the
+caller's `--machine`, `--session` and `--socket`, and `--` before the text so
+text that starts with a dash stays the message. Text with a control character, a line
+break or more than 200 characters shows as `'…'`. `--quiet` prints no hint,
+`terminal <t> keys` gets none, and the lookup (`terminal.get`, `agent.list`)
+gives up silently when a read waits 500 ms.
 
 `agent message release` is the person's decision on a held delivery of
 `<message-id>` to `--recipient`: `--approve` queues it, `--decline` declines

@@ -54,6 +54,8 @@ public nonisolated enum MotionLoop: String, Sendable, CaseIterable {
     case pulse
     /// Pane attention flash (two blinks).
     case flash
+    /// Unmeasured progress: a segment crosses its track once.
+    case sweep
 
     /// Seconds per period, never under `minimumPeriod` (a Debug Settings
     /// override included).
@@ -72,6 +74,7 @@ public nonisolated enum MotionLoop: String, Sendable, CaseIterable {
         case .spinner: 0.1
         case .pulse: Self.shortestFlashCycle
         case .flash: Self.shortestFlashCycle * 2
+        case .sweep: Self.shortestFlashCycle
         }
     }
 }
