@@ -96,6 +96,10 @@ public nonisolated struct LayoutStyle: Hashable, Sendable {
     /// cmux.json `layout.rows` (plans/cmux-next/rows.md O1 to O3): off, a
     /// column's existing rows fit it like stacked panes and never scroll.
     public var rowsEnabled = true
+    /// cmux.json `layout.scrollAreas` (plans/cmux-next/scroll-areas-DESIGN.md G1 to G5): on, a
+    /// split tree that needs more width than its frame scrolls inside it instead of squashing
+    /// its panes, and columns keep their width. Off (default) is today's layout.
+    public var scrollAreasEnabled = false
     /// DEV layout model prototype (Debug Settings `layout.prototype.*`); off draws the real layout.
     public var prototype = LayoutPrototypeSettings()
 
@@ -147,6 +151,7 @@ extension LayoutStyle {
         style.minimumPaneContentSize = DesignSettings.shared.minimumPaneContentSize
         style.frameOrientation = DesignSettings.shared.frameOrientation
         style.rowsEnabled = DesignSettings.shared.layoutRows
+        style.scrollAreasEnabled = DesignSettings.shared.layoutScrollAreas
         // Debug Settings overrides only (no override keeps the base style's
         // value; the tunables' defaults equal the literals above).
         if let value = LayoutTunables.inactivePaneDimming.override { style.inactivePaneDimming = value }

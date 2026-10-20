@@ -7,8 +7,8 @@ import CmuxNextWakeups
 /// show and kept, with its spot, while hidden), and the notice bubble over it
 /// (`ChiefPetFeed`). A finished notice leaves on its own after
 /// `doneSeconds`; one that waits for the user stays until its tab is read.
-/// The rail's chevron folds and unfolds the notices; a click on the pet or the rail's compose
-/// opens the reply box (`ChiefPetController+Reply`).
+/// The rail's chevron folds and unfolds the notices; a click on the pet, the rail's compose or
+/// Message the Chief opens the reply box (`ChiefPetController+Reply`).
 @MainActor
 public final class ChiefPetController {
     /// How long a finished notice stays up.
@@ -35,6 +35,8 @@ public final class ChiefPetController {
     private(set) var mascot = ChiefPetMascot.initial
     /// The notices unfolded into a column (the rail's chevron); folded, a deck.
     private(set) var expanded = false
+    /// Message the Chief ran while the pet was off: the reply box opens once the setting shows it.
+    private(set) var summoned = false
 
     public init(makePanel: @escaping () -> ChiefPetPanel,
          actions: ChiefPetActions,
@@ -73,7 +75,12 @@ public final class ChiefPetController {
         if on {
             panelOnce().present()
             render(animated: false)
+            if summoned {
+                summoned = false
+                openReply()
+            }
         } else {
+            summoned = false
             // Turned off, it forgets what it showed: a later show starts from new arrivals.
             closeReply()
             feed.clear()
@@ -82,6 +89,19 @@ public final class ChiefPetController {
             render(animated: false)
             panel?.dismiss()
         }
+    }
+
+    /// Message the Chief (`home.messageChiefPet`): the pet with its reply box open, now while it shows,
+    /// else as soon as `home.chiefPetEnabled` turns it on (the action writes that first). An open box
+    /// stays open.
+    public func summon() {
+        guard isOn, let panel else {
+            summoned = true
+            return
+        }
+        // On but ordered out (the app hidden): it comes back now, not on some later sync.
+        if !panel.isVisible { panel.present() }
+        openReply()
     }
 
     /// An agent event that alerts here (the notification service's arrival).
@@ -137,7 +157,7 @@ public final class ChiefPetController {
         let drew = bubble.bubble.show(feed.notices, expanded: expanded)
         let height = ChiefPetBubblePanel.height(count: feed.notices.count, expanded: expanded)
         // With no screen (a display being reconfigured) it still takes its size, over the pet.
-        let visible = panel.screen?.visibleFrame ?? ChiefPetPanel.screenUnderPointer()?.visibleFrame ?? panel.frame.insetBy(dx: -4000, dy: -4000)
+        let visible = panel.visibleFrame() ?? ChiefPetPanel.screenUnderPointer()?.visibleFrame ?? panel.frame.insetBy(dx: -4000, dy: -4000)
         bubble.setFrame(ChiefPetBubblePanel.frame(height: height, over: panel.frame, in: visible), display: drew)
         guard !bubble.isVisible else { return }
         bubble.alphaValue = animated && drew ? 0 : 1
@@ -172,6 +192,11 @@ public final class ChiefPetController {
         made.pet.onDragEnded = { [weak self, weak made] in
             made?.saveOrigin()
             self?.render(animated: false)
+            self?.placeReply()
+        }
+        made.onKeptOnScreen = { [weak self] in
+            self?.render(animated: false)
+            self?.placeReply()
         }
         panel = made
         return made
