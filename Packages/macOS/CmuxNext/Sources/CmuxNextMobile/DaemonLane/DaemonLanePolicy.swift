@@ -71,8 +71,8 @@ public struct DaemonLanePolicy: Sendable {
         "new-browser-tab", "browser-frame-presented", "browser-mouse", "browser-mouse-guarded", "browser-wheel",
         "browser-wheel-guarded", "browser-key", "browser-key-press", "browser-insert-text", "browser-navigate",
         "browser-back", "browser-forward", "browser-reload", "browser-activate",
-        // Agent chat tabs: cnx-hostd sets this Mac's own agent tab host on
-        // them (cnx-ios/rust/crates/cnx-hostd/src/policy.rs); this lane has
+        // Agent chat tabs: cmux-mobile-host sets this Mac's own agent tab host on
+        // them (cmux-next-ios/rust/crates/cmux-mobile-host/src/policy.rs); this lane has
         // no such host, so it refuses them below.
         "new-conversation-tab",
         // Frontend projections: guarded per subject below.
@@ -85,10 +85,10 @@ public struct DaemonLanePolicy: Sendable {
     static let personalWorkspaceFields: [String] = ["session_id", "workspace_key", "index"]
 
     /// `cmux.protocol/2` operations a phone may send, each with the params it
-    /// may carry (cnx-ios/SECURITY.md "Workspace pins, order and Clear All
+    /// may carry (cmux-next-ios/SECURITY.md "Workspace pins, order and Clear All
     /// Notifications" and "Workspace groups"). Every other resource operation
     /// is refused. Group edits name a personal group (`workspace_group.update`,
-    /// `.delete`) or place a workspace (`workspace.place`): cnx-hostd confirms
+    /// `.delete`) or place a workspace (`workspace.place`): cmux-mobile-host confirms
     /// those against the Mac's state, so this lane refuses them
     /// (`needsOwnershipCheck`); a new group (`workspace_group.create`) names
     /// no existing object.
@@ -216,7 +216,7 @@ public struct DaemonLanePolicy: Sendable {
 
     /// Why a saved tab group line is refused, or nil: `saved` is a short identifier, a
     /// reopen names its `pane` (a number or a short public id), and `transaction` is
-    /// 1-128 printable ASCII characters (cnx-hostd `saved_group_refusal`).
+    /// 1-128 printable ASCII characters (cmux-mobile-host `saved_group_refusal`).
     static func savedGroupRefusal(_ object: [String: Any], reopen: Bool) -> String? {
         guard let saved = object["saved"] as? String, shortIdentifier(saved) else {
             return "a saved tab group is named by its id"
@@ -273,7 +273,7 @@ public struct DaemonLanePolicy: Sendable {
         return number.int64Value >= 0
     }
 
-    /// Lines cnx-hostd sends only after the Mac's own state confirms the phone's
+    /// Lines cmux-mobile-host sends only after the Mac's own state confirms the phone's
     /// object (`services::owned_check`: a live workspace of this session, a pinned
     /// workspace tile). This lane has no such check, so it refuses them.
     static func needsOwnershipCheck(_ object: [String: Any]) -> Bool {
