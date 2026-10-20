@@ -7,24 +7,29 @@ import Security
 /// `app call updates.rollback`, and offers such as the pulled-build banner). Its own type, not an
 /// `UpdaterService` extension, so the updater does not grow.
 @MainActor
-public enum UpdateDropBack {
+public struct UpdateDropBack {
+    public let updater: UpdaterService
+
+    public init(_ updater: UpdaterService) {
+        self.updater = updater
+    }
+
     /// Rolls back to `build` (nil: the newest kept build). With `checkOnly` it only answers
     /// whether the rollback would run. A refusal throws ``RollbackRefusal`` (its `message` is
     /// what the user reads); otherwise the bundles swap, the build left behind is no longer
     /// offered, and the app relaunches into the kept build with every session kept.
     @discardableResult
-    public static func run(_ updater: UpdaterService, to build: String? = nil, checkOnly: Bool = false,
-                           stateDirectories: [URL?]) async throws -> KeptVersion {
+    public func run(to build: String? = nil, checkOnly: Bool = false, stateDirectories: [URL?]) async throws -> KeptVersion {
         let inputs = await updater.rollbackInputs(stateDirectories: stateDirectories)
         if checkOnly { return try updater.rollbackDecision(to: build, inputs: inputs).get() }
-        return try updater.rollback(to: build, inputs: inputs, relaunch: relaunchAfterExit)
+        return try updater.rollback(to: build, inputs: inputs, relaunch: Self.relaunchAfterExit)
     }
 
-    /// ``run(_:to:checkOnly:stateDirectories:)`` for an action: nil when it ran, else what the
+    /// ``run(to:checkOnly:stateDirectories:)`` for an action: nil when it ran, else what the
     /// user reads (a refusal's message, or the swap's error).
-    public static func failure(_ updater: UpdaterService, to build: String?, stateDirectories: [URL?]) async -> String? {
+    public func failure(to build: String?, stateDirectories: [URL?]) async -> String? {
         do {
-            try await run(updater, to: build, stateDirectories: stateDirectories)
+            try await run(to: build, stateDirectories: stateDirectories)
             return nil
         } catch let refusal as RollbackRefusal {
             return refusal.message
