@@ -72,26 +72,26 @@ public nonisolated enum ScreenshotTool: String, Sendable, CaseIterable, Hashable
     }
 
     /// Which files the tool's save folder holds.
-    var rule: FileGridScanRule {
+    var rule: ScreenshotScanRule {
         switch self {
-        case .kap, .cap: FileGridScanRule(kinds: [.image, .video])
-        case .quickTime: FileGridScanRule(kinds: [.video], namePrefixes: Self.recordingPrefixes)
-        case .snagit: FileGridScanRule(extraImageExtensions: ["snagx"])
-        default: FileGridScanRule()
+        case .kap, .cap: ScreenshotScanRule(kinds: [.image, .video])
+        case .quickTime: ScreenshotScanRule(kinds: [.video], namePrefixes: Self.recordingPrefixes)
+        case .snagit: ScreenshotScanRule(extraImageExtensions: ["snagx"])
+        default: ScreenshotScanRule()
         }
     }
 
     /// Folders the tool always uses, `~/`-relative, with their rule; `history` marks a capture
     /// history (every capture, saved or only copied).
-    var fixedFolders: [(path: String, rule: FileGridScanRule, history: Bool)] {
+    var fixedFolders: [(path: String, rule: ScreenshotScanRule, history: Bool)] {
         switch self {
         case .cleanShotX:
-            [("Library/Application Support/CleanShot/media", FileGridScanRule(depth: 1, folderPrefix: "media_"), true)]
+            [("Library/Application Support/CleanShot/media", ScreenshotScanRule(depth: 1, folderPrefix: "media_"), true)]
         case .snagit:
-            [("Library/Group Containers/7TQL462TU8.com.techsmith.snagit/Snagit/Autosave", FileGridScanRule(extraImageExtensions: ["snagx"], depth: 1), true)]
-        case .monosnap: [("Pictures/Monosnap", FileGridScanRule(), false)]
-        case .kap: [("Movies/Kaptures", FileGridScanRule(kinds: [.image, .video]), false)]
-        case .cap: [("Library/Application Support/so.cap.desktop/recordings", FileGridScanRule(kinds: [.video], depth: 3), true)]
+            [("Library/Group Containers/7TQL462TU8.com.techsmith.snagit/Snagit/Autosave", ScreenshotScanRule(extraImageExtensions: ["snagx"], depth: 1), true)]
+        case .monosnap: [("Pictures/Monosnap", ScreenshotScanRule(), false)]
+        case .kap: [("Movies/Kaptures", ScreenshotScanRule(kinds: [.image, .video]), false)]
+        case .cap: [("Library/Application Support/so.cap.desktop/recordings", ScreenshotScanRule(kinds: [.video], depth: 3), true)]
         case .quickTime: [("Movies", rule, false)]
         default: []
         }

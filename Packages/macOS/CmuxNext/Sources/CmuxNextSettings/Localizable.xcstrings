@@ -793,6 +793,270 @@
         }
       }
     },
+    "settings.tabs.newTabNowPlaying": {
+      "comment": "Settings: toggle that shows the Now Playing player (the music playing on this Mac) on the New Tab page.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إظهار قيد التشغيل الآن في علامة التبويب الجديدة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikaži Sada se reproducira na novoj kartici"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis Afspilles nu på ny fane"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "„Aktuelle Wiedergabe“ im neuen Tab anzeigen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Now Playing on New Tab"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar Reproduciendo ahora en la nueva pestaña"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher À l’écoute dans le nouvel onglet"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra In riproduzione nella nuova scheda"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新規タブに再生中を表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្ហាញ​អ្វី​ដែល​កំពុង​ចាក់​នៅ​លើ​ផ្ទាំង​ថ្មី"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 탭에 지금 재생 중 보기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis Spilles nå på ny fane"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokaż Teraz odtwarzane na nowej karcie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar Tocando Agora na nova aba"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показывать «Сейчас играет» в новой вкладке"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดงกำลังเล่นบนแท็บใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yeni Sekmede Şimdi Çalıyor’u Göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показувати «Зараз грає» в новій вкладці"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hiện Đang phát trên thẻ mới"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在新标签页上显示“正在播放”"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在新分頁上顯示「正在播放」"
+          }
+        }
+      }
+    },
+    "settings.tabs.newTabNowPlaying.help": {
+      "comment": "Settings: help under Show Now Playing on New Tab.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مشغّل لما يتم تشغيله، في صفحة علامة التبويب الجديدة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plejer za ono što se reproducira, na stranici nove kartice."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En afspiller til det, der afspilles, på siden for ny fane."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Player für die aktuelle Wiedergabe auf der Seite „Neuer Tab“."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A player for what is playing, on the New Tab page."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un reproductor de lo que está sonando, en la página de nueva pestaña."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un lecteur pour ce qui est en cours de lecture, sur la page du nouvel onglet."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un player per ciò che è in riproduzione, nella pagina della nuova scheda."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再生中のメディアのプレーヤー。新規タブのページに表示されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កម្មវិធី​ចាក់​សម្រាប់​អ្វី​ដែល​កំពុង​ចាក់ នៅ​លើ​ទំព័រ​ផ្ទាំង​ថ្មី។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "재생 중인 항목의 플레이어로, 새 탭 페이지에 표시됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En spiller for det som spilles, på siden for ny fane."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odtwarzacz tego, co gra, na stronie nowej karty."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um player do que está tocando, na página da nova aba."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Плеер для того, что сейчас играет, на странице новой вкладки."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เครื่องเล่นสำหรับสิ่งที่กำลังเล่น บนหน้าแท็บใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Çalan içerik için bir oynatıcı; yeni sekme sayfasında."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Плеєр для того, що зараз грає, на сторінці нової вкладки."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trình phát cho nội dung đang phát, trên trang thẻ mới."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在播放内容的播放器，位于新标签页。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在播放內容的播放器，位於新分頁。"
+          }
+        }
+      }
+    },
     "settings.sidebar.nowPlaying.enabled": {
       "extractionState": "manual",
       "localizations": {
@@ -930,127 +1194,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "A player for what is playing, at the bottom of the sidebar and on the new chat page."
+            "value": "A player for what is playing, at the bottom of the sidebar."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "مشغّل لما يتم تشغيله الآن، أسفل الشريط الجانبي وفي صفحة الدردشة الجديدة."
+            "value": "مشغّل لما يتم تشغيله الآن، أسفل الشريط الجانبي."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Plejer za ono što se reproducira, na dnu bočne trake i na stranici novog chata."
+            "value": "Plejer za ono što se reproducira, na dnu bočne trake."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "En afspiller til det, der afspilles, nederst i sidepanelet og på siden til ny chat."
+            "value": "En afspiller til det, der afspilles, nederst i sidepanelet."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ein Player für die aktuelle Wiedergabe, unten in der Seitenleiste und auf der Seite für einen neuen Chat."
+            "value": "Ein Player für die aktuelle Wiedergabe, unten in der Seitenleiste."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un reproductor de lo que está sonando, en la parte inferior de la barra lateral y en la página de chat nuevo."
+            "value": "Un reproductor de lo que está sonando, en la parte inferior de la barra lateral."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un lecteur pour ce qui est en cours de lecture, en bas de la barre latérale et sur la page de nouvelle discussion."
+            "value": "Un lecteur pour ce qui est en cours de lecture, en bas de la barre latérale."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un player per ciò che è in riproduzione, in fondo alla barra laterale e nella pagina della nuova chat."
+            "value": "Un player per ciò che è in riproduzione, in fondo alla barra laterale."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "再生中のメディアのプレーヤー。サイドバーの下部と新しいチャットのページに表示されます。"
+            "value": "再生中のメディアのプレーヤー。サイドバーの下部に表示されます。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "កម្មវិធី​ចាក់​សម្រាប់​អ្វី​ដែល​កំពុង​ចាក់ នៅ​ផ្នែក​ខាង​ក្រោម​របារ​ចំហៀង និង​នៅ​លើ​ទំព័រ​ជជែក​ថ្មី។"
+            "value": "កម្មវិធី​ចាក់​សម្រាប់​អ្វី​ដែល​កំពុង​ចាក់ នៅ​ផ្នែក​ខាង​ក្រោម​របារ​ចំហៀង។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "재생 중인 항목의 플레이어로, 사이드바 하단과 새 채팅 페이지에 표시됩니다."
+            "value": "재생 중인 항목의 플레이어로, 사이드바 하단에 표시됩니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "En spiller for det som spilles, nederst i sidepanelet og på siden for ny chat."
+            "value": "En spiller for det som spilles, nederst i sidepanelet."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Odtwarzacz tego, co gra, na dole paska bocznego i na stronie nowego czatu."
+            "value": "Odtwarzacz tego, co gra, na dole paska bocznego."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Um player do que está tocando, na parte inferior da barra lateral e na página de novo chat."
+            "value": "Um player do que está tocando, na parte inferior da barra lateral."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Плеер для того, что сейчас играет, внизу боковой панели и на странице нового чата."
+            "value": "Плеер для того, что сейчас играет, внизу боковой панели."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เครื่องเล่นสำหรับสิ่งที่กำลังเล่น ที่ด้านล่างของแถบด้านข้างและในหน้าแชทใหม่"
+            "value": "เครื่องเล่นสำหรับสิ่งที่กำลังเล่น ที่ด้านล่างของแถบด้านข้าง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Çalan içerik için bir oynatıcı; kenar çubuğunun altında ve yeni sohbet sayfasında."
+            "value": "Çalan içerik için bir oynatıcı; kenar çubuğunun altında."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Плеєр для того, що зараз грає, унизу бічної панелі та на сторінці нового чату."
+            "value": "Плеєр для того, що зараз грає, унизу бічної панелі."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Trình phát cho nội dung đang phát, ở cuối thanh bên và trên trang trò chuyện mới."
+            "value": "Trình phát cho nội dung đang phát, ở cuối thanh bên."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "正在播放内容的播放器，位于边栏底部和新聊天页面。"
+            "value": "正在播放内容的播放器，位于边栏底部。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "正在播放內容的播放器，位於側邊欄底部和新聊天頁面。"
+            "value": "正在播放內容的播放器，位於側邊欄底部。"
           }
         }
       }
@@ -130117,6 +130381,2773 @@
           "stringUnit": {
             "state": "translated",
             "value": "同一窗格中的分頁"
+          }
+        }
+      }
+    },
+    "settings.category.mobile": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mobile"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الجوال"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mobilni"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mobil"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mobil"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Móvil"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mobile"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mobile"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "モバイル"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទូរសព្ទចល័ត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "모바일"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mobil"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Urządzenia mobilne"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Celular"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Мобильные"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "มือถือ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mobil"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Мобільні"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Di động"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "移动设备"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "行動裝置"
+          }
+        }
+      }
+    },
+    "settings.group.mobile": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhone"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone"
+          }
+        }
+      }
+    },
+    "settings.mobile.allowIPhoneConnections": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow iPhone Connections"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "السماح باتصالات iPhone"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dozvoli iPhone veze"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tillad iPhone-forbindelser"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone-Verbindungen erlauben"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Permitir conexiones de iPhone"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Autoriser les connexions iPhone"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Consenti connessioni da iPhone"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone からの接続を許可"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "អនុញ្ញាតការតភ្ជាប់ iPhone"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone 연결 허용"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tillat iPhone-tilkoblinger"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zezwalaj na połączenia z iPhone’a"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Permitir conexões do iPhone"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Разрешить подключения iPhone"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "อนุญาตการเชื่อมต่อจาก iPhone"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone bağlantılarına izin ver"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Дозволити підключення iPhone"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cho phép kết nối từ iPhone"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "允许 iPhone 连接"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "允許 iPhone 連線"
+          }
+        }
+      }
+    },
+    "settings.mobile.allowIPhoneConnections.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lets the cmux app on your iPhone open this Mac's workspaces, terminals and agent chats while you are signed in with the same account."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يتيح لتطبيق cmux على جهاز iPhone فتح مساحات العمل والطرفيات ومحادثات الوكلاء على هذا الـ Mac أثناء تسجيل دخولك بالحساب نفسه."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dozvoljava aplikaciji cmux na vašem iPhoneu da otvara radne prostore, terminale i razgovore s agentima na ovom Macu dok ste prijavljeni istim računom."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lader cmux-appen på din iPhone åbne denne Macs arbejdsområder, terminaler og agentchats, mens du er logget ind med samme konto."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Erlaubt der App cmux auf deinem iPhone, die Arbeitsbereiche, Terminals und Agent-Chats dieses Macs zu öffnen, solange du mit demselben Konto angemeldet bist."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Permite que la app cmux de tu iPhone abra los espacios de trabajo, terminales y chats de agentes de este Mac mientras tengas la sesión iniciada con la misma cuenta."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Permet à l’app cmux de votre iPhone d’ouvrir les espaces de travail, terminaux et discussions d’agents de ce Mac tant que vous êtes connecté avec le même compte."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Consente all’app cmux sul tuo iPhone di aprire spazi di lavoro, terminali e chat degli agenti di questo Mac mentre hai effettuato l’accesso con lo stesso account."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "同じアカウントでサインインしている間、iPhone の cmux アプリからこの Mac のワークスペース、ターミナル、エージェントチャットを開けます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "អនុញ្ញាតឱ្យកម្មវិធី cmux នៅលើ iPhone របស់អ្នកបើកកន្លែងធ្វើការ ទែមីណាល់ និងការជជែកជាមួយភ្នាក់ងាររបស់ Mac នេះ ខណៈពេលអ្នកបានចូលដោយគណនីដូចគ្នា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "같은 계정으로 로그인한 동안 iPhone의 cmux 앱에서 이 Mac의 작업 공간, 터미널, 에이전트 채팅을 열 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lar cmux-appen på iPhonen din åpne denne Macens arbeidsområder, terminaler og agentchatter mens du er logget på med samme konto."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pozwala aplikacji cmux na iPhonie otwierać obszary robocze, terminale i czaty z agentami na tym Macu, gdy jesteś zalogowany tym samym kontem."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Permite que o app cmux no seu iPhone abra os espaços de trabalho, terminais e chats de agentes deste Mac enquanto você estiver conectado com a mesma conta."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Позволяет приложению cmux на iPhone открывать рабочие пространства, терминалы и чаты с агентами этого Mac, пока вы вошли в ту же учётную запись."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ให้แอป cmux บน iPhone ของคุณเปิดพื้นที่ทำงาน เทอร์มินัล และแชทกับเอเจนต์ของ Mac เครื่องนี้ได้ขณะที่คุณลงชื่อเข้าใช้ด้วยบัญชีเดียวกัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aynı hesapla oturum açtığınız sürece iPhone’unuzdaki cmux uygulamasının bu Mac’in çalışma alanlarını, terminallerini ve ajan sohbetlerini açmasına izin verir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Дозволяє застосунку cmux на iPhone відкривати робочі простори, термінали та чати з агентами цього Mac, поки ви в тому самому обліковому записі."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cho phép ứng dụng cmux trên iPhone mở không gian làm việc, terminal và cuộc trò chuyện với tác nhân của máy Mac này khi bạn đăng nhập cùng tài khoản."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "使用同一账户登录时，iPhone 上的 cmux 应用可以打开这台 Mac 的工作区、终端和智能体聊天。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "使用同一帳號登入時，iPhone 上的 cmux App 可以打開這台 Mac 的工作區、終端機和代理程式聊天。"
+          }
+        }
+      }
+    },
+    "settings.mobile.allowIPhoneConnections.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lets your iPhone reach this Mac"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يتيح لجهاز iPhone الوصول إلى هذا الـ Mac"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Omogućava iPhoneu pristup ovom Macu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lader din iPhone nå denne Mac"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lässt dein iPhone diesen Mac erreichen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Permite que tu iPhone acceda a este Mac"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Permet à votre iPhone d’accéder à ce Mac"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Consente al tuo iPhone di raggiungere questo Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone からこの Mac に接続できます"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "អនុញ្ញាតឱ្យ iPhone របស់អ្នកចូលដល់ Mac នេះ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone에서 이 Mac에 연결할 수 있습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lar iPhonen nå denne Macen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pozwala iPhone’owi łączyć się z tym Makiem"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Permite que seu iPhone acesse este Mac"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Позволяет iPhone подключаться к этому Mac"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ให้ iPhone ของคุณเข้าถึง Mac เครื่องนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone’unuzun bu Mac’e erişmesine izin verir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Дозволяє iPhone підключатися до цього Mac"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cho phép iPhone truy cập máy Mac này"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "允许 iPhone 访问这台 Mac"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "允許 iPhone 存取這台 Mac"
+          }
+        }
+      }
+    },
+    "settings.agentPane.display.width": {
+      "comment": "Settings: the agent chat's and Markdown viewer's display rows",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat Text Width"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عرض نص الدردشة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Širina teksta razgovora"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chattens tekstbredde"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Textbreite im Chat"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ancho del texto del chat"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Largeur du texte du chat"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Larghezza testo della chat"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チャットのテキスト幅"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទទឹងអត្ថបទជជែក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "채팅 텍스트 너비"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tekstbredde i chat"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Szerokość tekstu czatu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Largura do texto do chat"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ширина текста чата"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ความกว้างข้อความแชท"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sohbet Metni Genişliği"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ширина тексту чату"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Độ rộng văn bản trò chuyện"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聊天文本宽度"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聊天文字寬度"
+          }
+        }
+      }
+    },
+    "settings.agentPane.display.width.help": {
+      "comment": "Settings: the agent chat's and Markdown viewer's display rows",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The widest the chat's column gets. On a wider pane the chat stays centered."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أقصى عرض لعمود الدردشة. في جزء أعرض تبقى الدردشة في المنتصف."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Najveća širina kolone razgovora. U širem panelu razgovor ostaje centriran."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den største bredde chattens kolonne får. I en bredere rude forbliver chatten centreret."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die größte Breite der Chat-Spalte. In einem breiteren Bereich bleibt der Chat zentriert."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El ancho máximo de la columna del chat. En un panel más ancho, el chat queda centrado."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La largeur maximale de la colonne du chat. Dans un panneau plus large, le chat reste centré."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La larghezza massima della colonna della chat. In un riquadro più largo la chat resta centrata."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チャット列の最大幅。ペインがこれより広いと、チャットは中央に表示されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទទឹងធំបំផុតនៃជួរឈរជជែក។ នៅលើផ្ទាំងធំជាងនេះ ការជជែកនៅកណ្តាល។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "채팅 열의 최대 너비입니다. 창이 더 넓으면 채팅이 가운데에 표시됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den største bredden chattekolonnen får. I en bredere rute holdes chatten midtstilt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Największa szerokość kolumny czatu. W szerszym panelu czat pozostaje wyśrodkowany."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A largura máxima da coluna do chat. Em um painel mais largo, o chat fica centralizado."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Наибольшая ширина колонки чата. На более широкой панели чат остаётся по центру."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ความกว้างสูงสุดของคอลัมน์แชท ในบานที่กว้างกว่า แชทจะอยู่ตรงกลาง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sohbet sütununun en fazla genişliği. Daha geniş bir bölmede sohbet ortada kalır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Найбільша ширина колонки чату. На ширшій панелі чат залишається по центру."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Độ rộng tối đa của cột trò chuyện. Trên khung rộng hơn, trò chuyện được căn giữa."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聊天栏的最大宽度。窗格更宽时，聊天保持居中。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聊天欄的最大寬度。窗格更寬時，聊天保持置中。"
+          }
+        }
+      }
+    },
+    "settings.agentPane.display.fullWidth": {
+      "comment": "Settings: the agent chat's and Markdown viewer's display rows",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat Full Width"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الدردشة بالعرض الكامل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Razgovor punom širinom"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat i fuld bredde"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat in voller Breite"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat a ancho completo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat en pleine largeur"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat a larghezza piena"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チャットを全幅で表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ជជែកទទឹងពេញ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "채팅 전체 너비"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat i full bredde"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Czat na pełną szerokość"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat em largura total"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чат на всю ширину"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แชทเต็มความกว้าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sohbet Tam Genişlik"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чат на всю ширину"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trò chuyện toàn chiều rộng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聊天全宽"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聊天全寬"
+          }
+        }
+      }
+    },
+    "settings.agentPane.display.fullWidth.help": {
+      "comment": "Settings: the agent chat's and Markdown viewer's display rows",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The chat fills the whole pane instead of the text width."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تملأ الدردشة الجزء كله بدلًا من عرض النص."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Razgovor ispunjava cijeli panel umjesto širine teksta."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chatten fylder hele ruden i stedet for tekstbredden."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Chat füllt den ganzen Bereich statt der Textbreite."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El chat ocupa todo el panel en lugar del ancho del texto."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le chat occupe tout le panneau au lieu de la largeur du texte."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La chat riempie l'intero riquadro invece della larghezza del testo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チャットがテキスト幅ではなくペイン全体に広がります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការជជែកពេញផ្ទាំងទាំងមូល ជំនួសឱ្យទទឹងអត្ថបទ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "채팅이 텍스트 너비 대신 창 전체를 채웁니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chatten fyller hele ruten i stedet for tekstbredden."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Czat wypełnia cały panel zamiast szerokości tekstu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O chat ocupa todo o painel em vez da largura do texto."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чат занимает всю панель вместо ширины текста."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แชทเต็มทั้งบานแทนความกว้างข้อความ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sohbet, metin genişliği yerine bölmenin tamamını kaplar."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чат займає всю панель замість ширини тексту."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trò chuyện lấp đầy cả khung thay vì độ rộng văn bản."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聊天填满整个窗格，而不是文本宽度。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聊天填滿整個窗格，而非文字寬度。"
+          }
+        }
+      }
+    },
+    "settings.agentPane.display.font": {
+      "comment": "Settings: the agent chat's and Markdown viewer's display rows",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat Font"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "خط الدردشة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Font razgovora"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chattens skrifttype"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat-Schrift"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fuente del chat"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Police du chat"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Font della chat"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チャットのフォント"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពុម្ពអក្សរជជែក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "채팅 글꼴"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skrift i chat"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Czcionka czatu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fonte do chat"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Шрифт чата"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แบบอักษรแชท"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sohbet Yazı Tipi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Шрифт чату"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Phông chữ trò chuyện"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聊天字体"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聊天字體"
+          }
+        }
+      }
+    },
+    "settings.choice.agentChatFontMarkdown": {
+      "comment": "Settings: the agent chat's and Markdown viewer's display rows",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Same as Markdown Viewer"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مثل عارض Markdown"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kao Markdown preglednik"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Som Markdown-fremviseren"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wie Markdown-Ansicht"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Igual que el visor de Markdown"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comme le lecteur Markdown"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Come il visualizzatore Markdown"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Markdownビューアと同じ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ដូចកម្មវិធីមើល Markdown"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Markdown 뷰어와 동일"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Som Markdown-visningen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jak podgląd Markdown"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Igual ao visualizador de Markdown"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Как в просмотре Markdown"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เหมือนตัวแสดง Markdown"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Markdown Görüntüleyici ile Aynı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Як у переглядачі Markdown"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Giống trình xem Markdown"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "与 Markdown 查看器相同"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "與 Markdown 檢視器相同"
+          }
+        }
+      }
+    },
+    "settings.agentPane.display.fontSize": {
+      "comment": "Settings: the agent chat's and Markdown viewer's display rows",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat Font Size"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حجم خط الدردشة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Veličina fonta razgovora"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chattens skriftstørrelse"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schriftgröße im Chat"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tamaño de fuente del chat"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Taille de police du chat"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dimensione font della chat"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チャットのフォントサイズ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទំហំពុម្ពអក្សរជជែក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "채팅 글꼴 크기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skriftstørrelse i chat"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rozmiar czcionki czatu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tamanho da fonte do chat"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Размер шрифта чата"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ขนาดแบบอักษรแชท"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sohbet Yazı Boyutu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Розмір шрифту чату"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cỡ chữ trò chuyện"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聊天字体大小"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聊天字體大小"
+          }
+        }
+      }
+    },
+    "settings.agentPane.display.lineHeight": {
+      "comment": "Settings: the agent chat's and Markdown viewer's display rows",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat Line Height"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ارتفاع سطر الدردشة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Visina reda razgovora"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chattens linjehøjde"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeilenhöhe im Chat"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Altura de línea del chat"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hauteur de ligne du chat"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Altezza riga della chat"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チャットの行の高さ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កម្ពស់បន្ទាត់ជជែក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "채팅 줄 높이"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Linjehøyde i chat"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wysokość wiersza czatu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Altura da linha do chat"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Межстрочный интервал чата"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ความสูงบรรทัดแชท"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sohbet Satır Yüksekliği"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Міжрядковий інтервал чату"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chiều cao dòng trò chuyện"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聊天行高"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聊天行高"
+          }
+        }
+      }
+    },
+    "settings.agentPane.display.codeFont": {
+      "comment": "Settings: the agent chat's and Markdown viewer's display rows",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat Code Font"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "خط الشيفرة في الدردشة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Font koda u razgovoru"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chattens kodeskrifttype"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Code-Schrift im Chat"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fuente del código del chat"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Police du code du chat"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Font del codice della chat"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チャットのコードのフォント"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពុម្ពអក្សរកូដក្នុងជជែក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "채팅 코드 글꼴"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kodeskrift i chat"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Czcionka kodu czatu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fonte do código do chat"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Шрифт кода в чате"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แบบอักษรโค้ดในแชท"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sohbet Kod Yazı Tipi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Шрифт коду в чаті"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Phông chữ mã trò chuyện"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聊天代码字体"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聊天程式碼字體"
+          }
+        }
+      }
+    },
+    "settings.agentPane.display.codeFont.help": {
+      "comment": "Settings: the agent chat's and Markdown viewer's display rows",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The font of code in the chat. Empty uses the Markdown viewer's code font, then the terminal font."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "خط الشيفرة في الدردشة. إذا كان فارغًا فيُستخدم خط الشيفرة في عارض Markdown، ثم خط الطرفية."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Font koda u razgovoru. Prazno koristi font koda Markdown preglednika, zatim font terminala."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skrifttypen til kode i chatten. Tom bruger Markdown-fremviserens kodeskrifttype og derefter terminalens."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Schrift für Code im Chat. Leer nutzt die Code-Schrift der Markdown-Ansicht, sonst die des Terminals."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La fuente del código en el chat. Vacío usa la fuente de código del visor de Markdown y luego la del terminal."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La police du code dans le chat. Vide utilise la police du code du lecteur Markdown, puis celle du terminal."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il font del codice nella chat. Vuoto usa il font del codice del visualizzatore Markdown, poi quello del terminale."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チャット内のコードのフォント。空の場合はMarkdownビューアのコードのフォント、次にターミナルのフォントを使います。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពុម្ពអក្សរកូដក្នុងជជែក។ ទទេ ប្រើពុម្ពអក្សរកូដរបស់កម្មវិធីមើល Markdown បន្ទាប់មកពុម្ពអក្សរស្ថានីយ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "채팅의 코드 글꼴입니다. 비워 두면 Markdown 뷰어의 코드 글꼴, 그다음 터미널 글꼴을 사용합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skriften for kode i chatten. Tom bruker Markdown-visningens kodeskrift, deretter terminalens."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Czcionka kodu w czacie. Puste używa czcionki kodu podglądu Markdown, a potem terminala."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A fonte do código no chat. Vazio usa a fonte de código do visualizador de Markdown e depois a do terminal."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Шрифт кода в чате. Если пусто, используется шрифт кода просмотра Markdown, затем шрифт терминала."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แบบอักษรของโค้ดในแชท ถ้าว่างจะใช้แบบอักษรโค้ดของตัวแสดง Markdown แล้วจึงใช้ของเทอร์มินัล"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sohbetteki kodun yazı tipi. Boş bırakılırsa Markdown Görüntüleyici'nin kod yazı tipi, sonra terminalinki kullanılır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Шрифт коду в чаті. Якщо порожньо, використовується шрифт коду переглядача Markdown, потім шрифт термінала."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Phông chữ của mã trong trò chuyện. Để trống sẽ dùng phông mã của trình xem Markdown, rồi đến phông của terminal."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聊天中代码的字体。留空则使用 Markdown 查看器的代码字体，其次是终端字体。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聊天中程式碼的字體。留空則使用 Markdown 檢視器的程式碼字體，其次是終端機字體。"
+          }
+        }
+      }
+    },
+    "settings.agentPane.display.codeSize": {
+      "comment": "Settings: the agent chat's and Markdown viewer's display rows",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat Code Size"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حجم الشيفرة في الدردشة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Veličina koda u razgovoru"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chattens kodestørrelse"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Code-Größe im Chat"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tamaño del código del chat"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Taille du code du chat"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dimensione codice della chat"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チャットのコードのサイズ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទំហំកូដក្នុងជជែក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "채팅 코드 크기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kodestørrelse i chat"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rozmiar kodu czatu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tamanho do código do chat"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Размер кода в чате"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ขนาดโค้ดในแชท"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sohbet Kod Boyutu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Розмір коду в чаті"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cỡ mã trò chuyện"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聊天代码大小"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聊天程式碼大小"
+          }
+        }
+      }
+    },
+    "settings.agentPane.display.codeSize.help": {
+      "comment": "Settings: the agent chat's and Markdown viewer's display rows",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Code as a share of the chat's text size. Empty uses the Markdown viewer's."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حجم الشيفرة كنسبة من حجم نص الدردشة. إذا كان فارغًا فيُستخدم ما في عارض Markdown."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kod kao udio veličine teksta razgovora. Prazno koristi vrijednost Markdown preglednika."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kode som andel af chattens tekststørrelse. Tom bruger Markdown-fremviserens."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Code als Anteil der Textgröße im Chat. Leer nutzt den Wert der Markdown-Ansicht."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El código como proporción del tamaño del texto del chat. Vacío usa el del visor de Markdown."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le code en proportion de la taille du texte du chat. Vide utilise celle du lecteur Markdown."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il codice come quota della dimensione del testo della chat. Vuoto usa quella del visualizzatore Markdown."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チャットの文字サイズに対するコードの比率。空の場合はMarkdownビューアの値を使います。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កូដជាសមាមាត្រនៃទំហំអក្សរជជែក។ ទទេ ប្រើតម្លៃរបស់កម្មវិធីមើល Markdown។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "채팅 텍스트 크기에 대한 코드 비율입니다. 비워 두면 Markdown 뷰어의 값을 사용합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kode som andel av tekststørrelsen i chatten. Tom bruker Markdown-visningens."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kod jako część rozmiaru tekstu czatu. Puste używa wartości podglądu Markdown."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O código como proporção do tamanho do texto do chat. Vazio usa o do visualizador de Markdown."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Размер кода как доля размера текста чата. Если пусто, используется значение просмотра Markdown."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ขนาดโค้ดเป็นสัดส่วนของขนาดข้อความแชท ถ้าว่างจะใช้ของตัวแสดง Markdown"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kodun sohbet metni boyutuna oranı. Boş bırakılırsa Markdown Görüntüleyici'ninki kullanılır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Розмір коду як частка розміру тексту чату. Якщо порожньо, використовується значення переглядача Markdown."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mã theo tỷ lệ cỡ chữ trò chuyện. Để trống sẽ dùng giá trị của trình xem Markdown."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代码相对聊天文字大小的比例。留空则使用 Markdown 查看器的设置。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "程式碼相對聊天文字大小的比例。留空則使用 Markdown 檢視器的設定。"
+          }
+        }
+      }
+    },
+    "settings.markdown.codeFont": {
+      "comment": "Settings: the agent chat's and Markdown viewer's display rows",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Code Font"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "خط الشيفرة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Font koda"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kodeskrifttype"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Code-Schrift"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fuente del código"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Police du code"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Font del codice"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コードのフォント"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពុម្ពអក្សរកូដ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "코드 글꼴"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kodeskrift"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Czcionka kodu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fonte do código"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Шрифт кода"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แบบอักษรโค้ด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kod Yazı Tipi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Шрифт коду"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Phông chữ mã"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代码字体"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "程式碼字體"
+          }
+        }
+      }
+    },
+    "settings.markdown.codeFont.help": {
+      "comment": "Settings: the agent chat's and Markdown viewer's display rows",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The font of code blocks and inline code. Empty uses the terminal font. The agent chat uses it too unless it has its own."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "خط كتل الشيفرة والشيفرة المضمنة. إذا كان فارغًا فيُستخدم خط الطرفية. تستخدمه دردشة الوكيل أيضًا ما لم يكن لها خط خاص."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Font blokova koda i koda u redu. Prazno koristi font terminala. Razgovor s agentom ga također koristi osim ako ima svoj."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skrifttypen til kodeblokke og indlejret kode. Tom bruger terminalens. Agentchatten bruger den også, medmindre den har sin egen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Schrift für Codeblöcke und Inline-Code. Leer nutzt die Terminal-Schrift. Der Agent-Chat nutzt sie auch, außer er hat eine eigene."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La fuente de los bloques de código y del código en línea. Vacío usa la del terminal. El chat del agente también la usa salvo que tenga la suya."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La police des blocs de code et du code en ligne. Vide utilise celle du terminal. Le chat de l'agent l'utilise aussi, sauf s'il a la sienne."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il font dei blocchi di codice e del codice in linea. Vuoto usa quello del terminale. Anche la chat dell'agente lo usa, salvo che ne abbia uno proprio."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コードブロックとインラインコードのフォント。空の場合はターミナルのフォントを使います。エージェントチャットも独自の設定がない限りこれを使います。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពុម្ពអក្សរនៃប្លុកកូដ និងកូដក្នុងបន្ទាត់។ ទទេ ប្រើពុម្ពអក្សរស្ថានីយ។ ការជជែកភ្នាក់ងារក៏ប្រើវាដែរ លុះត្រាតែវាមានផ្ទាល់ខ្លួន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "코드 블록과 인라인 코드의 글꼴입니다. 비워 두면 터미널 글꼴을 사용합니다. 에이전트 채팅도 자체 설정이 없으면 이 글꼴을 사용합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skriften for kodeblokker og innebygd kode. Tom bruker terminalens. Agentchatten bruker den også med mindre den har sin egen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Czcionka bloków kodu i kodu w tekście. Puste używa czcionki terminala. Czat agenta też jej używa, chyba że ma własną."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A fonte dos blocos de código e do código em linha. Vazio usa a do terminal. O chat do agente também a usa, a menos que tenha a sua."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Шрифт блоков кода и встроенного кода. Если пусто, используется шрифт терминала. Чат агента тоже использует его, если у него нет своего."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แบบอักษรของบล็อกโค้ดและโค้ดในบรรทัด ถ้าว่างจะใช้ของเทอร์มินัล แชทเอเจนต์ก็ใช้ด้วย เว้นแต่จะตั้งของตัวเอง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kod blokları ve satır içi kodun yazı tipi. Boş bırakılırsa terminalinki kullanılır. Ajan sohbeti de kendine ait bir tane yoksa bunu kullanır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Шрифт блоків коду та вбудованого коду. Якщо порожньо, використовується шрифт термінала. Чат агента теж використовує його, якщо не має власного."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Phông chữ của khối mã và mã nội dòng. Để trống sẽ dùng phông của terminal. Trò chuyện với tác tử cũng dùng phông này trừ khi có phông riêng."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代码块和行内代码的字体。留空则使用终端字体。智能体聊天也使用它，除非设置了自己的字体。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "程式碼區塊與行內程式碼的字體。留空則使用終端機字體。代理程式聊天也使用它，除非設定了自己的字體。"
+          }
+        }
+      }
+    },
+    "settings.markdown.remoteImages": {
+      "comment": "Settings row: whether Markdown viewers load web images without asking per document",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Load Web Images Automatically"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تحميل صور الويب تلقائيًا"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatski učitaj web slike"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indlæs webbilleder automatisk"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Webbilder automatisch laden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cargar imágenes web automáticamente"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Charger automatiquement les images web"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Carica automaticamente le immagini web"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Web画像を自動的に読み込む"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ទុករូបភាពវេបដោយស្វ័យប្រវត្តិ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "웹 이미지 자동으로 불러오기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Last inn nettbilder automatisk"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatycznie wczytuj obrazy z internetu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Carregar imagens da web automaticamente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Автоматически загружать изображения из интернета"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "โหลดรูปภาพจากเว็บโดยอัตโนมัติ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Web Görsellerini Otomatik Yükle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Автоматично завантажувати зображення з інтернету"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tự động tải hình ảnh trên web"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自动加载网页图片"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動載入網頁圖片"
+          }
+        }
+      }
+    },
+    "settings.markdown.remoteImages.help": {
+      "comment": "Settings help for automatic Markdown web images",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Web image sites can see your address and when you open a document. When off, each document asks before loading its web images."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يمكن لمواقع صور الويب رؤية عنوانك ووقت فتح المستند. عند إيقاف هذا الخيار، يطلب كل مستند الإذن قبل تحميل صور الويب الخاصة به."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Web lokacije sa slikama mogu vidjeti vašu adresu i kada otvorite dokument. Kada je isključeno, svaki dokument traži dopuštenje prije učitavanja svojih web slika."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Websteder med billeder kan se din adresse, og hvornår du åbner et dokument. Når indstillingen er slået fra, spørger hvert dokument, før det indlæser sine webbilleder."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Websites mit Bildern können deine Adresse und den Zeitpunkt sehen, zu dem du ein Dokument öffnest. Wenn dies deaktiviert ist, fragt jedes Dokument vor dem Laden seiner Webbilder nach."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los sitios de imágenes web pueden ver tu dirección y cuándo abres un documento. Si se desactiva, cada documento pide permiso antes de cargar sus imágenes web."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les sites hébergeant des images peuvent voir votre adresse et quand vous ouvrez un document. Lorsque cette option est désactivée, chaque document demande avant de charger ses images web."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I siti che ospitano immagini possono vedere il tuo indirizzo e quando apri un documento. Se l'opzione è disattivata, ogni documento chiede prima di caricare le proprie immagini web."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Web画像のサイトには、あなたのアドレスとドキュメントを開いた時刻が伝わります。オフの場合、各ドキュメントはWeb画像を読み込む前に確認します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "គេហទំព័ររូបភាពអាចមើលឃើញអាសយដ្ឋានរបស់អ្នក និងពេលអ្នកបើកឯកសារ។ នៅពេលបិទ ឯកសារនីមួយៗនឹងសួរមុនពេលផ្ទុករូបភាពវេបរបស់វា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "웹 이미지 사이트는 사용자의 주소와 문서를 연 시간을 알 수 있습니다. 이 기능을 끄면 각 문서가 웹 이미지를 불러오기 전에 묻습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nettsteder som leverer bilder, kan se adressen din og når du åpner et dokument. Når dette er av, spør hvert dokument før nettbilder lastes inn."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Witryny udostępniające obrazy mogą zobaczyć Twój adres i czas otwarcia dokumentu. Gdy opcja jest wyłączona, każdy dokument pyta przed wczytaniem obrazów z internetu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sites de imagens da web podem ver seu endereço e quando você abre um documento. Quando desativado, cada documento pergunta antes de carregar suas imagens da web."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сайты с изображениями могут узнать ваш адрес и время открытия документа. Когда этот параметр выключен, каждый документ запрашивает разрешение перед загрузкой изображений из интернета."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เว็บไซต์รูปภาพบนเว็บสามารถเห็นที่อยู่ของคุณและเวลาที่คุณเปิดเอกสาร เมื่อปิด แต่ละเอกสารจะถามก่อนโหลดรูปภาพจากเว็บ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Web görseli siteleri adresinizi ve bir belgeyi ne zaman açtığınızı görebilir. Kapalıyken her belge, web görsellerini yüklemeden önce sorar."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сайти із зображеннями можуть дізнатися вашу адресу й час відкриття документа. Коли цей параметр вимкнено, кожен документ запитує дозвіл перед завантаженням зображень з інтернету."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Các trang hình ảnh trên web có thể thấy địa chỉ của bạn và thời điểm bạn mở tài liệu. Khi tắt, mỗi tài liệu sẽ hỏi trước khi tải hình ảnh trên web."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "网页图片网站可以看到你的地址和打开文档的时间。关闭时，每份文档都会在加载网页图片前询问。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "網頁圖片網站可以看到你的位址和開啟文件的時間。關閉時，每份文件都會在載入網頁圖片前詢問。"
           }
         }
       }
