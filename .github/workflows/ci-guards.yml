@@ -563,6 +563,16 @@ jobs:
           ./scripts/ci/install-actionlint.sh
           "$RUNNER_TEMP/actionlint"
 
+      - name: Validate the workflow concurrency lint
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_workflow_concurrency.py
+
+      # Warn-level: a dispatched or PR workflow with macOS or long jobs needs a
+      # concurrency group not keyed by SHA or run id (cmuxterm-hq#2568 flood).
+      - name: Warn about workflows that can flood the queue
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 scripts/ci/check_workflow_concurrency.py
+
       - name: Validate contributor verification receipts and selection
         if: ${{ matrix.group == 'ci' }}
         run: |
