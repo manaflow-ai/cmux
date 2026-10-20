@@ -258,7 +258,13 @@ pub(crate) fn command_env(cmd: &Command) -> Vec<(String, String)> {
 /// then layer the common login allowlist and its explicit profile/session
 /// values. Unrelated tokens, SSH_AUTH_SOCK, and ambient CMUX_* never enter.
 fn apply_remote_base(cmd: &mut Command) {
-    cmd.env_clear().envs(host_environment()).env_remove(REMOTE_ENV_CLEARED_KEY);
+    // `Command::env_remove` need not retain a removal for a key it has never
+    // seen. Set then remove so `command_env` can observe env_clear without
+    // exposing the internal marker to either a direct or hosted child.
+    cmd.env_clear()
+        .envs(host_environment())
+        .env(REMOTE_ENV_CLEARED_KEY, "1")
+        .env_remove(REMOTE_ENV_CLEARED_KEY);
 }
 
 /// Fixed non-secret process base for a remote harness and for the durable
@@ -320,7 +326,7 @@ mod tests {
         let env = command_env(&command);
         assert!(
             !env.iter().any(|(key, _)| key == "CARGO_MANIFEST_DIR"),
-            "hosted projection recovered the daemon environment: {env:?}"
+            "hosted projection recovered the daemon environment"
         );
     }
 
