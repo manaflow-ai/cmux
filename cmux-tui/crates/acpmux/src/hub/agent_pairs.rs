@@ -467,9 +467,13 @@ impl Hub {
             return Ok(());
         }
         // A steer-only message the receiver cannot take now is refused unrecorded by
-        // `run_prompt` (`steer.unavailable`): it is no exchange, and never holds or pauses.
+        // `run_prompt` (`steer.unavailable`): it is no exchange, and never pauses. Into a paused
+        // pair it is held all the same, so a turn starting meanwhile cannot let it steer in.
         let can_steer = session.steering.load(Ordering::SeqCst) && session.turn().is_some();
-        if steer && opts.steer_only && !can_steer {
+        let paused = |hub: &Self| {
+            hub.pairs_state().pairs.get(&pair_key(&from, &to)).is_some_and(|p| p.paused.is_some())
+        };
+        if steer && opts.steer_only && !can_steer && !paused(self) {
             return Ok(());
         }
         let prompt_id =
