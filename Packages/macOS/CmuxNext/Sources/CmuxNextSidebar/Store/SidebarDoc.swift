@@ -338,5 +338,18 @@ nonisolated extension SidebarDocBody {
         items[item].map { $0.body.isGroup && $0.section == SidebarDocStore.pinnedSection } ?? false
     }
 
+    /// `table` with no drop in Pinned unless every dragged item is in Pinned already: a
+    /// workspace or group dragged from the list never lands between pinned items and so
+    /// never becomes a pin by a drop (Pin is the way in). Pinned items still reorder there.
+    public func keepingPinned(_ table: [String: SidebarDocAcceptance], dragging dragged: [String]) -> [String: SidebarDocAcceptance] {
+        let pinned = SidebarDocStore.pinnedSection
+        guard dragged.contains(where: { items[$0]?.section != pinned }) else { return table }
+        var table = table
+        for key in table.keys where key == pinned || items[key]?.section == pinned {
+            table[key] = SidebarDocAcceptance(before: false, into: false, after: false, refusal: "pinned_area")
+        }
+        return table
+    }
+
     static let groupItemPrefix = "itm_g_"
 }
