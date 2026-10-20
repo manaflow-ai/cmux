@@ -43,9 +43,6 @@ final class CEFRuntime {
     /// How the next tabs inserted into a window open, by window id, from the
     /// window requests that sent them there (oldest first).
     var placements = CEFPlacementQueue()
-    /// Extensions' page menu sources by id, version and folder: each
-    /// manifest is read once (`extensionMenuSources(browser:)`).
-    var extensionMenuSourceCache: [String: BrowserExtensionMenuSource] = [:]
     /// Window requests: decisions, their log and link clicks.
     private(set) lazy var windowRequests = CEFWindowRequests(runtime: self)
     /// Opens `url` in a new cmux tab when no Chromium window of its profile
