@@ -6,6 +6,7 @@
 // fetches (start, change events, lazy parts) and owns only the page's UI state: the link to the
 // owner and the per-row refusals. Components read both through useSettingsState (context.ts).
 import { MutationObserver, type QueryClient } from "@tanstack/react-query";
+import type { Collage } from "./components/collageLayout";
 import type { GhosttyTheme } from "../../theme/ghosttyTheme";
 import { AppearanceHistory, diff, type HistoryEntry, type TargetState } from "./appearanceHistory";
 import {
@@ -360,6 +361,37 @@ export class SettingsStore {
   /** Shows one of the person's images, or with no id the backgrounds folder, in Finder. */
   revealBackdropImage(id?: string): void {
     void this.request("cmux.settings.backdrop.image.reveal", id ? { id } : {});
+  }
+
+  /** Places the background picture by hand in its window; false when no window shows one. */
+  async adjustBackdrop(): Promise<boolean> {
+    const reply = await this.request("cmux.settings.backdrop.image.adjust", {});
+    return reply.ok;
+  }
+
+  /** Draws and saves `collage` and makes it the background. An edit is saved under a new id;
+   * the collage it replaces is removed only once the background has switched (the host still
+   * refuses it while a workspace shows it). Resolves the new id, or the refusal code. */
+  async saveCollage(collage: Collage, replacing?: string): Promise<{ id: string } | { error: string }> {
+    const reply = await this.request("cmux.settings.backdrop.image.collage.save", { collage });
+    if (!reply.ok) return { error: reply.error.code };
+    const switched = await this.set("appearance.background", `collage:${reply.value.id}`);
+    if (switched.ok && replacing) await this.request("cmux.settings.backdrop.image.collage.delete", { id: replacing });
+    await this.refreshHost();
+    return { id: reply.value.id };
+  }
+
+  /** A saved collage, to edit; null when it is gone. */
+  async collage(id: string): Promise<Collage | null> {
+    const reply = await this.request("cmux.settings.backdrop.image.collage.get", { id });
+    return reply.ok ? reply.value : null;
+  }
+
+  /** Deletes a collage (the host refuses the one in use). */
+  async deleteCollage(id: string): Promise<boolean> {
+    const reply = await this.request("cmux.settings.backdrop.image.collage.delete", { id });
+    if (reply.ok) await this.refreshHost();
+    return reply.ok;
   }
 
   /** The bytes the person's own images take; null when the host cannot say. */
