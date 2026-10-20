@@ -7,12 +7,14 @@
 
 export interface FakeVm {
   id: string;
+  slug?: string | null;
   state: string;
   resources: { cpu: number; memory: number; storage: number };
   idleTimeoutSeconds: number | null;
   displayName: string | null;
   metadata: Record<string, string>;
   snapshotId: string | null;
+  maxRunTotalSeconds?: number | null;
 }
 
 export interface FakeSnapshot {
@@ -43,18 +45,24 @@ export type UpstreamOperation =
   | "read"
   | "write"
   | "dir"
-  | "resize";
+  | "stat"
+  | "resize"
+  | "update"
+  | "listTlsRules"
+  | "replaceTlsRule"
+  | "getSnapshot";
 
 const VM_PATH = /^\/v5\/vms\/([^/]+)(?:\/(.+))?$/;
 const SNAPSHOT_PATH = /^\/v5\/snapshots\/([^/]+)$/;
 
 const vmBody = (vm: FakeVm) => ({
   id: vm.id,
-  slug: `tenant-slug-${vm.id}`,
+  slug: vm.slug ?? `tenant-slug-${vm.id}`,
   snapshotId: vm.snapshotId ?? `sc-${vm.id}`,
   state: vm.state,
   resources: vm.resources,
   idleTimeoutSeconds: vm.idleTimeoutSeconds,
+  maxRunTotalSeconds: vm.maxRunTotalSeconds ?? null,
   displayName: vm.displayName,
   metadata: { ...vm.metadata, cmuxTenant: "leak-check" },
   createdAt: "2026-10-01T00:00:00Z",
@@ -74,13 +82,18 @@ const notFound = () => Response.json({ code: "NOT_FOUND", message: "no such VM" 
 const conflict = (message: string) => Response.json({ code: "CONFLICT", message }, { status: 409 });
 
 export function makeFakeUpstream(apiKey: string) {
+  const faults = { lostCreateResponses: 0 };
   const vms = new Map<string, FakeVm>();
   const snapshots = new Map<string, FakeSnapshot>();
+  const tlsRules = new Map<string, Record<string, unknown>>();
   const files = new Map<string, Uint8Array>();
+  const fileStats = new Map<string, Record<string, unknown>>();
   const calls: UpstreamCall[] = [];
   const failures = new Map<UpstreamOperation, Array<{ readonly status: number; readonly body?: unknown }>>();
   /** Exec responses by command; the default echoes the command. */
   const execReplies = new Map<string, () => Response>();
+  const resizeReplies = new Map<string, () => Response>();
+  const updateReplies = new Map<string, () => Response>();
 
   const takeFailure = (operation: UpstreamOperation): Response | null => {
     const queue = failures.get(operation);
@@ -94,7 +107,7 @@ export function makeFakeUpstream(apiKey: string) {
   const handle = async (operation: UpstreamOperation, request: Request, url: URL, vmId: string | null): Promise<Response> => {
     const failure = takeFailure(operation);
     if (failure !== null) return failure;
-    const vm = vmId === null ? undefined : vms.get(vmId);
+    const vm = vmId === null ? undefined : vms.get(vmId) ?? [...vms.values()].find((v) => v.slug === vmId);
     switch (operation) {
       case "list":
         return Response.json({ vms: [...vms.values()].map(vmBody) });
@@ -103,6 +116,8 @@ export function makeFakeUpstream(apiKey: string) {
         const record = typeof body === "object" && body !== null ? body : {};
         const read = (key: string): unknown => (key in record ? Reflect.get(record, key) : undefined);
         const snapshotId = read("snapshotId");
+        const slug = read("slug");
+        if (typeof slug === "string" && [...vms.values()].some((v) => v.slug === slug)) return conflict("slug already exists");
         const base = typeof snapshotId === "string" ? BASE_IMAGES[snapshotId] : undefined;
         if (typeof snapshotId === "string" && base === undefined && !snapshots.has(snapshotId)) {
           return Response.json({ code: "BAD_REQUEST", message: "no such snapshot" }, { status: 400 });
@@ -110,6 +125,7 @@ export function makeFakeUpstream(apiKey: string) {
         const metadata = read("metadata");
         const created: FakeVm = {
           id: `vm-${crypto.randomUUID()}`,
+          slug: typeof slug === "string" ? slug : null,
           state: "starting",
           resources: { ...(base ?? DEFAULT_RESOURCES) },
           idleTimeoutSeconds: typeof read("idleTimeoutSeconds") === "number" ? Number(read("idleTimeoutSeconds")) : null,
@@ -121,16 +137,45 @@ export function makeFakeUpstream(apiKey: string) {
           snapshotId: typeof snapshotId === "string" ? snapshotId : null,
         };
         vms.set(created.id, created);
+        const tls = read("tls");
+        const inline = typeof tls === "object" && tls !== null && "rules" in tls && Array.isArray(tls.rules) ? tls.rules : [];
+        for (const value of inline) {
+          if (typeof value !== "object" || value === null) continue;
+          const id = `tls-${crypto.randomUUID()}`;
+          tlsRules.set(id, { ...value, id, protocol: "http", source: { vmId: created.id } });
+        }
+        if (faults.lostCreateResponses > 0) { faults.lostCreateResponses--; throw new TypeError("lost provider create response"); }
         return Response.json(vmBody(created), { status: 201 });
       }
       case "get":
         return vm === undefined ? notFound() : Response.json(vmBody(vm));
+      case "getSnapshot": {
+        const id = decodeURIComponent(url.pathname.slice("/v5/snapshots/".length));
+        const snapshot = snapshots.get(id);
+        return snapshot === undefined ? notFound() : Response.json(snapshot);
+      }
+      case "listTlsRules": {
+        // Deliberately return unrelated/shared rules too: the client must verify exact source ownership.
+        const offset = Number(url.searchParams.get("offset") ?? 0);
+        const limit = Number(url.searchParams.get("limit") ?? 100);
+        return Response.json({ rules: [...tlsRules.values()].slice(offset, offset + limit), totalCount: tlsRules.size });
+      }
+      case "replaceTlsRule": {
+        const id = decodeURIComponent(url.pathname.slice("/v5/tls/".length));
+        if (!tlsRules.has(id)) return notFound();
+        const body: unknown = await request.json();
+        if (typeof body !== "object" || body === null) return new Response(null, { status: 400 });
+        const updated = { ...body, id };
+        tlsRules.set(id, updated);
+        return Response.json(updated);
+      }
       case "delete":
         if (vm === undefined) return notFound();
         vms.delete(vm.id);
         return new Response(null, { status: 204 });
       case "start":
         if (vm === undefined) return notFound();
+        if (vm.maxRunTotalSeconds === 0) return conflict("lifetime budget exhausted");
         vm.state = "running";
         return Response.json(vmBody(vm));
       case "pause":
@@ -138,6 +183,17 @@ export function makeFakeUpstream(apiKey: string) {
         if (vm.state !== "running") return conflict("the VM is not running");
         vm.state = "paused";
         return Response.json(vmBody(vm));
+      case "update": {
+        if (vm === undefined) return notFound();
+        const reply = updateReplies.get(vm.id);
+        if (reply !== undefined) return reply();
+        const body: unknown = await request.clone().json();
+        if (typeof body === "object" && body !== null && "maxRunTotalSeconds" in body && body.maxRunTotalSeconds === 0) {
+          vm.maxRunTotalSeconds = 0;
+          if (vm.state !== "stopped") vm.state = "paused";
+        }
+        return Response.json(vmBody(vm));
+      }
       case "snapshot": {
         if (vm === undefined) return notFound();
         if (vm.state !== "running" && vm.state !== "paused") return conflict("the VM is neither running nor paused");
@@ -170,10 +226,11 @@ export function makeFakeUpstream(apiKey: string) {
           return Response.json({ code: "BAD_REQUEST", message: "grow only" }, { status: 400 });
         }
         vm.resources = next;
-        return Response.json(vmBody(vm));
+        return resizeReplies.get(vm.id)?.() ?? Response.json(vmBody(vm));
       }
       case "exec": {
         if (vm === undefined) return notFound();
+        if (vm.maxRunTotalSeconds === 0) return conflict("lifetime budget exhausted");
         const body: unknown = await request.clone().json();
         const command = typeof body === "object" && body !== null && "command" in body ? String(body.command) : "";
         const reply = execReplies.get(command);
@@ -204,6 +261,7 @@ export function makeFakeUpstream(apiKey: string) {
       }
       case "write": {
         if (vm === undefined) return notFound();
+        if (vm.maxRunTotalSeconds === 0) return conflict("lifetime budget exhausted");
         const path = url.searchParams.get("path") ?? "";
         files.set(fileKey(vm.id, path), new Uint8Array(await request.clone().arrayBuffer()));
         return new Response(null, { status: 204 });
@@ -228,12 +286,22 @@ export function makeFakeUpstream(apiKey: string) {
           vmId: vm.id,
         });
       }
+      case "stat": {
+        if (vm === undefined) return notFound();
+        const path = url.searchParams.get("path") ?? "";
+        const record = fileStats.get(fileKey(vm.id, path));
+        if (record === undefined) return notFound();
+        return Response.json(record);
+      }
     }
   };
 
   const operationOf = (method: string, url: URL): { operation: UpstreamOperation; vmId: string | null } | null => {
+    if (url.pathname === "/v5/tls" && method === "GET") return { operation: "listTlsRules", vmId: null };
+    if (url.pathname.startsWith("/v5/tls/") && method === "PUT") return { operation: "replaceTlsRule", vmId: null };
     if (url.pathname === "/v5/vms") return method === "POST" ? { operation: "create", vmId: null } : { operation: "list", vmId: null };
     if (SNAPSHOT_PATH.test(url.pathname) && method === "DELETE") return { operation: "deleteSnapshot", vmId: null };
+    if (SNAPSHOT_PATH.test(url.pathname) && method === "GET") return { operation: "getSnapshot", vmId: null };
     const match = VM_PATH.exec(url.pathname);
     if (match?.[1] === undefined) return null;
     const vmId = decodeURIComponent(match[1]);
@@ -241,6 +309,7 @@ export function makeFakeUpstream(apiKey: string) {
     if (rest === undefined) {
       if (method === "GET") return { operation: "get", vmId };
       if (method === "DELETE") return { operation: "delete", vmId };
+      if (method === "PATCH") return { operation: "update", vmId };
       return null;
     }
     const table: Record<string, UpstreamOperation> = {
@@ -252,6 +321,7 @@ export function makeFakeUpstream(apiKey: string) {
       "GET fs/read": "read",
       "PUT fs/write": "write",
       "GET fs/dir": "dir",
+      "GET fs/stat": "stat",
     };
     const operation = table[`${method} ${rest}`];
     return operation === undefined ? null : { operation, vmId };
@@ -273,11 +343,16 @@ export function makeFakeUpstream(apiKey: string) {
   };
 
   return {
+    faults,
     fetch,
     vms,
     snapshots,
     files,
+    fileStats,
     calls,
+    tlsRules,
+    resizeReplies,
+    updateReplies,
     /** Makes the next `times` calls of `operation` answer `status`. */
     fail(operation: UpstreamOperation, status: number, times = 1, body?: unknown) {
       const queue = failures.get(operation) ?? [];

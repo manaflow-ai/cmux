@@ -254,6 +254,12 @@ nonisolated enum WorkspaceActionCatalog: ActionCatalogGroup {
                 mainMenu: .file
             ),
             ActionDescriptor(
+                id: "workspace.toggleAudioMute",
+                title: String(localized: "action.workspace.toggleAudioMute", defaultValue: "Mute/Unmute Workspace Tabs", bundle: .module),
+                keywords: ["workspace", "audio", "sound", "mute", "unmute"], category: .workspace, symbol: "speaker.slash",
+                surfaces: [.palette, .contextMenu], targets: [.workspace], cliName: "workspace mute-unmute"
+            ),
+            ActionDescriptor(
                 id: "palette.workspaceColor",
                 title: String(localized: "action.palette.workspaceColor", defaultValue: "Set Workspace Color…", bundle: .module),
                 keywords: ["color", "tint"], category: .workspace, symbol: "paintpalette",

@@ -22206,6 +22206,11 @@ Result<Json> Codec<IdentifyRequest>::encode(const IdentifyRequest& value) {
         if (!encoded) return std::move(encoded).error();
         object.emplace("machine_metadata", std::move(encoded).value());
     }
+    if (value.revisions) {
+        auto encoded = encode_value(*value.revisions);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("revisions", std::move(encoded).value());
+    }
     return Json(std::move(object));
 }
 
@@ -22218,6 +22223,12 @@ Result<IdentifyRequest> Codec<IdentifyRequest>::decode(const Json& value) {
         auto decoded = decode_value<bool>(*field_machine_metadata);
         if (!decoded) return std::move(decoded).error();
         result.machine_metadata = std::move(decoded).value();
+    }
+    const Json* field_revisions = value.find("revisions");
+    if (field_revisions) {
+        auto decoded = decode_value<bool>(*field_revisions);
+        if (!decoded) return std::move(decoded).error();
+        result.revisions = std::move(decoded).value();
     }
     return result;
 }
@@ -40973,8 +40984,9 @@ constexpr std::array<CommandFieldRequirement, 2> kCommand103FieldRequirements{{
     {"by", 12U, "shared-sizing-v1"},
     {"surface", 12U, "shared-sizing-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 1> kCommand121FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 2> kCommand121FieldRequirements{{
     {"machine_metadata", 12U, "machine-identity-v1"},
+    {"revisions", 12U, ""},
 }};
 constexpr std::array<CommandFieldRequirement, 1> kCommand149FieldRequirements{{
     {"transaction", 12U, "tab-drag-v1"},
