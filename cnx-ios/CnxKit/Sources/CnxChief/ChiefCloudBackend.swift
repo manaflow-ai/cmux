@@ -464,8 +464,13 @@ public final class ChiefCloudBackend: ConversationBackend, ChiefLiveSource, @unc
         }
 
         static func ping(_ task: URLSessionWebSocketTask) async -> Bool {
+            await ping(using: task.sendPing)
+        }
+
+        /// One protocol ping through `sendPing`; true when the pong came back.
+        static func ping(using sendPing: (@escaping @Sendable ((any Error)?) -> Void) -> Void) async -> Bool {
             await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
-                task.sendPing { error in continuation.resume(returning: error == nil) }
+                sendPing { error in continuation.resume(returning: error == nil) }
             }
         }
 
