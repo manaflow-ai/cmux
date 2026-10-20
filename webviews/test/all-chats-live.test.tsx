@@ -78,30 +78,3 @@ test("the first page read again goes on top of the loaded rows, which keep the l
     "older",
   ]);
 });
-
-test("the list shown again draws its last first page while it reads the first page again", async () => {
-  // Leo, 2026-10-19: the New Tab page shows a fresh All chats list each time, and it drew empty
-  // until its first page came back, then filled (and could change its layout).
-  const React = await import("react");
-  const { createRoot } = await import("react-dom/client");
-  const { useChatPages } = await import("../src/agent-session/acpmux/newtab/AllChatsList");
-  act(() => root?.unmount());
-  const seen: string[][] = [];
-  function Probe(props: { load: Parameters<typeof useChatPages>[0] }) {
-    const pages = useChatPages(props.load);
-    React.useLayoutEffect(() => {
-      seen.push(pages.state.rows.map((chat) => chat.key));
-    });
-    return null;
-  }
-  root = createRoot(host);
-  await act(async () => root!.render(<Probe load={async () => ({ chats: [row("kept-chat", 9)], ready: true })} />));
-  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
-  expect(seen.at(-1)).toEqual(["kept-chat"]);
-  act(() => root!.unmount());
-  seen.length = 0;
-  // Shown again: its first page has not answered yet.
-  root = createRoot(host);
-  await act(async () => root!.render(<Probe load={() => new Promise(() => {})} />));
-  expect(seen.filter((rows) => rows.join() !== "kept-chat")).toHaveLength(0);
-});

@@ -142,17 +142,8 @@ function listEntries(rows: AllChatsRow[], view: "chats" | "projects", folded: Re
 /// at once, so no page of the old query is asked for again); a reply for an older query is
 /// dropped (latest wins). `load` may change identity on every parent render: the list keeps the
 /// latest one in a ref, so a parent render never restarts the list.
-/// The last first page of the unfiltered list on this page: a list mounting again (the New Tab page
-/// shows a fresh view each time) draws it, and its layout, at once while the first page is read
-/// again, instead of an empty list that then fills and can change layout (Leo 2026-10-19).
-let lastFirstPage: State | undefined;
-
-export function useChatPages(load: LoadChatsPage) {
-  const [state, setState] = useState<State>(() => lastFirstPage ?? initial);
-  useEffect(() => {
-    if (!state.query && state.loaded && !state.failed && state.rowsQuery === "")
-      lastFirstPage = { ...state, rows: state.rows.slice(0, PAGE), nextCursor: undefined, loading: false };
-  }, [state]);
+function useChatPages(load: LoadChatsPage) {
+  const [state, setState] = useState<State>(initial);
   const latestLoad = useRef(load);
   latestLoad.current = load;
   const generation = useRef(0);
