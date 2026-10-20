@@ -71,7 +71,7 @@ impl Scratch {
             claude_json: root.join("claude.json"),
             codex_config: root.join("codex.toml"),
             record: root.join("acpmux").join("trust.json"),
-            agent_home: None,
+            agent_home: Some(root.join("agent-home")),
         };
         Scratch { root, trust }
     }
@@ -105,6 +105,7 @@ fn hub_with(s: &Scratch, extra: Value, gate: Option<FolderGate>) -> Arc<Hub> {
             "oc": fake("opencode", json!({"FAKE_PLAN_MODE": "1"})),
             "skipper": {"argv": ["python3", FAKE, "--dangerously-skip-permissions"], "family": "fake"},
             "lax": {"argv": ["python3", FAKE], "family": "fake", "policy": "approve-all"},
+            "nomodes": fake("custom", json!({"FAKE_NO_MODES": "1"})),
         },
         "defaultHarness": "fake",
         "permissionPolicy": "approve-all",
@@ -131,9 +132,13 @@ struct Client(mpsc::Sender<String>, mpsc::Receiver<String>, i64);
 
 impl Client {
     fn new(hub: &Arc<Hub>) -> Self {
+        Self::with_origin(hub, Origin::Local)
+    }
+
+    fn with_origin(hub: &Arc<Hub>, origin: Origin) -> Self {
         let (in_tx, in_rx) = mpsc::channel(64);
         let (out_tx, out_rx) = mpsc::channel(4096);
-        tokio::spawn(serve_connection_with(hub.clone(), in_rx, out_tx, Origin::Local));
+        tokio::spawn(serve_connection_with(hub.clone(), in_rx, out_tx, origin));
         Client(in_tx, out_rx, 0)
     }
 
@@ -196,6 +201,49 @@ impl Client {
             .filter(|s| s["startedBy"] == parent && s["status"] != "closed")
             .cloned()
             .collect()
+    }
+}
+
+impl Client {
+    async fn wait_ready(&mut self, id: &str) {
+        let ready = json!({"sessions": [id], "until": ["ready"], "timeoutMs": 20000});
+        self.ok("_acpmux/wait", ready).await;
+    }
+
+    async fn events(&mut self, id: &str) -> Vec<Value> {
+        let r = self.ok("_acpmux/events", json!({"sessionId": id, "limit": 5000})).await;
+        r["events"].as_array().cloned().unwrap_or_default()
+    }
+
+    /// The control of each turn the session started, oldest first.
+    async fn turn_controls(&mut self, id: &str) -> Vec<String> {
+        let events = self.events(id).await;
+        let started = events.iter().filter(|e| e["kind"] == "turn_started");
+        started.filter_map(|e| e["msg"]["control"].as_str().map(str::to_owned)).collect()
+    }
+}
+
+/// `<folder>/.cmux/harnesses/fakefolder.toml` (the fake agent), enabled on `gate`.
+fn folder_profile(gate: &FolderGate, folder: &Path) {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = folder_profiles::profile_dir(folder);
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("fakefolder.toml");
+    let toml =
+        format!("schema = 1\nid = \"fakefolder\"\ncommand = \"python3\"\nargs = [{FAKE:?}]\n");
+    std::fs::write(&file, toml).unwrap();
+    std::fs::set_permissions(file, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let cfg = Config { folder_gate: Some(gate.clone()), ..Default::default() };
+    let sha = folder_profiles::load_one(&cfg, gate, folder, "fakefolder")
+        .and_then(|fp| fp.sha256)
+        .expect("sha256");
+    folder_profiles::enable(&cfg, gate, folder, "fakefolder", &sha).unwrap();
+}
+
+fn gate_of(s: &Scratch) -> FolderGate {
+    FolderGate {
+        enable_record: s.root.join("acpmux").join(folder_profiles::ENABLE_RECORD),
+        trust: s.trust.clone(),
     }
 }
 
@@ -394,4 +442,22 @@ async fn a_message_never_reaches_a_session_that_asks_less_than_its_sender() {
     assert_eq!(e["data"]["reason"], "subsessions.receiver_asks_less", "{e}");
     // The session in full access still messages it.
     t.ok(SEND, json!({"sessionId": mid, "text": "echo hi"})).await;
+}
+
+#[tokio::test]
+async fn a_caller_that_does_not_ask_never_starts_an_unlisted_mode_of_another_family() {
+    let s = Scratch::new("unlisted");
+    let own = s.dir("own");
+    let hub = hub(&s);
+    let mut app = Client::new(&hub);
+    // OpenCode's `build` does not ask.
+    let parent = app.new_session(&own, "oc").await;
+    let mut p = Client::as_session(&hub, &parent).await;
+    // Another family whose mode no list names, and one that reports no mode:
+    // either may be full autonomy under its own name.
+    for harness in ["fake", "nomodes"] {
+        let e = p.refused(START, json!({"prompt": "echo x", "harness": harness})).await;
+        assert_eq!(e["data"]["reason"], "subsessions.asks_less", "{harness}: {e}");
+    }
+    assert!(app.open_children(&parent).await.is_empty());
 }
