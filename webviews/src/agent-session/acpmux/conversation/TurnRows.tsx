@@ -137,8 +137,8 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
   // Only the CLI's own login (or an unexplained 401 on a direct route) asks to sign in (cx-w10a).
   const authenticationFailed = kind === "subscription-login" || kind === "auth";
   // A failure reads as the turn's answer does: its own block above the footer row, never squeezed
-  // between Worked for and the time (Codex, Claude desktop). The row is one quiet line at the
-  // column's right edge, where a prompt's Copy and Edit sit under its bubble: Worked for and the
+  // between Worked for and the time (Codex, Claude desktop). The row is one quiet line on the
+  // answer's side, from its left edge (Leo 2026-10-19; Debug "Right" moves it): Worked for and the
   // time as muted text, then the actions (Leo 2026-10-13). It shows for the last turn, a failed
   // one, or while the reader points at its turn (VirtualTranscript marks it).
   return (

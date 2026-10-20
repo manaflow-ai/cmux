@@ -345,8 +345,8 @@ const footerActionsPlacement = (placement: "left" | "right") => async (ctx: Play
   await ctx.waitFor(() => {
     const group = ctx.document.querySelector<HTMLElement>(".cv-turn-action-group");
     const datasetPlacement = ctx.document.documentElement.dataset.turnActionsPlacement;
-    // Right is the stylesheet default, so the bridge removes its data attribute for that side.
-    const datasetMatches = placement === "right" ? datasetPlacement === undefined : datasetPlacement === placement;
+    // Left is the stylesheet default, so the bridge removes its data attribute for that side.
+    const datasetMatches = placement === "left" ? datasetPlacement === undefined : datasetPlacement === placement;
     return (
       datasetMatches &&
       group !== null &&

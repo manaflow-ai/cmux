@@ -64,8 +64,8 @@ public nonisolated enum AgentPaneTurnActionsPlacement: String, Sendable, CaseIte
 
     public var tunableTitle: String {
         switch self {
-        case .right: "Right (default)"
-        case .left: "Left"
+        case .right: "Right"
+        case .left: "Left (default)"
         }
     }
 }
@@ -221,7 +221,7 @@ public nonisolated struct AgentPaneTunables {
     public static let turnActionsPlacement = Tunable<AgentPaneTurnActionsPlacement>.choice(
         "agentPane.debug.turnActionsPlacement", PageTunables.section, "Turn footer actions",
         help: "Place the answer footer's copy, retry and fork actions on the left or right.",
-        default: .right, code: "AgentPaneTunables.turnActionsPlacement")
+        default: .left, code: "AgentPaneTunables.turnActionsPlacement")
 
     /// The composer footer's plain look (Claude Code desktop's footer): the model name muted, no
     /// brand mark or mode lock, Plan as accent text; a chip's wash only on hover, focus or an open

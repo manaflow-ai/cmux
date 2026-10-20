@@ -7,7 +7,7 @@ import Testing
 @Suite(.serialized)
 struct AgentPaneCodexToolRunsTests {
     @Test func turnFooterActionsDefaultRight() {
-        #expect(AgentPaneTunables.turnActionsPlacement.defaultValue == .right)
+        #expect(AgentPaneTunables.turnActionsPlacement.defaultValue == .left)
         #expect(AgentPaneTunables.turnActionsPlacement.descriptor.key == "agentPane.debug.turnActionsPlacement")
     }
 
