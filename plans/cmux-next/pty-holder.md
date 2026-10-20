@@ -203,6 +203,7 @@ Audit (2026-10-14, 103 lines in 36 files):
 | `adopted_child.rs` | one held child's zombie state | keep |
 | peer checks (`peer_process.rs`, `UnixSocketPeer`, `ComputerUseHelperV2`, `AgentPanePersonInput`, `PeerProcess`) | identity of the one process on a connected socket | keep (authentication, not discovery) |
 | `ControlPeerAncestry.swift`, CUA helper `PeerInspector.swift` | authorize a peer by walking its ancestors | remove (cx-t2sqm.11, D5) |
+| `SystemProcessLineage.swift` (Task Manager Kill Process, added 2026-10-19) | authorizes ending a named pid by walking its ancestors to the app or a daemon and reading executable paths | remove (cx-t2sqm.11, D5): end only pids the Task Manager's own sample listed |
 | CEF `ChromiumHelperProcess`, `CEFChildProcessMonitor` | this app's own Chromium children | keep |
 | `process_identity.rs` | names the sender of a received signal in a log | keep |
 | browser-host `egress_*` | security guard: who holds a loopback listener (`proc_listpids(UID)`, per loopback connection) | keep until D4 |
