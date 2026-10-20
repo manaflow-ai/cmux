@@ -170,6 +170,9 @@ final class TabContentCache {
         let entry = TerminalEntry(validity: validity, session: session, io: io, themeKey: TerminalThemeKey(machine: daemon.machineID, tab: tab),
                                   store: daemon.store, surface: tab.surface, gate: gate)
         terminals[tab.id] = entry
+        // The delegate builds a machine-aware link filter. Install it only
+        // after this session can be resolved back to its owning tab.
+        session.delegate = sessionDelegate
         goneTabs.track(tab.id, in: daemon.store) { [weak self] in self?.release($0) }
         if gate != nil { awaitConfirm(entry, of: tab, daemon: daemon) }
         session.isRenderingSuspended = !render

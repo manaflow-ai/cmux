@@ -1,12 +1,13 @@
 @testable import CmuxNextApp
-import CmuxNextActions
+@testable import CmuxNextActions
 import CmuxNextServer
 import Testing
 
-/// Add Server… without a window (`cmux servers add --code CODE --words "…"`, the
-/// `app_servers_add` MCP tool) approves only when the four fingerprint words the
-/// server printed match the words the app derives from the server's key, the
-/// same check a person makes in the approver sheet.
+/// An in-process Add Server… action approves only when the four fingerprint
+/// words the server printed match the words the app derives from the server's
+/// key, the same check a person makes in the approver sheet. Separate origin
+/// tests prove that socket-originated CLI/MCP/script/page/remote runs cannot
+/// reach this path.
 @MainActor
 struct ServerHeadlessApprovalTests {
     private let code = MockServerScenario.offerCode
@@ -62,16 +63,20 @@ struct ServerHeadlessApprovalTests {
     }
 }
 
-/// Only callers on this Mac may approve without the sheet: the user, the local CLI, a local
-/// MCP agent or script. Another client (a phone, another Mac) or a web page never may.
+/// Pairing a server grants a new install account authority. The code and words prove which
+/// server key is waiting; they do not prove that the person authorized the enrollment.
 struct ServerHeadlessApprovalOriginTests {
-    @Test(arguments: [ActionOrigin.user, .cli, .mcp, .script])
-    func localCallersMayApprove(_ origin: ActionOrigin) {
-        #expect(ServerHeadlessApproval.allows(origin: origin))
+    @Test func onlyTheInProcessPersonMayApprove() {
+        #expect(ServerHeadlessApproval.allows(origin: .user))
     }
 
-    @Test(arguments: [ActionOrigin.remote, .page])
-    func remoteCallersAndPagesMayNot(_ origin: ActionOrigin) {
+    @Test(arguments: [ActionOrigin.cli, .mcp, .script, .remote, .page])
+    func everyHeadlessCallerIsRefused(_ origin: ActionOrigin) {
         #expect(!ServerHeadlessApproval.allows(origin: origin))
+    }
+
+    @Test func addServerIsPersonOnlyAtTheSharedActionBoundary() throws {
+        let descriptor = try #require(ServerActionCatalog.descriptors().first { $0.id == "server.addServer" })
+        #expect(descriptor.isPersonOnly)
     }
 }

@@ -184,6 +184,43 @@ public final class RemoteLocalhostService {
         return { port in try await client.open(host: "127.0.0.1", port: port) }
     }
 
+    /// Registers an authenticated `cmux-cloud` proxy behind the peer-checked app proxy.
+    ///
+    /// - Parameters:
+    ///   - machineKey: The stable, non-secret key used for this machine's Chromium store.
+    ///   - machineName: The machine name shown by the browser badge and error page.
+    ///   - incarnation: The `cmux-cloud` process incarnation that owns this route.
+    ///   - generation: The `cmux-cloud` link generation that owns this route.
+    ///   - proxyPort: The loopback port returned by `cloud.browser.open`.
+    ///   - proxyUsername: The HMAC user name returned by `cloud.browser.open`.
+    ///   - proxyPassword: The random HMAC secret returned by `cloud.browser.open`.
+    /// - Returns: A Chromium machine store that points only at the app's peer-checked proxy.
+    public func cloudBrowserStore(
+        machineKey: String,
+        machineName: String,
+        incarnation: UInt64,
+        generation: UInt64,
+        proxyPort: UInt16,
+        proxyUsername: String,
+        proxyPassword: String
+    ) async throws -> BrowserMachineStore {
+        let opener = CloudProxyLoopbackOpener(
+            proxyPort: proxyPort,
+            credential: ProxyCredential(username: proxyUsername, password: proxyPassword)
+        )
+        let port = try await proxy.listen(
+            for: machineKey,
+            incarnation: incarnation,
+            generation: generation,
+            route: .init(
+                machineName: machineName,
+                opener: opener,
+                allowsDirectDestinations: false
+            )
+        )
+        return BrowserMachineStore(machineKey: machineKey, machineName: machineName, proxyPort: port)
+    }
+
     private var debugClients: [String: LoopbackForwardClient] = [:]
     /// The last store plan per tab id (`debug.remote-localhost`), bounded by
     /// the number of Chromium pages created this session.
