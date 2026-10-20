@@ -24,6 +24,7 @@ optchat-chief import-claude-code dry-run|write [--projects DIR] [--mux-home DIR]
                                                            Claude Code transcripts (default ~/.claude/projects) as messages;
                                                            dry-run prints counts only, write appends them (host stopped)
 optchat-chief memory export|import|search|stats ...         the memory database (see `optchat-chief memory`)
+optchat-chief agent-memory search|get|remember|mcp|sync|sources|config ...  long-term memory shared by Codex and Claude Code sessions (see `optchat-chief agent-memory`)
 optchat-chief host --conversation-source cloud --cloud-install FILE --daemon-socket PATH [--mux-home DIR]
                                                              answer the chief's cloud conversation (an always-on brain host)
 optchat-chief cloud pair|enroll|register|chief|status --install FILE   the brain host's cloud identity (see `cloud help`)
@@ -37,11 +38,35 @@ fn main() -> std::process::ExitCode {
         .duration_since(UNIX_EPOCH)
         .map_or(0, |d| d.as_millis() as u64);
     let mut args: Vec<String> = std::env::args().skip(1).collect();
+    // Agent memory parses its own arguments: note text keeps every word,
+    // including the Chief's own flags below.
+    if args.first().is_some_and(|a| a == "agent-memory") {
+        return match optchat_chief::agent_memory::run(&args[1..]) {
+            Ok(out) => {
+                if !out.is_empty() {
+                    println!("{out}");
+                }
+                std::process::ExitCode::SUCCESS
+            }
+            Err(e) => {
+                eprintln!("optchat-chief agent-memory: {e}");
+                std::process::ExitCode::from(1)
+            }
+        };
+    }
     // A boolean flag: taken out before parsing, which would read the next
     // argument as its value.
     let append_after_live = args.iter().any(|a| a == "--append-after-live");
     args.retain(|a| a != "--append-after-live");
-    let flags = Flags::parse(&args);
+    let mut flags = Flags::parse(&args);
+    // `memory search --json` (and only there: `trace` and `stats` read their
+    // own `--json` from the raw arguments). The verb may follow options.
+    let memory_json =
+        flags.words.first().is_some_and(|w| w == "memory") && args.iter().any(|a| a == "--json");
+    if memory_json {
+        args.retain(|a| a != "--json");
+        flags = Flags::parse(&args);
+    }
     let code = match flags.words.first().map(String::as_str) {
         Some("host") => optchat_chief::host::run(&flags, started_ms),
         Some("mcp") => {
@@ -254,16 +279,18 @@ fn main() -> std::process::ExitCode {
                 1
             }
         },
-        Some("memory") => match optchat_chief::memory_cli::run(&flags, &home(&flags)) {
-            Ok(out) => {
-                println!("{out}");
-                0
+        Some("memory") => {
+            match optchat_chief::memory_cli::run(&flags, &home(&flags), memory_json) {
+                Ok(out) => {
+                    println!("{out}");
+                    0
+                }
+                Err(e) => {
+                    eprintln!("optchat-chief memory: {e}");
+                    1
+                }
             }
-            Err(e) => {
-                eprintln!("optchat-chief memory: {e}");
-                1
-            }
-        },
+        }
         Some("import-claude-code") => {
             let paths = Paths::new(&home(&flags));
             let projects = flags

@@ -56,6 +56,11 @@ export type ModelPickerProps = {
   onHarnessEnable?(folder: string, id: string): void;
   /// Add harness…, the menu's last row: the pane's Harnesses page, in place (cx-uj5g8).
   onAddAgent?(): void;
+  /// The chat has started, so its harness is fixed, as in Claude Code (Leo 2026-10-19): the menu
+  /// lists `harness`'s models alone, with search and More models, and no harness rail, Starred tab
+  /// or Add harness…; the compact menu draws no rail either. A New Tab or a chat with no message
+  /// yet leaves it unset and keeps the whole rail.
+  harnessFixed?: boolean;
   /// A short note per harness in place of "New chat" (a harness that failed to start).
   harnessNotes?: Readonly<Record<string, string>>;
   /// The harnesses this Mac's acpmux found signed out, by acpmux id, with each one's login

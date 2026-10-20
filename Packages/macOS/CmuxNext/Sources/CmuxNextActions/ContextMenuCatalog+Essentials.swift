@@ -17,8 +17,10 @@ nonisolated enum ContextMenuEssentials {
     static let choiceTrailers: [ActionID: ActionID] = ["moveWorkspaceToGroup": "workspace.moveToNewGroup"]
 
     static let menus: [ActionMenuContext: Rows] = [
+        // Move ▸ (Up, Down, Top, Bottom of the group, …) stays at the top level (u2418: "I need an
+        // option to … move a workspace to the top of a group"; under More it was not found).
         .workspaceRow: Rows(top: [.action("renameWorkspace"), .action("palette.toggleWorkspacePin"), .choices("palette.workspaceColor"),
-                                  .action("workspace.newBelow")],
+                                  .action("workspace.newBelow"), .folder(.move, [])],
                             group: [.choices("moveWorkspaceToGroup"), .action("groupSelectedWorkspaces"), .action("removeWorkspaceFromGroup")],
                             close: ["closeWorkspace"]),
         // Chrome's tab menu, in its order (`TabMenuModel::Build`, Leo 2026-10-19: "make sure that
