@@ -157,6 +157,13 @@ const SESSION_START_ROW = "session-start";
 const startsTurn = (event: EventRecord) =>
   event.dir === "mux" && event.kind === "user_message" && event.msg?.steer !== true;
 
+/// A prompt the Chief sent a subagent (its task, a tell, a steer, a restart or interrupt message):
+/// optchat-chief ids those `optchat-<kind>:…` (`subagents.rs` PROMPT_PREFIX), so the pane can say
+/// who wrote it rather than draw it as the reader's own. The Chief's own turns (`optchat:…`, the
+/// person's messages it forwards) and typed prompts are not marked.
+const sentByChief = (msg: { promptId?: unknown }) =>
+  typeof msg.promptId === "string" && msg.promptId.startsWith("optchat-");
+
 /// Page size caps acpmux applies (maxBytes): opening a chat, then each older page as the reader scrolls up.
 const OPEN_PAGE_BYTES = 128 * 1024;
 const OLDER_PAGE_BYTES = 256 * 1024;
@@ -718,6 +725,12 @@ export class AcpmuxDirectClient {
   /// A prompt that was not sent, by its row: what Retry sends again.
   private failedPrompts = new Map<string, { input: string; attachments: ComposerAttachment[] }>();
   private firstSeq?: number;
+  /// The prompt that opened the turn the held history starts in, when that prompt is older than
+  /// every held event: a Chief subagent's first prompt carries the Chief's whole view (100+ KB),
+  /// so once its turn's output passes the open page's cap the page starts mid-turn and the prompt
+  /// would never draw (Lawrence 2026-10-19). It draws first but is not history: older pages still
+  /// load from `firstSeq`, and it gives way once a page brings it.
+  private turnOpener?: EventRecord;
   private lastSeq = 0;
   private turnOpen = false;
   /// Stop got no answer within STOP_GRACE_MS: the turn no longer shows as working until the next
@@ -1034,6 +1047,7 @@ export class AcpmuxDirectClient {
     this.stopGaveUp = false;
     this.stopAfterSeq = undefined;
     this.events = [];
+    this.turnOpener = undefined;
     this.historyExhausted = false;
     this.olderRetryAt = 0;
     // A page still in flight belongs to the session before; it is dropped when it lands.
@@ -1473,6 +1487,34 @@ export class AcpmuxDirectClient {
     });
   }
 
+  /// The newest turn-opening prompt before `events` when they start mid-turn and older history
+  /// exists: one small read of `user_message` records only, so a capped open page still shows
+  /// what its turn was asked. A failed read leaves it out; the pane draws as before.
+  private async fetchTurnOpener(
+    sessionId: string,
+    events: EventRecord[],
+    hasMore: boolean,
+  ): Promise<EventRecord | undefined> {
+    const first = events[0];
+    if (!hasMore || !first || first.seq <= 1 || startsTurn(first)) return undefined;
+    const known = this.turnOpener;
+    if (known && known.sessionId === sessionId && known.seq < first.seq) return known;
+    try {
+      const result = await this.request("_acpmux/events", {
+        sessionId,
+        beforeSeq: first.seq,
+        // Steers into the turn are user_message records too; the opener is the newest that is not one.
+        limit: 16,
+        kinds: ["user_message"],
+      });
+      const prompts: EventRecord[] = result?.events ?? [];
+      const opener = [...prompts].reverse().find(startsTurn);
+      return opener ? { ...opener, sessionId: opener.sessionId ?? sessionId } : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
   /// Returns the attach page's events, or none when the selection moved on.
   private async attach(sessionId: string, generation = this.selectionGeneration): Promise<EventRecord[]> {
     if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return [];
@@ -1519,6 +1561,10 @@ export class AcpmuxDirectClient {
     this.summary = detail;
     this.configSeq = Array.isArray(detail.configOptions) && typeof result?.lastSeq === "number" ? result.lastSeq : 0;
     this.queue = [];
+    const opener = await this.fetchTurnOpener(sessionId, mergeEventRecords(page, this.events), result?.hasMore === true);
+    if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return [];
+    this.turnOpener = opener;
+    // Merged after the read: live events that landed meanwhile are kept.
     this.events = mergeEventRecords(page, this.events);
     this.rebuild();
     // acpmux's list is the order; the replayed `queued` records give each prompt its whole text.
@@ -1659,6 +1705,10 @@ export class AcpmuxDirectClient {
     this.pendingSecret = undefined;
     const through = this.replayThrough ?? Number.POSITIVE_INFINITY;
     const events = this.events.filter((event) => event.seq <= through).sort((a, b) => a.seq - b.seq);
+    const opener = this.turnOpener;
+    if (opener && (events[0]?.seq ?? Number.POSITIVE_INFINITY) <= opener.seq) this.turnOpener = undefined;
+    // Drawn first, but neither firstSeq nor lastSeq moves: older pages still load from the held history.
+    else if (opener && opener.seq <= through) this.reduce(opener);
     for (const event of events) {
       this.lastSeq = Math.max(this.lastSeq, event.seq);
       this.firstSeq = this.firstSeq === undefined ? event.seq : Math.min(this.firstSeq, event.seq);
@@ -1872,6 +1922,7 @@ export class AcpmuxDirectClient {
           at: event.at,
           kind: "user",
           text: String(msg.text ?? ""),
+          ...(sentByChief(msg) ? { from: "chief" as const } : {}),
           ...(received ? { received } : {}),
           ...(steer ? { steer } : {}),
           ...(promptImages(msg.images).length > 0 && { images: promptImages(msg.images) }),
