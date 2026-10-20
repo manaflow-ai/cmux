@@ -16,7 +16,8 @@ import { commonmark } from "@milkdown/kit/preset/commonmark";
 import { gfm } from "@milkdown/kit/preset/gfm";
 import { history } from "@milkdown/kit/plugin/history";
 import { clipboard } from "@milkdown/kit/plugin/clipboard";
-import { baseKeymap, chainCommands } from "@milkdown/kit/prose/commands";
+import { baseKeymap, chainCommands, selectAll } from "@milkdown/kit/prose/commands";
+import { redo, redoDepth, undo, undoDepth } from "@milkdown/kit/prose/history";
 import { keymap } from "@milkdown/kit/prose/keymap";
 import { splitListItem } from "@milkdown/kit/prose/schema-list";
 import { Plugin, TextSelection } from "@milkdown/kit/prose/state";
@@ -61,6 +62,13 @@ export type MarkdownFieldHandle = {
   format(format: MarkdownFormat, href?: string): void;
   /// The formats active at the selection, for the toolbar's pressed states.
   formats(): Set<MarkdownFormat>;
+  /// The field's own history (its context menu's Undo and Redo): whether there is an edit to
+  /// undo or redo, and doing it.
+  history(): { undo: boolean; redo: boolean };
+  undo(): void;
+  redo(): void;
+  /// Selects the whole prompt (its context menu's Select All).
+  selectAll(): void;
 };
 
 export type PlainPrompt = { value: string; selectionStart: number; selectionEnd: number };
@@ -474,6 +482,19 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
           current.dispatch(tr);
         },
         focused: () => view.current?.hasFocus() ?? false,
+        history: () => {
+          const state = view.current?.state;
+          return { undo: state ? undoDepth(state) > 0 : false, redo: state ? redoDepth(state) > 0 : false };
+        },
+        undo: () => {
+          if (view.current) undo(view.current.state, view.current.dispatch);
+        },
+        redo: () => {
+          if (view.current) redo(view.current.state, view.current.dispatch);
+        },
+        selectAll: () => {
+          if (view.current) selectAll(view.current.state, view.current.dispatch);
+        },
         element: () => wrapper.current,
         plainText: () => {
           const doc = view.current?.state.doc;

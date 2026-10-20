@@ -344,6 +344,8 @@ export type CloudOp =
   | InviteCreateParams
   | { readonly kind: "invite.revoke"; readonly invite_id: string }
   | { readonly kind: "invite.accept"; readonly token_hash: string; readonly display_name: string }
+  /** The invited address's verified owner accepts in Home, without the link (a message request). */
+  | { readonly kind: "invite.accept_verified"; readonly display_name: string }
   /** `approve: false` declines: the invite closes as `revoked`. */
   | { readonly kind: "invite.approve_join"; readonly invite_id: string; readonly approve?: boolean }
   | { readonly kind: "invite.delivery.report"; readonly invite_id: string; readonly delivery: { readonly state: DeliveryState; readonly provider_id?: string } }

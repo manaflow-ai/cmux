@@ -21,18 +21,30 @@ enum OmnibarStyle {
     static func chromeGap(scale: CGFloat) -> CGFloat { PaneChromeMetrics.current.tabGap(scale: scale) }
     /// Space the toolbar leaves above the omnibar. The tab strip above
     /// already ends `chromeGap` below its pills (`PaneChromeMetrics`), so
-    /// the omnibar starts at the toolbar's top edge.
-    static let toolbarTopPadding: CGFloat = 0
-    /// Toolbar row: the bar, then `chromeGap` down to the page.
-    static func toolbarHeight(scale: CGFloat) -> CGFloat { toolbarTopPadding + barHeight + chromeGap(scale: scale) }
+    /// the omnibar starts at the toolbar's top edge, unless the pane is
+    /// outlined (`layout.paneSeparation` borders: Panes, Card Outlined). The
+    /// outline's top line runs along the strip's bottom, so the bar starts
+    /// one `chromeGap` below that line, as the page starts one below the bar
+    /// (Lawrence 2026-10-19: the space above the omnibar row equals the
+    /// space below it).
+    static func toolbarTopPadding(scale: CGFloat) -> CGFloat {
+        guard Metrics.paneBorder == .subtle else { return 0 }
+        return (Metrics.paneBorderWidth ?? 1 / max(scale, 1)) + chromeGap(scale: scale)
+    }
+    /// Toolbar row: the top padding, the bar, then `chromeGap` down to the page.
+    static func toolbarHeight(scale: CGFloat) -> CGFloat { toolbarTopPadding(scale: scale) + barHeight + chromeGap(scale: scale) }
     /// Horizontal interior margin: the pane's chrome line, so the first
     /// button's hover shape starts where the tab pills above it start and
     /// its glyph near the tabs' icons (`Metrics.paneChromeInset`).
     static var toolbarInset: CGFloat { Metrics.paneChromeInset }
-    /// Toolbar buttons: square, bar height, 8 pt hover shape.
+    /// Toolbar buttons: square, bar height, circular hover shape.
     static var buttonSize: CGFloat { barHeight }
-    static let buttonCornerRadius: CGFloat = 8
-    static var buttonSymbolSize: CGFloat { 15 }
+    /// Toolbar buttons highlight in a circle on hover and press, as Chrome's toolbar ink drop does.
+    static var buttonCornerRadius: CGFloat { buttonSize / 2 }
+    /// Toolbar button icons draw at Chrome's toolbar icon size (`kToolbarButtonIconSize`, 20 dp).
+    static let toolbarIconSize: CGFloat = 20
+    /// The star and other trailing address-bar icons, Chrome's `kLocationBarTrailingIconSize` (20 dp).
+    static let trailingIconSize: CGFloat = 20
     static let buttonSpacing: CGFloat = 0
     /// Gap between the reload button and the omnibox, and the omnibox and
     /// the extension slot.
@@ -57,20 +69,22 @@ enum OmnibarStyle {
 
     // MARK: Popup
 
-    /// The popup card: the one popup corner (`PopupStyle`, cx-iif6y),
-    /// reaching 3 pt above the bar and 6 pt past each side so the bar sits
-    /// inside it (6 keeps the card off the reload button with cmux's 6 pt gap).
-    /// 12 pt, the reference browser's results frame (chief 2026-10-15); other popups keep `PopupStyle`.
-    static var cardCornerRadius: CGFloat { 12 }
-    static let cardTopOutset: CGFloat = basePadding
-    static let cardSideOutset: CGFloat = 2 * basePadding
+    /// The popup card is the bar grown downward: its top edge and sides are
+    /// the bar's own (no outset), so it never reaches over the reload or
+    /// extension buttons (`barMargin` stays clear on each side) or up into
+    /// the tab strip, and its corners are the bar's corners (the look's
+    /// radius, 8 pt by default), so the open bar and card are one shape.
+    static var cardCornerRadius: CGFloat { OmnibarGlassLook.current.resolvedCornerRadius(barHeight: barHeight) }
+    static let cardTopOutset: CGFloat = 0
+    static let cardSideOutset: CGFloat = 0
     /// Rows: bar height, inset 4 at the sides, 2 between rows, 4 at the end.
     static var rowHeight: CGFloat { barHeight }
     static let rowSideInset: CGFloat = 4
     static let rowGap: CGFloat = 2
     static let cardBottomPadding: CGFloat = 4
-    /// The popup's row corner (`PopupStyle`), inside the card's 4 pt inset.
-    static var rowCornerRadius: CGFloat { PopupStyle.standard.rowCornerRadius }
+    /// The highlighted row's corner, concentric with the card's: the card
+    /// radius less the row's inset.
+    static var rowCornerRadius: CGFloat { max(0, cardCornerRadius - rowSideInset) }
     static var rowDetailFont: NSFont { font }
 
     // MARK: Colors

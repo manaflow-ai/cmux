@@ -39,6 +39,7 @@ use crate::provider::AxumWebSocketLink;
 use crate::session::{ReceivedFrame, ReliableSession, SessionError, SessionLimits};
 #[cfg(unix)]
 use crate::unix_socket::{OwnedUnixListener, UnixAcceptBackoff, UnixSocketCleanup};
+use cmux_tui_core::net_keepalive::enable_tcp_keepalive;
 
 const PENDING_LINK_TTL: Duration = Duration::from_secs(30);
 const MAX_PENDING_LINK_GROUPS: usize = 256;
@@ -1256,7 +1257,10 @@ struct WebSocketState {
     daemon: Arc<RemoteDaemon>,
     maximum_frame_bytes: usize,
     trusted_carrier: bool,
+    keepalive: WebSocketKeepalive,
 }
+
+pub use cmux_tui_core::net_keepalive::WebSocketKeepalive;
 
 /// How a direct WebSocket listener admits links.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -1267,6 +1271,16 @@ pub struct DirectWebSocketOptions {
     /// from a network whose members are all authorized (a cmux Cloud machine's
     /// private VPC). Enrolled and invitation dials keep working alongside.
     pub trusted_carrier: bool,
+    /// When an idle link is pinged and when a silent one is closed. The
+    /// default ([`WebSocketKeepalive::default`]) is the production policy.
+    pub keepalive: WebSocketKeepalive,
+}
+
+impl DirectWebSocketOptions {
+    /// A listener with the production keepalive policy.
+    pub fn new(allow_insecure_non_loopback: bool, trusted_carrier: bool) -> Self {
+        Self { allow_insecure_non_loopback, trusted_carrier, ..Self::default() }
+    }
 }
 
 struct LimitedTcpListener {
@@ -1304,6 +1318,7 @@ impl Listener for LimitedTcpListener {
                 Ok((inner, address)) => {
                     self.accept_backoff.reset();
                     let _ = inner.set_nodelay(true);
+                    enable_tcp_keepalive(&inner);
                     return (
                         AdmissionIo {
                             inner,
@@ -1414,7 +1429,7 @@ pub async fn serve_direct_websocket(
         daemon,
         address,
         maximum_frame_bytes,
-        DirectWebSocketOptions { allow_insecure_non_loopback, trusted_carrier: false },
+        DirectWebSocketOptions { allow_insecure_non_loopback, ..Default::default() },
     )
     .await
 }
@@ -1425,7 +1440,8 @@ pub async fn serve_direct_websocket_with_options(
     maximum_frame_bytes: usize,
     options: DirectWebSocketOptions,
 ) -> Result<DirectWebSocketServer, DaemonError> {
-    let DirectWebSocketOptions { allow_insecure_non_loopback, trusted_carrier } = options;
+    let DirectWebSocketOptions { allow_insecure_non_loopback, trusted_carrier, keepalive } =
+        options;
     if !address.ip().is_loopback() && !allow_insecure_non_loopback {
         return Err(DaemonError::Protocol(format!(
             "refusing plaintext remote WebSocket bind {address}; use TLS or explicitly allow it"
@@ -1437,7 +1453,7 @@ pub async fn serve_direct_websocket_with_options(
     let local_addr = listener.local_addr().map_err(|error| {
         DaemonError::Protocol(format!("could not read WebSocket address: {error}"))
     })?;
-    let state = WebSocketState { daemon, maximum_frame_bytes, trusted_carrier };
+    let state = WebSocketState { daemon, maximum_frame_bytes, trusted_carrier, keepalive };
     let router = Router::new().route("/v1/link", get(upgrade_websocket)).with_state(state);
     let listener = LimitedTcpListener {
         accept_backoff: cmux_tui_core::backoff::Backoff::new(
@@ -1472,8 +1488,12 @@ async fn upgrade_websocket(
         .max_frame_size(state.maximum_frame_bytes)
         .on_upgrade(move |socket| async move {
             admission.upgraded.store(true, Ordering::Release);
-            let link =
-                AxumWebSocketLink::new("direct-websocket", state.maximum_frame_bytes, socket);
+            let link = AxumWebSocketLink::with_keepalive(
+                "direct-websocket",
+                state.maximum_frame_bytes,
+                socket,
+                state.keepalive,
+            );
             let inbound = if state.trusted_carrier {
                 InboundLink::trusted_network(Box::new(link), NetworkPeer::Tcp)
             } else {
