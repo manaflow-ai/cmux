@@ -216,6 +216,20 @@ class WebValidationTests(unittest.TestCase):
         self.assertNotIn("4vcpu", runs_on)
         self.assertIn("'blacksmith-8vcpu-ubuntu-2404'", runs_on)
 
+    def test_webviews_tests_shard_wide_enough_to_split_the_dev_server_files(self):
+        """Two shards each ran about 50 dev-server files two at a time for 12 of their
+        14-16 minutes; Blacksmith ran 256 concurrent jobs without queueing, so the
+        suite splits across enough shards that no shard holds more than a handful."""
+        workflow = (ROOT / ".github/workflows/ci-web.yml").read_text()
+        start = workflow.index("  react-apps-check-shard:")
+        match = re.search(r"\n  [A-Za-z0-9_-]+:", workflow[start + 3 :])
+        block = workflow[start:] if match is None else workflow[start : start + 3 + match.start()]
+        shards = [int(n) for n in re.findall(r"^          - shard: (\d+)$", block, re.MULTILINE)]
+        counts = set(re.findall(r"^            shard_count: (\d+)$", block, re.MULTILINE))
+        self.assertGreaterEqual(len(shards), 12)
+        self.assertEqual(shards, list(range(1, len(shards) + 1)))
+        self.assertEqual(counts, {str(len(shards))})
+
     def test_pr_and_merge_group_checks_belong_to_ci(self):
         delegated = {"changes": {"result": "success", "outputs": {"required": "true"}},
                      "build": {"result": "skipped"},
