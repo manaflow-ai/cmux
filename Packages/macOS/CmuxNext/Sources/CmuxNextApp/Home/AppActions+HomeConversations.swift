@@ -38,7 +38,7 @@ extension AppActions {
         })
         registry.bind("home.newChief", invoke: { invocation in
             guard let name = invocation["name"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty else {
-                guard services.home.dock.isClassic else { return openDockRoute(HomeDockRoute.newChief, services) { $0.presentNewChief() } }
+                guard services.home.dock.isClassic else { return openChannelsRoute(HomeDockRoute.newChief, services) { $0.presentNewChief() } }
                 homePage(services)?.presentNewChief()
                 return
             }

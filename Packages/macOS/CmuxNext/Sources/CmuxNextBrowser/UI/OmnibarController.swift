@@ -20,6 +20,8 @@ import Foundation
     var onEffect: ((OmnibarEffect) -> Void)?
     /// After every step (bar and chip appearance).
     var onStep: (() -> Void)?
+    /// Bench marks (`debug.omnibar_bench`): nil outside a bench run.
+    var probe: ((String) -> Void)?
 
     /// True while the applier writes: field notifications are its echo.
     private(set) var isApplying = false
@@ -83,6 +85,8 @@ import Foundation
 
     @discardableResult
     private func step(_ input: OmnibarInput) -> Bool {
+        probe?("step.begin")
+        defer { probe?("step.end") }
         let transition = OmnibarReducer.reduce(state, input, resolver: resolver())
         #if DEBUG
         let next = transition.state

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 public import CmuxNextDaemon
 import CmuxNextWakeups
 
@@ -22,12 +23,25 @@ public final class ResizeCoordinator {
     public static let shared = ResizeCoordinator()
     /// Frames a size waits for the echo of the grid before it.
     public static let echoWaitFrames = 30
+    /// Grids sent to the daemon (`debug.window_transition`).
+    public static var sent: UInt64 = 0
 
     private var settle = ResizeSettle<ObjectIdentifier, CellSize>(stableFrames: 1)
     private var targets: [ObjectIdentifier: any ResizeTarget] = [:]
     private var waited: [ObjectIdentifier: Int] = [:]
+    /// Whether every size waits: a full screen enter or exit
+    /// (`Motion.isFullScreenTransitioning`). AppKit animates a snapshot to
+    /// the final size, so no in-between size shows; each one the daemon
+    /// applied was a PTY reflow and a rebuilt screen for nothing, on the
+    /// main thread the animation needs (fullscreen-lag). The newest size
+    /// goes the frame after it ends. A drag stays real time (it does not hold).
+    private let holds: () -> Bool
     /// Pane sizes span windows, so the frames run on the app scheduler.
-    public init() {}
+    /// - Parameter holds: Whether sizes wait this frame; nil (the app) holds
+    ///   during full screen transitions, tests pass their own.
+    public init(holds: (() -> Bool)? = nil) {
+        self.holds = holds ?? { Motion.isFullScreenTransitioning }
+    }
 
     private lazy var frames = FrameClient(owner: "ResizeCoordinator.settle", isAnimation: false, on: .app) { [weak self] _ in
         self?.tick() ?? false
@@ -49,6 +63,8 @@ public final class ResizeCoordinator {
 
     /// One frame; false once every size went.
     public func tick() -> Bool {
+        // Held sizes keep waiting; the frames keep running until it ends.
+        if holds() { return !settle.isIdle }
         for (key, size) in settle.tick() {
             if targets[key]?.awaitsEcho == true, waited[key, default: 0] < Self.echoWaitFrames {
                 waited[key, default: 0] += 1
@@ -56,7 +72,9 @@ public final class ResizeCoordinator {
                 continue
             }
             waited[key] = nil
-            targets.removeValue(forKey: key)?.applySettled(size)
+            guard let target = targets.removeValue(forKey: key) else { continue }
+            Self.sent &+= 1
+            target.applySettled(size)
         }
         return !settle.isIdle
     }

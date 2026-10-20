@@ -16,7 +16,7 @@ enum WorkspaceHandlers {
         WorkspaceBulkClose.bind(into: registry, context: context)
         WorkspaceSetVerbs.bind(into: registry, context: context)
 
-        registry.bindUnavailable(["palette.openFolderInVSCodeInline"], ActionFailure.needsAppCapability("vscode-inline"))
+        VSCodeInlineHandlers.bind(into: registry, context: context)
         registry.bindUnavailable(["palette.openWorkspacePullRequests"], ActionFailure.needsAppCapability("github-integration"))
         // Find Work: the palette's current-work page (workspaces needing attention, then the
         // user's GitHub review requests and assignments), from the palette, the CLI and the menu.
@@ -27,15 +27,13 @@ enum WorkspaceHandlers {
             context.services.palette.show(page: FindWorkPalettePage(services: context.services).page(),
                                           relativeTo: context.activeWindow?.window)
         })
-        registry.bindUnavailable(["reopenPreviousSession"], ActionFailure.needsDaemonCapability("closed-history-v1"))
+        registry.bind("reopenPreviousSession", run: { _ in try PreviousLaunchRestorer(services: context.services).restore() })
         registry.bind("reopenClosedWorkspace", invoke: { _ in
             guard let entry = DaemonClosedHistory.entries([.workspace], in: context.services).first(where: { $0.item.group == nil })
                 ?? context.refuse(RefusalStrings.noRecentlyClosedWorkspace) else { return }
             DaemonClosedHistory.reopen(entry, services: context.services)
         })
-        for id: ActionID in ["saveLayoutTemplate", "palette.layout.open", "manageLayouts"] {
-            registry.bindUnavailable([id], ActionFailure.needsDaemonCapability("layout-templates-v1"))
-        }
+        LayoutTemplateHandlers.bind(into: registry, context: context)
         for id: ActionID in ["reconnectWorkspace", "disconnectWorkspace", "copyWorkspaceSSHError"] {
             registry.bindUnavailable([id], ActionFailure.needsDaemonCapability("remote-workspaces-v1"))
         }

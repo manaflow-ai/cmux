@@ -3,11 +3,12 @@ public import Sentry
 import CmuxNextCompat
 import os
 
-/// Sends the cmux-tui owner's panic log to Sentry (cx-urd.59).
+/// Sends a cmux Rust process's panic log to Sentry (cx-urd.59).
 ///
-/// The owner appends one JSON line per panic to
-/// `owner-panics-<session>.jsonl` at its state root (message, location,
-/// thread, backtrace). This reads the lines added since the last read (a
+/// The cmux-tui owner appends one JSON line per panic to
+/// `owner-panics-<session>.jsonl` at its state root, and the acpmux daemon
+/// to `$ACPMUX_HOME/panics.jsonl` (message, location, thread, backtrace;
+/// the `cmux-panic-log` format). ``RustPanicSource`` labels each. This reads the lines added since the last read (a
 /// byte offset kept in `stateFile`) and sends each as an event: a panic does
 /// not always end the owner (worker threads, caught panics), so it is not a
 /// crash report. The first run marks the existing log read. Lines from a
@@ -25,16 +26,24 @@ public final class OwnerPanicForwarder: Sendable {
     private let log: URL
     private let stateFile: URL
     private let sends: Bool
+    private let source: RustPanicSource
     private let capture: @Sendable (Event) -> Void
     private let queue = DispatchQueue(label: "com.cmuxterm.app.next.owner-panic-forwarder", qos: .utility)
     private let watcher = Mutex<(any DispatchSourceFileSystemObject)?>(nil)
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "crash")
 
-    public init(log: URL, stateFile: URL, sends: Bool,
+    /// - Parameters:
+    ///   - log: The panic log to read.
+    ///   - stateFile: Where the read offset is kept (one per log).
+    ///   - sends: The user's telemetry choice; false marks lines read without sending.
+    ///   - source: Which process wrote `log`; the owner by default.
+    ///   - capture: Sends one event (Sentry in the app, a recorder in tests).
+    public init(log: URL, stateFile: URL, sends: Bool, source: RustPanicSource = .owner,
                 capture: @escaping @Sendable (Event) -> Void = { SentrySDK.capture(event: $0, scope: Scope()) }) {
         self.log = log
         self.stateFile = stateFile
         self.sends = sends
+        self.source = source
         self.capture = capture
     }
 
@@ -74,20 +83,20 @@ public final class OwnerPanicForwarder: Sendable {
         var sent: [Event] = []
         if sends {
             for line in complete.split(separator: UInt8(ascii: "\n")) {
-                guard let event = Self.event(fromLine: Data(line)) else { continue }
+                guard let event = Self.event(fromLine: Data(line), source: source) else { continue }
                 capture(event)
                 sent.append(event)
             }
         }
         state.offset += UInt64(complete.count)
         save(state)
-        if !sent.isEmpty { logger.info("forwarded \(sent.count) owner panic(s)") }
+        if !sent.isEmpty { logger.info("forwarded \(sent.count) \(self.source.process, privacy: .public) panic(s)") }
         return sent
     }
 
     /// The Sentry event for one log line; nil for a test line or a line
     /// that is not a panic record.
-    static func event(fromLine line: Data) -> Event? {
+    static func event(fromLine line: Data, source: RustPanicSource = .owner) -> Event? {
         guard let record = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
               let message = record["message"] as? String,
               record["test"] as? Bool != true else { return nil }
@@ -98,10 +107,10 @@ public final class OwnerPanicForwarder: Sendable {
         mechanism.handled = false
         exception.mechanism = mechanism
         event.exceptions = [exception]
-        event.message = SentryMessage(formatted: "cmux-tui owner panic at \(location): \(message)")
+        event.message = SentryMessage(formatted: "\(source.label) at \(location): \(message)")
         // Same panic site, same issue, whatever the message text holds.
-        event.fingerprint = ["owner-panic", location]
-        var tags = ["process": "cmux-tui", "crash_source": "owner_panic_log"]
+        event.fingerprint = [source.fingerprintPrefix, location]
+        var tags = ["process": source.process, "crash_source": source.crashSource]
         if let thread = record["thread"] as? String { tags["thread"] = thread }
         if let version = record["version"] as? String { tags["tui_version"] = version }
         // The build and platform a tester runs (cmux-tui owner_panic.rs), so
