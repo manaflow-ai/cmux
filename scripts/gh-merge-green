@@ -136,15 +136,22 @@ waited_seconds=0
 outcome=refused
 started_at=$(date +%s)
 tmp_files=()
+gate_waiting_since=''
 print_summary() {
   local took=$(( $(date +%s) - started_at ))
   [ "${#tmp_files[@]}" -eq 0 ] || rm -rf -- "${tmp_files[@]}"
+  # Stopped (a signal, or the caller's timeout) while the gate still waited: say so, and for how
+  # long, rather than "nothing reported; waited 0m00s".
+  if [ -n "$gate_waiting_since" ]; then
+    waited_seconds=$(( $(date +%s) - gate_waiting_since ))
+    gate_checked="still waiting for the gate's lanes when stopped"
+  fi
   printf 'gh-merge-green: %s %s (%s gate: %s; waited %dm%02ds, %ds in all)\n' "$outcome" "$ref" "$gate_mode" \
     "${gate_checked:-nothing reported}" $((waited_seconds / 60)) $((waited_seconds % 60)) "$took" >&2
 }
 trap print_summary EXIT
-trap 'exit 130' INT
-trap 'exit 143' TERM
+trap 'outcome="stopped by SIGINT (check the PR)"; exit 130' INT
+trap 'outcome="stopped by SIGTERM (check the PR)"; exit 143' TERM
 
 # --main-fix delegates to the existing compile/test evidence validator. That
 # path posts the required audit comment before merging a red-main fix-forward.
@@ -901,10 +908,12 @@ fast_gate() {
   files_list=$(mktemp)
   tmp_files+=("$files_list")
   printf '%s\n' "$files" >"$files_list"
+  gate_waiting_since=$(date +%s)
   if ! gate_out=$(python3 "$script_dir/ci/merge_fast_gate.py" "$repo" "$num" "$sha" --base "$base" \
       --next-workflow "$workflow_dir/cmux-next.yml" --ci-workflow "$workflow_dir/ci.yml" \
       --web-workflow "$workflow_dir/ci-web.yml" --files-from "$files_list" \
       "${covered_flag[@]+"${covered_flag[@]}"}" --timeout "$wait_seconds" 2>"$gate_err"); then
+    gate_waiting_since=''
     rm -rf "$workflow_dir"
     local why
     why=$(cat "$gate_err")
@@ -913,6 +922,7 @@ fast_gate() {
       "not green: fast gate on $sha: ${why:-merge_fast_gate.py failed}" \
       'wait for the named lane on the exact head (or pass --wait with more seconds), then retry'
   fi
+  gate_waiting_since=''
   rm -f "$gate_err"
   rm -rf "$workflow_dir"
   waited_seconds=$(sed -n 's/^waited=//p' <<<"$gate_out")
