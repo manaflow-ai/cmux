@@ -527,7 +527,11 @@ function withLiveOptions(model: PickerModel, options: ConfigOptions): PickerMode
   const narrowed =
     offered && model.efforts.length > 0 ? offered.filter((value) => model.efforts.includes(value)) : offered;
   const efforts = narrowed && narrowed.length > 0 ? narrowed : offered;
-  const fast = options.some((option) => option.id === "fast" || option.id === "fast_mode" || option.id === "fast-mode");
+  // An adapter can offer fast mode for every model too (Claude Code's, honored on a few): a model
+  // the catalog describes keeps its own.
+  const fast =
+    model.efforts.length === 0 &&
+    options.some((option) => option.id === "fast" || option.id === "fast_mode" || option.id === "fast-mode");
   return {
     ...model,
     ...(efforts && efforts.length > 0 ? { efforts } : {}),

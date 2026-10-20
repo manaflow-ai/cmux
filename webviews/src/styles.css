@@ -50,8 +50,8 @@
      #a6e22e). */
   --cmux-diff-addition-fg: var(--cmux-diff-addition-fg-light);
   --cmux-diff-deletion-fg: var(--cmux-diff-deletion-fg-light);
-  --cmux-diff-count-added: color-mix(in srgb, var(--cmux-diff-addition-fg) 78%, var(--cmux-diff-solid-bg));
-  --cmux-diff-count-deleted: color-mix(in srgb, var(--cmux-diff-deletion-fg) 78%, var(--cmux-diff-solid-bg));
+  --cmux-diff-count-added: color-mix(in srgb, var(--cmux-diff-addition-fg) 66%, var(--cmux-diff-solid-bg));
+  --cmux-diff-count-deleted: color-mix(in srgb, var(--cmux-diff-deletion-fg) 66%, var(--cmux-diff-solid-bg));
   /* Dim text: directories, file names in the tree, placeholders, icons. */
   --cmux-diff-text-dim: color-mix(in srgb, var(--cmux-diff-fg) 50%, var(--cmux-diff-solid-bg));
   --cmux-diff-muted-bg: color-mix(in lab, var(--cmux-diff-fg) 8%, transparent);
@@ -454,16 +454,12 @@ body {
   border-radius: 50%;
   border: 1.6px solid color-mix(in lab, var(--cmux-diff-fg) 26%, transparent);
   border-top-color: var(--cmux-diff-fg);
-  animation: base-picker-spin 0.7s linear infinite;
+  animation: cmux-spin var(--cmux-spinner-period, 900ms) linear infinite;
 }
-@keyframes base-picker-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
+/* Reduce Motion stops it (cx-sya4n); the diff viewer has no Static setting of its own. */
 @media (prefers-reduced-motion: reduce) {
   .base-picker-spinner {
-    animation-duration: 1.6s;
+    animation: none;
   }
 }
 .base-picker-popover {
@@ -486,7 +482,7 @@ body {
   border: 1px solid color-mix(in lab, var(--cmux-diff-fg) 13%, transparent);
   border-radius: 8px;
   background: var(--cmux-diff-bg);
-  box-shadow: 0 16px 34px color-mix(in lab, #000 28%, transparent);
+  box-shadow: var(--elevation-2);
   z-index: 120;
   overflow: hidden;
 }
@@ -1067,7 +1063,7 @@ body[data-loading="false"]:not([data-status-only="true"]) #loading-layer {
     pointer-events: auto;
     border-left: 1px solid var(--cmux-diff-border);
     background: var(--cmux-diff-solid-bg);
-    box-shadow: -18px 0 42px color-mix(in srgb, #000 34%, transparent);
+    box-shadow: var(--elevation-2);
     isolation: isolate;
   }
   #app[data-file-search-open="true"] #files-resize-handle {
@@ -1207,13 +1203,10 @@ body[data-loading="true"] #status::before {
   border: 2px solid color-mix(in lab, var(--cmux-diff-fg) 20%, transparent);
   border-top-color: color-mix(in lab, var(--cmux-diff-fg) 70%, var(--cmux-diff-bg));
   border-radius: 50%;
-  animation: cmuxDiffPendingSpin 800ms linear infinite;
+  animation: cmux-spin var(--cmux-spinner-period, 900ms) linear infinite;
 }
 #status[data-error="true"] {
   color: var(--cmux-diff-deletion-fg);
-}
-@keyframes cmuxDiffPendingSpin {
-  to { transform: rotate(360deg); }
 }
 @media (prefers-reduced-motion: reduce) {
   #status[data-pending="true"]::before,
@@ -1312,7 +1305,7 @@ body[data-loading="true"] #status::before {
     color-mix(in lab, var(--cmux-diff-bg) 97%, var(--cmux-diff-fg)),
     color-mix(in lab, var(--cmux-diff-bg) 90%, var(--cmux-diff-fg))
   );
-  box-shadow: 0 1px 2px color-mix(in lab, #000 10%, transparent), 0 2px 8px color-mix(in lab, #000 6%, transparent);
+  box-shadow: var(--elevation-1);
   color: var(--cmux-diff-fg);
   font-family: var(--cmux-diff-ui-font-family);
   font-size: 13px;
@@ -1434,7 +1427,7 @@ body[data-loading="true"] #status::before {
   border: 1px solid color-mix(in lab, var(--cmux-diff-fg) 13%, transparent);
   border-radius: 8px;
   background: var(--cmux-diff-bg);
-  box-shadow: 0 16px 34px color-mix(in lab, #000 28%, transparent);
+  box-shadow: var(--elevation-2);
 }
 #diff-find-input {
   width: 180px;
@@ -1480,7 +1473,7 @@ body[data-loading="true"] #status::before {
   border: 1px solid var(--cmux-diff-border);
   border-radius: 7px;
   background: var(--cmux-diff-solid-bg);
-  box-shadow: 0 8px 24px color-mix(in lab, var(--cmux-diff-fg) 18%, transparent);
+  box-shadow: var(--elevation-2);
 }
 .file-review-controls {
   display: inline-flex;
@@ -1527,7 +1520,6 @@ body[data-loading="true"] #status::before {
   --agent-input-bg: var(--cmux-diff-solid-bg);
   --agent-accent: var(--cmux-diff-accent);
   --agent-danger: var(--cmux-diff-deletion-fg);
-  --acpmux-motion-hover: 80ms;
   --acpmux-motion-ease: ease-out;
   --acpmux-step-pressed: color-mix(in srgb, var(--agent-text) 16%, transparent);
 }
@@ -1743,7 +1735,7 @@ svg[data-icon-fill] {
   border: 1px solid color-mix(in lab, var(--cmux-diff-fg) 13%, transparent);
   border-radius: 12px;
   background: color-mix(in lab, var(--cmux-diff-bg) 92%, var(--cmux-diff-fg));
-  box-shadow: 0 16px 34px color-mix(in lab, #000 30%, transparent);
+  box-shadow: var(--elevation-2);
   color: var(--cmux-diff-fg);
 }
 .toolbar-menu-section {
@@ -1976,7 +1968,7 @@ svg[data-icon-fill] {
   border: 1px solid color-mix(in lab, var(--cmux-diff-fg) 12%, transparent);
   border-radius: 9px;
   background: color-mix(in lab, var(--cmux-diff-bg) 86%, var(--cmux-diff-fg));
-  box-shadow: 0 6px 18px color-mix(in lab, #000 22%, transparent);
+  box-shadow: var(--elevation-2);
   color: var(--cmux-diff-fg);
   font-size: 12px;
   white-space: nowrap;
@@ -2023,7 +2015,7 @@ svg[data-icon-fill] {
 .base-picker-popover {
   border-radius: 8px;
   background: color-mix(in lab, var(--cmux-diff-bg) 92%, var(--cmux-diff-fg));
-  box-shadow: 0 16px 34px color-mix(in lab, #000 30%, transparent);
+  box-shadow: var(--elevation-2);
 }
 .base-picker-search {
   padding: 9px 12px;
@@ -2066,6 +2058,8 @@ svg[data-icon-fill] {
   font-family: var(--cmux-diff-ui-font-family);
   font-size: 14px;
   line-height: 20px;
+  /* Regular weight, as the code below it (diffWeight.ts). */
+  font-weight: 400;
   color: var(--cmux-diff-fg);
   white-space: nowrap;
   cursor: pointer;

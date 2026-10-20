@@ -1,4 +1,5 @@
 import CmuxNextActions
+import CmuxNextAgentPane
 import CmuxNextCrashReporting
 import CmuxNextDaemon
 import CmuxNextDesign
@@ -38,12 +39,16 @@ struct AppCrashReporting: Sendable {
     let forwarder: SystemCrashForwarder?
     /// The app's cmux-tui owner's panic log (cx-urd.59); nil outside the app process.
     let ownerPanics: OwnerPanicForwarder?
+    /// The app's acpmux daemon's panic log (`$ACPMUX_HOME/panics.jsonl`); nil outside the app
+    /// process or with no acpmux.
+    let acpmuxPanics: OwnerPanicForwarder?
 
     init(environment: AppEnvironment) {
         reporter = CrashReporter.forThisLaunch(bundleID: environment.launch.bundleID)
         guard environment.marksRun else {
             forwarder = nil
             ownerPanics = nil
+            acpmuxPanics = nil
             return
         }
         let sends = reporter.start()
@@ -53,15 +58,27 @@ struct AppCrashReporting: Sendable {
             bundlePath: Bundle.main.bundlePath, mainExecutable: Bundle.main.executablePath, sends: sends)
         forwarder.start()
         self.forwarder = forwarder
-        let tag = environment.daemonTag
         let ownerPanics = OwnerPanicForwarder(
-            log: OwnerPanicForwarder.log(stateRoot: Self.ownerStateRoot(tag: tag),
-                                         session: (try? DaemonLauncher.sessionName(tag: tag)) ?? "cmux-app"),
+            log: OwnerPanicForwarder.log(stateRoot: Self.ownerStateRoot(stateDirectory: environment.daemonStateDirectory),
+                                         session: environment.daemonSession),
             stateFile: AppRunMarker.standardDirectory(bundleID: environment.launch.bundleID)
                 .appending(path: "owner-panic-forwarder.json"),
             sends: sends)
         ownerPanics.start()
         self.ownerPanics = ownerPanics
+        // A panic in a daemon request task ends only that task: before this log, the
+        // 2026-10-14 sort panic reached only daemon.log.
+        if let home = Self.acpmuxHome(environment: environment) {
+            let acpmuxPanics = OwnerPanicForwarder(
+                log: RustPanicSource.acpmuxLog(acpmuxHome: home),
+                stateFile: AppRunMarker.standardDirectory(bundleID: environment.launch.bundleID)
+                    .appending(path: "acpmux-panic-forwarder.json"),
+                sends: sends, source: .acpmux)
+            acpmuxPanics.start()
+            self.acpmuxPanics = acpmuxPanics
+        } else {
+            acpmuxPanics = nil
+        }
         Self.installLayoutPassGuard(reporter: reporter)
     }
 
@@ -81,10 +98,17 @@ struct AppCrashReporting: Sendable {
         guardian.install()
     }
 
+    /// The home of the acpmux daemon this app starts (the same rule as its agent panes).
+    static func acpmuxHome(environment: AppEnvironment) -> URL? {
+        let bin = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true)
+        return AcpmuxEnvironment.resolve(build: environment.build, bundledBinDirectory: bin,
+                                         environment: ProcessInfo.processInfo.environment)?.home
+    }
+
     /// The owner's state root: the parent of its sessions directory, which
-    /// is the daemon tag's `CMUX_TUI_STATE_DIR` (DaemonLauncher) or cmux-tui's default.
-    static func ownerStateRoot(tag: String?) -> URL {
-        let sessions = tag.map(DaemonLauncher.tagStateDirectory(tag:))
+    /// is the build's `CMUX_TUI_STATE_DIR` (DaemonLauncher.appNames) or cmux-tui's default.
+    static func ownerStateRoot(stateDirectory: URL?) -> URL {
+        let sessions = stateDirectory
             ?? FileManager.default.homeDirectoryForCurrentUser
                 .appending(path: "Library/Application Support/cmux-tui/sessions", directoryHint: .isDirectory)
         return sessions.deletingLastPathComponent()

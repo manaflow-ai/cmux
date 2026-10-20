@@ -12,7 +12,7 @@ use serde_json::{Value, json};
 
 use super::{Command, MessageWriter, Mux, Response, handle_command_with_cancellation, responses};
 use crate::cloud_conversations::{
-    CloudConversations, CloudError, OpRequest, SessionParams, Target,
+    CloudConversations, CloudError, InboxOpRequest, OpRequest, SessionParams, Target,
 };
 use crate::conversation_store::LOCAL_USER;
 
@@ -33,6 +33,23 @@ pub(super) const APP_ONLY_LEASE_CAPABILITY: &str = "cloud-lease-app-only-v1";
 /// set (a headless brain's chief token).
 /// (cx-hnmbt, ARCHITECTURE.md section 14.)
 pub(super) const WS_CLOUD_CAPABILITY: &str = "ws-cloud-conversations-v1";
+/// A Cloud Chief's runs through the daemon: `cloud-conversation-runs`,
+/// `cloud-conversation-run` (the Chief brain's run reads) and the
+/// `cloud-conversation-run-changed` event of a subscribed conversation, for a
+/// connection that echoes `conversation-runs-v1` (advertised with
+/// `cloud-conversations-v1`).
+pub(super) const CLOUD_RUNS_CAPABILITY: &str = "cloud-conversation-runs-v1";
+/// A Cloud Chief's live frames through the daemon (`chief-live-v1` on the
+/// Cloud socket): the `cloud-conversation-live` event of a subscribed
+/// conversation, for a connection that echoes `chief-live-v1`, and
+/// `cloud-conversation-live`, which asks the owner for its `run.live`
+/// snapshot (advertised with `cloud-conversations-v1`).
+pub(super) const CLOUD_LIVE_CAPABILITY: &str = "cloud-chief-live-v1";
+/// `cloud-conversation-typing`: the owner's ephemeral `typing` frame
+/// through the daemon, and the `cloud-conversation-typing` event (the owner's
+/// `conversation-typing` broadcast of a subscribed conversation) for a
+/// connection that echoes it (advertised with `cloud-conversations-v1`).
+pub(super) const CLOUD_TYPING_CAPABILITY: &str = "cloud-conversation-typing-v1";
 
 /// Whether `client` is the verified cmux app (the `frontend` actor: a
 /// role-main Unix connection whose code signature or install key was
@@ -49,7 +66,7 @@ fn is_websocket_person(mux: &Mux, client: u64) -> bool {
 
 /// Whether `client` acts as the person with the app's lease: the verified
 /// app, or an authenticated WebSocket client (`ws-cloud-conversations-v1`).
-fn is_person(mux: &Mux, client: u64) -> bool {
+pub(super) fn is_person(mux: &Mux, client: u64) -> bool {
     is_app(mux, client) || is_websocket_person(mux, client)
 }
 
@@ -98,6 +115,23 @@ impl From<OpParams> for OpRequest {
     }
 }
 
+/// `cloud-inbox-op` (`conversation-inbox-state-v1`): the person's own pin or
+/// "marked unread" of one cloud conversation (UserDO `inbox.pin`,
+/// `inbox.mark_unread`).
+#[derive(Deserialize)]
+pub(super) struct InboxOpParams {
+    conversation: String,
+    idempotency_key: String,
+    op: Value,
+}
+
+impl From<InboxOpParams> for InboxOpRequest {
+    fn from(params: InboxOpParams) -> Self {
+        let InboxOpParams { conversation, idempotency_key, op } = params;
+        InboxOpRequest { conversation, idempotency_key, op }
+    }
+}
+
 /// `cloud-inbox-list`.
 #[derive(Deserialize)]
 pub(super) struct InboxListParams {
@@ -133,14 +167,56 @@ pub(super) struct ThreadParams {
     limit: Option<u32>,
 }
 
+/// `cloud-conversation-runs`: a Chief's runs in a conversation, newest first.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct RunsParams {
+    conversation: String,
+    agent: String,
+    #[serde(default)]
+    before_started_at: Option<u64>,
+    #[serde(default)]
+    limit: Option<u32>,
+}
+
+/// `cloud-conversation-run`: one run of a Chief and its steps after `after_seq`.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct RunParams {
+    conversation: String,
+    agent: String,
+    run: String,
+    #[serde(default)]
+    after_seq: Option<u64>,
+}
+
+/// `cloud-participant-avatar-get`: a Cloud participant's picture.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct AvatarParams {
+    participant_id: String,
+    /// A conversation the person and the participant are both in: Cloud
+    /// answers another participant's picture only with one.
+    #[serde(default)]
+    conversation: Option<String>,
+}
+
 /// `cloud-conversation-subscribe` / `cloud-conversation-unsubscribe`.
 #[derive(Deserialize)]
 pub(super) struct TargetParams {
     conversation: String,
 }
 
-/// `cloud-mux-subscribe` / `cloud-mux-unsubscribe`: no fields at all, so a
-/// client cannot name a chief (the queue is the lease token's).
+/// `cloud-conversation-typing`.
+#[derive(Deserialize)]
+pub(super) struct TypingParams {
+    conversation: String,
+    on: bool,
+}
+
+/// `cloud-mux-subscribe` / `cloud-mux-unsubscribe` / `cloud-requests-list`: no
+/// fields at all, so a client cannot name a chief (the queue is the lease
+/// token's) or another person (the requests are the lease's).
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct NoParams {
@@ -190,7 +266,7 @@ fn service(mux: &Mux, client: u64) -> anyhow::Result<&CloudConversations> {
 /// app holds the lease, it is the human's: only the app may read, send or
 /// subscribe with it (cmux#13742). `cloud-session-status` and the
 /// unsubscribes use no lease and stay open.
-fn lease_user(mux: &Mux, client: u64) -> anyhow::Result<&CloudConversations> {
+pub(super) fn lease_user(mux: &Mux, client: u64) -> anyhow::Result<&CloudConversations> {
     let service = service(mux, client)?;
     // A page uses only the human's lease (the app's), never another one.
     if is_websocket_person(mux, client) {
@@ -273,6 +349,11 @@ pub(super) fn inbox_list(mux: &Mux, client: u64, params: InboxListParams) -> any
     Ok(lease_user(mux, client)?.inbox_list(params.limit, params.include_archived)?)
 }
 
+/// `cloud-requests-list`: the person's open message requests (`home.requests.list`).
+pub(super) fn requests_list(mux: &Mux, client: u64) -> anyhow::Result<Value> {
+    Ok(lease_user(mux, client)?.requests_list()?)
+}
+
 pub(super) fn snapshot(mux: &Mux, client: u64, params: SnapshotParams) -> anyhow::Result<Value> {
     Ok(lease_user(mux, client)?.snapshot(&params.conversation, params.tail)?)
 }
@@ -287,10 +368,50 @@ pub(super) fn thread(mux: &Mux, client: u64, params: ThreadParams) -> anyhow::Re
     Ok(lease_user(mux, client)?.thread(&conversation, &root, after_seq, limit)?)
 }
 
+pub(super) fn runs(mux: &Mux, client: u64, params: RunsParams) -> anyhow::Result<Value> {
+    let RunsParams { conversation, agent, before_started_at, limit } = params;
+    Ok(lease_user(mux, client)?.chief_runs(&agent, &conversation, before_started_at, limit)?)
+}
+
+pub(super) fn run(mux: &Mux, client: u64, params: RunParams) -> anyhow::Result<Value> {
+    let RunParams { conversation, agent, run, after_seq } = params;
+    Ok(lease_user(mux, client)?.chief_run(&agent, &conversation, &run, after_seq)?)
+}
+
+pub(super) fn participant_avatar(
+    mux: &Mux,
+    client: u64,
+    params: AvatarParams,
+) -> anyhow::Result<Value> {
+    Ok(lease_user(mux, client)?
+        .participant_avatar(&params.participant_id, params.conversation.as_deref())?)
+}
+
 pub(super) fn op(mux: &Mux, client: u64, params: OpParams) -> anyhow::Result<Value> {
     let service = lease_user(mux, client)?;
     check_origin(mux, client, params.origin.as_deref())?;
     Ok(service.op(&OpRequest::from(params))?)
+}
+
+/// The person's own list state: only the person's clients (the verified
+/// app, an authenticated page) write it, never a brain on its chief lease.
+pub(super) fn inbox_op(mux: &Mux, client: u64, params: InboxOpParams) -> anyhow::Result<Value> {
+    let service = lease_user(mux, client)?;
+    check_person(mux, client)?;
+    Ok(service.inbox_op(&InboxOpRequest::from(params))?)
+}
+
+fn check_person(mux: &Mux, client: u64) -> anyhow::Result<()> {
+    if is_person(mux, client) {
+        return Ok(());
+    }
+    Err(CloudError::Rejected {
+        code: "forbidden".into(),
+        message: "cloud-inbox-op requires the verified cmux app connection or the person's authenticated page"
+            .into(),
+        retryable: false,
+    }
+    .into())
 }
 
 pub(super) fn subscribe(
@@ -300,6 +421,18 @@ pub(super) fn subscribe(
 ) -> anyhow::Result<Value> {
     let target = target.map_or(Target::Inbox, |params| Target::Conversation(params.conversation));
     Ok(lease_user(mux, client)?.subscribe(client, target)?)
+}
+
+/// `cloud-conversation-live`: the subscriber asks for the owner's
+/// `run.live` snapshot; it arrives as a `cloud-conversation-live` event.
+pub(super) fn live(mux: &Mux, client: u64, params: TargetParams) -> anyhow::Result<Value> {
+    Ok(lease_user(mux, client)?.request_live(client, &params.conversation)?)
+}
+
+/// `cloud-conversation-typing`: the lease's participant is typing or
+/// stopped, as the owner's `typing` frame on the shared socket.
+pub(super) fn typing(mux: &Mux, client: u64, params: TypingParams) -> anyhow::Result<Value> {
+    Ok(lease_user(mux, client)?.typing(client, &params.conversation, params.on)?)
 }
 
 pub(super) fn unsubscribe(
@@ -346,14 +479,30 @@ pub(super) fn delivers(mux: &Mux, client: u64) -> bool {
 
 /// Whether `cmd` calls the cloud and should leave the request loop.
 pub(super) fn is_network(cmd: &Command) -> bool {
+    // An upload's chunks and cancel stay local (the store only); begin and
+    // commit call the cloud.
+    if let Command::CloudAttachmentUpload(params) = cmd {
+        return params.op == "begin" || params.op == "commit";
+    }
+    // The Home rows read the Cloud inbox unless only the local rows are asked.
+    if let Command::HomeInbox(params) = cmd {
+        return params.asks_cloud();
+    }
     matches!(
         cmd,
         Command::CloudInboxList(_)
+            | Command::CloudRequestsList(_)
             | Command::CloudConversationSnapshot(_)
             | Command::CloudConversationHistory(_)
             | Command::CloudConversationThread(_)
+            | Command::CloudConversationRuns(_)
+            | Command::CloudConversationRun(_)
+            | Command::CloudParticipantAvatarGet(_)
             | Command::CloudConversationOp(_)
+            | Command::CloudInboxOp(_)
             | Command::CloudMuxAck(_)
+            | Command::CloudAttachmentRead(_)
+            | Command::CloudAttachmentLink(_)
     )
 }
 
@@ -401,21 +550,37 @@ pub(super) fn start(
     cmd: Command,
     writer: &MessageWriter,
 ) -> bool {
-    let precheck = lease_user(mux, client).and_then(|service| {
-        if let Command::CloudConversationOp(params) = &cmd {
-            check_origin(mux, client, params.origin.as_deref())?;
-            service.check_op(&OpRequest {
-                conversation: params.conversation.clone(),
-                idempotency_key: params.idempotency_key.clone(),
-                origin: params.origin.clone(),
-                op: params.op.clone(),
-            })?;
+    let precheck = || {
+        lease_user(mux, client).and_then(|service| {
+            if let Command::CloudConversationOp(params) = &cmd {
+                check_origin(mux, client, params.origin.as_deref())?;
+                service.check_op(&OpRequest {
+                    conversation: params.conversation.clone(),
+                    idempotency_key: params.idempotency_key.clone(),
+                    origin: params.origin.clone(),
+                    op: params.op.clone(),
+                })?;
+            }
+            if let Command::CloudInboxOp(params) = &cmd {
+                check_person(mux, client)?;
+                service.check_inbox_op(&InboxOpRequest {
+                    conversation: params.conversation.clone(),
+                    idempotency_key: params.idempotency_key.clone(),
+                    op: params.op.clone(),
+                })?;
+            }
+            Ok(service.begin_request()?)
+        })
+    };
+    // The Home rows never fail for the Cloud: their worker takes its own lease
+    // and request slot, and without them carries the local rows.
+    let permit = if matches!(cmd, Command::HomeInbox(_)) {
+        None
+    } else {
+        match precheck() {
+            Ok(permit) => Some(permit),
+            Err(error) => return send(writer, id, Err(error)),
         }
-        Ok(service.begin_request()?)
-    });
-    let permit = match precheck {
-        Ok(permit) => permit,
-        Err(error) => return send(writer, id, Err(error)),
     };
     let worker_mux = mux.clone();
     let worker_writer = writer.clone();
@@ -473,3 +638,7 @@ mod tests;
 #[cfg(test)]
 #[path = "cloud_lease_gate_tests.rs"]
 mod lease_gate_tests;
+
+#[cfg(test)]
+#[path = "cloud_request_tests.rs"]
+mod request_tests;

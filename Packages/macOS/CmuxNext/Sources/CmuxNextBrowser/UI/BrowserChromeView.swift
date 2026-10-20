@@ -72,13 +72,15 @@ public final class BrowserChromeView: NSView {
         return isToolbarHidden ? 0 : currentToolbarHeight
     }
     private var observation: ObservationLoop?
+    /// A typed https upgrade in flight (Chrome's http fallback).
+    var httpsFallback = HTTPSUpgradeFallback()
     private var showsStop = false
     var isToolbarHidden = false
     private let density = DensityBinding()
     lazy var extensionToolbar: ExtensionActionToolbar = {
         let toolbar = ExtensionActionToolbar(slot: extensionSlot)
         toolbar.onPinnedCountChange = { [weak self] in self?.applyToolbarLayout() }
-        // With no extension pinned the Extensions menu opens from More.
+        // An extension popup opened while the Extensions button is not placed anchors at More.
         toolbar.menuAnchor = { [weak self] in self?.toolbarButtons.anchor(for: .overflow) }
         return toolbar
     }()
@@ -120,9 +122,9 @@ public final class BrowserChromeView: NSView {
         self.tab = tab
         addressBar = AddressBarView(suggestionEngine: suggestionEngine)
         // Chromium toolbar glyphs: plain arrows, not chevrons.
-        backButton = ChromeIconButton(icon: .navBack, label: Strings.back, action: nil, target: nil, toolbar: true)
-        forwardButton = ChromeIconButton(icon: .navForward, label: Strings.forward, action: nil, target: nil, toolbar: true)
-        reloadButton = ChromeIconButton(icon: .actionReload, label: Strings.reload, action: nil, target: nil, toolbar: true)
+        backButton = ChromeIconButton(icon: .browserToolbarBack, label: Strings.back, action: nil, target: nil, toolbar: true, toolTip: false)
+        forwardButton = ChromeIconButton(icon: .browserToolbarForward, label: Strings.forward, action: nil, target: nil, toolbar: true, toolTip: false)
+        reloadButton = ChromeIconButton(icon: .browserToolbarReload, label: Strings.reload, action: nil, target: nil, toolbar: true, toolTip: false)
         super.init(frame: .zero)
         wantsLayer = true
         backButton.setAccessibilityIdentifier(BrowserChromeView.backIdentifier)
@@ -220,7 +222,9 @@ public final class BrowserChromeView: NSView {
             density.bind(navigation.leadingAnchor.constraint(equalTo: toolbar.leadingAnchor)) { OmnibarStyle.toolbarInset },
             navigation.centerYAnchor.constraint(equalTo: addressBar.centerYAnchor),
             density.bind(addressBar.leadingAnchor.constraint(equalTo: navigation.trailingAnchor)) { OmnibarStyle.barMargin },
-            addressBar.topAnchor.constraint(equalTo: toolbar.topAnchor, constant: OmnibarStyle.toolbarTopPadding), // R101 gaps
+            density.bind(addressBar.topAnchor.constraint(equalTo: toolbar.topAnchor)) { [weak self] in // R101 gaps
+                OmnibarStyle.barTop(scale: self?.window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2)
+            },
             density.bind(extensionSlot.leadingAnchor.constraint(equalTo: addressBar.trailingAnchor)) { OmnibarStyle.barMargin },
             density.bind(toolbarButtons.leadingAnchor.constraint(equalTo: extensionSlot.trailingAnchor)) { BrowserMetrics.buttonSpacing },
             density.bind(toolbarButtons.trailingAnchor.constraint(equalTo: toolbar.trailingAnchor)) { -OmnibarStyle.toolbarInset },
@@ -241,7 +245,8 @@ public final class BrowserChromeView: NSView {
             separator.topAnchor.constraint(equalTo: toolbar.bottomAnchor),
             separator.leadingAnchor.constraint(equalTo: leadingAnchor),
             separator.trailingAnchor.constraint(equalTo: trailingAnchor),
-            density.bind(separator.heightAnchor.constraint(equalToConstant: 0)) { BrowserMetrics.separatorThickness },
+            // No line between the omnibar and the page (Lawrence 2026-10-16): the separator is only an anchor.
+            separator.heightAnchor.constraint(equalToConstant: 0),
 
             progressLine.bottomAnchor.constraint(equalTo: separator.bottomAnchor),
             progressLine.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -278,6 +283,11 @@ public final class BrowserChromeView: NSView {
         reloadButton.target = self
         reloadButton.action = #selector(reloadOrStop)
         addressBar.onEvent = { [weak self] event in self?.omnibarEvent(event) }
+        addressBar.pageTitle = { [weak self] in self?.tab.state.title }
+        addressBar.onTypedHTTPSUpgrade = { [weak self] url in
+            guard let self else { return }
+            httpsFallback.expect(url, current: tab.state.loadError)
+        }
     }
 
     private func omnibarEvent(_ event: OmnibarEvent) {
@@ -315,7 +325,7 @@ public final class BrowserChromeView: NSView {
         addressBar.allowsChromiumSchemes = tab.engineKind == .cef
         extensionToolbar.bind(tab)
         toolbarButtons.bind(tab)
-        bindOmniboxKeywords(tab)
+        addressBar.bindKeywords(of: tab)
         if !findBar.isHidden {
             old?.clearFind()
             findBar.isHidden = true
@@ -328,15 +338,19 @@ public final class BrowserChromeView: NSView {
 
     private func render() {
         let state = tab.state
+        if let http = httpsFallback.observe(state) {
+            // task-owner: one load, after this render (never a load inside the observed render).
+            Task { @MainActor [weak self] in self?.tab.load(http) }
+        }
         backButton.isEnabled = state.canGoBack
         forwardButton.isEnabled = state.canGoForward
 
-        let loading = state.isLoading
+        let loading = state.showsLoad
         if loading != showsStop {
             showsStop = loading
-            reloadButton.setIcon(loading ? .browserStop : .actionReload, label: loading ? Strings.stop : Strings.reload)
+            reloadButton.setIcon(loading ? .browserToolbarStop : .browserToolbarReload, label: loading ? Strings.stop : Strings.reload)
         }
-        addressBar.update(url: state.url, security: PageInfoSite.omnibarSecurity(for: state))
+        addressBar.update(url: Self.omnibarURL(for: state), security: PageInfoSite.omnibarSecurity(for: state))
         updateMachineBadge()
         recordHistory(state)
         reportFinishedLoad(state)
@@ -353,7 +367,9 @@ public final class BrowserChromeView: NSView {
     /// A move to a screen with another scale snaps the toolbar gap again.
     public override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
-        if !isToolbarHidden { toolbarHeight.constant = currentToolbarHeight }
+        // Every scale-snapped value, not only the row height: the omnibar's top was computed
+        // before the view had a window, at the main screen's scale (1 pt off on a 1x display).
+        density.reapply()
     }
 
     public override func layout() {
@@ -390,7 +406,6 @@ public final class BrowserChromeView: NSView {
             let surface = paints ? Palette.surfaceBackground.cgColor : nil
             layer?.backgroundColor = surface
             toolbar.layer?.backgroundColor = Palette.surfaceOverride(.browserChrome)?.cgColor ?? surface
-            separator.layer?.backgroundColor = Palette.separator.cgColor
             contentContainer.layer?.borderColor = Palette.separator.cgColor
         }
     }

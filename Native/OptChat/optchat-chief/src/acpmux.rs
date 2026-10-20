@@ -34,6 +34,9 @@ pub struct SessionSpec {
     /// The fast service tier (codex-acp's `fast-mode` config option, set
     /// right after session/new); false: the harness's default speed.
     pub fast: bool,
+    /// The acpmux peer (`acpmux host ls`) the session is created on
+    /// (`_meta.acpmux.peer`; a cloud subagent); None: this machine.
+    pub peer: Option<String>,
 }
 
 /// The tag on every session the Chief itself runs (its turns and its
@@ -796,13 +799,15 @@ pub fn events(client: &RpcClient, session: &str, after: u64) -> Result<Vec<Acpmu
 /// codex-acp's config option for the fast (priority) service tier.
 pub const FAST_MODE_OPTION: &str = "fast-mode";
 
-/// `session/new` with acpmux's name, harness, policy, model and preset.
-pub fn new_session(
-    client: &RpcClient,
-    spec: &SessionSpec,
-    preset: Option<&str>,
-) -> Result<String, String> {
-    let mut meta = json!({"name": spec.name, "harness": spec.harness, "policy": spec.policy});
+/// `session/new`'s `_meta.acpmux`: name, harness, policy, model, effort,
+/// preset, env and peer. On a peer (a cloud VM) a policy that does not ask is
+/// left out: a peer refuses one from a remote connection, and the VM's own
+/// default (its config.json) applies; `ask` (the spawn floor) is still sent.
+pub fn session_meta(spec: &SessionSpec, preset: Option<&str>) -> Value {
+    let mut meta = json!({"name": spec.name, "harness": spec.harness});
+    if spec.peer.is_none() || matches!(spec.policy.as_str(), "ask" | "deny-all") {
+        meta["policy"] = json!(spec.policy);
+    }
     if let Some(model) = &spec.model {
         meta["model"] = json!(model);
     }
@@ -815,12 +820,46 @@ pub fn new_session(
     if !spec.env.is_empty() {
         meta["env"] = json!(spec.env);
     }
-    let result = client
-        .request(
+    if let Some(peer) = &spec.peer {
+        meta["peer"] = json!(peer);
+    }
+    meta
+}
+
+/// `session/new` with acpmux's name, harness, policy, model and preset.
+pub fn new_session(
+    client: &RpcClient,
+    spec: &SessionSpec,
+    preset: Option<&str>,
+) -> Result<String, String> {
+    let mut meta = session_meta(spec, preset);
+    let request = |meta: &Value| {
+        client.request(
             "session/new",
             json!({"cwd": spec.cwd, "mcpServers": [], "_meta": {"acpmux": meta}}),
         )
-        .map_err(|e| format!("session/new: {e}"))?;
+    };
+    let result = match request(&meta) {
+        // An acpmux from before the turn seal refuses that key: the turn
+        // runs without it (its `chiefs` tool then answers that it is not
+        // this Chief's turn), never not at all.
+        Err(e)
+            if e.to_string().contains(&format!(
+                "env key {} is not one a session may set",
+                crate::chief_profile::TURN_KEY_ENV
+            )) =>
+        {
+            if let Some(env) = meta.get_mut("env").and_then(Value::as_object_mut) {
+                env.remove(crate::chief_profile::TURN_KEY_ENV);
+                if env.is_empty() {
+                    meta.as_object_mut().map(|m| m.remove("env"));
+                }
+            }
+            request(&meta)
+        }
+        other => other,
+    }
+    .map_err(|e| format!("session/new: {e}"))?;
     let id = result
         .get("sessionId")
         .and_then(Value::as_str)
@@ -866,6 +905,8 @@ impl AgentPort for Acpmux {
                     "the acpmux preset {name} is not installed, and this session never starts without it"
                 ));
             }
+            // A peer session: this daemon's presets do not exist there.
+            None if spec.peer.is_some() => None,
             None => self
                 .preset
                 .as_ref()

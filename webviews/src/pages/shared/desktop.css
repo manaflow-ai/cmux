@@ -24,21 +24,56 @@
      the neutral focus token; the alpha is applied here so every first-party surface shares it. */
   --cmux-focus-ring-width: 1.5px;
   --cmux-focus-ring-color: color-mix(in srgb, var(--cmux-app-focus-ring, var(--cmux-focus-ring, currentColor)) 48%, transparent);
+  /* A drawn rim is whole device pixels: macOS WebKit snaps an inset shadow's inner edge to device
+     pixels but not its rounded clip, so a thinner rim loses edges and the arcs beside them.
+     `--cmux-hairline` is one device pixel; `--cmux-hairline-ring` is the whole device pixels nearest
+     one CSS pixel (1px at 1x and 2x). desktop.ts sets both from devicePixelRatio, which follows
+     page zoom; the media query below is the value before it runs. */
+  --cmux-hairline: 1px;
+  --cmux-hairline-ring: 1px;
+  /* The light end of the tonal scale: what a light theme's raised surfaces lift toward, as the
+     native opaque fill does (`ThemeTokens.opaqueOverlayFill` mixes a light page toward white). */
+  --cmux-tone-light: #fff; /* theme-fixed: the tonal scale's light end, as native ThemeTokens */
   /* The highlighted row of a menu, list or palette (keyboard or pointer): a tint one step past
      hover (the text at about 6%), never a ring and never the accent's selection tint. The left
      bar in the theme accent is an option, 0 (off) by default. */
   --cmux-row-focus: color-mix(in srgb, var(--cmux-text, currentColor) 10%, transparent);
   --cmux-row-focus-bar: 0px;
+  /* One elevation scale for every drop shadow (Leo 2026-10-14, no dramatic shadows): a tight,
+     low-alpha drop under the surface, while the thin rim carries the edge. `--elevation-1` lifts
+     rows, cards and inline surfaces; `--elevation-2` popovers, menus, the palette, hover cards, the
+     composer, sheets and find bars. The native scale is the same numbers (PopupStyle.swift,
+     `elevation1`/`elevation2`); subtle-elevation.test.ts holds the two in step and fails on any
+     other blurred drop shadow. Dark mode darkens the same geometry a little. */
+  --elevation-1: 0 1px 2px color-mix(in srgb, black 7%, transparent);
+  --elevation-2: 0 2px 6px color-mix(in srgb, black 11%, transparent);
   /* The one inset between a page's content and the pane edge: headers, scrollers and first-level
      rows start here. A row with a hover pill pads its list by less so its text still lands on it.
      The pane is the page's only container: no page wraps its content in another rounded box. */
-  --page-edge: 18px;
+  --page-edge: calc(18px * var(--cmux-interface-scale, 1));
   overscroll-behavior: none;
 }
 
 html,
 body {
   overscroll-behavior: none;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --elevation-1: 0 1px 2px color-mix(in srgb, black 12%, transparent);
+    --elevation-2: 0 2px 6px color-mix(in srgb, black 16%, transparent);
+  }
+}
+:root[data-theme="dark"] {
+  --elevation-1: 0 1px 2px color-mix(in srgb, black 12%, transparent);
+  --elevation-2: 0 2px 6px color-mix(in srgb, black 16%, transparent);
+}
+
+@media (min-resolution: 2dppx) {
+  :root {
+    --cmux-hairline: 0.5px;
+  }
 }
 
 /* Buttons and links are controls: the arrow, as in native apps. A real web link inside content
@@ -61,25 +96,68 @@ select {
 }
 
 /* One tooltip, the native one's (CmuxNextDesign/Tooltip/TooltipPanel.swift): Base UI's tooltip
-   (ui/Tooltip.tsx) and the title tooltip that replaces WebKit's bubble on every first-party page
-   (ui/titleTooltips.ts) both sit on the solid popup surface in the primary ink, with a separator
-   hairline, the caption font and a subtle shadow. A truncated row's title tooltip is as wide as
-   the row (tooltipWidth sets its min and max width). */
+   (ui/Tooltip.tsx), a toolbar hint (ui/Toolbar.tsx) and the title tooltip that replaces WebKit's
+   bubble on every first-party page (ui/titleTooltips.ts) all sit on the one tooltip surface
+   (--tooltip-*, below; Leo, 2026-10-14): frosted glass under a tint the primary ink reads on, a
+   one-device-pixel separator rim and a small tight shadow, in the caption font. The first of a warm
+   group fades in and rises 2px; a warm neighbor's is there at once (data-instant); each fades out
+   quicker than it came. A truncated row's title tooltip is as wide as the row (tooltipWidth sets
+   its min and max width). */
 .ui-tooltip,
 .ui-title-tooltip {
   box-sizing: border-box;
   max-width: min(320px, calc(100vw - 12px));
   padding: 4px 8px;
-  border: 1px solid var(--cmux-separator, color-mix(in srgb, var(--cmux-text, CanvasText) 12%, transparent));
+  border: var(--tooltip-rim-width) solid
+    var(--cmux-separator, color-mix(in srgb, var(--cmux-text, CanvasText) 12%, transparent));
   border-radius: 5px;
-  background: var(--surface-popup);
-  box-shadow: 0 2px 8px color-mix(in srgb, black 16%, transparent);
+  background: var(--tooltip-tint);
+  -webkit-backdrop-filter: var(--tooltip-blur);
+  backdrop-filter: var(--tooltip-blur);
+  box-shadow: var(--tooltip-shadow);
   color: var(--cmux-text, CanvasText);
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);
   overflow-wrap: anywhere;
   pointer-events: none;
+  /* At rest (not "none"), so with no rise (Reduce Motion) the start and the end are the same. */
+  translate: 0 0;
+  transition:
+    opacity var(--tooltip-fade-in) ease-out,
+    translate var(--tooltip-fade-in) ease-out;
+}
+
+:is(.ui-tooltip, .ui-title-tooltip)[data-starting-style] {
+  opacity: 0;
+  translate: 0 var(--tooltip-rise);
+}
+
+:is(.ui-tooltip, .ui-title-tooltip)[data-ending-style] {
+  opacity: 0;
+  transition: opacity var(--tooltip-fade-out) ease-in;
+}
+
+:is(.ui-tooltip, .ui-title-tooltip)[data-instant]:not([data-ending-style]) {
+  transition: none;
+}
+
+/* A hover card (ui/Tooltip.tsx AnchoredCard, .ui-tooltip.ui-card: a link card) keeps the solid popup
+   surface and its own look; a toolbar hint (.ui-hint) is a tooltip. */
+.ui-card {
+  border-width: 1px;
+  background: var(--surface-popup);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  box-shadow: var(--elevation-2);
+}
+
+.ui-hint {
+  border-width: var(--tooltip-rim-width);
+  background: var(--tooltip-tint);
+  -webkit-backdrop-filter: var(--tooltip-blur);
+  backdrop-filter: var(--tooltip-blur);
+  box-shadow: var(--tooltip-shadow);
 }
 
 .ui-title-tooltip {
@@ -190,7 +268,7 @@ input[type="submit"] {
    row's, new text's and a code card's: a menu, tooltip, sheet, dialog or reply that appeared in one frame flashed (POLISH;
    ui/popupSurface.css and conversation.css keep them fade-only). */
 @media (prefers-reduced-motion: reduce) {
-  *:not(.ui-popup, .ui-tooltip, .ui-sheet, .ui-dialog, .ui-backdrop, .cv-enter, .acpmux-row--enter, .cv-fresh, .cv-code-handoff__real),
+  *:not(.ui-popup, .ui-tooltip, .ui-title-tooltip, .ui-sheet, .ui-dialog, .ui-backdrop, .cv-enter, .acpmux-row--enter, .cv-fresh, .cv-code-handoff__real),
   *::before,
   *::after {
     animation-duration: 0.01ms !important;
@@ -223,6 +301,8 @@ input[type="submit"] {
     --agent-border-strong: var(--agent-text, CanvasText) !important;
     --acpmux-pill-edge: var(--agent-text, CanvasText) !important;
     --cmux-diff-border: var(--cmux-diff-fg, CanvasText) !important;
+    /* A popup's one hairline edge (ui/popupSurface.css) in its own ink. */
+    --ui-popup-edge: currentColor;
   }
 
   :root:not([data-borders="none"]) :is(.acpmux-shell, .ui-positioner) {
@@ -272,42 +352,114 @@ input[type="submit"] {
     --cmux-popup-surface,
     color-mix(in srgb, var(--cmux-text, CanvasText) 14%, var(--cmux-surface-solid, Canvas))
   );
+  /* TOOLTIP SURFACE (CmuxNextDesign/Tooltip/TooltipSurface.swift; tooltip-surface.test.ts holds the
+     two in step). Frosted glass: the host's tint (--cmux-tooltip-tint: the popup surface at the
+     least alpha that keeps the text 4.5:1 over pure black and pure white, whatever the blur
+     averages), else the popup surface at 60%; a 24px blur; the separator rim one device pixel
+     (--cmux-hairline); elevation 1. It fades in with the popup open and out with the popup close (the native
+     fadeIn and fadeOut tokens), rising 2px. Reduce Transparency: the opaque popup surface. */
+  --tooltip-tint: var(--cmux-tooltip-tint, color-mix(in srgb, var(--surface-popup) 60%, transparent));
+  --tooltip-blur: blur(24px) saturate(1.6);
+  --tooltip-rim-width: var(--cmux-hairline);
+  --tooltip-shadow: var(--elevation-1);
+  --tooltip-fade-in: var(--ui-popup-open, 120ms);
+  --tooltip-fade-out: var(--ui-popup-close, 80ms);
+  --tooltip-rise: 2px;
+}
+
+/* Reduce Motion: the tooltip still fades, with no rise. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --tooltip-rise: 0px;
+  }
 }
 
 @media (prefers-reduced-transparency: reduce) {
   :root {
     --surface-text-min: 100%;
     --surface-blur: none;
+    --tooltip-tint: var(--surface-popup);
+    --tooltip-blur: none;
   }
 }
 
-/* TYPE SCALE (webviews/src/ui/README.md, "Type scale"). The one set of font sizes of every first-party
-   page and the agent pane; use these, never a raw size (scripts/cmux-next/check-type-scale.py ratchets
-   the old ones). Chrome (menus, pickers, buttons, chips, headers, settings, toolbars) uses the UI steps,
+/* TYPE SCALE (webviews/src/ui/README.md, "Type scale"). The one set of font sizes and weights of every
+   first-party page, the agent pane and the native app: schemas/type-scale/type-scale.json, written here
+   and into CmuxNextDesign/TypeScale.generated.swift by scripts/cmux-next/gen-type-scale.py. Use these,
+   never a raw size or weight (scripts/cmux-next/check-type-scale.py ratchets the old ones). Chrome (menus, pickers, buttons, chips, headers, settings, toolbars) uses the UI steps,
    based on macOS's 13 px system font (NSFont.systemFontSize). Reading content (transcript, markdown,
    the composer prompt) uses --text-content, which follows the user's agent pane font size
    (--cv-font-size; theme.css / AgentPaneTheme). Each step has a matching line height
    (`--text-<step>--line-height`). Tailwind: `text-caption`, `text-detail`, `text-body`, `text-control`,
    `text-title`, `text-heading`, `text-content` set both. */
+/* type-scale:begin. GENERATED by scripts/cmux-next/gen-type-scale.py from schemas/type-scale/type-scale.json; do not edit. */
 :root {
-  --text-caption: 11px;
-  --text-caption--line-height: 14px;
-  --text-detail: 12px;
-  --text-detail--line-height: 16px;
-  --text-body: 13px;
-  --text-body--line-height: 18px;
-  --text-control: 13px;
-  --text-control--line-height: 18px;
-  --text-title: 15px;
-  --text-title--line-height: 20px;
-  --text-heading: 17px;
-  --text-heading--line-height: 22px;
+  --cmux-interface-scale: 1;
+  --text-caption: calc(11px * var(--cmux-interface-scale, 1)); /* shortcuts, badges, counters, tooltips, group labels */
+  --text-caption--line-height: calc(14px * var(--cmux-interface-scale, 1));
+  --text-detail: calc(12px * var(--cmux-interface-scale, 1)); /* secondary lines, metadata, section headers, footer rows */
+  --text-detail--line-height: calc(16px * var(--cmux-interface-scale, 1));
+  --text-body: calc(13px * var(--cmux-interface-scale, 1)); /* chrome text: labels, rows, menus, controls, settings */
+  --text-body--line-height: calc(18px * var(--cmux-interface-scale, 1));
+  --text-field: calc(14px * var(--cmux-interface-scale, 1)); /* the browser address bar's text */
+  --text-field--line-height: calc(18px * var(--cmux-interface-scale, 1));
+  --text-title: calc(15px * var(--cmux-interface-scale, 1)); /* card and panel titles, search fields */
+  --text-title--line-height: calc(20px * var(--cmux-interface-scale, 1));
+  --text-heading: calc(20px * var(--cmux-interface-scale, 1)); /* page headings */
+  --text-heading--line-height: calc(26px * var(--cmux-interface-scale, 1));
+  /* Menu and picker rows: the body step (NSFont.menuFont is the system size). */
+  --text-control: var(--text-body);
+  --text-control--line-height: var(--text-body--line-height);
+  /* Reading content (transcript, markdown, the prompt): the user's agent pane font size. */
   --text-content: var(--cv-font-size, 14px);
   --text-content--line-height: var(--cv-line-height, 22.75px);
+  --weight-regular: 400; /* everything by default */
+  --weight-emphasis: 600; /* titles, headings, selected or unread rows, group labels */
+}
+/* type-scale:end */
+
+/* Interface size (opt-in, Debug Settings): the host updates one multiplier for the shared chrome tokens. */
+:root {
+  --cmux-control-height: calc(24px * var(--cmux-interface-scale, 1));
 }
 
 /* The host may also set the app's Reduce Transparency setting on the root element. */
 :root[data-reduce-transparency] {
   --surface-text-min: 100%;
   --surface-blur: none;
+  --tooltip-tint: var(--surface-popup);
+  --tooltip-blur: none;
+}
+
+/* Hover intent (ui/hoverIntent.ts, Leo 2026-10-14): a row's hover fill appears on the frame the
+   pointer reaches it, with no fade-in, so a fast sweep down a list or a menu lights no row with a
+   half-faded tint. Leaving still fades as the row's own transition says (the native sidebar's rows
+   cross-fade, #20315).
+   Only class names that END in -row, -item or -option (not their -rows/-items/-options lists), and
+   the menu roles; the hovered row's other transitions snap too, so a row that animates its own
+   transform or size while hovered must opt out with its own rule. */
+:is(
+    [class$="-row"],
+    [class*="-row "],
+    [class$="-item"],
+    [class*="-item "],
+    [class$="-option"],
+    [class*="-option "],
+    [role="option"],
+    [role="menuitem"]
+  ):is(:hover, [data-highlighted]) {
+  transition-duration: 0s !important;
+}
+
+/* SYNCED-SPINNERS (user 2026-10-20): the one spinner animation of every page. Clockwise, one
+   period (the native spinner's turn, Motion `spinner`), its phase pinned to the shared clock by
+   ui/spinnerClock.ts. Spinners write `animation: cmux-spin var(--cmux-spinner-period) linear
+   infinite` inside `prefers-reduced-motion: no-preference`, never their own keyframes. */
+:root {
+  --cmux-spinner-period: 900ms;
+}
+@keyframes cmux-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }

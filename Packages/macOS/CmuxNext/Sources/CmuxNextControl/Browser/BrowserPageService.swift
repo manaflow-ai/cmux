@@ -7,9 +7,16 @@ import Foundation
 /// and a `browser_…` selector (a daemon-owned browser) to the daemon.
 public struct BrowserPageService: Sendable {
     let engine: any BrowserPageEngine
+    /// Which agent drives which tab through `browser.page.right`.
+    let leases: BrowserTabLeases
 
     public init(engine: any BrowserPageEngine) {
+        self.init(engine: engine, leases: BrowserTabLeases())
+    }
+
+    init(engine: any BrowserPageEngine, leases: BrowserTabLeases) {
         self.engine = engine
+        self.leases = leases
     }
 
     public func install(on router: ControlRouter) {
@@ -79,7 +86,9 @@ public struct BrowserPageService: Sendable {
         ])
         router.register(waitAndCaptureMethods())
         router.register(tabMethods(router: router))
+        router.register([rightMethod(router: router)])
         router.register(inputMethods())
+        router.register(browserUseMethods())
         router.register(cookieAndStorageMethods())
     }
 
@@ -93,9 +102,24 @@ public struct BrowserPageService: Sendable {
             if let error = value["error"]?.stringValue {
                 throw ControlError(code: "not_found", message: error, data: ["selector": .string(selector)])
             }
+            if let input = Self.agentInput(element: name, answer: value, text: text) {
+                await engine.announce(input.by(Self.optionalString(call, "agent")), tabID: tab.id)
+            }
             var result: [String: JSONValue] = Self.base(tab)
             result["value"] = value["value"] ?? .null
             return .object(result)
+        }
+    }
+
+    /// The agent input an element action made, for the agent cursor; nil
+    /// for the reads (`text`, `value`).
+    static func agentInput(element name: String, answer: JSONValue, text: String?) -> BrowserPageAgentInput? {
+        switch name {
+        case "click": .from(kind: .click, answer: answer)
+        case "focus": .from(kind: .focus, answer: answer)
+        case "fill": .from(kind: .type, answer: answer, text: text ?? "", replace: true)
+        case "type": .from(kind: .type, answer: answer, text: text ?? "")
+        default: nil
         }
     }
 

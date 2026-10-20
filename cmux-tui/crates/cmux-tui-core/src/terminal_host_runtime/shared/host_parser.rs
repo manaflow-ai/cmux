@@ -127,6 +127,8 @@ pub(crate) fn run_host_parser(
     let ParserSignals { pending_responses, title_changed, bell, program_status: _ } = signals;
     let mut last_colors = initial_colors;
     let mut last_pwd = None;
+    // The title last sent: one rewritten unchanged is not sent again.
+    let mut last_title: Option<String> = None;
     let mut shell_marks = crate::prompt_mode_reset::ShellMarks::default();
     // Ghostty can answer terminal queries without producing a parser
     // frame. Flush those answers after every parser command, not only
@@ -152,10 +154,21 @@ pub(crate) fn run_host_parser(
                     let normalized =
                         crate::prompt_mode_reset::write_output(&mut term, &bytes, &mut shell_marks)
                             .into_owned();
-                    parser_host.terminal_metadata.lock().unwrap().observe_output(&bytes);
+                    {
+                        let mut metadata = parser_host.terminal_metadata.lock().unwrap();
+                        metadata.observe_output(&bytes);
+                        // Whether a running command took the terminal for
+                        // interaction, so an adopting daemon still reads it
+                        // `in_use` (cx-6so.59).
+                        metadata.observe_modes(|| crate::terminal_activity::terminal_modes(&term));
+                    }
                     let title = title_changed
                         .swap(false, Ordering::AcqRel)
-                        .then(|| term.title().unwrap_or_default());
+                        .then(|| crate::terminal_title::read(&term))
+                        .filter(|title| last_title.as_deref() != Some(title.as_str()));
+                    if let Some(title) = &title {
+                        last_title = Some(title.clone());
+                    }
                     let pwd = term.pwd();
                     let colors = term.color_overrides();
                     let cursor_changed = term
@@ -201,15 +214,17 @@ pub(crate) fn run_host_parser(
                 source_cursor,
                 acknowledge_with_replay,
                 targeted_ack,
+                pty_previous,
                 response,
             } => {
-                let result = parser_host.apply_parser_resize(
+                let result = parser_host.apply_parser_resize_after_pty(
                     cols,
                     rows,
                     source_cursor,
                     acknowledge_with_replay,
                     targeted_ack,
                     cell_pixels,
+                    pty_previous,
                 );
                 flush_pending_responses();
                 let _ = response.send(result);

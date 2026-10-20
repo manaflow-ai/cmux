@@ -322,6 +322,9 @@ impl App {
                             MenuAction::RenameWorkspace(id),
                             MenuAction::CloseWorkspace(id),
                         ]));
+                        if let Some(pin) = self.workspace_pin_menu_action(id) {
+                            groups.push(self.menu_group([pin]));
+                        }
                         groups.push(self.menu_group([MenuAction::CopyWorkspaceId(id)]));
                     }
                 }
@@ -367,6 +370,9 @@ impl App {
                             MenuAction::RenameWorkspace(id),
                             MenuAction::CloseWorkspace(id),
                         ]));
+                        if let Some(pin) = self.workspace_pin_menu_action(id) {
+                            groups.push(self.menu_group([pin]));
+                        }
                         groups.push(self.menu_group([MenuAction::CopyWorkspaceId(id)]));
                     }
                 }

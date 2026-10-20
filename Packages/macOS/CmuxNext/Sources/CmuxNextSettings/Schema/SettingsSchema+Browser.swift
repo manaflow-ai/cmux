@@ -8,6 +8,8 @@ nonisolated enum BrowserSettingsSchema {
         let remote = SettingsText.keyed("settings.group.remote", "Remote Machines")
         let bookmarks = SettingsText.keyed("settings.group.bookmarks", "Bookmarks")
         let toolbar = SettingsText.keyed("settings.group.toolbar", "Toolbar")
+        let extensions = SettingsText.keyed("settings.group.extensions", "Extensions")
+        let agentInput = SettingsText.keyed("settings.group.agentInput", "Agent Input")
         return [
             BrowserToolbarButtonsSetting.descriptor(group: toolbar),
             SettingDescriptor(
@@ -33,6 +35,22 @@ nonisolated enum BrowserSettingsSchema {
                 kind: .toggle, default: .bool(false), keywords: ["bookmarks", "favorites", "bar"]
             ),
             SettingDescriptor(
+                AgentCursorSetting().configPath, section: .browser, group: agentInput,
+                title: SettingsText.keyed("settings.browser.showAgentCursor", "Show Agent Cursor"),
+                help: SettingsText.keyed(
+                    "settings.browser.showAgentCursor.help",
+                    "When an agent drives a browser tab, show its cursor, clicks and typed keys on the page. Password fields show dots."
+                ),
+                kind: .toggle, default: .bool(AgentCursorSetting().fallback),
+                keywords: ["agent", "cursor", "keystrokes", "typing", "automation", "overlay"]
+            ),
+            SettingDescriptor(
+                BuiltInAdBlockerSetting().configPath, section: .browser, group: extensions,
+                title: SettingsText.keyed("settings.browser.builtInAdBlocker", "Built-in uBlock Origin"),
+                help: SettingsText.keyed("settings.browser.builtInAdBlocker.help", "The full uBlock Origin blocks ads and trackers in Chromium tabs. Takes effect after cmux restarts."),
+                kind: .toggle, default: .bool(BuiltInAdBlockerSetting().fallback), keywords: ["ublock", "ad blocker", "adblock", "extensions", "trackers"]
+            ),
+            SettingDescriptor(
                 BrowserHibernationSetting.configPath, section: .browser, group: memory,
                 title: SettingsText.keyed("settings.browser.hibernation", "Hibernate Hidden Tabs"),
                 help: SettingsText.keyed("settings.browser.hibernation.help", "Frees memory; history and position are kept."),
@@ -56,11 +74,23 @@ nonisolated enum BrowserSettingsSchema {
                 kind: .toggle, default: .bool(BrowserHibernationSetting.fallback.includesPinnedTabs)
             ),
             SettingDescriptor(
+                ["browser", "freezeHiddenTabs"], section: .browser, group: memory,
+                title: SettingsText.keyed("settings.browser.freezeHiddenTabs", "Freeze Hidden Tabs"),
+                help: SettingsText.keyed(
+                    "settings.browser.freezeHiddenTabs.help",
+                    "Saves power: a hidden Chromium tab stops running until you show it. Pinned tabs and Never Hibernate hosts stay awake."
+                ),
+                kind: .choiceOrNumber([
+                    SettingChoice("off", SettingsText.keyed("settings.choice.never", "Never")),
+                ], SettingNumber(5...3_600, step: 5, unit: .seconds, placeholder: BrowserHibernationSetting.defaultFreezeSeconds)),
+                default: .number(BrowserHibernationSetting.defaultFreezeSeconds), keywords: ["power", "battery", "energy", "sleep", "suspend"]
+            ),
+            SettingDescriptor(
                 ["browser", "remoteLocalhost"], section: .browser, group: remote,
                 title: SettingsText.keyed("settings.browser.remoteLocalhost", "Open localhost on the Workspace's Machine"),
                 kind: .toggle, default: .bool(RemoteLocalhostSetting.fallback.enabled), keywords: ["ssh", "cloud", "port"]
             ),
-        ] + OmnibarSettingsSchema.descriptors + BrowserLinkClickSchema.descriptors + TerminalLinkRoutingSchema.descriptors
-            + BrowserPasswordsSettingsSchema.descriptors
+        ] + OmnibarSettingsSchema.descriptors + BrowserLinkClickSchema.descriptors + LinkRoutingSchema.descriptors
+            + BrowserPasswordsSettingsSchema.descriptors + BrowserVerificationAutofillSettingsSchema.descriptors
     }
 }

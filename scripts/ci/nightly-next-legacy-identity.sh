@@ -6,7 +6,7 @@
 # NIGHTLY_NEXT_LEGACY_FEED_BASE. Those installs keep their terminals, agent
 # sessions, keychain sign-in, browser data and preferences under that bundle id,
 # and Sparkle installs only an update with the same bundle id or file name. So
-# nightly-next-legacy-identity.yml gives them every new build
+# nightly.yml (job publish-nightly-identity-legacy) gives them every new build
 # under their own identity: this script turns the notarized cmux NEXT app into
 # the same build signed as cmux NIGHTLY, exactly as build 3821558930001 was
 # signed (cmux.nightly.entitlements, the NIGHTLY Developer ID profile, keychain

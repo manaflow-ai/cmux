@@ -4,7 +4,7 @@ import QuartzCore
 
 /// The workspace group editor (cx-rcby, Lawrence 2026-10-08: the Chrome tab
 /// group bubble): a name field that opens focused with the name selected,
-/// a row of color dots (none, then the theme's palette) and the group's
+/// a row of color dots (none, then the group palette) and the group's
 /// actions in sections. Opened from the group chip, its more button or a
 /// right-click. Every edit goes out through the callbacks; the editor
 /// never edits sidebar state.
@@ -33,7 +33,7 @@ final class SidebarGroupEditor {
     /// False in tests: the bubble is laid out but never put on screen.
     var ordersFront = true
 
-    func show(_ group: SidebarGroup, items: [[SidebarGroupEditorItem]], anchor: CGRect, parent: NSWindow, themeAnchor: NSView) {
+    func show(_ group: SidebarGroup, items: [[SidebarGroupEditorItem]], anchor: PopupAnchor, parent: NSWindow, themeAnchor: NSView) {
         if let shownGroup, shownGroup != group.id { hide() }
         let panel = panel ?? SidebarGroupEditorPanel()
         self.panel = panel
@@ -70,7 +70,7 @@ final class SidebarGroupEditor {
         panel.configure(group, items: items)
         panel.adoptThemeScope(of: themeAnchor)
         // A window off screen (tests, a hidden window) gets no bubble on screen.
-        panel.present(below: anchor, parent: parent, ordersFront: ordersFront && parent.isVisible)
+        panel.present(at: anchor, parent: parent, ordersFront: ordersFront && parent.isVisible)
     }
 
     /// Keeps the open editor on its group after a sidebar update: the same
@@ -185,6 +185,7 @@ final class SidebarGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
         nameField.delegate = self
         nameField.lineBreakMode = .byTruncatingTail
         nameField.setAccessibilityLabel(GroupEditorStrings.nameLabel)
+        nameField.setAccessibilityIdentifier("cmux.sidebar.groupEditor.name")
         field.wantsLayer = true
         field.layer?.cornerRadius = Metrics.itemCornerRadius
         field.layer?.cornerCurve = .continuous
@@ -199,6 +200,8 @@ final class SidebarGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
         customSwatch.onPress = { [weak self] in self?.onCustomColor?() }
         // The workspace group's Set Icon action: the shared icon picker, emoji included.
         emojiButton.onPress = { [weak self] in self?.press("workspaceGroup.setIcon") }
+        emojiButton.setAccessibilityIdentifier("cmux.sidebar.groupEditor.icon")
+        customSwatch.setAccessibilityIdentifier("cmux.sidebar.groupEditor.customColor")
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = Metrics.space1
@@ -303,12 +306,14 @@ final class SidebarGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
         onRename?(text)
     }
 
-    func present(below anchor: CGRect, parent: NSWindow, ordersFront: Bool = true) {
+    /// Opens the bubble at `anchor` (screen coordinates): under the control that opened it,
+    /// on the anchor's edge, above it when there is no room below.
+    func present(at anchor: PopupAnchor, parent: NSWindow, ordersFront: Bool = true) {
         let reopening = dismissing && isVisible
         dismissing = false
         isPresented = true
         ignoresMouseEvents = false
-        self.anchor = anchor
+        self.anchor = anchor.rect
         generation += 1
         if ordersFront, self.parent !== parent {
             self.parent?.removeChildWindow(self)
@@ -316,21 +321,15 @@ final class SidebarGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
         }
         glass?.layoutSubtreeIfNeeded()
         let size = glass?.fittingSize ?? .zero
-        var origin = CGPoint(x: anchor.minX, y: anchor.minY - Metrics.space1 - size.height)
-        if let screen = parent.screen ?? NSScreen.main {
-            let visible = screen.visibleFrame
-            origin.x = min(max(origin.x, visible.minX + Metrics.space2), visible.maxX - size.width - Metrics.space2)
-            // No room below: open above the chip.
-            if origin.y < visible.minY + Metrics.space2 { origin.y = anchor.maxY + Metrics.space1 }
-        }
-        setFrame(PopupStyle.standard.windowFrame(forCard: CGRect(origin: origin, size: size)), display: ordersFront)
+        let card = anchor.cardFrame(size: size, visible: (parent.screen ?? NSScreen.main)?.visibleFrame)
+        setFrame(PopupStyle.standard.windowFrame(forCard: card), display: ordersFront)
         guard ordersFront else { return }
         if !reopening { alphaValue = 0 }
         makeKeyAndOrderFront(nil)
         makeFirstResponder(nameField)
         nameField.currentEditor()?.selectAll(nil)
         styleFieldEditor()
-        openPopup(pivot: popupPivot(toward: anchor))
+        openPopup(pivot: popupPivot(toward: anchor.rect))
     }
 
     /// Gray selection and caret: the system accent (blue) never shows in chrome.

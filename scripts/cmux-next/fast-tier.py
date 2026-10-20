@@ -11,6 +11,11 @@ An entry must be deterministic, need no window server or gui token, and finish
 within --max-seconds (60) after the build. A swift or cargo entry whose filter
 runs no test fails.
 
+--kind KIND (repeatable) runs only the entries of those kinds, so one registry
+feeds two CI jobs: cmux-next.yml's Linux `fast-tier-cargo` job runs
+`--kind cargo` and the Mac `fast-tier` job runs `--kind swift --kind script`.
+A --kind that selects no entry is a bad registry (exit 2), never an empty pass.
+
 Flake policy: a failed entry runs once more only to classify it. Fail then pass
 is FLAKY, and FLAKY fails the tier like FAIL: it is never silently retried. Its
 owner quarantines it (scripts/cmux-next/quarantine.json, with a bead) or fixes
@@ -19,8 +24,9 @@ not gate. --repeat N is the admission run: an entry gates only after N runs on
 one head agree (ADMISSIBLE), and any mixed result is NOT-ADMISSIBLE.
 
 Every result is one line, `FAST-TIER <STATUS> <name> <seconds>s owner=... bead=...`,
-then the entry's output on failure. Exit 0 when nothing gating failed, 1 when
-something did, 2 for a bad registry.
+then the entry's output on failure. With `--receipt PATH`, the same run also
+writes a compact JSON timing receipt for CI artifacts. Exit 0 when nothing
+gating failed, 1 when something did, 2 for a bad registry.
 """
 import argparse
 import json
@@ -113,7 +119,7 @@ def line(status, entry, seconds, extra=""):
     return f"FAST-TIER {status} {entry['name']} {seconds:.1f}s owner={entry['owner']} bead={entry.get('bead') or 'none'}{tail}"
 
 
-def build_packages(root, entries, dry_run):
+def build_packages(root, entries, dry_run, timing):
     """Builds every Swift package and cargo test binary once, outside the entries' time cap."""
     builds = [(["swift", "build", "--build-tests", "--package-path", package], ".", package)
               for package in dict.fromkeys(e["package"] for e in entries if e["kind"] == "swift")]
@@ -122,10 +128,57 @@ def build_packages(root, entries, dry_run):
         builds.append((["cargo", "test", "--locked", "--no-run", *packages], path, path))
     for argv, cwd, what in builds:
         print("BUILD " + describe(argv, cwd), flush=True)
-        if not dry_run and subprocess.run(argv, cwd=root / cwd).returncode != 0:
+        started = time.monotonic()
+        if dry_run:
+            timing.append({"name": what, "command": describe(argv, cwd), "seconds": 0.0, "status": "dry-run"})
+            continue
+        done = subprocess.run(argv, cwd=root / cwd)
+        seconds = time.monotonic() - started
+        status = "pass" if done.returncode == 0 else "fail"
+        timing.append({"name": what, "command": describe(argv, cwd), "seconds": round(seconds, 3), "status": status})
+        if done.returncode != 0:
             print(f"FAST-TIER FAIL build:{what}: the tests do not build", flush=True)
             return False
     return True
+
+
+def write_receipt(path, *, status, started_wall, builds, results, total_seconds, kinds=None):
+    if not path:
+        return
+    cache = {}
+    for kind in ("swift", "cargo"):
+        key = os.environ.get(f"CMUX_FAST_{kind.upper()}_CACHE_KEY")
+        hit = os.environ.get(f"CMUX_FAST_{kind.upper()}_CACHE_HIT")
+        if key or hit:
+            cache[kind] = {"key": key or "", "exact_hit": hit == "true"}
+    # The seed a restore by prefix picked (cmux-next.yml fast-tier): a warm run
+    # is told apart from a cold one even when no exact key hit.
+    matched = os.environ.get("CMUX_FAST_CACHE_MATCHED_KEY")
+    if matched:
+        cache["matched_key"] = matched
+    payload = {
+        "schema": "cmux-next-fast-tier-receipt.v1",
+        "status": status,
+        "kinds": sorted(kinds) if kinds else sorted(KINDS),
+        "started_at": started_wall,
+        "total_seconds": round(total_seconds, 3),
+        "build_seconds": round(sum(item["seconds"] for item in builds), 3),
+        "builds": builds,
+        "entries": [
+            {"name": entry["name"], "status": result, "seconds": round(seconds, 3),
+             "owner": entry["owner"], "bead": entry.get("bead") or "none"}
+            for result, entry, seconds in results
+        ],
+        "cache": cache,
+        "github": {
+            key: os.environ[key]
+            for key in ("GITHUB_EVENT_NAME", "GITHUB_SHA", "GITHUB_REF", "GITHUB_RUN_ID", "RUNNER_NAME")
+            if os.environ.get(key)
+        },
+    }
+    receipt = Path(path)
+    receipt.parent.mkdir(parents=True, exist_ok=True)
+    receipt.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
 def main():
@@ -136,26 +189,38 @@ def main():
     parser.add_argument("--quarantine", default=str(here / "quarantine.json"))
     parser.add_argument("--max-seconds", type=int, default=60, help="time cap per entry run, after the build")
     parser.add_argument("--only", action="append", default=[], help="run only this entry (repeatable)")
+    parser.add_argument("--kind", action="append", default=[], choices=sorted(KINDS),
+                        help="run only the entries of this kind (repeatable)")
     parser.add_argument("--repeat", type=int, default=0, help="admission: run each entry N times, no classify rerun")
     parser.add_argument("--dry-run", action="store_true", help="print the build and test commands only")
+    parser.add_argument("--receipt", help="write a JSON timing receipt at this path")
     args = parser.parse_args()
 
     root = Path(args.root)
     entries = load_entries(args.registry)
     if args.only:
         entries = [e for e in entries if e["name"] in args.only]
+    if args.kind:
+        entries = [e for e in entries if e["kind"] in args.kind]
+        if not entries:
+            print(f"fast-tier: no entry of kind {', '.join(sorted(set(args.kind)))} to run", file=sys.stderr)
+            return 2
     held = quarantined(args.quarantine)
+    started = time.monotonic()
+    started_wall = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    builds = []
     if args.dry_run:
-        build_packages(root, entries, True)
+        build_packages(root, entries, True, builds)
         for entry in entries:
             print(f"RUN {entry['name']}: " + describe(*command(entry)))
         return 0
-    if not build_packages(root, entries, False):
+    if not build_packages(root, entries, False, builds):
+        write_receipt(args.receipt, status="fail", started_wall=started_wall, builds=builds, results=[],
+                      total_seconds=time.monotonic() - started, kinds=args.kind)
         return 1
 
     gating_failed = False
     results = []
-    started = time.monotonic()
     for entry in entries:
         if args.repeat:
             runs = [run_once(root, entry, args.max_seconds) for _ in range(args.repeat)]
@@ -195,10 +260,14 @@ def main():
         results.append((status, entry, seconds))
 
     total = time.monotonic() - started
+    write_receipt(args.receipt, status="fail" if gating_failed else "pass", started_wall=started_wall,
+                  builds=builds, results=results, total_seconds=total, kinds=args.kind)
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary:
         with open(summary, "a") as out:
-            out.write(f"### cmux NEXT fast tier\n\n{len(results)} entries, {total:.0f}s after the build.\n\n")
+            build_total = sum(item["seconds"] for item in builds)
+            heading = f"cmux NEXT fast tier ({', '.join(sorted(set(args.kind)))})" if args.kind else "cmux NEXT fast tier"
+            out.write(f"### {heading}\n\n{len(results)} entries, {total:.0f}s total ({build_total:.0f}s build).\n\n")
             out.write("| Entry | Result | Seconds | Owner | Bead |\n| --- | --- | ---: | --- | --- |\n")
             for status, entry, seconds in results:
                 out.write(f"| {entry['name']} | {status} | {seconds:.1f} | {entry['owner']} | {entry.get('bead') or 'none'} |\n")

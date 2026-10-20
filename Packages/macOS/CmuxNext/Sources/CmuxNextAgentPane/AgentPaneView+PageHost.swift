@@ -8,9 +8,10 @@ extension AgentPaneView {
     /// Wires `page` to this view: navigation, crashes, and the state a new page subscriber gets.
     func attachPage(_ page: PageWebView) {
         page.autoresizingMask = [.width, .height]
-        page.onOpenExternal = { [weak self] url in
+        page.onOpenExternal = { [weak self, weak page] url in
             guard let self else { return }
-            _ = AgentPaneNavigation.openOutside(url, gestures: self.model.transport.gestures, open: self.openURL)
+            let other = LinkRouter.isOtherTarget(page?.externalLinkModifiers ?? [])
+            _ = AgentPaneNavigation.openOutside(url, gestures: self.model.transport.gestures) { self.openURL($0, other) }
         }
         page.onNavigate = { [weak self] navigation in
             guard let self else { return .cancel }
@@ -24,8 +25,12 @@ extension AgentPaneView {
         page.onCrash = { [weak self] _, reloading in self?.pageCrashed(reloading: reloading) }
         pageEvents?.replay = { [weak self] in
             // A new subscriber is a page that loaded again: its registry renderers are gone.
-            self?.runPageHostRegistry()
-            return self.map(AgentPanePageHost.currentEvents) ?? []
+            guard let self else { return [] }
+            self.runPageHostRegistry()
+            let events = AgentPanePageHost.currentEvents(self)
+            // The theme it gets here is the one it has now, whatever was pushed before.
+            self.deliveredThemeEvent = events.first { $0.kind == "theme" }
+            return events
         }
         addSubview(page)
     }

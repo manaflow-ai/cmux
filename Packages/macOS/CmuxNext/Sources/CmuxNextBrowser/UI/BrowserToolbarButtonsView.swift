@@ -23,6 +23,8 @@ public final class BrowserToolbarButtonsView: NSStackView {
     /// The pinned buttons' ids (`browser.toolbarButtons`), read the same way,
     /// so a pin from any window or from cmux.json reaches every toolbar.
     public var pins: (() -> [String])? { didSet { rebind() } }
+    /// The media hub's cards, kept between opens.
+    public let mediaRows = BrowserMediaRows()
     /// Design mode and color scheme of the bound tab.
     public let modes = BrowserPageModes()
     /// 0 shows every button; 1 hides design mode and DevTools; 2 also
@@ -111,6 +113,12 @@ public final class BrowserToolbarButtonsView: NSStackView {
         if window != nil { refresh() }
     }
 
+    /// Shows `menu` at a point of a view and returns when it closes (`NSMenu.popUp`). Tests
+    /// replace it: a real menu runs its own tracking loop.
+    var popUpMenu: (NSMenu, NSPoint, NSView) -> Void = { menu, point, view in
+        menu.popUp(positioning: nil, at: point, in: view)
+    }
+
     /// The button's view, the anchor for its menu.
     public func button(_ button: BrowserToolbarButton) -> NSView? { buttons[button] }
 
@@ -129,7 +137,11 @@ public final class BrowserToolbarButtonsView: NSStackView {
         CFRunLoopPerformBlock(CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue) { [weak self] in
             MainActor.assumeIsolated { // main-proof: a CFRunLoopGetMain() block runs on the main thread
                 guard let self, let anchor = self.anchor(for: button) else { return }
-                menu.popUp(positioning: nil, at: CmuxPopoverAnchor.menuPoint(in: anchor, gap: 4), in: anchor)
+                // Pressed while the menu is open, normal again when it closes (Chrome).
+                let pressed = anchor as? ChromeIconButton
+                pressed?.isMenuOpen = true
+                self.popUpMenu(menu, CmuxPopoverAnchor.menuPoint(in: anchor, gap: 4), anchor)
+                pressed?.isMenuOpen = false
             }
         }
         CFRunLoopWakeUp(CFRunLoopGetMain())
@@ -182,6 +194,7 @@ public final class BrowserToolbarButtonsView: NSStackView {
             guard states[button] != state else { continue }
             states[button] = state
             guard let view = buttons[button] else { continue }
+            view.showsToolTip = state.showsToolTip
             view.setIcon(state.icon, label: state.label)
             view.isEnabled = state.isEnabled
             view.isOn = state.isActive

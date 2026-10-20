@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextBrowser
 import CmuxNextDaemon
+import CmuxNextFocus
 
 /// Browser-category actions that act on the focused page or create browser
 /// panes. Back, forward, reload, zoom, and the address bar are bound in
@@ -14,6 +15,7 @@ enum BrowserHandlers {
         BrowserDeviceHandlers.bind(into: registry, context: context)
         bindSplits(into: registry, context: context)
         bindLinkHints(into: registry, context: context)
+        BrowserEnabledToggle.bind(into: registry, context: context)
         bindUnavailable(registry)
     }
 
@@ -34,14 +36,19 @@ enum BrowserHandlers {
             if window.focus.state.pane != pane.paneKey { window.focus.send(.focusPane(pane.paneKey, source: .intent)) }
             window.focus.send(.toggleBrowserFocusMode(tab: entry.tab.id.rawValue))
         })
-        registry.bind("toggleBrowserDeveloperTools", run: { invocation in
-            let entry = try context.page(invocation)
-            WebInspector.toggle(entry.tab)
+        // Any focused web view (WebInspectorTarget): disabled with the reason while none is.
+        registry.bind("toggleBrowserDeveloperTools", unavailable: { DevToolsHandlers.noTargetReason(context) }, run: { invocation in
+            let target = try DevToolsHandlers.target(invocation, context)
+            WebInspector.toggle(target)
             // WebKit's inspector visibility is not observable; Chromium's is.
-            entry.chrome.toolbarButtons.refresh()
+            if case .browser = target { (try? context.page(invocation))?.chrome.toolbarButtons.refresh() }
         })
-        registry.bind("showBrowserJavaScriptConsole", run: { WebInspector.showConsole(try context.page($0).tab) })
-        registry.bind("inspectBrowserElement", run: { WebInspector.inspectElement(try context.page($0).tab) })
+        registry.bind("showBrowserJavaScriptConsole", unavailable: { DevToolsHandlers.noTargetReason(context) }, run: {
+            WebInspector.showConsole(try DevToolsHandlers.target($0, context))
+        })
+        registry.bind("inspectBrowserElement", unavailable: { DevToolsHandlers.noTargetReason(context) }, run: {
+            WebInspector.inspectElement(try DevToolsHandlers.target($0, context))
+        })
         // The toolbar shows the mode (BrowserPageModes); a new document starts with it off.
         registry.bind("toggleBrowserDesignMode", run: { invocation in
             let entry = try context.page(invocation)
@@ -50,6 +57,20 @@ enum BrowserHandlers {
             let script = "document.designMode = '\(modes.designMode ? "on" : "off")'"
             let tab = entry.tab
             Task { _ = try? await tab.evaluate(script) }
+        })
+        // React Grab (classic parity): the first toggle on a document loads the pinned library into
+        // the page world, later toggles flip it. A load failure says so on the page.
+        registry.bind("toggleReactGrab", run: { invocation in
+            let entry = try context.page(invocation)
+            let tab = entry.tab, grab = context.services.reactGrab, logger = context.daemon.logger
+            Task { [weak chrome = entry.chrome] in
+                do {
+                    try await grab.toggle(tab)
+                } catch {
+                    logger.error("react-grab toggle failed: \(String(describing: error), privacy: .public)")
+                    chrome?.showNotice(MiscHandlerStrings.reactGrabFailed)
+                }
+            }
         })
         registry.bind("palette.browserOpenDefault", run: { invocation in
             guard let url = try context.page(invocation).tab.state.url, url.scheme != "about" else {
@@ -72,17 +93,34 @@ enum BrowserHandlers {
         })
         registry.bind("browserScreenshotPage", run: { invocation in
             let tab = try context.page(invocation).tab
-            let logger = context.daemon.logger
+            copyScreenshot(context) { try await tab.snapshot() }
+        })
+        // A drag over the page picks the rect (BrowserSectionOverlay; Esc
+        // cancels); the page snapshot cropped to it is copied like a page.
+        registry.bind("browserScreenshotSection", run: { invocation in
+            let tab = try context.page(invocation).tab
+            guard tab.contentView.window != nil else { throw ActionFailure(message: MiscHandlerStrings.noBrowser) }
+            let overlay = BrowserSectionOverlay(over: tab.contentView)
             Task {
-                do {
-                    let image = try await tab.snapshot()
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.writeObjects([NSImage(cgImage: image, size: .zero)])
-                } catch {
-                    logger.error("browser screenshot failed: \(String(describing: error), privacy: .public)")
-                }
+                guard let selection = await overlay.select() else { return }
+                copyScreenshot(context) { try await selection.capture(from: tab) }
             }
         })
+    }
+
+    /// Copies the image `capture` takes to the clipboard (Screenshot Page and
+    /// Screenshot Section); a failed capture is logged.
+    static func copyScreenshot(_ context: AppActionContext, _ capture: @escaping @MainActor () async throws -> CGImage) {
+        let logger = context.daemon.logger
+        Task {
+            do {
+                let image = try await capture()
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.writeObjects([NSImage(cgImage: image, size: .zero)])
+            } catch {
+                logger.error("browser screenshot failed: \(String(describing: error), privacy: .public)")
+            }
+        }
     }
 
     /// Split Browser Right/Down: a new app-rendered browser tab moved into a
@@ -106,6 +144,7 @@ enum BrowserHandlers {
                              byPerson: Bool, context: AppActionContext) throws {
         let handle = pane.pane.handle, model = pane.pane
         let browserTabs = context.services.cache.browserTabs
+        if let refusal = browserTabs.refusal(for: url) { throw ActionFailure(message: refusal) }
         switch context.services.toolSplit(from: model, edge: direction == .right ? .right : .bottom, byPerson: byPerson) {
         case .split:
             break
@@ -186,11 +225,7 @@ enum BrowserHandlers {
 
     private static func bindUnavailable(_ registry: ActionRegistry) {
         func unavailable(_ ids: [ActionID], _ reason: String) { registry.bindUnavailable(ids, ActionFailure(message: reason)) }
-        unavailable(["toggleReactGrab"], MiscHandlerStrings.reactGrab)
         unavailable(["palette.browserToggleOmnibar"], MiscHandlerStrings.omnibarToggle)
         unavailable(["palette.browserClearHistory"], MiscHandlerStrings.browserHistory)
-        unavailable(["palette.enableBrowser", "palette.disableBrowser"], MiscHandlerStrings.browserToggle)
-        unavailable(["browserScreenshotSection"], MiscHandlerStrings.sectionScreenshot)
-        unavailable(["palette.vscodeServeWebStop", "palette.vscodeServeWebRestart"], MiscHandlerStrings.vscodeServer)
     }
 }

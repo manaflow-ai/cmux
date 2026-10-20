@@ -10,7 +10,7 @@ import Foundation
 /// followed link opens.
 protocol FilePageHosting: AnyObject {
     var roots: FileWorkspaceRoots { get }
-    /// `markdown.remoteImages` (default true).
+    /// `markdown.remoteImages`: load web images without a per-document click (default false).
     var remoteImages: Bool { get }
     /// `{home, items: [{path, name?, openedAt}]}` (diff-host.md "Empty state").
     func recents() -> JSONValue
@@ -27,15 +27,25 @@ protocol FilePageHosting: AnyObject {
     func openExternal(_ url: URL)
     /// Another file, through the file routing (its own page tab).
     func openFile(_ url: URL)
+    /// A cmux app link (`cmux://workspace/ws_…` and the other deep links) opened inside this app,
+    /// never through the system; false when the app does not open it.
+    func openAppLink(_ url: URL) -> Bool
     /// Whether `path` (canonical) is a recents entry the user opened.
     func isRecent(_ path: String) -> Bool
     /// The native "Open <path>?" sheet for a link outside every granted document's folder: shown
     /// only after a real user gesture, one at a time; false when refused or not shown.
     func confirmOpen(_ url: URL, userGesture: Bool) async -> Bool
+    /// The native omnibar shows the file's path above the page (the Markdown omnibar), so the
+    /// page's toolbar drops its own file name (config `omnibar: true`).
+    var showsOmnibar: Bool { get }
     /// A page's edit of `url` (the R96 quit hook): the document's unsaved state and its draft.
     func edited(_ url: URL, text: String, baseHash: String?, writable: Bool) -> RecoveryDraftAcceptance
     /// A normal save of `url` wrote `hash`.
     func saved(_ url: URL, hash: String)
+}
+
+extension FilePageHosting {
+    var showsOmnibar: Bool { false }
 }
 
 /// One file page tab's `cmux.markdown.*` or `cmux.editor.*` namespace (diff-host.md S6 "Markdown
@@ -55,13 +65,21 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
     private var changeListeners: [UUID: (JSONValue) -> Void] = [:]
     /// The folder of the open file the current asset token serves, and the token.
     private(set) var assetToken = UUID().uuidString.lowercased()
+    /// The unguessable resource prefix for this document. It rotates on navigation so an approved
+    /// document cannot keep fetching after the tab starts showing another one.
+    private(set) var remoteImageToken = UUID().uuidString.lowercased()
+    /// A click in the page approved web images for the document currently shown in this tab.
+    private var remoteImagesApproved = false
     /// Canonical paths that are this tab's documents, whoever opened them: its first document,
     /// chooseFile results, approved links. The page may open them, and their folders bound the
     /// links that open without asking.
     private(set) var documents: Set<String> = []
     /// The documents the user chose (Open File..., the picker, a click, an approved link): these are
-    /// writable. A document an agent or script opened is writable only inside a user root.
+    /// writable. In the code editor, a document an agent or script opened is writable only inside a
+    /// user root; every markdown document is writable (``inWorkspace(_:)``).
     private(set) var granted: Set<String> = []
+    /// Documents the host opened read only on purpose (a chat transcript): never saved.
+    private(set) var readOnlyDocuments: Set<String> = []
     /// Markdown files `resolveLinks` found inside a granted document's folder: the page may open
     /// them in place (following a link it showed).
     private var linked: Set<String> = []
@@ -79,16 +97,18 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
     nonisolated static let listLimit = 50
 
     /// `userChose`: the user opened the tab's document (Open File..., the picker, a click), so it
-    /// is granted and writable; a document an agent or script opened is the page's to show, and
-    /// writable only inside a root the user chose.
-    init(kind: FilePageKind, file: URL?, userChose: Bool = true, host: any FilePageHosting, clock: any Clock<Duration> = ContinuousClock(),
-         libraries: URL?, images: any RemoteImageFetching) {
+    /// is granted and writable; in the code editor, a document an agent or script opened is the
+    /// page's to show, and writable only inside a root the user chose. `readOnly`: the host opens
+    /// the document read only whoever opened it (a chat transcript).
+    init(kind: FilePageKind, file: URL?, userChose: Bool = true, readOnly: Bool = false, host: any FilePageHosting,
+         clock: any Clock<Duration> = ContinuousClock(), libraries: URL?, images: any RemoteImageFetching) {
         self.kind = kind
         self.file = file.map(Self.canonical)
         if let file = self.file {
             shown.insert(file.path)
             documents.insert(file.path)
             if userChose { granted.insert(file.path) }
+            if readOnly { readOnlyDocuments.insert(file.path) }
         }
         self.host = host
         self.clock = clock
@@ -98,6 +118,21 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
 
     /// The tab shows the empty state.
     var isPicking: Bool { file == nil && !isClosed }
+
+    /// When the editor reported that Monaco waits for the second key of a sequence
+    /// (`cmux.editor.keySequence`), in `uptime()` seconds; nil when none is pending.
+    private var keySequenceStarted: TimeInterval?
+    /// The clock for ``keySequencePending`` (seconds since boot); tests replace it.
+    var uptime: () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
+    /// How long a pending sequence holds the next key, if the page never reports its end.
+    nonisolated static let keySequenceLimit: TimeInterval = 5
+
+    /// The editor waits for the second key of a key sequence: the app's key dispatcher lets the
+    /// next key reach it. A report older than ``keySequenceLimit`` no longer counts.
+    var keySequencePending: Bool {
+        guard let started = keySequenceStarted else { return false }
+        return uptime() - started < Self.keySequenceLimit
+    }
 
     private var origin: String { kind.descriptor.origin }
 
@@ -116,6 +151,16 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
         case kind.op("setPreference"):
             try await setPreference(params, host: host, userGesture: context.userGesture)
             return .object([:])
+        case kind.op("loadRemoteImages") where kind == .markdown:
+            guard context.userGesture else {
+                throw PageError(code: "cmux.page.gesture", message: "loading web images needs a user gesture")
+            }
+            let requested = try path(params["path"])
+            guard let file, Self.canonical(requested) == file else {
+                throw PageError.invalidParams("path is not this page's file")
+            }
+            remoteImagesApproved = true
+            return ["remoteImageBase": .string(remoteImageBase)]
         case kind.op("recents"):
             return host.recents()
         case kind.op("chooseFile"):
@@ -125,6 +170,9 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
             return ["path": .string(chosen.path)]
         case kind.op("openLink"):
             try await openLink(params, host: host, userGesture: context.userGesture)
+            return .object([:])
+        case kind.op("keySequence") where kind == .editor:
+            keySequenceStarted = params["pending"]?.boolValue == true ? uptime() : nil
             return .object([:])
         case kind.op("resolveLinks") where kind == .markdown:
             return try await resolveLinks(params, host: host)
@@ -160,8 +208,12 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
         return URL(fileURLWithPath: path).standardizedFileURL
     }
 
-    /// Writable: a document the user granted, or a file inside a folder the user chose as a root.
+    /// Writable: every markdown document the page shows, whoever opened it and in whatever
+    /// workspace (user 2026-10-18: "All markdown viewers should be read-write"); in the code editor,
+    /// a document the user granted or a file inside a folder the user chose as a root. A file that
+    /// is binary, not UTF-8 or not writable stays read only either way (``FileDocument/read``).
     private func inWorkspace(_ url: URL) -> Bool {
+        if kind == .markdown { return true }
         let path = Self.canonical(url).path
         return granted.contains(path) || (host?.roots.contains(path) ?? false)
     }
@@ -194,7 +246,9 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
 
     private func snapshot(_ url: URL) async throws -> FileSnapshot {
         do {
-            return try await Self.read(url, inWorkspace: inWorkspace(url.resolvingSymlinksInPath()))
+            let file = try await Self.read(url, inWorkspace: inWorkspace(url.resolvingSymlinksInPath()))
+            guard file.readOnlyReason == nil, readOnlyDocuments.contains(file.url.path) else { return file }
+            return FileSnapshot(url: file.url, text: file.text, hash: file.hash, size: file.size, readOnlyReason: .transcript)
         } catch .notFound {
             throw PageError(code: kind.op("not_found"), message: url.path)
         } catch .notFile {
@@ -217,6 +271,8 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
         if opened.url != file {
             file = opened.url
             assetToken = UUID().uuidString.lowercased()
+            remoteImageToken = UUID().uuidString.lowercased()
+            remoteImagesApproved = false
             restartWatch(known: opened.hash)
         }
         host?.record(opened.url)
@@ -240,13 +296,14 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
         }
         if let reason = file.readOnlyReason {
             config["readOnly"] = true
-            if kind == .editor { config["readOnlyReason"] = .string(reason.rawValue) }
+            config["readOnlyReason"] = .string(reason.rawValue)
         }
         switch kind {
         case .markdown:
             config["assetBase"] = .string("\(origin)/\(MarkdownPageResource.asset)/\(assetToken)/")
             config["libBase"] = .string("\(origin)/\(MarkdownPageResource.library)/")
-            if host?.remoteImages ?? false { config["remoteImageBase"] = .string("\(origin)/\(MarkdownPageResource.remoteImage)/") }
+            if host?.showsOmnibar == true { config["omnibar"] = true }
+            if remoteImagesAllowed { config["remoteImageBase"] = .string(remoteImageBase) }
             if let repository = await AgentPaneGitHubRepository.read(at: file.url.deletingLastPathComponent().path) {
                 config["githubRepository"] = .string(repository)
             }
@@ -262,6 +319,14 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
         return .object(members)
     }
 
+    /// Remote images are automatic only by explicit setting; otherwise a click approves this
+    /// document for the lifetime of its tab entry.
+    var remoteImagesAllowed: Bool { remoteImagesApproved || host?.remoteImages == true }
+
+    private var remoteImageBase: String {
+        "\(origin)/\(MarkdownPageResource.remoteImage)/\(remoteImageToken)/"
+    }
+
     private func save(_ params: JSONValue) async throws -> JSONValue {
         let url = try path(params["path"])
         guard let file, url.resolvingSymlinksInPath() == file else { throw PageError.invalidParams("path is not this page's file") }
@@ -272,6 +337,7 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
         case .null?, nil: base = nil
         default: throw PageError.invalidParams("baseHash must be a string or null")
         }
+        guard !readOnlyDocuments.contains(file.path) else { throw PageError(code: kind.op("read_only"), message: file.path) }
         let workspace = inWorkspace(file)
         let result: FileSaveResult
         do {
@@ -360,6 +426,13 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
                 userChose(target)
             }
             return host.openFile(target)
+        }
+        if params["kind"]?.stringValue == "app" {
+            // A cmux deep link opens inside the app or not at all; it never reaches the system.
+            guard let url = URL(string: href), host.openAppLink(url) else {
+                throw PageError.invalidParams("not a cmux link this app opens")
+            }
+            return
         }
         guard let url = URL(string: href), let scheme = url.scheme?.lowercased(),
               ["http", "https", "mailto", "tel"].contains(scheme) else {

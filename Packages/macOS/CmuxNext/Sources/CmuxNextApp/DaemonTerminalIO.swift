@@ -1,4 +1,5 @@
 import CmuxNextBridge
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextTerminal
 import CmuxNextWakeups
@@ -25,8 +26,8 @@ import os
 /// - Geometry follows the latest active client (`TerminalAttachMachine`):
 ///   a visible view claims on each settled resize and, after another client
 ///   sized the terminal, on its next key press or focus.
-/// - Grid reports go through `ResizeCoordinator` and reach the daemon only
-///   after the view stops resizing.
+/// - Grid reports go through `ResizeCoordinator` and reach the daemon the
+///   next frame, one grid in flight per terminal (a drag reflows live).
 /// - A dropped stream or failed attach leaves the view disconnected (last
 ///   screen and a status label). A visible view re-attaches by itself after
 ///   a capped backoff (500 ms doubling to 30 s, about a minute in all,
@@ -45,12 +46,13 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
 
     let events: AsyncStream<TerminalIOEvent>
     private let driver: TerminalAttachDriver<TerminalAttachment>
+    private let creatingInput: CreatingTerminalInput?
 
     /// - Parameter policyBlocked: true while an administrator turned off the
     ///   feature that reaches this terminal's machine: every disconnect shows
     ///   "Turned off by your organization" and the endpoint refuses re-attaches.
     /// `gate`: the view of a terminal not created yet attaches only once the gate names it.
-    init(target: Target, visible: Bool = true, gate: TerminalTargetGate? = nil,
+    init(target: Target, visible: Bool = true, gate: TerminalTargetGate? = nil, creatingInput: CreatingTerminalInput? = nil,
          policyBlocked: @escaping @Sendable () -> Bool = { false },
          endpoint: @escaping @Sendable () async throws -> DaemonEndpoint) {
         let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.terminal")
@@ -73,7 +75,8 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
                                                     size: size, claimGeometry: false,
                                                     snapshotVersion: Self.attachSnapshotVersion,
                                                     localHistory: Self.attachLocalHistory,
-                                                    images: Self.attachImages)
+                                                    images: Self.attachImages,
+                                                    device: await Self.sizingDevice.value)
             },
             onFailure: { error in
                 logger.error("attach \(surface) failed: \(String(describing: error), privacy: .public)")
@@ -86,6 +89,7 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
             backoffDelay: { failed in try await Self.reattachBackoff(afterFailures: failed) }
         )
         self.driver = driver
+        self.creatingInput = creatingInput
         events = AsyncStream(unfolding: {
             await driver.nextStep().map { step in
                 let event = Self.event(for: step)
@@ -100,6 +104,10 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
         },
                              onCancel: { driver.cancelSteps() })
         driver.start()
+        #if DEBUG
+        // The view of a traced new terminal's tab: its session is matched by this IO.
+        if NewTerminalTrace.shared.isArmed { NewTerminalTrace.shared.watch(io: ObjectIdentifier(self), surface: surface) }
+        #endif
     }
 
     deinit {
@@ -112,6 +120,7 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     var answersTerminalQueries: Bool { true }
 
     func write(_ data: Data) async {
+        if let creatingInput, await creatingInput.write(data) { return }
         driver.input(data)
     }
 
@@ -119,6 +128,11 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     /// or re-attaches a disconnected view.
     func focusGained() async {
         driver.focused()
+    }
+
+    /// Take over from the "Sized for" chip: always a new claim (see `TerminalAttachMachine`).
+    func takeOverSize(setLatest: Bool) async {
+        driver.takeOver(setLatest: setLatest)
     }
 
     /// A click in a disconnected view re-attaches it.
@@ -143,6 +157,16 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     /// Called by `ResizeCoordinator` once the size settled.
     @MainActor func applySettled(_ size: CellSize) {
         driver.resize(size)
+    }
+
+    @MainActor var awaitsEcho: Bool { !driver.machine.echoesDue.isEmpty }
+
+    /// A visible live view holds geometry until another client's grid is
+    /// announced, and a resize it reports claims it back
+    /// (`TerminalAttachMachine`), so the daemon applies and announces it.
+    @MainActor func appliesViewGrid(reporting: Bool) -> Bool {
+        let machine = driver.machine
+        return machine.liveLink != nil && machine.visible && (reporting || machine.claimed)
     }
 
     /// Hidden views release canonical geometry so another client (or the
@@ -210,7 +234,19 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
         case .output(let data): .output(data)
         case .exited: .exited
         case .status(let status): .status(Self.connection(status))
+        case .sizing(let notice): .sizedFor(notice.map(Self.sizedFor))
         }
+    }
+
+    /// This Mac in the terminal's shared sizing: views name it, and their attach joins
+    /// `shared-sizing-v1` (size states for "Sized for", and the Mac's name on other devices).
+    /// Read once, off the main actor (MacName).
+    static let sizingDevice = Task { TerminalSizingDevice(kind: "mac", name: await MacName().computerName()) }
+
+    static func sizedFor(_ notice: TerminalSizeNotice) -> TerminalSizedFor {
+        TerminalSizedFor(deviceName: notice.ownerName, deviceKind: notice.ownerKind, sameDevice: notice.sameDevice,
+                         grid: TerminalGridSize(columns: notice.cols, rows: notice.rows),
+                         fixedSize: notice.fixedSize, takeOverSetsLatest: notice.takeOverSetsLatest)
     }
 
     static func connection(_ status: TerminalLinkStatus) -> TerminalConnectionStatus {
@@ -256,3 +292,5 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
         ))
     }
 }
+
+extension DaemonTerminalIO: ResizeTarget {}

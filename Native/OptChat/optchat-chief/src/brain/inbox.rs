@@ -4,10 +4,12 @@
 //! are in the OptChat log, so a restart never loses or repeats one.
 //!
 //! Other conversations (G9): the main conversation's stream is the only one
-//! the brain subscribes to. Another conversation is read only when the
-//! chief's wake queue names it (`side.rs`), and answered there.
+//! the brain follows. Another conversation is read only when the chief's
+//! wake queue names it (`side.rs`), or, on the local owner with
+//! `OPTCHAT_GROUP_WAKE` set (`membership`), when a person writes in one the
+//! Chief takes part in; it is answered there.
 
-use cmux_chief::rules::{AGENT_MUX, PAGE, message_text};
+use cmux_chief::rules::{PAGE, message_text};
 
 use crate::wake::chief_wakes;
 use cmux_conversation::{Change, Message, Op, Part};
@@ -33,7 +35,7 @@ impl Brain {
                         // agent_mux cursor; ops for the old one cannot land.
                         let cursor = conversation
                             .read_cursors
-                            .get(AGENT_MUX)
+                            .get(&self.settings.membership.participant)
                             .copied()
                             .unwrap_or(0);
                         (self.log)(&format!(
@@ -68,6 +70,9 @@ impl Brain {
                 change,
             } => {
                 if self.state.conversation.as_deref() != Some(conversation.as_str()) {
+                    if self.settings.membership.local_side {
+                        self.on_local_side_change(conversation, change);
+                    }
                     return;
                 }
                 match change {
@@ -79,7 +84,7 @@ impl Brain {
                         }
                     }
                     Change::Message { message } => self.on_message(message),
-                    Change::MessageUpdated { .. } => {}
+                    Change::MessageUpdated { message } => self.on_message_updated(&message),
                 }
             }
             DaemonEvent::Down => {
@@ -103,8 +108,70 @@ impl Brain {
         }
     }
 
+    /// Spec 5a.2: an edit or a retraction of a message the log holds is
+    /// logged as a note that names its line (`edit of <id>: <text>`,
+    /// `retracted <id>`), so the next turn's delta carries it and the next
+    /// re-render folds it in. A reaction or another update logs nothing, nor
+    /// does a change of the Chief's own messages. A message still queued
+    /// takes the edited text, or leaves the queue when retracted. The note's key
+    /// names the change, so a replayed update is logged once.
+    fn on_message_updated(&mut self, message: &Message) {
+        let Some(main) = self.state.conversation.clone() else {
+            return;
+        };
+        if message.author == self.settings.membership.participant {
+            return;
+        }
+        let key = format!("{main}#{}", message.seq);
+        let Some(target) = self.chat.logged_id(&key) else {
+            self.update_queued(message);
+            return;
+        };
+        let (text, change) = match (&message.retracted_at, &message.edited_at) {
+            (Some(_), _) => (optchat_core::retracted(target), "retracted".to_owned()),
+            (None, Some(at)) => (
+                optchat_core::edit_of(target, &message_text(message)),
+                format!("edited@{at}"),
+            ),
+            (None, None) => return,
+        };
+        let entry = optchat_host::NewMessage {
+            key: Some(format!("{key}:{change}")),
+            ..optchat_host::NewMessage::new(optchat_core::Kind::Note, &text)
+        };
+        if let Err(e) = self.chat.append_with(&[entry], |_| Vec::new()) {
+            (self.log)(&format!(
+                "logging the change of message {target} failed: {e}"
+            ));
+        }
+    }
+
+    /// The queued item of main-conversation message `message` (not logged
+    /// yet) takes its edit, or leaves the queue when it was retracted.
+    fn update_queued(&mut self, message: &Message) {
+        let is_it = |q: &super::Queued| {
+            q.conversation.is_none()
+                && !q.logged
+                && matches!(q.source, Source::Message { seq, .. } if seq == message.seq)
+        };
+        if message.retracted_at.is_some() {
+            self.queue.retain(|q| !is_it(q));
+            if !self.queued_messages_of(None) {
+                self.state.logged_seq = self.handled;
+                self.save();
+                self.set_cursor(self.handled);
+                self.settle_acks();
+            }
+        } else if message.edited_at.is_some() {
+            let text = message_text(message);
+            for q in self.queue.iter_mut().filter(|q| is_it(q)) {
+                q.text = super::images::logged_text(&text, &q.images);
+            }
+        }
+    }
+
     fn on_message(&mut self, message: Message) {
-        if message.author == AGENT_MUX {
+        if message.author == self.settings.membership.participant {
             self.mux_messages.insert(message.id.clone());
         }
         if self.daemon.is_none() || message.seq <= self.handled {
@@ -128,7 +195,11 @@ impl Brain {
         };
         let fetched = (|| {
             let (summary, messages) = daemon.snapshot(&conversation, PAGE)?;
-            let cursor = summary.read_cursors.get(AGENT_MUX).copied().unwrap_or(0);
+            let cursor = summary
+                .read_cursors
+                .get(&self.settings.membership.participant)
+                .copied()
+                .unwrap_or(0);
             let from = self.handled.max(cursor);
             let mut pending: Vec<Message> =
                 messages.iter().filter(|m| m.seq > from).cloned().collect();
@@ -149,7 +220,7 @@ impl Brain {
         match fetched {
             Ok((summary, messages, pending, from)) => {
                 for m in messages.iter().chain(pending.iter()) {
-                    if m.author == AGENT_MUX {
+                    if m.author == self.settings.membership.participant {
                         self.mux_messages.insert(m.id.clone());
                     }
                 }
@@ -173,6 +244,7 @@ impl Brain {
             return;
         }
         self.handled = message.seq;
+        self.note_main_message(&message);
         let Some(summary) = self.summary.as_ref() else {
             return;
         };
@@ -181,13 +253,21 @@ impl Brain {
             matches!(part, Part::Attachment { mime_type, .. } if mime_type.starts_with("image/"))
         });
         if (!text.trim().is_empty() || has_images)
-            && chief_wakes(summary, &message, |id| self.mux_messages.contains(id))
+            && chief_wakes(
+                &self.settings.membership.rule(false),
+                summary,
+                &message,
+                |id| self.mux_messages.contains(id),
+            )
         {
             // An answer to a pending approval of the running turn: it
             // answers, is logged, and is not a new message (it neither
             // queues nor interrupts the turn).
             match crate::approval::Answer::parse(&text) {
-                Some(answer) if self.has_approval(None) => {
+                Some(answer)
+                    if self.settings.membership.is_owner_message(summary, &message)
+                        && self.has_approval(None) =>
+                {
                     self.answer_approval(answer, &message, None);
                     if let Err(e) = self.chat.append(optchat_core::Kind::User, &text) {
                         (self.log)(&format!("logging an approval failed: {e}"));
@@ -213,6 +293,10 @@ impl Brain {
                             seq: message.seq,
                             id: message.id.clone(),
                             remote,
+                            requires_approval: !self
+                                .settings
+                                .membership
+                                .is_owner_message(summary, &message),
                         },
                     );
                     return;
@@ -234,7 +318,11 @@ impl Brain {
         let current = self
             .summary
             .as_ref()
-            .and_then(|s| s.read_cursors.get(AGENT_MUX).copied())
+            .and_then(|s| {
+                s.read_cursors
+                    .get(&self.settings.membership.participant)
+                    .copied()
+            })
             .unwrap_or(0);
         if seq <= current {
             return;
@@ -242,11 +330,12 @@ impl Brain {
         let Some(daemon) = self.daemon.as_mut() else {
             return;
         };
-        let key = format!("cursor:{AGENT_MUX}:{seq}");
+        let participant = self.settings.membership.participant.clone();
+        let key = format!("cursor:{participant}:{seq}");
         match daemon.op(&conversation, &key, &Op::ReadCursorSet { seq }) {
             Ok(_) => {
                 if let Some(summary) = self.summary.as_mut() {
-                    summary.read_cursors.insert(AGENT_MUX.into(), seq);
+                    summary.read_cursors.insert(participant, seq);
                 }
             }
             Err(OpError::Rejected(reason)) if reason.contains("cursor_regression") => {}

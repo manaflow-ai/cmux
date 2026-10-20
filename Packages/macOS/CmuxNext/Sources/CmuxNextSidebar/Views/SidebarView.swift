@@ -15,6 +15,9 @@ public enum SidebarAccessorySlot: CaseIterable, Sendable {
 /// the command palette (Go to Workspace), not here. Place it in a glass
 /// panel, or use `SidebarContainerView`, which adds the panel, width, and
 /// resize handle.
+// Keep implementation extensions in a separate checker namespace.
+typealias SidebarViewComponents = SidebarView
+
 public final class SidebarView: NSView {
     public let model: SidebarModel
     /// Height reserved at the top for the window's traffic lights (the
@@ -62,7 +65,9 @@ public final class SidebarView: NSView {
     var minimalHiddenBands: (top: Bool, bottom: Bool) = (false, false)
     var accessories: [SidebarAccessorySlot: NSView] = [:]
     let footer = NSView()
-    let updateCardView = SidebarUpdateCardView(), updatedCardView = SidebarUpdatedCardHost(), noticeCardView = SidebarNoticeCardView()
+    let updateCardView = SidebarUpdateCardView(), nowPlayingCardView = SidebarNowPlayingCardView(), updatedCardView = SidebarUpdatedCardHost(), noticeCardView = SidebarNoticeCardView()
+    /// The card slot's height as the list lays out: springs when a card comes or goes.
+    let cardSlotMotion = SidebarCardSlotMotion()
     /// Where the spaces dots sit (`sidebar.spacesPosition`, R109).
     public var spacesPosition: SpacesPosition = .bottom {
         didSet { if spacesPosition != oldValue { needsLayout = true } }
@@ -71,9 +76,15 @@ public final class SidebarView: NSView {
     public var spacesVisibility: SpacesVisibilityMode = .hover {
         didSet { if spacesVisibility != oldValue { profileBar.alphaValue = spacesAlpha(revealed: isChromeRevealed) } }
     }
-    private var observation: Task<Void, Never>?
+    var observation: Task<Void, Never>?
     private var clipObservers: [any NSObjectProtocol] = []
-    private var lastState: RenderState?
+    var lastState: RenderState?
+    /// The sections the list showed at the last render (for the space slide and the provisional check).
+    var lastSections: [SidebarSection] = []
+    /// The bands' inputs changed since `updateBands` last ran (it runs in `layout`, only then).
+    var bandsDirty = true
+    /// The size the bands were laid out for (app sections take a share of the height).
+    private var bandsSize: CGSize?
     /// App section contributions the bands showed at the last update (`releaseAppSections`).
     var shownAppContributions: Set<String> = []
     /// The `sidebar.*` settings this sidebar draws from (tests give their own).
@@ -85,6 +96,7 @@ public final class SidebarView: NSView {
         profileBar = ProfileBarView(model: model)
         super.init(frame: .zero)
         buildHierarchy()
+        newButton.setAccessibilityIdentifier("cmux.sidebar.newWorkspace")
         list.reload(animated: false)
         observe()
         // The chrome reveal follows the pointer and the sidebar's frame (cx-3wu5).
@@ -100,7 +112,7 @@ public final class SidebarView: NSView {
             for token in clipObservers { NotificationCenter.default.removeObserver(token) }
         }
     }
-    override public var isFlipped: Bool { true }
+    nonisolated override public var isFlipped: Bool { true }
     // MARK: Public API
     /// An inline rename ended (commit or cancel). `byKeyboard` is true for
     /// Return, Escape or Tab; the host can return focus to its content.
@@ -136,10 +148,11 @@ public final class SidebarView: NSView {
     /// injects one per window. Without it, app sections draw nothing.
     public var appSections: (any SidebarAppSectionProvider)? {
         didSet {
-            appSections?.onContentChange = { [weak self] in self?.needsLayout = true }
+            appSections?.onContentChange = { [weak self] in self?.bandsDirty = true; self?.needsLayout = true }
             for region in bandRegions {
                 region.appView = { [weak self] section in section.contribution.flatMap { self?.appSections?.makeView(for: $0) } }
             }
+            bandsDirty = true
             needsLayout = true
         }
     }
@@ -175,6 +188,8 @@ public final class SidebarView: NSView {
         get { list.contextMenuProvider }
         set {
             list.contextMenuProvider = newValue
+            // A row's more button is wired from the provider: live rows take the new one.
+            for (key, view) in list.rowViews { list.wire(view, key: key) }
             profileBar.contextMenuProvider = newValue
             for region in bandRegions { region.contextMenuProvider = newValue }
         }
@@ -218,7 +233,9 @@ public final class SidebarView: NSView {
 
     private func clipBoundsChanged() {
         list.realizeVisibleRows()
-        PointerHover.refresh(in: window)
+        // The list updates row hover as rows move. A window-wide refresh here
+        // rescans every chrome target on every scroll tick and adds no state
+        // change for the sidebar's fixed chrome.
     }
 
     private func scrollerStyleChanged() {
@@ -237,14 +254,16 @@ public final class SidebarView: NSView {
         let y = titlebarHeight
 
         // Titlebar row: buttons trail the traffic lights at a stable frame.
+        // Every control in the row centers on the traffic lights' line (the
+        // tabs and the toolbar band do too); the row's middle without them.
         let button = SidebarStyle.toolbarButtonSize
-        let rowY = max(Metrics.space2, (titlebarHeight - button) / 2)
-        newButton.frame = NSRect(x: b.width - Metrics.space3 - button, y: rowY, width: button, height: button)
+        let rowMidY = window.flatMap(WindowTitlebar.trafficLightsFrame(in:)).map { convert($0, from: nil).midY } ?? titlebarHeight / 2
+        newButton.frame = NSRect(x: b.width - Metrics.space3 - button, y: (rowMidY - button / 2).rounded(), width: button, height: button)
         if let accessory = titlebarAccessory {
             let size = accessory.fittingSize
             let x = headerHasWindowControls ? max(Metrics.trafficLightInset, titlebarLeadingReserve) : titlebarLeadingReserve
             let width = max(0, min(size.width, newButton.frame.minX - Metrics.space2 - x))
-            accessory.frame = NSRect(x: x, y: (titlebarHeight - size.height) / 2, width: width, height: size.height)
+            accessory.frame = NSRect(x: x, y: (rowMidY - size.height / 2).rounded(), width: width, height: size.height)
             accessory.isHidden = width < size.height
         }
 
@@ -263,16 +282,21 @@ public final class SidebarView: NSView {
         // Amendment 3: at the bottom the dots share the footer band's row
         // (after the profile control), so the dots row takes no height of
         // its own unless the band is empty.
-        updateBands()
+        if bandsDirty || bandsSize != b.size {
+            (bandsDirty, bandsSize) = (false, b.size)
+            updateBands()
+        }
         let footerHeight: CGFloat = spacesPosition == .bottom && footerBand.dotsShareBandRow ? 0 : SidebarStyle.footerHeight
-        let cardsHeight = attachFooterCards(), updateHeight = cardSlot.height
+        // The list makes room for a card (and takes it back) on a spring; the card sits at its place.
+        let cardsHeight = attachFooterCards(), slotHeight = cardSlot.height
+        let updateHeight = cardSlotMotion.height(toward: slotHeight, in: self)
         // From the bottom up (R112/R114): the pinned footer section (the
         // profile control, then the dots), the band below the list, the
         // staged update card (UPDATE-CARD), the cards.
         let listFrame = layoutBands(top: y + spacesHeight, footerHeight: footerHeight + updateHeight + cardsHeight)
         if !isChromeRevealed { belowFade.alphaValue = belowRegion.restAlpha(hiddenByMode: minimalHiddenBands.bottom) }
         footer.frame = NSRect(x: 0, y: belowFade.frame.minY - footerHeight, width: b.width, height: footerHeight)
-        cardSlot.place(above: footer.frame.minY, width: b.width, slotHeight: updateHeight)
+        cardSlot.place(above: footer.frame.minY, width: b.width, slotHeight: slotHeight)
         footerCards?.frame = NSRect(x: 0, y: footer.frame.minY - updateHeight - cardsHeight, width: b.width, height: cardsHeight)
         footerBand.layoutFooter(visibleSlots)
         footerBand.placeSpaces(top: y, height: spacesHeight)
@@ -285,13 +309,8 @@ public final class SidebarView: NSView {
 
     // MARK: Titlebar row
 
-    /// The header row beside the traffic lights is titlebar: it moves the
-    /// window, and a double-click zooms or minimizes (the user's macOS
-    /// setting). Its buttons take their own clicks.
-    override public func mouseDown(with event: NSEvent) {
-        guard convert(event.locationInWindow, from: nil).y < titlebarHeight else { return super.mouseDown(with: event) }
-        WindowTitlebar.handleMouseDown(event, in: window)
-    }
+    // The header row beside the traffic lights is titlebar: the window moves
+    // it and runs the double-click action (`titlebarPress`, below).
 
     override public func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
@@ -304,96 +323,16 @@ public final class SidebarView: NSView {
 
     // The pointer over the sidebar reveals its chrome: `chromeHover`, set up in init.
 
-    // MARK: Observation
+}
 
-    /// Everything the list renders. Emitting a value type lets the list
-    /// skip reloads when an unrelated model property changes.
-    private struct RenderState: Hashable, Sendable {
-        var sections: [SidebarSection]
-        var selection: Set<WorkspaceID>
-        var selected: SidebarItem?
-        var profiles: [SidebarProfile]
-        var activeProfile: ProfileKey?
-        var filter: String
-        var layout: SidebarLayoutDocument
-        var itemInfo: [LayoutItemID: SidebarItemInfo]
-        var transientTopItems: [SidebarTransientItem]
-        var collapsedSections: Set<LayoutSectionID>
-        var look: SectionsLookVariant
-        var drawsLines: Bool
-        var preferences: SidebarSectionsPreferences
-        var suppressedApps: Set<String>
-        /// Design tokens (density, overrides, chrome font size). Reading them
-        /// inside the tracked closure makes a settings change re-render.
-        var metrics: SidebarLayoutMetrics
-        var fontSize: CGFloat
-        var titlebarHeight: CGFloat
-        var cards: SidebarBottomCards
-    }
-
-    private func observe() {
-        let model = model, design = design
-        observation = Task { [weak self] in
-            for await state in ObservationStream({
-                RenderState(
-                    sections: model.sections,
-                    selection: model.selection,
-                    selected: model.selectedItem,
-                    profiles: model.profiles,
-                    activeProfile: model.activeProfileID,
-                    filter: model.filterText,
-                    layout: model.layout,
-                    itemInfo: model.resolvedItemInfo,
-                    transientTopItems: model.transientTopItems,
-                    collapsedSections: model.collapsedLayoutSections,
-                    look: SidebarSectionTunables.currentLook,
-                    drawsLines: Borders.drawsLines,
-                    preferences: design.sidebarSections,
-                    suppressedApps: model.suppressedApps,
-                    metrics: .standard,
-                    fontSize: Typography.body.pointSize,
-                    titlebarHeight: Metrics.titlebarHeight,
-                    cards: SidebarBottomCards(update: model.updateCard, updated: model.updatedCard, notice: model.noticeCard)
-                )
-            }) {
-                self?.render(state)
-            }
-        }
-    }
-
-    private func render(_ state: RenderState) {
-        guard state != lastState else { return }
-        let chromeChanged = lastState?.metrics != state.metrics || lastState?.fontSize != state.fontSize
-            || lastState?.titlebarHeight != state.titlebarHeight
-        let profileChanged = lastState?.activeProfile != state.activeProfile
-        let profilesChanged = lastState?.profiles != state.profiles || profileChanged
-            || lastState?.layout != state.layout || lastState?.itemInfo != state.itemInfo || lastState?.selected != state.selected
-            || lastState?.transientTopItems != state.transientTopItems
-            || lastState?.collapsedSections != state.collapsedSections || lastState?.look != state.look
-            || lastState?.drawsLines != state.drawsLines || lastState?.preferences != state.preferences || lastState?.suppressedApps != state.suppressedApps
-        let listChanged = lastState?.sections != state.sections || lastState?.selection != state.selection
-            || lastState?.selected != state.selected || lastState?.filter != state.filter || chromeChanged || profileChanged
-            || state.preferences.changesList(from: lastState?.preferences)
-        let previous = lastState?.sections
-        model.applyListPreferences(state.preferences)
-        // Minimal mode or an item's control changed: show or hide the chosen bands now.
-        if lastState?.preferences.minimalMode != state.preferences.minimalMode || lastState?.itemInfo != state.itemInfo {
-            setChromeRevealed(isChromeRevealed)
-        }
-        if listChanged {
-            if profileChanged {
-                switchSpace(from: lastState?.activeProfile, to: state.activeProfile, profiles: state.profiles, oldSections: previous ?? [])
-            } else {
-                list.reload(animated: Self.animatesReload(from: previous, to: state.sections))
-            }
-        }
-        if lastState?.cards != state.cards { cardSlot.show(state.cards); needsLayout = true }
-        if chromeChanged || profilesChanged { needsLayout = true }
-        lastState = state
-    }
-
-    /// Whether a sections change animates its rows. Provisional rows swap in place.
-    static func animatesReload(from old: [SidebarSection]?, to new: [SidebarSection]) -> Bool {
-        !((old ?? []) + new).contains(where: \.hasProvisionalRows)
+// The header row beside the traffic lights is titlebar: a press there moves the
+// window and a double-click runs the user's action, both from the window's one
+// decision (`TitlebarDragPolicy`). The + button and the accessory take their own.
+extension SidebarView: TitlebarPressDeciding {
+    public func titlebarPress(atWindowPoint windowPoint: CGPoint) -> TitlebarPress {
+        let point = convert(windowPoint, from: nil)
+        guard point.y < titlebarHeight else { return .staysPut }
+        let controls = [newButton as NSView?, titlebarAccessory].compactMap { $0 }.filter { !$0.isHidden }
+        return controls.contains { $0.frame.contains(point) } ? .staysPut : .movesWindow
     }
 }

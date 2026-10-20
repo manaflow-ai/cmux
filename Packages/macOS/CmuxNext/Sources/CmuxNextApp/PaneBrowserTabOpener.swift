@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextDaemon
+import CmuxNextPages
 import CmuxNextTabs
 
 /// Opens a browser tab in one pane: daemon-owned when supported, on the
@@ -61,6 +62,18 @@ struct PaneBrowserTabOpener {
         }
         if child == nil, then == nil, let url = target, services.viewers.openMarkdownHandoff(url, in: controller, focus: !background) {
             return true
+        }
+        // `browser.enabled` off: a web page goes to the default browser, a file to its app, a blank tab is refused.
+        guard BrowserAvailability(enabled: services.cache.browserTabs.browserEnabled()).allows(target?.absoluteString) else {
+            child?.close()
+            if let target, target.isFileURL {
+                LinkRouter.shared.openFile(target)
+            } else if let target, ["http", "https"].contains(target.scheme?.lowercased() ?? "") {
+                LinkRouter.shared.open(target, in: .system)
+            } else {
+                services.registry.refuse(MiscHandlerStrings.browserOff)
+            }
+            return false
         }
         let daemon = controller.daemon
         // A new tab in another machine's workspace runs on that machine
@@ -128,7 +141,7 @@ struct PaneBrowserTabOpener {
         if !controller.daemon.isLocal, !onMachine {
             browserTabs.setNotice(notice ?? RemoteStrings.browserRunsOnThisMac(browserTabs.machineName(controller.daemon)), forKey: local.id)
         }
-        controller.state?.localBrowserTabs[controller.paneKey, default: []].append(local)
+        controller.state?.localBrowserTabs[controller.paneKey].append(local)
         controller.apply(controller.snapshot())
         if background { return true }
         controller.select(StripTabID(local.id))

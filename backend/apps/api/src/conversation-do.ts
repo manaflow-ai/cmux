@@ -10,14 +10,17 @@ import { withAdmit } from "./home-admit.ts"
 import * as store from "./home-attachment-store.ts"
 import * as gc from "./home-attachment-gc.ts"
 import { dmLinkOf, type DmLink } from "./conversation-dm-link.ts"
+import { firstName } from "./invite-first-name.ts"
 import { MAX_THREAD_PAGE, threadReplies, threadsOf, threadSummary } from "./conversation-threads.ts"
+import { LIVE_CAPABILITY, liveBuffer, liveSocketFrame } from "./conversation-live.ts"
 
 type Head = conversation.ConversationState
 /** A conversation socket remembers whether its sender last broadcast `typing on` (for close). */
 type ConvAttachment = Attachment & { typing?: boolean }
 const MAX_HISTORY_PAGE = 200
 /** Ops the Worker completes (home-routes.ts); refused on the conversation socket. */
-const WORKER_DERIVED_OPS = new Set(["conversation.create", "dm.open", "invite.create", "invite.accept", "conversation.import", "conversation.import.commit", "participants.add"])
+const MEMBERSHIP_ENDING_OPS = new Set(["participants.remove", "invite.accept", "invite.accept_verified", "invite.revoke", "conversation.sweep", "conversation.import.commit"])
+const WORKER_DERIVED_OPS = new Set(["grant.create", "conversation.create", "dm.open", "invite.create", "invite.accept", "invite.accept_verified", "conversation.import", "conversation.import.commit", "participants.add"])
 
 /**
  * Reach policy with owner records: an agent participant is allowed when it is one of the
@@ -38,12 +41,6 @@ const ownerRecordPolicy: conversation.ParticipantPolicy = (principal, participan
 /** Accept rejects that count toward the lock (a wrong or used link), not transient ones. */
 const ACCEPT_FAILURES = new Set(["unknown_invite", "invite_not_pending", "invite_expired"])
 
-/** First word of a display name, for the public invite card (never a full name or an address). */
-const firstName = (name: string | undefined): string | null => {
-  const first = (name ?? "").trim().split(/\s+/)[0] ?? ""
-  return first.length > 0 && first.length <= 40 && !first.includes("@") ? first : null
-}
-
 /** What the Worker learns about an attachment hash for one caller (never whether another conversation holds it). */
 export type AttachmentAccess =
   | { readonly ok: false; readonly code: "auth.forbidden"; readonly message: string }
@@ -51,6 +48,20 @@ export type AttachmentAccess =
 
 /** A download the owner allows: the record, and (when asked by message part) that part, whose name is the file name. */
 export type DownloadAccess = { readonly record: conversation.AttachmentRecord; readonly name: string | null; readonly part?: conversation.AttachmentPart } | null
+
+/** A message request's preview text, in characters. */
+const REQUEST_PREVIEW_CHARS = 140
+
+/** One message request as its recipient sees it (`home.requests.list`). */
+export interface RequestPreview {
+  readonly inviter: string
+  readonly inviter_user: string
+  readonly kind: "dm" | "group"
+  readonly title?: string
+  readonly preview: string
+  readonly created_at: string
+  readonly expires_at: string
+}
 
 export type InvitePreviewResult =
   | { readonly state: "ok"; readonly inviter: string; readonly kind: "dm" | "group"; readonly title?: string }
@@ -62,6 +73,7 @@ export type InvitePreviewResult =
  * mode. Token hashes and accept proofs stay here (conversationRedact, private `invhash`).
  */
 export class ConversationDO extends OwnerDO<Head> {
+  protected override readonly welcomeCapabilities: ReadonlyArray<string> = [LIVE_CAPABILITY] // Chief live frames (conversation-live.ts)
   constructor(ctx: DurableObjectState, env: Env) {
     const sql = { exec: <T>(q: string, ...b: Array<unknown>) => ctx.storage.sql.exec(q, ...b).toArray() as Array<T> }
     const domain = conversation.makeConversationDomain({
@@ -88,7 +100,19 @@ export class ConversationDO extends OwnerDO<Head> {
 
   private member(state: Head, principal: Principal) {
     const actor = conversation.actorOf(principal)
-    return state && actor ? state.participants.find((p) => p.id === actor && p.left_at === undefined) : undefined
+    return state && actor ? this.memberById(state, actor) : undefined
+  }
+
+  /** A current participant by id, from the head or (a large group) its member rows (home-core large.ts). */
+  private memberById(state: NonNullable<Head>, id: string) {
+    const engine = this.boundEngine
+    return engine ? conversation.memberOf(state, engine.rows, id) : state.participants.find((p) => p.id === id && p.left_at === undefined)
+  }
+
+  /** A participant record (also a departed one) by id, from the head or the member rows. */
+  private recordById(state: NonNullable<Head>, id: string) {
+    const engine = this.boundEngine
+    return engine ? conversation.recordOf(state, engine.rows, id) : state.participants.find((p) => p.id === id)
   }
 
   /** Current participants, and for installs only when the grant covers reads. */
@@ -102,15 +126,41 @@ export class ConversationDO extends OwnerDO<Head> {
    * from the socket: a frame would carry client-chosen values and skip the accept lock. They go
    * through POST /v1/ops; other ops may use the socket.
    */
-  protected routeFrame(ws: WebSocket, _a: unknown, frame: { readonly t?: string; readonly op?: unknown; readonly idempotency_key?: unknown }): boolean {
+  protected routeFrame(ws: WebSocket, a: { principal: Principal }, frame: { readonly t?: string; readonly type?: unknown; readonly op?: unknown; readonly idempotency_key?: unknown }): boolean {
+    const state = this.boundEngine?.currentState // Live Chief frames: run.live on subscribe and run.live.get (conversation-live.ts).
+    if (liveSocketFrame(this.ctx, ws, frame, state?.id, !!state && this.member(state, a.principal) !== undefined)) return true
     if (frame.t !== "op" || typeof frame.op !== "string" || !WORKER_DERIVED_OPS.has(frame.op)) return false
-    try {
-      ws.send(JSON.stringify({ t: "reject", tx: "", idempotency_key: frame.idempotency_key ?? "", code: "validation.invalid", message: `${frame.op} goes through POST /v1/ops`, retryable: false, replayed: false }))
-    } catch {}
+    try { ws.send(JSON.stringify({ t: "reject", tx: "", idempotency_key: frame.idempotency_key ?? "", code: "validation.invalid", message: `${frame.op} goes through POST /v1/ops`, retryable: false, replayed: false })) } catch {}
     return true
   }
 
-  /** The lowest message seq a member may see (history_visible: since_join hides older ones). */
+  /** A large group's head as one member sees it: the roster plus its own record and read cursor. */
+  private personal(state: NonNullable<Head>, me: conversation.Participant): NonNullable<Head> {
+    const cursor = conversation.cursorOf(state, this.boundEngine!.rows, me.id)
+    const participants = state.participants.some((p) => p.id === me.id) ? state.participants : [...state.participants, me]
+    return { ...state, participants, read_cursors: cursor > 0 ? { [me.id]: cursor } : {} }
+  }
+
+  /**
+   * RPC for the UserDO's `inbox.list` (large groups bump only the people a commit names): `user`'s
+   * row computed here, or null when `user` is not a current participant. Never writes.
+   */
+  async inboxView(entity: string, user: string): Promise<conversation.InboxView | null> {
+    const state = this.existingState(entity)
+    return state && this.boundEngine ? conversation.inboxViewFor(state, this.boundEngine.rows, user) : null
+  }
+
+  /**
+   * Worker only (home-avatar-routes.ts): whether `principal` may read this conversation and
+   * `participant` is a current member of it, in either tier. Never writes.
+   */
+  async sharesWith(entity: string, principal: Principal, participant: string): Promise<boolean> {
+    const state = this.existingState(entity)
+    if (!state || !this.maySubscribe(state, principal)) return false
+    return this.memberById(state, participant) !== undefined
+  }
+
+    /** The lowest message seq a member may see (history_visible: since_join hides older ones). */
   private floor(state: Head, me: { joined_seq?: number }): number {
     return state?.settings?.history_visible === "since_join" ? (me.joined_seq ?? 0) : 0
   }
@@ -129,9 +179,11 @@ export class ConversationDO extends OwnerDO<Head> {
 
   /** Snapshot tail rows honor the member's floor too. */
   protected subscriberSnapshot(snap: ReturnType<OwnerEngine<Head>["snapshot"]>, principal: Principal): unknown {
-    const base = super.subscriberSnapshot(snap, principal) as typeof snap
+    const raw = super.subscriberSnapshot(snap, principal) as typeof snap
     const state = snap.state as Head
     const me = state ? this.member(state, principal) : undefined
+    // A large group's head has a roster and no cursors: the subscriber's own record and cursor go in.
+    const base = state && me && conversation.isLarge(state) ? { ...raw, state: this.personal(state, me) } : raw
     if (!base.rows || !me) return base
     const floor = this.floor(state, me)
     return floor === 0 ? base : { ...base, rows: { ...base.rows, rows: base.rows.rows.filter((r) => ((r.row as { seq?: number }).seq ?? 0) > floor) } }
@@ -140,7 +192,8 @@ export class ConversationDO extends OwnerDO<Head> {
   /** A participant who is removed or leaves loses its sockets at once (no later events). */
   protected afterOp(_principal: Principal, op: string, frames: ReadonlyArray<OwnerFrame>): void {
     const state = this.boundEngine?.currentState
-    if (state) this.closeSockets((p) => this.member(state, p) === undefined, "not a participant")
+    // Only a removal, a leave or an accept that swaps an address out ends a membership.
+    if (state && MEMBERSHIP_ENDING_OPS.has(op)) this.closeSockets((p) => this.member(state, p) === undefined, "not a participant")
     // A retract, an edit or a retention batch may release attachment references: older uploads may now be collectable.
     const result = frames.find((f) => f.t === "result")
     if (result?.t === "result" && (op === "message.retract" || op === "message.edit" || (op === conversation.SWEEP_OP && (result.value as { retention?: unknown }).retention !== undefined))) store.markDirty(this.sqlStore, Date.now())
@@ -212,14 +265,13 @@ export class ConversationDO extends OwnerDO<Head> {
     const a = ws.deserializeAttachment() as ConvAttachment | null
     const state = this.boundEngine?.currentState
     const fail = (code: string, message: string) => {
-      try {
-        ws.send(JSON.stringify({ t: "error", code, message }))
-      } catch {}
+      try { ws.send(JSON.stringify({ t: "error", code, message })) } catch {}
       return true
     }
     if (typeof frame.on !== "boolean" || (frame.conversation !== undefined && frame.conversation !== state?.id)) return fail("validation.invalid", "typing needs a boolean `on` (and this conversation, when named)")
     const actor = a ? conversation.actorOf(a.principal) : null
-    if (!a || !state || !actor || conversation.checkTyping(state, actor)) return fail("auth.forbidden", "not a participant")
+    const typist = state && actor ? this.memberById(state, actor) : undefined
+    if (!a || !state || !actor || !typist || typist.kind === "address") return fail("auth.forbidden", "not a participant")
     this.sendTyping(state, actor, frame.on, ws)
     if ((a.typing ?? false) !== frame.on) ws.serializeAttachment({ ...a, typing: frame.on } satisfies ConvAttachment)
     return true
@@ -237,19 +289,29 @@ export class ConversationDO extends OwnerDO<Head> {
     await super.webSocketClose(ws, code)
   }
 
-  private sendTyping(state: NonNullable<Head>, actor: string, on: boolean, from: WebSocket, force = false) {
+  /** A chief brain's ephemeral frames (chief-brain/brain-do.ts), never committed: typing (a socket's gate), a run change, or a live frame (conversation-live.ts). */
+  async agentFrame(entity: string, agent: string, f: { typing: boolean } | { run: unknown; steps: ReadonlyArray<unknown> } | { live: unknown }): Promise<void> {
+    const state = this.isBound(entity) ? this.bind(entity).currentState : null
+    if (!state || this.memberById(state, agent)?.kind !== "agent") return
+    // A brain's `off` always passes (once per turn end or skipped wake): a client that shows "Thinking…" from
+    // the send waits for it even when this brain never typed (a skipped turn, brain-turn.ts skip).
+    if ("typing" in f) return void (conversation.checkTyping(state, agent) || this.sendTyping(state, agent, f.typing, null, !f.typing))
+    const live = "live" in f ? liveBuffer(this.ctx).apply(state.id, agent, f.live) : (liveBuffer(this.ctx).runChanged(agent, f.run, f.steps), { frame: JSON.stringify({ t: "conversation-run-changed", conversation: state.id, run: f.run, steps: f.steps }), reset: false })
+    if (live) [this.toMembers(state, null, live.frame), live.reset && this.toMembers(state, null, liveBuffer(this.ctx).snapshot(state.id))]
+  }
+
+  private sendTyping(state: NonNullable<Head>, actor: string, on: boolean, from: WebSocket | null, force = false) {
     const memo = this.typing.get(actor)
     const decision = force ? { send: true, memo: memo ? { ...memo, on: false, at: Date.now() } : undefined } : conversation.typingGate(memo, on, Date.now())
     if (decision.memo) this.typing.set(actor, decision.memo)
-    if (!decision.send) return
-    const text = JSON.stringify({ t: "conversation-typing", conversation: state.id, participant: actor, on })
+    if (decision.send) this.toMembers(state, from, JSON.stringify({ t: "conversation-typing", conversation: state.id, participant: actor, on }))
+  }
+
+  private toMembers(state: NonNullable<Head>, from: WebSocket | null, text: string) {
     for (const ws of this.ctx.getWebSockets()) {
-      if (ws === from) continue
-      const other = ws.deserializeAttachment() as ConvAttachment | null
+      const other = ws === from ? null : (ws.deserializeAttachment() as ConvAttachment | null)
       if (!other?.subscribed || !this.member(state, other.principal)) continue
-      try {
-        ws.send(text)
-      } catch {}
+      try { ws.send(text) } catch {}
     }
   }
 
@@ -264,6 +326,14 @@ export class ConversationDO extends OwnerDO<Head> {
       if (!snap.rows) return { ok: true, value: snap, revision: String(engine.currentSeq) }
       const rows = snap.rows.rows.slice(Math.max(0, snap.rows.rows.length - tail))
       return { ok: true, value: { ...snap, rows: { ...snap.rows, rows }, threads: threadsOf(this.sqlStore, rows.map((r) => r.row)) }, revision: String(engine.currentSeq) }
+    }
+    if (op === "conversation.members") {
+      const q = (params ?? {}) as { after?: unknown; limit?: unknown }
+      const page = conversation.membersPage(state, engine.rows, {
+        ...(typeof q.after === "number" && Number.isInteger(q.after) && q.after >= 0 ? { after: q.after } : {}),
+        ...(typeof q.limit === "number" && q.limit > 0 ? { limit: Math.floor(q.limit) } : {})
+      })
+      return { ok: true, value: page, revision: String(engine.currentSeq) }
     }
     const floor = this.floor(state, me)
     if (op === "conversation.thread") return this.readThread(params, floor)
@@ -285,7 +355,7 @@ export class ConversationDO extends OwnerDO<Head> {
     const root = this.boundEngine!.rows.get<conversation.Message>(conversation.TABLE_MSG, q.root)?.row
     // One code for unknown, a reply, and below the floor: no existence probe.
     if (!root || root.thread_root !== undefined || root.seq <= floor) return { ok: false, code: "unknown_message", message: "no such thread root in this conversation" }
-    return { ok: true, value: { root, ...threadReplies(this.sqlStore, root.id, after, limit), thread: threadSummary(this.sqlStore, root.id) }, revision: "" }
+    return { ok: true, value: { root, ...threadReplies(this.sqlStore, root.id, after, limit), thread: threadSummary(this.sqlStore, root) }, revision: "" }
   }
 
   /**
@@ -298,7 +368,7 @@ export class ConversationDO extends OwnerDO<Head> {
     const open = state?.invites?.find((i) => isOpen(i))
     if (!state || !open) return null
     if (state.kind === "dm" && !state.participants.some((p) => p.id === open.address && p.left_at === undefined)) return null
-    const inviter = state.participants.find((p) => p.id === open.invited_by)
+    const inviter = this.recordById(state, open.invited_by)
     const name = firstName(inviter?.display_name)
     return name ? { first_name: name, avatar_url: null } : null
   }
@@ -337,7 +407,7 @@ export class ConversationDO extends OwnerDO<Head> {
   async mayInvite(entity: string, principal: Principal): Promise<boolean> {
     const state = this.existingState(entity)
     const actor = conversation.actorOf(principal)
-    return !!state && actor !== undefined && state.participants.some((p) => p.id === actor && p.left_at === undefined)
+    return !!state && actor !== null && actor !== undefined && this.memberById(state, actor) !== undefined
   }
 
   /** Anonymous, by secret: who invited the holder. The secret is hashed twice, as the domain stores it. */
@@ -347,15 +417,72 @@ export class ConversationDO extends OwnerDO<Head> {
     const tokenHash = invites.hashInviteSecret(invites.hashInviteSecret(secret))
     const ref = this.boundEngine!.rows.get<{ invite_id: string }>(conversation.TABLE_INVHASH, tokenHash)?.row
     const invite = ref ? this.boundEngine!.rows.get<conversation.Invite>(conversation.TABLE_INV, ref.invite_id)?.row : undefined
-    if (!invite) return { state: "invalid" }
+    if (!invite) return this.grantPreview(state, tokenHash)
     if (!isOpen(invite) || Date.parse(invite.expires_at) <= Date.now()) return { state: "expired" }
-    const inviter = state.participants.find((p) => p.id === invite.invited_by)
+    const inviter = this.recordById(state, invite.invited_by)
     return {
       state: "ok",
       inviter: firstName(inviter?.display_name) ?? "Someone",
       kind: state.kind === "dm" ? "dm" : "group",
       ...(state.kind === "group" && state.title ? { title: state.title } : {})
     }
+  }
+
+  /** A link grant's preview (home-core grants.ts): who made it, while it is open and unexpired. */
+  private grantPreview(state: NonNullable<Head>, tokenHash: string): InvitePreviewResult {
+    const ref = this.boundEngine!.rows.get<{ grant_id: string }>(conversation.TABLE_GRANTHASH, tokenHash)?.row
+    if (!ref) return { state: "invalid" }
+    const grant = (state.grants ?? []).find((g) => g.id === ref.grant_id)
+    if (!grant || Date.parse(grant.expires_at) <= Date.now()) return { state: "expired" }
+    const maker = this.recordById(state, grant.issuer)
+    return { state: "ok", inviter: firstName(maker?.display_name) ?? "Someone", kind: "group", ...(state.title ? { title: state.title } : {}) }
+  }
+
+  /**
+   * Worker only (home-routes.ts `home.requests.list` and `request.dismiss`): one message request as
+   * its recipient sees it, when `invite` is still pending here and is addressed to one of
+   * `addresses` (the recipient's verified address ids). Null otherwise, with no write, so a caller
+   * cannot probe other invites. The preview is the newest message of the inviter (what an
+   * unknown sender's message shows in a request list), never the address.
+   */
+  async requestPreview(entity: string, invite: string, addresses: ReadonlyArray<string>): Promise<RequestPreview | null> {
+    const state = this.existingState(entity)
+    const open = state?.invites?.find((i) => i.id === invite && i.status === "pending" && addresses.includes(i.address))
+    if (!state || !open || Date.parse(open.expires_at) <= Date.now()) return null
+    const inviter = this.recordById(state, open.invited_by)
+    const newest = this.boundEngine!.rows.range<conversation.Message>(conversation.TABLE_MSG, { limit: 20, desc: true })
+      .map((r) => r.row)
+      .find((m) => m.author === open.invited_by && m.retracted_at === undefined)
+    const text = newest ? conversation.messageText(newest).replace(/\s+/gu, " ").trim() : ""
+    return {
+      inviter: inviter?.display_name ?? "",
+      inviter_user: open.invited_by,
+      kind: state.kind === "dm" ? "dm" : "group",
+      ...(state.kind === "group" && state.title ? { title: state.title } : {}),
+      preview: [...text].slice(0, REQUEST_PREVIEW_CHARS).join(""),
+      created_at: open.created_at,
+      expires_at: open.expires_at
+    }
+  }
+
+  /** invite.accept_verified from the Worker: the same accept lock as a link (10 failures an hour). */
+  async acceptVerified(entity: string, principal: Principal, idempotencyKey: string): Promise<SubmitResult> {
+    if (!this.existingState(entity)) {
+      return { frames: [{ t: "reject", tx: "", idempotency_key: idempotencyKey, code: "unknown_invite", message: "no invite for you here", retryable: false, replayed: false } as OwnerFrame] }
+    }
+    const who = principal.user ?? principal.identity
+    const sql = this.sqlStore
+    sql.exec(`CREATE TABLE IF NOT EXISTS home_accept_failures (who TEXT NOT NULL, at INTEGER NOT NULL)`)
+    const now = Date.now()
+    sql.exec(`DELETE FROM home_accept_failures WHERE at <= ?`, now - invites.HOUR)
+    const failures = sql.exec<{ at: number }>(`SELECT at FROM home_accept_failures WHERE who = ?`, who).map((r) => Number(r.at))
+    if (invites.acceptLocked({ failures }, now)) {
+      return { frames: [{ t: "reject", tx: "", idempotency_key: idempotencyKey, code: "accept_locked", message: "too many failed attempts; try again later", retryable: true, replayed: false } as OwnerFrame] }
+    }
+    const res = await this.submit(entity, principal, { t: "op", op: "invite.accept_verified", params: {}, idempotency_key: idempotencyKey, origin: "user" })
+    const reply = res.frames.find((f) => f.t === "result" || f.t === "reject")
+    if (reply?.t === "reject" && ACCEPT_FAILURES.has(reply.code)) sql.exec(`INSERT INTO home_accept_failures (who, at) VALUES (?, ?)`, who, now)
+    return res
   }
 
   /** Worker only (home-routes.ts rate gate): whether `principal` already decided `key` here (a retry replays, so it is not charged). */
@@ -366,7 +493,8 @@ export class ConversationDO extends OwnerDO<Head> {
   /** A current, acting participant (not an address) of an existing conversation, with the state. */
   private acting(entity: string, actor: string) {
     const state = this.existingState(entity)
-    const me = state?.participants.find((p) => p.id === actor && p.left_at === undefined && p.kind !== "address")
+    const found = state ? this.memberById(state, actor) : undefined
+    const me = found?.kind === "address" ? undefined : found
     return state && me ? { state, me, open: state.state !== "archived" && state.state !== "importing" } : undefined
   }
 

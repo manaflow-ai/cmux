@@ -80,6 +80,8 @@ final class ComputerUseSetup {
     @ObservationIgnored private var reading: Task<Void, Never>?
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var resolvedFor: URL??
+    /// The inputs `start()` applied, until the input stream's first value.
+    @ObservationIgnored private var appliedAtStart: Inputs?
     /// Reads after a helper start that has not answered yet.
     static let maximumRetries = 6
 
@@ -120,12 +122,22 @@ final class ComputerUseSetup {
     }
 
     /// Follows the inputs and the recheck events for the app's life. Idempotent.
+    /// The current inputs apply at once, so a model made on demand (the first
+    /// `computer_use.status`) never reports the initial `.off` of a feature
+    /// that is on; the stream's first value repeats them and is skipped.
     func start() {
         guard observation == nil else { return }
         let inputs = inputs
+        let initial = inputs()
+        appliedAtStart = initial
+        apply(initial)
         observation = Task { [weak self] in
             for await value in ObservationStream({ inputs() }) {
                 guard let self else { return }
+                if let started = appliedAtStart {
+                    appliedAtStart = nil
+                    if started == value { continue }
+                }
                 apply(value)
             }
         }
@@ -193,6 +205,8 @@ final class ComputerUseSetup {
         case .off: settle(.starting, running: nil)
         case .running:
             guard let configuration = configuration() else { return settle(.starting, running: nil) }
+            // Until the helper answers, the grants are being read, not off.
+            if phase != .ready { phase = .starting }
             readGrants(configuration, generation: generation)
         }
     }

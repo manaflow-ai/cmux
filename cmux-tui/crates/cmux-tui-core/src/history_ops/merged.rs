@@ -33,10 +33,28 @@ use crate::workspace_registry::Actor;
 /// keep applying.
 pub(super) const LOCAL_MACHINE: &str = "local";
 
+/// How long `history.entries.list` folds new journal records before it
+/// answers (see `pending_kinds`). Well under the CLI's 10 s request timeout.
+const LIST_FOLD_BUDGET: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// The registry key (`journal_reducer.<id>` in `meta`) of the saved agent
+/// fold: its sessions and the journal cursor they reached. A restart folds
+/// only the records after that cursor, never the whole journal again.
+const AGENT_FOLD_STATE_ID: &str = "history.agent_sessions";
+/// Bump when the saved fold's shape or meaning changes: a saved fold of
+/// another version is dropped and the journal folded again.
+const AGENT_FOLD_STATE_VERSION: u32 = 1;
+/// A long fold (the first one over a large journal) saves its progress at
+/// least every this many journal sequences, so a restart midway keeps it.
+const SAVE_STRIDE: u64 = 50_000;
+
 /// The session's history state: the journal folds, the journal cursor they
 /// reached and the history revision.
 pub(crate) struct HistoryHost {
     state: Mutex<HostState>,
+    /// One journal page read and fold at a time: the feed thread and a list
+    /// take turns page by page, so neither reads a page the other folds.
+    turn: Mutex<()>,
     feed_claimed: AtomicBool,
 }
 
@@ -44,6 +62,12 @@ struct HostState {
     agents: AgentSessionFold,
     cursor: u64,
     revision: u64,
+    /// The saved fold has been loaded (or found missing) once.
+    restored: bool,
+    /// The cursor of the last saved fold.
+    saved_cursor: u64,
+    /// Agent records folded since the last save.
+    unsaved_agents: bool,
 }
 
 impl Default for HistoryHost {
@@ -53,7 +77,11 @@ impl Default for HistoryHost {
                 agents: AgentSessionFold::new(LOCAL_MACHINE),
                 cursor: 0,
                 revision: 1,
+                restored: false,
+                saved_cursor: 0,
+                unsaved_agents: false,
             }),
+            turn: Mutex::new(()),
             feed_claimed: AtomicBool::new(false),
         }
     }
@@ -66,6 +94,89 @@ impl HistoryHost {
 
     pub(super) fn cursor(&self) -> u64 {
         self.lock().cursor
+    }
+
+    /// The turn of one page read and fold (see `turn`).
+    pub(super) fn turn(&self) -> std::sync::MutexGuard<'_, ()> {
+        self.turn.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Loads the saved agent fold once, before the first fold: its sessions
+    /// and cursor, when the version matches and the cursor is not past the
+    /// journal head (a newer journal than the one it folded). Call with the
+    /// turn held.
+    pub(super) fn restore(&self, mux: &Mux) {
+        if self.lock().restored {
+            return;
+        }
+        let saved = {
+            let registry = mux.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
+            registry
+                .journal_reducer_state(AGENT_FOLD_STATE_ID)
+                .and_then(|state| Ok((state, registry.session_journal_head()?)))
+        };
+        let restored = match saved {
+            Ok((Some((AGENT_FOLD_STATE_VERSION, cursor, snapshot)), head)) if cursor <= head => {
+                serde_json::from_str::<AgentSessionFold>(&snapshot)
+                    .ok()
+                    .filter(|fold| fold.machine() == LOCAL_MACHINE && fold.cursor() <= cursor)
+                    .map(|fold| (fold, cursor))
+            }
+            Ok(_) => None,
+            Err(error) => {
+                eprintln!("cmux-tui: reading the saved agent history failed: {error:#}");
+                None
+            }
+        };
+        let mut state = self.lock();
+        state.restored = true;
+        if let Some((agents, cursor)) = restored
+            && state.cursor == 0
+        {
+            state.agents = agents;
+            state.cursor = cursor;
+            state.saved_cursor = cursor;
+        }
+    }
+
+    /// Saves the agent fold and its cursor when agent records were folded
+    /// since the last save, or the cursor moved `SAVE_STRIDE` past it (a
+    /// cursor moved only by terminal output is not worth a write each
+    /// commit). Call with the turn held.
+    pub(super) fn save(&self, mux: &Mux) {
+        let (cursor, snapshot) = {
+            let state = self.lock();
+            let due = state.unsaved_agents
+                || state.cursor.saturating_sub(state.saved_cursor) >= SAVE_STRIDE;
+            if state.cursor <= state.saved_cursor || !due {
+                return;
+            }
+            match serde_json::to_string(&state.agents) {
+                Ok(snapshot) => (state.cursor, snapshot),
+                Err(error) => {
+                    eprintln!("cmux-tui: encoding the agent history failed: {error}");
+                    return;
+                }
+            }
+        };
+        let saved = mux
+            .workspace_registry
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .put_journal_reducer_state(
+                AGENT_FOLD_STATE_ID,
+                AGENT_FOLD_STATE_VERSION,
+                cursor,
+                &snapshot,
+            );
+        match saved {
+            Ok(()) => {
+                let mut state = self.lock();
+                state.saved_cursor = cursor;
+                state.unsaved_agents = false;
+            }
+            Err(error) => eprintln!("cmux-tui: saving the agent history failed: {error:#}"),
+        }
     }
 
     /// Folds the journal records scanned after `from` through `scanned`. A
@@ -88,6 +199,7 @@ impl HistoryHost {
         let mut changed = Vec::new();
         if !agents.is_empty() {
             state.agents.apply(&agents);
+            state.unsaved_agents = true;
             changed.push(HistoryKind::Agent);
         }
         // Closed items live in the closed-history store; a record that
@@ -156,11 +268,20 @@ pub(super) fn list(
                 .map_err(|error| store_failed(OPERATION, error))?,
         );
     }
+    let mut pending = Vec::new();
     if wants(HistoryKind::Agent) {
         journal_feed::start(mux);
-        let changed = journal_feed::catch_up(mux).map_err(|error| failed(OPERATION, &error))?;
-        if !changed.is_empty() {
-            mux.history.changed(mux, &changed);
+        // A first fold over a large journal can take minutes: answer what is
+        // folded by then and name the kind pending. The feed thread goes on
+        // and emits `history-changed` (agent) when it has caught up.
+        let deadline = std::time::Instant::now() + LIST_FOLD_BUDGET;
+        let caught = journal_feed::catch_up(mux, Some(deadline))
+            .map_err(|error| failed(OPERATION, &error))?;
+        if !caught.changed.is_empty() {
+            mux.history.changed(mux, &caught.changed);
+        }
+        if !caught.complete {
+            pending.push(HistoryKind::Agent.as_str());
         }
         let (hidden, _) = hidden_doc::load(mux).map_err(|error| failed(OPERATION, &error))?;
         entries.extend(mux.history.agent_entries(&hidden));
@@ -174,7 +295,7 @@ pub(super) fn list(
         let items = mux
             .read_registry_state(crate::state::closed_history_query::closed_items)
             .map_err(|error| failed(OPERATION, &error))?;
-        entries.extend(items.iter().filter_map(sources::closed_entry));
+        entries.extend(sources::closed_entries(&items));
     }
     // A location row also carries its window and stored location (an app
     // rebuilds its Back/Forward steps from them).
@@ -202,7 +323,11 @@ pub(super) fn list(
             row
         })
         .collect::<Vec<_>>();
-    Ok(json!({"entries": rows, "revision": mux.history.revision().to_string()}))
+    let mut reply = json!({"entries": rows, "revision": mux.history.revision().to_string()});
+    if !pending.is_empty() {
+        reply["pending_kinds"] = json!(pending);
+    }
+    Ok(reply)
 }
 
 /// Runs one mutation once (the caller checked the key): its result value
@@ -227,7 +352,10 @@ pub(super) fn mutate(
         "history.entries.remove" => remove(mux, key, actor, fields, now_ms, day_start_ms),
         "history.clear" => clear(mux, key, actor, fields, now_ms, day_start_ms),
         "history.trail.record" => {
-            let (value, changed) = trail::record(mux, key, actor, fields, now_ms)?;
+            let (value, changed) =
+                trail::record(mux, key, actor, fields, now_ms).inspect_err(|error| {
+                    trail::log(mux, format!("refused ({}: {})", error.code, error.message));
+                })?;
             Ok((value, if changed { vec![HistoryKind::Location] } else { Vec::new() }))
         }
         _ => pages_only(mux),

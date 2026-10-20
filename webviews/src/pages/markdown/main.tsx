@@ -3,16 +3,17 @@
 // (host.ts lists the ops); the dev server installs a stand-in (devBridge.ts) before this runs.
 // DESKTOP-FEEL (R139): the shared desktop layer loads first.
 import "../shared/desktop";
+import { lazy, Suspense, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { applyDiffViewerAppearance, followHostTerminalTheme, resolveDiffViewerAppearance } from "../../appearance";
 import { createPageClient, type PageClient } from "../shared/pageClient";
 import { createStrings, type Strings } from "../shared/i18n";
 import { subscribePageStreams } from "../shared/pageStreams";
 import { DiagramLibraries, renderDiagram } from "./diagrams";
-import { MarkdownEditor, type EditorLabel, type MarkdownEditorHost } from "./editor";
+import { MarkdownEditor, markdownRemoteImagePlaceholder, type EditorLabel, type MarkdownEditorHost } from "./editor";
 import table from "./generated/strings.json";
 import type { ThemeRegistrationAny } from "shiki/core";
-import { CodeHighlighter, codeThemes } from "./highlight";
+import { CodeHighlighter, codeThemes, preloadHighlighter } from "./highlight";
 import { MARKDOWN_FLUSH_OP, MARKDOWN_LIST_FILES_OP, MARKDOWN_RESOLVE_LINKS_OP, resolveImageURL } from "./host";
 import type { LinkLabel } from "./linkEditing";
 import { LinkRouter } from "./linkRouter";
@@ -21,10 +22,11 @@ import { htmlPreview } from "./htmlPreview";
 import { MarkdownPage } from "./MarkdownPage";
 import { LinkOverlays } from "./overlays";
 import { MarkdownStore } from "./store";
-import { bindMarkdownLook, markdownCodeTheme } from "./settings";
+import type { ReadingSettingsActions } from "./ReadingSettings";
+import { MARKDOWN_READING, bindMarkdownLook, markdownCodeTheme } from "./settings";
+import { MarkdownFontZoom, isMarkdownZoomCommand } from "./fontZoom";
 import { L } from "./strings";
-import { MarkdownEmptyState } from "../../viewer-empty/MarkdownEmptyState";
-import { viewerEmptyStrings } from "../../viewer-empty/strings";
+import { storedTableWidths } from "./tables";
 import { UiProvider, languageDirection } from "../../ui/UiProvider";
 import "../shared/pageBase.css";
 import "../../ui/ui.css";
@@ -39,6 +41,8 @@ const LABELS: Record<EditorLabel, string> = {
   source: L.rawSource,
   plainText: L.plainText,
   document: L.title,
+  remoteImageBlocked: L.remoteImageBlocked,
+  remoteImageLoad: L.remoteImageLoad,
 };
 
 /** The editor's host: links, images, code colors and diagrams, from the page config. */
@@ -49,10 +53,23 @@ const LINK_LABELS: Record<LinkLabel, string> = {
   noHeading: L.noHeading,
   checking: L.checking,
   opensBrowser: L.opensBrowser,
+  opensInCmux: L.opensInCmux,
   opensFile: L.opensFile,
   opensMail: L.opensMail,
   linkPlaceholder: L.linkPlaceholder,
   footnote: L.footnote,
+  bubble: L.linkBubble,
+  open: L.linkOpen,
+  copy: L.linkCopy,
+  copied: L.linkCopied,
+  edit: L.linkEdit,
+  remove: L.linkRemove,
+  text: L.linkText,
+  textPlaceholder: L.linkTextPlaceholder,
+  url: L.linkURL,
+  apply: L.linkApply,
+  insertTitle: L.linkInsertTitle,
+  editTitle: L.linkEditTitle,
 };
 
 function editorHost(
@@ -70,7 +87,18 @@ function editorHost(
     return base ? `${base}${name}.js` : null;
   });
   const imageURL = (src: string) => resolveImageURL(src, config()?.assetBase, config()?.remoteImageBase);
-  return {
+  const imageListeners = new Set<() => void>();
+  let remoteImageBase = config()?.remoteImageBase;
+  store.subscribe(() => {
+    const next = config()?.remoteImageBase;
+    if (next === remoteImageBase) return;
+    remoteImageBase = next;
+    for (const listener of imageListeners) listener();
+  });
+  let blockedImage = (_src: string, _alt: string): HTMLElement => document.createElement("span");
+  const host: MarkdownEditorHost & {
+    setCodeThemes(themes: Promise<ThemeRegistrationAny[]>): Promise<void> | undefined;
+  } = {
     openLink: follow,
     get githubRepository() {
       return config()?.githubRepository;
@@ -89,6 +117,12 @@ function editorHost(
       linkLabel: (key) => strings.t(LINK_LABELS[key]),
     },
     imageURL,
+    loadRemoteImages: () => store.loadRemoteImages(),
+    observeRemoteImages(refresh) {
+      imageListeners.add(refresh);
+      return () => imageListeners.delete(refresh);
+    },
+    tableWidths: storedTableWidths(() => config()?.path),
     highlight(code, language, refresh) {
       const look = store.getState().look;
       highlighter ??= new CodeHighlighter(codeThemes(markdownCodeTheme(look.settings), look.appearance));
@@ -98,11 +132,56 @@ function editorHost(
       renderDiagram(libraries, language, source, target, strings.t(L.diagramFailed));
     },
     label: (key) => strings.t(LABELS[key]),
-    htmlPreview: (html) => htmlPreview(html, imageURL),
+    htmlPreview: (html) => htmlPreview(html, imageURL, blockedImage),
     setCodeThemes(themes) {
       return highlighter?.setThemes(themes);
     },
   };
+  blockedImage = (src, alt) => markdownRemoteImagePlaceholder(host, src, alt);
+  return host;
+}
+
+/** The code block size in pixels the Reading Settings wrote before code became a share of the text. */
+const LEGACY_CODE_BLOCK_SIZE_KEY = "markdown.code.blockSize";
+
+/**
+ * The Reading Settings popover's writes: each option is its `markdown.*` key through the store's one
+ * settings write path. A new text size is the default size, so this viewer goes back to the
+ * default (Cmd-0) and shows it.
+ */
+function readingActions(store: MarkdownStore, zoom: MarkdownFontZoom): ReadingSettingsActions {
+  return {
+    set(option, value) {
+      store.setPreference(MARKDOWN_READING[option].key, value);
+      // A fixed code block size (cmux.json, or the old Reading Settings row) would hide the change.
+      if (option === "codeScale") store.setPreference(LEGACY_CODE_BLOCK_SIZE_KEY, null);
+      if (option === "fontSize") zoom.run("zoomReset");
+    },
+    reset() {
+      for (const option of Object.values(MARKDOWN_READING)) store.setPreference(option.key, null);
+      store.setPreference(LEGACY_CODE_BLOCK_SIZE_KEY, null);
+      zoom.run("zoomReset");
+    },
+  };
+}
+
+/** The empty state as a lazy component, its chunk requested at once. */
+function lazyEmptyState(client: PageClient, store: MarkdownStore): () => ReactNode {
+  const module = Promise.all([
+    import("../../viewer-empty/MarkdownEmptyState"),
+    import("../../viewer-empty/strings"),
+  ]).then(([{ MarkdownEmptyState }, { viewerEmptyStrings }]) => {
+    const strings = viewerEmptyStrings();
+    return {
+      default: () => <MarkdownEmptyState client={client} strings={strings} open={(path) => store.openFile(path)} />,
+    };
+  });
+  const EmptyState = lazy(() => module);
+  return () => (
+    <Suspense fallback={null}>
+      <EmptyState />
+    </Suspense>
+  );
 }
 
 export function mountMarkdownPage(root: HTMLElement, client: PageClient | null = createPageClient()): MarkdownStore {
@@ -121,9 +200,16 @@ export function mountMarkdownPage(root: HTMLElement, client: PageClient | null =
       : null,
     () => editor?.refreshLinks(),
   );
+  // Cmd-= / Cmd-- / Cmd-0: this viewer's text size over the `markdown.font.size` default.
+  const zoom = new MarkdownFontZoom(document.documentElement);
+  let zoomSettings: unknown = null;
   store.subscribe(() => {
-    const path = store.getState().config?.path;
-    if (path) resolver.setFrom(path);
+    const { config, look, phase } = store.getState();
+    if (config?.path) resolver.setFrom(config.path);
+    if (phase === "ready" && look.settings !== zoomSettings) {
+      zoomSettings = look.settings;
+      zoom.setSettings(look.settings);
+    }
   });
   const scroller = () => document.querySelector<HTMLElement>(".md-scroll");
   const router = new LinkRouter({
@@ -159,9 +245,11 @@ export function mountMarkdownPage(root: HTMLElement, client: PageClient | null =
   if (client) {
     // Cmd-S is the app key dispatcher's `save` page command; the page never reads the chord.
     void subscribePageStreams(client, {
-      // Cmd-[ and Cmd-] are `back` and `forward` (the page's link history), Cmd-K is `link`.
+      // Cmd-[ and Cmd-] are `back` and `forward` (the page's link history), Cmd-K is `link`,
+      // Cmd-= / Cmd-- / Cmd-0 the text size.
       onCommand: ({ command }) => {
-        if (command === "save") void store.save();
+        if (isMarkdownZoomCommand(command)) zoom.run(command);
+        else if (command === "save") void store.save();
         else if (command === "back") void router.go(-1);
         else if (command === "forward") void router.go(1);
         else if (command === "link") editor?.openLinkPopover();
@@ -171,7 +259,10 @@ export function mountMarkdownPage(root: HTMLElement, client: PageClient | null =
     client.handle(MARKDOWN_FLUSH_OP, () => store.flush());
   }
   // Leaving the page (tab closed, app quit) writes pending edits.
-  addEventListener("pagehide", () => void store.save());
+  addEventListener("pagehide", () => {
+    store.flushPreferences();
+    void store.save();
+  });
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "hidden") void store.save();
   });
@@ -186,10 +277,10 @@ export function mountMarkdownPage(root: HTMLElement, client: PageClient | null =
     codeTheme: (names, appearance) =>
       void host.setCodeThemes(codeThemes(names, appearance))?.then(() => editor?.refreshHighlight()),
   });
-  const emptyStrings = viewerEmptyStrings();
-  const emptyState = client
-    ? () => <MarkdownEmptyState client={client} strings={emptyStrings} open={(path) => store.openFile(path)} />
-    : undefined;
+  // The empty state (no file yet) and its string table load off the first paint's path: the
+  // import starts now, beside the host's config round trip that decides between a file and the
+  // empty state, so it is in hand before the empty phase renders (Suspense covers the rare miss).
+  const emptyState = client ? lazyEmptyState(client, store) : undefined;
   createRoot(root).render(
     <UiProvider container={root} popupHost={appPopupHost(client)} dir={languageDirection(strings.language)}>
       <MarkdownPage
@@ -200,10 +291,12 @@ export function mountMarkdownPage(root: HTMLElement, client: PageClient | null =
         overlays={overlays}
         onBack={() => void router.go(-1)}
         onForward={() => void router.go(1)}
+        reading={readingActions(store, zoom)}
       />
     </UiProvider>,
   );
   void store.start();
+  preloadHighlighter();
   return store;
 }
 

@@ -37,21 +37,31 @@ struct ScreenDividers {
     var mouseAreas: [LayoutMouseArea] {
         screen.dividerViews.compactMap { kind, view in
             guard !view.isHidden, view.alphaValue > 0.01 else { return nil }
-            let rect = view.frame.intersection(screen.bounds)
+            let rect = uncovered(view.frame.intersection(screen.bounds))
             guard !rect.isNull, !rect.isEmpty else { return nil }
             return LayoutMouseArea(id: kind.mouseAreaID, rect: rect, resizesColumns: view.axis == .horizontal)
         }.sorted { $0.id < $1.id }
     }
 
-    /// The dividers' drawn lines, in the screen's coordinates: native UI that
-    /// Chromium pages leave uncovered (they sit in the gap between panes). A
-    /// divider that never draws (`layout.paneSeparation` none) leaves no hole.
+    /// The dividers' currently drawn lines, in the screen's coordinates:
+    /// native UI that Chromium pages leave uncovered (they sit in the gap
+    /// between panes). A transparent edge handle at rest leaves no hole;
+    /// hovering or dragging it makes the line part of the overlay again.
     var lineRects: [CGRect] {
         screen.dividerViews.values.compactMap { view in
-            guard !view.isHidden, view.alphaValue > 0.01, view.showsIdleLine || view.showsActiveLine else { return nil }
-            let rect = view.lineFrameInSuperview.intersection(screen.bounds)
+            guard !view.isHidden, view.alphaValue > 0.01, view.isLineVisible else { return nil }
+            let rect = uncovered(view.lineFrameInSuperview.intersection(screen.bounds))
             return rect.isNull || rect.isEmpty ? nil : rect
         }.sorted { ($0.minX, $0.minY) < ($1.minX, $1.minY) }
+    }
+
+    /// `rect` less what a zooming or unzooming pane shows over it: the dividers are under that pane
+    /// (`ScreenContentView.rank`), so its Chromium page gets no hole and no click catcher there.
+    private func uncovered(_ rect: CGRect) -> CGRect {
+        guard let pane = screen.zoomMotion.pane, let host = screen.context.hosts[pane], host.superview === screen, !rect.isNull else { return rect }
+        let cover = host.frame
+        if cover.insetBy(dx: -0.5, dy: -0.5).contains(rect) { return .null }
+        return rect.remainder(outside: cover)
     }
 
     /// The strip column under a resize drag: the camera keeps it in place, so
@@ -88,6 +98,26 @@ struct DividerDragState {
     /// (cx-piioc), and the one the divider sits on now.
     var snaps: [Double] = []
     var snapped: Double?
+    /// The pointer along `axis` (content space) and its velocity in pt/s,
+    /// lightly smoothed, for the release spring (`SplitMotion.seed`).
+    var pointer: (position: CGFloat, time: CFTimeInterval)?
+    var velocity: CGFloat = 0
+
+    /// Notes the pointer at `point`; a pointer still for 50 ms has no velocity.
+    mutating func sample(_ point: CGPoint, at time: CFTimeInterval) {
+        let position = axis == .horizontal ? point.x : point.y
+        if let last = pointer, time > last.time {
+            let instant = (position - last.position) / CGFloat(time - last.time)
+            velocity = time - last.time > 0.05 ? instant : velocity * 0.4 + instant * 0.6
+        }
+        pointer = (position, time)
+    }
+
+    /// Velocity at release: zero when the pointer stopped before letting go.
+    func releaseVelocity(at time: CFTimeInterval) -> CGFloat {
+        guard let pointer, time - pointer.time <= 0.05 else { return 0 }
+        return velocity
+    }
 
     /// How close, in points, a split divider comes to a snap before it lands there.
     static let snapDistance: CGFloat = 8

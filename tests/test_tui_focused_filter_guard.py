@@ -298,10 +298,10 @@ ARTIFACTS_WORKFLOW = ROOT / ".github" / "workflows" / "cmux-tui-artifacts.yml"
 
 
 def test_artifacts_macos_legs_take_the_side_lane_on_attempt_one() -> None:
-    """Attempt 1 takes the owned minis' side lane; a rerun goes back to the PR pool.
+    """Attempt 1 takes the owned minis' side lane; a rerun goes to Blacksmith macOS 15.
 
-    The legs are on the PR critical path, so both fall back to MACOS_RUNNER_PR,
-    never the background lane, and neither names the retired glaeda-aws pools.
+    Never vars.MACOS_RUNNER_PR, the nightly build's 12 vCPU macOS 26 label,
+    and neither names the retired glaeda-aws pools.
     """
     workflow = yaml.safe_load(ARTIFACTS_WORKFLOW.read_text(encoding="utf-8"))
     builds = [
@@ -315,9 +315,52 @@ def test_artifacts_macos_legs_take_the_side_lane_on_attempt_one() -> None:
             "vars.CI_PR_POOL_OWNED == '1' && "
             "contains(fromJSON('[\"pull_request\",\"push\",\"schedule\",\"workflow_dispatch\"]'), github.event_name) && "
             "github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || "
-            "vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15' }}"
+            "'blacksmith-6vcpu-macos-15' }}"
         )
         assert job["with"]["macos_retry_runner"] == (
             "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || "
-            "vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15' }}"
+            "'blacksmith-6vcpu-macos-15' }}"
         )
+
+
+def test_dogfood_artifacts_never_wait_for_the_side_lane() -> None:
+    """The release-path dogfood build goes straight to Blacksmith macOS 15.
+
+    On the owned side lane, focused runs' dogfood builds sat queued until the
+    run was cancelled (up to 120 min; one success waited 92 min for a 25 min
+    build) while the fast tier queued behind them (#20612). They no longer take
+    the PR pool either: vars.MACOS_RUNNER_PR names the 12 vCPU macOS 26 label
+    the nightly app build needs.
+    """
+    workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    build = workflow["jobs"]["build-artifacts"]["with"]
+
+    for route in (build["macos_runner"], build["macos_retry_runner"]):
+        assert "CI_SIDE_LANE_RUNNER" not in route
+        assert "glaeda-" not in route
+        assert "MACOS_RUNNER_PR" not in route
+        assert route == (
+            "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || "
+            "'blacksmith-6vcpu-macos-15' }}"
+        )
+
+
+def test_hosted_verification_gate_reports_every_selected_job_before_failing() -> None:
+    """A red lint (often a base clippy red) must not hide whether the
+    filtered Rust tests passed: the gate lists each selected job's result
+    and fails once, at the end."""
+    workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    gate = workflow["jobs"]["hosted-verification"]
+    step = next(s for s in gate["steps"] if s.get("name") == "Require selected verification jobs")
+    env = {key: "success" for key, value in gate["env"].items() if key.endswith("_RESULT")}
+    env.update({"MODE": "focused", "TEST_FILTER": "some_test", "LINT_RESULT": "failure",
+                "MACOS_RESULT": "failure", "PATH": "/usr/bin:/bin"})
+    with tempfile.TemporaryDirectory() as tmp:
+        script = Path(tmp) / "gate.sh"
+        script.write_text(step["run"], encoding="utf-8")
+        run = subprocess.run(["bash", str(script)], env=env, capture_output=True, text=True)
+    output = run.stdout + run.stderr
+    assert run.returncode == 1, output
+    assert "lint finished with result 'failure'" in output, output
+    assert "macOS lint and tests finished with result 'failure'" in output, output
+    assert "Rust tests: success" in output, output

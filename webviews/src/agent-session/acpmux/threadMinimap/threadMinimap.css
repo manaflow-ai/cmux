@@ -1,6 +1,7 @@
-/* Thread minimap (ThreadMinimap.tsx). Values are measured from the Codex app recording
-   (lane notes: thread-minimap/minimap-spec.md). Colors mix the theme's text into its page
-   color; motion is transform only, and opacity changes on the frame the hovered tick does. */
+/* Thread minimap (ThreadMinimap.tsx), as the Codex desktop app's prompt rail; numbers from its 60 Hz
+   recordings (minimap-ref SPEC, model.ts). Colors are the theme's tokens: in the dark reference
+   theme a resting tick is the muted text at 40% (#3d3d3d on #161616), a current one the text at
+   60%, a hovered or focused one the text. Motion is transform only. */
 .acpmux-minimap {
   position: sticky;
   top: 0;
@@ -8,87 +9,176 @@
   height: 0;
   /* Mixed into the opaque base (styles.css --acpmux-base), as the menus are: the page color can be clear. */
   --acpmux-minimap-base: var(--acpmux-base, var(--agent-page-bg));
-  --acpmux-minimap-fill: color-mix(in srgb, var(--agent-text) 7.2%, var(--acpmux-minimap-base));
+  --acpmux-minimap-rest: var(--agent-muted);
+  --acpmux-minimap-text: var(--agent-text);
+  --acpmux-minimap-card: color-mix(in srgb, var(--agent-text) 7.5%, var(--acpmux-minimap-base));
+  --acpmux-minimap-card-ring: color-mix(in srgb, var(--agent-text) 5%, var(--acpmux-minimap-base));
+  /* The Codex rail's spring: 160 ms with about 0.8% overshoot. */
+  --acpmux-minimap-spring: linear(0, 0.398 10%, 0.682 20%, 0.843 30%, 0.925 40%, 0.972 50%, 1.004 60%, 1.008 70%, 1.003 80%, 1);
+}
+/* appearance.borders none clears the popover's rim in place, as it clears the popups'. */
+:root[data-borders="none"] .acpmux-minimap {
+  --acpmux-minimap-rim: transparent;
 }
 .acpmux-minimap__rail {
   position: absolute;
-  top: 0;
-  left: 0;
-  width: 50.5px;
-  font: 13px -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  margin: 0;
+  animation: acpmux-minimap-in 150ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+@keyframes acpmux-minimap-in {
+  from {
+    opacity: 0;
+  }
+}
+.acpmux-minimap__list {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+}
+.acpmux-minimap__list::-webkit-scrollbar {
+  display: none;
+}
+/* A rail longer than its room fades 2.5rem at an edge with more rows past it. */
+.acpmux-minimap__list[data-fade-top] {
+  mask-image: linear-gradient(to bottom, transparent, #000 2.5rem);
+}
+.acpmux-minimap__list[data-fade-bottom] {
+  mask-image: linear-gradient(to top, transparent, #000 2.5rem);
+}
+.acpmux-minimap__list[data-fade-top][data-fade-bottom] {
+  mask-image: linear-gradient(to bottom, transparent, #000 2.5rem, #000 calc(100% - 2.5rem), transparent);
 }
 .acpmux-minimap__tick {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
+  position: relative;
+  flex: none;
+  display: block;
+  width: 36px;
+  height: 10px;
   margin: 0;
   padding: 0;
   border: 0;
   background: none;
+  color: var(--acpmux-minimap-rest);
   cursor: pointer;
   outline: none;
+  contain: layout paint;
+}
+.acpmux-minimap__bar,
+.acpmux-minimap__dot {
+  position: absolute;
+  top: 4px;
+  left: 0;
+  background: currentColor;
+  opacity: 0.4;
+  transform-origin: 0 50%;
+  /* Hovering in: the spring (the first line is the fallback for an engine without linear()). */
+  transition: transform 160ms cubic-bezier(0.25, 1, 0.5, 1);
+  transition: transform 160ms var(--acpmux-minimap-spring);
 }
 .acpmux-minimap__bar {
-  position: absolute;
-  top: 50%;
-  left: 0;
   width: 26px;
-  height: 1.8px;
-  margin-top: -0.9px;
-  background: var(--agent-text);
-  opacity: 0.19;
-  transform-origin: 0 50%;
-  transition: transform 50ms cubic-bezier(0.33, 1, 0.68, 1);
+  height: 2px;
 }
-/* Leaving the column settles faster than hovering grows (reference frames 151-155). */
-.acpmux-minimap__rail:not([data-hovering]) .acpmux-minimap__bar {
-  transition-duration: 35ms;
+/* The bookmark dot: 2 px round, 2 px past the tick's end; it moves with the tick. */
+.acpmux-minimap__dot {
+  left: 2px;
+  width: 2px;
+  height: 2px;
+  border-radius: 50%;
+  opacity: 0;
+}
+/* Leaving the rail: every row eases back to rest in 150 ms. */
+.acpmux-minimap__rail:not([data-hovering]) .acpmux-minimap__bar,
+.acpmux-minimap__rail:not([data-hovering]) .acpmux-minimap__dot {
+  transition-duration: 150ms;
+}
+/* A scrub switches rows with no transition; so does Reduce Motion. */
+.acpmux-minimap__rail[data-scrubbing] .acpmux-minimap__bar,
+.acpmux-minimap__rail[data-scrubbing] .acpmux-minimap__dot,
+.acpmux-minimap__rail[data-reduce] .acpmux-minimap__bar,
+.acpmux-minimap__rail[data-reduce] .acpmux-minimap__dot {
+  transition: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .acpmux-minimap__rail {
+    animation: none;
+  }
+  .acpmux-minimap__bar,
+  .acpmux-minimap__dot {
+    transition: none;
+  }
+}
+/* Prompts on screen: the text at 60%; back to rest while the pointer is on the rail. */
+.acpmux-minimap__tick[data-tone="current"] {
+  color: var(--acpmux-minimap-text);
 }
 .acpmux-minimap__tick[data-tone="current"] .acpmux-minimap__bar {
-  opacity: 0.54;
+  opacity: 0.6;
+}
+.acpmux-minimap__rail[data-hovering] .acpmux-minimap__tick[data-tone="current"] {
+  color: var(--acpmux-minimap-rest);
+}
+.acpmux-minimap__rail[data-hovering] .acpmux-minimap__tick[data-tone="current"] .acpmux-minimap__bar {
+  opacity: 0.4;
+}
+/* The hovered, scrubbed or focused row: the text, at once (no color transition). */
+.acpmux-minimap__tick[data-tone="active"] {
+  color: var(--acpmux-minimap-text);
 }
 .acpmux-minimap__tick[data-tone="active"] .acpmux-minimap__bar {
   opacity: 1;
 }
-/* The turn being read: longer (ThreadMinimap TICK_CURRENT_WIDTH) and in the accent (cx-f7c). */
-.acpmux-minimap__tick[data-current] .acpmux-minimap__bar {
-  background: var(--agent-accent);
+/* A bookmarked prompt draws its tick and dot at full opacity in its color. */
+.acpmux-minimap__tick[data-bookmarked] .acpmux-minimap__bar,
+.acpmux-minimap__tick[data-bookmarked] .acpmux-minimap__dot,
+.acpmux-minimap__rail[data-hovering] .acpmux-minimap__tick[data-bookmarked] .acpmux-minimap__bar {
   opacity: 1;
 }
-.acpmux-minimap__tick:focus-visible .acpmux-minimap__bar {
-  opacity: 1;
-  box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--agent-text) 45%, transparent);
+/* No bookmark yet: the hovered row shows a faint dot where a click would set one, a little
+   stronger over the spot itself. */
+.acpmux-minimap__tick[data-tone="active"]:hover:not([data-bookmarked]) .acpmux-minimap__dot {
+  opacity: 0.3;
 }
-.acpmux-minimap__popover {
+.acpmux-minimap__tick[data-tone="active"]:not([data-bookmarked]):has(.acpmux-minimap__dot-hit:hover) .acpmux-minimap__dot {
+  opacity: 0.6;
+}
+/* The dot's hit area: the row's right end past a hovered tick (26 px), so the tick keeps its click. */
+.acpmux-minimap__dot-hit {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 9px;
+  height: 10px;
+}
+.acpmux-minimap__card {
   position: absolute;
   top: 0;
   left: 0;
-  width: 321px;
-  max-width: calc(100vw - 58.5px);
+  width: 320px;
+  max-width: calc(100vw - 16px);
   box-sizing: border-box;
-  /* The 0.5 px edge is an inset shadow: a 0.5 px border draws two device pixels wide. */
-  padding: 8.5px 9px 7px;
-  border-radius: 11px;
-  background: var(--acpmux-minimap-fill);
+  /* The edge is an inset shadow one device pixel wide (--cmux-hairline, #20713); appearance.borders
+     none clears it through --acpmux-minimap-rim. */
+  padding: 8px;
+  border-radius: 12px;
+  background: var(--acpmux-minimap-card);
   box-shadow:
-    inset 0 0 0 0.5px color-mix(in srgb, var(--agent-text) 12.6%, var(--acpmux-minimap-base)),
-    0 4px 14px color-mix(in srgb, var(--agent-shadow, rgb(0 0 0 / 20%)) 45%, transparent);
+    inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-minimap-rim, var(--acpmux-minimap-card-ring)),
+    var(--elevation-2);
   color: var(--agent-text);
+  font: var(--text-body, 13px) / 20px -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
   cursor: default;
-}
-.acpmux-minimap__popover[hidden] {
-  display: block;
-  visibility: hidden;
-  pointer-events: none;
 }
 .acpmux-minimap__title {
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: 8px;
   height: 20px;
-  line-height: 20px;
   font-weight: 500;
 }
 .acpmux-minimap__prompt {
@@ -101,19 +191,24 @@
 .acpmux-minimap__bookmark {
   flex: none;
   display: inline-flex;
-  width: 16px;
-  height: 16px;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
   margin: 0;
   padding: 0;
   border: 0;
   border-radius: 4px;
   background: none;
-  color: color-mix(in srgb, var(--agent-text) 48%, transparent);
+  color: var(--agent-muted);
   cursor: pointer;
 }
-.acpmux-minimap__bookmark:hover,
+.acpmux-minimap__bookmark:hover {
+  background: color-mix(in srgb, var(--agent-text) 8%, transparent);
+  color: var(--agent-text);
+}
 .acpmux-minimap__bookmark[aria-pressed="true"] {
-  color: color-mix(in srgb, var(--agent-text) 80%, transparent);
+  color: var(--agent-text);
 }
 .acpmux-minimap__bookmark:focus-visible {
   outline: 1.5px solid color-mix(in srgb, var(--agent-text) 45%, transparent);
@@ -124,19 +219,14 @@
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 3;
   overflow: hidden;
-  margin-top: 5px;
-  line-height: 21px;
-  color: color-mix(in srgb, var(--agent-text) 45%, transparent);
+  margin-top: 4px;
+  color: var(--agent-muted);
 }
 .acpmux-minimap__reply p {
   margin: 0;
 }
 .acpmux-minimap__reply p + p {
-  margin-top: 13px;
-}
-.acpmux-minimap__reply p + .acpmux-minimap__item,
-.acpmux-minimap__item + .acpmux-minimap__item {
-  margin-top: 3.5px;
+  margin-top: 4px;
 }
 .acpmux-minimap__reply strong {
   font-weight: 600;
@@ -151,8 +241,8 @@
   width: 10px;
   text-indent: 0;
 }
-@media (prefers-reduced-motion: reduce) {
-  .acpmux-minimap__bar {
-    transition: none;
-  }
+/* The landing highlight's first color (scrollMotion.ts highlightBubble): the bubble's own fill, a
+   step brighter (#2d2d2d over #1e1e1e in the dark reference theme). */
+.acpmux-row .cv-user__bubble {
+  --acpmux-landing-highlight: color-mix(in srgb, var(--agent-text) 22%, var(--acpmux-base, var(--agent-page-bg)));
 }

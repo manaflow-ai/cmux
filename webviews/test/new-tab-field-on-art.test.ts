@@ -2,8 +2,8 @@
 // the art side's own chrome. Its box mixed the text color into the page background, which is
 // transparent over a wallpaper, so the box was a thin film over the art (beige glass). It is the
 // theme's own solid surface under the same tint. Its suggestions are menu rows, the same height,
-// corners and inset as every other menu in the pane, and focus takes one step toward the theme
-// accent rather than toward the text color.
+// corners and inset as every other menu in the pane. Focus is quiet (Lawrence 10-14): it keeps the
+// box's rim and never takes the theme accent (newtab-quiet-focus.test.ts).
 //
 // The page is the pane's real stylesheets plus markup in the shape NewTabScreen renders. The
 // engines come from `playwright install chromium webkit`; where they are not installed, the cases
@@ -54,7 +54,7 @@ await requireBrowserLane("new-tab-field-on-art.test.ts", async () => {
       "--cmux-popup-surface:rgb(52, 49, 68)",
     ].join(";");
   const body = `<div class="acpmux-shell"><div class="nt-screen"><div class="nt-box"><div class="nt-input">
-<input class="nt-field" data-focus-ring="none" placeholder="Search or type a URL"></div></div></div></div>
+<textarea class="nt-field" rows="1" data-focus-ring="none" placeholder="Search or type a URL"></textarea></div></div></div></div>
 <div class="ui-positioner"><div class="ui-popup nt-popover"><div class="nt-rows" id="rows">
 <div class="nt-row is-selected" id="row">reddit.com</div></div></div></div>
 <div class="ui-positioner"><div class="ui-popup ui-context-menu" id="menu"><div class="ui-menu-item" id="item">Copy</div></div></div>
@@ -111,7 +111,7 @@ await requireBrowserLane("new-tab-field-on-art.test.ts", async () => {
         await page.close();
       });
 
-      test("focus takes a step toward the theme accent", async () => {
+      test("focus stays quiet: the theme accent does not color the box", async () => {
         const edge = async (accent: string) => {
           const page = await open(accent);
           await page.focus(".nt-field");
@@ -119,7 +119,7 @@ await requireBrowserLane("new-tab-field-on-art.test.ts", async () => {
           await page.close();
           return shadow;
         };
-        expect(await edge(IRIS)).not.toBe(await edge(TEXT));
+        expect(await edge(IRIS)).toBe(await edge(TEXT));
       });
     });
   }

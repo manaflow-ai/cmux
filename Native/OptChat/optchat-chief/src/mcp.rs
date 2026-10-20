@@ -9,8 +9,9 @@ use std::path::{Path, PathBuf};
 use serde_json::{Value, json};
 
 use crate::prompt::{
-    DATE_DESCRIPTION, SPAWN_CWD_DESCRIPTION, SPAWN_DESCRIPTION, TELL_DESCRIPTION,
-    ZOOM_AGENT_DESCRIPTION, ZOOM_DESCRIPTION,
+    CONTROL_DESCRIPTION, DATE_DESCRIPTION, REACT_DESCRIPTION, REPLY_DESCRIPTION,
+    SPAWN_CWD_DESCRIPTION, SPAWN_DESCRIPTION, TELL_DESCRIPTION, ZOOM_AGENT_DESCRIPTION,
+    ZOOM_DESCRIPTION,
 };
 use crate::tools::{self, Call};
 
@@ -25,6 +26,13 @@ pub fn tool_list() -> Value {
 
 /// A subagent gets zoom and date, not spawn (section 9); the Chief all four.
 pub fn tools_for(subagent: bool) -> Value {
+    tools_granted(subagent, &crate::chief_profile::Grant::all())
+}
+
+/// The list for a Chief whose person granted `grant` (chief_profile.rs):
+/// zoom and date always, then spawn, tell, profile and chiefs when granted,
+/// then react and reply (a Chief's own conversation, always).
+pub fn tools_granted(subagent: bool, grant: &crate::chief_profile::Grant) -> Value {
     let int = json!({"type": "integer", "minimum": 0});
     let text = json!({"type": "string", "minLength": 1});
     let mut list = vec![
@@ -33,11 +41,34 @@ pub fn tools_for(subagent: bool) -> Value {
         json!({"name": "date", "description": DATE_DESCRIPTION,
          "inputSchema": {"type": "object", "properties": {"id": int}, "required": ["id"], "additionalProperties": false}}),
     ];
-    if !subagent {
+    if !subagent && grant.allows("spawn") {
         list.push(json!({"name": "spawn", "description": SPAWN_DESCRIPTION,
          "inputSchema": {"type": "object", "properties": {"tasks": {"type": "array", "items": text, "minItems": 1}, "cwd": {"type": "string", "minLength": 1, "description": SPAWN_CWD_DESCRIPTION}, "effort": {"type": "string", "enum": crate::tools::EFFORTS, "description": "How hard they think; by default, as hard as you."}}, "required": ["tasks"], "additionalProperties": false}}));
+    }
+    if !subagent && grant.allows("tell") {
         list.push(json!({"name": "tell", "description": TELL_DESCRIPTION,
-         "inputSchema": {"type": "object", "properties": {"id": text, "message": text}, "required": ["id", "message"], "additionalProperties": false}}));
+         "inputSchema": {"type": "object", "properties": {"id": text, "message": text, "key": {"type": "string", "minLength": 1, "description": "Optional idempotency key: a repeat with the same key is not sent again."}}, "required": ["id", "message"], "additionalProperties": false}}));
+        list.push(json!({"name": "control", "description": CONTROL_DESCRIPTION,
+         "inputSchema": {"type": "object", "properties": {
+            "action": {"type": "string", "enum": crate::tools::CONTROL_ACTIONS},
+            "id": {"type": "string", "minLength": 1, "description": "The subagent (a<N>); status without it shows all."},
+            "message": {"type": "string", "minLength": 1, "description": "interrupt/restart/resume: the prompt sent once it has stopped."},
+            "option": {"type": "string", "minLength": 1, "description": "answer: the option id of its pending prompt, or deny."},
+            "n": {"type": "integer", "minimum": 0, "description": "cap: subagents at work at once; 0 is no cap."}},
+          "required": ["action"], "additionalProperties": false}}));
+    }
+    if !subagent && grant.allows("profile") {
+        list.push(crate::chief_profile::profile_tool());
+    }
+    if !subagent && grant.allows("chiefs") {
+        list.push(crate::chief_profile::chiefs_tool());
+    }
+    // The Chief's own words in its conversation: never a grant to withhold.
+    if !subagent {
+        list.push(json!({"name": "react", "description": REACT_DESCRIPTION,
+         "inputSchema": {"type": "object", "properties": {"id": int, "reaction": {"type": "string", "description": crate::prompt::REACT_REACTION_DESCRIPTION}}, "required": ["id", "reaction"], "additionalProperties": false}}));
+        list.push(json!({"name": "reply", "description": REPLY_DESCRIPTION,
+         "inputSchema": {"type": "object", "properties": {"id": int, "text": text}, "required": ["id", "text"], "additionalProperties": false}}));
     }
     Value::Array(list)
 }
@@ -49,6 +80,10 @@ pub trait Backend {
     fn subagent(&self) -> bool {
         false
     }
+    /// The model tools this Chief may use (asked of the host at tools/list).
+    fn grant(&self) -> crate::chief_profile::Grant {
+        crate::chief_profile::Grant::all()
+    }
 }
 
 /// The host socket; `subagent` marks a subagent's server (no spawn, tell).
@@ -56,11 +91,22 @@ pub struct SocketBackend(pub PathBuf, pub bool);
 
 impl Backend for SocketBackend {
     fn call(&self, call: Call) -> Result<String, String> {
-        tools::ask_as(&self.0, call, self.1)
+        tools::ask_as(&self.0, tools::with_turn_key(call), self.1)
     }
 
     fn subagent(&self) -> bool {
         self.1
+    }
+
+    /// The live host's grant. A host that does not answer the question (an
+    /// older host) grants what it always did; one that cannot be reached
+    /// answers no tool call either, so zoom and date alone are listed.
+    fn grant(&self) -> crate::chief_profile::Grant {
+        match tools::ask_grant(&self.0) {
+            Ok(value) => crate::chief_profile::Grant::from_mcp_value(Some(&value)),
+            Err(e) if e.contains("unknown tool") => crate::chief_profile::Grant::all(),
+            Err(_) => crate::chief_profile::Grant::from_mcp_value(Some("none")),
+        }
     }
 }
 
@@ -87,12 +133,24 @@ pub fn handle(message: &Value, backend: &dyn Backend) -> Option<Value> {
             }))
         }
         "ping" => Ok(json!({})),
-        "tools/list" => Ok(json!({"tools": tools_for(backend.subagent())})),
+        "tools/list" => Ok(json!({"tools": if backend.subagent() {
+            tools_for(true)
+        } else {
+            tools_granted(false, &backend.grant())
+        }})),
         "tools/call" => {
             let name = params.get("name").and_then(Value::as_str).unwrap_or("");
             let args = params.get("arguments").cloned().unwrap_or(json!({}));
             let answer = Call::parse(name, &args).and_then(|call| match call {
-                Call::Spawn { .. } | Call::Tell { .. } if backend.subagent() => {
+                Call::Spawn { .. }
+                | Call::Tell { .. }
+                | Call::React { .. }
+                | Call::Reply { .. }
+                | Call::Control(_)
+                | Call::Profile { .. }
+                | Call::Chiefs { .. }
+                    if backend.subagent() =>
+                {
                     Err(format!("unknown tool {name}"))
                 }
                 call => backend.call(call),

@@ -14,6 +14,9 @@ use tokio::sync::{Mutex, mpsc, oneshot};
 pub struct Client {
     /// Build id the daemon reported at initialize, for mismatch hints.
     daemon_build: std::sync::Mutex<Option<String>>,
+    /// The person challenge `{nonce, connection}` of this connection, when the
+    /// daemon offered one at initialize (`hub/person.rs`).
+    person_challenge: std::sync::Mutex<Option<(String, String)>>,
     out: mpsc::Sender<String>,
     next_id: AtomicI64,
     pending: Arc<Mutex<HashMap<String, oneshot::Sender<Result<Value, RpcError>>>>>,
@@ -84,6 +87,7 @@ impl Client {
         }
         let client = Arc::new(Self {
             daemon_build: std::sync::Mutex::new(None),
+            person_challenge: std::sync::Mutex::new(None),
             out,
             next_id: AtomicI64::new(1),
             pending,
@@ -91,15 +95,49 @@ impl Client {
             notif_tx,
             closed,
         });
-        let init = client
-            .request(
-                method::INITIALIZE,
-                json!({"protocolVersion": 1, "clientCapabilities": {}, "clientInfo": {"name": "acpmux-cli", "version": crate::hub::VERSION}}),
-            )
-            .await?;
+        let mut hello = json!({"protocolVersion": 1, "clientCapabilities": {}, "clientInfo": {"name": "acpmux-cli", "version": crate::hub::VERSION}});
+        // Inside an acpmux session: say which, with the caller token the
+        // daemon put in that session's env (`hub/person.rs` (a)), only to
+        // the socket of the daemon that issued it (never to another daemon,
+        // or whatever listens on a path the agent pointed the CLI at).
+        let caller = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
+        let issuer = caller(crate::hub::person::CALLER_SOCKET_ENV);
+        if let (Some(id), Some(token), true) = (
+            caller("ACPMUX_SESSION_ID"),
+            caller(crate::hub::person::CALLER_TOKEN_ENV),
+            issuer.is_some_and(|socket| Path::new(&socket) == path),
+        ) {
+            let mut meta = serde_json::Map::new();
+            meta.insert(
+                crate::hub::person::CALLER_FIELD.to_owned(),
+                json!({"sessionId": id, "token": token}),
+            );
+            hello["_meta"] = json!({"acpmux": meta});
+        }
+        let init = client.request(method::INITIALIZE, hello).await?;
         *client.daemon_build.lock().unwrap() =
             init.pointer("/_meta/acpmux/build").and_then(Value::as_str).map(str::to_owned);
+        if let (Some(n), Some(c)) = (
+            init.pointer("/_meta/acpmux/personChallenge/nonce").and_then(Value::as_str),
+            init.pointer("/_meta/acpmux/personChallenge/connection").and_then(Value::as_str),
+        ) {
+            *client.person_challenge.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
+                Some((n.to_owned(), c.to_owned()));
+        }
         Ok(client)
+    }
+
+    /// Proves this connection is the person (`_acpmux/person_prove`) with the
+    /// key the daemon was started with; must be the request right after
+    /// initialize. True when the daemon accepted the proof.
+    pub async fn prove_person(&self, key: &str) -> bool {
+        let challenge =
+            self.person_challenge.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
+        let Some((nonce, connection)) = challenge else { return false };
+        let Some(proof) = crate::hub::person::person_proof(key, "unix", &nonce, &connection) else {
+            return false;
+        };
+        self.request(method::MUX_PERSON_PROVE, json!({ "proof": proof })).await.is_ok()
     }
 
     /// The daemon's build id, as reported at initialize.
@@ -131,6 +169,28 @@ impl Client {
     }
 
     pub async fn request(&self, m: &str, params: Value) -> Result<Value> {
+        let reply = self.send_request(m, params).await?;
+        if m == method::SESSION_NEW {
+            self.tag_spawned_by(&reply).await;
+        }
+        Ok(reply)
+    }
+
+    /// A `session/new` sent from inside an acpmux session (its agent runs `acpmux new`,
+    /// `acpmux run`): tags the new session with that one (`hub::views::SPAWNED_BY_TAG`), so the chat
+    /// lists fold it under its parent. The session exists either way; a failed tag only lists
+    /// it on its own.
+    async fn tag_spawned_by(&self, reply: &Value) {
+        let Some(parent) = std::env::var("ACPMUX_SESSION_ID").ok().filter(|id| !id.is_empty())
+        else {
+            return;
+        };
+        let Some(id) = reply.get("sessionId").and_then(Value::as_str) else { return };
+        let set = json!({ crate::hub::views::SPAWNED_BY_TAG: parent });
+        let _ = self.send_request(method::MUX_TAG, json!({"sessionId": id, "set": set})).await;
+    }
+
+    async fn send_request(&self, m: &str, params: Value) -> Result<Value> {
         let context = format!("sending {m}");
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         let key = Value::from(id).to_string();

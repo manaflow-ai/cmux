@@ -8,13 +8,18 @@ import Foundation
 /// monospaced), `#` headings (bold), `-`/`*`/`+` bullets (`•`), numbered
 /// items (kept), and inline `**bold**`/`__bold__`, `*italic*`/`_italic_`,
 /// `~~strike~~`, `` `code` ``, `[label](url)` and `<url>`. Only http, https
-/// and mailto URLs, and a Chief subagent link (URL.isChiefSubagentLink), become links;
-/// another scheme shows its label as text.
+/// and mailto URLs, a cmux app link (URL.isCmuxAppLink) and a path
+/// (URL.isHomePathLink) become links; another scheme shows its label as text.
+/// Bare paths and cmux ids in plain text (or a whole code span) link too
+/// (HomeAutoLinks).
 /// Anything else (HTML, tables, images) stays as written. Offsets are UTF-16,
 /// like MessagesLab's runs.
 enum HomeMarkdown {
-    static func render(_ source: String) -> (text: String, runs: [TextRun]) {
+    /// `chips`: links to cmux objects, files and GitHub objects show as chips (HomeLinkChip):
+    /// the transcript passes true; a plain-text use (the sidebar preview) keeps the default.
+    static func render(_ source: String, chips: Bool = false) -> (text: String, runs: [TextRun]) {
         var out = Output()
+        out.chips = chips
         var inFence = false
         var first = true
         for raw in source.split(separator: "\n", omittingEmptySubsequences: false) {
@@ -76,9 +81,21 @@ enum HomeMarkdown {
         var text = ""
         var runs: [TextRun] = []
         private var length = 0
+        /// Whether chip links (HomeLinkChip) show as chips.
+        var chips = false
 
         mutating func append(_ s: String, _ styles: [String], link: String? = nil) {
             guard !s.isEmpty else { return }
+            if chips, let link, let kind = HomeLinkChip.kind(for: link) {
+                // A chip: its first piece starts with the icon's pad; its label wraps as one unit.
+                let starts = runs.last.map { $0.link != link || $0.start + $0.length != length } ?? true
+                let label = HomeLinkChip.label(s)
+                return appendRun(starts ? String(HomeLinkChip.pad) + label : label, styles + [HomeLinkChip.stylePrefix + kind.rawValue], link: link)
+            }
+            appendRun(s, styles, link: link)
+        }
+
+        private mutating func appendRun(_ s: String, _ styles: [String], link: String?) {
             let n = (s as NSString).length
             if !styles.isEmpty || link != nil {
                 if let last = runs.last, last.start + last.length == length, last.style == (styles.isEmpty ? nil : styles), last.link == link {
@@ -96,7 +113,11 @@ enum HomeMarkdown {
         static func parse(_ c: [Character], into out: inout Output, styles: [String], link: String?) {
             var i = 0
             var plain = ""
-            func flush() { out.append(plain, styles, link: link); plain = "" }
+            // Plain text outside a link links its bare paths and cmux ids (HomeAutoLinks).
+            func flush() {
+                if link == nil { out.appendLinkingBare(plain, styles) } else { out.append(plain, styles, link: link) }
+                plain = ""
+            }
             // Crash program: checked reads and clamped slices (agent text is external input).
             while i < c.count, let ch = c[checked: i] {
                 if ch == "\\", i + 1 < c.count, let next = c[checked: i + 1], next.isASCII, next.isPunctuation || next.isSymbol {
@@ -108,7 +129,11 @@ enum HomeMarkdown {
                         var code = String(c.slice(i + ticks, close))
                         if code.count > 2, code.first == " ", code.last == " " { code = String(code.dropFirst().dropLast()) }
                         flush()
-                        out.append(code, add("code", to: styles), link: link)
+                        // A code span that is one whole path or cmux id (`~/a.md`) links to it.
+                        let whole = link == nil ? HomeMarkdown.autoLinks(in: code).first.flatMap {
+                            $0.range == NSRange(location: 0, length: (code as NSString).length) ? $0 : nil
+                        } : nil
+                        out.append(whole?.label ?? code, add("code", to: styles), link: link ?? whole?.link)
                         i = close + ticks; continue
                     }
                     plain += String(repeating: "`", count: ticks); i += ticks; continue
@@ -205,8 +230,10 @@ enum HomeMarkdown {
             return (Array(c.slice(i + 1, j)), url, k + 1)
         }
 
-        /// The one link rule (MarkdownLinkPolicy: http, https, mailto, and Home's app form,
-        /// a Chief subagent link, URL.isChiefSubagentLink), so this renderer and MessagesLab's agree.
-        private static func safe(_ url: String) -> String? { MarkdownLinkPolicy.sanitize(url) }
+        /// The one link rule (MarkdownLinkPolicy: http, https, mailto, and Home's app forms,
+        /// a cmux app link, URL.isCmuxAppLink, or a path, URL.isHomePathLink), so this renderer
+        /// and MessagesLab's agree. A destination written as a path (`/Users/…`, `~/…`) or a bare
+        /// cmux id becomes its link first (HomeMarkdown.destination).
+        private static func safe(_ url: String) -> String? { HomeMarkdown.destination(url) }
     }
 }

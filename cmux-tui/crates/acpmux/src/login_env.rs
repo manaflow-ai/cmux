@@ -23,8 +23,9 @@
 //! and tool-manager configs. It holds only non-secret variables and the
 //! NAMES of secret ones; secret values live in this process's memory only.
 //! A start whose fingerprint matches and needs no secret value never runs
-//! the shell; a changed fingerprint (checked at most every 10 s when an
-//! agent spawns) refreshes it in the background.
+//! the shell; a changed fingerprint refreshes it in the background. An edit
+//! to a startup file is seen at once by a watcher (`watch.rs`, D26), and
+//! checked again at most every 10 s when an agent spawns.
 
 use std::collections::BTreeMap;
 use std::ffi::OsString;
@@ -34,6 +35,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
+
+mod watch;
+pub use watch::start as watch_startup_files;
 
 /// The hard limit for one login shell run.
 pub const TIMEOUT: Duration = Duration::from_secs(3);
@@ -123,16 +127,17 @@ pub fn outcome() -> Outcome {
 pub struct Plan {
     /// Run the login shell (in the background or awaited, see `wait`).
     pub run_shell: bool,
-    /// Agent spawns wait for that run (bounded by `TIMEOUT`) only when
+    /// Agent spawns wait for that run (bounded by `MAX_ROUNDS` x `TIMEOUT`) only when
     /// Claude has no sign-in without it (the daemon's environment, settings
-    /// files, credentials file, keychain) and there is no matching cache or
+    /// files, credentials file; never the keychain) and there is no matching cache or
     /// the cache names a secret whose value this process lacks.
     pub wait: bool,
 }
 
 /// Start resolution: apply a matching cache at once, and say whether the
 /// shell must run. Fast: stats and one small file read (plus, only when
-/// the cache lacks secret values, the Claude sign-in sources check).
+/// the cache lacks secret values, the Claude sign-in sources check, which
+/// reads files and never the keychain).
 pub fn begin() -> Plan {
     ENABLED.store(true, Ordering::SeqCst);
     let fingerprint = fingerprint();
@@ -158,7 +163,7 @@ pub fn begin() -> Plan {
         return Plan { run_shell: stale, wait: false };
     }
     // Secret values are never cached: the shell runs; spawns wait for it
-    // unless Claude signs in without it (keychain, settings, env).
+    // unless Claude signs in without it (settings, credentials file, env).
     Plan { run_shell: true, wait: !crate::claude_auth::direct_sign_in() }
 }
 
@@ -176,9 +181,47 @@ fn now_secs() -> u64 {
         .unwrap_or(0)
 }
 
-/// Run the login shell once (bounded by `TIMEOUT`) and remember its
-/// environment. Returns true when the children's environment changed.
+/// One login shell read at a time: the startup read and a refresh never
+/// overlap, so the last cache written is the newest read.
+static IMPORT: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+/// Reads in a row when the startup files change during a read: one more
+/// read catches an edit made during the first.
+const MAX_ROUNDS: usize = 2;
+
+/// Run the login shell (each run bounded by `TIMEOUT`, so at most
+/// `MAX_ROUNDS` x `TIMEOUT` in all) and remember its environment, one read
+/// at a time. A startup file edited during a read is read again, so the
+/// result never lags an edit. Returns true when the children's environment
+/// changed.
 pub async fn import() -> bool {
+    let _one = IMPORT.lock().await;
+    let mut changed = false;
+    for round in 1..=MAX_ROUNDS {
+        // The fingerprint of the files this read sees, taken before it.
+        let read = fingerprint();
+        STATE.write().unwrap_or_else(|e| e.into_inner()).fingerprint = Some(read.clone());
+        changed |= import_once(&read).await;
+        if outcome() == Outcome::Failed || fingerprint() == read {
+            break;
+        }
+        if round == MAX_ROUNDS {
+            // The shell itself rewrites a startup file (a tool appending to
+            // ~/.zshrc): take the files as they are now, so only a later
+            // edit reads them again, never a loop of login shells.
+            tracing::info!(
+                "shell startup files change on every read; reading them on the next edit"
+            );
+            STATE.write().unwrap_or_else(|e| e.into_inner()).fingerprint = Some(fingerprint());
+        } else {
+            tracing::info!("shell startup files changed during the read; reading them again");
+        }
+    }
+    changed
+}
+
+/// One login shell run; its cache is labelled `read`, the fingerprint
+/// taken before the run.
+async fn import_once(read: &str) -> bool {
     let shell =
         std::env::var("SHELL").ok().filter(|s| !s.is_empty()).unwrap_or_else(|| "/bin/zsh".into());
     let started = Instant::now();
@@ -203,7 +246,7 @@ pub async fn import() -> bool {
     let (login, login_path) = parse_env0(&text, &marker);
     // Only what a child or the daemon itself may use is kept, in memory too.
     let login: Vec<(String, String)> = login.into_iter().filter(|(k, v)| storable(k, v)).collect();
-    save_cache(&login, login_path.as_deref());
+    save_cache(read, &login, login_path.as_deref());
     let imported = build(for_children(login), login_path);
     let added = imported.vars.len();
     let mut st = STATE.write().unwrap_or_else(|e| e.into_inner());
@@ -216,14 +259,21 @@ pub async fn import() -> bool {
 
 /// Called before each agent spawn: when the startup files changed since the
 /// last resolution (checked at most every `RECHECK`), refresh in the
-/// background. Never waits.
+/// background. Never waits. The startup-file watcher (`watch.rs`) refreshes
+/// at once on an edit; this check covers what it cannot watch.
 pub fn refresh_if_changed() {
+    refresh(true);
+}
+
+/// `refresh_if_changed`; `throttled` false (a watched file changed) skips
+/// the `RECHECK` limit.
+fn refresh(throttled: bool) {
     if !ENABLED.load(Ordering::SeqCst) {
         return;
     }
     {
         let mut st = STATE.write().unwrap_or_else(|e| e.into_inner());
-        if st.last_check.is_some_and(|t| t.elapsed() < RECHECK) {
+        if throttled && st.last_check.is_some_and(|t| t.elapsed() < RECHECK) {
             return;
         }
         st.last_check = Some(Instant::now());
@@ -231,6 +281,8 @@ pub fn refresh_if_changed() {
     let now = fingerprint();
     let changed =
         STATE.read().unwrap_or_else(|e| e.into_inner()).fingerprint.as_deref() != Some(&now);
+    // A refresh already running reads again when the files changed under
+    // it (`import`), and checks once more after it ends.
     if !changed || REFRESHING.swap(true, Ordering::SeqCst) {
         return;
     }
@@ -242,11 +294,16 @@ pub fn refresh_if_changed() {
     rt.spawn(async {
         tracing::info!("shell startup files changed; reading the login environment again");
         import().await;
-        if outcome() == Outcome::Failed {
-            // Try again at a later spawn.
+        let failed = outcome() == Outcome::Failed;
+        if failed {
+            // Try again at a later spawn or edit.
             STATE.write().unwrap_or_else(|e| e.into_inner()).fingerprint = None;
         }
         REFRESHING.store(false, Ordering::SeqCst);
+        if !failed {
+            // An edit after the read's last check found REFRESHING set.
+            refresh(false);
+        }
     });
 }
 
@@ -757,9 +814,8 @@ fn load_cache() -> Option<Cache> {
     (cache.version == CACHE_VERSION).then_some(cache)
 }
 
-fn save_cache(login: &[(String, String)], login_path: Option<&str>) {
-    let fingerprint = STATE.read().unwrap_or_else(|e| e.into_inner()).fingerprint.clone();
-    let Some(fingerprint) = fingerprint else { return };
+/// `fingerprint` is the one taken before the shell read these variables.
+fn save_cache(fingerprint: &str, login: &[(String, String)], login_path: Option<&str>) {
     let mut vars = BTreeMap::new();
     let mut secret_names = Vec::new();
     for (k, v) in login {
@@ -772,7 +828,7 @@ fn save_cache(login: &[(String, String)], login_path: Option<&str>) {
     STATE.write().unwrap_or_else(|e| e.into_inner()).secret_names = secret_names.clone();
     let cache = Cache {
         version: CACHE_VERSION,
-        fingerprint,
+        fingerprint: fingerprint.to_owned(),
         vars,
         path: login_path.map(str::to_owned),
         secret_names,
@@ -788,6 +844,34 @@ fn save_cache(login: &[(String, String)], login_path: Option<&str>) {
 /// size and mtime of each (absent ones count too), plus the shell itself.
 fn fingerprint() -> String {
     use sha2::{Digest, Sha256};
+    let shell = std::env::var("SHELL").unwrap_or_default();
+    let mut hash = Sha256::new();
+    hash.update(shell.as_bytes());
+    // A changed loginEnvAllow is a changed rule: read the shell again.
+    let mut extra = EXTRA_ALLOW.read().unwrap_or_else(|e| e.into_inner()).clone();
+    extra.sort();
+    hash.update(format!("allow:{};", extra.join(",")).as_bytes());
+    for f in startup_files() {
+        hash.update(f.as_os_str().as_encoded_bytes());
+        match std::fs::metadata(&f) {
+            Ok(m) => {
+                let mtime = m
+                    .modified()
+                    .ok()
+                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map(|d| d.as_nanos())
+                    .unwrap_or(0);
+                hash.update(format!(":{}:{mtime};", m.len()).as_bytes());
+            }
+            Err(_) => hash.update(b":-;"),
+        }
+    }
+    hash.finalize().iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// The files `fingerprint` reads and `watch.rs` watches: the login shell's
+/// startup files, tool-manager configs and the shell itself.
+fn startup_files() -> Vec<PathBuf> {
     let home =
         std::env::var_os("HOME").map(PathBuf::from).or_else(dirs::home_dir).unwrap_or_default();
     let zdot = std::env::var_os("ZDOTDIR").map(PathBuf::from).unwrap_or_else(|| home.clone());
@@ -822,26 +906,5 @@ fn fingerprint() -> String {
         files.push(PathBuf::from(f));
     }
     files.push(PathBuf::from(&shell));
-    let mut hash = Sha256::new();
-    hash.update(shell.as_bytes());
-    // A changed loginEnvAllow is a changed rule: read the shell again.
-    let mut extra = EXTRA_ALLOW.read().unwrap_or_else(|e| e.into_inner()).clone();
-    extra.sort();
-    hash.update(format!("allow:{};", extra.join(",")).as_bytes());
-    for f in files {
-        hash.update(f.as_os_str().as_encoded_bytes());
-        match std::fs::metadata(&f) {
-            Ok(m) => {
-                let mtime = m
-                    .modified()
-                    .ok()
-                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                    .map(|d| d.as_nanos())
-                    .unwrap_or(0);
-                hash.update(format!(":{}:{mtime};", m.len()).as_bytes());
-            }
-            Err(_) => hash.update(b":-;"),
-        }
-    }
-    hash.finalize().iter().map(|b| format!("{b:02x}")).collect()
+    files
 }

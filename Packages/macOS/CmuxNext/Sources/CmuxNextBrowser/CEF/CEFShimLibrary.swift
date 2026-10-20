@@ -32,6 +32,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let forkAPIVersion: @convention(c) () -> Int32
     let prepareApplication: @convention(c) () -> Int32
     let setExtensionDeveloperMode: @convention(c) (Int32) -> Void
+    /// Chromium's default search provider in every profile (`CEFDefaultSearch`).
+    let setDefaultSearch: @convention(c) (UnsafePointer<CChar>?) -> Void
     let setBackgroundColor: @convention(c) (UInt32) -> Void
     let browserSetBackgroundColor: @convention(c) (Int32, UInt32) -> Int32
     let initialize: @convention(c) (
@@ -82,6 +84,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let devToolsCommand: @convention(c) (Int32, Int32, Int32, Int32) -> Int32
     let devToolsBrowser: @convention(c) (Int32) -> Int32
     let devToolsSetFocus: @convention(c) (Int32, Int32) -> Void
+    /// Opens DevTools on one frontend panel (`network`, `timeline`); 0 when gone or invalid.
+    let devToolsShowPanel: @convention(c) (Int32, UnsafePointer<CChar>?) -> Int32
 
     let extActions: @convention(c) (Int32, Int32) -> UnsafeMutablePointer<CChar>?
     let extActionRun: @convention(c) (Int32, UnsafePointer<CChar>?, Int32, Int32) -> Int32
@@ -204,6 +208,9 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let popupWindowBounds: @convention(c) (Int32, UnsafeMutablePointer<Int32>?, UnsafeMutablePointer<Int32>?,
                                            UnsafeMutablePointer<Int32>?, UnsafeMutablePointer<Int32>?) -> Int32
     let popupWindowAttach: @convention(c) (Int32, UnsafeMutableRawPointer?, Int32, Int32) -> Int32
+    // DevTools device mode (fork API 24).
+    let devToolsInspectedBounds: @convention(c) (Int32, UnsafeMutablePointer<Int32>?, UnsafeMutablePointer<Int32>?,
+                                                 UnsafeMutablePointer<Int32>?, UnsafeMutablePointer<Int32>?) -> Int32
     // Side panel header (fork API 13).
     let sidePanelState: @convention(c) (Int32) -> UnsafeMutablePointer<CChar>?
     let sidePanelPress: @convention(c) (Int32, UnsafePointer<CChar>?) -> Int32
@@ -249,6 +256,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         forkAPIVersion = try r("cmux_shim_fork_api_version")
         prepareApplication = try r("cmux_shim_prepare_application")
         setExtensionDeveloperMode = try r("cmux_shim_set_extension_developer_mode")
+        setDefaultSearch = try r("cmux_shim_set_default_search")
         setBackgroundColor = try r("cmux_shim_set_background_color")
         browserSetBackgroundColor = try r("cmux_shim_browser_set_background_color")
         initialize = try r("cmux_shim_initialize")
@@ -279,6 +287,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         devToolsCommand = try r("cmux_shim_devtools_command")
         devToolsBrowser = try r("cmux_shim_devtools_browser")
         devToolsSetFocus = try r("cmux_shim_devtools_set_focus")
+        devToolsShowPanel = try r("cmux_shim_devtools_show_panel")
         extActions = try r("cmux_shim_ext_actions")
         extActionRun = try r("cmux_shim_ext_action_run")
         extActionHidePopup = try r("cmux_shim_ext_action_hide_popup")
@@ -360,6 +369,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         setPopupWindowsEnabled = try r("cmux_shim_set_popup_windows_enabled")
         popupWindowBounds = try r("cmux_shim_popup_window_bounds")
         popupWindowAttach = try r("cmux_shim_popup_window_attach")
+        devToolsInspectedBounds = try r("cmux_shim_devtools_inspected_bounds")
         sidePanelState = try r("cmux_shim_side_panel_state")
         sidePanelPress = try r("cmux_shim_side_panel_press")
     }

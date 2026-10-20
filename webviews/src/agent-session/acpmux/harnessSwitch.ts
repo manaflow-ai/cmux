@@ -6,6 +6,7 @@ import { lastModel } from "./lastPick";
 import { isTrustRefusal } from "./direct";
 // Outside render: the store reads the pane language when it builds a string.
 import { translate as t } from "./i18n";
+import { askStartMode, exactStartMode, onStartModeAskAgain, onStartModeKept } from "./startMode";
 import type { AcpmuxRow, AcpmuxSnapshot } from "./model";
 
 // A harness or model switch as an intent. The pick changes the
@@ -183,7 +184,17 @@ export class HarnessSwitch {
   private lastHint?: { harness: string; at: number };
   private handlers: SwitchHandlers = {};
 
-  constructor(private readonly clock: SwitchClock = browserSwitchClock) {}
+  constructor(private readonly clock: SwitchClock = browserSwitchClock) {
+    // A pending chat's access chip draws acpmux's kept answer (`applySwitch`): it asks again when
+    // the answer may have changed, and draws again when a kept answer changed.
+    onStartModeAskAgain(() => {
+      const intent = this.intent;
+      if (intent && !intent.reused) void askStartMode(intent.harness, intent.cwd);
+    });
+    onStartModeKept(() => {
+      if (this.intent) this.changed();
+    });
+  }
 
   readonly subscribe = (listener: () => void) => {
     this.listeners.add(listener);
@@ -289,6 +300,8 @@ export class HarnessSwitch {
     }
     this.cancelHintTimer();
     this.changed();
+    // Before session/new: acpmux's answer as its rules stand when the chat is asked for.
+    if (!intent.reused) void askStartMode(intent.harness, intent.cwd);
     void this.run(intent);
     return done.promise;
   }
@@ -554,11 +567,13 @@ export class HarnessSwitch {
       if (typeof code === "string" && code.startsWith("transport.")) this.handlers.notice?.(errorMessage(error));
     };
     const ticket = (key: string) => intent.tickets.get(key) ?? Promise.resolve(undefined);
+    // A held mode the agent refuses always says so: a company-managed Mac's Claude Code settings can
+    // disable a mode, and the chat would otherwise run on another one with no reason given.
     if (mode)
       applied.push(
         ticket("mode")
           .then((t) => port.setMode(mode, t))
-          .catch(pickRefused),
+          .catch((error) => this.handlers.notice?.(t("switch.modeFailed", { mode, reason: errorText(error) || "?" }))),
       );
     for (const [configId, value] of Object.entries(options))
       applied.push(
@@ -714,7 +729,18 @@ export function applySwitch(
   const profile = profiles.get(intent.harness);
   const config = intent.config;
   const predicted = config.model ?? live?.model ?? defaultModel(intent.harness, catalog, profiles, intent.cwd);
-  const modes = live?.modes ?? profile?.modes;
+  // Before the session reports, the mode acpmux answers it will start the chat in
+  // (`_acpmux/start_mode`, kept per harness and folder), never the mode the harness's last chat
+  // ran, nor another folder's answer; none without an answer for this folder.
+  const modes =
+    live?.modes ??
+    (profile?.modes && {
+      ...profile.modes,
+      currentModeId:
+        raw.origin === "remote" || raw.origin === "peer"
+          ? undefined
+          : exactStartMode(intent.harness, intent.cwd)?.modeId,
+    });
   const summary: Summary = {
     ...(live ?? { sessionId: "", turnCount: 0, cwd: raw.summary?.cwd ?? intent.cwd }),
     harness: intent.harness,

@@ -7,6 +7,8 @@ export type DevHostParams = {
   token: string;
   sessionId?: string;
   newSession?: boolean;
+  /// `#newtab`: the pane opens as a New Tab page, as a tab the app opened for one does.
+  newTab?: boolean;
   cwd?: string;
   editorOrigin?: string;
 };
@@ -14,7 +16,13 @@ export type DevHostParams = {
 type Request = { id: string; method: string; params?: Record<string, unknown> };
 export type DevHostReply =
   | { ok: true; value: unknown }
-  | { ok: false; error: { code: string; message: string; origin: string } };
+  | {
+      ok: false;
+      error: { code: string; message: string; origin: string; userMessage?: string; details?: unknown };
+    };
+
+/// The reads the dev server answers from the slot's folder (dev-server/agentGitHost.ts).
+const SERVED_READS = new Set(["git.status", "git.diff", "git.checkpoint.diff", "file.search"]);
 
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]"]);
 let gestureSequence = 0;
@@ -39,6 +47,7 @@ export function devHostParams(hash: string): DevHostParams | undefined {
     token,
     sessionId: params.get("session") ?? undefined,
     newSession: params.has("new") || undefined,
+    newTab: params.has("newtab") || undefined,
     cwd: params.get("cwd") ?? undefined,
     editorOrigin,
   };
@@ -76,6 +85,49 @@ function safeReadResult(host: DevHostParams, params: Record<string, unknown> | u
   return { root, search_root: root, results: [], truncated: false };
 }
 
+/// A read the dev server answers for real, from the slot's folder. A server without that route
+/// (the pane-only vite.config.acpmux-pane.mjs) gets the empty stub instead.
+async function servedRead(host: DevHostParams, method: string, request: Request): Promise<DevHostReply> {
+  const params = { ...request.params, cwd: request.params?.cwd ?? host.cwd };
+  let response: Response;
+  try {
+    response = await fetch("/__dev-host/read", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ method, params }),
+    });
+  } catch {
+    return stubReply(host, method, request);
+  }
+  if (response.status === 404) return stubReply(host, method, request);
+  if (!response.ok) return unsupported(method);
+  return (await response.json()) as DevHostReply;
+}
+
+function stubReply(host: DevHostParams, method: string, request: Request): DevHostReply {
+  switch (method) {
+    case "file.search":
+      return { ok: true, value: safeReadResult(host, request.params) };
+    case "git.status":
+      return {
+        ok: true,
+        value: { root: host.cwd ?? ".", detached: false, branch: "dev", ahead: 0, behind: 0 },
+      };
+    default:
+      return {
+        ok: true,
+        value: {
+          root: host.cwd ?? ".",
+          files: [],
+          additions: 0,
+          deletions: 0,
+          total_files: 0,
+          files_omitted: 0,
+        },
+      };
+  }
+}
+
 function gestureReply(): DevHostReply {
   if (Date.now() - lastGestureAt > 1_500)
     return {
@@ -91,8 +143,9 @@ function gestureReply(): DevHostReply {
 }
 
 /** Routes the native calls used by the pane to safe browser behavior. */
-export function devHostReply(host: DevHostParams, request: Request): DevHostReply {
+export function devHostReply(host: DevHostParams, request: Request): DevHostReply | Promise<DevHostReply> {
   const method = request.method.replace(/^cmux\.agent\./, "");
+  if (SERVED_READS.has(method)) return servedRead(host, method, request);
   switch (method) {
     case "handshake":
     case "ready":
@@ -105,6 +158,7 @@ export function devHostReply(host: DevHostParams, request: Request): DevHostRepl
           token: host.token,
           sessionId: host.sessionId,
           newSession: host.newSession,
+          ...(host.newTab ? { newTab: true } : {}),
           cwd: host.cwd,
           linkScheme: "cmux-dev",
         },
@@ -114,9 +168,12 @@ export function devHostReply(host: DevHostParams, request: Request): DevHostRepl
     case "pane.painted":
     case "pane.checkpointAvailability":
     case "pane.renderRate":
+    case "pane.tabRowTools":
     case "newTab.remember":
     case "newTab.setTemplate":
+    case "nowPlaying.command":
     case "newTab.touched":
+    case "newTab.warm":
     case "shortcut.edit":
     case "tab.jump":
     case "tab.open":
@@ -133,26 +190,6 @@ export function devHostReply(host: DevHostParams, request: Request): DevHostRepl
     case "file.open":
     case "link.openPath":
       return openFile(host, request.params);
-    case "file.search":
-      return { ok: true, value: safeReadResult(host, request.params) };
-    case "git.status":
-      return {
-        ok: true,
-        value: { root: host.cwd ?? ".", detached: false, branch: "dev", ahead: 0, behind: 0 },
-      };
-    case "git.diff":
-    case "git.checkpoint.diff":
-      return {
-        ok: true,
-        value: {
-          root: host.cwd ?? ".",
-          files: [],
-          additions: 0,
-          deletions: 0,
-          total_files: 0,
-          files_omitted: 0,
-        },
-      };
     case "acp.trust.get":
       return { ok: true, value: { cwd: request.params?.cwd ?? host.cwd, level: "unknown" } };
     case "acp.trust.set":
@@ -176,18 +213,24 @@ function installGestures(): void {
   window.addEventListener("keydown", mark, { capture: true, passive: true });
 }
 
-function pageReply(host: DevHostParams, message: unknown): unknown {
+async function pageReply(host: DevHostParams, message: unknown): Promise<unknown> {
   if (!message || typeof message !== "object") return message;
   const envelope = message as { t?: string; id?: number; op?: string; params?: Record<string, unknown> };
   if (envelope.t === "call" && typeof envelope.id === "number") {
-    const reply = devHostReply(host, {
+    const reply = await devHostReply(host, {
       id: String(envelope.id),
       method: envelope.op ?? "",
       params: envelope.params,
     });
     return reply.ok
       ? { t: "ok", id: envelope.id, value: reply.value }
-      : { t: "err", id: envelope.id, code: reply.error.code, message: reply.error.message };
+      : {
+          t: "err",
+          id: envelope.id,
+          code: reply.error.code,
+          message: reply.error.userMessage ?? reply.error.message,
+          details: { origin: reply.error.origin, details: reply.error.details },
+        };
   }
   if ((envelope.t === "sub" || envelope.t === "unsub") && typeof envelope.id === "number")
     return { t: "ok", id: envelope.id, value: null };
@@ -204,7 +247,7 @@ export function installDevHost(host: DevHostParams): void {
     handlers.agentSession = { postMessage: (request: Request) => Promise.resolve(devHostReply(host, request)) };
   }
   if (!handlers.cmuxPage) {
-    handlers.cmuxPage = { postMessage: (message: unknown) => Promise.resolve(pageReply(host, message)) };
+    handlers.cmuxPage = { postMessage: (message: unknown) => pageReply(host, message) };
   }
   window.webkit = { ...current, messageHandlers: handlers } as Window["webkit"];
 }

@@ -13,6 +13,9 @@ import WebKit
 @MainActor
 final class PageWKWebView: WKWebView {
     var onUserEvent: (() -> Void)?
+    /// Whether the page now shown accepts the first mouse (``PageDescriptor/acceptsFirstMouse``);
+    /// read per click, so a pooled view rebound to another page answers for that page.
+    var pageAcceptsFirstMouse: (() -> Bool)?
     /// The context menu items a page keeps: Copy (WebKit adds it only when there is a selection).
     static let keptMenuItems: Set<String> = ["WKMenuItemIdentifierCopy"]
 
@@ -101,6 +104,28 @@ final class PageWKWebView: WKWebView {
     /// Whether `id` is `menu` or one of its submenus (at any depth).
     private static func menu(_ menu: NSMenu, contains id: ObjectIdentifier) -> Bool {
         ObjectIdentifier(menu) == id || menu.items.contains { item in item.submenu.map { Self.menu($0, contains: id) } ?? false }
+    }
+
+    /// On a page that opts in (``PageDescriptor/acceptsFirstMouse``, off by default), a first click
+    /// in an inactive window reaches the page, as on the native controls (sidebar rows, dividers,
+    /// toasts, popup rows): WebKit accepts a first mouse only to drag a selection, so a person's
+    /// click on a page button only activated the window. Every other page, and a view with no
+    /// owner, keeps WebKit's answer.
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        if pageAcceptsFirstMouse?() ?? false { return true }
+        // WebKit reads the event (its location); without one it has no first mouse to accept.
+        guard let event else { return false }
+        return super.acceptsFirstMouse(for: event)
+    }
+
+    /// Called each time this view becomes first responder (pane focus, a click, a restore); the
+    /// owning ``PageWebView`` tells the page (`focusContent`), which focuses its primary input.
+    var onBecameFirstResponder: (() -> Void)?
+
+    override func becomeFirstResponder() -> Bool {
+        let became = super.becomeFirstResponder()
+        if became { onBecameFirstResponder?() }
+        return became
     }
 
     override func keyDown(with event: NSEvent) { noteUserEvent(event); super.keyDown(with: event) }

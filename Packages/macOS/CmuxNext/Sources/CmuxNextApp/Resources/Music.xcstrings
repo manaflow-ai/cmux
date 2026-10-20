@@ -1,0 +1,1054 @@
+{
+  "sourceLanguage": "en",
+  "strings": {
+    "music.refusal.preview": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مشغل الموسيقى ميزة تجريبية: فعّل labs.previewFeatures في cmux.json."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Muzički plejer je funkcija u pregledu: uključite labs.previewFeatures u cmux.json."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Musikafspilleren er en prøvefunktion: slå labs.previewFeatures til i cmux.json."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der Musikplayer ist eine Vorschaufunktion: Aktiviere labs.previewFeatures in cmux.json."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The music player is a preview feature: turn on labs.previewFeatures in cmux.json."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El reproductor de música es una función preliminar: activa labs.previewFeatures en cmux.json."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le lecteur de musique est une fonctionnalité en aperçu : activez labs.previewFeatures dans cmux.json."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il lettore musicale è una funzione in anteprima: attiva labs.previewFeatures in cmux.json."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ミュージックプレーヤーはプレビュー機能です。cmux.json で labs.previewFeatures をオンにしてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កម្មវិធីចាក់តន្ត្រីជាមុខងារសាកល្បង៖ បើក labs.previewFeatures ក្នុង cmux.json។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "음악 플레이어는 미리 보기 기능입니다. cmux.json에서 labs.previewFeatures를 켜세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Musikkspilleren er en forhåndsvisningsfunksjon: slå på labs.previewFeatures i cmux.json."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Odtwarzacz muzyki to funkcja w wersji zapoznawczej: włącz labs.previewFeatures w cmux.json."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O player de música é um recurso de prévia: ative labs.previewFeatures no cmux.json."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Музыкальный плеер — предварительная функция: включите labs.previewFeatures в cmux.json."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เครื่องเล่นเพลงเป็นฟีเจอร์ทดลอง: เปิด labs.previewFeatures ใน cmux.json"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Müzik çalar bir önizleme özelliğidir: cmux.json içinde labs.previewFeatures'ı açın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Музичний плеєр — попередня функція: увімкніть labs.previewFeatures у cmux.json."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trình phát nhạc là tính năng xem trước: bật labs.previewFeatures trong cmux.json."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "音乐播放器是预览功能：请在 cmux.json 中开启 labs.previewFeatures。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "音樂播放器是預覽功能：請在 cmux.json 中開啟 labs.previewFeatures。"
+          }
+        }
+      }
+    },
+    "music.refusal.noSongs": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا توجد أغانٍ هناك لتشغيلها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tamo nema pjesama za puštanje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der er ingen sange at afspille."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dort gibt es keine Songs zum Abspielen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No songs there to play."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No hay canciones para reproducir ahí."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aucun morceau à lire ici."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nessun brano da riprodurre lì."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "再生できる曲がありません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "គ្មានបទចម្រៀងនៅទីនោះដើម្បីចាក់ទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "재생할 노래가 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingen sanger å spille av der."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Brak utworów do odtworzenia."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não há músicas para tocar aí."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Там нет песен для воспроизведения."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่มีเพลงให้เล่นที่นั่น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Orada çalınacak şarkı yok."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Там немає пісень для відтворення."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không có bài hát nào để phát."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "那里没有可播放的歌曲。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "那裡沒有可播放的歌曲。"
+          }
+        }
+      }
+    },
+    "music.refusal.nothingPlaying": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا توجد موسيقى قيد التشغيل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nijedna muzika ne svira."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der afspilles ingen musik."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Es wird keine Musik abgespielt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No music is playing."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No se está reproduciendo música."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aucune musique en cours de lecture."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nessuna musica in riproduzione."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "再生中の音楽はありません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "គ្មានតន្ត្រីកំពុងចាក់ទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "재생 중인 음악이 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingen musikk spilles av."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nie jest odtwarzana żadna muzyka."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nenhuma música tocando."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Музыка не воспроизводится."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่มีเพลงที่กำลังเล่น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Çalan müzik yok."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Музика не відтворюється."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không có nhạc đang phát."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "没有正在播放的音乐。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "沒有正在播放的音樂。"
+          }
+        }
+      }
+    },
+    "music.choose.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "اختر أغاني أو مجلدات لتشغيلها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Odaberite pjesme ili mape za puštanje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vælg sange eller mapper, der skal afspilles."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wähle Songs oder Ordner zum Abspielen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose songs or folders to play."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Elige canciones o carpetas para reproducir."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Choisissez des morceaux ou des dossiers à lire."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Scegli brani o cartelle da riprodurre."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "再生する曲またはフォルダを選択してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ជ្រើសរើសបទចម្រៀង ឬថតដើម្បីចាក់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "재생할 노래나 폴더를 선택하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Velg sanger eller mapper som skal spilles av."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wybierz utwory lub foldery do odtworzenia."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Escolha músicas ou pastas para tocar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Выберите песни или папки для воспроизведения."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เลือกเพลงหรือโฟลเดอร์ที่จะเล่น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Çalınacak şarkıları veya klasörleri seçin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Виберіть пісні або папки для відтворення."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chọn bài hát hoặc thư mục để phát."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "选择要播放的歌曲或文件夹。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "選擇要播放的歌曲或資料夾。"
+          }
+        }
+      }
+    },
+    "music.choose.prompt": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تشغيل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pusti"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Afspil"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abspielen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Play"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Reproducir"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lire"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Riproduci"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "再生"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ចាក់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "재생"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Spill av"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Odtwórz"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tocar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Воспроизвести"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เล่น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Çal"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Відтворити"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Phát"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "播放"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "播放"
+          }
+        }
+      }
+    },
+    "nowPlaying.toast.disabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Media card turned off. Turn it on again in Settings › Appearance › Show Now Playing, or run “Show Media Card” from the command palette."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メディアカードをオフにしました。「設定 › 外観 › 再生中を表示」、またはコマンドパレットの「メディアカードを表示」で再びオンにできます。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تم إيقاف بطاقة الوسائط. أعد تشغيلها من الإعدادات › المظهر › إظهار قيد التشغيل الآن، أو شغّل «إظهار بطاقة الوسائط» من لوحة الأوامر."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kartica medija je isključena. Ponovo je uključite u Postavke › Izgled › Prikaži Sada se reproducira ili pokrenite „Prikaži karticu medija” iz palete naredbi."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mediekortet er slået fra. Slå det til igen under Indstillinger › Udseende › Vis Afspilles nu, eller kør “Vis mediekort” fra kommandopaletten."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Medienkarte ausgeschaltet. Unter Einstellungen › Erscheinungsbild › „Aktuelle Wiedergabe“ anzeigen wieder einschalten oder „Medienkarte anzeigen“ in der Befehlspalette ausführen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tarjeta multimedia desactivada. Vuelve a activarla en Ajustes › Apariencia › Mostrar En reproducción, o ejecuta «Mostrar tarjeta multimedia» desde la paleta de comandos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Carte multimédia désactivée. Réactivez-la dans Réglages › Apparence › Afficher À l’écoute, ou lancez « Afficher la carte multimédia » depuis la palette de commandes."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Scheda multimediale disattivata. Riattivala in Impostazioni › Aspetto › Mostra In riproduzione, oppure esegui «Mostra scheda multimediale» dalla palette dei comandi."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បានបិទកាតមេឌៀ។ បើកវាវិញនៅ ការកំណត់ › រូបរាង › បង្ហាញអ្វីដែលកំពុងចាក់ ឬដំណើរការ “បង្ហាញកាតមេឌៀ” ពីផ្ទាំងពាក្យបញ្ជា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "미디어 카드를 껐습니다. 설정 › 모양 › 지금 재생 중 보기에서 다시 켜거나 명령 팔레트에서 ‘미디어 카드 표시’를 실행하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mediekortet er slått av. Slå det på igjen i Innstillinger › Utseende › Vis Spilles nå, eller kjør «Vis mediekort» fra kommandopaletten."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Karta multimediów wyłączona. Włącz ją ponownie w Ustawienia › Wygląd › Pokaż Teraz odtwarzane lub uruchom „Pokaż kartę multimediów” z palety poleceń."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cartão de mídia desativado. Ative de novo em Ajustes › Aparência › Mostrar Tocando Agora, ou execute “Mostrar cartão de mídia” na paleta de comandos."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Карточка медиа выключена. Включите её снова в Настройки › Оформление › Показывать «Сейчас играет» или выполните «Показать карточку медиа» в палитре команд."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ปิดการ์ดสื่อแล้ว เปิดอีกครั้งได้ที่ การตั้งค่า › ลักษณะที่ปรากฏ › แสดงกำลังเล่น หรือเรียก “แสดงการ์ดสื่อ” จากพาเลตคำสั่ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Medya kartı kapatıldı. Ayarlar › Görünüm › Şimdi Çalıyor’u Göster’den yeniden açın veya komut paletinden “Medya Kartını Göster”i çalıştırın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Картку медіа вимкнено. Увімкніть її знову в Налаштування › Вигляд › Показувати «Зараз грає» або виконайте «Показати картку медіа» з палітри команд."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đã tắt thẻ phương tiện. Bật lại trong Cài đặt › Giao diện › Hiện Đang phát, hoặc chạy “Hiện thẻ phương tiện” từ bảng lệnh."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已关闭媒体卡片。可在“设置 › 外观 › 显示正在播放”中重新打开，或在命令面板中运行“显示媒体卡片”。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已關閉媒體卡片。可在「設定 › 外觀 › 顯示正在播放」中重新開啟，或在命令面板中執行「顯示媒體卡片」。"
+          }
+        }
+      }
+    },
+    "nowPlaying.refusal.noCard": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No media card is showing."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "表示中のメディアカードはありません。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا توجد بطاقة وسائط ظاهرة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nijedna kartica medija nije prikazana."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der vises intet mediekort."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Es wird keine Medienkarte angezeigt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No se muestra ninguna tarjeta multimedia."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aucune carte multimédia n’est affichée."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nessuna scheda multimediale visualizzata."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនមានកាតមេឌៀកំពុងបង្ហាញទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "표시 중인 미디어 카드가 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingen mediekort vises."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Żadna karta multimediów nie jest wyświetlana."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nenhum cartão de mídia está aparecendo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Карточка медиа не показана."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่มีการ์ดสื่อที่แสดงอยู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gösterilen bir medya kartı yok."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Картка медіа не показується."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không có thẻ phương tiện nào đang hiện."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "没有正在显示的媒体卡片。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "沒有正在顯示的媒體卡片。"
+          }
+        }
+      }
+    },
+    "nowPlaying.refusal.nothingPlaying": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nothing is playing."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再生中のものはありません。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا شيء قيد التشغيل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ništa se ne reproducira."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der afspilles intet."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Es wird nichts wiedergegeben."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No se está reproduciendo nada."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rien n’est en cours de lecture."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nessuna riproduzione in corso."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនមានអ្វីកំពុងចាក់ទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "재생 중인 항목이 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingenting spilles av."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nic nie jest odtwarzane."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nada está tocando."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ничего не воспроизводится."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่มีสิ่งที่กำลังเล่น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hiçbir şey çalmıyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Нічого не відтворюється."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không có gì đang phát."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "没有正在播放的内容。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "沒有正在播放的內容。"
+          }
+        }
+      }
+    }
+  },
+  "version": "1.0"
+}

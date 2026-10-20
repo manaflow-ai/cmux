@@ -140,13 +140,19 @@ extension StateResourceClient {
         return try await stateMutation("workspace.create", params, as: CreatedWorkspace.self)
     }
 
-    /// Workspace title, color, and icon (`workspace.update`).
+    /// Workspace title, color, icon, description (`workspace-description-v1`) and manual task
+    /// status (`workspace-status-v1`; `.clear` is automatic) through `workspace.update`. The
+    /// caller checks the description and status capabilities; an older daemon refuses those fields.
     public func updateWorkspace(_ workspace: ResourceID, title: FieldUpdate<String> = .unchanged,
-                                color: FieldUpdate<String> = .unchanged, icon: FieldUpdate<String> = .unchanged) async throws {
+                                color: FieldUpdate<String> = .unchanged, icon: FieldUpdate<String> = .unchanged,
+                                description: FieldUpdate<String> = .unchanged,
+                                taskStatus: FieldUpdate<WorkspaceTaskStatus> = .unchanged) async throws {
         var params: [String: JSONValue] = ["workspace": .string(workspace.rawValue)]
         Self.field(title, into: &params, "title") { .string($0) }
         Self.field(color, into: &params, "color") { .string($0) }
         Self.field(icon, into: &params, "icon") { .string($0) }
+        Self.field(description, into: &params, "description") { .string($0) }
+        Self.field(taskStatus, into: &params, "task_status") { .string($0.rawValue) }
         try await stateMutation("workspace.update", params)
     }
 
@@ -176,8 +182,10 @@ extension StateResourceClient {
 
     /// The tab record's zoom, user icon and a browser tab's back/forward lists (`tab.update`).
     public func updateTabRecord(_ tab: ResourceID, zoom: FieldUpdate<Double> = .unchanged, icon: FieldUpdate<String> = .unchanged,
-                                back: [String]? = nil, forward: [String]? = nil) async throws {
+                                back: [String]? = nil, forward: [String]? = nil, markedUnread: Bool? = nil) async throws {
         var params: [String: JSONValue] = ["tab": .string(tab.rawValue)]
+        // tab-mark-unread-v1: the caller checks the capability; an older daemon refuses the field.
+        if let markedUnread { params["marked_unread"] = .bool(markedUnread) }
         Self.field(zoom, into: &params, "zoom") { .number($0) }
         Self.field(icon, into: &params, "icon") { .string($0) }
         if let back { params["back"] = .array(back.suffix(20).map { .string($0) }) }

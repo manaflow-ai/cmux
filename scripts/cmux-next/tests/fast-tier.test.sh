@@ -29,7 +29,13 @@ sleep 5
 EOF
 
 registry() { printf '%s\n' "$1" > "$tmp/registry.json"; }
-quarantine() { printf '%s\n' "${1:-{\"entries\": []\}}" > "$tmp/quarantine.json"; }
+quarantine() {
+  if [ "$#" -gt 0 ]; then
+    printf '%s\n' "$1"
+  else
+    printf '%s\n' '{"entries": []}'
+  fi > "$tmp/quarantine.json"
+}
 entry() { printf '{"name": "%s", "kind": "script", "path": "bin/%s", "args": %s, "owner": "op-test", "bead": "cx-test"}' "$1" "$2" "${3:-[]}"; }
 run() {
   set +e
@@ -94,6 +100,27 @@ if [ "$(grep -c '^BUILD swift build' <<<"$out")" -ne 1 ]; then echo "FAIL: one b
 expect "dry run tests each Swift entry against the built package" 0 "^RUN tokens: swift test --skip-build --package-path Packages/Shared/CmuxHomeRender --filter MotionTokenTests$"
 expect "dry run builds cargo test binaries once, outside the cap" 0 "^BUILD cargo test --locked --no-run -p cmux-motion \\(in cmux-tui\\)$"
 expect "dry run tests a cargo entry" 0 "^RUN clock: cargo test --locked -p cmux-motion \(in cmux-tui\)$"
+
+# --kind splits one registry between the Linux cargo job and the Mac Swift job:
+# each runs and builds only its kinds, and a kind with no entry is refused.
+run --dry-run --kind cargo
+expect "--kind cargo runs the cargo entry" 0 "^RUN clock: cargo test --locked -p cmux-motion"
+if grep -q "swift" <<<"$out"; then echo "FAIL: --kind cargo built or ran a Swift entry" >&2; printf '%s\n' "$out" >&2; exit 1; fi
+run --dry-run --kind swift --kind script
+expect "--kind swift runs the Swift entries" 0 "^RUN tokens: swift test"
+if grep -q "cargo" <<<"$out"; then echo "FAIL: --kind swift built or ran a cargo entry" >&2; printf '%s\n' "$out" >&2; exit 1; fi
+run --dry-run --kind script
+expect "a --kind with no entry is a bad registry, not an empty pass" 2 "no entry of kind script"
+registry "{\"entries\": [$(entry ok pass.sh), {\"name\": \"other\", \"kind\": \"cargo\", \"path\": \"crate\", \"package\": \"core\", \"owner\": \"op-test\"}]}"
+run --kind script --receipt "$tmp/kind-receipt.json"
+expect "--kind script leaves the cargo entry to its own job" 0 "^FAST-TIER PASS ok "
+python3 -I - "$tmp/kind-receipt.json" <<'PY'
+import json, sys
+receipt = json.load(open(sys.argv[1]))
+assert receipt["kinds"] == ["script"], receipt
+assert [e["name"] for e in receipt["entries"]] == ["ok"], receipt
+assert receipt["builds"] == [], receipt
+PY
 
 # A filter that matches no test is a failure, never a vacuous pass: a renamed
 # test must not silently leave the tier. A fake cargo and swift on PATH print

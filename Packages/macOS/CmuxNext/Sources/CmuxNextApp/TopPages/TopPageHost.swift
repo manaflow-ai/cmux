@@ -24,12 +24,15 @@ final class TopPageHost {
         let view: NSView
         switch route {
         case .home:
+            // The docked Home (cx-ebm.59.5) is the home workspace itself; only classic Home is a top page.
+            guard HomeDock.classic else { return nil }
             view = TopHomePageView(services: services, windowKey: { [weak window] in window?.state.id ?? "" })
         case .page(let id):
             guard let provider = TopPages.provider(id, services: services) else { return nil }
             let key = LocalPageTab.makeKey(id)
             keys[route] = key
-            let page = InternalPageView(key: key, page: id, content: provider.makeView(for: key, in: window))
+            let content = provider.makeView(for: key, in: window)
+            let page = InternalPageView(key: key, page: id, content: content, topBar: provider.makeTopBar(for: key))
             page.navigate = services.pages.navigate
             view = page
         }

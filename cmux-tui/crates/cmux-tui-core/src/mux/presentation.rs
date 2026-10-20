@@ -338,9 +338,11 @@ impl Mux {
         self.emit_tab_changed_for_transaction(surface, None);
     }
 
-    /// A `tab-added` delta for a tab a topology commit just created (which
-    /// announces itself to raw clients with `tree-changed` only), carrying
-    /// the client's `transaction` so the client settles its provisional tab.
+    /// A `tab-added` delta carrying the client's `transaction`, for a tab
+    /// that arrived inside its new workspace's or screen's delta (which
+    /// carries no transaction), so the client settles its provisional tab. A
+    /// tab added to an existing pane carries the transaction on its own
+    /// `tab-added` instead and never gets this second one.
     pub(crate) fn emit_tab_added_for_transaction(&self, surface: SurfaceId, transaction: Arc<str>) {
         let decorations = self.tree_decorations();
         let delta = {

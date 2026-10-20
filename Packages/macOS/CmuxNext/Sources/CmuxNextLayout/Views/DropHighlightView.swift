@@ -44,7 +44,7 @@ final class DropHighlightView: NSView {
         fatalError("init(coder:) is not supported")
     }
 
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
     override func viewDidMoveToWindow() {
@@ -68,6 +68,12 @@ final class DropHighlightView: NSView {
     }
     /// The target rect as drawn now (this view's coordinates).
     var targetRect: CGRect { targetSpring.rect }
+    /// The rect the target settles on (this view's coordinates), before any motion reaches it.
+    var destinationRect: CGRect { targetSpring.targetRect }
+    /// The shown target takes the classic fill (`DropOverlayFrame.fills`).
+    private var fills = true
+    /// The final frames of the panes the drop resizes (`DropOverlayFrame.companions`).
+    private var companions: [CGRect] = []
     /// The outline style's renderer, when that style draws (tests, debug).
     var outline: OutlineRenderer? { renderer as? OutlineRenderer }
 
@@ -78,8 +84,10 @@ final class DropHighlightView: NSView {
     /// if an animation frame is needed. Tokens and tunables are re-read on
     /// every call, so a change applies to the next pointer move.
     func show(_ rect: CGRect, region: CGRect, zone: DropOverlayZone, text: String, inset: CGFloat, cornerRadius: CGFloat,
-              pointer: CGPoint, animated: Bool) -> Bool {
+              pointer: CGPoint, animated: Bool, fills: Bool = true, companions: [CGRect] = []) -> Bool {
         refreshStyle()
+        self.fills = fills
+        self.companions = companions
         let animated = animated && DropOverlayTunables.animated.value
         let target = rect.insetBy(dx: inset, dy: inset)
         self.zone = zone
@@ -168,7 +176,8 @@ final class DropHighlightView: NSView {
             renderer.update(DropOverlayFrame(target: targetSpring.rect, finalTarget: targetSpring.targetRect, region: regionSpring.rect,
                                              zone: zone, bounds: bounds,
                                              cornerRadius: cornerRadius, label: label, showsLabel: DropOverlayTunables.showLabel.value,
-                                             refused: refused, animated: animated))
+                                             refused: refused, animated: animated, fills: fills,
+                                             companions: isShowing ? companions : []))
         }
         alphaValue = targetSpring.alpha.value * CGFloat(DropOverlayTunables.opacity.value)
         if !isShowing && targetSpring.alpha.value <= 0.001 { isHidden = true }

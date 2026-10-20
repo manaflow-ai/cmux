@@ -7,24 +7,28 @@ public import Foundation
 public nonisolated struct MetricTunable: Sendable {
     public let compact: CGFloat
     public let comfortable: CGFloat
+    /// The compact value under Compact tabs (`Metrics.compactTabs`), when it differs.
+    public let tight: CGFloat?
     public let key: MetricKey?
     public let tunable: DerivedTunable<CGFloat>
 
     /// The value chrome uses now. Observation-tracked (density, cmux.json
     /// override and Debug Settings override).
-    @MainActor public var value: CGFloat { Metrics.scale(tunable.resolve(Metrics.pick(compact, comfortable, key))) }
+    @MainActor public var value: CGFloat { Metrics.scale(tunable.resolve(Metrics.pick(compactValue, comfortable, key))) }
+    /// The compact value in effect: `tight` under Compact tabs, else `compact`.
+    @MainActor var compactValue: CGFloat { tight.flatMap { Metrics.compactTabs ? $0 : nil } ?? compact }
     public var descriptor: TunableDescriptor { tunable.descriptor }
 
     static func make(_ name: String, _ section: TunableSection, _ label: String, help: String,
-                     compact: CGFloat, comfortable: CGFloat, key: MetricKey? = nil,
+                     compact: CGFloat, comfortable: CGFloat, tight: CGFloat? = nil, key: MetricKey? = nil,
                      range: ClosedRange<Double>? = nil) -> MetricTunable {
         let upper = max((Double(comfortable) * 2.5).rounded(.up), 24)
         let step = comfortable < 10 ? 0.5 : 1
         let note = compact == comfortable ? "" : " Default \(TunableExport.format(Double(compact))) compact, \(TunableExport.format(Double(comfortable))) comfortable."
         let tunable = DerivedTunable<CGFloat>.number(
             "metrics.\(name)", section, label, help: help + note, range: range ?? 0...upper, step: step, unit: .points,
-            code: "MetricTunables.\(name)") { Metrics.pick(compact, comfortable, key) }
-        return MetricTunable(compact: compact, comfortable: comfortable, key: key, tunable: tunable)
+            code: "MetricTunables.\(name)") { Metrics.pick(tight.flatMap { Metrics.compactTabs ? $0 : nil } ?? compact, comfortable, key) }
+        return MetricTunable(compact: compact, comfortable: comfortable, tight: tight, key: key, tunable: tunable)
     }
 }
 
@@ -52,15 +56,32 @@ public nonisolated enum MetricTunables {
     // MARK: Tabs
 
     public static let tabStripHeight = MetricTunable.make("tabStripHeight", .tabs, "Tab strip height", help: "Height of a pane's tab strip.",
-                                                          compact: 26, comfortable: 36, key: .tabStripHeight)
+                                                          compact: 28, comfortable: 36, tight: 26, key: .tabStripHeight)
     public static let tabHeight = MetricTunable.make("tabHeight", .tabs, "Tab height", help: "Height of a tab inside the strip.",
-                                                     compact: 22, comfortable: 30)
-    /// Fields and small controls (the strip's +, toolbar and editor fields): the tab height before
-    /// compact tabs (Leo 2026-10-12: the tab shrinks, the controls keep their size).
+                                                     compact: 24, comfortable: 30, tight: 22)
+    /// Fields and small controls (the strip's +, toolbar and editor fields): the default tab height,
+    /// kept under Compact tabs (Leo 2026-10-12: the tab shrinks, the controls keep their size).
     public static let controlHeight = MetricTunable.make("controlHeight", .shape, "Control height", help: "Height of fields and small controls, and the tab strip's + button.",
                                                          compact: 24, comfortable: 30)
     public static let tabMaxWidth = MetricTunable.make("tabMaxWidth", .tabs, "Tab max width", help: "Widest an unpinned tab gets.",
                                                        compact: 200, comfortable: 240, key: .tabMaxWidth)
+    /// Chrome's minimums (Lawrence 2026-10-16: "chrome 32"), from the shared tokens (design-tokens.json `motion.tabStrip`, the same in both
+    /// densities); `appearance.metrics.*` overrides them. `TabStripMetrics` keeps min <= max.
+    public static let tabMinActiveWidth = MetricTunable.make(
+        "tabMinActiveWidth", .tabs, "Tab min width (active)", help: "Narrowest the selected tab gets when the strip is crowded.",
+        compact: MotionTabStrip(comfortable: false).minActiveWidth, comfortable: MotionTabStrip(comfortable: true).minActiveWidth,
+        key: .tabMinActiveWidth, range: 32...320)
+    /// The favicon and the close button side by side, whole (Lawrence 2026-10-20, replacing Chrome's 32, where
+    /// the x never fits): `TabStripMetrics.faviconCloseWidth` at each density's tokens. Pill insets 2 x 1,
+    /// leading inset 8 (6 under Compact tabs), favicon 14 (16 comfortable), gap 4, x 16 (20 pt click
+    /// target), trailing inset 4. A test keeps these equal to the sum.
+    public static let tabMinInactiveWidth = MetricTunable.make(
+        "tabMinInactiveWidth", .tabs, "Tab min width (inactive)", help: "Narrowest the other tabs get before the strip scrolls: room for the favicon and the close button.",
+        compact: 48, comfortable: 50, tight: 46, key: .tabMinInactiveWidth, range: 16...320)
+    public static let tabPinnedWidth = MetricTunable.make(
+        "tabPinnedWidth", .tabs, "Pinned tab width", help: "Width of a pinned tab.",
+        compact: MotionTabStrip(comfortable: false).pinnedWidth, comfortable: MotionTabStrip(comfortable: true).pinnedWidth,
+        key: .tabPinnedWidth, range: 24...120)
     public static let tabMinWidth = MetricTunable.make("tabMinWidth", .tabs, "Tab min width", help: "Icon-only width (pinned and fully shrunk tabs).",
                                                        compact: 32, comfortable: 40)
 
@@ -97,7 +118,7 @@ public nonisolated enum MetricTunables {
 
     static var metrics: [MetricTunable] {
         [sidebarWidth, titlebarHeight, sidebarRowHeight, sidebarRowHeightWithSubtitle, sidebarHeaderHeight, roomDotDiameter, roomDotSlot,
-         tabStripHeight, tabHeight, controlHeight, tabMaxWidth, tabMinWidth, paletteRowHeight, paletteSearchHeight, paletteWidth, panelInset,
+         tabStripHeight, tabHeight, controlHeight, tabMaxWidth, tabMinActiveWidth, tabMinInactiveWidth, tabPinnedWidth, tabMinWidth, paletteRowHeight, paletteSearchHeight, paletteWidth, panelInset,
          columnGap, densityPaneCornerRadius, panelCornerRadius, itemCornerRadius, iconSize, smallIconSize, scrollEdgeFade]
     }
 }

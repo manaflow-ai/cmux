@@ -6,7 +6,15 @@
 
 mod adoption;
 mod aside;
+pub(crate) mod auto_resume;
+mod btw;
+mod exit_reason;
+mod turn_errors;
+pub(crate) use btw::SIDE_TAG;
+mod bookmarks;
+mod cancel;
 mod catalog_reload;
+mod complete;
 mod cursor_ext;
 mod fork;
 mod fork_at;
@@ -23,63 +31,87 @@ mod hosts;
 mod lifecycle;
 pub(crate) mod model_availability;
 mod model_options;
-pub use model_options::{current_model, current_option, resolve_config_id, web_url};
+mod new_request;
+pub use model_options::{
+    current_effort, current_model, current_option, resolve_config_id, web_url,
+};
 mod model_hint;
 mod models_view;
 mod paging;
+mod personal_stats;
 mod pool;
+mod prompt_images;
 mod queue;
 mod queue_edit;
 pub use queue::QueuedPrompt;
 mod resolve;
 mod route_switch;
 pub use pool::{PrewarmRequest, RssProbe, tree_rss_bytes};
+pub use route_switch::HarnessRestarts;
 pub(crate) use route_switch::route_error;
+pub(crate) use turn_errors::is_limit_error;
+mod offer_results;
+mod offers;
 mod secrets;
 mod seen;
 mod session;
+pub(crate) mod session_pages;
 pub use session::{Session, live_tags};
 pub(super) use session::{prompt_text, short_text};
 mod shutdown;
-use shutdown::ShutdownPlan;
 mod spawn;
 mod start_defaults;
+pub(crate) mod start_mode;
+mod startup;
 mod steer_end;
 mod stream;
+mod tags;
 mod tap;
-pub use lifecycle::{
+mod titles;
+mod tools;
+pub use new_request::{
     NewRequest, declared_model_json, profile_takes_model_at_spawn, terminal_harness_refusal,
 };
 pub use paging::{EventFilter, EventPage};
 pub use spawn::expand_env_value;
+pub mod approvers;
 mod peers;
+pub(crate) use peers::PEER_PERMISSION_PENDING;
 mod permission_groups;
 mod permissions;
 pub mod person;
+mod processes;
 mod questions;
 mod remote_floor;
 mod remote_sandbox;
+pub use remote_sandbox::vm_host_peer_approves;
+mod start_gate;
+pub mod subsessions;
 pub use permission_groups::PERMISSION_GROUP_OPERATIONS;
 pub mod rules;
+mod transcript;
 mod transfer;
 mod transfer_guard;
 mod transfer_in;
 mod transfer_out;
 mod transfer_watch;
+mod turn_git;
+mod turn_usage;
 mod turns;
+pub(crate) mod views;
 mod warm;
-mod xai;
-pub(crate) use turns::merge_mux_meta;
-mod views;
 mod web_control;
 mod web_token;
+mod xai;
 pub use web_control::Control;
 pub(crate) use web_control::ModeWrite;
 pub use web_token::WebToken;
 
 use crate::agent::{ChildAgent, Direction, Inbound};
 use crate::config::{Config, HarnessProfile, PermissionPolicy};
+use crate::mailbox::Mailbox;
 use crate::rpc::{Id, Message, RpcError, method};
+use crate::session_identity::{LOCAL_HOST_ID, SessionReceipt};
 use crate::store::{EventRecord, META_SCHEMA, SessionMeta, SessionStatus, Store, now_ms};
 use anyhow::Result;
 use serde_json::{Value, json};
@@ -117,6 +149,7 @@ pub struct RemoteRef {
 pub struct RemoteSession {
     pub peer: String,
     pub summary: Value,
+    pub receipt: SessionReceipt,
 }
 
 #[derive(Debug)]
@@ -171,6 +204,11 @@ pub struct PromptOptions {
     /// A steer (`_meta.acpmux.interrupt`) that an agent which cannot steer takes as "stop the
     /// running turn and run this next" instead of waiting behind the queue.
     pub interrupt: bool,
+    /// Who sent the prompt, when not the person (`prompt_provenance.rs`).
+    pub provenance: Option<Value>,
+    /// An automatic continuation (`auto_resume.rs`): runs only while the chat still ends on
+    /// this turn, checked again once it holds the turn lock, else refused unrecorded.
+    pub after_turn: Option<String>,
 }
 
 /// The outcome of one client prompt id, shared with a resend of it.
@@ -201,6 +239,7 @@ pub(super) struct StreamState {
 pub struct Hub {
     pub config: RwLock<Config>,
     pub(super) store: Box<dyn Store>,
+    pub(super) mailbox: Mailbox,
     pub(super) sessions: StdMutex<HashMap<String, Arc<Session>>>,
     /// Where adopt looks for harness sessions.
     pub(super) harness_homes: StdMutex<crate::adopt::HarnessHomes>,
@@ -225,6 +264,8 @@ pub struct Hub {
     /// launcher checks) in the background. Session creation and agent
     /// spawns wait for it; every other request is answered at once.
     pub(super) startup_ready: tokio::sync::watch::Sender<bool>,
+    /// Startup has read the login environment: the catalog sees its PATH.
+    pub(super) catalog_ready: tokio::sync::watch::Sender<bool>,
     pub(super) login_env_requested: AtomicBool,
     /// Session ids an `import` is writing right now.
     pub(super) importing: StdMutex<std::collections::HashSet<String>>,
@@ -233,7 +274,7 @@ pub struct Hub {
     pub(super) agent_hosts: AtomicBool,
     /// What the coming shutdown does with hosted agents, decided once:
     /// `_acpmux/shutdown endAgents` sets it until the shutdown takes it.
-    pub(super) shutdown_plan: StdMutex<ShutdownPlan>,
+    pub(super) shutdown_plan: StdMutex<shutdown::ShutdownPlan>,
     /// Turns a shutdown with `endAgents` settled as cancelled: their prompt
     /// futures must not write a second result when the agent ends.
     pub(super) settled_by_shutdown: StdMutex<std::collections::HashSet<String>>,
@@ -261,8 +302,7 @@ pub struct Hub {
     pub(super) web_modes: StdMutex<web_control::WebModeCache>,
     /// Where the folder-trust gate reads (`server/trust_gate.rs`); None: no gate.
     pub(super) trust_gate: StdMutex<Option<crate::trust::Paths>>,
-    /// The `sandbox-exec` remote chains run Claude Code under
-    /// (`remote_sandbox.rs`).
+    /// The `sandbox-exec` remote chains run Claude Code under (`remote_sandbox.rs`).
     pub(super) remote_sandbox_exec: StdMutex<PathBuf>,
     /// The device-wide chat index, once started (`chats/`).
     pub(crate) chats: std::sync::OnceLock<Arc<crate::chats::ChatService>>,
@@ -278,12 +318,24 @@ pub struct Hub {
     pub person: person::PersonGate,
     /// How long a move may go without its client (`transfer_watch.rs`).
     pub(super) transfer_lease: StdMutex<std::time::Duration>,
+    /// Chats agents offered the person, still open (`offers.rs`).
+    pub(super) offers: offers::Offers,
+    /// Open sub-sessions per parent and starts in flight (`subsessions.rs`).
+    pub(super) subsessions: subsessions::Index,
+    /// Automatic continuations waiting to fire, by chat (`auto_resume.rs`).
+    pub(super) auto_resumes: auto_resume::Pending,
+    /// Fired by `set_transfer_lease`: each move's watch reads the new lease now.
+    pub(super) transfer_lease_changed: Notify,
     /// Secrets agents asked the person for, and their one-use refs (`secrets.rs`).
     pub(super) secrets: secrets::Secrets,
 }
 
 impl Hub {
     pub fn new(config: Config, store: Box<dyn Store>) -> Arc<Self> {
+        Self::new_with_mailbox(config, store, Mailbox::memory())
+    }
+
+    pub fn new_with_mailbox(config: Config, store: Box<dyn Store>, mailbox: Mailbox) -> Arc<Self> {
         let (events, _) = broadcast::channel(8192);
         let (peer_notices, peer_notices_rx) = mpsc::channel(4096);
         let peers_cfg = config.peers.clone();
@@ -291,6 +343,7 @@ impl Hub {
         let hub = Arc::new(Self {
             config: RwLock::new(config),
             store,
+            mailbox,
             sessions: StdMutex::new(HashMap::new()),
             harness_homes: StdMutex::new(crate::adopt::HarnessHomes::from_env()),
             events,
@@ -304,11 +357,12 @@ impl Hub {
             live_models: StdMutex::new(HashMap::new()),
             refused_models: StdMutex::new(HashMap::new()),
             startup_ready: tokio::sync::watch::channel(true).0,
+            catalog_ready: tokio::sync::watch::channel(true).0,
             login_env_requested: AtomicBool::new(false),
             importing: StdMutex::new(std::collections::HashSet::new()),
             handoffs,
             agent_hosts: AtomicBool::new(false),
-            shutdown_plan: StdMutex::new(ShutdownPlan::default()),
+            shutdown_plan: StdMutex::new(shutdown::ShutdownPlan::default()),
             settled_by_shutdown: StdMutex::new(Default::default()),
             launchers: StdMutex::new(HashMap::new()),
             probe_errors: StdMutex::new(HashMap::new()),
@@ -331,6 +385,10 @@ impl Hub {
             web_token: WebToken::new(String::new()),
             person: Default::default(),
             transfer_lease: StdMutex::new(transfer_watch::TRANSFER_LEASE),
+            offers: Default::default(),
+            subsessions: Default::default(),
+            auto_resumes: Default::default(),
+            transfer_lease_changed: Notify::new(),
             secrets: Default::default(),
         });
         if let Ok(c) = hub.config.try_read() {
@@ -341,6 +399,7 @@ impl Hub {
             let h = hub.clone();
             tokio::spawn(async move { h.peer_notice_loop().await });
             hub.watch_transfers();
+            hub.watch_titles();
             for (name, pc) in peers_cfg {
                 hub.start_peer(&name, &pc);
             }
@@ -422,123 +481,8 @@ impl Hub {
         self.events.subscribe()
     }
 
-    /// Hold session creation and agent spawns until `finish_startup`.
-    pub fn begin_startup(&self, login_env: bool) {
-        self.login_env_requested.store(login_env, Ordering::SeqCst);
-        self.startup_ready.send_replace(false);
-    }
-
-    /// Background startup: import the login environment (when requested),
-    /// reload the catalog so PATH discovery sees it, check launchers, then
-    /// let spawns through and probe models.
-    pub async fn finish_startup(self: &Arc<Self>) {
-        // Prompts queued under the previous daemon, after any adopted turn (`queue.rs`).
-        self.resume_queues();
-        // The last live model lists, before anything slow.
-        self.load_live_cache().await;
-        let login_env = self.login_env_requested.load(Ordering::SeqCst);
-        let mut reloaded = false;
-        if login_env {
-            // A cache whose fingerprint matches applies at once; the shell
-            // runs only when needed, and agent spawns wait for it (at most
-            // `login_env::TIMEOUT`) only when nothing else can stand in.
-            let plan = tokio::task::spawn_blocking(crate::login_env::begin)
-                .await
-                .unwrap_or(crate::login_env::Plan { run_shell: true, wait: true });
-            let cached = crate::login_env::outcome() == crate::login_env::Outcome::Cached;
-            if cached {
-                reloaded = self.after_login_env().await;
-            }
-            if plan.run_shell && plan.wait {
-                if crate::login_env::import().await {
-                    reloaded = self.after_login_env().await || reloaded;
-                }
-            } else if plan.run_shell {
-                let hub = self.clone();
-                tokio::spawn(async move {
-                    if crate::login_env::import().await {
-                        hub.after_login_env().await;
-                    }
-                });
-            }
-        }
-        self.verify_launchers().await;
-        self.startup_ready.send_replace(true);
-        tracing::info!("startup complete; agents may spawn");
-        // Probes of earlier runs left transcripts in the unattended folder: remove them.
-        let _ = tokio::task::spawn_blocking(|| {
-            crate::probe_cleanup::remove_probe_transcripts(
-                &crate::protected_folders::unattended_cwd(),
-            )
-        })
-        .await;
-        // A catalog reload already started fresh probes.
-        if !reloaded {
-            self.probe_models().await;
-        }
-    }
-
-    /// The login environment changed: `CLAUDE_CONFIG_DIR` / `CODEX_HOME`
-    /// and harnesses on the login PATH may come from it only.
-    async fn after_login_env(self: &Arc<Self>) -> bool {
-        self.set_harness_homes(crate::adopt::HarnessHomes::from_env());
-        match self.reload_catalog().await {
-            Ok(_) => true,
-            Err(e) => {
-                tracing::warn!("catalog reload after login env: {e}");
-                false
-            }
-        }
-    }
-
-    pub fn startup_complete(&self) -> bool {
-        *self.startup_ready.borrow()
-    }
-
-    /// Wait until background startup has finished (immediate outside a daemon).
-    pub(super) async fn wait_startup(&self) {
-        let mut rx = self.startup_ready.subscribe();
-        let _ = rx.wait_for(|ready| *ready).await;
-    }
-
-    /// Run `--version` on proxy launchers off the executor and mark the ones
-    /// that fail unavailable (and drop fallbacks that point at them).
-    async fn verify_launchers(&self) {
-        let mut probe = self.config.read().await.clone();
-        let before = probe.harnesses.clone();
-        let Ok(probe) = tokio::task::spawn_blocking(move || {
-            crate::config::verify_launchers(&mut probe);
-            probe
-        })
-        .await
-        else {
-            return;
-        };
-        let mut cfg = self.config.write().await;
-        // Launchers the probe rerouted (claude-sr through the subrouter server), unless a
-        // reload changed them meanwhile.
-        for (name, routed) in &probe.harnesses {
-            let unchanged =
-                cfg.harnesses.get(name).map(|p| &p.argv) == before.get(name).map(|p| &p.argv);
-            if unchanged
-                && before.get(name).map(|p| &p.argv) != Some(&routed.argv)
-                && before.contains_key(name)
-            {
-                cfg.harnesses.insert(name.clone(), routed.clone());
-            }
-        }
-        for (name, reason) in &probe.unavailable {
-            let argv = |c: &Config| c.harnesses.get(name).map(|p| p.argv.clone());
-            if argv(&cfg) != argv(&probe) || cfg.unavailable.contains_key(name) {
-                continue;
-            }
-            for p in cfg.harnesses.values_mut() {
-                if p.fallback.as_deref() == Some(name.as_str()) {
-                    p.fallback = None;
-                }
-            }
-            cfg.unavailable.insert(name.clone(), reason.clone());
-        }
+    pub fn mailbox(&self) -> &Mailbox {
+        &self.mailbox
     }
 
     pub(super) fn load_from_store(self: &Arc<Self>) {
@@ -550,6 +494,11 @@ impl Hub {
             }
         };
         let mut sessions = self.sessions.lock().unwrap();
+        let waiting: Vec<String> = metas
+            .iter()
+            .filter(|m| m.status == SessionStatus::Waiting)
+            .map(|m| m.id.clone())
+            .collect();
         for mut meta in metas {
             if meta.status != SessionStatus::Closed {
                 meta.status = SessionStatus::Idle;
@@ -562,13 +511,25 @@ impl Hub {
                 meta.event_count += extra.len() as u64;
                 meta.last_seq = last.seq;
             }
+            // Every child's short name stays taken (`subsessions.rs`).
+            if let Some(link) = &meta.subsession {
+                self.subsessions.note_name(&link.started_by, &link.short_name);
+            }
+            // A sub-session that is not closed holds a slot of its parent (`subsessions.rs`).
+            if let Some(link) =
+                meta.subsession.as_ref().filter(|_| meta.status != SessionStatus::Closed)
+            {
+                self.subsessions.set_open(&link.started_by, &meta.id, true);
+            }
             let session = self.make_session(meta);
             sessions.insert(session.id.clone(), session);
         }
         tracing::info!("loaded {} sessions from store", sessions.len());
         drop(sessions);
         // A turn whose agent host still runs is not lost: the host is adopted.
-        self.mark_unknown_outcomes(&Self::live_host_sessions());
+        let hosted = Self::live_host_sessions();
+        self.mark_lost_waits(&waiting, &hosted);
+        self.mark_unknown_outcomes(&hosted);
         self.restore_queues();
     }
 
@@ -592,6 +553,9 @@ impl Hub {
             stream: StdMutex::new(StreamState::default()),
             permissions: StdMutex::new(permission_groups::PermissionState::default()),
             permission_epoch: AtomicU64::new(0),
+            input_since: AtomicU64::new(0),
+            asks_in_flight: std::sync::atomic::AtomicUsize::new(0),
+            asks_landed: Notify::new(),
             rehydrate: AtomicBool::new(false),
             route_switch: AtomicBool::new(false),
             inbound_tx,
@@ -611,6 +575,7 @@ impl Hub {
             web_control_ended: AtomicBool::new(false),
             floor: Default::default(),
             subagents: StdMutex::new(Default::default()),
+            processes: StdMutex::new(Default::default()),
         })
     }
 
@@ -624,17 +589,31 @@ impl Hub {
     /// Resolve by id, exact name, or unique prefix of either.
     pub fn resolve(&self, key: &str) -> Result<Arc<Session>, RpcError> {
         let sessions = self.sessions.lock().unwrap();
+        // A qualified id is authoritative for new routing. The old bare id,
+        // name and prefix forms below remain compatible.
+        if let Some((host, mux_id)) = SessionReceipt::split_qualified_id(key)
+            && host == LOCAL_HOST_ID
+            && let Some(s) = sessions.get(mux_id)
+        {
+            return Ok(s.clone());
+        }
         if let Some(s) = sessions.get(key) {
             return Ok(s.clone());
         }
+        // Names are read under each session's meta lock, never cloned: a
+        // clone of every meta took ~45 ms with 2,500 sessions, on each Stop
+        // (`acpmux session cancel NAME`) and every other call by name.
+        let named = |s: &Session, pick: &dyn Fn(&str) -> bool| {
+            pick(&s.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner).name)
+        };
         let mut by_name: Vec<_> =
-            sessions.values().filter(|s| s.meta().name == key).cloned().collect();
+            sessions.values().filter(|s| named(s, &|n| n == key)).cloned().collect();
         if by_name.len() == 1 {
             return Ok(by_name.remove(0));
         }
         let by_prefix: Vec<_> = sessions
             .values()
-            .filter(|s| s.id.starts_with(key) || s.meta().name.starts_with(key))
+            .filter(|s| s.id.starts_with(key) || named(s, &|n| n.starts_with(key)))
             .cloned()
             .collect();
         match by_prefix.len() {
@@ -745,34 +724,6 @@ impl Hub {
             remote: None,
         });
         (record, stored)
-    }
-
-    /// Orchestrator tags with optional expiry.
-    pub fn set_tags(
-        &self,
-        session: &Session,
-        set: Option<&serde_json::Map<String, Value>>,
-        remove: &[String],
-        ttl_seconds: Option<u64>,
-    ) {
-        {
-            let mut m = session.meta.lock().unwrap();
-            let expires_at = ttl_seconds.map(|t| now_ms().saturating_add(t.saturating_mul(1000)));
-            if let Some(set) = set {
-                for (k, v) in set {
-                    let value = match v {
-                        Value::String(s) => s.clone(),
-                        other => other.to_string(),
-                    };
-                    m.tags.insert(k.clone(), crate::store::Tag { value, expires_at });
-                }
-            }
-            for k in remove {
-                m.tags.remove(k);
-            }
-        }
-        self.save_meta(session);
-        self.append(session, "mux", "tags", json!({"tags": live_tags(&session.meta())}));
     }
 
     pub fn set_rules(&self, session: &Session, rules: Option<Value>) {
@@ -930,7 +881,7 @@ impl Hub {
             }
             if let Some((seq, turn_id)) = open {
                 let error = "the daemon restarted before this turn settled";
-                self.append(&session, "mux", "turn_result", json!({"status": "failed", "detail": "outcome_unknown", "turnSeq": seq, "turnId": turn_id, "error": error, "errorText": error}));
+                self.append_unknown_outcome(&session, json!({"status": "failed", "detail": "outcome_unknown", "turnSeq": seq, "turnId": turn_id, "error": error, "errorText": error}));
                 self.save_meta(&session);
             }
         }
@@ -944,14 +895,28 @@ impl Hub {
     }
 
     pub(super) fn set_status(&self, session: &Session, status: SessionStatus) {
-        let changed = {
+        let (was, link) = {
             let mut m = session.meta.lock().unwrap();
-            let changed = m.status != status;
+            let was = m.status;
             m.status = status;
             m.updated_at = now_ms();
-            changed
+            // The parent's slot follows the status under the same lock, so
+            // concurrent status writes and the index never disagree (the
+            // index is a leaf lock, `subsessions.rs`).
+            if let Some(link) = &m.subsession {
+                self.subsessions.set_open(
+                    &link.started_by,
+                    &session.id,
+                    status != SessionStatus::Closed,
+                );
+            }
+            (was, m.subsession.clone())
         };
-        if changed {
+        if was != status {
+            if let Some(link) = &link {
+                self.subsession_status(&session.id, link, was, status);
+            }
+            session.mark_waiting(status == SessionStatus::Waiting);
             self.append(session, "mux", "status", json!({"status": status.to_string()}));
             self.save_meta(session);
         }
@@ -989,4 +954,23 @@ fn newest_first(sessions: Vec<Arc<Session>>) -> Vec<Arc<Session>> {
         .collect();
     keyed.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.id.cmp(&b.1.id)));
     keyed.into_iter().map(|(_, s)| s).collect()
+}
+
+/// Add `fields` under `_meta.acpmux` of an object, keeping any `_meta` the
+/// agent sent.
+pub(crate) fn merge_mux_meta(v: &mut Value, fields: Value) {
+    let Some(obj) = v.as_object_mut() else { return };
+    let meta = obj.entry("_meta").or_insert_with(|| json!({}));
+    if !meta.is_object() {
+        *meta = json!({});
+    }
+    let mux = meta.as_object_mut().unwrap().entry("acpmux").or_insert_with(|| json!({}));
+    if !mux.is_object() {
+        *mux = json!({});
+    }
+    if let (Some(dst), Some(src)) = (mux.as_object_mut(), fields.as_object()) {
+        for (k, v) in src {
+            dst.insert(k.clone(), v.clone());
+        }
+    }
 }

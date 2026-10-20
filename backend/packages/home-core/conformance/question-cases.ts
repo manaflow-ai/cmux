@@ -1,3 +1,4 @@
+import { MAX_AGENT_TURNS } from "../src/conversation/budget.ts"
 import { create } from "../src/conversation/create.ts"
 import type { Op, Part } from "../src/conversation/types.ts"
 import { agent, CoreHost, human, NOW, text } from "../test/support/harness.ts"
@@ -114,13 +115,13 @@ const questionBudgetCases = (c: Corpus): void => {
   const send = (key: string, parts: ReadonlyArray<Part>): Op => ({ kind: "message.send", client_msg_id: key, parts })
   const guard = new CoreHost()
   guard.send(ALICE, "h1", "go")
-  for (let turn = 0; turn < 4; turn++) {
+  for (let turn = 0; turn < MAX_AGENT_TURNS; turn++) {
     guard.advance(10_000)
-    c.op(guard, `question budget: agent question ${turn + 1} of 4`, MUX, `q${turn}`, send(`q${turn}`, [questionPart()]), "commit")
+    c.op(guard, `question budget: agent question ${turn + 1} of ${MAX_AGENT_TURNS}`, MUX, `q${turn}`, send(`q${turn}`, [questionPart()]), "commit")
   }
   guard.advance(10_000)
-  c.op(guard, "question budget: a fifth agent question", MUX, "q9", send("q9", [questionPart()]), "agent_budget")
-  c.op(guard, "question budget: a fifth agent text after four questions", MUX, "t9", send("t9", [text("again")]), "agent_budget")
+  c.op(guard, "question budget: one agent question over the budget", MUX, "q9", send("q9", [questionPart()]), "agent_budget")
+  c.op(guard, "question budget: one agent text over the budget after the questions", MUX, "t9", send("t9", [text("again")]), "agent_budget")
   const pending = guard.messages.at(-1)!.id
   c.op(guard, "question budget: the person answers", "user_local", "a1",
     ({ kind: "question.answer", message_id: pending, part_index: 0, answer: { selections: { q0: { option_ids: ["keys"] } } } }) as never, "commit")

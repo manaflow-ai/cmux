@@ -7,8 +7,10 @@ import CmuxNextControl
 import CmuxNextCrashReporting
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextKeepAwake
 import CmuxNextPages
 import CmuxNextPalette
+import CmuxNextPhoneAccess
 import CmuxNextSettings
 import CmuxNextTerminal
 import os
@@ -25,6 +27,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var services: AppServices?
     private var settings: SettingsController?
     private let control = AppControl()
+    private let mouseSideButtons = MouseSideButtons()
     private var cloudContext: Task<Void, Never>?
     /// OSC 52 clipboard reads on the local daemon (`TerminalClipboardReadService`).
     var daemonPrompts: DaemonPrompts?
@@ -32,8 +35,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var ghosttyKeybinds: GhosttyKeybindSync?
     /// Watches the exact Ghostty files libghostty loaded and reloads them live.
     private var ghosttyConfigLiveReload: GhosttyConfigLiveReload?
-    /// The system's handler for other apps' sign-ins (`WebAuthSessionHandler`,
-    /// which owns their broker).
+    /// The system's handler for other apps' sign-ins (`WebAuthSessionHandler`, which owns their broker).
     private var webAuthHandler: WebAuthSessionHandler?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app")
 
@@ -88,6 +90,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // A main-thread hang still running after 2 s goes to crash reporting with its stack.
         let reporter = services.crashReporting.reporter
         control.watchdog.onHang = { hang in reporter.reportHang(duration: hang.duration, addresses: hang.addresses) }
+        // Shorter lag spikes (250 ms and up, rate-limited) go there too, once they end.
+        let lagSpikes = LagSpikeReporter(reporter: reporter)
+        lagSpikes.setContextProvider {
+            MainActor.assumeIsolated {
+                let windows = NSApp.windows
+                return ["windows": String(windows.count), "visible_windows": String(windows.filter(\.isVisible).count),
+                        "app_active": NSApp.isActive ? "yes" : "no"]
+            }
+        }
+        control.watchdog.onStall = { record in
+            lagSpikes.noteStall(duration: record.duration, cpu: record.cpu, addresses: record.addresses)
+        }
         services.quit.watchdog = control.watchdog
         DebugTimings.markReveal(services.launchReveal)
         // Debug Settings overrides (DEV and NIGHTLY only) before any window lays out.
@@ -119,6 +133,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                               resolvesShellIntegration: environment.resolvesShellIntegration, prestart: daemonPrestart)
         FeaturePolicyEnforcer(services: services).start()
         cloudContext = services.startCloud()
+        FreeTierAttestStarter(build: environment.build, bundle: .main, apiBaseURL: services.feed.apiBaseURL, settings: services.settings, signedIn: { [weak services] in services.map { $0.cloud.isSignedIn || $0.cloud.auth.isRestoring } ?? true }).start()
         services.ssh.start()
         services.serverReach.start()
         services.updater.start()
@@ -152,15 +167,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // main actor). Downloads of this run are never touched.
         launchCleanup.schedule(on: launchSettle)
         services.palette.onPresented = { DebugTimings.palettePresented($0) }
+        // The key-down that opens the palette (a synthesized one under `debug.key`), for its input stage.
+        services.palette.openingEventTimestamp = { [weak router = services.keyRouter] in
+            let event = router?.syntheticKeyEvent ?? NSApp.currentEvent
+            return event?.type == .keyDown ? event?.timestamp : nil
+        }
         services.iconPicker.onOpened = { DebugTimings.iconPickerOpened($0) }
-        services.browserProfiles.load(directory: BrowserProfileService.defaultDirectory(bundleID: services.environment.launch.bundleID),
-                                      importStore: services.onboarding.importStore)
+        let profilesDirectory = BrowserProfileService.defaultDirectory(bundleID: services.environment.launch.bundleID)
+        services.browserProfiles.load(directory: profilesDirectory, importStore: services.onboarding.importStore)
         services.home.start()
+        mouseSideButtons.start { [weak services] in _ = services?.registry.perform($0 == .back ? "focusHistoryBack" : "focusHistoryForward") }
         services.keybindingsFile.start()
-        services.bookmarks.start(directory: BrowserProfileService.defaultDirectory(bundleID: services.environment.launch.bundleID),
-                                 importStore: services.onboarding.importStore)
-        services.history.start(supportDirectory: BrowserProfileService.defaultDirectory(bundleID: services.environment.launch.bundleID)
-            .deletingLastPathComponent())
+        services.bookmarks.start(directory: profilesDirectory, importStore: services.onboarding.importStore)
+        services.history.start(supportDirectory: profilesDirectory.deletingLastPathComponent())
         // cmux-page:// first-party pages for Chromium, before any window can start it.
         FirstPartyPageSchemes.install()
         services.windows.restoreWhenLoaded()
@@ -185,7 +204,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         WebAuthSessionHandler.install(webAuthHandler)
         NSAppleEventManager.shared().setEventHandler(self, andSelector: #selector(handleURLEvent(_:reply:)),
                                                      forEventClass: AEEventClass(kInternetEventClass), andEventID: AEEventID(kAEGetURL))
-        services.windows.onContentDidAppear = { [weak services] _ in services?.externalOpen.flush() }
+        services.windows.onContentDidAppear = { [weak services] in services?.externalOpen.flush(); services?.pageHostPool.windowDidAppear($0.window) }
         NSApp.servicesProvider = CmuxServicesProvider(open: services.externalOpen)
     }
 
@@ -207,8 +226,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// cmux-next.json settings (density, shortcut overrides) and the tagged
-    /// control socket (`action.list/describe/run`) over the same registry.
+    /// cmux-next.json settings and the tagged control socket (`action.list/describe/run`) over the same registry.
     private func startSettingsAndControl(services: AppServices, launch: SettingsController.LaunchRead) {
         let registry = services.registry
         let settings = SettingsController(registry: registry, fileURL: launch.fileURL, launch: launch)
@@ -237,6 +255,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         settings.start()
         ChatSettingsPush.start(settings: settings, environment: QuitAgents.environment(services))
+        KeepAwakeService.shared.start(settings: settings, store: services.daemon.store)
+        services.mobile.follow(settings, launch: services.environment.launch)
         services.chatsFeed?.keepCurrent()
         services.projectsImport.start(feed: services.chatsFeed)
         if let feed = services.chatsFeed { AgentPageChats.wire(services.agentTabs, to: feed, opener: services.chatsOpener) }
@@ -265,6 +285,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if !environment.noActivate { services.globalHotKeys.start() }
         services.cache.browserTabs.preference.follow(settings)
         BrowserLinkClickPreference.follow(settings, webKit: services.cache.webKit, cef: services.cache.cef)
+        WorkspaceAutoNameWiring(services: services).start(settings: settings) // `workspaces.autoName.variant` persist (hq#1957)
         BrowserOmnibarPreference.follow(settings, cache: services.cache)
         services.notifications.follow(settings)
         services.updater.follow(settings)
@@ -282,8 +303,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             await settings.waitForLoad(atLeast: 1); await launchSettle.settled(within: .seconds(4)) // control socket: after the first frames (cx-z9kz0)
             // `app.quitBehavior: "end"` (first release) is now "end-keep-layout".
             _ = try? await settings.migrateLegacyQuitBehavior()
-            // `sidebar.showWorkspaceDirectory` / `showCounts` move to `sidebar.workspaceRow.*`.
-            _ = try? await settings.migrateLegacyWorkspaceRowKeys()
+            _ = try? await settings.migrateLegacyWorkspaceRowKeys() // `sidebar.showWorkspaceDirectory` / `showCounts` move to `sidebar.workspaceRow.*`
             _ = try? await settings.migrateLegacyPaneToolbarButtons() // `tabs.hiddenButtons` becomes `tabs.toolbarButtons`
             // Classic cmux keys next reads under another name (`ClassicSettingRename`).
             _ = try? await settings.migrateClassicSettings()
@@ -306,6 +326,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 DebugDownloads.register(on: control.service?.router, services: services)
                 DebugCEFDevToolsLayout.register(on: control.service?.router, services: services)
                 DebugBrowserExternal.register(on: control.service?.router, services: services)
+                DebugCloudMove.register(on: control.service?.router, services: services)
                 DebugTerminalLinks.register(on: control.service?.router, services: services)
                 if let router = control.service?.router {
                     BrowserPageService(engine: AppBrowserPageEngine(services: services)).install(on: router)
@@ -372,6 +393,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services?.viewers.markdownPages.terminate()
         services?.viewers.editorPages.terminate()
         services?.home.applicationWillTerminate()
+        services?.vscodeServeWeb.terminateForAppExit()
         cloudContext?.cancel()
         services?.cloud.stop()
         for session in services?.machines.cloud ?? [] { session.disconnect() }
@@ -382,18 +404,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services?.globalHotKeys.stop()
         settings?.stop()
         services?.mobile.stop()
+        services?.iphone.stop()
         services?.daemon.shutdownConnection()
     }
 
-    /// The app stays running with no windows (standard macOS behavior): a
-    /// window closes when its last workspace closes, and the daemon keeps
-    /// every terminal regardless.
+    /// The app stays running with no windows (standard macOS behavior): a window closes when its
+    /// last workspace closes, and the daemon keeps every terminal regardless.
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         false
     }
 
-    /// Dock click with no window open: the last closed window comes back
-    /// with its workspaces, else a new window with a new workspace.
+    /// Dock click with no window open: the last closed window comes back with its workspaces, else a new window with a new workspace.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
         guard !hasVisibleWindows, let windows = services?.windows else { return true }
         windows.reopenOrCreateWindow()

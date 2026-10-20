@@ -13,6 +13,14 @@
 # Optional env:
 #   CMUX_HELPER_ENTITLEMENTS  (default: cmux-helper.entitlements)
 #   CMUX_TIMESTAMP             set to "none" for un-timestamped local sigs
+#   CMUX_SIGN_SKIP_NUCLEO_FFI  set to "1" for an app that embeds no command palette
+#                              Nucleo FFI (cmux NEXT DEV: cmux-next removed it)
+#   CMUX_SIGNING_KEYCHAIN_TOOL default scripts/ci/signing-keychain.sh. While it
+#                              reports a CI signing keychain, this script runs
+#                              no code from the bundle: it defers the diff
+#                              sidecar handshake, and the workflow runs
+#                              scripts/verify-diff-sidecar-artifact.sh again
+#                              after the keychain is deleted.
 #   CMUX_SIGN_MODE             "all" (default), "all-except-computer-use", or
 #                              "main-only". The split Computer Use notarization
 #                              flow uses all-except-computer-use while Apple's
@@ -32,7 +40,8 @@
 #   3. Each nested plugin under Contents/PlugIns/* with --deep.
 #   4. The embedded Chromium engine (CEF framework, its libraries, the shim
 #      and the five helper apps with their own entitlements) through
-#      scripts/cmux-next/sign-cef.sh, then every other nested framework under
+#      scripts/cmux-next/sign-cef.sh, the remote browser host under
+#      Contents/Helpers (rbh_sign), then every other nested framework under
 #      Contents/Frameworks/* with --deep (covers Sparkle's XPCServices and
 #      Updater.app, and Iroh).
 #   5. The main app bundle with the effective app-level entitlements,
@@ -57,6 +66,7 @@ APP_ENTITLEMENTS="$2"
 IDENTITY="$3"
 HELPER_ENTITLEMENTS="${CMUX_HELPER_ENTITLEMENTS:-cmux-helper.entitlements}"
 SIGN_MODE="${CMUX_SIGN_MODE:-all}"
+SIGNING_KEYCHAIN_TOOL="${CMUX_SIGNING_KEYCHAIN_TOOL:-$SCRIPT_DIR/ci/signing-keychain.sh}"
 
 if [[ ! -d "$APP_PATH" ]]; then
   echo "error: app bundle not found at $APP_PATH" >&2
@@ -77,6 +87,9 @@ case "$SIGN_MODE" in
     exit 2
     ;;
 esac
+
+# A long notarization wait can pass the CI keychain's short idle lock.
+"$SIGNING_KEYCHAIN_TOOL" unlock
 
 if [[ "${CMUX_TIMESTAMP:-}" == "none" ]]; then
   TS_FLAG=(--timestamp=none)
@@ -149,6 +162,15 @@ if [[ "$SIGN_MODE" == "all" || "$SIGN_MODE" == "all-except-computer-use" ]]; the
       echo "==> signing the Chromium engine (CEF framework, shim, helpers)"
       "$SCRIPT_DIR/cmux-next/sign-cef.sh" "$APP_PATH" "$IDENTITY"
     fi
+    # The remote browser host (Contents/Helpers, embed-remote-browser-host.sh), after
+    # the app's CEF framework, which it links through a symlink: its five helper apps
+    # with CEF's per-helper entitlements (allow-jit for GPU and Renderer), then the host
+    # app, all with the hardened runtime and a secure timestamp (rbh_sign).
+    for rb_host in "$APP_PATH/Contents/Helpers/"*.app; do
+      [[ -d "$rb_host" ]] || continue
+      echo "==> signing the remote browser host $(basename "$rb_host")"
+      ( source "$SCRIPT_DIR/cmux-next/remote-browser-host-layout.sh" && rbh_sign "$rb_host" "$IDENTITY" )
+    done
     while IFS= read -r -d '' framework; do
       case "$(basename "$framework")" in
         "$CEF_FRAMEWORK_NAME"|libcmux_cef_shim.dylib|*" Helper.app"|*" Helper ("*").app") continue ;;
@@ -178,10 +200,16 @@ if [[ -d "$COMPUTER_USE_HELPER" ]]; then
 fi
 # The sidecar must carry exactly the slices the app does: universal for stable
 # and the transitional nightly, one architecture for thinned nightlies.
+SIDECAR_CHECK=(--archs "$(lipo -archs "$APP_PATH/Contents/MacOS/cmux")" --require-signed)
+if "$SIGNING_KEYCHAIN_TOOL" is-present; then
+  # Run no bundle code while the signing identity is usable. The workflow
+  # repeats this check with the handshake after it deletes the keychain.
+  echo "==> CI signing keychain present: deferring the diff sidecar handshake"
+  SIDECAR_CHECK+=(--static-only)
+fi
 "$SCRIPT_DIR/verify-diff-sidecar-artifact.sh" \
   "$APP_PATH/Contents/Resources/bin/cmux-diff-sidecar" \
-  --archs "$(lipo -archs "$APP_PATH/Contents/MacOS/cmux")" \
-  --require-signed
+  "${SIDECAR_CHECK[@]}"
 
 # The browser host, when the bundle carries one, sits beside bin/cmux (the
 # daemon runs its sibling) and is signed like it: Developer ID, hardened runtime.

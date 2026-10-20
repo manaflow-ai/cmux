@@ -12,7 +12,7 @@ final class PaletteKeycapsView: NSView {
         }
     }
 
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
 
     /// theme-scoped: read inside `performWithTheme` (draw) or for measuring.
     private var attributes: [NSAttributedString.Key: Any] {
@@ -192,7 +192,7 @@ final class PaletteRowCell: NSTableCellView {
         performWithTheme {
             icon.contentTintColor = isSelected ? Palette.textPrimary : Palette.textSecondary
             title.attributedStringValue = Self.highlighted(titleText, highlights)
-            swatch.colors = ball.map { [$0.color.ballRGB(marksContent: $0.marksContent)] } ?? swatches
+            swatch.colors = ball.map { [$0.color.ballRGB] } ?? swatches
         }
     }
 

@@ -4,12 +4,17 @@
 //! restart is still answerable after the new daemon adopts the host.
 #![cfg(unix)]
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+// This process runs stand-in agents (the fake agents under tests/).
+const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader};
 use std::os::unix::fs::OpenOptionsExt;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Stdio};
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
 
@@ -47,6 +52,19 @@ impl Daemon {
         daemon
     }
 
+    /// A daemon whose fake agent steers as Claude Code does (`FAKE_CLAUDE_STEER`).
+    fn claude_steering(tag: &str) -> Self {
+        let mut daemon = Self::with_env(tag, "approve-all", &[]);
+        daemon.sigterm();
+        std::fs::write(
+            daemon.home.join("config.json"),
+            json!({"harnesses": {"fake": {"argv": ["/usr/bin/env", "FAKE_CLAUDE_STEER=1", "python3", FAKE]}}, "defaultHarness": "fake", "permissionPolicy": "approve-all"}).to_string(),
+        )
+        .unwrap();
+        daemon.start();
+        daemon
+    }
+
     /// A daemon that gets `key` on `--person-key-fd` at each start.
     fn keyed(tag: &str, policy: &str, key: &str) -> Self {
         let mut daemon = Self::with_env(tag, policy, &[]);
@@ -58,7 +76,7 @@ impl Daemon {
 
     fn start(&mut self) {
         assert!(self.child.is_none());
-        let mut command = Command::new(env!("CARGO_BIN_EXE_acpmux"));
+        let mut command = daemon_env::command(&self.home, daemon_env::Agents::StandIn, &[]);
         command
             .args(["daemon", "run", "--listen", "127.0.0.1:0", "--ready-fd", "1", "--log", "warn"])
             .env("ACPMUX_HOME", &self.home)
@@ -66,10 +84,7 @@ impl Daemon {
             // No catalog fetch: a test never reaches the network, and the fetch's
             // warning (a catalog server 404) came on stdout before the ready line.
             .env("ACPMUX_CATALOG_FETCH", "0")
-            .env_remove("ACPMUX_AGENT_HOSTS")
             .env("ACPMUX_LOGIN_ENV", "0")
-            .env_remove("XPC_SERVICE_NAME")
-            .env_remove("ACPMUX_IDLE_CHILD_SECS")
             .envs(self.env.iter().map(|(k, v)| (k, v)))
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
@@ -340,6 +355,63 @@ async fn agent_turn_survives_a_daemon_crash_and_completes_after_adoption() {
     assert!(alive(harness_pid), "a second agent replaced the adopted one");
 }
 
+/// An update restarts acpmux while a turn runs that took a steer (the Chief's `tell`). Claude
+/// Code answers a steer "steered" at once and the turn runs on. The adopting daemon must keep
+/// the turn open until the turn's own prompt is answered; it settled the turn on the steer's
+/// answer instead, so every steered subagent read as finished after the 2026-10-19 nightly
+/// update while it kept working (update-keeps-sessions.md).
+#[tokio::test]
+async fn a_steered_turn_stays_open_across_an_update_restart_until_the_agent_ends_it() {
+    let mut daemon = Daemon::claude_steering("steer-up");
+    let session = new_session(&daemon).await;
+    let gate = daemon.home.join("gate");
+    make_fifo(&gate);
+    let mut client = daemon.rpc().await;
+    client
+        .send(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": format!("gate: {}", gate.display())}]}),
+        )
+        .await;
+    daemon.wait_event(&session, "before-gate chunk", |e| chunk(e, "before-gate"));
+    let mut steerer = daemon.rpc().await;
+    let steered = steerer
+        .call(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": "a tell"}], "_meta": {"acpmux": {"steer": true}}}),
+        )
+        .await;
+    assert_eq!(steered["stopReason"], "steered", "{steered}");
+    let turn_id = daemon.wait_event(&session, "turn_started", |e| e["kind"] == "turn_started")["msg"]
+        ["turnId"]
+        .clone();
+    let harness_pid = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
+
+    daemon.sigterm();
+    drop((client, steerer));
+    daemon.start();
+    daemon.wait_event(&session, "host_adopted", |e| e["kind"] == "host_adopted");
+    assert!(alive(harness_pid), "the agent died with the update restart");
+    std::fs::write(&gate, b"go").unwrap();
+    daemon.wait_event(&session, "turn_result", |e| e["kind"] == "turn_result");
+    let events = daemon.events(&session);
+    let after_gate = events.iter().find(|e| chunk(e, "after-gate")).map(|e| e["seq"].as_u64());
+    let results: Vec<&Value> = events
+        .iter()
+        .filter(|e| e["kind"] == "turn_result" && e["msg"]["turnId"] == turn_id)
+        .collect();
+    assert_eq!(results.len(), 1, "the turn settled more than once: {results:#?}");
+    assert_eq!(
+        results[0]["msg"]["stopReason"], "end_turn",
+        "settled on the steer's answer: {:#?}",
+        results[0]
+    );
+    assert!(
+        after_gate.flatten().is_some_and(|g| results[0]["seq"].as_u64().unwrap() > g),
+        "the turn settled before the agent ended it: {events:#?}"
+    );
+}
+
 #[tokio::test]
 async fn permission_prompt_survives_a_daemon_upgrade_restart_and_reaches_the_agent() {
     let mut daemon = Daemon::new("perm", "ask");
@@ -455,7 +527,7 @@ async fn shutdown_with_end_agents_ends_hosted_agents_and_records_the_cancelled_t
 
 /// `acpmux daemon shutdown` as the CLI runs it, against this daemon.
 fn cli_shutdown(daemon: &Daemon, extra: &[&str]) -> std::process::Output {
-    Command::new(env!("CARGO_BIN_EXE_acpmux"))
+    daemon_env::acpmux(&daemon.home)
         .args(["daemon", "shutdown"])
         .args(extra)
         .env("ACPMUX_HOME", &daemon.home)
@@ -464,15 +536,16 @@ fn cli_shutdown(daemon: &Daemon, extra: &[&str]) -> std::process::Output {
         .expect("run acpmux daemon shutdown")
 }
 
-/// `acpmux daemon shutdown` does what its help says: it stops the daemon
-/// and every agent process, hosted agents and their hosts included. On
-/// cmux-lawrence (2026-10-06) it reported success against the brain's
-/// acpmux and left the "rollback-throwaway" session's agent host running.
+/// `acpmux daemon shutdown --end-agents` does what its help says: it stops
+/// the daemon and every agent process, hosted agents and their hosts
+/// included. On cmux-lawrence (2026-10-06) it reported success against the
+/// brain's acpmux and left the "rollback-throwaway" session's agent host
+/// running.
 #[tokio::test]
-async fn the_cli_shutdown_ends_every_agent_and_its_host() {
+async fn the_cli_shutdown_with_end_agents_ends_every_agent_and_its_host() {
     let mut daemon = Daemon::new("clis", "approve-all");
     let (_session, host, client) = gated_turn(&daemon).await;
-    let out = cli_shutdown(&daemon, &[]);
+    let out = cli_shutdown(&daemon, &["--end-agents"]);
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
     daemon.wait_exit();
     drop(client);
@@ -487,7 +560,8 @@ async fn the_cli_shutdown_ends_every_agent_and_its_host() {
 }
 
 /// A harness helper that moved into its own session (setsid) is out of reach
-/// of the harness group signal; `acpmux daemon shutdown` still ends it.
+/// of the harness group signal; `acpmux daemon shutdown --end-agents` still
+/// ends it.
 #[tokio::test]
 async fn the_cli_shutdown_ends_a_harness_child_that_left_its_group() {
     let helper_file = std::env::temp_dir().join(format!("amd-sid-{}", std::process::id()));
@@ -497,10 +571,13 @@ async fn the_cli_shutdown_ends_a_harness_child_that_left_its_group() {
         "approve-all",
         &[("FAKE_SETSID_CHILD", helper_file.to_str().unwrap())],
     );
-    let (_session, _host, client) = gated_turn(&daemon).await;
-    let helper: i64 = std::fs::read_to_string(&helper_file).unwrap().trim().parse().unwrap();
-    let _ = std::fs::remove_file(&helper_file);
-    let out = cli_shutdown(&daemon, &[]);
+    let (_session, host, client) = gated_turn(&daemon).await;
+    // The helper of this session's harness (a model probe's harness starts
+    // one too, in its own file).
+    let helper_path = format!("{}.{}", helper_file.display(), host["harness_pid"]);
+    let helper: i64 = std::fs::read_to_string(&helper_path).unwrap().trim().parse().unwrap();
+    let _ = std::fs::remove_file(&helper_path);
+    let out = cli_shutdown(&daemon, &["--end-agents"]);
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
     daemon.wait_exit();
     drop(client);
@@ -512,8 +589,34 @@ async fn the_cli_shutdown_ends_a_harness_child_that_left_its_group() {
     assert!(gone, "a harness child that left its group outlived acpmux daemon shutdown");
 }
 
-/// `--keep-agents` is the explicit durable stop (a restart): hosted agents
-/// keep running for the next daemon to adopt.
+/// cx-qryd0 (hq-6d 2026-10-15): a plain `acpmux daemon shutdown` is a
+/// restart stop, as the `_acpmux/shutdown` RPC without endAgents: the hosted
+/// agent keeps running and the next daemon adopts it. (It ended every agent
+/// before, and a proof's clean start ended another job's live agent on a
+/// shared machine, cx-ao1gb.)
+#[tokio::test]
+async fn a_plain_cli_shutdown_keeps_hosted_agents_for_the_next_daemon() {
+    let mut daemon = Daemon::new("cliplain", "approve-all");
+    let (session, host, client) = gated_turn(&daemon).await;
+    let out = cli_shutdown(&daemon, &[]);
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    daemon.wait_exit();
+    drop(client);
+    let harness = host["harness_pid"].as_i64().unwrap();
+    assert!(alive(harness), "a plain shutdown ended the agent");
+    // The next daemon adopts it.
+    daemon.start();
+    daemon.wait_event(&session, "host_adopted", |e| e["kind"] == "host_adopted");
+    assert!(alive(harness), "the agent did not survive the restart");
+    // This test started it: end it (and the daemon) explicitly.
+    let out = cli_shutdown(&daemon, &["--end-agents"]);
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    daemon.wait_exit();
+    assert!(gone_within(harness, Duration::from_secs(10)), "--end-agents left the agent running");
+}
+
+/// `--keep-agents` stays accepted (a no-op now) for callers that may run an
+/// older CLI: hosted agents keep running for the next daemon to adopt.
 #[tokio::test]
 async fn the_cli_shutdown_with_keep_agents_leaves_hosted_agents_running() {
     let mut daemon = Daemon::new("clik", "approve-all");
@@ -997,4 +1100,37 @@ async fn queue_ops_edits_survive_a_daemon_crash() {
         .filter(|id| id.starts_with("q-"))
         .collect();
     assert_eq!(order, ["q-2", "q-1"]);
+}
+
+/// A message's provenance (`_meta.acpmux.provenance`, cx-55d27) stays with its queued prompt
+/// across a daemon crash: the rebuilt prompt's `user_message` still names the agent that sent it.
+#[tokio::test]
+async fn a_queued_prompt_keeps_its_provenance_across_a_daemon_crash() {
+    let mut daemon = Daemon::new("qprov", "approve-all");
+    let (session, gate, mut client) = gated_turn_without_host(&daemon).await;
+    let provenance = json!({"kind": "agent_message", "from": "acp:sender-1", "to": format!("acp:{session}"),
+                            "msgId": "msg-1", "threadId": "thread-1"});
+    client
+        .send(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": "from builder"}],
+                   "_meta": {"acpmux": {"promptId": "q-prov", "provenance": provenance}}}),
+        )
+        .await;
+    let queued = daemon.wait_event(&session, "queued record", |e| {
+        e["kind"] == "queued" && e["msg"]["promptId"] == "q-prov"
+    });
+    assert_eq!(queued["msg"]["_meta"]["provenance"], provenance, "{queued:#}");
+
+    daemon.sigkill();
+    drop(client);
+    daemon.start();
+    let mut rpc = daemon.rpc().await;
+    let attached = rpc.call("_acpmux/attach", json!({"sessionId": session, "limit": 0})).await;
+    assert_eq!(attached["session"]["queued"], 1, "the queue did not survive: {attached:#}");
+    std::fs::write(&gate, b"go").unwrap();
+    let ran = daemon.wait_event(&session, "the rebuilt prompt's user_message", |e| {
+        e["kind"] == "user_message" && e["msg"]["promptId"] == "q-prov"
+    });
+    assert_eq!(ran["msg"]["_meta"]["provenance"], provenance, "{ran:#}");
 }

@@ -7,6 +7,10 @@ use super::queue::PromptRun;
 use super::*;
 use std::sync::atomic::Ordering;
 
+// `_acpmux/prompt_withdraw`, a queue change too (here: `hub/mod.rs` is at its size budget).
+#[path = "withdraw.rs"]
+mod withdraw;
+
 /// The stricter of two controls: an edit never runs a prompt under looser rules than either
 /// the prompt's sender's or the editor's.
 fn stricter(a: Control, b: Control) -> Control {
@@ -73,16 +77,29 @@ impl Hub {
         Ok(reply)
     }
 
+    /// Whether a waiting prompt holds a secret (`secret_scan`). A peer reads it
+    /// masked (`server/peer_text.rs`), so it may not rewrite it: an edit from
+    /// the masked text would write the mask over the secret.
+    pub fn queued_holds_secret(&self, session: &Session, prompt_id: &str) -> bool {
+        let queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        queue
+            .iter()
+            .find(|q| q.prompt_id == prompt_id)
+            .is_some_and(|q| !crate::secret_scan::find(&prompt_text(&q.run.blocks)).is_empty())
+    }
+
     /// Replaces a waiting prompt's content; it keeps its place. It runs under the stricter
     /// rules of its sender and its editor.
     fn update_queued(
         &self,
         session: &Arc<Session>,
         prompt_id: &str,
-        blocks: Vec<Value>,
+        mut blocks: Vec<Value>,
         control: Control,
         trust_gate: bool,
     ) -> bool {
+        // Only `session/prompt` adds a hidden context (prompt_context.rs).
+        crate::prompt_context::strip_marks(&mut blocks);
         let text = prompt_text(&blocks);
         let (turn_id, run) = {
             let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -93,6 +110,8 @@ impl Hub {
                 blocks,
                 control: stricter(q.run.control, control),
                 trust_gate: q.run.trust_gate || trust_gate,
+                // The person rewrote it: it is no longer the sender's message.
+                provenance: None,
             });
             q.preview = short_text(&text, 200);
             (q.turn_id.clone(), q.run.clone())
@@ -159,6 +178,7 @@ impl Hub {
                     blocks: q.run.blocks.clone(),
                     control,
                     trust_gate: q.run.trust_gate,
+                    provenance: q.run.provenance.clone(),
                 };
                 (q.run, q.steer) = (Arc::new(run), true);
             }

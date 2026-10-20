@@ -33,7 +33,15 @@ nonisolated enum WindowActionCatalog: ActionCatalogGroup {
                 id: "closeWindow",
                 title: String(localized: "action.closeWindow", defaultValue: "Close Window", bundle: .module),
                 defaultShortcut: Shortcut("w", modifiers: [.control, .command]), category: .window,
-                symbol: "xmark.rectangle", surfaces: [.palette, .keyboard], cliName: "app close-window"
+                symbol: "xmark.rectangle", surfaces: [.palette, .keyboard, .menu], cliName: "app close-window", mainMenu: .file
+            ),
+            // Every other open window; each window's own close check runs (an
+            // incognito window asks), and terminals keep running as for Close Window.
+            ActionDescriptor(
+                id: "window.closeOthers",
+                title: String(localized: "action.window.closeOthers", defaultValue: "Close Other Windows", bundle: .module),
+                keywords: ["close", "windows", "other", "others"], category: .window, symbol: "xmark.rectangle.portrait",
+                surfaces: [.palette, .menu], cliName: "app close-other-windows", mainMenu: .file
             ),
             // Ghostty's close_all_windows, toggle_maximize and goto_window
             // route here (GHOSTTY-CONFIG item (c), coordinator A1, B1, E1).
@@ -66,6 +74,16 @@ nonisolated enum WindowActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.minimizeWindow", defaultValue: "Minimize", bundle: .module),
                 keywords: ["dock", "hide", "miniaturize"], category: .window, symbol: "minus.rectangle",
                 surfaces: [.palette], cliName: "app minimize-window"
+            ),
+            // A PNG of the window as on screen, never focusing or raising it
+            // (agents read the app without Screen Recording; ScreenshotHandlers).
+            ActionDescriptor(
+                id: "window.screenshot",
+                title: String(localized: "action.window.screenshot", defaultValue: "Screenshot Window", bundle: .module),
+                keywords: ["screenshot", "capture", "image", "png", "picture"], category: .window, symbol: "camera",
+                surfaces: [.palette], arguments: [CatalogArgument.screenshotOut], targets: [.window],
+                cliName: "window screenshot",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noTargetSurface)
             ),
             ActionDescriptor(
                 id: "toggleFullScreen",
@@ -205,7 +223,7 @@ nonisolated enum WindowActionCatalog: ActionCatalogGroup {
                 id: "taskManager.killProcess",
                 title: String(localized: "action.taskManager.killProcess", defaultValue: "Kill Process…", bundle: .module),
                 keywords: ["terminate", "signal"], category: .window, symbol: "xmark.octagon", surfaces: [.contextMenu],
-                arguments: [CatalogArgument.processString], cliName: "app kill-process"
+                arguments: [CatalogArgument.processString], cliName: "app kill-process", destructive: true
             ),
         ]
     }

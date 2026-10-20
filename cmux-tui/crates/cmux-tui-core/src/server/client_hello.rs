@@ -79,6 +79,42 @@ pub(super) struct HelloGate {
     /// `events`): its `subscribe` line goes to dispatch, which narrows the
     /// stream to those events.
     page_events: bool,
+    /// A WebSocket admitted with a page-bound credential (`page-credential
+    /// {page}`): only these raw commands reach dispatch; its
+    /// `cmux.protocol/2` lines go on to the page's allow list.
+    scoped_raw: Option<&'static [&'static str]>,
+}
+
+/// The raw commands a page-bound credential's connection may send, by page:
+/// the Channels page reads and writes the local conversations and hears
+/// their events. Every other page gets none (its `cmux.protocol/2` allow
+/// list only).
+fn scoped_raw_commands(page: &str) -> &'static [&'static str] {
+    match page {
+        "home-channels" => &[
+            "identify",
+            "set-client-info",
+            "subscribe",
+            "conversation-list",
+            "conversation-create",
+            "conversation-snapshot",
+            "conversation-history",
+            "conversation-thread",
+            "conversation-op",
+            "conversation-typing",
+            "conversation-search",
+            "conversation-link-resolve",
+            "conversation-runs",
+            "conversation-run",
+            "conversation-live",
+            "conversation-inbox-op",
+            "home-inbox",
+            "conversation-attachment-upload",
+            "conversation-attachment-read",
+            "conversation-attachment-link",
+        ],
+        _ => &[],
+    }
 }
 
 type Refusal = (&'static str, &'static str, Option<Value>);
@@ -90,7 +126,14 @@ impl HelloGate {
             window: Window::Open { identified: false },
             page_relay: false,
             page_events: false,
+            scoped_raw: None,
         }
+    }
+
+    /// Limits this connection to `page`'s raw commands and `cmux.protocol/2`
+    /// allow list (a WebSocket admitted with a page-bound credential).
+    pub(super) fn scope_to_page(&mut self, page: &str) {
+        self.scoped_raw = Some(scoped_raw_commands(page));
     }
 
     /// Ends the hello window (a line the connection's admission refused
@@ -111,6 +154,9 @@ impl HelloGate {
     ) -> Option<Value> {
         // After the window closes only a late hello, or any line of a page
         // relay, is looked at here; the test is a superset of those cases.
+        if let Some(allowed) = self.scoped_raw {
+            return scoped_refusal(line, allowed);
+        }
         let open = !matches!(self.window, Window::Closed);
         if !open && !self.page_relay && !line.contains(CLIENT_HELLO) {
             return None;
@@ -243,6 +289,35 @@ impl HelloGate {
 }
 
 /// The answer to a legacy line on a page relay connection.
+/// A page-bound connection's line: `None` dispatches it (a
+/// `cmux.protocol/2` request, which the page's allow list then decides, or
+/// an allowed raw command); anything else is refused here.
+fn scoped_refusal(line: &str, allowed: &[&str]) -> Option<Value> {
+    let Ok(value) = serde_json::from_str::<Value>(line) else {
+        return Some(scoped_page_refusal(None));
+    };
+    if value.as_object().is_some_and(|object| object.contains_key("protocol")) {
+        return None;
+    }
+    let command = value.get("cmd").and_then(Value::as_str);
+    // Its `subscribe` is the plain event stream: no `surface` output (a screen read).
+    let narrow = command != Some("subscribe") || page_relay_subscribe(&value);
+    if narrow && command.is_some_and(|command| allowed.contains(&command)) {
+        return None;
+    }
+    Some(scoped_page_refusal(value.get("id").cloned()))
+}
+
+fn scoped_page_refusal(id: Option<Value>) -> Value {
+    json!({
+        "id": id,
+        "ok": false,
+        "error": "a page-bound credential admits only its page's commands",
+        "error_code": "origin.forbidden",
+        "error_details": {"reason": "page_not_allowed", "derived": RequestOrigin::Page.wire_name()},
+    })
+}
+
 fn page_relay_refusal(id: Option<Value>) -> Value {
     json!({
         "id": id,
@@ -321,7 +396,7 @@ fn user_origin_allowed(mux: &Mux, client: u64) -> bool {
 
 #[cfg(all(test, unix))]
 #[path = "client_hello_tests.rs"]
-mod tests;
+pub(super) mod tests;
 
 #[cfg(all(test, unix))]
 #[path = "untrusted_mint_tests.rs"]

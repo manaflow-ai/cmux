@@ -13,6 +13,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("popup-escape.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -87,6 +88,7 @@ await requireBrowserLane("popup-escape.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
+    await warmViteServer(vite, "/gallery/frame.html");
     browser = await chromium.launch({ headless: true });
     await (await stage("agent-pane.composer", "idle", { width: 900, height: 700 })).close();
   });
@@ -159,9 +161,12 @@ await requireBrowserLane("popup-escape.test.ts", async () => {
     const rows = await page.locator(".ui-context-menu [role=menuitem]").count();
     const show = (await popupCalls(page)).find((call) => call.method === "popup.show");
     expect(show?.params).toMatchObject({ kind: "menu", side: "bottom" });
-    const next = String(Number(show?.params.highlighted) + 1);
     // Every row, its separator and its disabled state as the page has them.
     const items = show?.params.items as { separator?: boolean; disabled?: boolean }[];
+    // ArrowDown skips separators and disabled rows (Redo with no history, after Undo).
+    const from = Number(show?.params.highlighted);
+    const next = String(items.findIndex((item, index) => index > from && !item.separator && !item.disabled));
+    expect(next).not.toBe("-1");
     expect(items.filter((item) => !item.separator).map((item) => item.disabled)).toEqual(
       await page.$$eval(".ui-context-menu [role=menuitem]", (all) => all.map((row) => row.hasAttribute("disabled"))),
     );
@@ -231,7 +236,7 @@ await requireBrowserLane("popup-escape.test.ts", async () => {
       },
       [list, before] as const,
     );
-    expect(await page.evaluate(() => document.activeElement?.tagName)).toBe("INPUT");
+    expect(["INPUT", "TEXTAREA"]).toContain(await page.evaluate(() => document.activeElement?.tagName ?? ""));
     // The host's labels are the rows' words, spaced, without the Return hint the selected row shows.
     const labels = ((show?.params.items ?? []) as { label: string }[]).map((item) => item.label);
     for (const label of labels) expect(label).not.toContain("↵");

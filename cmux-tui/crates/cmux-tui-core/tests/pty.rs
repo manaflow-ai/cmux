@@ -310,7 +310,7 @@ fn surface_exit_detaches_terminal_view_and_emits_event() {
         || {
             events
                 .try_iter()
-                .find(|e| matches!(e, MuxEvent::SurfaceExited(id) if *id == surface.id))
+                .find(|e| matches!(e, MuxEvent::SurfaceExited(id, _) if *id == surface.id))
         },
         Duration::from_secs(10),
     );

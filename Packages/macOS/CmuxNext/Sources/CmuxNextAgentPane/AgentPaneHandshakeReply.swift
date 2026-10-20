@@ -6,6 +6,8 @@ import Foundation
 @MainActor
 enum AgentPaneHandshakeReply {
     static func reply(to request: AgentPaneRequest, in model: AgentPaneModel) async -> [String: Any] {
+        // A page that loaded again starts without the tab row: it is offered again.
+        if request == .ready { model.tabRow.pageLoaded() }
         model.setCheckpointAvailable(false)
         do {
             var handshake = request == .ready
@@ -30,6 +32,11 @@ enum AgentPaneHandshakeReply {
             // The surface holds after the chat has a session (a reload
             // of the quick panel stays compact).
             handshake.surface = model.seed?.surface
+            // A chat opened for its workspace gets its context until it has a session (cx-ihyx2).
+            // A chat on another machine does not: its remote wire carries only the prompt text.
+            if model.sessionId == nil, model.seed?.workspaceContext == true, handshake.connection?.remote == nil {
+                handshake.workspaceContext = true
+            }
             // A new tab page is a new chat on every host, the mock included: the page
             // never falls back to the most recent session behind it. Its chat starts in
             // the page's folder unless a seed named one.
@@ -49,6 +56,7 @@ enum AgentPaneHandshakeReply {
             // A chat its host already started (on another machine) gets no new-chat folder steps:
             // they read this Mac's folders and disk (cx-k21v).
             let started = handshake.connection?.remote != nil
+            if started { await model.startFolders.applyRemote(to: &handshake, model: model) }
             let filled = started ? false : await model.startFolders.apply(to: &handshake, ready: request == .ready, model: model)
             if !started { handshake.githubRepository = await AgentPaneGitHubRepository.read(at: handshake.cwd) }
             handshake.revealTurn = model.pendingRevealTurn
@@ -65,6 +73,8 @@ enum AgentPaneHandshakeReply {
             if handshake.connection?.remote != nil { model.remoteChat = true }
             // The connection stays here; the reply never encodes it.
             model.pendingConnection = handshake.connection
+            model.transport.acpmuxSocket = handshake.connection?.remote == nil ? handshake.connection?.socketPath : nil
+            model.transport.acpmuxExecutable = handshake.connection?.remote == nil ? handshake.connection?.executable : nil
             handshake.connection = nil
             return AgentPaneReply.handshake(handshake)
         } catch {

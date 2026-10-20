@@ -9,6 +9,7 @@ import { marqueeKeyframes, marqueeTiming, titleFade, titleFadeMask } from "../..
 import { tunableValue } from "../../../experiments/tunable";
 import { cssBezier } from "../../../ui/cubicBezier";
 import { treeMarqueeEasing, treeNameFadeCurve } from "./treeMotion.experiment";
+import { isAgentMotionOff } from "../../shared/motion";
 
 const ROWS = '[data-type="item"]';
 const CONTENT = '[data-item-section="content"]';
@@ -39,6 +40,7 @@ export function attachTreeTitles(container: HTMLElement, options: { fadeWidth: n
   let active: { row: HTMLElement; path: string; text: HTMLElement; animation: Animation } | null = null;
   let hovered: HTMLElement | null = null;
   let focused: HTMLElement | null = null;
+  let motionObserver: MutationObserver | null = null;
 
   const measure = () => {
     frame = 0;
@@ -87,7 +89,7 @@ export function attachTreeTitles(container: HTMLElement, options: { fadeWidth: n
     // Where the name is on screen now: a name caught mid-scroll springs back from there.
     const shown = animated ? Number.parseFloat(getComputedStyle(text).translate) || 0 : 0;
     animation.cancel();
-    if (Math.abs(shown) <= 0.5 || reducedMotion()) return;
+    if (isAgentMotionOff() || Math.abs(shown) <= 0.5 || reducedMotion()) return;
     const { durationMs, progress } = springCurve(MOTION_SPRINGS.disappear);
     const keyframes = progress.map((value, index) => ({
       offset: index / (progress.length - 1),
@@ -96,7 +98,17 @@ export function attachTreeTitles(container: HTMLElement, options: { fadeWidth: n
     text.animate(keyframes, { duration: durationMs, easing: "linear", id: MARQUEE_ID });
   };
 
+  // A host motion-policy change does not necessarily mutate the tree. Cancel the active marquee
+  // directly so `ui.animationSpeed: off` cannot leave a Web Animation running until the next hover
+  // or focus event. `stop(false)` also skips the spring-back animation under the off policy.
+  const motionRoot = container.ownerDocument.documentElement;
+  motionObserver = new MutationObserver(() => {
+    if (isAgentMotionOff()) stop(false);
+  });
+  motionObserver.observe(motionRoot, { attributes: true, attributeFilter: ["data-agent-motion"] });
+
   const start = (row: HTMLElement) => {
+    if (isAgentMotionOff()) return;
     const path = row.dataset.itemPath ?? "";
     if (active?.row === row && active.path === path) return;
     stop(true);
@@ -162,6 +174,7 @@ export function attachTreeTitles(container: HTMLElement, options: { fadeWidth: n
   return () => {
     mutations.disconnect();
     resize.disconnect();
+    motionObserver?.disconnect();
     shadow.removeEventListener("pointerover", onOver);
     host.removeEventListener("pointerleave", onLeave);
     shadow.removeEventListener("focusin", onFocusIn);

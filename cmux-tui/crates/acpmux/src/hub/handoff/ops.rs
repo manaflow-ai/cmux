@@ -284,6 +284,12 @@ impl Hub {
                         cwd: Some(sm.cwd.clone()),
                         policy: Some(policy),
                         remote,
+                        // Never wider than the source: full access only
+                        // from a full-access source, and never `narrower`.
+                        keep_harness_mode: narrower
+                            || !crate::web_modes::mode_of(&sm).is_some_and(|m| {
+                                crate::hub::start_mode::FULL_ACCESS_MODES.contains(&m.as_str())
+                            }),
                         ..Default::default()
                     })
                     .await?;
@@ -590,6 +596,8 @@ impl Hub {
             trust_gate: false,
             steer_only: false,
             interrupt: false,
+            provenance: None,
+            after_turn: None,
         };
         let (hub, session) = (self.clone(), target.clone());
         let run =

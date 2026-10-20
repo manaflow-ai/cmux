@@ -11,10 +11,15 @@
     "deploy:development": "bash ../../scripts/deploy-worker.sh development"
   },
   "dependencies": {
+    "@cmux/vm": "workspace:*",
     "@cmux/db": "workspace:*",
     "@cmux/home-core": "workspace:*",
     "@cmux/ownership": "workspace:*",
     "@cmux/protocol": "workspace:*",
+    "@earendil-works/chord": "1.0.0",
+    "@earendil-works/pi-ai": "1.0.0",
+    "@earendil-works/pi-durable": "1.0.0",
+    "agents": "0.26.0",
     "croner": "10.0.1",
     "drizzle-orm": "0.45.3",
     "effect": "4.0.0-rc.117",

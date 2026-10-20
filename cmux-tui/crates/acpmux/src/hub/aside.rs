@@ -48,7 +48,7 @@ impl Hub {
             None
         };
         let name = self.unique_name(&format!("{}-aside", meta.name));
-        let aside = self.fork(session, Some(name), None, Default::default(), through).await?;
+        let aside = self.fork(session, Some(name), None, Default::default(), None, through).await?;
         let mut tag = serde_json::Map::new();
         tag.insert(ASIDE_TAG.into(), json!(session.id));
         self.set_tags(&aside, Some(&tag), &[], None);

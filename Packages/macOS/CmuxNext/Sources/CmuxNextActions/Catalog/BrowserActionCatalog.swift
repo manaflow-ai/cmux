@@ -53,6 +53,17 @@ nonisolated enum BrowserActionCatalog: ActionCatalogGroup {
                 category: .browser, symbol: "link.circle", surfaces: [.palette, .keyboard], requires: [.browserFocused],
                 targets: [.pane], cliName: "browser focus-address-bar"
             ),
+            // Chrome's Search the Web (IDC_FOCUS_SEARCH, Opt-Cmd-F on the Mac): the
+            // address bar in a search with the default engine. No default key:
+            // Opt-Cmd-F stays Search All Windows (a default moves only with the
+            // user's OK); bind one in cmux.json or run it from the palette.
+            ActionDescriptor(
+                id: "browser.focusSearch",
+                title: String(localized: "action.browser.focusSearch", defaultValue: "Search the Web", bundle: .module),
+                keywords: ["browser", "search", "omnibox", "address bar", "google", "engine"],
+                category: .browser, symbol: "magnifyingglass.circle", surfaces: [.palette, .keyboard], requires: [.browserFocused],
+                targets: [.pane], cliName: "browser focus-search"
+            ),
             ActionDescriptor(
                 id: "browserZoomIn",
                 title: String(localized: "action.browserZoomIn", defaultValue: "Zoom In", bundle: .module),
@@ -98,9 +109,9 @@ nonisolated enum BrowserActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "toggleBrowserDeveloperTools",
                 title: String(localized: "action.toggleBrowserDeveloperTools", defaultValue: "Toggle Developer Tools", bundle: .module),
-                keywords: ["browser", "devtools", "inspector"],
+                keywords: ["browser", "devtools", "inspector", "web inspector", "debug", "web view"],
                 defaultShortcut: Shortcut("i", modifiers: [.option, .command]), category: .browser, symbol: "hammer",
-                surfaces: [.palette, .keyboard, .menu], requires: [.browserFocused], targets: [.pane],
+                surfaces: [.palette, .keyboard, .menu], targets: [.pane],
                 cliName: "browser toggle-developer-tools", mainMenu: .view
             ),
             ActionDescriptor(
@@ -108,15 +119,15 @@ nonisolated enum BrowserActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.showBrowserJavaScriptConsole", defaultValue: "Show JavaScript Console", bundle: .module),
                 keywords: ["browser", "devtools", "console"],
                 defaultShortcut: Shortcut("j", modifiers: [.option, .command]), category: .browser, symbol: "terminal",
-                surfaces: [.palette, .keyboard, .menu], requires: [.browserFocused], targets: [.pane],
+                surfaces: [.palette, .keyboard, .menu], targets: [.pane],
                 cliName: "browser show-javascript-console", mainMenu: .view
             ),
             ActionDescriptor(
                 id: "inspectBrowserElement",
                 title: String(localized: "action.inspectBrowserElement", defaultValue: "Inspect Element", bundle: .module),
-                keywords: ["browser", "devtools", "inspector", "element", "picker"],
+                keywords: ["browser", "devtools", "inspector", "element", "picker", "web inspector", "debug", "web view"],
                 defaultShortcut: Shortcut("c", modifiers: [.option, .command]), category: .browser, symbol: "cursorarrow.rays",
-                surfaces: [.palette, .keyboard, .menu], requires: [.browserFocused], targets: [.pane],
+                surfaces: [.palette, .keyboard, .menu], targets: [.pane],
                 cliName: "browser inspect-element", mainMenu: .view
             ),
             ActionDescriptor(
@@ -137,8 +148,8 @@ nonisolated enum BrowserActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "toggleReactGrab",
                 title: String(localized: "action.toggleReactGrab", defaultValue: "Toggle React Grab", bundle: .module),
-                // No default chord: Shift-Cmd-G is Find Previous in a browser
-                // (R88); this action is not built yet.
+                // No default chord: Shift-Cmd-G is Find Previous in a browser (R88).
+                // The page's menu offers it next to Design Mode (Options).
                 keywords: ["browser", "react", "inspect"], category: .browser,
                 symbol: "hand.point.up.left", surfaces: [.palette, .keyboard, .menu], requires: [.browserFocused],
                 targets: [.pane], cliName: "browser toggle-react-grab", mainMenu: .view
@@ -399,6 +410,35 @@ nonisolated enum BrowserActionCatalog: ActionCatalogGroup {
                 arguments: [CatalogArgument.deviceString, CatalogArgument.orientationString], targets: [.pane],
                 cliName: "browser device"
             ),
-        ] + vscodeServerDescriptors() + agentGuardDescriptors() + importFilesDescriptors() + pinnedPageDescriptors()
+            // Fit as 16:9 Desktop (cx-va1wd): a toggle of the tab's emulation
+            // (browser.tab.emulate {fit: "16:9"}); a desktop layout scaled to
+            // the pane's width that fills its full height.
+            ActionDescriptor(
+                id: "browserFitDesktop",
+                title: String(localized: "action.browserFitDesktop", defaultValue: "Fit as 16:9 Desktop", bundle: .module),
+                keywords: ["browser", "fit", "16:9", "16x9", "desktop", "scale", "zoom out", "viewport", "emulation", "split", "narrow"],
+                category: .browser, symbol: "rectangle.ratio.16.to.9", surfaces: [.palette, .contextMenu], requires: [.browserFocused],
+                targets: [.pane], cliName: "browser fit-desktop"
+            ),
+            // Fit (cx-qby5j): any fit by value (an aspect ratio at the pane's height, or a fixed
+            // width), or off; the context menu lists the common ones with the current one checked.
+            ActionDescriptor(
+                id: "browserFit",
+                title: String(localized: "action.browserFit", defaultValue: "Fit as Desktop…", bundle: .module),
+                keywords: ["browser", "fit", "desktop", "aspect", "ratio", "16:9", "16:10", "4:3", "21:9", "1280", "1440", "1920", "width", "scale", "viewport"],
+                category: .browser, symbol: "rectangle.ratio.16.to.9", surfaces: [.palette, .contextMenu], requires: [.browserFocused],
+                arguments: [CatalogArgument.fitChoice], targets: [.pane], cliName: "browser fit"
+            ),
+            // Fit as Desktop (1280) (cx-2ftlq): the same toggle with a fixed 1280 CSS px layout
+            // width (browser.tab.emulate {fit: "1280"}); only one fit is on a tab at a time.
+            ActionDescriptor(
+                id: "browserFitDesktop1280",
+                title: String(localized: "action.browserFitDesktop1280", defaultValue: "Fit as Desktop (1280)", bundle: .module),
+                keywords: ["browser", "fit", "1280", "desktop", "scale", "zoom out", "viewport", "emulation", "split", "narrow"],
+                category: .browser, symbol: "rectangle.ratio.16.to.9", surfaces: [.palette, .contextMenu], requires: [.browserFocused],
+                targets: [.pane], cliName: "browser fit-desktop-1280"
+            ),
+        ] + vscodeServerDescriptors() + agentGuardDescriptors() + importFilesDescriptors() + importCookiesDescriptors() + pinnedPageDescriptors()
+            + devToolsDescriptors()
     }
 }

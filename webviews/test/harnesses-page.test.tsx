@@ -352,11 +352,10 @@ test("the New Tab page has no Integrate a harness button (and no tools row)", as
         onJump={noop}
         onOpenSession={noop}
         onShowAll={noop}
-        onAddHarness={noop}
       />,
     );
   });
   // The calm default New Tab has no tools row (Leo 2026-10-11).
   expect(container.querySelector(".nt-tools")).toBeNull();
-  expect(container.querySelector(".nt-add-harness")).toBeNull();
+  expect(container.querySelector(".nt-no-agent, .acpmux-add-harness")).toBeNull();
 });

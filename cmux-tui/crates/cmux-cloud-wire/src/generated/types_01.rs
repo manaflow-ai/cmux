@@ -36,6 +36,23 @@ pub struct AutomationSettings {
     pub agent_run_default_seconds: Option<i64>,
 }
 
+/// A stored avatar: its SHA-256, its media type (from the bytes) and its size.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct AvatarRef {
+    pub sha256: String,
+    pub media_type: AvatarRefMediaType,
+    pub bytes: i64,
+}
+
+wire_enum! {
+    AvatarRefMediaType {
+        ImagePng = "image/png",
+        ImageJpeg = "image/jpeg",
+        ImageGif = "image/gif",
+        ImageWebp = "image/webp",
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(untagged)]
 pub enum Body {
@@ -801,6 +818,9 @@ pub struct HomeConversationSummary {
     pub invites: Option<Vec<HomeInvite>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub retention_days: Option<i64>,
+    /// A large group (more than 64 members): participants is a roster of at most 16 humans plus the owner and agents; this counts every current participant, and conversation.members pages them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub member_count: Option<i64>,
 }
 
 wire_enum! {
@@ -823,6 +843,14 @@ wire_enum! {
     }
 }
 
+wire_enum! {
+    HomeGrantableRole {
+        Admin = "admin",
+        Member = "member",
+        ReadOnly = "read_only",
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct HomeInboxEntry {
     pub conversation: ConversationId,
@@ -838,6 +866,11 @@ pub struct HomeInboxEntry {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dm_peer: Option<ParticipantId>,
     pub removed: bool,
+    /// A large group: inbox.list pulls this row from the conversation, and the inbox stream bumps it only when you are named (a mention, your own message, being added or removed).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub large: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub member_count: Option<i64>,
     pub unread: i64,
     pub mentions: i64,
     pub counts_rev: i64,
@@ -865,36 +898,4 @@ wire_enum! {
 pub struct HomeInboxEntryPreviewAttachments {
     pub kind: HomeInboxEntryPreviewAttachmentsKind,
     pub count: i64,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct HomeInvite {
-    pub id: InviteId,
-    pub address: AddressId,
-    pub channel: HomeInviteChannel,
-    pub display_name: String,
-    pub invited_by: ParticipantId,
-    pub created_at: Timestamp,
-    pub expires_at: Timestamp,
-    pub status: HomeInviteStatus,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub accepted_by: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub accepted_at: Option<Timestamp>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub requested_by: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub requested_name: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub requested_at: Option<Timestamp>,
-    pub delivery: HomeInviteDelivery,
-    pub copy_variant: String,
-    pub locale: String,
-}
-
-wire_enum! {
-    HomeInviteChannel {
-        Email = "email",
-        Sms = "sms",
-    }
 }

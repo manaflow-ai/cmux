@@ -132,7 +132,8 @@ final class LinkHintController {
         for type in ["mouseMoved", "mousePressed", "mouseReleased"] {
             let pressed = type != "mouseMoved"
             _ = try? await tab.devTools(method: "Input.dispatchMouseEvent", params: [
-                "type": type, "x": target.x, "y": target.y, "button": pressed ? "left" : "none", "clickCount": pressed ? 1 : 0,
+                // View points under a fit's or device's scale (cx-mogig), as the browser host converts agent input.
+                "type": type, "x": target.x * tab.emulationInputScale, "y": target.y * tab.emulationInputScale, "button": pressed ? "left" : "none", "clickCount": pressed ? 1 : 0,
             ])
         }
     }

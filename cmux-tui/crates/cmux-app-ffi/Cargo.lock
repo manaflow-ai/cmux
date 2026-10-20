@@ -22,8 +22,18 @@ name = "cmux-app-ffi"
 version = "0.1.0"
 dependencies = [
  "cmux-layout-reducer-ffi",
+ "cmux-motion",
  "cmux-palette-ranker",
  "cmux-rd-ffi",
+]
+
+[[package]]
+name = "cmux-focus-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "unicode-segmentation",
 ]
 
 [[package]]
@@ -38,11 +48,16 @@ dependencies = [
 name = "cmux-layout-reducer-ffi"
 version = "0.1.0"
 dependencies = [
+ "cmux-focus-core",
  "cmux-layout-reducer",
  "cmux-tasks-core",
  "serde",
  "serde_json",
 ]
+
+[[package]]
+name = "cmux-motion"
+version = "0.1.0"
 
 [[package]]
 name = "cmux-palette-ranker"
@@ -264,6 +279,12 @@ checksum = "5fd4f6878c9cb28d874b009da9e8d183b5abc80117c40bbd187a1fde336be6e8"
 dependencies = [
  "tinyvec",
 ]
+
+[[package]]
+name = "unicode-segmentation"
+version = "1.13.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c6f5d3c3b1bf09027a88a6bc961fc00497d651009560b5463668dc81b0fa87a8"
 
 [[package]]
 name = "version_check"

@@ -34,11 +34,16 @@ struct NewTabStyleSwitchTests {
         let (settings, directory) = try await Self.settings()
         defer { try? FileManager.default.removeItem(at: directory) }
         let model = AgentPaneModel(host: NoHost(), allowsTabConversion: true)
-        model.onSetNewTabTemplate = { template in Task { await NewTabPage.saveTemplate(template, settings: settings) } }
+        // The app saves in a Task (NewTabPage.handler); the test keeps each one and awaits it, so
+        // the snapshot is read after the write and its reload, not after a guessed number of yields
+        // (the reload reads the file on a detached task, which yields on this actor do not wait for).
+        var saves: [Task<Void, Never>] = []
+        model.onSetNewTabTemplate = { template in saves.append(Task { await NewTabPage.saveTemplate(template, settings: settings) }) }
 
         let reply = await Self.pick(model, "threads")
         #expect(reply["ok"] as? Bool == true)
-        for _ in 0..<400 where settings.snapshot.newTabTemplate != .threads { await Task.yield() }
+        #expect(saves.count == 1)
+        for save in saves { await save.value }
         #expect(settings.snapshot.newTabTemplate == .threads)
         let saved = try String(contentsOf: directory.appending(path: "cmux.json"), encoding: .utf8)
         #expect(saved.contains("\"threads\""))
@@ -46,7 +51,8 @@ struct NewTabStyleSwitchTests {
         // Terminal and unknown values are not page styles: the setting stays.
         _ = await Self.pick(model, "terminal")
         _ = await Self.pick(model, "sparkles")
-        for _ in 0..<50 { await Task.yield() }
+        #expect(saves.count == 3)
+        for save in saves { await save.value }
         #expect(settings.snapshot.newTabTemplate == .threads)
     }
 }

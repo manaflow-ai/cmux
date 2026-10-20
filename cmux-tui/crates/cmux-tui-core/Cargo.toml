@@ -1,6 +1,6 @@
 [package]
 name = "cmux-tui-core"
-version = "0.1.0"
+version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -11,6 +11,7 @@ description = "Terminal multiplexer core: workspaces, tabs, panes, PTY runtime, 
 workspace = true
 
 [dependencies]
+cmux-agent-pane-policy.workspace = true
 ghostty-vt.workspace = true
 cmux-tui-cdp.workspace = true
 cmux-layout-reducer.workspace = true
@@ -27,6 +28,7 @@ cmux-tui-platform.workspace = true
 cmux-tui-image-paste.workspace = true
 cmux-tui-remote-access.workspace = true
 cmux-tui-util.workspace = true
+cmux-api-compat.workspace = true
 cmux-terminal-iface.workspace = true
 cmux-terminal-sizing.workspace = true
 serde.workspace = true
@@ -46,7 +48,9 @@ rusqlite.workspace = true
 parking_lot = { workspace = true, features = ["arc_lock"] }
 fs4.workspace = true
 sha2.workspace = true
+socket2.workspace = true
 quick-xml.workspace = true
+notify.workspace = true
 zeroize.workspace = true
 url.workspace = true
 cmux-app-manifest.workspace = true

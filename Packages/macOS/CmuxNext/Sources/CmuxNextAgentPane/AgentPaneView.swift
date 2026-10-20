@@ -1,6 +1,7 @@
 public import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextErrorJournal
 public import CmuxNextPages
 public import CmuxNextSettings
 import Observation
@@ -18,28 +19,21 @@ public final class AgentPaneView: NSView {
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.webview")
     public let model: AgentPaneModel
     public let webView: WKWebView
-    /// Opens a link the user clicked in the transcript. Defaults to the
-    /// system handler; the App can route it to a cmux browser tab.
-    public var openURL: (URL) -> Void = { NSWorkspace.shared.openInBackground($0) }
+    /// Opens a link the user clicked in the transcript: the shared link rule (``LinkRouter``,
+    /// `browser.openLinksInCmuxBrowser`), `otherTarget` for a Shift-Command click.
+    public var openURL: (_ url: URL, _ otherTarget: Bool) -> Void = AgentPaneView.routedOpenURL
+    static let routedOpenURL: (URL, Bool) -> Void = { LinkRouter.shared.open($0, otherTarget: $1) }
 
     public let source: AgentPaneSource
-    public var customization = AgentPaneCustomization() {
-        didSet {
-            if customization != oldValue { applyCustomization() }
-        }
-    }
-    public var shortcuts = AgentPaneShortcuts() {
-        didSet {
-            if shortcuts != oldValue { applyShortcuts() }
-        }
-    }
-    public var previewFeatures = false {
-        didSet { if previewFeatures != oldValue { applyPreviewFeatures() } }
-    }
+    public var customization = AgentPaneCustomization() { didSet { if customization != oldValue { applyCustomization() } } }
+    public var shortcuts = AgentPaneShortcuts() { didSet { if shortcuts != oldValue { applyShortcuts() } } }
+    public var previewFeatures = false { didSet { if previewFeatures != oldValue { applyPreviewFeatures() } } }
+    /// The `agent.sessionStatus` tunable (Debug Settings), followed live (``AgentPaneSessionStatus``).
+    public internal(set) var sessionStatus = AgentPaneTunables.sessionStatus.value { didSet { if sessionStatus != oldValue { AgentPaneSessionStatus.push(to: self) } } }
     /// The newest device chats for the New Tab cards.
     public var deviceChats: [AgentPaneDeviceChat] = [] { didSet { if deviceChats != oldValue { AgentPaneDeviceChat.push(deviceChats, to: self) } } }
     /// The newest recently closed items for the New Tab page's Recently Closed section.
-    public var recentlyClosed: [AgentPaneClosedItem] = [] { didSet { if recentlyClosed != oldValue { AgentPaneClosedItem.push(recentlyClosed, to: self) } } }
+    public var recentlyClosed: AgentPaneClosedList = .empty { didSet { if recentlyClosed != oldValue { AgentPaneClosedItem.push(recentlyClosed, to: self) } } }
     public var editedFiles = AgentPaneEditedFilesSetting.fallback {
         didSet { if editedFiles != oldValue { applyEditedFiles() } }
     }
@@ -49,7 +43,7 @@ public final class AgentPaneView: NSView {
     /// Shown instead of reloading once the page keeps crashing.
     var crashNotice: NSView?
     /// The line that says the chat runs on another cmux install's acpmux (cx-fcaq).
-    var otherInstallNotice: NSTextField?
+    var otherInstallNotice: ChromeLabel?
     /// "Remote approvals are off" (cx-0q7o), and the restart the chat's machine offers.
     var remoteApprovalsNotice: NSStackView?
     var remoteApprovals: AgentPaneRemoteApprovals?
@@ -64,7 +58,14 @@ public final class AgentPaneView: NSView {
     public let inputReadiness: PageInputReadiness
     /// Re-pushes the theme when ui.animationSpeed or Reduce Motion changes, so the
     /// page's `--agent-motion-*` fades follow them (AgentPaneTheme.values).
-    private var motionObservation: Task<Void, Never>?
+    private var motionObservation: Task<Void, Never>?, sessionStatusObservation: Task<Void, Never>?
+    /// The theme last pushed to the page (I5: a push only when it changed since then; a page load
+    /// pushes again with `force`, a page-host replay or a crash forgets it).
+    var deliveredThemeEvent: AgentPageEvent?
+    var deliveredThemeScript: String?
+    /// Pushes every color change of this view's scope to the page, shown or hidden, so a page
+    /// shown after a change paints its first frame in the new colors (cx-8w027.12).
+    private lazy var themeFollower = ThemeFollower(self) { [weak self] in self?.applyTheme() }
     private var uiScaleObservation: Task<Void, Never>?
     public var zoom: Double = 1 {
         didSet { guard zoom != oldValue else { return }; applyZoom() }
@@ -85,11 +86,13 @@ public final class AgentPaneView: NSView {
         NSPasteboard.general.setString(text, forType: .string)
     }
     /// The pane's first frame until its page paints (`AgentPaneView+Loading`).
-    let loadingView = AgentPaneLoadingView()
+    public let loadingView = AgentPaneLoadingView()
     public private(set) lazy var redraw = AgentPageRedraw(webView: webView) // a chat shown again draws first
     public private(set) lazy var topBar = AgentPaneTopBar(pane: self) // the App's omnibar row over a New Tab page (cx-e2aa)
     /// The process pool every agent page shares (R81: fonts are listed once per pool).
     static let processPool = WKProcessPool()
+    /// The web content process groups of the agent pages in ``processPool`` (8 pages per process).
+    static let processGroups = WebProcessGroups()
 
     /// The bundled page, nil when it is missing (a broken build).
     public static var bundledPage: URL? {
@@ -142,8 +145,16 @@ public final class AgentPaneView: NSView {
             // window (plans/cmux-next/windows.md).
             configuration.userContentController.addUserScript(
                 WKUserScript(source: WebTheme.bootstrapScript, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+            if let script = AgentPaneTunables.documentScript {
+                configuration.userContentController.addUserScript(
+                    WKUserScript(source: script, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+            }
+            // Console errors, uncaught errors and rejections go to the error journal (`cmux errors`).
+            ConsoleErrorCapture(page: "agent-pane").install(in: configuration.userContentController)
             inputReadiness = PageInputReadiness(configuration: configuration)
-            webView = AgentPaneWKWebView(frame: .zero, configuration: configuration)
+            // Pages share web content processes, 8 per process (WebProcessGroups): a process per
+            // page made 55 tabs cost 54 processes and 4 GB (plans/cmux-next/sequoia-lag.md).
+            webView = Self.processGroups.webView(for: configuration) { AgentPaneWKWebView(frame: .zero, configuration: $0) }
             #if DEBUG
             // Automation launches (capture slots) keep a covered window's page drawing, as
             // PageWebView does: WebKit hid the covered New Tab page, so it never drew (cx-zjtn.6).
@@ -176,10 +187,8 @@ public final class AgentPaneView: NSView {
         if webView.responds(to: NSSelectorFromString("_setDrawsBackground:")) {
             webView.setValue(false, forKey: "drawsBackground")
         }
-        #if DEBUG
-        // Web Inspector and profiling for the pane (debug.agent_pane).
+        // Web Inspector and profiling for the pane in every build (Inspect Element, Cmd-Opt-I).
         webView.isInspectable = true
-        #endif
         model.onSaveFile = { [weak self] save in try await self?.savePanel.save(save, window: self?.window) ?? false }
         model.onChooseFiles = { [weak self] in await AgentPaneFilePicker.pick(window: self?.window) }
         model.onFramePacing = { [weak self] _ in self?.framePacingSettings() ?? [:] }
@@ -209,6 +218,7 @@ public final class AgentPaneView: NSView {
         Self.logger.info("agent pane webview loading source=\(Self.sourceDescription(source), privacy: .public) bundled=\(Self.bundledPage != nil, privacy: .public)")
         observeMotion()
         observeUIScale()
+        sessionStatusObservation = AgentPaneSessionStatus.follow(self)
     }
 
     private static func sourceDescription(_ source: AgentPaneSource) -> String {
@@ -220,7 +230,7 @@ public final class AgentPaneView: NSView {
 
     private func observeMotion() {
         motionObservation = Task { [weak self] in
-            for await _ in ObservationStream({ Motion.speed }) {
+            for await _ in ObservationStream({ (Motion.speed, DesignSettings.shared.statusIndicator.animation) }) {
                 guard let self else { return }
                 self.applyTheme()
             }
@@ -240,20 +250,16 @@ public final class AgentPaneView: NSView {
         guard page == nil else { return }
         applyZoom()
         uiScaleObservation = Task { [weak self] in
-            for await _ in ObservationStream({ DesignSettings.shared.uiScale }) {
+            for await _ in ObservationStream({ (DesignSettings.shared.uiScale, DesignSettings.shared.interfaceScale, DesignSettings.shared.interfaceScaleEnabled) }) {
                 guard let self else { return }
                 self.applyZoom()
             }
         }
     }
 
-    private func applyZoom() {
-        let scale = Double(DesignSettings.shared.uiScale) * zoom
-        if let page {
-            page.additionalZoom = zoom
-        } else {
-            webView.pageZoom = scale
-        }
+    func applyZoom() {
+        if let page { page.additionalZoom = zoom } else { webView.pageZoom = Double(DesignSettings.shared.uiScale) * zoom }
+        webView.evaluateJavaScript(DesignSettings.shared.interfaceScaleScript, completionHandler: nil)
     }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
@@ -261,6 +267,7 @@ public final class AgentPaneView: NSView {
         guard Thread.isMainThread else { return } // main-proof: returns off the main thread
         MainActor.assumeIsolated {
             uiScaleObservation?.cancel()
+            sessionStatusObservation?.cancel()
         }
     }
 
@@ -309,6 +316,7 @@ public final class AgentPaneView: NSView {
         rateReapply?.cancel()
         motionObservation?.cancel()
         motionObservation = nil
+        sessionStatusObservation?.cancel()
         if let reduceMotionObserver { NSWorkspace.shared.notificationCenter.removeObserver(reduceMotionObserver) }
         if let reduceMotionOverrideObserver { NotificationCenter.default.removeObserver(reduceMotionOverrideObserver) }
         (reduceMotionObserver, reduceMotionOverrideObserver) = (nil, nil)
@@ -345,6 +353,11 @@ public final class AgentPaneView: NSView {
         applyTheme()
     }
 
+    public override func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        themeFollower.rebind()
+    }
+
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         // Its tab or window closed, or it moved out of sight: stop listening, keep the words.
@@ -375,8 +388,11 @@ public final class AgentPaneView: NSView {
     }
 
     /// Pushes this view's scope tokens to the page (and to the area WebKit
-    /// shows before the page paints); again when `surfaceKind` changes.
-    public func applyTheme() {
+    /// shows before the page paints); again when `surfaceKind` changes. The page gets a push
+    /// only when its theme differs from the last one it got; `force` pushes it anyway (a page
+    /// that just loaded has none).
+    public func applyTheme(force: Bool = false) {
+        themeFollower.rebind()
         let tokens = themeTokens
         let surface = surfaceKind
         webView.underPageBackgroundColor = AgentPaneTheme.underPageColor(tokens, surface: surface).nsColor
@@ -384,8 +400,15 @@ public final class AgentPaneView: NSView {
         otherInstallNotice?.textColor = tokens.textSecondary.nsColor
         themeLoadingState(tokens)
         page?.themeSurface = surface
-        deliver(AgentPageEvent.theme(tokens, surface: surface).map { [$0] } ?? [],
-                scripts: AgentPaneTheme.script(tokens, surface: surface).map { [$0] } ?? [])
+        if let pageEvents {
+            guard let event = AgentPageEvent.theme(tokens, surface: surface), force || event != deliveredThemeEvent else { return }
+            deliveredThemeEvent = event
+            pageEvents.publish(event)
+        } else {
+            guard let script = AgentPaneTheme.script(tokens, surface: surface), force || script != deliveredThemeScript else { return }
+            deliveredThemeScript = script
+            evaluateScript(script)
+        }
     }
 
     /// Sends a push to the page: events on the page host, scripts on the old host (only built there).

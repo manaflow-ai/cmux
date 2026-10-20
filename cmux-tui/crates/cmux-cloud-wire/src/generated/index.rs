@@ -53,6 +53,7 @@ pub mod op_names {
     pub const CONVERSATION_HISTORY: &str = "conversation.history";
     pub const CONVERSATION_IMPORT: &str = "conversation.import";
     pub const CONVERSATION_IMPORT_COMMIT: &str = "conversation.import.commit";
+    pub const CONVERSATION_MEMBERS: &str = "conversation.members";
     pub const CONVERSATION_SETTINGS_SET: &str = "conversation.settings.set";
     pub const CONVERSATION_SNAPSHOT: &str = "conversation.snapshot";
     pub const CONVERSATION_THREAD: &str = "conversation.thread";
@@ -81,10 +82,14 @@ pub mod op_names {
     pub const FIREWALL_GET: &str = "firewall.get";
     pub const FIREWALL_LIST: &str = "firewall.list";
     pub const GITHUB_ISSUE_COMMENT: &str = "github.issue.comment";
+    pub const GRANT_CREATE: &str = "grant.create";
+    pub const GRANT_REVOKE: &str = "grant.revoke";
+    pub const HOME_REQUESTS_LIST: &str = "home.requests.list";
     pub const HOME_SEARCH: &str = "home.search";
     pub const HOME_SETTINGS_SET: &str = "home.settings.set";
     pub const HOST_ENROLL: &str = "host.enroll";
     pub const HOST_REMOVE: &str = "host.remove";
+    pub const HOST_REPLICA_PURGE: &str = "host.replica.purge";
     pub const INBOX_ARCHIVE: &str = "inbox.archive";
     pub const INBOX_DM_PEER: &str = "inbox.dm_peer";
     pub const INBOX_LIST: &str = "inbox.list";
@@ -104,6 +109,7 @@ pub mod op_names {
     pub const INTEGRATION_POLICY_SET: &str = "integration.policy.set";
     pub const INTEGRATION_REVOKE: &str = "integration.revoke";
     pub const INVITE_ACCEPT: &str = "invite.accept";
+    pub const INVITE_ACCEPT_VERIFIED: &str = "invite.accept_verified";
     pub const INVITE_APPROVE_JOIN: &str = "invite.approve_join";
     pub const INVITE_CREATE: &str = "invite.create";
     pub const INVITE_REVOKE: &str = "invite.revoke";
@@ -121,13 +127,19 @@ pub mod op_names {
     pub const MUX_ACK: &str = "mux.ack";
     pub const MUX_CONFIGURE: &str = "mux.configure";
     pub const NETWORK_LIST: &str = "network.list";
+    pub const OWNERSHIP_TRANSFER: &str = "ownership.transfer";
+    pub const PARTICIPANT_AVATAR_GET: &str = "participant.avatar.get";
+    pub const PARTICIPANT_AVATAR_SET: &str = "participant.avatar.set";
     pub const PARTICIPANTS_ADD: &str = "participants.add";
     pub const PARTICIPANTS_REMOVE: &str = "participants.remove";
+    pub const PARTICIPANTS_SET_ROLE: &str = "participants.set_role";
+    pub const PARTICIPANTS_UNBAN: &str = "participants.unban";
     pub const PUSH_TARGET_REGISTER: &str = "push.target.register";
     pub const PUSH_TARGET_REMOVE: &str = "push.target.remove";
     pub const REACTION_ADD: &str = "reaction.add";
     pub const REACTION_REMOVE: &str = "reaction.remove";
     pub const READ_CURSOR_SET: &str = "read_cursor.set";
+    pub const REQUEST_DISMISS: &str = "request.dismiss";
     pub const RUN_GET: &str = "run.get";
     pub const RUN_LIST: &str = "run.list";
     pub const SERVER_PAIR_APPROVE: &str = "server.pair.approve";
@@ -176,6 +188,7 @@ pub mod op_names {
     pub const TEAM_VM_SSH_CERT_REVOKE: &str = "team_vm.ssh_cert.revoke";
     pub const TEAM_VM_STATUS: &str = "team_vm.status";
     pub const TEAM_VM_TAINT_ACCEPT: &str = "team_vm.taint.accept";
+    pub const THREAD_UPDATE: &str = "thread.update";
     pub const TITLE_SET: &str = "title.set";
     pub const TUNNEL_ATTACH: &str = "tunnel.attach";
     pub const TUNNEL_DETACH: &str = "tunnel.detach";
@@ -240,6 +253,7 @@ pub mod op_names {
         CONVERSATION_HISTORY,
         CONVERSATION_IMPORT,
         CONVERSATION_IMPORT_COMMIT,
+        CONVERSATION_MEMBERS,
         CONVERSATION_SETTINGS_SET,
         CONVERSATION_SNAPSHOT,
         CONVERSATION_THREAD,
@@ -268,10 +282,14 @@ pub mod op_names {
         FIREWALL_GET,
         FIREWALL_LIST,
         GITHUB_ISSUE_COMMENT,
+        GRANT_CREATE,
+        GRANT_REVOKE,
+        HOME_REQUESTS_LIST,
         HOME_SEARCH,
         HOME_SETTINGS_SET,
         HOST_ENROLL,
         HOST_REMOVE,
+        HOST_REPLICA_PURGE,
         INBOX_ARCHIVE,
         INBOX_DM_PEER,
         INBOX_LIST,
@@ -291,6 +309,7 @@ pub mod op_names {
         INTEGRATION_POLICY_SET,
         INTEGRATION_REVOKE,
         INVITE_ACCEPT,
+        INVITE_ACCEPT_VERIFIED,
         INVITE_APPROVE_JOIN,
         INVITE_CREATE,
         INVITE_REVOKE,
@@ -308,13 +327,19 @@ pub mod op_names {
         MUX_ACK,
         MUX_CONFIGURE,
         NETWORK_LIST,
+        OWNERSHIP_TRANSFER,
+        PARTICIPANT_AVATAR_GET,
+        PARTICIPANT_AVATAR_SET,
         PARTICIPANTS_ADD,
         PARTICIPANTS_REMOVE,
+        PARTICIPANTS_SET_ROLE,
+        PARTICIPANTS_UNBAN,
         PUSH_TARGET_REGISTER,
         PUSH_TARGET_REMOVE,
         REACTION_ADD,
         REACTION_REMOVE,
         READ_CURSOR_SET,
+        REQUEST_DISMISS,
         RUN_GET,
         RUN_LIST,
         SERVER_PAIR_APPROVE,
@@ -363,6 +388,7 @@ pub mod op_names {
         TEAM_VM_SSH_CERT_REVOKE,
         TEAM_VM_STATUS,
         TEAM_VM_TAINT_ACCEPT,
+        THREAD_UPDATE,
         TITLE_SET,
         TUNNEL_ATTACH,
         TUNNEL_DETACH,
@@ -430,6 +456,7 @@ pub fn visit_op<V: crate::OpVisitor>(name: &str, visitor: V) -> Option<V::Output
         "conversation.history" => visitor.visit::<ConversationHistoryOp>(),
         "conversation.import" => visitor.visit::<ConversationImportOp>(),
         "conversation.import.commit" => visitor.visit::<ConversationImportCommitOp>(),
+        "conversation.members" => visitor.visit::<ConversationMembersOp>(),
         "conversation.settings.set" => visitor.visit::<ConversationSettingsSetOp>(),
         "conversation.snapshot" => visitor.visit::<ConversationSnapshotOp>(),
         "conversation.thread" => visitor.visit::<ConversationThreadOp>(),
@@ -458,10 +485,14 @@ pub fn visit_op<V: crate::OpVisitor>(name: &str, visitor: V) -> Option<V::Output
         "firewall.get" => visitor.visit::<FirewallGetOp>(),
         "firewall.list" => visitor.visit::<FirewallListOp>(),
         "github.issue.comment" => visitor.visit::<GithubIssueCommentOp>(),
+        "grant.create" => visitor.visit::<GrantCreateOp>(),
+        "grant.revoke" => visitor.visit::<GrantRevokeOp>(),
+        "home.requests.list" => visitor.visit::<HomeRequestsListOp>(),
         "home.search" => visitor.visit::<HomeSearchOp>(),
         "home.settings.set" => visitor.visit::<HomeSettingsSetOp>(),
         "host.enroll" => visitor.visit::<HostEnrollOp>(),
         "host.remove" => visitor.visit::<HostRemoveOp>(),
+        "host.replica.purge" => visitor.visit::<HostReplicaPurgeOp>(),
         "inbox.archive" => visitor.visit::<InboxArchiveOp>(),
         "inbox.dm_peer" => visitor.visit::<InboxDmPeerOp>(),
         "inbox.list" => visitor.visit::<InboxListOp>(),
@@ -481,6 +512,7 @@ pub fn visit_op<V: crate::OpVisitor>(name: &str, visitor: V) -> Option<V::Output
         "integration.policy.set" => visitor.visit::<IntegrationPolicySetOp>(),
         "integration.revoke" => visitor.visit::<IntegrationRevokeOp>(),
         "invite.accept" => visitor.visit::<InviteAcceptOp>(),
+        "invite.accept_verified" => visitor.visit::<InviteAcceptVerifiedOp>(),
         "invite.approve_join" => visitor.visit::<InviteApproveJoinOp>(),
         "invite.create" => visitor.visit::<InviteCreateOp>(),
         "invite.revoke" => visitor.visit::<InviteRevokeOp>(),
@@ -498,13 +530,19 @@ pub fn visit_op<V: crate::OpVisitor>(name: &str, visitor: V) -> Option<V::Output
         "mux.ack" => visitor.visit::<MuxAckOp>(),
         "mux.configure" => visitor.visit::<MuxConfigureOp>(),
         "network.list" => visitor.visit::<NetworkListOp>(),
+        "ownership.transfer" => visitor.visit::<OwnershipTransferOp>(),
+        "participant.avatar.get" => visitor.visit::<ParticipantAvatarGetOp>(),
+        "participant.avatar.set" => visitor.visit::<ParticipantAvatarSetOp>(),
         "participants.add" => visitor.visit::<ParticipantsAddOp>(),
         "participants.remove" => visitor.visit::<ParticipantsRemoveOp>(),
+        "participants.set_role" => visitor.visit::<ParticipantsSetRoleOp>(),
+        "participants.unban" => visitor.visit::<ParticipantsUnbanOp>(),
         "push.target.register" => visitor.visit::<PushTargetRegisterOp>(),
         "push.target.remove" => visitor.visit::<PushTargetRemoveOp>(),
         "reaction.add" => visitor.visit::<ReactionAddOp>(),
         "reaction.remove" => visitor.visit::<ReactionRemoveOp>(),
         "read_cursor.set" => visitor.visit::<ReadCursorSetOp>(),
+        "request.dismiss" => visitor.visit::<RequestDismissOp>(),
         "run.get" => visitor.visit::<RunGetOp>(),
         "run.list" => visitor.visit::<RunListOp>(),
         "server.pair.approve" => visitor.visit::<ServerPairApproveOp>(),
@@ -553,6 +591,7 @@ pub fn visit_op<V: crate::OpVisitor>(name: &str, visitor: V) -> Option<V::Output
         "team_vm.ssh_cert.revoke" => visitor.visit::<TeamVmSshCertRevokeOp>(),
         "team_vm.status" => visitor.visit::<TeamVmStatusOp>(),
         "team_vm.taint.accept" => visitor.visit::<TeamVmTaintAcceptOp>(),
+        "thread.update" => visitor.visit::<ThreadUpdateOp>(),
         "title.set" => visitor.visit::<TitleSetOp>(),
         "tunnel.attach" => visitor.visit::<TunnelAttachOp>(),
         "tunnel.detach" => visitor.visit::<TunnelDetachOp>(),

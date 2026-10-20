@@ -3,7 +3,9 @@ import CmuxNextActions
 import CmuxNextBrowserImport
 import CmuxNextControl
 import CmuxNextDesign
+import CmuxNextErrorJournal
 import CmuxNextSettings
+import CmuxNextSidebar
 import CmuxNextWakeups
 
 /// The App's control-socket wiring (architecture.md 5a): the main-thread
@@ -17,6 +19,7 @@ final class AppControl {
     private let frameProbe = DebugFrameProbe()
     private(set) var service: ControlService?
     private var publisher: ControlSnapshotPublisher?
+    private(set) var errorJournal: ErrorJournalService?
 
     var socketPath: String? { service?.socketPath }
 
@@ -49,6 +52,11 @@ final class AppControl {
         service.router.register(KeybindingControl.methods(services: services))
         service.router.register(SettingsControl.methods(services: services))
         service.router.register(SessionTransferControl.methods(services: services))
+        // The error journal (`cmux errors`): app log, page consoles, acpmux, Chief, crash reports.
+        let errors = ErrorJournalService.make(environment: services.environment)
+        errors.start()
+        errorJournal = errors
+        service.router.register(ErrorJournalControl(journal: errors.journal, sources: errors.sources).methods)
         service.router.register([
             // CPU and memory per tab and workspace, two samples `interval_ms` apart.
             .async("resources") { [weak services] call in
@@ -67,14 +75,23 @@ final class AppControl {
         // (ControlRouter drops them too: Configuration.allowsDebugMethods).
         #if DEBUG
         let probe = frameProbe
+        service.router.register(DebugWindowsControl.methods(services))
         service.router.register([
             .mainActor("debug.frames") { call in .value(probe.handle(call.params)) },
             // Measured animation spans (plans/cmux-next/motion.md).
-            .mainActor("debug.motion") { call in .value(DebugMotion.handle(call.params)) },
+            .mainActor("debug.motion") { [weak services] call in .value(DebugMotion.handle(call.params, services)) },
             // Launch, palette-open and terminal-creation spans (bench-stalls.py).
             .mainActor("debug.timings") { call in .value(DebugTimings.handle(call.params)) },
+            // Each tab switch's own time: intent to shown, and to the next frame (perf-gate.py).
+            .mainActor("debug.tab_switch") { call in .value(DebugTabSwitch.timer.handle(call.params, key: "switches")) },
+            // Each new workspace's own time: the press to its sidebar row drawn, and the walks between (perf-gate.py).
+            .mainActor("debug.new_workspace") { call in .value(SidebarNewRowTimer.shared.timer.handle(call.params, key: "creates")) },
             // Work per layout change: pane snapshots, applies, topology sends (bench_pane_scale.py).
             .mainActor("debug.layout_counters") { call in .value(DebugLayoutCounters.handle(call.params)) },
+            // A full-screen or Space transition: notifications, resizes, layout passes (fullscreen-transition.py).
+            .mainActor("debug.window_transition") { call in .value(DebugWindowTransition.shared.handle(call.params)) },
+            // Sidebar work: rebuilds, row patches/configures, ffi calls (sidebar-rows-perf-live.py).
+            .mainActor("debug.sidebar_perf") { call in .value(.object(SidebarView.perfCounters(reset: call.params["reset"]?.boolValue == true).mapValues { .number(Double($0)) })) },
             // Click by Hint labels (hint-mode-e2e.py).
             .mainActor("debug.hints") { [weak services] call in
                 guard let services else { return .value(.null) }
@@ -84,9 +101,10 @@ final class AppControl {
             .mainActor("debug.page_host_pool") { [weak services] call in
                 .value(DebugPageHostPool.handle(call.params, services: services))
             },
-            // Focus model vs AppKit vs Ghostty per window (plans/cmux-next/focus.md).
-            .mainActor("debug.focus") { [weak services] _ in
+            // Focus model vs AppKit vs Ghostty per window (plans/cmux-next/focus.md); `deactivate` backgrounds the app first.
+            .mainActor("debug.focus") { [weak services] call in
                 guard let services else { return .value(.null) }
+                if call.params["deactivate"]?.boolValue == true { NSApp.deactivate(handingActivationTo: call.params["activate_pid"]?.intValue) }
                 return .value(DebugFocus.report(services: services))
             },
             // Home per window and the local conversation projection (home.md).
@@ -104,22 +122,15 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugThemes.report(services: services))
             },
-            // Window membership and the window invariants (no window
-            // without a workspace).
-            .mainActor("debug.windows") { [weak services] _ in
-                guard let services, case let windows = services.windows else { return .value(.null) }
-                guard case .object(var report) = WindowInvariants.report(windows) else { return .value(.null) }
-                // Every workspace the app closed or kept after it lost its
-                // last pane, with the cause (EmptyWorkspaceRepair).
-                report["emptied_workspaces"] = .array(services.emptyWorkspaces.decisions.map {
-                    .object(["key": .string($0.key.rawValue), "cause": .string(String(describing: $0.cause))])
-                })
-                return .value(.object(report))
-            },
             // Omnibar state machine vs its field editor (focus.md section 7).
             .mainActor("debug.omnibar") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugOmnibar.report(call.params, services: services))
+            },
+            // Chief hands (cx-om025): levels, presence key, waiting requests; answers HandsService.debug JSON text.
+            .mainActor("debug.hands") { [weak services] call in
+                guard let hands = services?.cloud.hands else { return .value(.null) }
+                return .followUp { [params = call.params.compactMapValues(\.stringValue)] in .string(await hands.debug(params)) }
             },
             // Unread tabs, attention marks, banners and the dismissal log
             // (plans/cmux-next/notifications.md); "click" runs a banner click.
@@ -132,12 +143,15 @@ final class AppControl {
             .mainActor("debug.layers") { [weak services] call in
                 guard let services else { return .value(.null) }
                 if call.params["reset_layout_passes"]?.boolValue == true { LayoutPassGuard.shared.reset() }
-                return .value(DebugLayers.report(services: services))
+                return .value(DebugLayers.report(services: services, params: call.params))
             },
             // The one hover card: machine phase, card window, timer, monitor.
-            .mainActor("debug.hover_cards") { [weak services] _ in
+            // `{dismiss: true}` first dismisses the shown card as an app action would (live checks).
+            .mainActor("debug.hover_cards") { [weak services] call in
                 guard let services else { return .value(.null) }
-                return .value(.object(services.hoverCards.report.mapValues(JSONValue.string)))
+                if call.params["dismiss"]?.boolValue == true { services.hoverCards.dismiss(.action) }
+                // `gallery: sidebar|tabs|none` shows the card kinds over fixture data (HoverCardGallery).
+                return .value(.object((HoverCardGallery.show(call.params["gallery"]?.stringValue) ?? services.hoverCards.report).mapValues(JSONValue.string)))
             },
             // Pane chrome alignment: tab pill gaps, border, first terminal cell.
             .mainActor("debug.pane_chrome") { [weak services] _ in
@@ -158,26 +172,6 @@ final class AppControl {
             .mainActor("debug.screens") { [weak services] _ in
                 guard let services else { return .value(.null) }
                 return .value(DebugScreens.report(services: services))
-            },
-            // `text: true` adds each terminal mirror's viewport text. DEBUG builds add each
-            // terminal pane's `terminal_id` and `host_pid` (SurfaceHostReport).
-            .async("debug.surfaces") { [weak services] call in
-                let includeText = call.params["text"]?.boolValue == true
-                let built: (JSONValue, [SurfaceHostReport.Target])? = await MainActor.run {
-                    guard let services else { return nil }
-                    #if DEBUG
-                    let targets = SurfaceHostReport.targets(services)
-                    #else
-                    let targets: [SurfaceHostReport.Target] = []
-                    #endif
-                    return (SurfaceDiagnosticsReport.make(services, includeText: includeText), targets)
-                }
-                guard let (report, targets) = built else { return .null }
-                #if DEBUG
-                return SurfaceHostReport.annotate(report, identities: await SurfaceHostReport.identities(targets))
-                #else
-                return report
-                #endif
             },
             // Idle wakeups: ledger, display-link clients, process CPU (idle-wakeups.md).
             .async("debug.wakeups") { call in await DebugWakeups.report(call.params) },
@@ -262,6 +256,10 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugOmnibar.mouse(call.params, services: services))
             },
+            // One omnibar click from rest to the frame that shows focus and select-all (omnibar-mousedown-latency).
+            .async("debug.omnibar_bench") { [weak services] call in
+                await DebugOmnibarClickBench.run(call.params, services)
+            }.withDeadline(.fixed(.seconds(15))),
             .mainActor("debug.omnibar_type") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugOmnibar.type(call.params, services: services))
@@ -305,6 +303,7 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugLayers.dropHighlight(call.params, services: services))
             },
+            .mainActor("debug.sidebar_filter") { [weak services] call in .value(services.map { DebugSidebarFilter.run(call.params, $0) } ?? .null) },
             .mainActor("debug.sidebar_rows") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugSidebarRows.report(call.params, services: services))
@@ -327,18 +326,20 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugViewKey.focusRingReport(call.params, services: services))
             },
+            // CEF's own DevTools wait is 5 s (CEFRuntime.devToolsTimeout); the 2 s
+            // control-plane deadline cut off replies that arrive between 2 and 5 s.
             .async("debug.cef.devtools") { [weak services] call in
                 await DebugExtensions.devTools(call.params, services)
-            },
+            }.withDeadline(.fixed(.seconds(6))),
             // React agent pane: synthetic transcript, fling and frame/typing
             // timing through the page's cmuxAcpmuxDebug, WebContent pid.
             .async("debug.agent_pane") { [weak services] call in
                 await DebugAgentPane.handle(call.params, services)
             }.withDeadline(.fixed(DebugAgentPane.deadline)),
-            // Instant new tab: spares, opening times, the field (new-tab.md 2.3).
+            // Instant new tab: spares, opening times, the field (new-tab.md 2.3); new terminal stages (cx-6so.58).
             .async("debug.new_tab") { [weak services] call in
                 await DebugNewTab.handle(call.params, services)
-            }.withDeadline(.fixed(.seconds(15))),
+            }.withDeadline(.fixed(.seconds(15))), DebugNewTerminalTrace.method(services),
             // R131: hover card retarget timing across the focused strip's tabs.
             .async("debug.hover_sweep") { [weak services] call in
                 guard let services else { return .null }

@@ -62,6 +62,7 @@ pub fn message(seq: u64, author: &str, text: &str) -> Message {
         answers: Vec::new(),
         answers_pending: Vec::new(),
         thread_root: None,
+        thread: None,
         created_at: String::new(),
         edited_at: None,
         retracted_at: None,
@@ -245,6 +246,25 @@ impl PreviewPort for FakeUploader {
             height,
         ));
         Ok(image)
+    }
+
+    fn upload_attachment(
+        &mut self,
+        conversation: &str,
+        bytes: &[u8],
+        mime_type: &str,
+        name: &str,
+        width: Option<u32>,
+        height: Option<u32>,
+    ) -> Result<DerivedImage, OpError> {
+        self.upload_image(
+            conversation,
+            bytes,
+            mime_type,
+            name,
+            width.unwrap_or(0),
+            height.unwrap_or(0),
+        )
     }
 }
 
@@ -485,6 +505,8 @@ pub struct Agents {
     pub released: usize,
     /// The next turn loses its acpmux connection instead of answering.
     pub lose: bool,
+    /// Every turn loses its acpmux connection instead of answering.
+    pub lose_always: bool,
     /// `events` fails with this error while set.
     pub events_error: Option<String>,
     /// Sessions whose turn was cancelled, in order.
@@ -510,6 +532,8 @@ pub struct Agents {
     pub slow_session: Option<(String, Duration)>,
     /// `new_session` on this harness profile fails with the text.
     pub session_errors: BTreeMap<String, String>,
+    /// The next `new_session` calls fail with these texts, one each, in order.
+    pub session_errors_once: std::collections::VecDeque<String>,
     /// Each session's turn signals, for `push_events`.
     pub signals: BTreeMap<String, Sender<TurnSignal>>,
     /// The `_acpmux/harnesses` answer; None: `catalog()` (claude-sr and
@@ -678,6 +702,9 @@ impl AgentPort for FakeAgents {
         if let Some(e) = self.inner.lock().unwrap().session_errors.get(&spec.harness) {
             return Err(e.clone());
         }
+        if let Some(e) = self.inner.lock().unwrap().session_errors_once.pop_front() {
+            return Err(e);
+        }
         let slow = self.inner.lock().unwrap().slow_session.clone();
         if let Some((part, delay)) = slow
             && spec.name.contains(&part)
@@ -685,9 +712,13 @@ impl AgentPort for FakeAgents {
             std::thread::sleep(delay);
         }
         // acpmux refuses any other session env key (acpmux session_env.rs ALLOWED_KEYS).
-        if let Some(key) = spec.env.keys().find(|k| k.as_str() != "CMUX_WORKSPACE_ID") {
+        if let Some(key) = spec
+            .env
+            .keys()
+            .find(|k| !matches!(k.as_str(), "CMUX_WORKSPACE_ID" | "OPTCHAT_TURN_SEAL"))
+        {
             return Err(format!(
-                "session/new: env key {key} is not one a session may set (allowed: CMUX_WORKSPACE_ID)"
+                "session/new: env key {key} is not one a session may set (allowed: CMUX_WORKSPACE_ID, OPTCHAT_TURN_SEAL)"
             ));
         }
         let mut inner = self.inner.lock().unwrap();
@@ -734,7 +765,7 @@ impl AgentPort for FakeAgents {
             let (lose, answer, error, delay) = {
                 let mut inner = me.inner.lock().unwrap();
                 (
-                    std::mem::take(&mut inner.lose),
+                    std::mem::take(&mut inner.lose) || inner.lose_always,
                     inner.answer.take(),
                     inner.answer_error.take(),
                     inner.answer_delay,
@@ -961,6 +992,8 @@ pub fn settings(dir: &Path) -> Settings {
         trace_dir: Some(dir.join("traces")),
         cache_ttl: None,
         shared_ttl: Default::default(),
+        home_view: None,
+        membership: Default::default(),
     }
 }
 

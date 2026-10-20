@@ -10,6 +10,10 @@ public final class AgentActivityHostView: NSView {
     private let source: any AgentActivitySource
     /// The theme payload the loaded page last got, so a repaint with the same colors is free.
     private var appliedTheme: String?
+    /// Coalesces bursts of model updates into one web-view state transfer per main-queue turn.
+    /// Activity events can arrive as a batch, and serializing the full projection for every
+    /// element makes the main actor and WebKit do redundant work while the page is catching up.
+    private var statePushScheduled = false
 
     /// Makes an Activity web view for a model and its native data source.
     public init(model: AgentActivityModel, source: any AgentActivitySource) {
@@ -35,11 +39,10 @@ public final class AgentActivityHostView: NSView {
         webView.allowsBackForwardNavigationGestures = false
         webView.allowsLinkPreview = false
         if webView.responds(to: NSSelectorFromString("_setDrawsBackground:")) { webView.setValue(false, forKey: "drawsBackground") }
-        #if DEBUG
+        // Web Inspector in every build (Inspect Element, Cmd-Opt-I).
         webView.isInspectable = true
-        #endif
         bridge.view = self
-        model.onChange = { [weak self] in self?.pushState() }
+        model.onChange = { [weak self] in self?.scheduleStatePush() }
         addSubview(webView)
         if let page = Self.bundledPage { webView.loadFileURL(page, allowingReadAccessTo: page.deletingLastPathComponent()) }
     }
@@ -83,6 +86,16 @@ public final class AgentActivityHostView: NSView {
                  surface: .internalPage)
     }
 
+    private func scheduleStatePush() {
+        guard !statePushScheduled else { return }
+        statePushScheduled = true
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            statePushScheduled = false
+            pushState()
+        }
+    }
+
     private func pushState() {
         guard webView.url != nil else { return }
         let state = AgentActivityBridge.state(model)
@@ -112,6 +125,9 @@ private final class AgentActivityBridge: NSObject, WKScriptMessageHandlerWithRep
 
     @MainActor
     private func reply(to method: String, params: [String: Any]) async -> (Any?, String?) {
+        // One tuple return after the do/catch: Swift 6.3 and 6.4 at -O drop the first element of
+        // a tuple returned from both an awaiting `do` and its `catch` (swiftlang/swift#92698, cx-21wc5).
+        let body: [String: Any]
         do {
             let value: Any
             switch method {
@@ -122,6 +138,11 @@ private final class AgentActivityBridge: NSObject, WKScriptMessageHandlerWithRep
             case "layout":
                 if let raw = params["value"] as? String, let layout = AgentActivityLayout(rawValue: raw) { model.layout = layout }
                 value = NSNull()
+            case "jump":
+                guard let id = params["id"] as? String, let lane = model.lanes?.first(where: { $0.id == id }) else {
+                    throw AgentActivitySourceError.malformed
+                }
+                model.onJump?(lane); value = NSNull()
             case "follow":
                 model.follow(Set((params["ids"] as? [String]) ?? [])); value = NSNull()
             case "perform":
@@ -134,17 +155,20 @@ private final class AgentActivityBridge: NSObject, WKScriptMessageHandlerWithRep
                 value = try await Self.frameData(source: source, frame: AgentActivityFrameRef(blob: blob, width: width, height: height))
             default: throw AgentActivitySourceError.refused(method)
             }
-            return (["ok": true, "value": value], nil)
+            body = ["ok": true, "value": value]
         } catch {
-            return (["ok": false, "error": ["userMessage": String(describing: error)]], nil)
+            body = ["ok": false, "error": ["userMessage": String(describing: error)]]
         }
+        return (body, nil)
     }
 
     @MainActor static func state(_ model: AgentActivityModel) -> [String: Any] {
         var sessions: [String: [[String: Any]]] = [:]
         for (machine, values) in model.sessionsByMachine { sessions[machine] = values.map(session) }
-        return ["sessionsByMachine": sessions, "machineNames": model.machineNames, "connections": model.connections.mapValues(connection), "eventsBySession": model.eventsBySession.mapValues { $0.map(event) }, "selectedSessionID": model.selectedSessionID as Any, "scrubSeq": model.scrubSeq as Any, "filter": model.filter, "watching": Array(model.watching), "layout": model.layout.rawValue, "strings": AgentActivityStrings.page]
+        return ["sessionsByMachine": sessions, "machineNames": model.machineNames, "connections": model.connections.mapValues(connection), "eventsBySession": model.eventsBySession.mapValues { $0.map(event) }, "selectedSessionID": model.selectedSessionID as Any, "scrubSeq": model.scrubSeq as Any, "filter": model.filter, "watching": Array(model.watching), "layout": model.layout.rawValue, "strings": AgentActivityStrings.page, "lanes": model.lanes.map { $0.map(lane) } as Any, "priorityRevision": model.priorityRevision, "priorityChangedSessionId": model.priorityChangedSessionID as Any]
     }
+
+    static func lane(_ value: AgentActivityLane) -> [String: Any] { ["id": value.id, "name": value.name, "title": value.title, "peer": value.peer as Any, "parent": value.parent as Any, "workspaceId": value.workspaceID as Any, "state": value.state.rawValue, "since": value.since.map { $0.timeIntervalSince1970 * 1000 } as Any, "error": value.error as Any, "harness": value.harness as Any, "step": value.step as Any] }
 
     static func session(_ value: AgentActivitySession) -> [String: Any] { ["id": value.id, "machine": value.machine, "machineName": value.machineName, "label": value.label, "agentKind": value.agentKind, "agentName": value.agentName, "attribution": value.attribution.rawValue, "workspaceTitle": value.workspaceTitle as Any, "terminalTitle": value.terminalTitle as Any, "colorHex": value.colorHex, "targetApps": value.targetApps, "status": status(value.status), "startedAt": value.startedAt.timeIntervalSince1970 * 1000, "lastActionAt": value.lastActionAt.timeIntervalSince1970 * 1000, "endedAt": value.endedAt?.timeIntervalSince1970 as Any, "acts": value.acts, "observes": value.observes, "errors": value.errors, "foregroundOnly": value.foregroundOnly] }
     static func status(_ value: AgentActivityStatus) -> Any { switch value { case .active: return "active"; case .idle: return "idle"; case .paused: return "paused"; case .ended(let reason): return ["ended": reason.rawValue] } }

@@ -5,6 +5,11 @@
 //! loopback port. Off macOS a remote chain does not run Claude Code at all.
 //! A local session's Claude spawns as before.
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+// This process runs stand-in agents (the fake agents under tests/).
+const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
 use acpmux::rpc::Message;
@@ -137,9 +142,10 @@ async fn a_remote_chain_cannot_write_outside_its_folders_or_reach_a_loopback_por
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     listener.set_nonblocking(true).unwrap();
     let port = listener.local_addr().unwrap().port();
-    // Outside the session folder and the temporary folders.
+    // Outside the session folder and the temporary folders. The name has a space, as a home under
+    // `Application Support` does (cx-0o66n): the agent must read the whole path.
     let home = std::fs::canonicalize(dirs_home()).unwrap();
-    let outside = home.join(format!(".acpmux-test-probe-{}", std::process::id()));
+    let outside = home.join(format!(".acpmux test probe-{}", std::process::id()));
     let _ = std::fs::remove_file(&outside);
     let probe = format!("sandbox-probe {} {port}", outside.display());
     // The control: a local session's agent may do all three.
@@ -181,5 +187,62 @@ async fn a_remote_chain_cannot_query_the_keychain() {
     )
     .unwrap();
     assert_eq!(seen, json!({"keychain": "denied"}));
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+/// A harness that reaches its model through a proxy on this Mac (the `cmux`
+/// harness's local relay, a loopback `ANTHROPIC_BASE_URL`): the remote
+/// chain reaches exactly that port, and still no other loopback port
+/// (cnx-ios parity round 2: such agents never answered from a phone).
+#[cfg(target_os = "macos")]
+#[tokio::test]
+async fn a_remote_chain_reaches_its_own_loopback_model_proxy_and_nothing_else() {
+    let d = dir("proxy");
+    let proxy = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    proxy.set_nonblocking(true).unwrap();
+    let proxy_port = proxy.local_addr().unwrap().port();
+    let other = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    other.set_nonblocking(true).unwrap();
+    let other_port = other.local_addr().unwrap().port();
+    let mut cfg: Config = serde_json::from_value(json!({
+        "harnesses": {"fakeclaude": {
+            "argv": ["python3", FAKE_CLAUDE], "kind": "claude-stdio",
+            "env": {"ANTHROPIC_BASE_URL": format!("http://127.0.0.1:{proxy_port}"), "ANTHROPIC_AUTH_TOKEN": "relay-key"},
+        }},
+        "defaultHarness": "fakeclaude",
+        "permissionPolicy": "ask",
+        "webRoots": [d.join("work")],
+    }))
+    .unwrap();
+    cfg.store.mode = StoreMode::Memory;
+    let store = acpmux::store::open(&cfg.store, Path::new("/nonexistent")).unwrap();
+    let hub = Hub::new(cfg, store);
+    let outside = d.join("outside-probe");
+    let mut web = Client::new(&hub, Origin::Web);
+    let seen: Value = serde_json::from_str(
+        &web.run(&d, &format!("sandbox-probe {} {proxy_port}", outside.display()))
+            .await
+            .unwrap_or_else(|e| panic!("{e}")),
+    )
+    .unwrap();
+    assert_eq!(seen["loopback"], "allowed", "the model proxy port: {seen}");
+    let mut web = Client::new(&hub, Origin::Web);
+    let seen: Value = serde_json::from_str(
+        &web.run(&d, &format!("sandbox-probe {} {other_port}", outside.display()))
+            .await
+            .unwrap_or_else(|e| panic!("{e}")),
+    )
+    .unwrap();
+    assert_eq!(seen["loopback"], "denied", "another loopback port: {seen}");
+    // The inline settings pin that endpoint and skip the user settings
+    // source, whose env would replace the route's endpoint and key.
+    let mut web = Client::new(&hub, Origin::Web);
+    let argv: Vec<String> =
+        serde_json::from_str(&web.run(&d, "argv").await.unwrap_or_else(|e| panic!("{e}"))).unwrap();
+    let at = argv.iter().position(|a| a == "--settings").expect("--settings");
+    let settings: Value = serde_json::from_str(&argv[at + 1]).unwrap();
+    assert_eq!(settings["env"]["ANTHROPIC_BASE_URL"], format!("http://127.0.0.1:{proxy_port}"));
+    let sources = argv.iter().position(|a| a == "--setting-sources").expect("--setting-sources");
+    assert_eq!(argv[sources + 1], "project,local");
     let _ = std::fs::remove_dir_all(&d);
 }

@@ -9,12 +9,22 @@ impl Hub {
     /// probe problems, and a profile file's display, capability, auth and
     /// sessions data; plus the profile sources' diagnostics.
     pub async fn harnesses_view(&self) -> Value {
+        // Before the config lock: the table reads it with `try_read`.
+        let web_modes = self.web_modes();
         let cfg = self.config.read().await;
         let mut agents = serde_json::Map::new();
         for (name, p) in &cfg.harnesses {
             let mut v = serde_json::to_value(p).unwrap_or(Value::Null);
             if let Some(o) = v.as_object_mut() {
                 o.insert("family".into(), json!(crate::config::derive_family(name, p)));
+                // What a remote device (a phone) may start with it: the modes
+                // a session it starts runs in, the start mode first, or why
+                // not (`web_modes::remote_start`, the remote guard's rules).
+                let remote = match crate::web_modes::remote_start(&web_modes, name, p) {
+                    Ok(modes) => json!({"startable": true, "modes": modes}),
+                    Err(reason) => json!({"startable": false, "reason": reason}),
+                };
+                o.insert("remote".into(), remote);
                 if let Some(r) = cfg.unavailable.get(name) {
                     o.insert("unavailable".into(), json!(r));
                 }
@@ -40,7 +50,14 @@ impl Hub {
             }
             agents.insert(name.clone(), v);
         }
-        json!({"harnesses": agents, "defaultHarness": cfg.default_harness, "families": cfg.families(), "defaults": cfg.defaults, "presets": cfg.presets, "diagnostics": cfg.profile_diagnostics, "catalog": self.catalog_harnesses(&cfg)})
+        let mut view = json!({"harnesses": agents, "defaultHarness": cfg.default_harness, "families": cfg.families(), "defaults": cfg.defaults, "presets": cfg.presets, "diagnostics": cfg.profile_diagnostics, "catalog": self.catalog_harnesses(&cfg)});
+        // The agent and model the person's app picked last for a new chat
+        // (`_acpmux/new_chat_picks_set`): a remote device's New Agent Chat
+        // starts there, as the app's does.
+        if let Some(picks) = self.person.new_chat_picks() {
+            view["lastPicks"] = picks;
+        }
+        view
     }
 }
 
@@ -58,6 +75,10 @@ impl Hub {
             }
             other => other,
         };
+        // Until startup has read the login shell, PATH is the app's bare one and
+        // the catalog lacks every harness installed under the person's home. Not
+        // the rest of startup: launcher checks can take seconds each.
+        let _ = self.catalog_ready.subscribe().wait_for(|ready| *ready).await;
         let mut view = self.harnesses_view().await;
         let Some(cwd) = cwd.filter(|_| !remote) else { return Ok(view) };
         let cfg = self.config.read().await.clone();

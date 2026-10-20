@@ -91,8 +91,10 @@ async fn ask_target(socket: &Path, session_id: &str, transfer_id: &str) -> Optio
 
 impl Hub {
     /// How long a move may go without its client before the source ends it (tests shorten it).
+    /// A watch already waiting on the old lease reads the new one at once.
     pub fn set_transfer_lease(&self, lease: std::time::Duration) {
         *self.transfer_lease.lock().unwrap_or_else(|e| e.into_inner()) = lease;
+        self.transfer_lease_changed.notify_waiters();
     }
 
     /// Watches the move `transfer_id` of `session` until it ends.
@@ -119,18 +121,28 @@ impl Hub {
         while session.moving().as_deref() == Some(transfer_id)
             && session.status() != SessionStatus::Closed
         {
+            // Enabled before the lease is read, so a change after the read is not missed.
+            let changed = self.transfer_lease_changed.notified();
+            tokio::pin!(changed);
+            changed.as_mut().enable();
             let lease = *self.transfer_lease.lock().unwrap_or_else(|e| e.into_inner());
             // A stamp ahead of the clock (it stepped back) counts as activity just now.
             let idle = last_activity(&dir).map_or(lease, |t| t.elapsed().unwrap_or_default());
             if idle < lease {
-                tokio::time::sleep(lease - idle).await;
+                tokio::select! {
+                    () = tokio::time::sleep(lease - idle) => {}
+                    () = changed => {}
+                }
                 continue;
             }
             if self.end_stalled_move(session, transfer_id, &dir).await {
                 return;
             }
             tracing::warn!(session = %session.id, transfer_id, "a stalled move's target cannot say whether it took the chat; it stays frozen");
-            tokio::time::sleep(lease).await;
+            tokio::select! {
+                () = tokio::time::sleep(lease) => {}
+                () = changed => {}
+            }
         }
     }
 

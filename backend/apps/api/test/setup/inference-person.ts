@@ -28,11 +28,11 @@ export const post = async (path: string, t: string, body: unknown) => {
 }
 
 /** A signed-in person on a paid personal plan (the plan copy TeamDO keeps, inference/plan.ts). */
-export const paidPerson = async (stackUser: string) => {
+export const paidPerson = async (stackUser: string, plan = "pro") => {
   const t = await token(stackUser)
   const ensured = await post("/v1/ops", t, { op: "user.ensure", params: {}, idempotency_key: crypto.randomUUID(), origin: "cli" })
   const team = ensured.value.personal_team as string
-  await inDO(testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(team)), async (i) => storePlan(i.ctx.storage.sql, "pro", Date.now()))
+  await inDO(testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(team)), async (i) => storePlan(i.ctx.storage.sql, plan, Date.now()))
   return { t, team, user: userIdFor(testEnv.STACK_PROJECT_ID, stackUser) }
 }
 

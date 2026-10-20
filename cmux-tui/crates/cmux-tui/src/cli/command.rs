@@ -12,6 +12,9 @@ use serde_json::{Map, Number, Value, json};
 use super::{GlobalArgs, UsageError};
 use flags::{BOOLEAN_FLAGS, usage, validate_one_of};
 
+mod agent_focus;
+mod agent_list;
+mod agent_message_cmd;
 mod browser;
 mod bulk_close;
 #[cfg(test)]
@@ -20,14 +23,18 @@ mod conversation;
 mod flags;
 pub(super) mod git;
 mod history;
+mod machine;
+mod name_flags;
 pub(super) use history::DAEMON_VERBS as HISTORY_DAEMON_VERBS;
 mod plan;
 mod screen;
 mod server_ensure;
+mod sidebar_doc;
 mod state;
 mod workspace;
-
-pub(super) use plan::{RequestPlan, Resolve, ResponseView, WireOperation, ZoomStep};
+pub(super) use plan::{
+    AgentRosterView, AgentSort, RequestPlan, Resolve, ResponseView, WireOperation, ZoomStep,
+};
 use screen::{parse_screen, parse_screen_strings};
 
 pub(super) enum ParsedCommand {
@@ -152,7 +159,9 @@ pub(super) fn parse(args: &[String], surface: super::Surface) -> Result<CommandP
     let mut selectors = Selectors::default();
     let plan = match scope {
         "server" => parse_server(&tokens.words[1..], &mut tokens.flags)?,
-        "machine" => parse_machine(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
+        "machine" => {
+            machine::parse(&tokens.words[1..], &mut selectors, &mut tokens.flags, surface)?
+        }
         "session" => parse_session(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
         "client" => parse_client(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
         "workspace" => {
@@ -196,6 +205,9 @@ fn parse_server(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usag
             end_terminals: flags.boolean("end-terminals"),
         },
         ["reload-config"] => super::lifecycle::ServerAction::ReloadConfig,
+        ["compact-registry"] => super::lifecycle::ServerAction::CompactRegistry {
+            state_dir: flags.take("state-dir").map(PathBuf::from),
+        },
         ["start"] => {
             return Err(UsageError::new(
                 crate::localization::catalog().local_server.start_options_after_action,
@@ -207,7 +219,15 @@ fn parse_server(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usag
                 action,
                 super::suggestion(
                     action,
-                    &["stats", "start", "ensure", "status", "stop", "reload-config"],
+                    &[
+                        "stats",
+                        "start",
+                        "ensure",
+                        "status",
+                        "stop",
+                        "reload-config",
+                        "compact-registry",
+                    ],
                 ),
             )));
         }
@@ -267,30 +287,6 @@ fn tokenize(args: &[String]) -> Result<Tokens, UsageError> {
 
 pub(super) fn is_boolean_flag(name: &str) -> bool {
     BOOLEAN_FLAGS.contains(&name)
-}
-
-fn parse_machine(
-    words: &[String],
-    selectors: &mut Selectors,
-    flags: &mut Flags,
-) -> Result<CommandPlan, UsageError> {
-    match strs(words).as_slice() {
-        ["list"] => request(ResourceOperation::MachineList, selectors, flags, Map::new()),
-        [selector, "show"] => {
-            selectors.insert("machine", "machine", selector)?;
-            request(ResourceOperation::MachineGet, selectors, flags, Map::new())
-        }
-        [machine, "session", "list"] => {
-            selectors.insert("machine", "machine", machine)?;
-            request(ResourceOperation::SessionList, selectors, flags, Map::new())
-        }
-        [machine, "session", session, "open"] => {
-            selectors.insert("machine", "machine", machine)?;
-            selectors.insert("session", "session", session)?;
-            request(ResourceOperation::SessionOpen, selectors, flags, Map::new())
-        }
-        _ => usage("machine action"),
-    }
 }
 
 fn parse_session(
@@ -593,6 +589,10 @@ fn parse_workspace(
     if let Some(plan) = state::parse_workspace_status(&refs, selectors, flags, argv.as_deref())? {
         return Ok(plan);
     }
+    if let Some(plan) = state::parse_workspace_checklist(&refs, selectors, flags, argv.as_deref())?
+    {
+        return Ok(plan);
+    }
     match refs.as_slice() {
         ["group", rest @ ..] => state::parse_workspace_group(rest, selectors, flags),
         ["placement", "list"] => {
@@ -622,6 +622,13 @@ fn parse_workspace(
             selectors.insert("workspace", "ws", selector)?;
             request(ResourceOperation::WorkspaceFocus, selectors, flags, Map::new())
         }
+        // `workspace-open-url-v1`: a web link on the workspace's right side;
+        // with no workspace, the home workspace.
+        ["open-url"] => workspace_open_url(selectors, flags),
+        [selector, "open-url"] => {
+            selectors.insert("workspace", "ws", selector)?;
+            workspace_open_url(selectors, flags)
+        }
         [selector, "close"] => bulk_close::close("workspace", selector, selectors, flags),
         [selector, "run", tail @ ..] => {
             selectors.insert("workspace", "ws", selector)?;
@@ -643,6 +650,22 @@ fn parse_workspace(
     }
 }
 
+fn workspace_open_url(
+    selectors: &mut Selectors,
+    flags: &mut Flags,
+) -> Result<CommandPlan, UsageError> {
+    let url = flags.required("url")?;
+    if url.is_empty() {
+        return Err(UsageError::new("--url cannot be empty"));
+    }
+    request(
+        ResourceOperation::WorkspaceOpenUrl,
+        selectors,
+        flags,
+        map_with("url", Value::String(url)),
+    )
+}
+
 fn parse_pane(
     words: &[String],
     selectors: &mut Selectors,
@@ -660,7 +683,10 @@ fn parse_pane_strings(
     argv: Option<Vec<String>>,
 ) -> Result<CommandPlan, UsageError> {
     match words {
-        ["list"] => request(ResourceOperation::PaneList, selectors, flags, Map::new()),
+        ["list"] => {
+            add_optional_parent_selectors(selectors, flags, &["workspace", "screen"])?;
+            request(ResourceOperation::PaneList, selectors, flags, Map::new())
+        }
         ["create"] => {
             let mut params = Map::new();
             add_size(&mut params, flags)?;
@@ -792,7 +818,10 @@ fn parse_tab_strings(
 ) -> Result<CommandPlan, UsageError> {
     match words {
         ["group", rest @ ..] => state::parse_tab_group(rest, flags),
-        ["list"] => request(ResourceOperation::TabList, selectors, flags, Map::new()),
+        ["list"] => {
+            add_optional_parent_selectors(selectors, flags, &["workspace", "screen", "pane"])?;
+            request(ResourceOperation::TabList, selectors, flags, Map::new())
+        }
         ["create"] => Err(UsageError::new("tab create needs terminal or browser")),
         [selector, "show"] => {
             selectors.insert("tab", "tab", selector)?;
@@ -839,6 +868,8 @@ fn parse_tab_strings(
             let mut params = Map::new();
             insert_optional_string(&mut params, flags, "device", "device");
             insert_optional_string(&mut params, flags, "orientation", "orientation");
+            // --fit 16:9 | 1280: a desktop layout scaled to the tab's width, full height.
+            insert_optional_string(&mut params, flags, "fit", "fit");
             if let Some(custom) = flags.take("custom-json") {
                 let custom = serde_json::from_str(&custom).map_err(|error| {
                     UsageError::new(format!("invalid --custom-json JSON: {error}"))
@@ -847,7 +878,7 @@ fn parse_tab_strings(
             }
             if params.is_empty() {
                 return Err(UsageError::new(
-                    "tab emulate needs --device, --custom-json or --orientation; `cmux browser devices list` lists the devices",
+                    "tab emulate needs --device, --custom-json, --orientation or --fit 16:9|1280|off; `cmux browser devices list` lists the devices",
                 ));
             }
             request(ResourceOperation::BrowserTabEmulate, selectors, flags, params)
@@ -881,7 +912,14 @@ fn parse_terminal(
     flags: &mut Flags,
 ) -> Result<CommandPlan, UsageError> {
     match strs(words).as_slice() {
-        ["list"] => request(ResourceOperation::TerminalList, selectors, flags, Map::new()),
+        ["list"] => {
+            add_optional_parent_selectors(
+                selectors,
+                flags,
+                &["workspace", "screen", "pane", "tab"],
+            )?;
+            request(ResourceOperation::TerminalList, selectors, flags, Map::new())
+        }
         [selector, verb @ ("show" | "status")] => {
             selectors.insert("terminal", "term", selector)?;
             let plan = request(ResourceOperation::TerminalGet, selectors, flags, Map::new());
@@ -1152,7 +1190,7 @@ fn parse_notification(words: &[String], flags: &mut Flags) -> Result<CommandPlan
             }
             params.insert("body".into(), Value::String(flags.required("body")?));
             if let Some(level) = flags.take("level") {
-                validate_one_of("--level", &level, &["info", "success", "warning", "error"])?;
+                validate_one_of("--level", &level, &["info", "warning", "error"])?;
                 params.insert("level".into(), Value::String(level));
             }
             if let Some(terminal) = flags.take("terminal") {
@@ -1308,14 +1346,7 @@ fn parse_agent(
 ) -> Result<CommandPlan, UsageError> {
     let selectors = Selectors::default();
     match strs(words).as_slice() {
-        ["message", rest @ ..] => {
-            let from = flags.take("from");
-            let thread = flags.take("thread");
-            let reply_to = flags.take("reply-to");
-            Ok(CommandPlan::AgentMessage(Box::new(super::agent_message::parse_message(
-                rest, argv, from, thread, reply_to,
-            )?)))
-        }
+        ["message", rest @ ..] => agent_message_cmd::parse(rest, flags, argv),
         ["inbox", rest @ ..] => {
             let state = flags.take("state");
             let limit = flags.take("limit");
@@ -1337,22 +1368,7 @@ fn parse_agent(
                 providers: providers.iter().map(|provider| (*provider).to_string()).collect(),
             }))
         }
-        ["list"] => {
-            let mut params = Map::new();
-            if let Some(terminal) = flags.take("terminal") {
-                validate_prefixed_id("terminal", "term", &terminal)?;
-                params.insert("terminal_id".into(), Value::String(terminal));
-            }
-            if let Some(state) = flags.take("state") {
-                validate_one_of(
-                    "--state",
-                    &state,
-                    &["working", "blocked", "idle", "done", "unknown"],
-                )?;
-                params.insert("state".into(), Value::String(state));
-            }
-            request(ResourceOperation::AgentList, &selectors, flags, params)
-        }
+        ["list"] => agent_list::parse(flags),
         ["hook", "emit"] => {
             const MAX_NATIVE_PAYLOAD_BYTES: u64 = 1024 * 1024;
             let source = flags.required("source")?;
@@ -1388,6 +1404,8 @@ fn parse_agent(
             let terminal =
                 flags.take("terminal").or_else(|| std::env::var("CMUX_TUI_TERMINAL_ID").ok());
             terminal.iter().try_for_each(|id| validate_prefixed_id("terminal", "term", id))?;
+            // Read before the journal event redacts them; they travel beside it (memory only).
+            let live = cmux_tui_core::agent_hook_live_fields(&source, &native_event, &native);
             let mut ingress = cmux_tui_core::agent_hook_journal_ingress(
                 &source,
                 &native_event,
@@ -1405,17 +1423,14 @@ fn parse_agent(
                     "encoded agent hook payload cannot exceed 1048576 bytes",
                 ));
             }
-            request(
-                ResourceOperation::SessionJournalAppend,
-                &selectors,
-                flags,
-                map_with(
-                    "event",
-                    serde_json::to_value(ingress).map_err(|error| {
-                        UsageError::new(format!("encode agent hook request: {error}"))
-                    })?,
-                ),
-            )
+            let mut fields = map_with(
+                "event",
+                serde_json::to_value(ingress).map_err(|error| {
+                    UsageError::new(format!("encode agent hook request: {error}"))
+                })?,
+            );
+            fields.extend(live);
+            request(ResourceOperation::SessionJournalAppend, &selectors, flags, fields)
         }
         ["report"] => {
             let terminal = flags.required("terminal")?;
@@ -1435,7 +1450,7 @@ fn parse_agent(
             insert_optional_string(&mut params, flags, "source-session", "source_session");
             request(ResourceOperation::AgentReport, &selectors, flags, params)
         }
-        _ => usage("agent action"),
+        other => agent_focus::parse(other, flags),
     }
 }
 
@@ -1499,6 +1514,12 @@ fn parse_sidebar(
         }
         ["plugin", tail @ ..] => {
             parse_plugin(tail, flags, crate::plugin_manager::PluginKind::Sidebar)
+        }
+        ["section-scroll", section, scroll] => {
+            sidebar_doc::section_scroll(section, scroll, selectors, flags)
+        }
+        ["section-max-rows", section, rows] => {
+            sidebar_doc::section_max_rows(section, rows, selectors, flags)
         }
         _ => usage("sidebar action"),
     }
@@ -2193,19 +2214,7 @@ fn request_with_required_name(
     selectors: &Selectors,
     flags: &mut Flags,
 ) -> Result<CommandPlan, UsageError> {
-    let mut params = Map::new();
-    params.insert("name".into(), Value::String(flags.required("name")?));
-    if operation == ResourceOperation::TabRename {
-        if let Some(source) = flags.take("source") {
-            validate_one_of("--source", &source, &["user", "auto"])?;
-            params.insert("source".into(), Value::String(source));
-        }
-        insert_optional_string(&mut params, flags, "expected-generation", "expected_generation");
-        if let Some(revision) = flags.take("expected-name-revision") {
-            validate_decimal("--expected-name-revision", &revision)?;
-            params.insert("expected_name_revision".into(), Value::String(revision));
-        }
-    }
+    let params = name_flags::rename_params(operation, flags)?;
     request(operation, selectors, flags, params)
 }
 
@@ -4303,6 +4312,7 @@ mod tests {
         }
     }
 
+    mod name_source_tests;
     mod transport_path_coverage_tests;
 
     fn record_covered_fields<'a>(

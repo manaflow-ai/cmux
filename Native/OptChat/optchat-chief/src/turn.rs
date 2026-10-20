@@ -188,6 +188,81 @@ pub struct TurnOutcome {
     pub done_draft: Option<crate::draft::Draft>,
 }
 
+/// The error of a turn whose acpmux connection was lost while it ran.
+pub const CONNECTION_LOST: &str = "the acpmux connection was lost during the turn";
+
+/// The waits before each new try of a turn's `session/new` that failed for
+/// a passing reason: about 7 s in all, inside the turn's limit.
+const NEW_SESSION_BACKOFF: [Duration; 3] = [
+    Duration::from_millis(500),
+    Duration::from_secs(2),
+    Duration::from_secs(4),
+];
+
+/// Errors of a turn's `session/new` that a new try can cure: the harness
+/// process closed as it started (`sr2 claude` exits while the sr2 gateway
+/// answers 502 or refuses), the agent host missed its hello, the acpmux link
+/// was between daemons (an update relaunch hands the daemon off), or the
+/// upstream answered a passing error. A setup error (a refused env key, a
+/// login) fails at once.
+const TRANSIENT_SESSION_FAILURES: [&str; 13] = [
+    "agent process closed",
+    "agent host did not answer hello",
+    "agent host exited before it was ready",
+    "connection closed",
+    "not connected",
+    "is shutting down",
+    "Connection refused",
+    "ECONNREFUSED",
+    "ECONNRESET",
+    "502",
+    "503",
+    "504",
+    "the CLI exited",
+];
+
+/// Whether a turn's `session/new` error is worth a new try.
+pub fn is_transient_session_failure(error: &str) -> bool {
+    TRANSIENT_SESSION_FAILURES.iter().any(|t| error.contains(t))
+}
+
+/// `session/new`, tried again after each [`NEW_SESSION_BACKOFF`] wait while
+/// it fails for a passing reason. A stop request, the turn's deadline or a
+/// setup error ends the tries with the last error.
+fn new_session_with_retry(
+    agents: &dyn AgentPort,
+    spec: &SessionSpec,
+    interrupt: &Interrupt,
+    deadline: Option<Instant>,
+    note: &dyn Fn(&str, Duration),
+) -> Result<String, String> {
+    let mut waits = NEW_SESSION_BACKOFF.iter();
+    loop {
+        let error = match agents.new_session(spec) {
+            Ok(id) => return Ok(id),
+            Err(e) => e,
+        };
+        let Some(&wait) = waits.next() else {
+            return Err(error);
+        };
+        if !is_transient_session_failure(&error)
+            || interrupt.is_set()
+            || deadline.is_some_and(|d| Instant::now() + wait >= d)
+        {
+            return Err(error);
+        }
+        note(&error, wait);
+        // A bounded wait that a stop request ends early (never a poll).
+        if interrupt.wait(wait) {
+            return Err(error);
+        }
+        // A start that failed halfway can leave its name taken.
+        if let Ok(Some(old)) = agents.find(&spec.name) {
+            let _ = agents.end_session(&old);
+        }
+    }
+}
+
 /// A turn the harness gate refused: traced, and posted as its error.
 fn refused(trace: &Trace, start: &TurnStart, reason: &str) -> TurnOutcome {
     crate::harness_gate::trace_refusal(trace, "turn", &start.session.harness, reason);
@@ -219,10 +294,12 @@ pub fn run(
         progress,
         trace,
         &|_| {},
+        &|_| {},
     )
 }
 
-/// `run`, publishing drafts of the reply as it streams (`draft.rs`).
+/// `run`, publishing drafts of the reply as it streams (`draft.rs`) and the
+/// turn's run record as it changes (`run.rs`).
 #[allow(clippy::too_many_arguments)]
 pub fn run_with_drafts(
     agents: &dyn AgentPort,
@@ -233,6 +310,7 @@ pub fn run_with_drafts(
     progress: &dyn Fn(&str, u64),
     trace: &Trace,
     draft: &dyn Fn(crate::draft::Draft),
+    run: &dyn Fn(crate::run::RunUpdate),
 ) -> TurnOutcome {
     let scope = serde_json::json!({"turn": start.key});
     let began = Instant::now();
@@ -279,7 +357,13 @@ pub fn run_with_drafts(
             };
         }
     }
-    let session = match agents.new_session(&spec) {
+    let session = match new_session_with_retry(agents, &spec, interrupt, deadline, &|e, wait| {
+        log(&format!(
+            "turn {}: {e}; the session starts again in {} ms",
+            start.key,
+            wait.as_millis()
+        ))
+    }) {
         Ok(id) => id,
         Err(e) => {
             return TurnOutcome {
@@ -314,12 +398,64 @@ pub fn run_with_drafts(
         &start.key,
         Some(admitted.profile.clone()),
     ));
+    // Steps in appends the owner takes, then the summary on its own: a refused step append
+    // never loses the run's start or end.
+    let send_run = |summary: serde_json::Map<String, Value>,
+                    steps: Vec<Value>,
+                    images: Vec<crate::run::RunImage>| {
+        let mut images = Some(images);
+        for chunk in crate::run::chunks(steps) {
+            run(crate::run::RunUpdate {
+                turn: start.key.clone(),
+                run: serde_json::Map::new(),
+                steps: chunk,
+                images: images.take().unwrap_or_default(),
+                live: Vec::new(),
+            });
+        }
+        if !summary.is_empty() {
+            run(crate::run::RunUpdate {
+                turn: start.key.clone(),
+                run: summary,
+                steps: Vec::new(),
+                images: Vec::new(),
+                live: Vec::new(),
+            });
+        }
+    };
     let publish = |fold: &mut TurnFold| {
         let (closed, open) = fold.take_segments();
         for d in drafter.borrow_mut().update(closed, open, Instant::now()) {
             draft(d);
         }
+        // The live frames first: a step's last delta before its row.
+        let live = fold.take_run_live();
+        if !live.is_empty() {
+            run(crate::run::RunUpdate {
+                turn: start.key.clone(),
+                run: serde_json::Map::new(),
+                steps: Vec::new(),
+                images: Vec::new(),
+                live,
+            });
+        }
+        let steps = fold.take_run_steps(Instant::now(), false);
+        if !steps.is_empty() {
+            let images = fold.take_run_images();
+            send_run(serde_json::Map::new(), steps, images);
+        }
     };
+    // The run is on the conversation before the harness acts.
+    send_run(
+        crate::run::started(
+            &session,
+            &admitted.profile,
+            spec.model.as_deref(),
+            crate::run::epoch_ms(),
+        ),
+        Vec::new(),
+        Vec::new(),
+    );
     // The session is on record before it can act: a host that stops from
     // here on folds what it did at the next start, even if the brain never
     // saved the id (it hears of it through `progress`, later).
@@ -513,18 +649,16 @@ pub fn run_with_drafts(
                     after: fold.seq(),
                 });
                 let seq = fold.seq();
-                append_at(
-                    fold.finish(Some(
-                        "the acpmux connection was lost during the turn".into(),
-                    )),
-                    seq,
-                );
+                append_at(fold.finish(Some(CONNECTION_LOST.into())), seq);
                 break;
             }
         }
     }
-    // What the turn's end closed, then the last draft (the brain publishes
-    // it once the reply is posted).
+    // What the turn's end closed (every streaming step's last live frame,
+    // before the run's end and the reply: the reply replaces the streaming
+    // text with no jump), then the last draft (the brain publishes it once
+    // the reply is posted).
+    fold.close_run_steps();
     publish(&mut fold);
     let done_draft = Some(drafter.borrow_mut().done());
     // The fold ended on `turn_end`: the answer with the token use follows.
@@ -577,6 +711,18 @@ pub fn run_with_drafts(
     }
     let error = fold.ended().and_then(|e| e.error.clone());
     let cancelled = is_cancelled(error.as_deref());
+    // The run's end: what is left of its steps, its use and cost.
+    send_run(
+        crate::run::ended(
+            error.as_deref().or(moved.as_deref()),
+            cancelled,
+            totals.map(|(u, _)| u),
+            cost,
+            requests.last().and_then(|r| r.model.as_deref()),
+        ),
+        fold.take_run_steps(Instant::now(), true),
+        fold.take_run_images(),
+    );
     let refused = moved.is_some();
     let error = match (error, moved) {
         (Some(e), Some(m)) => Some(format!("{e}; {m}")),

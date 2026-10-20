@@ -68,11 +68,15 @@ nonisolated extension CatalogArgument {
     /// The `theme` value that means "the Ghostty config" (no own theme).
     static let themeConfigValue = "config"
 
-    /// Same list and order as onboarding's theme step
-    /// (`ThemeCatalog.curated` in CmuxNextDesign; a test keeps them equal).
+    /// The pinned themes, in picker order (palette, context menus and Settings via
+    /// `SettingsPaletteSource`).
+    /// Soft Blue, Clay Orange, Olive Grey and the two Light pairs are cmux's own
+    /// (Resources/cmux-themes, bundled with Ghostty's).
     static let curatedThemes = [
         "Rose Pine", "Rose Pine Moon", "Catppuccin Mocha", "TokyoNight", "Gruvbox Dark", "Nord", "Vesper",
+        "Soft Blue", "Clay Orange", "Olive Grey",
         "Rose Pine Dawn", "Catppuccin Latte", "GitHub Light Default",
+        "Soft Blue Light", "Clay Orange Light",
     ]
 }
 

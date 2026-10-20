@@ -1,6 +1,7 @@
 public import AppKit
 public import Foundation
 public import Observation
+import CmuxNextWakeups
 
 /// A Chromium tab (CEF fork, Chrome style). Its page is a child window that
 /// tracks `contentView` (`.childWindow` presentation). The Chromium browser
@@ -49,8 +50,14 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// A toolbar click that came before the browser existed.
     @ObservationIgnored var pendingExtensionAction: (id: String, anchor: CGRect)?
     @ObservationIgnored public weak var devToolsObserver: (any BrowserDevToolsObserving)?
+    /// The page's Developer Tools modes (cache off, throttling, overlays,
+    /// emulated media) that cmux's DevTools session set (`WebDevToolsToggles`).
+    @ObservationIgnored public var devToolsModes = WebDevToolsToggles()
 
     var machine = BrowserTabStateMachine()
+    /// Title changes reach `machine` at most 4 a second (`TitleCoalescer`, idle power).
+    @ObservationIgnored var titleCoalescer = TitleCoalescer()
+    @ObservationIgnored let titleTimer = DemandTimer(owner: "CEFTab.title")
     @ObservationIgnored var isCreationPending = false
     @ObservationIgnored var navigation: BrowserNavigationID?
     @ObservationIgnored var nextNavigation: UInt64 = 0
@@ -70,6 +77,11 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// The tab showed a real page (or a page opened it): its page
     /// background is Chromium's white from now on (`PageBackground`).
     @ObservationIgnored private(set) var pastFirstRealPage = false
+    /// The document's own background, 0xAARRGGBB, once read (nil: Chromium's
+    /// white); counts for resize gaps (`CEFTab+ResizeBackdrop`).
+    @ObservationIgnored var pageBackdropARGB: UInt32?
+    /// Bumped on each committed document, so a read of the previous one is dropped.
+    @ObservationIgnored var pageBackdropDocument = 0
     /// URL of the last main-frame load that committed (Chromium's current
     /// entry). Renderer debug URLs (chrome://crash) never commit.
     @ObservationIgnored var committedURL: URL?
@@ -87,13 +99,21 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     @ObservationIgnored var capturesTitleBeforeCommit = false
     /// The pending find-in-page request (`CEFFindRequests`).
     @ObservationIgnored var findRequests = CEFFindRequests()
-    /// The daemon's resolved emulation (`CEFTab+DeviceEmulation`), its last fit scale,
+    /// The daemon's resolved emulation (`CEFTab+DeviceEmulation`), its last layout size and scale,
     /// whether an override is on the page, and the calls in flight.
     @ObservationIgnored public internal(set) var deviceEmulation: BrowserEmulation?
-    @ObservationIgnored var deviceEmulationScale: CGFloat?
+    @ObservationIgnored var deviceEmulationViewport: BrowserEmulation.Viewport?
+    /// View points per CSS px the emulation applies now (the viewport's scale; 1 for none). Observed:
+    /// the app announces it to the browser host, which scales an agent's mouse input by it (cx-mogig).
+    public internal(set) var emulationInputScale: Double = 1
+    /// The emulation turned touch on (a phone or tablet preset). Observed: the app announces it, and the
+    /// browser host sends an agent's pointer input as touch, which Chromium answers (cx-3ny35).
+    public internal(set) var emulationTouch = false
     @ObservationIgnored var deviceEmulationApplied = false
     @ObservationIgnored var deviceEmulationTask: Task<Void, Never>?
     @ObservationIgnored var deviceEmulationDirty = false
+    /// The next emulation run clears this session's metrics first (after DevTools device mode).
+    @ObservationIgnored var deviceEmulationNeedsReset = false
     @ObservationIgnored var faviconTask: Task<Void, Never>?
     @ObservationIgnored private(set) var isClosed = false
     @ObservationIgnored private var isOccluded = false
@@ -203,11 +223,22 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// Every attached tab owns its background (theme color of its own
     /// scope until the first real page, then white), so a theme change of
     /// another room or workspace never repaints it.
-    private func applyPageBackground() {
+    /// After the first real page, the document's own background once read
+    /// (`CEFTab+ResizeBackdrop`): it shows only where the page draws nothing,
+    /// as in the gap of a resize.
+    func applyPageBackground() {
+        applyHostBackdrop()
         guard let browser = browserID, let shim = runtime.shim else { return }
-        _ = shim.browserSetBackgroundColor(browser, PageBackground.chromiumARGB(pastFirstRealPage: pastFirstRealPage,
-                                                                                 theme: PageBackground.themeARGB(in: container,
-                                                                                                                 surface: pastFirstRealPage ? nil : .newTabPage)))
+        let argb = pastFirstRealPage ? ((BrowserResizeTunables.pageBackdrop.value ? pageBackdropARGB : nil) ?? PageBackground.engineDefaultARGB)
+            : PageBackground.themeARGB(in: container, surface: .newTabPage)
+        _ = shim.browserSetBackgroundColor(browser, argb)
+    }
+
+    /// The shared host view under the page window takes this tab's page
+    /// color while it shows this tab.
+    func applyHostBackdrop() {
+        guard host.visibleTab === self else { return }
+        host.hostView.pageBackdrop = pageBackdropColor
     }
 
     func creationFailed() {
@@ -395,6 +426,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         guard !isClosed else { return }
         isClosed = true
         agentRelay.resumeWaiters(false)
+        titleTimer.cancel()
         faviconTask?.cancel()
         dismissPrompts()
         if let browserID {

@@ -15,7 +15,7 @@ use std::sync::atomic::Ordering;
 
 use crate::acpmux::SessionSpec;
 use crate::compactor::is_marker_limit_error;
-use crate::prompt::{CacheTtl, Mark, is_ttl_refused_error, turn_blocks, turn_layout};
+use crate::prompt::{CacheTtl, input_blocks, input_layout, is_ttl_refused_error};
 use crate::state::{Batch, ChildRef, ChildStatus, HostState, Item, PendingTurn};
 use crate::turn::{self, Interrupt, TurnOutcome, TurnStart};
 use optchat_host::{Appended, NewMessage};
@@ -56,6 +56,18 @@ impl Brain {
         if self.phase != Phase::Idle || !self.queue.iter().any(Queued::wakes) || !self.ready() {
             return;
         }
+        // A turn an upstream error cut waits out its backoff first; a new
+        // message from a person starts it at once.
+        if self
+            .resume_at
+            .is_some_and(|at| at > std::time::Instant::now())
+            && !self
+                .queue
+                .iter()
+                .any(|q| matches!(q.source, Source::Message { .. }))
+        {
+            return;
+        }
         self.phase = Phase::Settling;
         // The bound counts from the first wait for this turn: a wait that
         // starts over (the log changed under it) does not reset it.
@@ -83,7 +95,7 @@ impl Brain {
             .name("turn".into())
             .spawn(move || {
                 // Section 6, as the chief changed it (2026-10-10: a user turn
-                // never waits more than 10 s on compaction): the turn waits
+                // never waits more than SETTLE_BOUND on compaction): the turn waits
                 // until every view line is a summary, at most SETTLE_BOUND.
                 // Then it starts anyway and reads the lines still building
                 // unsummarized (`PLACEHOLDER`, which `zoom` opens); the next
@@ -160,8 +172,12 @@ impl Brain {
                         let draft = |d: crate::draft::Draft| {
                             let _ = tx.send(Input::Draft(Box::new(d)));
                         };
+                        // The turn's run record, to the same clients.
+                        let run_update = |u: crate::run::RunUpdate| {
+                            let _ = tx.send(Input::Run(Box::new(u)));
+                        };
                         let outcome =
-                            turn::run_with_drafts(&*agents, &chat, &start, &interrupt, &*log, &progress, &trace, &draft);
+                            turn::run_with_drafts(&*agents, &chat, &start, &interrupt, &*log, &progress, &trace, &draft, &run_update);
                         // Claude Code placed all four cache breakpoints
                         // itself: the same turn again without the marker
                         // (the refused request did nothing), and later
@@ -224,7 +240,7 @@ impl Brain {
                                     }
                                 }
                                 again.prompt_id = format!("{}:{}", start.prompt_id, retry.as_str());
-                                turn::run_with_drafts(&*agents, &chat, &again, &interrupt, &*log, &progress, &trace, &draft)
+                                turn::run_with_drafts(&*agents, &chat, &again, &interrupt, &*log, &progress, &trace, &draft, &run_update)
                             }
                             (Some(e), _) if marked && is_marker_limit_error(e) => {
                                 marker_refused.refused();
@@ -250,12 +266,12 @@ impl Brain {
                                     }
                                 }
                                 again.prompt_id = format!("{}:unmarked", start.prompt_id);
-                                turn::run_with_drafts(&*agents, &chat, &again, &interrupt, &*log, &progress, &trace, &draft)
+                                turn::run_with_drafts(&*agents, &chat, &again, &interrupt, &*log, &progress, &trace, &draft, &run_update)
                             }
                             _ => outcome,
                         };
                         crate::turn::run_after_capacity_waits(outcome, &start, &interrupt, &*log, &trace, |again| {
-                            turn::run_with_drafts(&*agents, &chat, again, &interrupt, &*log, &progress, &trace, &draft)
+                            turn::run_with_drafts(&*agents, &chat, again, &interrupt, &*log, &progress, &trace, &draft, &run_update)
                         })
                     }
                     Engine::Native(native) => {
@@ -295,7 +311,7 @@ impl Brain {
     /// have lost acpmux (the turn would fail at once and consume the queue)
     /// or appended to the log (an orphan's fold), which can leave a view line
     /// unsummarized again; then the queue stays and the wait starts over.
-    /// Chief 2026-10-10: a user turn never waits more than 10 s on
+    /// A user turn never waits more than SETTLE_BOUND (1 s) on
     /// compaction (README, Deviations from the spec, Section 6).
     /// `deferred`: the worker waited SETTLE_BOUND and starts the turn with
     /// lines still building (they read as the placeholder).
@@ -331,7 +347,6 @@ impl Brain {
         let (items, rest): (Vec<Queued>, Vec<Queued>) =
             self.queue.drain(..).partition(|q| q.conversation == side);
         self.queue.extend(rest);
-        let view = self.chat.render_view();
         // The messages, their bookkeeping (floors, children) and the pending
         // turn commit together: a crash leaves all of it or none of it, so a
         // restart never logs a message twice and never loses one.
@@ -348,45 +363,23 @@ impl Brain {
         let (cached, plain_preset) = self.session_presets(family);
         let marker = self.marker_refused.take();
         let ttl = self.turn_cache_ttl();
-        // Our one mark: the last whole block of the view (the header while
-        // there is none), held within the API's lookback of the last turn's
-        // mark (optchat_core::mark_piece), which is saved with the messages
-        // so a restart keeps it. A marked turn runs Claude Code without its
-        // own marks (the API takes 4), so each tool step's tail after the
-        // view goes uncached. Measured 2026-10-08 on a 30 KB view: this wins
-        // 11x on a one-request turn and 20% at 12 steps with tiny outputs;
-        // Claude Code's own rolling marks win only past about 400 output
-        // tokens per step at 12 steps (32% at about 1k tokens). Claude Code
+        // Our marks (spec 5a.2): the `<chat>` header, the frozen view's end and
+        // the delta's end (the request's end before the per-turn tail). A marked
+        // turn runs Claude Code without its own marks (the API takes 4), so each
+        // tool step's tail after our input goes uncached. Claude Code
         // reads the setting at process start, so a turn cannot switch after
-        // its first step; 11 of 13 real turns made 1-2 requests, and
-        // tool-heavy work belongs in subagents, which keep Claude Code's
-        // marks (decision 2026-10-08).
+        // its first step; tool-heavy work belongs in subagents, which keep
+        // Claude Code's marks (decision 2026-10-08).
         let mark = cached
             .as_ref()
             .filter(|_| marker)
-            .and_then(|_| {
-                let prev = self
-                    .state
-                    .last_mark
-                    .as_ref()
-                    .and_then(|m| m.prefix_of(&view.text));
-                optchat_core::mark_piece(&view.text, prev)
-            })
-            .map(|piece| Mark { piece, ttl })
+            .map(|_| ttl)
             // A session the pool started for an unmarked turn runs Claude
             // Code with its own marks: ours on top would make 5.
             .filter(|_| self.prewarm_ours != Some(false));
-        let mark_record = mark.map(|m| {
-            crate::state::MarkRecord::of(
-                &optchat_core::block_pieces(&view.text)[..=m.piece].concat(),
-            )
-        });
         let mut answers = self.state.carry_answers.clone();
         add_answers(&mut answers, self.answers_of(&items));
         let done = self.log_items(&items, move |next, done| {
-            if let Some(record) = mark_record {
-                next.last_mark = Some(record);
-            }
             next.carry_answers.clear();
             let first = done.ids.first().copied().unwrap_or(first_id);
             let stamp = done.stamps.first().map(String::as_str).unwrap_or("");
@@ -416,9 +409,19 @@ impl Brain {
         self.stop_wanted = false;
         let items_sources: Vec<&'static str> =
             items.iter().map(|i| source_name(&i.source)).collect();
-        // The strictest origin of the turn: a paired device's message (or
-        // a remote turn this one supersedes) makes it ask for every local
-        // effect, unless the user turned on remote.autoApprove on the Mac.
+        // Per-turn ambient state is read before choosing the policy. The whole
+        // Home view is untrusted: terminal/browser titles and URLs are just as
+        // attacker-controlled as terminal screen text. Asking whenever Home is
+        // available also covers a later `chief workspace` refresh in this turn.
+        let home = self
+            .settings
+            .home_view
+            .as_ref()
+            .and_then(crate::home_view::HomeView::read);
+        let ambient_requires_approval = home.is_some();
+        // The strictest origin wins. Paired-device work asks unless the owner
+        // explicitly opted into auto-approval; another participant and
+        // ambient Home text always ask.
         self.turn_remote = std::mem::take(&mut self.remote_taint)
             || items.iter().any(|i| {
                 matches!(
@@ -429,16 +432,30 @@ impl Brain {
                     } | Source::Resume { remote: true, .. }
                 )
             });
-        self.turn_ask = self.turn_remote && !self.chief.remote_auto_approve;
+        let participant_requires_approval = items.iter().any(|i| {
+            matches!(
+                i.source,
+                Source::Message {
+                    requires_approval: true,
+                    ..
+                } | Source::Resume {
+                    requires_approval: true,
+                    ..
+                }
+            )
+        });
+        self.turn_ask = participant_requires_approval
+            || ambient_requires_approval
+            || (self.turn_remote && !self.chief.remote_auto_approve);
         self.clear_turn_approvals();
         self.interrupt.set_gate(self.turn_ask);
         // The shared rule (cmux_chief::policy::turn_policy, the corpus's
         // `policy` cases).
-        let policy = cmux_chief::policy::turn_policy(
-            self.turn_remote,
-            self.chief.remote_auto_approve,
-            &self.settings.policy,
-        );
+        let policy = if self.turn_ask {
+            crate::approval::ASK.to_owned()
+        } else {
+            self.settings.policy.clone()
+        };
         let images: Vec<super::images::TurnImage> = items
             .iter()
             .flat_map(|i| i.images.iter().cloned())
@@ -449,20 +466,75 @@ impl Brain {
             .collect();
         self.describe_images(&images);
         // A resume note carries the cut messages' full text (never logged
-        // again) before the newer messages.
-        let texts: Vec<String> = items
-            .into_iter()
-            .map(|i| match &i.source {
-                Source::Resume { cut, .. } => super::recover::resume_prompt(cut),
-                _ => i.text,
+        // again): it goes in the per-turn tail; every new message is in the
+        // delta as it was logged (spec 5a.3).
+        let resumes: Vec<String> = items
+            .iter()
+            .filter_map(|i| match &i.source {
+                Source::Resume { cut, .. } => Some(super::recover::resume_prompt(cut)),
+                _ => None,
             })
             .collect();
-        // Per-turn state goes after the view, never in the system prompt:
-        // the subagents at work now (the reference client's line), before
-        // the new messages. Never logged.
+        // The turn's first new entry: an item a failed steer logged already
+        // is new too, so it stays in the delta, never in a new view (5a.3).
+        let main = self.state.conversation.clone().unwrap_or_default();
+        let first_new = items
+            .iter()
+            .filter(|q| q.logged)
+            .filter_map(|q| match q.source {
+                Source::Message { seq, .. } => self.chat.logged_id(&format!(
+                    "{}#{seq}",
+                    q.conversation.as_deref().unwrap_or(&main)
+                )),
+                _ => None,
+            })
+            .fold(first_id, u64::min);
+        let texts: Vec<String> = items.into_iter().map(|i| i.text).collect();
+        // Per-turn state goes after the delta, never in the system prompt and
+        // never before a cache mark: the subagents at work now (the reference
+        // client's line). Never logged.
         let at_work = self.at_work_line();
-        let prompt_texts: Vec<String> = at_work.iter().chain(texts.iter()).cloned().collect();
+        // The person's Home workspace as it is now: after the view, never logged.
+        let tail: Vec<String> = at_work
+            .iter()
+            .chain(home.iter())
+            .chain(resumes.iter())
+            .cloned()
+            .collect();
+        // Spec 5a: the frozen view and the delta after it (this turn's new
+        // messages last), or a new view: optchat-core `turn_input` decides;
+        // the host only keeps the record. The engine note goes after, so the
+        // input ends with the turn's own messages (the next turn's delta
+        // takes the note with this turn's work, in one block).
+        let frozen = self
+            .state
+            .frozen
+            .as_ref()
+            .and_then(crate::state::FrozenRecord::frozen);
+        let (input, delta_end) = self.chat.turn_input(frozen.as_ref(), first_new);
+        self.state.frozen = Some(crate::state::FrozenRecord::of(&input.frozen));
+        self.save();
         self.note_engine(&engine);
+        let view = optchat_host::RenderedView {
+            marks: optchat_core::cache_marks(&input.view),
+            parts: input.frozen.parts.clone(),
+            text: input.view.clone(),
+        };
+        let view = &view;
+        // The previous request's end (the last cut before this one), when
+        // this turn kept the frozen view: it gets a mark (see input_layout).
+        let prev_end = (!input.rerendered)
+            .then(|| {
+                input
+                    .frozen
+                    .cuts
+                    .iter()
+                    .rev()
+                    .find(|c| **c < delta_end)
+                    .copied()
+            })
+            .flatten()
+            .and_then(|end| crate::prompt::block_ending_at(&input.delta, end));
         let cached = cached.as_deref();
         let (blocks, system_prompt, preset) = match cached {
             Some(preset) => {
@@ -478,19 +550,24 @@ impl Brain {
                 ) {
                     (self.log)(&format!("updating the session's promptCacheTtl: {e}"));
                 }
-                let layout = turn_layout(
+                let layout = input_layout(
                     &self.settings.system_text,
                     &view.text,
-                    &prompt_texts.join("\n\n"),
+                    &input.delta,
+                    prev_end,
+                    &image_blocks,
+                    &tail.join("\n\n"),
                     mark,
-                    true,
                 );
                 (layout.blocks, Some(layout.system), Some(preset.to_owned()))
             }
-            None => (turn_blocks(&view.text, &prompt_texts), None, plain_preset),
+            None => (
+                input_blocks(&view.text, &input.delta, &image_blocks, &tail.join("\n\n")),
+                None,
+                plain_preset,
+            ),
         };
         let image_count = image_blocks.len();
-        let blocks = with_images(blocks, image_blocks);
         if self.settings.turn_preset.is_some() && family == crate::acpmux::Family::Claude {
             // The system prompt carries the instructions in the cached
             // layout; the old layout reads them from CLAUDE.md.
@@ -508,21 +585,40 @@ impl Brain {
             serde_json::json!({
                 "kind": "cached",
                 "marker": mark.is_some(),
-                "mark": mark.map(|m| m.piece),
-                "head_mark": true,
                 "ttl": ttl.as_str(),
             })
         } else {
             serde_json::json!({"kind": "blocks"})
         };
+        // The delta by its log range and cuts: the inspector renders it again.
+        layout["delta"] = serde_json::json!({
+            "front": input.frozen.front,
+            "new_from": first_new,
+            "end": delta_end,
+            "unbuilt": input.frozen.unbuilt.iter().map(|p| p.name()).collect::<Vec<_>>(),
+            // The cuts this delta was built with (this request's own end is past it).
+            "cuts": input.frozen.cuts.iter().filter(|c| **c < delta_end).collect::<Vec<_>>(),
+            // The forced block starts this delta was built with.
+            "starts": input.frozen.starts.iter().filter(|s| **s <= first_new).collect::<Vec<_>>(),
+            "bytes": input.delta.iter().map(String::len).sum::<usize>(),
+            "rendered": input.rerendered,
+            "prev_end_block": prev_end,
+        });
+        if !resumes.is_empty() {
+            layout["resumes"] = serde_json::json!(resumes);
+        }
         layout["images"] = serde_json::json!(image_count);
         if let Some(line) = &at_work {
             layout["at_work"] = serde_json::json!(line);
         }
+        if let Some(block) = &home {
+            layout["home_workspace"] = serde_json::json!(block);
+        }
         self.trace_start(
             &key,
             first,
-            &view,
+            view,
+            &input.delta,
             &texts,
             &done.ids,
             &items_sources,
@@ -540,8 +636,15 @@ impl Brain {
                 effort: engine.effort.clone(),
                 preset,
                 tags: crate::acpmux::chief_tags(&self.settings.chief_id, "turn"),
-                env: Default::default(),
+                // Only the Chief's own turn gets the seal its `chiefs`
+                // tool needs (chief_profile.rs TURN_KEY_ENV).
+                env: [(
+                    crate::chief_profile::TURN_KEY_ENV.to_owned(),
+                    crate::chief_profile::process_turn_seal().to_owned(),
+                )]
+                .into(),
                 fast: self.turn_fast(&engine, family),
+                peer: None,
             },
             blocks,
             system_prompt,
@@ -690,7 +793,7 @@ impl Brain {
     /// batches, past the read cursor, with their images described like a
     /// turn's own. False: the write failed (the host stops).
     pub(super) fn log_delivered(&mut self, items: &[Queued]) -> bool {
-        self.taint_remote(items);
+        self.taint_approval(items);
         let at = self.chat.status().messages;
         let batch: Vec<Item> = items.iter().map(item).collect();
         let answers = self.answers_of(items);
@@ -775,6 +878,7 @@ impl Brain {
         key: &str,
         first: u64,
         rendered: &optchat_host::RenderedView,
+        delta: &[String],
         texts: &[String],
         ids: &[u64],
         sources: &[&'static str],
@@ -783,16 +887,16 @@ impl Brain {
     ) {
         let view = rendered.text.as_str();
         self.turn_clock = Some(std::time::Instant::now());
-        // A spawn in this turn gives its subagents this view and the turn's
-        // new messages, one raw line each (the view was rendered before
-        // they were logged).
+        // A spawn in this turn gives its subagents this view and the delta
+        // after it (the turn's new messages included): its lines are
+        // one-message view lines already (`id+1|...`).
         let mut turn_view = view.strip_suffix("</chat>").unwrap_or(view).to_owned();
-        for (id, text) in ids.iter().zip(texts) {
-            let line = optchat_core::view_line(
-                optchat_core::NodeId::new(0, *id),
-                Some(&format!("user: {text}")),
-            );
-            turn_view.push_str(&line);
+        for line in delta
+            .iter()
+            .flat_map(|b| b.lines())
+            .filter(|l| !l.is_empty())
+        {
+            turn_view.push_str(line);
             turn_view.push('\n');
         }
         turn_view.push_str("</chat>");
@@ -989,6 +1093,11 @@ impl Brain {
     }
 
     pub(super) fn turn_ended(&mut self, key: &str, mut outcome: TurnOutcome) {
+        if let Some(cut) = self.is_cut(key, &outcome) {
+            self.turn_cut(key, outcome, cut);
+            return;
+        }
+        self.cuts = 0;
         let outcome_done = outcome.done_draft.take();
         if self.state.turn.as_ref().is_some_and(|t| t.key == key) {
             self.turn_view = None;
@@ -1019,18 +1128,51 @@ impl Brain {
         // A turn that failed after it said something posts both: its last
         // words alone (often "Let me check.") would read as the answer.
         let owner_stopped = std::mem::take(&mut self.owner_stopped);
-        let text = match (outcome.reply, outcome.error) {
-            _ if superseded => String::new(),
-            (reply, _) if owner_stopped && outcome.cancelled => match reply {
-                Some(reply) => format!("{reply}\n\n(turn stopped)"),
-                None => "(turn stopped)".to_owned(),
-            },
-            (None, Some(error)) if outcome.refused => format!("(turn {error})"),
-            (Some(reply), Some(error)) => format!("{reply}\n\n({failed}: {error})"),
-            (Some(reply), None) => reply,
-            (None, Some(error)) => format!("({failed}: {error})"),
-            (None, None) => String::new(),
+        // A turn the owner stopped posts nothing, even one that ended
+        // normally before it saw the interrupt (the stop was accepted).
+        let quiet = superseded || owner_stopped;
+        // A failed turn also leaves a note in the memory log, after the
+        // messages it did not answer: without it the next turn's delta shows
+        // them as still open, and a later "hi" got the answer to a message
+        // that failed ten days before (2026-10-18). The note tells the next
+        // turn to answer only what comes after it. None for a session that
+        // lives on as an orphan (its answer is folded in later) or while a
+        // message a failed steer logged already waits in the queue (it is
+        // before the note but still open).
+        let steered_waits = self.queue.iter().any(|q| q.logged);
+        let failure_note = match &outcome.error {
+            Some(error) if !(quiet || outcome.orphan.is_some() || steered_waits) => {
+                Some(failure_note(error))
+            }
+            _ => None,
         };
+        if owner_stopped {
+            (self.log)(&format!("turn {key} stopped by the owner: nothing posted"));
+        }
+        let text = ended_turn_text(
+            outcome.reply,
+            outcome.error,
+            quiet,
+            outcome.refused,
+            &failed,
+        );
+        // NO_REPLY posts nothing: a Chief that reads every message stays
+        // quiet with it (membership), and any Chief ends with it when a
+        // reaction or its `reply` calls said it all (brain/replies.rs).
+        let text = if crate::membership::is_no_reply(&text) {
+            (self.log)(&format!(
+                "turn {key} answered {}: nothing posted",
+                crate::membership::NO_REPLY
+            ));
+            String::new()
+        } else {
+            text
+        };
+        if let Some(note) = &failure_note
+            && let Err(e) = self.chat.append(Kind::Note, note)
+        {
+            (self.log)(&format!("logging turn {key}'s failure failed: {e}"));
+        }
         if superseded {
             (self.log)(&format!("turn {key} stopped for a newer message"));
             // The turn that answers both keeps this one's remote origin.
@@ -1059,21 +1201,18 @@ impl Brain {
         }
         let pending: Vec<String> = answers
             .iter()
-            .filter(|id| {
-                self.state
-                    .spawns
-                    .values()
-                    .any(|s| s.answers.contains(id) && s.working())
-            })
+            .filter(|id| self.state.spawns.values().any(|s| s.working_for(id)))
             .cloned()
             .collect();
         // Work announced as pending that this turn closes: a silent turn
-        // still answers with a done marker.
-        let closes = !superseded
+        // still answers with a done marker, unless the owner stopped it.
+        let closes = !quiet
             && answers
                 .iter()
                 .any(|id| self.state.open_answers.contains(id) && !pending.contains(id));
-        if !superseded {
+        // An owner-stopped turn posts no done marker, so the work it would
+        // close stays open for a later turn to close.
+        if !quiet {
             self.state
                 .open_answers
                 .retain(|id| !answers.contains(id) || pending.contains(id));
@@ -1088,11 +1227,28 @@ impl Brain {
             .filter(|t| t.key == key)
             .map(|t| t.session.clone())
             .unwrap_or_default();
+        // In a group conversation the reply goes into the thread of the last
+        // message it answers (membership::thread_target); a superseded turn's
+        // messages keep theirs for the turn that answers them.
+        let thread = if superseded {
+            None
+        } else {
+            // In the Chief conversation too: the thread of the user message
+            // it answers, by `replies.thread` (brain/replies.rs).
+            let thread = conversation
+                .as_deref()
+                .and_then(|c| self.reply_thread(c, &answers));
+            for id in &answers {
+                self.reply_threads.remove(id);
+            }
+            thread
+        };
         match conversation {
             Some(conversation) if !text.is_empty() => {
                 // Every mention of a subagent is its link (Lawrence 2026-10-10).
                 let text = self.link_subagents(&text);
-                let entry = answer_entry(conversation, key, &text, answers, pending);
+                let mut entry = answer_entry(conversation, key, &text, answers, pending);
+                in_thread(&mut entry, thread);
                 let entry = self.reply_with_previews(entry);
                 self.state.outbox.push(entry);
             }
@@ -1101,6 +1257,7 @@ impl Brain {
                     "turn {key} said nothing; it closes its messages with a done marker"
                 ));
                 let mut entry = answer_entry(conversation, key, "", answers, pending);
+                in_thread(&mut entry, thread);
                 if let cmux_conversation::Op::MessageSend { parts, .. } = &mut entry.op {
                     *parts = vec![cmux_conversation::Part::Work {
                         session,
@@ -1150,6 +1307,238 @@ impl Brain {
     }
 }
 
+/// Turns that may be cut in a row before the next one fails: an update
+/// relaunch cuts one, a gateway redeploy (40 s to 2 min, a181 2026-10-19)
+/// a few; a link or upstream that stays down must not loop.
+pub(super) const MAX_CUTS: u32 = 3;
+
+/// The waits before a turn cut by an upstream error runs again: about
+/// 3 min in all, longer than a gateway redeploy.
+pub(super) const UPSTREAM_RESUME_BACKOFF: [std::time::Duration; 3] = [
+    std::time::Duration::from_secs(15),
+    std::time::Duration::from_secs(45),
+    std::time::Duration::from_secs(120),
+];
+
+/// Why a turn was cut rather than failed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Cut {
+    /// Its acpmux link went away: lost while it ran, or still gone at its
+    /// `session/new` after the tries (`turn::new_session_with_retry`). It
+    /// runs again once acpmux is back.
+    Link,
+    /// The model's endpoint answered a passing error (the sr2 gateway's
+    /// 502 or a refused connection while it redeploys). It runs again after
+    /// an `UPSTREAM_RESUME_BACKOFF` wait.
+    Upstream,
+}
+
+/// Errors from the model's endpoint that a later try can cure.
+const UPSTREAM_TRANSIENT: [&str; 8] = [
+    "API Error: 502",
+    "API Error: 503",
+    "API Error: 504",
+    "API Error: 529",
+    "upstream request failed",
+    "Connection refused",
+    "ECONNREFUSED",
+    "ECONNRESET",
+];
+
+/// Whether, and why, a failed turn was cut.
+pub(super) fn cut_kind(outcome: &TurnOutcome) -> Option<Cut> {
+    let error = outcome.error.as_deref()?;
+    if outcome.orphan.is_some() {
+        return (error == crate::turn::CONNECTION_LOST).then_some(Cut::Link);
+    }
+    if outcome.refused || outcome.cancelled {
+        return None;
+    }
+    if outcome.reply.is_none()
+        && [
+            "acpmux is not connected",
+            "connection closed",
+            "acpmux is shutting down",
+        ]
+        .iter()
+        .any(|t| error.contains(t))
+    {
+        return Some(Cut::Link);
+    }
+    UPSTREAM_TRANSIENT
+        .iter()
+        .any(|t| error.contains(t))
+        .then_some(Cut::Upstream)
+}
+
+impl Brain {
+    /// Why turn `key` was cut and runs again instead of failing (`cut_kind`):
+    /// never one the owner or a newer message stopped, at most `MAX_CUTS` in
+    /// a row.
+    fn is_cut(&self, key: &str, outcome: &TurnOutcome) -> Option<Cut> {
+        if self.stop_wanted
+            || self.owner_stopped
+            || self.cuts >= MAX_CUTS
+            || self.state.turn.as_ref().is_none_or(|t| t.key != key)
+        {
+            return None;
+        }
+        cut_kind(outcome)
+    }
+
+    /// Sets the waits before a turn an upstream error cut runs again (tests
+    /// shorten them).
+    pub fn set_upstream_resume_backoff(&mut self, waits: Vec<std::time::Duration>) {
+        self.upstream_backoff = waits;
+    }
+
+    /// The upstream resume wait is over: the cut turn may start.
+    pub(super) fn on_resume_timer(&mut self) {
+        if self
+            .resume_at
+            .is_some_and(|at| at <= std::time::Instant::now())
+        {
+            self.resume_at = None;
+            self.maybe_start_turn();
+        }
+    }
+
+    fn turn_cut(&mut self, key: &str, outcome: TurnOutcome, cut: Cut) {
+        self.cuts += 1;
+        let error = outcome.error.clone().unwrap_or_default();
+        let when = match cut {
+            Cut::Link => "once acpmux is back".to_owned(),
+            Cut::Upstream => {
+                let wait = self
+                    .upstream_backoff
+                    .get(self.cuts as usize - 1)
+                    .or(self.upstream_backoff.last())
+                    .copied()
+                    .unwrap_or_default();
+                self.resume_at = Some(std::time::Instant::now() + wait);
+                format!("in {} s", wait.as_secs())
+            }
+        };
+        (self.log)(&format!(
+            "turn {key} was cut ({error}); it runs again on the resume note {when} ({} of {MAX_CUTS})",
+            self.cuts
+        ));
+        let (cut_id, cut_name) = match self.state.turn.as_ref() {
+            Some(t) => (t.session_id.clone(), Some(t.session.clone())),
+            None => (None, None),
+        };
+        self.trace_end(key, &outcome, false);
+        self.turn_view = None;
+        let main = self.turn_side().is_none();
+        let had: Vec<Option<String>> = self
+            .state
+            .resumes
+            .iter()
+            .map(|r| r.conversation.clone())
+            .collect();
+        // recover() closes the pending turn as a host restart does; only a
+        // session still running (the lost turn's) becomes an orphan here.
+        let orphans = self.state.orphans.clone();
+        let _ = super::recover::recover(&self.chat, &mut self.state, true);
+        self.state.orphans = orphans;
+        let mut extra = Vec::new();
+        match outcome.orphan {
+            Some(lost) => {
+                match self
+                    .state
+                    .orphans
+                    .iter_mut()
+                    .find(|o| o.session == lost.session)
+                {
+                    Some(o) => o.after = o.after.max(lost.after),
+                    None => self.state.orphans.push(lost),
+                }
+            }
+            None => {
+                // No session runs on: a half-started one is ended at the
+                // next connect, and the turn's fold position goes.
+                self.stale_sessions.extend(cut_name);
+                if let Some(id) = cut_id {
+                    extra.push((crate::state::fold_key(&id), None));
+                }
+            }
+        }
+        if cut == Cut::Link {
+            // The link thread sends the turn's Lost before its Down: no
+            // turn starts until the next daemon is up.
+            self.agents_up = false;
+        }
+        // The resume runs before any newer message, as after a restart.
+        let fresh: Vec<crate::state::Resume> = self
+            .state
+            .resumes
+            .iter()
+            .filter(|r| !had.contains(&r.conversation))
+            .cloned()
+            .collect();
+        for resume in fresh.into_iter().rev() {
+            self.queue.push_front(Queued {
+                text: super::recover::RESUMED.to_owned(),
+                source: Source::Resume {
+                    remote: resume.remote,
+                    requires_approval: resume.requires_approval,
+                    cut: resume.messages,
+                },
+                images: Vec::new(),
+                conversation: resume.conversation,
+                logged: false,
+            });
+        }
+        self.turn_remote = false;
+        self.turn_ask = false;
+        self.clear_turn_approvals();
+        self.interrupt.set_gate(false);
+        self.stop_wanted = false;
+        self.save_with(extra);
+        if main {
+            self.set_typing(false);
+        }
+        self.phase = Phase::Idle;
+        if let Some(hook) = &self.after_turn {
+            hook(key);
+        }
+        self.maybe_start_turn();
+    }
+}
+
+/// The memory note a failed turn leaves after the messages it did not answer.
+pub fn failure_note(error: &str) -> String {
+    let error: String = error
+        .lines()
+        .next()
+        .unwrap_or("")
+        .chars()
+        .take(200)
+        .collect();
+    format!(
+        "the turn failed ({error}); the user saw the failure, and the requests before this note did not finish and are closed: answer only messages after this note, and take up an older request only if the user asks again"
+    )
+}
+
+/// Puts a reply into the thread `(root, parent)`, when it has one.
+fn in_thread(entry: &mut crate::state::OutboxEntry, thread: Option<(String, String)>) {
+    if let (
+        Some((root, parent)),
+        cmux_conversation::Op::MessageSend {
+            thread_root,
+            reply_to,
+            ..
+        },
+    ) = (thread, &mut entry.op)
+    {
+        *thread_root = Some(root);
+        *reply_to = Some(cmux_conversation::PartRef {
+            message_id: parent,
+            part_index: 0,
+        });
+    }
+}
+
 /// A queued item's source in the trace.
 fn source_name(source: &Source) -> &'static str {
     match source {
@@ -1163,34 +1552,32 @@ fn source_name(source: &Source) -> &'static str {
 
 /// The turn's images go just before its last block (the new messages, which
 /// name them), so the view blocks and their cache marker stay as they were.
-fn with_images(
-    mut blocks: Vec<serde_json::Value>,
-    images: Vec<serde_json::Value>,
-) -> Vec<serde_json::Value> {
-    if images.is_empty() {
-        return blocks;
-    }
-    let tail = blocks.pop();
-    blocks.extend(images);
-    blocks.extend(tail);
-    blocks
-}
-
 /// A queued item's source as the pending turn saves it.
 fn item(queued: &Queued) -> Item {
     let images = queued.images.iter().map(|i| i.source.clone()).collect();
     match &queued.source {
-        Source::Message { seq, id, remote } => Item {
+        Source::Message {
+            seq,
+            id,
+            remote,
+            requires_approval,
+        } => Item {
             seq: Some(*seq),
             images,
             conversation: queued.conversation.clone(),
             id: queued.conversation.as_ref().map(|_| id.clone()),
             remote: remote.is_some(),
+            requires_approval: *requires_approval,
             ..Item::default()
         },
-        Source::Resume { remote, cut } => Item {
+        Source::Resume {
+            remote,
+            requires_approval,
+            cut,
+        } => Item {
             conversation: queued.conversation.clone(),
             remote: *remote,
+            requires_approval: *requires_approval,
             resume: true,
             cut: cut.clone(),
             ..Item::default()
@@ -1236,12 +1623,87 @@ impl Brain {
                 }
                 Source::Spawn(r) => {
                     if let Some(record) = self.state.spawns.get(&r.spawn) {
-                        add_answers(&mut answers, record.answers.clone());
+                        // A subagent told during a later turn answers that
+                        // turn's messages; the others, the spawn's.
+                        let mut spawn_wide = r.subs.is_empty();
+                        for (sub, _) in &r.subs {
+                            match record.subs.iter().find(|s| &s.id == sub) {
+                                Some(s) if !s.answers.is_empty() => {
+                                    add_answers(&mut answers, s.answers.clone())
+                                }
+                                _ => spawn_wide = true,
+                            }
+                        }
+                        if spawn_wide {
+                            add_answers(&mut answers, record.answers.clone());
+                        }
                     }
                 }
                 _ => {}
             }
         }
         answers
+    }
+}
+
+/// What an ended turn posts to the conversation (and so to every bridge,
+/// iMessage included). A quiet turn posts nothing: one superseded by a
+/// newer message (the next turn answers both) and one the owner stopped
+/// with chief.stop. The owner pressed stop and already knows; a
+/// "(turn stopped)" message only adds noise (Lawrence 2026-10-19).
+fn ended_turn_text(
+    reply: Option<String>,
+    error: Option<String>,
+    quiet: bool,
+    refused: bool,
+    failed: &str,
+) -> String {
+    match (reply, error) {
+        _ if quiet => String::new(),
+        (None, Some(error)) if refused => format!("(turn {error})"),
+        (Some(reply), Some(error)) => format!("{reply}\n\n({failed}: {error})"),
+        (Some(reply), None) => reply,
+        (None, Some(error)) => format!("({failed}: {error})"),
+        (None, None) => String::new(),
+    }
+}
+
+#[cfg(test)]
+mod ended_turn_text_tests {
+    use super::ended_turn_text;
+
+    #[test]
+    fn owner_stopped_turn_posts_nothing() {
+        for reply in [None, Some("Let me check.".to_owned())] {
+            let text = ended_turn_text(reply, Some("cancelled".into()), true, false, "turn failed");
+            assert_eq!(text, "");
+            assert!(!text.contains("turn stopped"));
+        }
+    }
+
+    #[test]
+    fn failures_and_replies_still_post() {
+        assert_eq!(
+            ended_turn_text(Some("hi".into()), None, false, false, "turn failed"),
+            "hi"
+        );
+        assert_eq!(
+            ended_turn_text(None, Some("boom".into()), false, false, "turn failed"),
+            "(turn failed: boom)"
+        );
+        assert_eq!(
+            ended_turn_text(
+                Some("a".into()),
+                Some("boom".into()),
+                false,
+                false,
+                "turn failed"
+            ),
+            "a\n\n(turn failed: boom)"
+        );
+        assert_eq!(
+            ended_turn_text(None, Some("refused".into()), false, true, "x"),
+            "(turn refused)"
+        );
     }
 }

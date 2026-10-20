@@ -8,6 +8,7 @@ import CmuxNextHistory
 import CmuxNextSettings
 import Foundation
 import Observation
+import CmuxNextFocus
 
 /// The app's side of the location trail (plans/cmux-next/history.md 4.2):
 /// records each window's settled focus and runs Go Back / Go Forward / Go to
@@ -23,6 +24,8 @@ final class LocationTrailService {
     private var rereads = 0
     /// What the app last read of the daemon's trail, and its steps the daemon never got.
     private var sync = HistoryTrailSync()
+    /// The trail's failure log (cx-hnmbt.14): each skipped settle, step, report and reply.
+    let log = HistoryTrailLog()
     private var observation: Task<Void, Never>?
     /// Steps go to the daemon in order: one FIFO, so a step never overtakes the one before it.
     private let reports: AsyncStream<@Sendable () async -> Void>.Continuation
@@ -110,13 +113,20 @@ final class LocationTrailService {
     /// not move the trail.
     func focusDidSettle(_ state: FocusState, in controller: WindowController) {
         // Under a top page the workspace's focus is not where the user is.
-        guard services.windows.active === controller, controller.shownTopPage == nil else { return }
+        guard services.windows.active === controller, controller.shownTopPage == nil else {
+            return log.skipped(controller.shownTopPage == nil ? "inactive window" : "top page shown", window: controller.state.id,
+                               workspace: state.topology.workspace)
+        }
         // The window selected another workspace whose panes have not reached
         // the focus coordinator yet: this settle still describes the
         // workspace it left. Not a place the user went; recording it cut off
         // the forward entries of a Back or Forward between workspaces.
-        if let shown = controller.state.workspaceID, state.topology.workspace != shown { return }
+        if let shown = controller.state.workspaceID, state.topology.workspace != shown {
+            return log.skipped("settle of workspace left (shown \(shown))", window: controller.state.id, workspace: state.topology.workspace)
+        }
         guard let location = location(of: state, in: controller) else {
+            log.skipped("no location (target \(state.target), pane \(state.pane ?? "-"))", window: controller.state.id,
+                        workspace: state.topology.workspace)
             // The shown page may have changed (another tab): the arrows re-read it.
             pageHistoryDidChange()
             return
@@ -303,7 +313,9 @@ final class LocationTrailService {
     @discardableResult
     private func step(_ location: HistoryLocation, at time: Date, steps: HistoryStepScope = .workspaces,
                       jump: Bool = false, _ record: (inout LocationTrail) -> Bool) -> Bool {
-        guard record(&trail) else { return false }
+        let changed = record(&trail)
+        log.ruled(location, rule: jump ? "jump" : steps.rawValue, changed: changed)
+        guard changed else { return false }
         if !location.isIncognito { report(location, at: time, steps: steps, jump: jump) }
         return true
     }
@@ -311,10 +323,17 @@ final class LocationTrailService {
     private func report(_ location: HistoryLocation, at time: Date, steps: HistoryStepScope, jump: Bool) {
         guard let daemon = services.history.daemonHistory else {
             sync.unsent.insert(HistoryTrailStepID(location.key, time))
-            return
+            return log.unsent(location)
         }
+        let log = log
+        log.reported(location, atMs: HistoryTrailStepID(location.key, time).ms, steps: steps.rawValue, jump: jump)
         reports.yield {
-            try? await daemon.recordTrail(window: location.window, location: location, at: time, steps: steps, jump: jump)
+            do {
+                let reply = try await daemon.recordTrail(window: location.window, location: location, at: time, steps: steps, jump: jump)
+                log.replied(location, id: reply.id, recorded: reply.recorded)
+            } catch {
+                log.failed(location, error)
+            }
         }
     }
 
@@ -338,6 +357,7 @@ final class LocationTrailService {
         // Steps taken before the daemon answered stay newest; the ones taken while no daemon served
         // the trail go to it now (the others are in its FIFO already).
         let (merged, resend) = sync.adopt(steps, local: trail)
+        log.read("adopted", steps: steps.count, local: trail.entries.count, removed: 0)
         for entry in resend { report(entry.location, at: entry.enteredAt, steps: .everything, jump: true) }
         trail = merged
         notify()
@@ -353,6 +373,7 @@ final class LocationTrailService {
         Task { [weak self] in
             guard let steps = try? await daemon.trail(), let self, generation == self.rereads else { return }
             let gone = self.sync.reconcile(steps)
+            self.log.read("reread", steps: steps.count, local: self.trail.entries.count, removed: gone.count)
             guard !gone.isEmpty else { return }
             self.trail.removeAll { gone.contains(HistoryTrailStepID($0.location.key, $0.enteredAt)) }
             self.notify()

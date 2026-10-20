@@ -83,8 +83,7 @@ enum AppStoreHandlers {
     static func unavailable(_ reason: AppsUnavailableReason) -> ActionFailure {
         switch reason {
         case .needsNewerDaemon: ActionFailure.needsDaemonCapability(DaemonAppsTransport.capability)
-        case .notConnected: ActionFailure(message: DaemonError.notConnected.description)
-        case .turnedOff(let text): ActionFailure(message: text)
+        case .notConnected, .notReady, .turnedOff: ActionFailure(message: reason.text)
         }
     }
 

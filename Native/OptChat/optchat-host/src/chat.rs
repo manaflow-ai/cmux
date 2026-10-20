@@ -8,7 +8,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex, Weak};
 use std::time::{Duration, Instant};
 
-use optchat_core::{render_view, zoom, Kind, NodeId, RenderedView, Store, ZoomError};
+use optchat_core::{
+    render_view, zoom, Frozen, Kind, NodeId, RenderedView, Store, TurnInput, ZoomError,
+};
 
 use crate::anthropic::AnthropicModel;
 use crate::cap::cap_tool_result;
@@ -571,6 +573,50 @@ impl OptChat {
     pub fn render_parts(&self, parts: &[NodeId]) -> RenderedView {
         let st = self.shared.lock();
         optchat_core::render_parts(parts, &st.store)
+    }
+
+    /// A turn's input after the system prompt (spec 5a, optchat-core
+    /// `turn_input`): the frozen view `frozen` and the delta after it, or a
+    /// new view. `first_new`: the log id of the turn's first new entry (logged
+    /// before this call); the count of new entries is taken under the same
+    /// lock as the input, so an entry logged meanwhile cannot shift it. Also
+    /// the log length the delta runs to.
+    pub fn turn_input(&self, frozen: Option<&Frozen>, first_new: u64) -> (TurnInput, u64) {
+        let st = self.shared.lock();
+        let new = st.memory.len().saturating_sub(first_new);
+        let input = optchat_core::turn_input(&st.memory, &st.store, frozen, new);
+        (input, st.memory.len())
+    }
+
+    /// A traced turn's frozen view text and delta (`front..end`, new
+    /// messages from `new_from`), shown again by the inspector.
+    pub fn turn_input_at(&self, frozen: &Frozen, new_from: u64, end: u64) -> (String, Vec<String>) {
+        let st = self.shared.lock();
+        (
+            optchat_core::frozen_text(frozen, &st.store),
+            optchat_core::delta_range(
+                &st.memory,
+                &st.store,
+                frozen.front,
+                new_from,
+                end,
+                &frozen.cuts,
+                &frozen.starts,
+            ),
+        )
+    }
+
+    /// The log id of the conversation message `key` (`<conversation>#<seq>`),
+    /// when it was logged.
+    pub fn logged_id(&self, key: &str) -> Option<u64> {
+        let st = self.shared.lock();
+        st.store.logged_id(key)
+    }
+
+    /// The key message `id` was logged with (`<conversation>#<seq>`), if any.
+    pub fn logged_key(&self, id: u64) -> Option<String> {
+        let st = self.shared.lock();
+        st.store.logged_key(id)
     }
 
     /// The agent's `zoom(id, n)` tool (section 7.1).

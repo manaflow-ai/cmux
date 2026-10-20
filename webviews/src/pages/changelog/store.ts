@@ -49,7 +49,7 @@ export function parseSpan(hash: string): UpdateSpan | undefined {
 export function parseDesign(hash: string): ChangelogDesign {
   const query = hash.replace(/^#\/?/, "").replace(/^\?/, "");
   const design = new URLSearchParams(query).get("design");
-  return design === "rail" || design === "digest" ? design : "journal";
+  return design === "journal" || design === "rail" || design === "digest" ? design : "ledger";
 }
 
 /** Orders release versions (`1.2.3`, `1.0.0-nightly.42`): numbers first, a prerelease before its release. */
@@ -96,6 +96,8 @@ export class ChangelogStore {
   private listed = false;
   /** The latest span the route named; applied once the list has loaded. */
   private latestSpan?: UpdateSpan;
+  /** ``start``'s load (the list, then the span's or the selected build's notes). */
+  private started: Promise<void> = Promise.resolve();
 
   constructor(private readonly client: PageClient | null) {
     this.snapshot = { builds: [], loading: client !== null, missing: false, inSpan: [], loaded: {}, unavailable: {} };
@@ -114,7 +116,24 @@ export class ChangelogStore {
   }
 
   /** Loads the list, then the span's newest notes, else the running build's (or the newest listed). */
-  async start(span?: UpdateSpan): Promise<void> {
+  start(span?: UpdateSpan): Promise<void> {
+    this.started = this.load(span);
+    return this.started;
+  }
+
+  /** Settles once the first screen's data has: the list, the selected build's notes and the notes
+      of every section in view (the journal asks for them as it renders), loaded or unavailable. */
+  async firstScreen(): Promise<void> {
+    await this.started;
+    // Each load renders the page again, and a section that moved into view asks for its builds then.
+    for (;;) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      if (this.pending.size === 0) return;
+      await Promise.allSettled(this.pending.values());
+    }
+  }
+
+  private async load(span?: UpdateSpan): Promise<void> {
     if (!this.client) return;
     this.latestSpan = span;
     try {

@@ -2,9 +2,12 @@
   "title": "Core UI",
   "steps": [
     {"title": "Launch", "wait": 2},
-    {"title": "Type in the terminal", "daemon": true,
-     "cmux": ["terminal", "current", "write", "--text", "echo hello from the cmux-next tour\r"]},
     {"title": "New workspace", "cmux": ["workspace", "new", "--name", "Tour"]},
+    {"title": "Type in the terminal", "daemon": true,
+     "cmux": ["workspace", "name:Tour", "screen", "current", "pane", "current", "tab", "current",
+              "terminal", "current", "write", "--text", "echo hello from the cmux-next tour\r"]},
+    {"title": "A command reports progress: tab loading spinner", "daemon": true,
+     "cmux": ["workspace", "name:Tour", "screen", "current", "pane", "current", "tab", "current", "terminal", "current", "write", "--text", "clear; printf '\\033]9;4;3\\007'; sleep 900\r"], "wait": 2},
     {"title": "Split right", "cmux": ["action", "run", "splitRight"]},
     {"title": "Split down", "cmux": ["action", "run", "splitDown"]},
     {"title": "New terminal tab", "cmux": ["action", "run", "newSurface"]},
@@ -16,6 +19,13 @@
     {"title": "Notifications panel", "cmux": ["action", "run", "showNotifications"],
      "optional": "the notifications panel is not ported yet"},
     {"title": "Agent chat", "cmux": ["agent", "new-chat"], "wait": 4,
-     "optional": "agent chat views are not ported yet"}
+     "optional": "agent chat views are not ported yet"},
+    {"title": "Agent workspace", "cmux": ["workspace", "new", "--name", "Agent"], "shot": false},
+    {"title": "Agent starts", "daemon": true,
+     "cmux": ["workspace", "name:Agent", "screen", "current", "pane", "current", "tab", "current", "terminal", "current", "write", "--text", "clear; printf '\\033]7501;state=working\\033\\\\'; sleep 8; printf '\\033]7501;state=done\\033\\\\'; sleep 900\r"], "shot": false},
+    {"title": "An agent works: row working spinner", "cmux": ["workspace", "new", "--name", "Notes"], "wait": 2},
+    {"title": "The agent finishes: done mark in the spinner's place", "wait": 8},
+    {"title": "Profile menu", "cmux": ["action", "run", "sidebar.profileMenu"], "wait": 2, "display": true,
+     "optional": "the menu shot needs a screen capture route"}
   ]
 }

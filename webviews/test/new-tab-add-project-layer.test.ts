@@ -5,6 +5,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("new-tab-add-project-layer.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -28,6 +29,7 @@ await requireBrowserLane("new-tab-add-project-layer.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
+    await warmViteServer(vite, "/gallery/frame.html");
     browser = await chromium.launch({ headless: true });
   });
   afterAll(async () => {
@@ -41,9 +43,10 @@ await requireBrowserLane("new-tab-add-project-layer.test.ts", async () => {
     await page.goto(`http://127.0.0.1:${port}/gallery/frame.html?entry=agent-pane.new-tab&variant=empty`);
     // The shipped pane's page color (the gallery theme paints a solid one).
     await page.addStyleTag({ content: ":root { --agent-page-bg: transparent !important; }" });
-    // The card's location row (the agent composer's): Folder, then Add project.
-    await page.locator('.acpmux-composer-context button[aria-label="Folder"]').click();
-    await page.getByRole("menuitem", { name: "Add project" }).click();
+    // The card's location strip (the agent composer's): Folder, then Add project. The first page waits on a
+    // cold Vite compiling the gallery, past 30 s on a busy runner.
+    await page.locator('.acpmux-composer-context button[aria-label="Folder"]').click({ timeout: 90_000 });
+    await page.getByRole("option", { name: "Add project" }).click();
     const dialog = page.locator(".acpmux-add-project-dialog");
     await dialog.waitFor({ state: "visible" });
     const alpha = await dialog.evaluate((element) => {

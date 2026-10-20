@@ -6,6 +6,11 @@
 //! connection that proved nothing gets no session at all.
 #![cfg(unix)]
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+// This process runs stand-in agents (the fake agents under tests/).
+const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
 use acpmux::rpc::Message;
@@ -34,7 +39,11 @@ fn dir(tag: &str) -> PathBuf {
 fn hub(d: &Path) -> Arc<Hub> {
     let codex = d.join("bin").join("codex");
     std::fs::create_dir_all(codex.parent().unwrap()).unwrap();
-    std::fs::write(&codex, format!("#!/bin/sh\nexec python3 {FAKE_APP_SERVER} \"$@\"\n")).unwrap();
+    std::fs::write(
+        &codex,
+        format!("#!/bin/sh\nexec python3 {} \"$@\"\n", daemon_env::sh_quote(FAKE_APP_SERVER)),
+    )
+    .unwrap();
     std::fs::set_permissions(&codex, std::fs::Permissions::from_mode(0o755)).unwrap();
     let mut cfg: Config = serde_json::from_value(json!({
         "harnesses": {
@@ -168,5 +177,27 @@ async fn the_unix_socket_and_a_peers_local_client_still_need_the_person() {
     via_web["_meta"] = json!({"acpmux": {"via": "web"}});
     let r = peer.call("session/set_mode", via_web).await;
     assert!(r.get("error").is_none(), "peer via web: {r}");
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+/// A session a remote device STARTS on the bridge begins in its `ask` mode
+/// (approval `untrusted`: Codex asks before every change), never in the
+/// bridge's default `agent`, and the catalog tells the device so: the
+/// bridge is startable in `ask`, the adapter is not (cnx-ios parity round 2).
+#[tokio::test]
+async fn a_remote_device_starts_the_codex_bridge_in_its_asking_mode() {
+    let d = dir("ask");
+    let hub = hub(&d);
+    let mut web = Client::new(&hub, Origin::Web, ConnAuth::ListenerToken);
+    let created = web.new_on(&d, "bridge").await;
+    assert_eq!(created["result"]["modes"]["currentModeId"], "ask", "{created}");
+    let catalog = web.call("_acpmux/harnesses", json!({})).await;
+    let rows = &catalog["result"]["harnesses"];
+    assert_eq!(rows["bridge"]["remote"], json!({"startable": true, "modes": ["ask"]}), "{catalog}");
+    assert_eq!(rows["adapter"]["remote"]["startable"], json!(false), "{catalog}");
+    // The unix socket's own new session keeps the bridge's default.
+    let mut local = Client::new(&hub, Origin::Local, ConnAuth::LocalSocket);
+    let own = local.new_on(&d, "bridge").await;
+    assert_ne!(own["result"]["modes"]["currentModeId"], "ask", "{own}");
     let _ = std::fs::remove_dir_all(&d);
 }

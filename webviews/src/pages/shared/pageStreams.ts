@@ -11,11 +11,15 @@ export const LINK_CLOSED = "cmux.protocol.closed";
 export type PageCommandName =
   | "find"
   | "focusSearch"
+  // The page's web view got the keyboard: focus its primary input if nothing has focus (pageFocus.ts).
+  | "focusContent"
   | "back"
   | "forward"
   | "reset"
   | "save"
   | "link"
+  // The Channels page: the app's menu on selected message text (home-channels/quoteSelection.ts).
+  | "quoteSelection"
   // The code editor page (pages/editor/keys.ts).
   | "findNext"
   | "findPrevious"

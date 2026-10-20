@@ -218,6 +218,30 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 symbol: "figure.stand", surfaces: [.palette], cliName: "settings turn-off-animations"
             ),
             ActionDescriptor(
+                id: "appearance.animations.newTab.toggle",
+                title: String(localized: "action.appearance.animations.newTab.toggle", defaultValue: "Toggle New Tab Animations", bundle: .module),
+                keywords: ["animation", "motion", "tab", "new tab", "appearance"], category: .settings,
+                symbol: "plus.rectangle.on.rectangle", surfaces: [.palette], cliName: "settings toggle-new-tab-animations"
+            ),
+            ActionDescriptor(
+                id: "appearance.animations.newWorkspace.toggle",
+                title: String(localized: "action.appearance.animations.newWorkspace.toggle", defaultValue: "Toggle New Workspace Animations", bundle: .module),
+                keywords: ["animation", "motion", "workspace", "sidebar", "appearance"], category: .settings,
+                symbol: "sidebar.left", surfaces: [.palette], cliName: "settings toggle-new-workspace-animations"
+            ),
+            ActionDescriptor(
+                id: "appearance.animations.bounce.subtle",
+                title: String(localized: "action.appearance.animations.bounce.subtle", defaultValue: "Use Bouncy Animations", bundle: .module),
+                keywords: ["animation", "motion", "spring", "bounce", "bouncy", "appearance"], category: .settings,
+                symbol: "arrow.up.and.down.and.sparkles", surfaces: [.palette], cliName: "settings use-bouncy-animations"
+            ),
+            ActionDescriptor(
+                id: "appearance.animations.bounce.none",
+                title: String(localized: "action.appearance.animations.bounce.none", defaultValue: "Use Animations Without Bounce", bundle: .module),
+                keywords: ["animation", "motion", "spring", "bounce", "critically damped", "appearance"], category: .settings,
+                symbol: "arrow.right.to.line", surfaces: [.palette], cliName: "settings use-animations-without-bounce"
+            ),
+            ActionDescriptor(
                 id: "browser.defaultEngine.chromium",
                 title: String(localized: "action.browser.defaultEngine.chromium", defaultValue: "Use Chromium for New Browser Tabs", bundle: .module),
                 keywords: ["browser", "engine", "default", "chrome", "chromium", "cef"], category: .settings,
@@ -264,6 +288,38 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.layout.centerFocusedColumn.onOverflow", defaultValue: "Center Focused Column on Overflow", bundle: .module),
                 keywords: ["column", "center", "scroll", "overflow", "layout"], category: .settings,
                 symbol: "align.horizontal.center.fill", surfaces: [.palette], cliName: "settings center-focused-column-on-overflow"
+            ),
+            // Tab Overflow (`tabs.overflow`, cx-kp9b4): crowded strips shrink their tabs (the default) or
+            // keep them wide and scroll. Settings changes with no object; no default shortcut.
+            ActionDescriptor(
+                id: "tabs.overflow.scroll",
+                title: String(localized: "action.tabs.overflow.scroll", defaultValue: "Tabs: Use Scrolling Tabs", bundle: .module),
+                keywords: ["tab", "tabs", "scroll", "scrolling", "overflow", "wide", "width", "many", "strip"], category: .settings,
+                symbol: "arrow.left.and.right.square", surfaces: [.palette], cliName: "settings use-scrolling-tabs",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
+            ),
+            ActionDescriptor(
+                id: "tabs.overflow.shrink",
+                title: String(localized: "action.tabs.overflow.shrink", defaultValue: "Tabs: Use Shrinking Tabs", bundle: .module),
+                keywords: ["tab", "tabs", "shrink", "shrinking", "overflow", "narrow", "width", "fit", "strip"], category: .settings,
+                symbol: "arrow.right.and.line.vertical.and.arrow.left", surfaces: [.palette], cliName: "settings use-shrinking-tabs",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
+            ),
+            // Links (`browser.openLinksInCmuxBrowser`, cx-ir3z4): where a clicked link opens, from every
+            // surface. Settings changes with no object; no default shortcut.
+            ActionDescriptor(
+                id: "links.openInCmuxBrowser",
+                title: String(localized: "action.links.openInCmuxBrowser", defaultValue: "Links: Open in cmux Browser", bundle: .module),
+                keywords: ["link", "links", "url", "browser", "embedded", "click", "terminal", "chat"], category: .settings,
+                symbol: "globe", surfaces: [.palette], cliName: "settings open-links-in-cmux-browser",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
+            ),
+            ActionDescriptor(
+                id: "links.openInDefaultBrowser",
+                title: String(localized: "action.links.openInDefaultBrowser", defaultValue: "Links: Open in Default Browser", bundle: .module),
+                keywords: ["link", "links", "url", "browser", "default", "external", "system", "safari", "chrome"], category: .settings,
+                symbol: "arrow.up.forward.app", surfaces: [.palette], cliName: "settings open-links-in-default-browser",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
             ),
             ActionDescriptor(
                 id: "focusRing.toggle",
@@ -338,25 +394,27 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 keywords: ["appearance", "font", "chrome", "default"], category: .settings, symbol: "textformat.size",
                 surfaces: [.palette], cliName: "settings reset-interface-size"
             ),
+            // Ctrl-Shift-Cmd-= / - / 0 scale all app text (Lawrence 2026-10-19: "for changing font size we
+            // should do Command+Shift+Control++ and -"); Ctrl-Cmd-= is Equalize Splits, as in Ghostty.
             ActionDescriptor(
                 id: "appearance.uiScale.increase",
                 title: String(localized: "action.appearance.uiScale.increase", defaultValue: "Increase Interface Scale", bundle: .module),
                 keywords: ["appearance", "scale", "chrome", "bigger", "zoom"],
-                defaultShortcut: Shortcut("=", modifiers: [.control, .command]), category: .settings,
+                defaultShortcut: Shortcut("=", modifiers: [.control, .shift, .command]), category: .settings,
                 symbol: "plus.magnifyingglass", surfaces: [.palette, .keyboard, .menu], cliName: "settings increase-interface-scale", mainMenu: .view
             ),
             ActionDescriptor(
                 id: "appearance.uiScale.decrease",
                 title: String(localized: "action.appearance.uiScale.decrease", defaultValue: "Decrease Interface Scale", bundle: .module),
                 keywords: ["appearance", "scale", "chrome", "smaller", "zoom"],
-                defaultShortcut: Shortcut("-", modifiers: [.control, .command]), category: .settings,
+                defaultShortcut: Shortcut("-", modifiers: [.control, .shift, .command]), category: .settings,
                 symbol: "minus.magnifyingglass", surfaces: [.palette, .keyboard, .menu], cliName: "settings decrease-interface-scale", mainMenu: .view
             ),
             ActionDescriptor(
                 id: "appearance.uiScale.reset",
                 title: String(localized: "action.appearance.uiScale.reset", defaultValue: "Reset Interface Scale", bundle: .module),
                 keywords: ["appearance", "scale", "chrome", "default", "zoom"],
-                defaultShortcut: Shortcut("0", modifiers: [.control, .command]), category: .settings,
+                defaultShortcut: Shortcut("0", modifiers: [.control, .shift, .command]), category: .settings,
                 symbol: "1.magnifyingglass", surfaces: [.palette, .keyboard, .menu], cliName: "settings reset-interface-scale", mainMenu: .view
             ),
         ]

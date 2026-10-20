@@ -191,6 +191,10 @@ pub struct PtyTerminalRuntime {
     pub(super) journal_capture_gate: Mutex<()>,
     pub(super) journal_capture_idle: Condvar,
     pub(super) journal_capture_open: AtomicBool,
+    /// Set when the journal writer failed or stayed full past the durable
+    /// deadline. Capture stops, but `journal_capture_open` stays set so the
+    /// terminal reader keeps reading and rendering output.
+    pub(super) journal_capture_disabled: AtomicBool,
     pub(super) journal_capture_reserved: AtomicBool,
     pub(super) journal_capture_active: AtomicBool,
     /// Owned reader join fence. Shutdown gives this reader a bounded drain

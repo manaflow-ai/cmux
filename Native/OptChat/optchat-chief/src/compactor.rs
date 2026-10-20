@@ -601,6 +601,8 @@ pub struct AcpmuxCompactor {
     alternate: Option<String>,
     exhausted_until: Mutex<Option<Instant>>,
     reaped: AtomicBool,
+    /// Probe sessions this host started: each gets its own name (cx-oqnw3).
+    probes: std::sync::atomic::AtomicU64,
     /// This compactor, when shared (`shared`): a warm session then starts on
     /// its own thread after the node returns.
     me: std::sync::Weak<AcpmuxCompactor>,
@@ -640,6 +642,7 @@ impl AcpmuxCompactor {
             exhausted_until: Mutex::new(None),
             warm: 0,
             reaped: AtomicBool::new(false),
+            probes: std::sync::atomic::AtomicU64::new(0),
             me: std::sync::Weak::new(),
             log: None,
             trace: crate::trace::Trace::off(),
@@ -872,7 +875,13 @@ impl AcpmuxCompactor {
 
     fn session_name(&self, node: NodeId) -> String {
         if node == PROBE_NODE {
-            format!("{}-probe", self.spec.name)
+            // Its own name per host and probe (cx-oqnw3): after a brain restart on
+            // the same Chief home the fixed `<name>-probe` was still taken in the
+            // shared acpmux although `start` ends a session it finds by that name
+            // (cause not known yet; `start` logs the sessions when a name is taken).
+            // The probe's session is purged when the probe ends.
+            let n = self.probes.fetch_add(1, Ordering::SeqCst);
+            format!("{}-probe-{}-{n}", self.spec.name, std::process::id())
         } else {
             format!("{}-{}", self.spec.name, node.name())
         }
@@ -1096,9 +1105,16 @@ impl AcpmuxCompactor {
         // A transcript left by a crash in this slot.
         self.delete_transcript(&cwd);
         self.wipe_codex(slot);
-        // Left by a host that stopped while the node was being built.
-        if let Ok(Some(old)) = self.port.find(name) {
-            let _ = self.port.end_session(&old);
+        // Left by a host that stopped while the node was being built. When the
+        // list does not name it, acpmux ends a session by its exact name too
+        // (`_acpmux/kill` resolves a name; cx-oqnw3: the list missed one).
+        match self.port.find(name) {
+            Ok(Some(old)) => {
+                let _ = self.port.end_session(&old);
+            }
+            _ => {
+                let _ = self.port.end_session(name);
+            }
         }
         let spec = SessionSpec {
             name: name.to_owned(),
@@ -1111,10 +1127,19 @@ impl AcpmuxCompactor {
             tags: crate::acpmux::chief_tags(&self.spec.chief, "compactor"),
             env: Default::default(),
             fast: self.spec.fast,
+            peer: None,
         };
         let id = self
             .port
             .new_session(&spec)
+            .inspect_err(|e| {
+                if e.contains("is taken") {
+                    let listed = self.port.find(name);
+                    self.say(&format!(
+                        "compactor: acpmux says the session name {name} is taken; its list finds {listed:?}"
+                    ));
+                }
+            })
             .and_then(|id| {
                 // The session's own harness is what answers (a name that is
                 // also a family resolves through acpmux's preference list).
@@ -1614,8 +1639,11 @@ impl AcpmuxCompactor {
         self.delete_transcript(&live.cwd);
         self.wipe_codex(live.slot);
         // The next node's session starts now, in this slot, so it does not
-        // wait for one; else the slot goes back.
-        if self.warm > 0 && !is_describe(node) && self.slots.rewarm(self.warm) {
+        // wait for one; else the slot goes back. Not after the start-up
+        // probe: no chat work follows it, and its warm Claude Code sat idle
+        // from launch until the idle reap (about 100 MB).
+        if self.warm > 0 && node != PROBE_NODE && !is_describe(node) && self.slots.rewarm(self.warm)
+        {
             // Off the node's path: starting Claude Code takes seconds, and
             // the node's line (and any turn waiting for it) must not wait.
             let (slot, system, ours) = (live.slot, live.system.clone(), live.ours);
@@ -2105,6 +2133,7 @@ pub fn compactor_presets(paths: &Paths, home: &Path, harness: &str, family: Fami
         SUBROUTER_SESSION_KEY_ENV.to_owned(),
         codex_cache_key(home, "compact"),
     );
+    env.insert(SUBROUTER_SESSION_HEADER_ENV.to_owned(), "1".to_owned());
     for key in [
         "CLAUDE_CODE_DISABLE_AUTO_MEMORY",
         "CLAUDE_CODE_DISABLE_CLAUDE_MDS",
@@ -2218,6 +2247,12 @@ pub use crate::codex_home::*;
 /// fresh per-turn Claude Code processes of one Chief share its prompt cache.
 /// Earlier `sr` builds ignore it.
 pub const SUBROUTER_SESSION_KEY_ENV: &str = "SUBROUTER_SESSION_KEY";
+
+/// `1`: acpmux sends [`SUBROUTER_SESSION_KEY_ENV`] as the
+/// `X-Subrouter-Session` header itself (acpmux `subrouter_session.rs`), so
+/// routes whose launcher ignores the key (`sr2 claude`) stay sticky too.
+/// Turns and compactor nodes opt in; subagents (one long session each) do not.
+pub const SUBROUTER_SESSION_HEADER_ENV: &str = "SUBROUTER_SESSION_HEADER";
 
 /// Which model builds the compactor's nodes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

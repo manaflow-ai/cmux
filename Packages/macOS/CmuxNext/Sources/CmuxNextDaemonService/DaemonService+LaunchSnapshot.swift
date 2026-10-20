@@ -43,7 +43,7 @@ extension DaemonService {
     public nonisolated static func prestart(launch: LaunchIdentity, terminalEnvironment: [String: String],
                                      terminalEnvironmentProvider: @escaping @Sendable () async -> [String: String],
                                      resolvesShellIntegration: Bool = false) -> DaemonPrestart? {
-        guard let launcher = try? DaemonLauncher.forApp(tag: launch.tag, bundleID: launch.bundleID,
+        guard let launcher = try? DaemonLauncher.forApp(build: launch.build,
                                                 terminalEnvironment: terminalEnvironment,
                                                 daemonEnvironment: firstPartyAppsEnvironment,
                                                 webSocketPageOrigins: pageOrigins) else { return nil }
@@ -89,9 +89,13 @@ extension DaemonService {
                                                retryWake: RetryWake? = nil) -> DaemonConnection.Configuration {
         // sessionEvents: the state resources (closed history, workspace status,
         // tab records) come only through session.events (nxdog50).
-        DaemonConnection.Configuration(retryWake: retryWake, terminalEnvironment: terminalEnvironment,
-                                       resolvesShellIntegration: resolvesShellIntegration, sessionEvents: true,
-                                       clientHello: ClientHelloIdentity(installKey: installKey))
+        var configuration = DaemonConnection.Configuration(retryWake: retryWake, terminalEnvironment: terminalEnvironment,
+                                                           resolvesShellIntegration: resolvesShellIntegration, sessionEvents: true,
+                                                           clientHello: ClientHelloIdentity(installKey: installKey))
+        // A stopped or wedged owner keeps its socket open: only the heartbeat
+        // shows it not connected (cx-jniyz.4).
+        configuration.localHeartbeat = true
+        return configuration
     }
 
     /// Records the local daemon's socket for the next launch

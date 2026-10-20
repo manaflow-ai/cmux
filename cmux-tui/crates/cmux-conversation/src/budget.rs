@@ -1,29 +1,106 @@
-//! The agent turn budget (plans/cmux-next/home.md section 5): in one
-//! conversation agents may post at most [`MAX_AGENT_TURNS`] messages after the
-//! last human message, at least [`MIN_AGENT_GAP_MS`] apart, so two agents
-//! cannot loop. Pure: the host passes the newest messages and the clock.
+//! The agent turn budget (plans/cmux-next/home.md section 5): in one thread
+//! (the replies of one root, or the conversation's top level) agents may post
+//! at most [`MAX_AGENT_TURNS`] text messages after the last person's text in
+//! that thread, and agent text messages are at least [`MIN_AGENT_GAP_MS`]
+//! apart in the conversation, so agents (Chiefs) cannot loop. Agents in two
+//! threads do not spend each other's budget; only a person's text (or a
+//! person's question answer) resets one. Pure: the host passes the head or the
+//! newest messages and the clock. Same rule as home-core `budget.ts`.
 
 use crate::reducer::Reject;
-use crate::types::{ConversationHead, Message, Part, ParticipantKind};
+use crate::types::{ConversationHead, Message, Part, Participant, ParticipantKind};
 
-/// Most agent messages after the last human message.
-pub const MAX_AGENT_TURNS: usize = 4;
+/// Most agent text messages in one thread after its last person's text.
+pub const MAX_AGENT_TURNS: usize = 6;
 /// Shortest gap between two agent messages, in milliseconds.
 pub const MIN_AGENT_GAP_MS: u64 = 2_000;
-/// How many of the newest messages the host must pass (enough to see the last
-/// human message or the full budget).
+/// How many of the newest messages of the thread the host must pass (enough
+/// to see the last person's text or the full budget).
 pub const BUDGET_WINDOW: usize = MAX_AGENT_TURNS + 1;
 
-/// Checks a `message.send` of `parts` by `actor`. `recent` holds the newest
-/// messages of the conversation, newest first (at least [`BUDGET_WINDOW`] when
-/// that many exist). Humans are never limited, and messages with no text (work
-/// cards an orchestrator posts for its children) are neither limited nor counted.
+/// Whether `message` is in thread `thread_root` (None: the top level).
+pub fn in_thread(message: &Message, thread_root: Option<&str>) -> bool {
+    message.thread_root.as_deref() == thread_root
+}
+
+/// The agent text streak of thread `thread_root` from rows: agent text
+/// messages at the end of that thread, after its last person's text.
+/// `messages` newest first; other threads' messages are skipped;
+/// `participants` say who is an agent. The same
+/// count the head keeps ([`streak_of`]), for a host or a page that holds
+/// messages, not the head ("Chiefs paused" when it is at the budget).
+pub fn thread_agent_streak(
+    participants: &[Participant],
+    messages: &[Message],
+    thread_root: Option<&str>,
+) -> usize {
+    let kind = |id: &str| participants.iter().find(|p| p.id == id).map(|p| p.kind);
+    let mut count = 0;
+    for m in messages
+        .iter()
+        .filter(|m| in_thread(m, thread_root) && m.parts.iter().any(Part::counts_as_turn))
+    {
+        // Only a person's text ends the streak; an author who left is
+        // skipped (the head counted it at send time; a row count only falls
+        // short).
+        match kind(&m.author) {
+            Some(ParticipantKind::Human) => break,
+            Some(ParticipantKind::Agent) => count += 1,
+            _ => {}
+        }
+    }
+    count
+}
+
+/// The head's agent text streak of thread `thread_root` (None: the top level).
+pub fn streak_of(head: &ConversationHead, thread_root: Option<&str>) -> u32 {
+    match thread_root {
+        None => head.agent_text_streak,
+        Some(root) => head.thread_agent_streaks.get(root).copied().unwrap_or(0),
+    }
+}
+
+/// One text turn in thread `thread_root` on `head`: an agent's adds 1 to that
+/// thread's streak (from `seed` when given) and sets `last_agent_text_at`; a
+/// person's resets that thread's streak only. A thread entry at 0 is dropped.
+pub fn with_turn(
+    head: &mut ConversationHead,
+    thread_root: Option<&str>,
+    agent: bool,
+    now: &str,
+    seed: Option<u32>,
+) {
+    let value = if agent {
+        seed.unwrap_or_else(|| streak_of(head, thread_root)).saturating_add(1)
+    } else {
+        0
+    };
+    if agent {
+        head.last_agent_text_at = Some(now.to_string());
+    }
+    match thread_root {
+        None => head.agent_text_streak = value,
+        Some(root) if value == 0 => {
+            head.thread_agent_streaks.remove(root);
+        }
+        Some(root) => {
+            head.thread_agent_streaks.insert(root.to_string(), value);
+        }
+    }
+}
+
+/// Checks a `message.send` of `parts` by `actor` into thread `thread_root`.
+/// `recent` holds the newest messages of the conversation, newest first (at
+/// least [`BUDGET_WINDOW`] of that thread when that many exist). Humans are
+/// never limited, and messages with no text (work cards an orchestrator posts
+/// for its children) are neither limited nor counted.
 pub fn check_agent_budget(
     head: &ConversationHead,
     actor: &str,
     parts: &[Part],
     recent: &[Message],
     now_ms: u64,
+    thread_root: Option<&str>,
 ) -> Result<(), Reject> {
     let agent = ParticipantKind::Agent;
     let is_agent = |id: &str| head.participant(id).is_some_and(|p| p.kind == agent);
@@ -31,13 +108,13 @@ pub fn check_agent_budget(
     if !is_agent(actor) || !has_text(parts) {
         return Ok(());
     }
-    let mut turns = recent.iter().filter(|message| has_text(&message.parts));
-    let agent_turns = turns.clone().take_while(|message| is_agent(&message.author)).count();
-    if agent_turns >= MAX_AGENT_TURNS {
+    if thread_agent_streak(&head.participants, recent, thread_root) >= MAX_AGENT_TURNS {
         return Err(Reject::AgentBudget);
     }
     // A clock that moved back (now before the last agent message) never blocks.
-    let too_soon = turns
+    let too_soon = recent
+        .iter()
+        .filter(|message| has_text(&message.parts))
         .find(|message| is_agent(&message.author))
         .and_then(|message| parse_rfc3339_millis(&message.created_at))
         .is_some_and(|at| now_ms >= at && now_ms < at.saturating_add(MIN_AGENT_GAP_MS));
@@ -47,22 +124,23 @@ pub fn check_agent_budget(
     Ok(())
 }
 
-/// The O(1) loop guard over the head's counters (`agent_text_streak`,
-/// `last_agent_text_at`, kept by `apply` on every text send): the same limits as
-/// [`check_agent_budget`], but no row window, so text-less work cards cannot push
-/// the streak out of view and two agents cannot loop. The owner uses this one;
-/// the row-window check stays for the conformance corpus's local cases.
+/// The O(1) loop guard over the head's counters (`agent_text_streak` for the
+/// top level, `thread_agent_streaks` per thread, `last_agent_text_at`, kept by
+/// `apply` on every text send): the same limits as [`check_agent_budget`], but
+/// no row window, so text-less work cards cannot push the streak out of view.
+/// The owner uses this one; the row-window check stays for hosts and pages.
 pub fn check_agent_streak(
     head: &ConversationHead,
     actor: &str,
     parts: &[Part],
     now_ms: u64,
+    thread_root: Option<&str>,
 ) -> Result<(), Reject> {
     let agent = head.participant(actor).is_some_and(|p| p.kind == ParticipantKind::Agent);
     if !agent || !parts.iter().any(Part::counts_as_turn) {
         return Ok(());
     }
-    if head.agent_text_streak as usize >= MAX_AGENT_TURNS {
+    if streak_of(head, thread_root) as usize >= MAX_AGENT_TURNS {
         return Err(Reject::AgentBudget);
     }
     let too_soon = head

@@ -49,7 +49,31 @@ settle go into that same call. A pending approval is denied by a newer
 human message, so the turn reaches its next tool boundary. Subagent reports
 follow the same rule. Only chief.stop stops a turn: the runner waits until
 no tool call runs, then sends `session/cancel` every second until the turn
-ends, and the end posts what the turn said and "(turn stopped)".
+ends, and the end posts nothing to the chat or any bridge.
+
+## Several Chiefs and channels
+
+One host is one Chief (`src/membership.rs`). Several Chiefs on one owner run
+one host each, with their own `MUX_HOME`, acpmux home, participant id
+(`OPTCHAT_CHIEF_PARTICIPANT`) and token (`conversation-agent-token` for that
+id). With `OPTCHAT_GROUP_WAKE` set, a person's message in another local
+conversation the Chief takes part in is a wake of that conversation, read and
+answered as a cloud wake is (`brain/side.rs`); another Chief's message wakes
+it too (never its own; other agents never do). Loop guard: the owner's
+per-thread budget (`cmux_conversation::MAX_AGENT_TURNS`, 6): at most 6 agent
+texts in one thread (the replies of one root, or the top level) since a
+person's text in that thread; the owner refuses more (`agent_budget`), and a
+Chief pre-checks it from the messages it read (`thread_agent_streak` on the
+thread its reply goes into) so it stays quiet instead of running that turn.
+A person's text resets its own thread only. A page shows "Chiefs paused" for
+a thread when `thread_agent_streak` of its newest messages is at the budget. `every` adds a constant
+"Channels" paragraph to the system prompt: the Chief acts on its own when a
+message concerns its role, and a reply of exactly `NO_REPLY` posts nothing.
+In a conversation of more than two participants the reply goes into the
+thread of the message it answers (`reply_to` that message, `thread_root` its
+root, else the message itself). The local owner has no wake queue: a side
+conversation's messages that arrive while the host is down are not read after
+the restart. Behavior test: `tests/channels_daemon.rs` (real daemon).
 
 ## Pure Rust over ACP
 
@@ -81,7 +105,7 @@ Claude harness, `chief spawn|tell|zoom|date` on any other).
 - `spawn` in a turn takes that turn's view and its new messages at once
   (no wait for the compactor to summarize the turn's own tool calls:
   parity timing 2026-10-09, the settle took 7.2 s of an 8.7 s spawn);
-  outside a turn it waits for settle (at most 10 s, as a turn does; then
+  outside a turn it waits for settle (at most 1 s, as a turn does; then
   the lines still building read as the placeholder), renders the view, and starts one acpmux session per
   task on `OPTCHAT_SUBAGENT_HARNESS` (default the Chief's), named
   `optchat-sub-<home id>-a<N>`, in the `cwd` it was given (`~` is the host's
@@ -94,7 +118,8 @@ Claude harness, `chief spawn|tell|zoom|date` on any other).
   hard its subagents think; by default the calling turn's effort.
 - First message: the view at spawn time (one block per cached piece), then
   `Your task:\n\n<task>`. System prompt: section 9's subagent prompt (agent
-  renamed Chief), VIEW_DOC, a short cmux section, then the user's AGENTS.md
+  renamed Chief), VIEW_DOC, a short cmux section, then the person profile
+  and the user's AGENTS.md
   (the preset's `systemPrompt` on Claude; CLAUDE.md when acpmux takes none;
   AGENTS.md on other harnesses).
 - `zoom("a<N>")` (`chief zoom a<N> [AT]`) gives a subagent's whole chat from
@@ -161,11 +186,14 @@ Claude harness, `chief spawn|tell|zoom|date` on any other).
   and it starts no turn. A subagent that runs again later (a `tell`, the user
   writing in its chat) reports again when it finishes.
 
-- At most 16 subagents work at once (`subagents::MAX_LIVE`; one spawn takes
-  at most 8 tasks). A spawn over the cap answers `a<N>: queued`; a queued
-  subagent starts, with the view of that moment and its task, when another
-  finishes. The queue lives in the host's memory: a host that restarts
-  reports a still-queued subagent as not started.
+- Any number of subagents work at once by default; `OPTCHAT_MAX_LIVE_SUBAGENTS=N`
+  caps it (one spawn takes at most 8 tasks; call spawn again for more). A spawn
+  over the cap answers `a<N>: queued`, naming the cap's source (`control cap N`
+  or the env) and that `control cap 0` removes it; a queued subagent starts, with the view
+  of that moment and its task, when another finishes. Its record keeps its
+  task, directory, effort and floor, so a host that restarts still starts it
+  (a record from before launches were saved takes its task from the spawn
+  call in the log, and the floor of that moment).
 - A turn whose subagents are at work gets `Subagents at work now: a1, a3.`
   after the view, before its new messages (never logged).
 - `chief.stop` stops the running turn and every subagent at work
@@ -192,6 +220,32 @@ the last two messages of every later request in a session, the API takes at
 most 4 marks, and a subagent's long tool loop needs Claude Code's own rolling
 marks (decision 2026-10-08; see Cache marks and TTL).
 
+### Subagent control (2026-10-19)
+
+- `tell(id, message, key?)` never fails for a known subagent. One with no
+  session yet, whose task is not sent yet, or that is paused keeps the
+  message in its saved inbox (`SubRecord.inbox`, host.json), delivered in
+  order after its task; a queued one gets it appended to its task. The
+  answer says `outcome: queued` or `outcome: done`, and a note tells the
+  Chief when the inbox is delivered. A repeat of `key` is `outcome: noop`.
+- `control(action, id?, message?, option?, n?)` (`chief control ...`), every
+  answer `outcome: done|queued|noop|refused`, a repeat a noop:
+  `status [id]` (queued, starting, running, waiting-on-permission, stuck,
+  idle, stopped, failed, paused, cancelled; elapsed, last output, prompt,
+  inbox), `interrupt id [message]` (`session/cancel`; the cut run reports
+  nothing when a message follows, the message is its next prompt),
+  `answer id OPTION|deny` (its pending prompt; acpmux takes an allow only
+  from the person's app, so a refusal says to deny, steer or ask the user),
+  `pause id` / `resume id [message]` (no auto-resume while paused),
+  `cancel id`, `restart id [message]` (same session), `priority id`,
+  `cap n` (the live cap now, 0 none; saved as `live_cap`, so it outlives a
+  restart; a cap is opt-in, set only when the user asks for one).
+- Pushed to the Chief: a prompt with its option ids and the approve policy
+  (safe steps: reads, edits and tests in its worktree; the user for money,
+  legal, destructive or credential steps), and one `looks stuck` note per run
+  after 15 minutes without a session change (checked each minute).
+- Tests: `tests/subagent_control.rs`.
+
 ## Engine: harness, model and effort per turn
 
 `$MUX_HOME/optchat/engine.json` (0600) holds `harness`, `model`, `effort`,
@@ -213,7 +267,11 @@ writes the same file.
 ## Monitoring: trace and stats
 
 Every turn (`turn.start`, `turn.end`), every model request in a turn
-(`request`: Claude Code's per-message usage; codex-acp's last request), every
+(`request`: Claude Code's per-message usage; codex-acp's last request; with
+`message_id` and `harness_session`, Claude Code's session id, which the
+subrouter pins an account to: its responses name no account, so these two
+ids are what joins a cache miss to the subrouter's session assignment
+`GET /_subrouter/sessions` (admin) and its proxy log), every
 tool call (`tool`: name, argument bytes, result bytes, ok/error, ms from
 acpmux's event times), every compactor node (`node`: ms, prompts, usage, cost,
 ok, context hash and piece hashes), every subagent step (`spawn`,
@@ -267,8 +325,8 @@ For the bundled host in a tagged cmux-next DEV app, `MUX_HOME` is
    variable set, or `launchctl setenv CMUX_NEXT_MUX_HOST /abs/path/optchat-chief`
    before `open`). The app starts the host when Home first opens, as
    `optchat-chief host --daemon-socket <daemon socket> --mux-home ~/.cmux/mux/tags/<tag>`,
-   with `MUX_AGENT_TOKEN_FILE`, `CMUX_SOCKET_PATH`, `ACPMUX_*`, `MUX_HARNESS`
-   and `CMUX_MCP_COMMAND` set. Its stderr goes to `$MUX_HOME/host.log`.
+   with `MUX_AGENT_TOKEN_FILE`, `CMUX_SOCKET_PATH`, `ACPMUX_*` and `MUX_HARNESS`
+   set. Its stderr goes to `$MUX_HOME/host.log`.
 
 3. Open Home and write in the Chief conversation. The reply shows as the
    `mux` participant (the conversation is the same one mux/host creates).
@@ -293,9 +351,19 @@ optchat-chief import-claude-code dry-run|write [--projects DIR] [--mux-home DIR]
                                                            Claude Code transcripts as messages (host stopped)
 optchat-chief memory export --text DIR [--mux-home DIR]    the memory as JSONL day files (read-only; host may run)
 optchat-chief memory import [--mux-home DIR] DIR           an old JSONL home or an export into an empty memory (host stopped)
-optchat-chief memory search [--mux-home DIR] [--limit N] WORDS  messages and summaries holding every word (FTS5)
+optchat-chief memory search [--mux-home DIR] [--limit N] [--json] WORDS  messages and summaries holding every word (FTS5);
+                                                           --json: id, kind, date, snippet and full text per hit
 optchat-chief memory stats [--mux-home DIR]                counts, schema, migration record, backup status
+optchat-chief agent-memory search|get|remember|mcp|sync|sources|config ...
+                                                           long-term memory shared by Codex and Claude Code sessions
 ```
+
+`agent-memory` is a separate home (`~/.cmux/agent-memory`) built from the agents'
+own memory files, with its own MCP server (`cmux-agent-memory`: `memory_search`,
+`memory_get`, `memory_remember`) that cmux registers for agent sessions when
+`agents.memory.enabled` is on. It never touches a Chief's memory, and `mcp`'s
+tool list above is unchanged (section 7.2). Setup, several machines and the
+migration from the leo-workspace script: [cmux-agent-memory](../../../skills/cmux-agent-memory/SKILL.md).
 
 Inside a turn the Chief runs `chief agents ...` (a launcher in
 `$MUX_HOME/optchat/bin`, first on the turn's PATH). A child's final reply of
@@ -338,6 +406,9 @@ replies).
 | `CMUX_DAEMON_SOCKET` | (`--daemon-socket`) | the session daemon (local-conversations-v1) |
 | `MUX_HOME` | `~/.cmux/mux` (`--mux-home`) | where everything lives |
 | `MUX_AGENT_TOKEN_FILE` | required (exit 2 without) | the app's agent_mux token |
+| `OPTCHAT_CHIEF_PARTICIPANT` | `agent_mux` | the participant this Chief binds and answers as (one host per Chief, each with its own `MUX_HOME` and token); its main conversation is its oldest DM with the person ([Several Chiefs and channels](#several-chiefs-and-channels)) |
+| `MUX_CHIEF_TITLE` | `Chief` | the title of the Chief's conversation when the host creates it; for a Chief that is not agent_mux, also its participant name |
+| `OPTCHAT_GROUP_WAKE` | unset | local source: `mention` or `every` makes the other local conversations the Chief takes part in wake it (a mention or reply, or every person's message); unset, it answers only in its main conversation |
 | `OPTCHAT_CHIEF_ENGINE` | `acpmux` | `acpmux` or `native` (Messages API loop in the host) |
 | `OPTCHAT_CHIEF_MODEL` | `claude-opus-5-5` (native), harness default (acpmux) | the turn model |
 | `OPTCHAT_CHIEF_EFFORT` | `medium` (Taelin runs Opus 5.5 at medium); acpmux: only on a Claude or codex harness | the turn effort: native `output_config.effort`, acpmux `effort` of each turn session |
@@ -349,7 +420,6 @@ replies).
 | `ACPMUX_SOCKET`, `ACPMUX_HOME` | `~/.acpmux/acpmux.sock` | the acpmux daemon |
 | `ACPMUX_BIN` | none | started as `$ACPMUX_BIN daemon run` when the socket does not answer |
 | `CMUX_SOCKET_PATH` | none | the app's control socket, passed to the turn's tools |
-| `CMUX_MCP_COMMAND` | none | cmux binary whose `mcp serve` is added as MCP server `cmux` |
 | `OPTCHAT_ANTHROPIC_BASE_URL` | `http://cmux-lawrences-mac-mini:31415` | the Messages API of the native engine, and of the compactor's `api` route (team subrouter) |
 | `OPTCHAT_ANTHROPIC_API_KEY` | none | `x-api-key`; else `ANTHROPIC_API_KEY` for any base URL but the subrouter; else `subrouter` |
 | `OPTCHAT_COMPACTOR` | `acpmux` | how summaries are built; `api` only when set (see Compactor routes) |
@@ -381,6 +451,7 @@ $MUX_HOME/optchat/memory-jsonl-backup-<stamp>/  the old JSONL files of a migrate
 $MUX_HOME/optchat/backup.json     the last backup outcome (ok, held with its text, retrying, off)
 $MUX_HOME/optchat/backup-allow.txt  message ids or summary names whose possible secret the user allowed
 $MUX_HOME/optchat/settings.json   per-Chief settings: {"backup": {"remote": true|false}}
+$MUX_HOME/optchat/person.md       the person profile: who the user is and how they want work done; written once with a default, then the user's (read at host start)
 $MUX_HOME/optchat/AGENTS.md       the user's own instructions, the end of the system prompt (read at host start)
 $MUX_HOME/optchat/memory.html     `optchat-chief browse` output
 $MUX_HOME/optchat/host.json.imported  the old host state, moved into memory.sqlite3 at the first start
@@ -410,8 +481,16 @@ $TMPDIR/optchat-compact-<home id>/slot-<k>/  the compactor sessions' working dir
 user pasted.
 
 The system prompt (and the acpmux session's `CLAUDE.md`) is the spec's MASTER
-and VIEW_DOC (agent renamed "Chief"), a short cmux section, then
-`$MUX_HOME/optchat/AGENTS.md` when it exists. The files
+and VIEW_DOC (agent renamed "Chief"), a short cmux section, then the person
+profile (`$MUX_HOME/optchat/person.md`) and `$MUX_HOME/optchat/AGENTS.md` when
+it exists. The Chief runs with no user CLAUDE.md, settings or hooks, so the
+profile is the one place that says how the user wants work done. A host start
+writes the default once when the file is missing (act without asking for safe
+operations; ask only for money, legal, physical or destructive actions; never
+build or test on this Mac, use the fleet or remote routes through a subagent);
+the user edits it, or empties it to drop it. Both files are read once per host
+start, so the cached prefix changes only when a file changed and the host
+restarted (`profile.json` is the app's avatar, a different file). The files
 this host writes (CLAUDE.md, the MCP tool list, the settings) are
 byte-identical across turns. The request the model gets is not fully ours:
 
@@ -671,6 +750,21 @@ blocks with cache_control`) reruns the turn once without the marker, and
 the next 10 turns skip it (`MARK_RETRY_AFTER`); then it is tried again. An acpmux without `systemPrompt` keeps the old layout
 (no marker, CLAUDE.md, host.log says so).
 
+**Frozen view and delta (spec 5a, cx-d7a4d).** A turn sends the view frozen at
+the last re-render (`optchat_core::turn_input`; the host keeps only the
+`frozen` record in its state), then every log entry after the view's front as
+`<id>+1|<kind>: <text>` lines, one block per run of user or of other kinds
+(the turn's new messages always start one; the view keeps an unbuilt line as
+the placeholder until the next re-render), then the turn's images, then the per-turn tail (subagents at work, the Home
+workspace, resume notes). Our three marks sit on the `<chat>` header, the
+view's end and the delta's end, so a turn reads the whole previous input. An
+edit or retraction of a logged message is logged as a note (`edit of <id>:
+<text>`, `retracted <id>`; a queued one takes the edit or leaves the queue). A re-render happens past 8,000 delta bytes when the
+compactor folded over the front, past 32,000 bytes, or with no frozen view
+(optchat-core `turn_input`, shared with the Cloud brain). Claude Code's own system message after our blocks (deferred
+tools and the rest, below) stays uncached each request: 3,400 tokens with the
+cmux MCP server's 165 deferred tools (measured 2026-10-16).
+
 **Cache marks and TTL.** Measured on the requests Claude Code 2.1.287
 sends (a capture proxy on a scratch route, 2026-10-08): Claude Code sends its
 tools, a marked system block of its own, our system prompt (marked), our
@@ -727,7 +821,10 @@ steps with tiny outputs; Claude Code's own rolling marks win only past
 about 400 output tokens per step at 12 steps (32% cheaper at about 1k).
 Claude Code reads the setting at process start, so a turn cannot switch
 after its first step, and 11 of 13 real turns made 1-2 requests: every
-turn keeps our mark, and tool-heavy work goes to subagents. Subagents never carry our mark: their
+turn keeps our mark, and tool-heavy work goes to subagents (the prompt's
+"Turns" section says so: builds, tests, many tool calls and long work go to a
+subagent, one per ask, and a turn hands the rest on after about 8 tool calls).
+Subagents never carry our mark: their
 sessions are long, and Claude Code's own marks cache them step by step.
 
 `turn.start` records the marked piece and the TTL (`layout.mark`,
@@ -779,7 +876,7 @@ file. A sign-in kept in the keyring instead of auth.json is not linked. The node
 deleted when it ends (and a crash's leftovers before the next node in the
 slot). The start-up probe fails when the session lists any `$skill`
 command.
-acpmux gives codex no MCP servers, so the memory tools are the launcher's
+acpmux gives codex no `optchat` MCP server, so the memory tools are the launcher's
 `zoom` and `date` commands (`optchat-chief zoom ID N`, `optchat-chief date
 ID`), named by absolute path in AGENTS.md.
 
@@ -819,7 +916,7 @@ The team subrouter serves Claude Code clients: a raw Messages API call for a
 Claude model gets `429 rate_limit_error` every time (checked live on
 2026-10-04), so a compactor that calls the API there builds no node that
 needs a model, and every turn then reads those lines unsummarized (a turn
-waits at most 10 s on compaction, see Deviations from the spec). The route is
+waits at most 1 s on compaction, see Deviations from the spec). The route is
 acpmux unless `OPTCHAT_COMPACTOR=api`:
 
 - `acpmux` (default):
@@ -1138,18 +1235,32 @@ the Too long retry, the 4-line cache blocks and single-flight. The replay
 test `optchat-core/tests/cache_replay.rs` pins the cache rate: turns 99.3%,
 compactions 98.1% of their prefix (spec: 98.6% and 96.2%). What differs:
 
-- Section 6, settle (chief 2026-10-10: a user turn never waits more than 10 s
-  on compaction). The spec starts no turn before every view line is a
-  summary. Here a turn waits at most `SETTLE_BOUND` (10 s) for lines that are
+- Section 6, settle (chief 2026-10-10: at most 10 s; hq-6d 2026-10-14, after
+  "the chief responds too slow": at most 1 s). The spec starts no turn before
+  every view line is a summary. Here a turn waits at most `SETTLE_BOUND` (1 s)
+  for lines that are
   still building, then starts and reads them as the placeholder (`zoom` opens
   them); the next turn reads their summaries. A node the compactor cannot
   build at all (a setup error such as a missing acpmux preset or a refused
   harness, or a request error on every try) is stuck at once and holds no
   turn; the Chief status says why. The class rule: a user message never
-  waits more than 10 s on the compactor (a turn's start and `spawn` alike).
+  waits more than 1 s on the compactor (a turn's start and `spawn` alike).
   Cost: a deferred turn's cache mark covers a view with placeholders, so the
   next turn, which reads the summaries there, misses the cache from that
-  line on once.
+  line on once. At 1 s, more turns defer: a quick follow-up may read the
+  previous turn's long messages as the placeholder and spend a `zoom` on
+  them. `PROGRESS_TICK` (2 s) is longer than the bound, so `settle.json`
+  (the app's "Organizing Chief history") never shows. Measured 2026-10-14
+  (chiefux on cmux-lawrence-2, 7 turns with a 3-message burst): settle
+  13-22 ms, no deferred turn, no zoom call; a busy compactor (an import) is
+  not measured.
+- **Turns paragraph.** The spec says "do the user's tasks yourself ... use
+  subagents only when the user asks". The Chief's base prompt replaces that
+  paragraph with `prompt.rs` `CHIEF_TURNS`: keep turns short, give builds,
+  tests, many tool calls and long work to one subagent per ask, hand the
+  rest on after about 8 tool calls. `optchat_core::TAELIN_PROMPT` stays the
+  spec text for its other users (optchat-host's Taelin/Cmux prompts, wasm,
+  cache replays).
 - **Claude Code compactor tools.** Compactions send the turns' system text,
   but a compactor session keeps `--tools ""` and deny-all (isolation), so
   on the Claude Code route its tool prefix differs from the turns' and it
@@ -1416,3 +1527,24 @@ an old host.json moves into the database once; `tests/backup.rs` pushes to a
 local bare repository (holds on a secret, retries offline, never forces).
 In optchat-host, `tests/bench.rs` is
 the ignored benchmark above.
+
+### First-turn cost guard
+
+A gate step of optchat-chief changes (not of every CI run): a new Chief's
+first turn must stay under 50,000 input tokens. `scripts/ci/chief-first-turn-cost.sh`
+runs the production trio on a scratch brain (`measure/chief_driver.py`,
+smoke turn `s01`) with Claude Code against a local stand-in
+(`measure/first_turn_cost.py proxy`) that answers with one canned reply,
+so no model runs and no credential reaches the worker. It then counts each
+recorded `/v1/messages` request with `count_tokens` on the team subrouter
+(the request's own `anthropic-beta`, so deferred tools count as the API
+counts them) and fails over the limit, or when no request names a cmux MCP
+tool (the server never reached the turn). `force_full_tools=1` proves it
+red: a `--settings` file turns tool search off, the behavior before
+`session_dir::TURN_SETTINGS_ENV`, and every cmux MCP tool loads with the turn.
+
+```bash
+gate-run.sh --head "$HEAD_SHA" --out /tmp/gates/$HEAD_SHA.json -- \
+  ~/.local/bin/cmux-ci run --class isolated --script scripts/ci/chief-first-turn-cost.sh --ref "$HEAD_SHA" \
+  --key chief-first-turn-${HEAD_SHA:0:8} --arg=count_url=http://ROUTER:PORT --timeout 6000
+```

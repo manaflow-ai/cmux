@@ -26,8 +26,22 @@ extension DaemonConnection {
     }
 
     @discardableResult
-    public func renameWorkspace(_ key: WorkspaceKey, to name: String) async throws -> WorkspaceMutationResult {
-        try await request(RenameWorkspaceRequest(workspace: .key(key), name: name, mutation: mutation()))
+    public func renameWorkspace(_ key: WorkspaceKey, to name: String, source: WorkspaceNameSource? = nil,
+                                expectedNameRevision: UInt64? = nil, release: Bool = false) async throws -> WorkspaceMutationResult {
+        if source == .auto {
+            guard identity?.supports(DaemonCapabilities.shared.workspaceNameSource) == true else {
+                throw DaemonError.missingCapabilities([DaemonCapabilities.shared.workspaceNameSource])
+            }
+        }
+        let nameMutation: MutationIdentity = {
+            guard source == .auto else { return mutation() }
+            var identity = mutation()
+            identity.expectedGeneration = self.identity?.generation
+            return identity
+        }()
+        return try await request(RenameWorkspaceRequest(workspace: .key(key), name: name, source: source,
+                                                        expectedNameRevision: expectedNameRevision, release: release,
+                                                        mutation: nameMutation))
     }
 
     @discardableResult
@@ -186,7 +200,7 @@ extension DaemonConnection {
     @discardableResult
     public func newFrontendBrowserTab(url: String, engine: BrowserEngine, in pane: PaneID?, title: String? = nil, profileID: String? = nil,
                                       activate: Bool? = nil, after: SurfaceID? = nil) async throws -> NewFrontendBrowserTabRequest.Response {
-        try await request(NewFrontendBrowserTabRequest(url: url, engine: engine, pane: pane, title: title, profileID: profileID, activate: activate, after: after))
+        try await NewFrontendBrowserTabRequest(url: url, engine: engine, pane: pane, title: title, profileID: profileID, activate: activate, after: after).send(on: self)
     }
 
     @discardableResult
@@ -236,8 +250,34 @@ extension DaemonConnection {
 
     // Input and sizing on the control connection (views use TerminalAttachment)
 
-    public func send(_ surface: SurfaceID, text: String? = nil, bytes: Data? = nil, paste: Bool = false) async throws {
-        _ = try await request(SendInputRequest(surface: surface, text: text, bytes: bytes, paste: paste ? true : nil))
+    /// - Parameter expectForeground: write only while this executable is still the terminal's
+    ///   foreground (`send-expect-foreground-v1`); an older daemon ignores it.
+    public func send(_ surface: SurfaceID, text: String? = nil, bytes: Data? = nil, paste: Bool = false,
+                     expectForeground: String? = nil) async throws {
+        _ = try await request(SendInputRequest(surface: surface, text: text, bytes: bytes, paste: paste ? true : nil,
+                                               expectForeground: expectForeground))
+    }
+
+    /// Pastes `text`, then Return, into `surface` only while a program other than its shell runs in the
+    /// foreground. The check and both writes go over this connection back to back, and each write names
+    /// the program the check saw, so a daemon with `send-expect-foreground-v1` refuses it once that
+    /// program has exited. A bare shell fails with ``DaemonError/command(cmd:message:code:details:retryable:)``
+    /// code `foreground.shell` and nothing is written.
+    public func typeToForegroundProgram(_ surface: SurfaceID, text: String) async throws {
+        let process = try await request(TerminalProcessInfoRequest(surface: surface), timeout: .seconds(1))
+        guard process.runningProgram != nil, let program = process.foregroundExecutable else {
+            throw DaemonError.command(cmd: SendInputRequest.command, message: "only a shell runs in the foreground",
+                                      code: "foreground.shell")
+        }
+        try await send(surface, text: text, paste: true, expectForeground: program)
+        try await send(surface, text: "\r", expectForeground: program)
+    }
+
+    /// Input by host terminal id, also for a terminal still being created
+    /// (`terminal-input-while-creating-v1`). True when the daemon queued it.
+    @discardableResult
+    public func sendTerminalInput(_ terminalID: String, bytes: Data) async throws -> Bool {
+        try await request(SendTerminalInputRequest(terminalID: terminalID, bytes: bytes)).queued == true
     }
 
     public func sendKeys(_ surface: SurfaceID, _ keys: [String]) async throws {

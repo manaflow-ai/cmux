@@ -38,11 +38,18 @@ public nonisolated struct PageDescriptor: Sendable, Hashable {
     /// `focusSearch`, which focuses and selects that field (Settings,
     /// Keyboard Shortcuts, Passwords), instead of a find bar.
     public let ownsSearchField: Bool
+    /// A first click in an inactive window reaches the page (``PageWKWebView``), as on the native
+    /// controls. Off by default (fail closed): a page opts in only when no control on it acts on one
+    /// click without a host confirmation sheet, so a click that only meant to bring the window
+    /// forward cannot run one (Settings' browsing-data Clear, the agent pane's permission cards,
+    /// Push, Apply and Remove, an app page's own content; those also say false explicitly, so a
+    /// later default change cannot turn them on). A page that is off keeps WebKit's answer.
+    public let acceptsFirstMouse: Bool
 
     public init(id: String, resource: String, namespaces: [String], nativeOps: Set<String> = [], denied: Set<String> = [],
                 actions: Set<String> = [], commands: Set<String> = PageNativeOp.commands,
                 confirmedOps: [String: PageConfirmation.Kind] = [:], csp: PageCSP = .strict, entry: String = "index.html",
-                dynamicPrefixes: Set<String> = [], ownsSearchField: Bool = false) {
+                dynamicPrefixes: Set<String> = [], ownsSearchField: Bool = false, acceptsFirstMouse: Bool = false) {
         self.id = id
         self.resource = resource
         self.namespaces = namespaces
@@ -57,6 +64,7 @@ public nonisolated struct PageDescriptor: Sendable, Hashable {
         self.entry = entry.isEmpty || entry.contains("/") || entry.hasPrefix(".") ? "index.html" : entry
         self.dynamicPrefixes = dynamicPrefixes
         self.ownsSearchField = ownsSearchField
+        self.acceptsFirstMouse = acceptsFirstMouse
     }
 
     /// Whether the page may call `op` (or subscribe to the stream `op`).
@@ -98,6 +106,11 @@ public nonisolated struct PageNativeOp {
     /// context menu choice in the page view (`PageCallContext.userGesture`); otherwise refused with
     /// ``userOnlyCode``.
     public static let clipboardWrite = "cmux.app.clipboard.write"
+    /// Runs `{command}` (`cut`, `copy`, `paste`, `pasteAsPlainText`) as the page view's own
+    /// responder action, for a page's own text-field menu: the page never reads the pasteboard.
+    /// Only on the person's click or key in the page view, each spent once. Served by the page's own
+    /// route (the Channels page's `PageEditProvider`), not the shared `cmux.app.` provider.
+    public static let edit = "cmux.app.edit"
     /// Stream every page may subscribe to: `{command, text?}` from the app's key dispatcher
     /// (`find`, `focusSearch`, `back`, `forward`, `reset`). The page never reads chords itself.
     public static let pageCommand = "cmux.page.command"
@@ -114,8 +127,12 @@ public nonisolated struct PageNativeOp {
     public static let popupHide = "cmux.app.popup.hide"
     /// Stream every page may subscribe to: the popup's `pick`, `highlight` and `dismiss`.
     public static let pagePopup = "cmux.page.popup"
-    /// The page commands the dispatcher sends (the Settings lead's page pattern).
-    public static let commands: Set<String> = ["find", "focusSearch", "back", "forward", "reset"]
+    /// The page command the host sends each time the page's web view becomes first responder: the
+    /// page focuses its primary input when nothing in it has focus (pane-focus-DESIGN.md P1).
+    public static let focusContent = "focusContent"
+    /// The page commands the dispatcher sends (the Settings lead's page pattern), and
+    /// ``focusContent``.
+    public static let commands: Set<String> = ["find", "focusSearch", "back", "forward", "reset", focusContent]
 }
 
 public extension PageDescriptor {
@@ -137,16 +154,20 @@ public extension PageDescriptor {
     /// preview and sound ops share the namespace; the page may run only its own actions and the
     /// sections' buttons, and writes the pasteboard for a row's Copy Setting Key.
     static let settings = PageDescriptor(
-        id: "cmux.settings", resource: "settings", namespaces: ["cmux.settings."],
+        // Agents > Chiefs draws the Chief editor: the Chief owner through the host's page relay
+        // (`cmux.chief.profile.`) and the harness center (`cmux.chief.backend.`), as Home does.
+        id: "cmux.settings", resource: "settings", namespaces: ["cmux.settings.", "cmux.chief.profile.", "cmux.chief.backend."],
         nativeOps: [PageNativeOp.actionRun, PageNativeOp.clipboardWrite],
         actions: Set<String>(["palette.openCmuxSettingsFile", "openSettings", "browserProfile.new", "browserProfile.rename",
                   "browserProfile.setColor", "browserProfile.clearColor", "browserProfile.setIcon", "browserProfile.clearIcon",
                   "browserProfile.manageExtensions", "browserProfile.delete", "browserProfile.clearBrowsingData",
                   "reloadConfiguration",
+                  // Machines > Add Server… opens the Add Server card (no code: the page never approves).
+                  "server.addServer",
                   // Agents > Computer Use card (ComputerUseSetup).
                   "palette.computerUse.setup", "palette.computerUse.accessibility", "palette.computerUse.screenRecording"])
             .union(settingsSectionActions),
-        dynamicPrefixes: ["backdrop", "museum", "icon"], ownsSearchField: true)
+        dynamicPrefixes: ["backdrop", "museum", "icon"], ownsSearchField: true, acceptsFirstMouse: false)
 
     /// The App Store page (react-pages.md 3). Install, update, Remove, `set` and allowing a scope pass
     /// the host's native sheet before they reach the owner (the app's ConfirmingPageProvider); Open

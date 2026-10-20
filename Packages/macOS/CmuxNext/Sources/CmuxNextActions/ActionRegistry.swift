@@ -32,6 +32,10 @@ public final class ActionRegistry {
     /// Focus and session facts published by the App. Drives availability and
     /// which of several actions sharing a default shortcut runs.
     public var context: ActionContext = []
+    /// The facts an explicit target brings to a run (`--target pane:…` of an agent
+    /// chat's pane: agentPaneFocused), so a script's run of a focus-gated action
+    /// does not depend on what the person focuses. Published by the App.
+    @ObservationIgnored public var targetContext: (@MainActor (ActionInvocation) -> ActionContext)?
 
     /// User shortcut overrides (from `cmux.json` `shortcuts`). A stored nil
     /// removes the default shortcut.
@@ -69,6 +73,9 @@ public final class ActionRegistry {
     /// with the hovered value (action, argument name, value, target), and
     /// with a nil value when the menu closes. The App previews themes here.
     @ObservationIgnored public var choicePreview: (@MainActor (ActionID, String, String?, ActionTargetRef?) -> Void)?
+    /// Live previews by action (`ActionRegistry+Preview`) and the one on screen.
+    @ObservationIgnored var previews: [ActionID: ActionPreview] = [:]
+    @ObservationIgnored var activePreview: ActivePreview?
     /// Every known value of a suggested argument (`ActionSuggestions.source`),
     /// supplied by the App.
     @ObservationIgnored public var argumentSuggestions: (@MainActor (String) -> [ActionEnumCase])?
@@ -108,6 +115,8 @@ public final class ActionRegistry {
     @ObservationIgnored public internal(set) var isReportingRefusal = false
     @ObservationIgnored var reportedRefusal: String?
     @ObservationIgnored var capturedWork: [ActionWork]?
+    /// The value-producing tasks among ``capturedWork`` (`track(result:)`).
+    @ObservationIgnored var capturedResults: [ActionResultWork]?
     @ObservationIgnored private var indexByID: [ActionID: Int] = [:]
     @ObservationIgnored var descriptorIndexByID: [ActionID: Int] = [:]
     @ObservationIgnored var shortcutIndex: ShortcutIndex?
@@ -261,7 +270,11 @@ public final class ActionRegistry {
     /// `isAvailable(_:in:)` with the facts the invocation's explicit target
     /// implies (`ActionContext.implied(by:)`).
     public func isAvailable(_ id: ActionID, for invocation: ActionInvocation) -> Bool {
-        isAvailable(id, in: (invocation.keyContext ?? context).union(ActionContext.implied(by: invocation)))
+        let base = (invocation.keyContext ?? context).union(ActionContext.implied(by: invocation))
+        // Asked only when the target is explicit and the run lacks a required fact.
+        guard invocation.target != nil, let required = descriptor(for: id)?.requires, !base.isSuperset(of: required),
+              let facts = targetContext?(invocation) else { return isAvailable(id, in: base) }
+        return isAvailable(id, in: base.union(facts))
     }
 
     public static func isAvailable(_ descriptor: ActionDescriptor, in context: ActionContext) -> Bool {
@@ -298,6 +311,10 @@ public final class ActionRegistry {
     /// Performs with a target and typed arguments (palette, CLI, context menus). Fails when a required argument is missing.
     @discardableResult
     public func perform(_ id: ActionID, invocation: ActionInvocation) -> Bool {
+        settlingPreview(for: id) { performNow(id, invocation: invocation) }
+    }
+
+    private func performNow(_ id: ActionID, invocation: ActionInvocation) -> Bool {
         if disabledFeature(for: id) != nil { return false }
         if let route = keyWindowRoute?(canonicalID(for: id), invocation) { return route.perform { refuse($0) } }
         guard let action = action(for: id), isAvailable(id, for: invocation), action.isEnabled() else { return false }

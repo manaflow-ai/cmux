@@ -56,11 +56,11 @@ test("a bar the header isn't following names no stale Open; merged stays named",
   const bars = [...dom.window.document.querySelectorAll<HTMLElement>(".acpmux-pr-dock__bar")].map((bar) => [
     bar.querySelector(".acpmux-pr-dock__number")?.textContent,
     bar.querySelector(".acpmux-pr-dock__state")?.textContent ?? null,
-    bar.querySelector<HTMLElement>(".acpmux-pr-dock__repo")?.title,
+    bar.querySelector(".acpmux-pr-dock__repo")?.textContent,
   ]);
   expect(bars).toEqual([
-    ["#42", null, "acme/uploader"],
-    ["#41", "Merged", "acme/a-very-long-repository-name"],
+    ["#42", null, "uploader"],
+    ["#41", "Merged", "a-very-long-repository-name"],
   ]);
   act(() => root.unmount());
 });

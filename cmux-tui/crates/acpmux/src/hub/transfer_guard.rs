@@ -194,8 +194,14 @@ fn plain_agent_session(id: &str) -> bool {
 }
 
 /// A bundle record whose prompt runs later here (queued, edited, or started before the move)
-/// runs under the guard's control; `web` also gates it on folder trust.
+/// runs under the guard's control; `web` also gates it on folder trust. No record keeps a
+/// prompt's provenance: only this daemon's unix socket says an agent sent a prompt.
 pub(super) fn guarded_record(rec: &mut EventRecord, control: Control) {
+    if matches!(rec.kind.as_str(), "queued" | "queue_updated" | "user_message")
+        && let Some(meta) = rec.msg.get_mut("_meta").and_then(Value::as_object_mut)
+    {
+        meta.remove("provenance");
+    }
     if matches!(rec.kind.as_str(), "queued" | "queue_updated" | "turn_started")
         && rec.msg.is_object()
     {
@@ -326,6 +332,7 @@ impl Hub {
         }
         meta.preset = None;
         meta.session_env.clear();
+        meta.workspace_id = None;
         meta.harness_roots.clear();
         meta.harness_argv.clear();
         meta.tags.clear();

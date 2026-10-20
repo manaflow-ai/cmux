@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextSidebar
 import CmuxNextTabs
 import Observation
 
@@ -43,7 +44,7 @@ final class WindowShortcutHints {
             guard KeyRouter.allows(registry.keyTier(for: action), id: action, focus: controller.focus.state) else { return nil }
             // Use the resolved table, including keybindings.json removals and rebindings.
             for entry in table.entries.reversed() where entry.command == action && entry.keys.count == 1 {
-                guard let shortcut = entry.keys.first, shortcut.modifiers.contains(held),
+                guard let shortcut = entry.keys.first, shortcut.modifiers.contains(held), KeyRouter.isChord(shortcut.modifiers),
                       digit.map({ entry.argument == String($0) }) ?? (entry.argument == nil),
                       table.resolve(entry.keys, in: context, isRunnable: { bindings.canPerform($0, in: context.bits) }).winner == entry else { continue }
                 return shortcut.displayString
@@ -52,13 +53,12 @@ final class WindowShortcutHints {
         }
         var hints: [ShortcutHintOverlayView.Hint] = []
         let sidebar = controller.sidebar.container.sidebarView
-        let workspaces = controller.sidebar.model.selectableWorkspaces
-        let frames = sidebar.shortcutHintWorkspaceFrames
-        for (index, workspace) in workspaces.enumerated() {
-            guard index < 8 || index == workspaces.count - 1 else { continue }
-            let digit = index == workspaces.count - 1 && index >= 8 ? 9 : index + 1
-            guard digit <= 9, let rect = frames[workspace.id], let text = label("selectWorkspaceByNumber", digit: digit) else { continue }
-            hints.append(.init(text: text, rect: root.convert(rect, from: sidebar)))
+        // One source of truth: the digit Cmd-digit selects (SidebarItemOrder.pick's inverse), for every
+        // sidebar destination drawn (Home, the App Store, collapsed groups, workspace rows).
+        let order = controller.sidebar.model.itemOrder, navigation = SidebarNavigation.settings(controller.services)
+        for (item, rect) in sidebar.shortcutHintItemFrames.sorted(by: { $0.value.minY < $1.value.minY }) {
+            guard let digit = order.number(for: item, navigation), let text = label("selectWorkspaceByNumber", digit: digit) else { continue }
+            hints.append(.init(text: text, rect: root.convert(rect, from: sidebar), target: Self.target(item)))
         }
         for (index, rect) in sidebar.shortcutHintSpaceFrames.enumerated() where index < 9 {
             if let text = label("space.selectByNumber", digit: index + 1) {
@@ -96,9 +96,19 @@ final class WindowShortcutHints {
         overlay.hints = hints
     }
 
+    /// What a sidebar chip selects, for debug readback (`debug.shortcut_hints`).
+    private static func target(_ item: SidebarItem) -> String {
+        switch item {
+        case .workspace(let id): "workspace:\(id.rawValue)"
+        case .group(let id): "group:\(id.rawValue)"
+        case .topItem(let id): "item:\(id.rawValue)"
+        }
+    }
+
     func keyDown() { monitor?.keyDown() }
 
     #if DEBUG
+    var shownHints: [ShortcutHintOverlayView.Hint] { overlay.hints }
     func debugHold(_ flags: NSEvent.ModifierFlags) async -> Bool {
         guard let monitor, let window = controller?.window else { return false }
         return await monitor.debugHold(flags, window: window)

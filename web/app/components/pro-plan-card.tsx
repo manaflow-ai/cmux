@@ -3,7 +3,9 @@
 import { useId, useState, type ReactNode } from "react";
 import { posthog } from "../lib/posthog-client";
 import {
+  MAX_PRICING_USD,
   PRO_PRICING_USD,
+  type PlanPrice,
   type BillingInterval,
 } from "../../services/billing/plans";
 import { ProCtaLink } from "../[locale]/components/pro-cta-link";
@@ -13,12 +15,12 @@ export type ProAnnualLabels = {
   yearly: string;
   monthly: string;
   perMonth: string;
-  billedYearlySaving: string;
 };
 
 /**
- * The Pro pricing card. Pro is the only plan sold yearly, so the card owns the
- * billing period: its price, checkout link, and CTA analytics always agree.
+ * The recurring personal-plan pricing card. Pro and Max are sold yearly, so
+ * the card owns the billing period: its price, checkout link, and CTA
+ * analytics always agree.
  * Yearly is the default. The period toggle sits in the header row and the
  * yearly note sits under the button, so the price block and the button line
  * up with the Free and Max cards in either period.
@@ -35,6 +37,8 @@ export function ProPlanCard({
   action,
   monthlyOnly = false,
   initialInterval = "year",
+  plan = "pro",
+  pricing,
   children,
 }: {
   name: string;
@@ -55,8 +59,11 @@ export function ProPlanCard({
   monthlyOnly?: boolean;
   /** A link back from checkout (`?interval=month`) keeps the buyer's period. */
   initialInterval?: BillingInterval;
+  plan?: "pro" | "max";
+  pricing?: Readonly<Record<BillingInterval, PlanPrice>>;
   children: ReactNode;
 }) {
+  const planPricing = pricing ?? (plan === "max" ? MAX_PRICING_USD : PRO_PRICING_USD);
   const [chosen, setInterval] = useState<BillingInterval>(initialInterval);
   const interval = monthlyOnly ? "month" : chosen;
   const radioName = useId();
@@ -64,15 +71,15 @@ export function ProPlanCard({
     setInterval(next);
     posthog.capture("cmuxterm_pricing_interval_selected", {
       surface,
-      plan: "pro",
+      plan,
       interval: next,
-      billed_amount_usd: PRO_PRICING_USD[next].billedAmount,
-      discount_percent: PRO_PRICING_USD[next].discountPercent,
+      billed_amount_usd: planPricing[next].billedAmount,
+      discount_percent: planPricing[next].discountPercent,
     });
   };
   // A subscriber sees their own plan, whose period the card does not know,
   // so the monthly price stays the reference there.
-  const price = PRO_PRICING_USD[action ? "month" : interval];
+  const price = planPricing[action ? "month" : interval];
 
   return (
     <div className="relative flex h-full min-w-0 flex-col border border-border p-6">
@@ -122,20 +129,15 @@ export function ProPlanCard({
       </div>
       <div className="mt-3">
         {action ?? (
-          <>
-            <ProCtaLink
-              checkoutHref={checkoutHrefs[interval]}
-              requiresSignIn={requiresSignIn}
-              interval={interval}
-              location={location}
-            >
-              {ctaLabel}
-            </ProCtaLink>
-            {/* Reserved in both periods so the card keeps its height. */}
-            <p className="mt-2 min-h-5 text-sm text-muted">
-              {interval === "year" ? labels.billedYearlySaving : null}
-            </p>
-          </>
+          <ProCtaLink
+            checkoutHref={checkoutHrefs[interval]}
+            requiresSignIn={requiresSignIn}
+            interval={interval}
+            location={location}
+            plan={plan}
+          >
+            {ctaLabel}
+          </ProCtaLink>
         )}
       </div>
       {children}

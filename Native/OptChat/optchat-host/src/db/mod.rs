@@ -203,6 +203,23 @@ impl ReadOnly {
             })
             .map_err(sql)
     }
+
+    /// Kind, stored ISO date and text of message `id`, if it exists.
+    pub fn message_row(&self, id: u64) -> io::Result<Option<MessageRow>> {
+        self.0
+            .prepare_cached("SELECT kind, date, text FROM messages WHERE id = ?1")
+            .and_then(|mut s| {
+                s.query_row([id as i64], |r| {
+                    Ok(MessageRow {
+                        kind: r.get(0)?,
+                        date: r.get(1)?,
+                        text: r.get(2)?,
+                    })
+                })
+                .optional()
+            })
+            .map_err(sql)
+    }
 }
 
 fn open_read_only(path: &Path) -> io::Result<Connection> {
@@ -431,6 +448,29 @@ impl Db {
         state_prefix(&self.conn, prefix)
     }
 
+    /// The log id of the message logged with key `key` (`<conversation>#<seq>`).
+    pub fn logged_id(&self, key: &str) -> Option<u64> {
+        self.conn
+            .prepare_cached("SELECT id FROM messages WHERE conv_msg = ?1")
+            .and_then(|mut s| s.query_row([key], |r| r.get::<_, i64>(0)).optional())
+            // crash-allow: a committed row that cannot be read means the disk is failing (see `message`).
+            .unwrap_or_else(|e| panic!("optchat: cannot read the message with key {key}: {e}"))
+            .map(|id| id as u64)
+    }
+
+    /// The key message `i` was logged with (`<conversation>#<seq>`), if any:
+    /// the reverse of [`Self::logged_id`].
+    pub fn logged_key(&self, i: u64) -> Option<String> {
+        if i >= self.t {
+            return None;
+        }
+        self.conn
+            .prepare_cached("SELECT conv_msg FROM messages WHERE id = ?1")
+            .and_then(|mut s| s.query_row([i as i64], |r| r.get::<_, Option<String>>(0)))
+            // crash-allow: a committed row that cannot be read means the disk is failing (see `message`).
+            .unwrap_or_else(|e| panic!("optchat: cannot read message {i}: {e}"))
+    }
+
     /// The stored ISO date of message `i`.
     pub fn date(&self, i: u64) -> Option<String> {
         if i >= self.t {
@@ -551,6 +591,15 @@ pub fn counts(conn: &Connection) -> io::Result<Counts> {
         messages: messages as u64,
         nodes: nodes as u64,
     })
+}
+
+/// One message as stored: what `ReadOnly::message_row` returns.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MessageRow {
+    pub kind: String,
+    /// The stored ISO date (RFC 3339).
+    pub date: String,
+    pub text: String,
 }
 
 /// One full-text match.

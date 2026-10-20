@@ -115,6 +115,9 @@ pub(crate) fn dispatch(
     // A retry answers the first result and changes nothing again.
     let actor = &request.actor;
     if ledger::seen(mux, key, operation)? {
+        if operation == TRAIL_RECORD_OPERATION {
+            trail::log(mux, "replayed (idempotency key seen): the first answer, no change");
+        }
         return ledger::commit(mux, key, operation, &fingerprint, &Value::Null, actor);
     }
     let (value, changed) =
@@ -124,6 +127,23 @@ pub(crate) fn dispatch(
         mux.history.changed(mux, &changed);
     }
     Ok(reply)
+}
+
+/// `history.entries.list` for a test, with no request envelope.
+#[cfg(test)]
+pub(crate) fn list_for_test(
+    mux: &Arc<Mux>,
+    fields: &Map<String, Value>,
+) -> Result<Value, ResourceError> {
+    let now_ms = now_ms();
+    merged::list(mux, fields, now_ms, local_day_start_ms(now_ms))
+}
+
+/// Logs a `history.trail.record` the origin rules refused on `client` (the
+/// trail's failure log, cx-hnmbt.14).
+pub(crate) fn log_trail_refusal(mux: &Mux, client: u64, error: &ResourceError) {
+    let (code, message, details) = (&error.code, &error.message, &error.details);
+    trail::log(mux, format!("refused on client {client} ({code}: {message} {details})"));
 }
 
 fn invalid(field: &str, reason: impl Into<String>) -> ResourceError {

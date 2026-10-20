@@ -79,6 +79,16 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 // scripts run that guide (and `cmux harness add|doctor`) directly.
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
             ),
+            // Agent Stats (webviews/src/pages/stats, hq#1920): this computer's agent work from its
+            // local session logs. A preview feature until styled (StatsHandlers), so it stays out of
+            // the main menu, where an unavailable action shows greyed out to everyone.
+            ActionDescriptor(
+                id: "stats.show",
+                title: String(localized: "action.stats.show", defaultValue: "Show Agent Stats", bundle: .module),
+                keywords: ["stats", "statistics", "usage", "agent", "activity", "streak", "insights", "dashboard"],
+                category: .agents, symbol: "chart.bar.xaxis", surfaces: [.palette],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
+            ),
             ActionDescriptor(
                 id: "palette.toggleDictation",
                 title: String(localized: "action.palette.toggleDictation", defaultValue: "Toggle Dictation", bundle: .module),
@@ -121,14 +131,15 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 // This action opens its GUI approval checklist, without writing.
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .guiOnly)
             ),
-            // Search Files… (Cmd-P, as in the Codex app, cx-ncc.69): the chat folder's files, and a
-            // pick mentions one in the prompt. Only while an agent chat has the keyboard; elsewhere
-            // Cmd-P stays Go to Workspace. Scripts call `file.search` on the page's host instead.
+            // Search Files… (cx-ncc.69): the chat folder's files, and a pick mentions one in the
+            // prompt. Only while an agent chat has the keyboard. It has no default key: Cmd-P is the
+            // native Go to Workspace palette in every view, web views included (Lawrence 2026-10-19:
+            // "All the web views should not have a built-in Cmd-P or Cmd-Shift-P"); the user can
+            // still bind one. Scripts call `file.search` on the page's host instead.
             ActionDescriptor(
                 id: "agentPane.searchFiles",
                 title: String(localized: "action.agentPane.searchFiles", defaultValue: "Search Files…", bundle: .module),
                 keywords: ["agent", "chat", "file", "files", "search", "find", "mention", "open", "quick"],
-                defaultShortcut: Shortcut("p", modifiers: [.command]),
                 category: .agents, symbol: "doc.text.magnifyingglass", surfaces: [.palette, .keyboard],
                 requires: [.agentPaneFocused], targets: [.pane],
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .guiOnly)
@@ -151,8 +162,10 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 keywords: ["agent", "chat", "archive", "hide", "close", "done"],
                 defaultShortcut: Shortcut("a", modifiers: [.command, .control]),
                 category: .agents, symbol: "archivebox", surfaces: [.palette, .keyboard],
-                requires: [.agentPaneFocused], targets: [.pane],
-                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .guiOnly)
+                // A script names the chat's pane (`--target pane:…`); the target brings its own
+                // agentPaneFocused fact (`ActionRegistry.targetContext`).
+                requires: [.agentPaneFocused], targets: [.pane], cliName: "agent archive-chat",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .guiOnly)
             ),
             ActionDescriptor(
                 id: "agentPane.git.commit",
@@ -188,27 +201,6 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 // decision K1 keeps Cmd-K as Clear in a terminal, so the catalog key stays
                 // unset. The command palette's chats page lists every chat.
                 category: .agents, symbol: "magnifyingglass", surfaces: [.palette, .keyboard]
-            ),
-            // Previous Turn and Next Turn step the agent chat's transcript from prompt to prompt, as the
-            // thread minimap's ticks do (cx-f7c). The page handles them; a script reads the transcript instead.
-            // Ctrl-Opt arrows: Ctrl-Cmd arrows are the pane-resize aliases (KeyBindingDefaults).
-            ActionDescriptor(
-                id: "agentPane.previousTurn",
-                title: String(localized: "action.agentPane.previousTurn", defaultValue: "Previous Turn", bundle: .module),
-                keywords: ["agent", "chat", "turn", "prompt", "message", "previous", "up", "minimap"],
-                defaultShortcut: Shortcut(Shortcut.upArrowKey, modifiers: [.control, .option]),
-                category: .agents, symbol: "chevron.up", surfaces: [.palette, .keyboard],
-                requires: [.agentPaneFocused], targets: [.pane],
-                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .guiOnly)
-            ),
-            ActionDescriptor(
-                id: "agentPane.nextTurn",
-                title: String(localized: "action.agentPane.nextTurn", defaultValue: "Next Turn", bundle: .module),
-                keywords: ["agent", "chat", "turn", "prompt", "message", "next", "down", "minimap"],
-                defaultShortcut: Shortcut(Shortcut.downArrowKey, modifiers: [.control, .option]),
-                category: .agents, symbol: "chevron.down", surfaces: [.palette, .keyboard],
-                requires: [.agentPaneFocused], targets: [.pane],
-                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .guiOnly)
             ),
             permissionAction("allowOnce", title: String(localized: "action.agentPane.permission.allowOnce", defaultValue: "Allow Once", bundle: .module), symbol: "checkmark", shortcut: Shortcut("1", modifiers: [.command, .option])),
             permissionAction("allowChat", title: String(localized: "action.agentPane.permission.allowChat", defaultValue: "Allow for This Chat", bundle: .module), symbol: "checkmark.circle", shortcut: Shortcut("2", modifiers: [.command, .option])),

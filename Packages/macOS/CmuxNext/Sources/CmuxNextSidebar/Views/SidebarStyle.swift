@@ -5,7 +5,7 @@ import CmuxNextIcons
 /// Sidebar sizes and fonts, derived only from CmuxNextDesign tokens
 /// (`Metrics`, `Typography`). Hierarchy comes from weight and gray level.
 enum SidebarStyle {
-    static var horizontalInset: CGFloat { Metrics.space3 }
+    static var horizontalInset: CGFloat { SidebarDensityTokens.horizontalInset }
     static var rowCornerRadius: CGFloat { Metrics.itemCornerRadius }
     /// A listed tab's icon, sized to its caption-size title.
     static var tabIconSize: CGFloat { .iconRowSize(forLabelPointSize: subtitleFont.pointSize) }
@@ -33,27 +33,26 @@ enum SidebarStyle {
     static var railGlyphSize: CGFloat { Metrics.iconSize + 1 }
     static var railTileCornerRadius: CGFloat { Metrics.itemCornerRadius + Metrics.space1 }
     /// The glyph well of a large sidebar-top tile (the tiles arrangement).
-    static var favoriteWell: CGFloat { Metrics.sidebarRowHeight + Metrics.space1 }
+    static var favoriteWell: CGFloat { SidebarDensityTokens.rowHeight + Metrics.space1 }
     /// As tall as the status glyph beside it (`Metrics.statusMarkSize`).
     static var badgeHeight: CGFloat { Metrics.statusMarkSize }
     static var searchHeight: CGFloat { Metrics.sidebarRowHeight }
-    /// The profile control (SIDEBAR-FOOTER-AND-SPACE-MENU amendment 2): a
-    /// 16 pt avatar circle at the compact density (the icon box), a small
-    /// chevron after it, and the control as wide as a row-height square
-    /// plus the chevron, so the circle keeps a square item's center.
+    /// The profile control's circle at compact density (the icon box). The
+    /// avatar lives in the row-height square, so its click target scales with
+    /// the display density.
     static var avatarDiameter: CGFloat { iconBox }
-    static var avatarChevronSize: CGFloat { Metrics.smallIconSize - Metrics.space2 }
-    static var avatarChevronGap: CGFloat { Metrics.space1 }
-    static var avatarControlWidth: CGFloat { Metrics.sidebarRowHeight + avatarChevronGap + avatarChevronSize }
     static var footerHeight: CGFloat { Metrics.sidebarRowHeightWithSubtitle - Metrics.space2 }
     static var autoscrollZone: CGFloat { Metrics.sidebarRowHeight }
     static var dragThreshold: CGFloat { Metrics.space2 }
     static var overscan: CGFloat { Metrics.sidebarRowHeightWithSubtitle * 10 }
 
-    static var titleFont: NSFont { Typography.bodyEmphasized }
+    /// Workspace titles: regular weight, read or unread, selected or not
+    /// (Lawrence 2026-10-14: "sidebar text should not be bold by default"),
+    /// and every title in the primary text color ("All titles primary"):
+    /// unread shows by the badge, selection by the fill.
+    static var titleFont: NSFont { Typography.body }
     /// Length of the fade that ends a clipped row title (no ellipsis).
     static var titleFadeWidth: CGFloat { Metrics.space6 }
-    static var titleUnreadFont: NSFont { Typography.bodyEmphasized }
     static var subtitleFont: NSFont { Typography.caption }
     /// Where a workspace title without a custom icon starts: rows draw no
     /// default icon (WORKSPACE-ROWS-NO-DEFAULT-ICON). Group headers start
@@ -62,8 +61,11 @@ enum SidebarStyle {
     /// How far a group member's content moves in past the row's own
     /// leading edge, which already starts right of the line (`groupGutter`).
     static var groupMemberIndent: CGFloat { Metrics.space1 }
-    /// The header bar inside its row: 26 of 32 pt, scaled with the row height.
-    static func groupHeaderBarHeight(rowHeight: CGFloat) -> CGFloat { rowHeight - 2 * (rowHeight * 0.09).rounded() }
+    /// The size a group header's name, glyphs, buttons and corner scale from: 26 of a 32 pt row,
+    /// scaled with the row height. The colored bar itself fills the row, as tall as a workspace
+    /// row (Lawrence 2026-10-19: "the height of the group headers is identical to the height of
+    /// each workspace").
+    static func groupHeaderContentHeight(rowHeight: CGFloat) -> CGFloat { rowHeight - 2 * (rowHeight * 0.09).rounded() }
     /// The header's name: medium weight (cx-qno.17: more contrast on the
     /// pastel bar), 14 pt on a 26 pt bar, scaled.
     static func groupHeaderFont(barHeight: CGFloat) -> NSFont {
@@ -81,7 +83,7 @@ enum SidebarStyle {
     static var headerFont: NSFont { Typography.header }
     /// The count: tabular digits in the system face (a monospaced face read
     /// boxy and cramped, Leo 2026-10-13), at the shortcut size.
-    static var badgeFont: NSFont { .monospacedDigitSystemFont(ofSize: Typography.shortcut.pointSize, weight: .medium) }
+    static var badgeFont: NSFont { Typography.system(.monospacedDigit, size: Typography.shortcut.pointSize, weight: .medium) }
     /// How far an AppKit label cell draws its text inside its frame: a label
     /// sits this much before the edge its text aligns to.
     static var labelCellPadding: CGFloat { Metrics.space1 }
@@ -92,7 +94,7 @@ enum SidebarStyle {
         NSImage.icon(collapsed ? .disclosureCollapsed : .disclosureExpanded, size: Metrics.smallIconSize)
     }
 
-    /// A user color in the theme's palette, shared with tab groups (`GroupColor.markColor`).
+    /// A user color from the group palette, shared with tab groups (`GroupColor.markColor`).
     static func color(_ color: GroupColor) -> NSColor {
         color.markColor
     }

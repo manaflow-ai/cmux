@@ -4,7 +4,7 @@ import CmuxNextIcons
 import QuartzCore
 
 final class SectionHeaderRowView: SidebarRowView {
-    private let glyph = NSImageView()
+    private let glyph = DecorativeImageView()
     /// The machine's own icon (`SidebarMachine.icon`) before the name; hidden without one.
     private let machineIcon = SidebarIconView()
     private let name = SidebarRowView.label(font: SidebarStyle.headerFont)
@@ -13,7 +13,7 @@ final class SectionHeaderRowView: SidebarRowView {
     /// is too old (the tooltip says why).
     private let badge = SidebarRowView.label(font: SidebarStyle.headerFont)
     private var badgeText: String?
-    private let chevron = NSImageView()
+    private let chevron = DecorativeImageView()
     let addButton = SidebarIconButton(icon: .actionAdd, pointSize: { Metrics.smallIconSize - Metrics.space1 }, label: Strings.newWorkspace)
     /// The machine status dot's color, resolved in `updateLayer`.
     private enum StatusTone { case success, attention, quiet, danger }
@@ -27,6 +27,7 @@ final class SectionHeaderRowView: SidebarRowView {
         super.init(key: key)
         layer?.addSublayer(status)
         [glyph, machineIcon, name, badge, chevron, addButton].forEach(addSubview)
+        // The header's label and AXExpanded say what the glyph and chevron draw.
         addButton.onPress = { [weak self] in self?.onAdd?() }
     }
 
@@ -58,6 +59,13 @@ final class SectionHeaderRowView: SidebarRowView {
         case .pinned:
             symbol = .statePinned
             title = Strings.pinned
+            statusTone = nil
+            badgeText = nil
+            themedToolTip = nil
+        case let .custom(custom):
+            // A document section's own title (sidebar-v2); Pinned draws no header.
+            symbol = custom.id == SidebarDocStore.pinnedSection ? .statePinned : .folder
+            title = custom.title ?? ""
             statusTone = nil
             badgeText = nil
             themedToolTip = nil
@@ -115,17 +123,24 @@ final class SectionHeaderRowView: SidebarRowView {
             themedToolTip = nil
             setAccessibilityHelp(nil)
         }
-        if section.kind == .pinned || row.titlesProjects { setAccessibilityLabel(title) }
+        if section.machine == nil || row.titlesProjects { setAccessibilityLabel(title) }
         glyph.image = NSImage.icon(symbol, size: .iconRowSize(forLabelPointSize: SidebarStyle.headerFont.pointSize))
         machineIcon.configure(icon: ownIcon)
-        name.stringValue = title
-        name.font = SidebarStyle.headerFont
-        badge.stringValue = badgeText ?? ""
-        badge.font = SidebarStyle.headerFont
+        name.setString(title)
+        name.setFont(SidebarStyle.headerFont)
+        badge.setString(badgeText ?? "")
+        badge.setFont(SidebarStyle.headerFont)
         chevron.image = SidebarStyle.chevron(collapsed: collapsed)
         setAccessibilityElement(true)
         setAccessibilityRole(.disclosureTriangle)
         setAccessibilityExpanded(!collapsed)
+        let sectionID = switch section.id {
+        case .pinned: "pinned"
+        case let .machine(machine): "machine.\(machine.rawValue)"
+        case let .custom(custom): "custom.\(custom)"
+        }
+        setAccessibilityIdentifier("cmux.sidebar.section.\(sectionID)")
+        addButton.setAccessibilityIdentifier("cmux.sidebar.section.\(sectionID).newWorkspace")
         addButton.isHidden = true
         needsLayout = true
         needsDisplay = true
@@ -137,10 +152,10 @@ final class SectionHeaderRowView: SidebarRowView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         performWithTheme {
-            name.textColor = Palette.textTertiary
-            badge.textColor = Palette.textTertiary
-            glyph.contentTintColor = Palette.textSecondary
-            chevron.contentTintColor = Palette.textTertiary
+            name.setColor(Palette.textTertiary)
+            badge.setColor(Palette.textTertiary)
+            glyph.setTint(Palette.textSecondary)
+            chevron.setTint(Palette.textTertiary)
             status.backgroundColor = statusTone.map(Self.color)?.cgColor
         }
         status.isHidden = statusTone == nil

@@ -81,7 +81,8 @@ pub(super) fn denied() -> anyhow::Error {
 pub(super) enum Principal {
     /// The Mac's own user (`user_local`) on a trusted local connection.
     Local,
-    /// A local connection bound to agent `participant` with its token.
+    /// A local connection bound to an agent or another person `participant`
+    /// with its token.
     Agent(String),
     /// A paired install, from the link's stamp.
     Remote(LinkPeer),
@@ -234,7 +235,7 @@ pub(super) fn intercept(
         return None;
     }
     Some(match cmd {
-        Command::Identify => Ok(identify()),
+        Command::Identify { .. } => Ok(identify()),
         Command::SetClientInfo { name, capabilities, .. } => {
             set_client_info(mux, client, name.clone(), capabilities.clone())
         }

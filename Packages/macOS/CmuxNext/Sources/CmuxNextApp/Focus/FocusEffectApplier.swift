@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextDesign
+import CmuxNextFocus
 
 /// Makes one window's AppKit first responder, WebKit/CEF page focus,
 /// `LayoutModel` focus and the registry context match its `FocusState`
@@ -116,6 +117,9 @@ final class FocusEffectApplier: FocusEffectApplying {
         case .page(let pane, let tab):
             guard case .page(let view)? = presented(pane: pane, tab: tab) else { return }
             blurChildWindowPage()
+            // A page with a primary input (the docked Home, a Home tab) lands the keyboard there by
+            // the same rule as a conversation tab; its page view itself takes no keys.
+            if TabContent.page(view).landKeyboardInPrimaryInput(in: window) { return }
             if !responder(of: window, isInside: view) { window.makeFirstResponder(view.focusTarget) }
         case .conversation(let pane, let tab):
             // Home's primary input, its message box (spec/app-screens.md 3).
@@ -125,7 +129,9 @@ final class FocusEffectApplier: FocusEffectApplying {
                 resignPaneResponder(in: window)
                 return
             }
-            if !responder(of: window, isInside: view) { window.makeFirstResponder(view.focusTarget) }
+            // Inside Home the keyboard stays only on a visible text input, or a transcript
+            // text selection; the pane itself or a header button moves it to the box.
+            _ = TabContent.conversation(view).landKeyboardInPrimaryInput(in: window)
         case .emptyPane:
             blurChildWindowPage()
             // Nothing to type into: the previous content must not keep keys.
@@ -377,6 +383,11 @@ final class FocusEffectApplier: FocusEffectApplying {
         case KeyRouter.codeEditorPageID?: next.insert(.codeEditorFocused)
         default: break
         }
+        // A web view has the keyboard (or had it below the palette): the Developer Tools set shows.
+        next.remove(.webViewFocused)
+        if WebInspectorTargets().target(in: controller) != nil { next.insert(.webViewFocused) }
+        // The same rule as `KeyRouter.keyContext`: a terminal's TextBox has the keyboard.
+        if controller.window?.firstResponder is TextBoxTextView { next.insert(.textBoxFocused) }
         if registry.context != next { registry.context = next }
     }
 

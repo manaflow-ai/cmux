@@ -17,6 +17,7 @@ import { Route as TeamRouteImport } from './routes/team'
 import { Route as ICodeRouteImport } from './routes/i.$code'
 import { Route as IntegrationsIndexRouteImport } from './routes/integrations/index'
 import { Route as IntegrationsCallbackRouteImport } from './routes/integrations/callback'
+import { Route as PreviewAiUsageRouteImport } from './routes/preview.ai-usage'
 import { Route as OgInviteCodeRouteImport } from './routes/og.invite.$code'
 
 const IndexRoute = IndexRouteImport.update({
@@ -59,6 +60,11 @@ const IntegrationsCallbackRoute = IntegrationsCallbackRouteImport.update({
   path: '/integrations/callback',
   getParentRoute: () => rootRouteImport,
 } as any)
+const PreviewAiUsageRoute = PreviewAiUsageRouteImport.update({
+  id: '/preview/ai-usage',
+  path: '/preview/ai-usage',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const OgInviteCodeRoute = OgInviteCodeRouteImport.update({
   id: '/og/invite/$code',
   path: '/og/invite/$code',
@@ -73,6 +79,7 @@ export interface FileRoutesByFullPath {
   '/team': typeof TeamRoute
   '/i/$code': typeof ICodeRoute
   '/integrations/callback': typeof IntegrationsCallbackRoute
+  '/preview/ai-usage': typeof PreviewAiUsageRoute
   '/integrations/': typeof IntegrationsIndexRoute
   '/og/invite/$code': typeof OgInviteCodeRoute
 }
@@ -84,6 +91,7 @@ export interface FileRoutesByTo {
   '/team': typeof TeamRoute
   '/i/$code': typeof ICodeRoute
   '/integrations/callback': typeof IntegrationsCallbackRoute
+  '/preview/ai-usage': typeof PreviewAiUsageRoute
   '/integrations': typeof IntegrationsIndexRoute
   '/og/invite/$code': typeof OgInviteCodeRoute
 }
@@ -96,6 +104,7 @@ export interface FileRoutesById {
   '/team': typeof TeamRoute
   '/i/$code': typeof ICodeRoute
   '/integrations/callback': typeof IntegrationsCallbackRoute
+  '/preview/ai-usage': typeof PreviewAiUsageRoute
   '/integrations/': typeof IntegrationsIndexRoute
   '/og/invite/$code': typeof OgInviteCodeRoute
 }
@@ -109,6 +118,7 @@ export interface FileRouteTypes {
     | '/team'
     | '/i/$code'
     | '/integrations/callback'
+    | '/preview/ai-usage'
     | '/integrations/'
     | '/og/invite/$code'
   fileRoutesByTo: FileRoutesByTo
@@ -120,6 +130,7 @@ export interface FileRouteTypes {
     | '/team'
     | '/i/$code'
     | '/integrations/callback'
+    | '/preview/ai-usage'
     | '/integrations'
     | '/og/invite/$code'
   id:
@@ -131,6 +142,7 @@ export interface FileRouteTypes {
     | '/team'
     | '/i/$code'
     | '/integrations/callback'
+    | '/preview/ai-usage'
     | '/integrations/'
     | '/og/invite/$code'
   fileRoutesById: FileRoutesById
@@ -143,6 +155,7 @@ export interface RootRouteChildren {
   TeamRoute: typeof TeamRoute
   ICodeRoute: typeof ICodeRoute
   IntegrationsCallbackRoute: typeof IntegrationsCallbackRoute
+  PreviewAiUsageRoute: typeof PreviewAiUsageRoute
   IntegrationsIndexRoute: typeof IntegrationsIndexRoute
   OgInviteCodeRoute: typeof OgInviteCodeRoute
 }
@@ -205,6 +218,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IntegrationsCallbackRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/preview/ai-usage': {
+      id: '/preview/ai-usage'
+      path: '/preview/ai-usage'
+      fullPath: '/preview/ai-usage'
+      preLoaderRoute: typeof PreviewAiUsageRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/og/invite/$code': {
       id: '/og/invite/$code'
       path: '/og/invite/$code'
@@ -223,6 +243,7 @@ const rootRouteChildren: RootRouteChildren = {
   TeamRoute: TeamRoute,
   ICodeRoute: ICodeRoute,
   IntegrationsCallbackRoute: IntegrationsCallbackRoute,
+  PreviewAiUsageRoute: PreviewAiUsageRoute,
   IntegrationsIndexRoute: IntegrationsIndexRoute,
   OgInviteCodeRoute: OgInviteCodeRoute,
 }

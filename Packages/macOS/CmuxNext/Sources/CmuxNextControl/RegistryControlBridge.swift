@@ -82,8 +82,8 @@ public final class RegistryControlBridge: ControlActionExecutor {
     /// Runs `request` and collects the daemon work its handler started.
     public func performActionTracked(_ request: ControlActionRequest) -> ControlActionRun {
         var outcome = ControlActionOutcome.disabled
-        let work = registry.capturingWork { outcome = performAction(request) }
-        return ControlActionRun(outcome: outcome, work: work)
+        let captured = registry.capturingRun { outcome = performAction(request) }
+        return ControlActionRun(outcome: outcome, work: captured.work, results: captured.results)
     }
 
     /// Runs `request` through the registry. Main actor only.
@@ -106,9 +106,11 @@ public final class RegistryControlBridge: ControlActionExecutor {
             origin: ActionOrigin(rawValue: request.origin) ?? .cli,
             focusRequested: request.focus
         )
+        invocation.callerApp = request.callerApp
         invocation.besideCaller = request.besideCaller
         invocation.newColumnBeside = request.newColumnBeside
         invocation.callerAgentSession = request.callerAgentSession
+        invocation.callerTerminal = request.callerTerminal
         guard registry.isAvailable(id, for: invocation) else { return .unavailable }
         guard action.isEnabled() else { return .disabled }
         if registry.needsConfirmation(id, invocation) { return .confirmationRequired }
@@ -183,6 +185,8 @@ public final class RegistryControlBridge: ControlActionExecutor {
         info.startsTerminal = descriptor.startsTerminal
         info.isCLI = descriptor.cli
         info.waitsForResult = descriptor.waitsForResult
+        info.waitsForPerson = descriptor.waitsForPerson
+        info.waitsForKeyedCreate = descriptor.waitsForKeyedCreate
         info.focuses = descriptor.focuses
         return info
     }
@@ -227,5 +231,7 @@ public final class RegistryControlBridge: ControlActionExecutor {
         (.signedIn, "signedIn"),
         (.signedOut, "signedOut"),
         (.cloudWorkspace, "cloudWorkspace"),
+        (.homeChannelsEnabled, "homeChannelsEnabled"),
+        (.webViewFocused, "webViewFocused"),
     ]
 }

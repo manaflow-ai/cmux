@@ -1,6 +1,11 @@
 //! ALL-CHATS-ON-DEVICE S4: the daemon wires the chat index. Every store is
 //! a synthetic fixture in a temp home; no test reads a real harness store.
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+// This process starts no agent.
+const HERMETIC: daemon_env::Process = daemon_env::Process::deny();
+
 use acpmux::chats::{ChatSources, refusal};
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
@@ -150,6 +155,23 @@ fn refusal_covers_guarded_folders_and_other_daemon_homes() {
     for path in ["/Users/me/.claude/projects", "/Users/me/.codex", "/opt/agents/.codex"] {
         assert_eq!(refusal(Path::new(path), home, acpmux), None, "{path} must be allowed");
     }
+}
+
+/// A Cmd-I chat's first prompt carries the hidden workspace context after the person's text
+/// (cx-ihyx2); a harness may join them with no break (Codex stores
+/// `text<cmux-workspace-context>…`). The chat list titles the chat from the person's words.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_chat_titles_from_the_persons_words_not_its_workspace_context() {
+    let h = home("ctxtitle");
+    let projects = h.0.join(".claude/projects");
+    let first = "what is running in my terminal?<cmux-workspace-context>\nThis chat is docked on the left.\n</cmux-workspace-context>";
+    write_session(&projects, A, &[user(A, "/work/app", first)]);
+    let hub = hub();
+    hub.start_chats(sources(&h.0, &[])).await.unwrap();
+    let mut c = Client::new(&hub, Origin::Local);
+    let all = c.ok("_acpmux/chats", json!({})).await;
+    let chat = all["chats"].as_array().unwrap().iter().find(|c| c["sessionId"] == A).unwrap();
+    assert_eq!(chat["title"].as_str(), Some("what is running in my terminal?"), "{chat}");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

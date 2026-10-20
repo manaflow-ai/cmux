@@ -5,6 +5,10 @@ use super::*;
 impl Mux {
     pub(crate) fn publish_resource_event(&self) {
         self.publish_journal_event();
+        // A terminal's first cwd report can precede its registration, and its
+        // shell may then stay quiet. Each committed graph change is where such
+        // a terminal can join the graph, so publish whatever report waited.
+        self.publish_pending_terminal_directories();
     }
 
     pub(crate) fn publish_journal_event(&self) {
@@ -70,8 +74,54 @@ impl Mux {
         }
     }
 
-    pub(crate) fn wait_for_terminal_journal_space(&self, observed: u64) -> Result<(), String> {
-        self.journal_ingress.wait_for_queue_space(observed)
+    pub(crate) fn wait_for_terminal_journal_space_until(
+        &self,
+        observed: u64,
+        deadline: Instant,
+    ) -> Result<(), String> {
+        self.journal_ingress.wait_for_queue_space_until(observed, deadline)
+    }
+
+    pub(crate) fn terminal_journal_durable_deadline(&self) -> Instant {
+        self.journal_ingress.durable_deadline()
+    }
+
+    pub(crate) fn try_journal_terminal_output_gap(
+        &self,
+        terminal_id: Arc<TerminalPublicId>,
+        generation: Arc<str>,
+        reason: &'static str,
+    ) -> anyhow::Result<()> {
+        self.journal_ingress.send_durable(
+            crate::journal_ingress::JournalIngressEvent::TerminalOutputGap {
+                terminal_id,
+                generation,
+                occurred_at_ms: crate::workspace_registry::unix_epoch_ms().unwrap_or(0),
+                reason,
+            },
+        )
+    }
+
+    /// Like [`Self::try_journal_terminal_output_gap`], bounded by the capture
+    /// deadline that already elapsed or is about to: past it, only a free
+    /// queue slot records the gap, without a second durability wait.
+    pub(crate) fn try_journal_terminal_output_gap_until(
+        &self,
+        terminal_id: Arc<TerminalPublicId>,
+        generation: Arc<str>,
+        reason: &'static str,
+        deadline: Instant,
+    ) -> anyhow::Result<()> {
+        let event = crate::journal_ingress::JournalIngressEvent::TerminalOutputGap {
+            terminal_id,
+            generation,
+            occurred_at_ms: crate::workspace_registry::unix_epoch_ms().unwrap_or(0),
+            reason,
+        };
+        if Instant::now() >= deadline {
+            return self.journal_ingress.try_send_terminal_gap(event);
+        }
+        self.journal_ingress.send_durable_until(event, deadline)
     }
 
     pub(crate) fn flush_terminal_journal(&self) -> anyhow::Result<()> {
@@ -345,6 +395,24 @@ impl Mux {
         self.workspace_registry.lock().unwrap().resource_events_after(revision)
     }
 
+    /// A read-only reader for a `session.events` stream's resource pages and
+    /// the registry generation its pages carry, or `None` for an in-memory
+    /// registry (then the stream reads through `resource_events_after`).
+    /// Takes the registry lock once, briefly, with no SQLite work.
+    pub(crate) fn resource_event_reader(
+        &self,
+    ) -> anyhow::Result<Option<(crate::workspace_registry::SessionJournalReader, String)>> {
+        let (database_path, generation) = {
+            let registry = self.workspace_registry.lock().unwrap();
+            (registry.session_journal_database_path(), registry.generation().to_owned())
+        };
+        database_path
+            .as_deref()
+            .map(crate::workspace_registry::SessionJournalReader::open)
+            .transpose()
+            .map(|reader| reader.map(|reader| (reader, generation)))
+    }
+
     /// The journal head without decoding any record or sealed segment.
     pub(crate) fn session_journal_head(&self) -> anyhow::Result<u64> {
         self.workspace_registry.lock().unwrap().session_journal_head()
@@ -356,6 +424,21 @@ impl Mux {
         limit: usize,
     ) -> anyhow::Result<crate::workspace_registry::SessionJournalPage> {
         self.workspace_registry.lock().unwrap().session_journal_after(sequence, limit)
+    }
+
+    /// Records in `(sequence, through]` other than `terminal.output`, at
+    /// most `limit`, and the sequence the read covered through (see
+    /// `WorkspaceRegistry::session_journal_without_output_after`).
+    pub(crate) fn session_journal_without_output_after(
+        &self,
+        sequence: u64,
+        through: u64,
+        limit: usize,
+    ) -> anyhow::Result<(Vec<crate::workspace_registry::SessionJournalRecord>, u64)> {
+        self.workspace_registry
+            .lock()
+            .unwrap()
+            .session_journal_without_output_after(sequence, through, limit)
     }
 
     pub(crate) fn session_journal_reader(

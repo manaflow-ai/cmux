@@ -5,6 +5,10 @@ import CmuxHomeRender
 /// projection store is a mirror of HomeStore (the single writer), so a send
 /// or a tapback is an intent, never a local transcript edit.
 protocol ChatIntents: AnyObject {
+    /// The user opened, drilled or closed a thread view (a permalink waiting for its message stops waiting).
+    func threadMovedByUser()
+    /// The message's permalink (`<scheme>://conversation/<c>/message/<m>`), nil when it has none yet.
+    func messageLink(_ id: ID) -> String?
     /// Return in the field: send the draft (the adapter dispatches `.send` on
     /// the projection at once, so the morph starts, and gives the draft to
     /// HomeStore, which delivers it or queues it while offline).
@@ -27,6 +31,9 @@ protocol ChatIntents: AnyObject {
     func takeAttachments(from pasteboard: NSPasteboard) -> Bool
     /// While dragging: whether a drop would be taken (types only).
     func acceptsAttachments(from pasteboard: NSPasteboard) -> Bool
+    /// A click on the status line (the Chief's "working on" line): `rect` is its text in `view`'s
+    /// coordinates, where the turn's details open.
+    func statusLineClicked(_ rect: CGRect, in view: NSView)
     /// The field's text changed (the host clears its notice).
     func draftChanged()
     /// A link card was clicked (it opens too): a domain-only card may fetch its preview now.
@@ -34,6 +41,12 @@ protocol ChatIntents: AnyObject {
     /// My send can be cancelled (an upload, or a failed send): Cancel Upload.
     func canCancelSend(_ message: ID) -> Bool
     func cancelSend(_ message: ID)
+    /// My send is "Not Delivered": Try Again and Delete are offered.
+    func canRetrySend(_ message: ID) -> Bool
+    /// Try Again: the send goes again (`HomeStore.retry`).
+    func retrySend(_ message: ID)
+    /// Delete: the failed send goes (`HomeStore.discardFailed`).
+    func deleteFailedSend(_ message: ID)
     /// Open an attachment's bytes in the app the system picks (the context menu).
     func openAttachment(_ message: ID, _ attachment: ID)
     /// A click on a video bubble: play or pause it in place.

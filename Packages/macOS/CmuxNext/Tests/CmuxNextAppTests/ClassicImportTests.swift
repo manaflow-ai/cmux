@@ -53,7 +53,7 @@ struct ClassicImportTests {
         switch node {
         case .leaf(let id):
             return (panes.first { $0.id == id }?.tabs ?? []).map(label).joined(separator: ",")
-        case .split(_, let direction, _, let a, let b):
+        case .split(_, _, let direction, _, let a, let b):
             return "\(direction.rawValue)(\(shape(a, panes))|\(shape(b, panes)))"
         default:
             return "?"
@@ -243,6 +243,8 @@ struct ClassicImportTests {
         AppActions.bind(services)
         services.windows.ordersWindowsIn = false
         services.onboarding.classicSessions = ClassicSessionImporter(fileURL: file)
+        services.onboarding.classicMigrationDirectory = root.appendingPathComponent("migration")
+        services.onboarding.classicMigrationAtLaunch = false
         var destinations: [String] = []
         services.onboarding.classicSSH = { destination in
             destinations.append(destination)

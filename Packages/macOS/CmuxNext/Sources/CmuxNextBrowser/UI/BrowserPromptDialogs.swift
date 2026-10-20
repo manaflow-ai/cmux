@@ -32,7 +32,7 @@ final class BrowserPromptDialogs {
         bar.isHidden = true
         if shown?.prompt == ObjectIdentifier(prompt) { return }
         dismissShown()
-        guard view.window != nil else { return }
+        guard view.window != nil, !view.isHiddenOrHasHiddenAncestor else { return }
         let key = ObjectIdentifier(prompt)
         let id = center.present(spec, in: .tab(view)) { [weak self, weak prompt] answer in
             if self?.shown?.prompt == key { self?.shown = nil }
@@ -50,7 +50,7 @@ final class BrowserPromptDialogs {
         let cancel = CmuxDialogButton(id: "cancel", title: Strings.cancel, role: .cancel)
         let identifier = "browser.dialog.javascript"
         switch prompt.kind {
-        case .permission, .openExternalApp, .savePassword:
+        case .permission, .openExternalApp, .savePassword, .verificationOffer:
             return nil
         case .credentials(let host, let realm):
             return BrowserHTTPAuth.spec(host: host, realm: realm, isSecure: true, failedBefore: false, user: nil)

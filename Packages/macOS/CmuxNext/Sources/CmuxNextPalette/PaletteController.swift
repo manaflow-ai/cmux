@@ -31,7 +31,13 @@ public final class PaletteController {
     /// Main-thread phases of each open, request to committed first frame
     /// (the stall bench, `debug.timings`).
     public var onPresented: ((PaletteOpenTiming) -> Void)?
+    /// The `systemUptime` timestamp of the input event that opens the palette
+    /// (a key-down), or nil when no event caused the open (CLI, socket). Read
+    /// at the start of each open so ``PaletteOpenTiming/input`` covers the key
+    /// router's time before the palette runs.
+    public var openingEventTimestamp: (() -> TimeInterval?)?
     private var openStarted: ContinuousClock.Instant?
+    private var openInput: Duration = .zero
     private var modelReady: ContinuousClock.Instant?
 
     /// What the user acted on when the palette opened (`PaletteSources.context`).
@@ -52,6 +58,9 @@ public final class PaletteController {
         self.registry = registry
         self.sources = sources
         self.model = PaletteModel(usage: usage ?? LocalPaletteUsageStore(persistence: frecencyPersistence))
+        // What an open's first frame does not show (the command page's workspaces and tabs)
+        // loads once that frame is committed.
+        model.afterFrame = { work in scheduleAfterFrameCommit(work) }
         model.onDismiss = { [weak self] in self?.hide() }
         // A command that refuses shows why on its row instead of beeping,
         // and the palette comes back on the same page.
@@ -73,7 +82,7 @@ public final class PaletteController {
     public func show(scope: PaletteScopeID, query: String = "", relativeTo window: NSWindow? = nil) -> Bool {
         configureScopes()
         guard model.navigation.graph.contains(scope) else { return false }
-        openStarted = .now
+        markOpenStarted()
         captureContext()
         model.open(scope: scope, query: query)
         modelReady = .now
@@ -159,7 +168,7 @@ public final class PaletteController {
     /// Opens the palette over `window` (default: the key or main window).
     public func show(_ mode: PaletteMode = .commands, relativeTo window: NSWindow? = nil) {
         configureScopes()
-        openStarted = .now
+        markOpenStarted()
         captureContext()
         model.reset(to: page(for: mode))
         modelReady = .now
@@ -170,7 +179,7 @@ public final class PaletteController {
     /// the palette serves as a page).
     public func show(page: PalettePageSpec, relativeTo window: NSWindow? = nil) {
         configureScopes()
-        openStarted = .now
+        markOpenStarted()
         captureContext()
         model.reset(to: page)
         modelReady = .now
@@ -182,6 +191,8 @@ public final class PaletteController {
     /// shortcut for an argument-taking action asks inline.
     public func collectArguments(for id: ActionID, invocation: ActionInvocation, relativeTo window: NSWindow? = nil) {
         guard let descriptor = registry.descriptor(for: id) else { return }
+        // Without its arguments, an action that opens a scope opens it, as its palette row does.
+        if invocation.arguments.isEmpty, let scope = scope(openedBy: id), show(scope: scope, relativeTo: window) { return }
         captureContext()
         let flow = PaletteArgumentFlow(registry: registry, descriptor: descriptor, targets: sources.targets,
                                        captured: capturedTargets, preview: sources.argumentPreview,
@@ -193,7 +204,7 @@ public final class PaletteController {
             return
         }
         configureScopes()
-        openStarted = .now
+        markOpenStarted()
         model.reset(to: effect, fallback: commandsPage())
         modelReady = .now
         present(relativeTo: window)
@@ -206,10 +217,22 @@ public final class PaletteController {
         capturedTargets = sources.context?() ?? []
     }
 
+    private func markOpenStarted() {
+        openStarted = .now
+        let now = ProcessInfo.processInfo.systemUptime
+        if let stamp = openingEventTimestamp?(), stamp > 0, stamp <= now {
+            openInput = .microseconds(Int64((now - stamp) * 1_000_000))
+        } else {
+            openInput = .zero
+        }
+    }
+
     private func present(relativeTo window: NSWindow?) {
         model.usage.prepare()
         let started = openStarted ?? .now
         let modelDone = modelReady ?? started
+        let input = openInput
+        openInput = .zero
         openStarted = nil
         modelReady = nil
         let createdPanel = panel == nil
@@ -247,7 +270,7 @@ public final class PaletteController {
             CATransaction.setCompletionBlock {
                 let committed = ContinuousClock.now
                 onPresented(PaletteOpenTiming(
-                    model: started.duration(to: modelDone), panel: modelDone.duration(to: panelDone),
+                    input: input, model: started.duration(to: modelDone), panel: modelDone.duration(to: panelDone),
                     present: panelDone.duration(to: presented), commit: presented.duration(to: committed),
                     createdPanel: createdPanel))
             }
@@ -327,7 +350,9 @@ public final class PaletteController {
         panel.keyHandler = { [weak self] event in self?.handleKeyDown(event) ?? false }
         panel.capturesKeyEquivalents = { [weak self] in self?.model.shortcutRecorder != nil }
         panel.capturesKeyEquivalent = { [weak self] event in
-            guard let model = self?.model, PaletteKeyMap.isCloseItem(event) else { return false }
+            guard let model = self?.model else { return false }
+            if PaletteKeyMap.isActionsKey(event) { return model.selectedItem != nil || model.actionsMenu != nil }
+            guard PaletteKeyMap.isCloseItem(event) else { return false }
             return model.currentPageOwnsCloseKey || model.selectedItem?.closeCommand != nil
         }
         // Shown without the keys (app inactive): the keys going to another
@@ -381,6 +406,9 @@ public final class PaletteController {
 
 /// Phases of one palette open on the main thread.
 public struct PaletteOpenTiming: Sendable {
+    /// The opening key-down's age when the palette began to open (the key
+    /// router and action dispatch); zero without an input event.
+    public var input: Duration = .zero
     /// Building the page's items and first results.
     public var model: Duration
     /// Creating the panel and its views (zero once it exists).
@@ -392,4 +420,6 @@ public struct PaletteOpenTiming: Sendable {
     public var createdPanel: Bool
 
     public var total: Duration { model + panel + present + commit }
+    /// Key-down to the committed first frame: ``input`` plus ``total``.
+    public var keyToFrame: Duration { input + total }
 }
