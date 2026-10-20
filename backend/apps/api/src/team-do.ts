@@ -20,6 +20,12 @@ import { mayEnrollServer, serverPlacementActive, type ServerEnrollRefused } from
 import { revokeInstallCerts, sshExternal, type SshCaDeps } from "./team-ssh-ca.ts"
 import { vmAdminExternal } from "./team-vm-taint-admin.ts"
 import { memberAdminExternal } from "./team-member-admin.ts"
+import { vmApiTenantOf, type VmApiTenant, type VmApiTenantPurpose } from "./team-vm-api-tenant.ts"
+import { ensurePersonalTenant, personalTenantTarget, type EnsurePersonalTenantReply } from "./team-vm-api-personal.ts"
+import { PersonalTenantStore } from "./team-vm-api-personal-store.ts"
+import { personalTenantStack, type PersonalTenantStack } from "./team-vm-api-personal-stack.ts"
+import { personalTeamIdFor, stackTeamIdFor, userIdFor } from "./domains/user.ts"
+import { listMembers } from "./domains/team-members.ts"
 import type { SshPresence } from "./team-ssh-presence.ts"
 import { cleanupRemovedMembers, revokeMemberCertsNow } from "./team-member-cleanup.ts"
 import { HostReplicaDrops, hostsLeavingOwner, type ReplicaDropTarget } from "./team-host-replica-drop.ts"
@@ -28,6 +34,9 @@ import { HostReplicaDrops, hostsLeavingOwner, type ReplicaDropTarget } from "./t
 export type { SignInRules } from "./team-sign-in-rules.ts"
 /** The principal of the plain member view in event effects (no user: no own devices). */
 const MEMBER_VIEW: Principal = { identity: "view:member", kind: "session" }
+
+/** How long one confirmed solo-membership read of a personal VM tenant is reused. */
+const PERSONAL_SOLO_CACHE_MS = 30_000
 
 export class TeamDO extends OwnerDO<TeamState> {
   constructor(ctx: DurableObjectState, env: Env) {
@@ -92,6 +101,7 @@ export class TeamDO extends OwnerDO<TeamState> {
     if (Object.keys(state.member_cleanup ?? {}).length > 0) return Math.max(now, this.cleanupRetryAt ?? now)
     if (Object.keys(state.server_revocations ?? {}).length > 0) return Math.max(now, this.revokeRetryAt ?? now)
     const times = [
+      this.personalTenantWakeAt(),
       nextRecheckAt(state),
       stackAt,
       integrationSyncPending(state) || releasePending(state) ? Math.max(now, this.syncRetryAt ?? now) : null,
@@ -132,6 +142,12 @@ export class TeamDO extends OwnerDO<TeamState> {
    * version, synced by version and hash), so a crash between steps replays.
    */
   protected override async onWake(now: number): Promise<void> {
+    const personalAt = this.personalTenantWakeAt()
+    if (personalAt !== null && personalAt <= now) {
+      const reply = await this.ensurePersonalVmApiTenant(this.boundEntity() ?? "", false, now)
+      // An answer that left the due wake time untouched would re-arm the alarm at once: park it for the next explicit create.
+      if (reply.status === "unavailable" && this.personalTenantWakeAt() === personalAt) try { this.personalTenantStore.park() } catch { /* read again on the next create */ }
+    }
     await this.replicaDrops.flush(now)
     // Stack re-checks, and a deleted Stack team's members leaving through team.member.remove (team-stack-sync.ts).
     if (this.boundEngine) await this.stackSync.wake(now)
@@ -144,6 +160,86 @@ export class TeamDO extends OwnerDO<TeamState> {
       // After the integration push, so a slow SchedulerDO never delays it (review P3).
       await this.syncRunPolicy(now)
     }
+  }
+
+  /** Internal Cloud service routing only: never binds an unknown team or grants VM authority. */
+  async vmApiTenantState(entity: string): Promise<"unknown" | "active" | "deleted" | "invalid"> {
+    if (this.boundEntity() !== null && this.boundEntity() !== entity) return "invalid"
+    const state = this.boundEntity() === entity ? this.boundEngine?.currentState : undefined
+    if (!state?.team) return "unknown"
+    if (!vmApiTenantOf(state, entity, this.env.STACK_PROJECT_ID, "cleanup")) return "invalid"
+    return state.team.deleted_at === undefined ? "active" : "deleted"
+  }
+
+  async vmApiTenant(entity: string, purpose: VmApiTenantPurpose): Promise<VmApiTenant | null> {
+    const state = this.boundEntity() === entity ? this.boundEngine?.currentState : undefined
+    const shared = vmApiTenantOf(state, entity, this.env.STACK_PROJECT_ID, purpose)
+    if (shared || state?.team?.kind !== "personal" || state.team.id !== entity || (purpose !== "operate" && purpose !== "cleanup")) return shared
+    let intent
+    try { intent = this.personalTenantStore.read() } catch { return null }
+    const target = personalTenantTarget(intent, entity, this.env.STACK_PROJECT_ID)
+    if (!target || !intent) return null
+    if (purpose === "cleanup") return target
+    if (this.personalTenantOwner(entity) !== intent.marker.user) return null
+    const source = await this.personalStackUser(intent.marker.user).catch(() => null)
+    if (source !== intent.marker.stack_user || userIdFor(this.env.STACK_PROJECT_ID, source) !== intent.marker.user) return null
+    // The ordinary Stack mirror receives deletion webhooks even though this logical owner is personal.
+    const canonical = stackTeamIdFor(this.env.STACK_PROJECT_ID, target.tenant)
+    if (canonical === entity) return null
+    const mirror = this.env.TEAM_DO.get(this.env.TEAM_DO.idFromName(canonical)) as unknown as { vmApiTenantState(e: string): Promise<string> }
+    const status = await mirror.vmApiTenantState(canonical).catch(() => null)
+    if (status !== "unknown" && status !== "active") return null
+    // Solo membership is re-read (briefly cached), not trusted from provisioning: anyone added to the
+    // tenant's Stack team could otherwise reach the owner's personal VMs through the VM API.
+    return (await this.personalTenantSolo(target.tenant, intent.marker.stack_user)) ? target : null
+  }
+
+  private personalSoloChecked: { readonly key: string; readonly at: number } | undefined
+  private async personalTenantSolo(tenant: string, stackUser: string): Promise<boolean> {
+    const key = `${tenant}\n${stackUser}`, now = Date.now()
+    if (this.personalSoloChecked?.key === key && now - this.personalSoloChecked.at < PERSONAL_SOLO_CACHE_MS) return true
+    this.personalSoloChecked = undefined
+    const stack = this.personalStack ?? personalTenantStack(this.env)
+    const members = await stack?.members(tenant).catch(() => null)
+    if (!members || members.length !== 1 || members[0] !== stackUser) return false
+    this.personalSoloChecked = { key, at: now }
+    return true
+  }
+
+  private readonly personalTenantStore = new PersonalTenantStore(this.sqlStore)
+  private personalTenantWakeAt(): number | null { try { return this.personalTenantStore.read()?.nextAt ?? null } catch { return null } }
+  /** Test dependency; ordinary deployments use the existing server-key identity store. */
+  personalStack: PersonalTenantStack | undefined
+  private personalTenantFlight: Promise<EnsurePersonalTenantReply> | undefined
+  private personalTenantOwner(entity: string): string | null {
+    if (this.boundEntity() !== entity) return null
+    const state = this.boundEngine?.currentState
+    if (state?.team?.id !== entity || state.team.kind !== "personal" || state.team.deleted_at !== undefined) return null
+    const page = listMembers(state, this.rows, undefined, 2)
+    const owner = page.items.length === 1 && page.next === null && page.items[0]?.role === "owner" ? page.items[0].user : null
+    return owner && personalTeamIdFor(owner) === entity ? owner : null
+  }
+  private async personalStackUser(user: string): Promise<string | null> {
+    const stub = this.env.USER_DO.get(this.env.USER_DO.idFromName(user)) as unknown as { stackUserOf(entity: string): Promise<string | null> }
+    return stub.stackUserOf(user)
+  }
+  /** Provisioning is a separate owner command; reads and cleanup never call it. */
+  async ensureVmApiTenant(entity: string): Promise<EnsurePersonalTenantReply> {
+    const shared = vmApiTenantOf(this.boundEntity() === entity ? this.boundEngine?.currentState : undefined, entity, this.env.STACK_PROJECT_ID, "operate")
+    if (shared) return { status: "ready", target: shared }
+    return this.ensurePersonalVmApiTenant(entity, true, Date.now())
+  }
+  private ensurePersonalVmApiTenant(entity: string, allowCreate: boolean, now: number): Promise<EnsurePersonalTenantReply> {
+    if (!this.personalTenantOwner(entity)) return Promise.resolve({ status: "unavailable" })
+    if (this.personalTenantFlight) return this.personalTenantFlight
+    this.personalTenantFlight = ensurePersonalTenant({ store: this.personalTenantStore, team: entity, project: this.env.STACK_PROJECT_ID, owner: () => this.personalTenantOwner(entity), stackUserOf: (user) => this.personalStackUser(user), stack: this.personalStack ?? personalTenantStack(this.env), now, allowCreate })
+      .then(async (reply) => {
+        if (reply.status !== "ready") return reply
+        const target = await this.vmApiTenant(entity, "operate")
+        return target ? { status: "ready" as const, target } : { status: "unavailable" as const }
+      })
+      .finally(() => { this.personalTenantFlight = undefined; this.scheduleAlarm() })
+    return this.personalTenantFlight
   }
 
   async cloudPolicy(entity: string) { return cloudPolicyOf(this.isBound(entity) ? this.bind(entity).currentState : undefined) } // RPC from CloudDO (CLOUD-CONNECT-ACCESS, cloud.idlePause)
