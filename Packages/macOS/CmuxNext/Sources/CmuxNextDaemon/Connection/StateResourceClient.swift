@@ -79,6 +79,23 @@ extension StateResourceClient {
         try await stateMutation("closed.reopen", ["closed": .string(id)], as: ReopenedItem.self)
     }
 
+    /// Reopens closed tab `tab` (`tab_…`) by its id, under that same id
+    /// (`closed.reopen {tab}`, a `cmux://tab/` link to a closed tab): the
+    /// member of the newest closed group that holds it.
+    ///
+    /// - Parameters:
+    ///   - tab: The tab's resource id.
+    ///   - fallbackPane: The `pane_` id the tab opens in when its own pane
+    ///     and workspace are gone; nil for the session's focused pane.
+    /// - Throws: `DaemonError.command` with code `resource.not_found` when
+    ///   no closed group holds the tab (it is open, or its record is gone).
+    @discardableResult
+    public func reopenClosed(tab: String, fallbackPane: String?) async throws -> ReopenedItem {
+        var params: [String: JSONValue] = ["tab": .string(tab)]
+        if let fallbackPane { params["fallback_pane"] = .string(fallbackPane) }
+        return try await stateMutation("closed.reopen", params, as: ReopenedItem.self)
+    }
+
     /// The window ids of install `installID`'s window records (`window_record.list`).
     public func windowRecordIDs(installID: String) async throws -> [String] {
         let list = try await connection.resourceRequest({ id in
