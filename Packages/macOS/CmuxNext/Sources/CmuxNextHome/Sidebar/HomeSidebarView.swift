@@ -74,7 +74,7 @@ public final class HomeSidebarView: NSView {
         requestsButton.bezelStyle = .accessoryBarAction
         requestsButton.isBordered = false
         requestsButton.alignment = .left
-        requestsButton.font = .systemFont(ofSize: NSFont.smallSystemFontSize, weight: .medium)
+        requestsButton.font = .systemFont(ofSize: TypeScale.caption, weight: TypeScale.emphasis)
         requestsButton.image = NSImage(systemSymbolName: "tray", accessibilityDescription: nil)
         requestsButton.imagePosition = .imageLeading
         requestsButton.target = self
