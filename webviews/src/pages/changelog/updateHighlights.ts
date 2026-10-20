@@ -37,6 +37,8 @@ export interface UpdateHighlights {
   items: UpdateHighlightItem[];
   /** Items not shown. */
   moreCount: number;
+  /** Every change after `items` (the popover scrolls to the whole list); absent from an older host. */
+  rest?: UpdateHighlightItem[] | null;
   changelog: { from: string; to: string };
 }
 
