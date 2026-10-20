@@ -231,9 +231,14 @@ public final class DaemonTerminalSession: TerminalSession {
                     log.notice("surface \(self.surface, privacy: .public): terminal \(terminalID, privacy: .public) is now surface \(moved, privacy: .public)")
                     surface = moved
                     lineParser = DaemonTerminalEventParser(surface: moved)
-                case .gone:
+                case .gone where attachRetries + 1 >= reattachBackoff.count:
                     terminalGone()
                     return
+                case .gone:
+                    // Right after the Mac app or its daemon restarts, a terminal
+                    // can be missing from the registry for a moment: only a
+                    // terminal still missing after the retries is gone.
+                    throw LinkError(code: "attach", message: "terminal_not_found")
                 case .notYet:
                     // Into the reattach backoff, keeping the last frame.
                     throw LinkError(code: "attach", message: "the terminal is not on a surface yet")
@@ -340,9 +345,9 @@ public final class DaemonTerminalSession: TerminalSession {
             heldEvents = nil
             lastError = LinkController.reason(error)
             log.error("attach surface \(self.surface): \(String(describing: error), privacy: .public)")
-            if everAttached, attachRetries < Self.reattachBackoff.count, handler != nil, !ended {
+            if everAttached, attachRetries < reattachBackoff.count, handler != nil, !ended {
                 // A reattach: keep the last frame and try again (bounded backoff).
-                let delay = Self.reattachBackoff[attachRetries]
+                let delay = reattachBackoff[attachRetries]
                 attachRetries += 1
                 if let client = self.client { self.client = nil; Task { await client.close() } }
                 Task { [weak self] in
@@ -601,7 +606,8 @@ public final class DaemonTerminalSession: TerminalSession {
     /// The reattach retries ran out; the next keystroke tries again.
     private var gaveUp = false
     /// Delays before retrying a failed reattach (seconds); then the error shows.
-    static let reattachBackoff: [Double] = [0.25, 0.5, 1, 2, 4, 8]
+    static let defaultReattachBackoff: [Double] = [0.25, 0.5, 1, 2, 4, 8]
+    var reattachBackoff = DaemonTerminalSession.defaultReattachBackoff
 
     /// The size the attach already carried (no separate resize needed).
     private var attachedWithSize: (columns: Int, rows: Int)?

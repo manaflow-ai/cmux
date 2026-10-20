@@ -21,6 +21,9 @@ final class FakeTerminalDaemon: @unchecked Sendable {
     var terminals: [String: Int]? = nil
     /// The next N `resolve-terminal` answers have a null surface (restoring).
     var restoring = 0
+    /// The next N `resolve-terminal` answers are terminal_not_found (a registry
+    /// still loading right after the Mac app restarted).
+    var missing = 0
 
     var recorded: [[String: Any]] { lock.withLock { commands } }
 
@@ -49,6 +52,12 @@ final class FakeTerminalDaemon: @unchecked Sendable {
                 return true
             }
             if restoringNow { return [reply(["surface": NSNull(), "terminal_id": object["terminal_id"] ?? ""])] }
+            let missingNow: Bool = lock.withLock {
+                guard missing > 0 else { return false }
+                missing -= 1
+                return true
+            }
+            if missingNow { return [Self.line(["id": id, "ok": false, "error": "terminal_not_found"])] }
             guard let id2 = object["terminal_id"] as? String, let surface = terminals[id2] else {
                 return [Self.line(["id": id, "ok": false, "error": "terminal_not_found"])]
             }
@@ -421,11 +430,13 @@ final class ChannelLog: @unchecked Sendable {
 
     func session(_ daemon: FakeTerminalDaemon, _ channels: ChannelLog) -> DaemonTerminalSession {
         let link = MockMacLink { service, line in daemon.respond(service, line) }
-        return DaemonTerminalSession(surface: 7, terminalID: "term_a") {
+        let session = DaemonTerminalSession(surface: 7, terminalID: "term_a") {
             let channel = try await link.openChannel(service: "daemon", args: [:])
             channels.append(channel)
             return DaemonClient(channel: channel)
         }
+        session.reattachBackoff = [0.02, 0.02, 0.02]
+        return session
     }
 
     @Test func aReattachFollowsTheTerminalToItsNewSurface() async throws {
@@ -501,6 +512,24 @@ final class ChannelLog: @unchecked Sendable {
         session.reconnect()
         try await waitUntil(attempts: 400) { session.isAttached }
         #expect(session.surface == 15)
+        #expect(!events.contains(.exited(code: 0)))
+    }
+
+    /// Live check: right after a Mac app restart the daemon answered
+    /// terminal_not_found once for a terminal that was there; it is retried.
+    @Test func aTerminalMissingForAMomentIsRetried() async throws {
+        let daemon = FakeTerminalDaemon()
+        daemon.terminals = ["term_a": 7]
+        let channels = ChannelLog()
+        let session = session(daemon, channels)
+        var events: [TerminalSessionEvent] = []
+        session.start { events.append($0) }
+        try await waitUntil { session.isAttached }
+        await channels.last?.close(code: "link_closed", reason: "Mac app restarted")
+        try await waitUntil { !session.isAttached }
+        daemon.missing = 1
+        session.reconnect()
+        try await waitUntil(attempts: 400) { session.isAttached }
         #expect(!events.contains(.exited(code: 0)))
     }
 
