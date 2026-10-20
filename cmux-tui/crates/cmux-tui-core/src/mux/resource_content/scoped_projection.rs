@@ -67,7 +67,7 @@ thread_local! {
 
 /// Run `body` with the cross-check off on this thread, as release builds run.
 #[cfg(test)]
-pub(super) fn without_crosscheck<R>(body: impl FnOnce() -> R) -> R {
+pub(crate) fn without_crosscheck<R>(body: impl FnOnce() -> R) -> R {
     CROSSCHECK_OFF.with(|off| off.set(true));
     let result = body();
     CROSSCHECK_OFF.with(|off| off.set(false));
