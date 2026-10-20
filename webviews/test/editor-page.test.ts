@@ -598,6 +598,27 @@ await requireBrowserLane("editor-page.test.ts", async () => {
         });
       });
 
+      test("Replace (the replace page command) opens the find pill's replace row, never Monaco's widget", async () => {
+        await fresh();
+        const target = file("replace.ts", "old one\nold two\n");
+        await openEditor(page, target);
+        await page.evaluate(() =>
+          (
+            window as unknown as { __cmuxEditorDev: { emit: (stream: string, data: unknown) => boolean } }
+          ).__cmuxEditorDev.emit("cmux.page.command", { command: "replace" }),
+        );
+        await page.waitForSelector(".find-pill__replace");
+        expect(await page.evaluate(() => document.querySelector(".find-widget.visible.replaceToggled") != null)).toBe(
+          false,
+        );
+        await page.fill(".find-pill__field", "old");
+        await page.fill(".find-pill__replace .find-pill__field", "new");
+        await page.click(".find-pill__replace-all");
+        await page.waitForFunction(
+          () => window.__cmuxEditor!.view()!.monacoEditor.getModel()!.getValue() === "new one\nnew two\n",
+        );
+      });
+
       test("screen reader mode works from the keyboard alone", async () => {
         await fresh();
         fs.writeFileSync(

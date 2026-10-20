@@ -61,12 +61,32 @@ AGENT_MARK = "agent_pane.handshake_end"
 # Rows in launch order; a mark a build does not emit is left out.
 MARKS = [
     ("main_start", "process start -> main()"),
+    ("main.warmup_started", "main: launch warm-up started"),
+    ("main.prestart", "main: daemon prestart"),
+    ("main.nsapp", "main: NSApp and delegate"),
+    ("main.run", "main: agent page warm-up, run()"),
     ("did_finish_launching_start", "AppKit ready (applicationDidFinishLaunching)"),
+    ("dfl.settings_read", "dfl: settings read"),
+    ("dfl.theme", "dfl: Ghostty runtime and theme"),
+    ("services.crash_reporting", "services: crash reporting"),
+    ("services.cache", "services: cloud, feed, ssh, tab cache"),
+    ("services.windows", "services: window manager"),
+    ("services.palette_updater", "services: palette, update sheet"),
+    ("dfl.services", "dfl: services"),
+    ("dfl.bind", "dfl: actions bound"),
+    ("dfl.settings", "dfl: settings and control"),
+    ("dfl.menu", "dfl: main menu"),
     ("daemon.binary_resolved", "daemon binary resolved"),
     ("launch_snapshot_applied", "cached layout read (launch snapshot)"),
+    ("dfl.daemon_cloud_updater", "dfl: daemon, cloud, updater"),
+    ("dfl.first_window_hooks", "dfl: first window hooks"),
+    ("dfl.home_history", "dfl: home, bookmarks, history"),
     ("launch_snapshot_shown", "cached layout window made"),
+    ("dfl.windows", "dfl: windows restored"),
     ("did_finish_launching_end", "applicationDidFinishLaunching end"),
     ("first_window_frame_committed", "first window frame committed"),
+    ("launch.non_paint_services", "non-paint services started (updater, ssh, reach)"),
+    ("launch.post_window_warmups", "warm-ups started (Chromium, spares, page hosts)"),
     ("daemon.connect_start", "first connect attempt"),
     ("daemon.status_start", "server status spawn"),
     ("daemon.status_end", "server status exit"),
@@ -99,6 +119,12 @@ MARKS = [
     (AGENT_MARK, "agent pane handshake answered"),
 ]
 REALISTIC_WORKSPACES = 24
+# Launch work that must start only after the first window frame (perf-launch-memory): checked
+# with --order, and always in budget mode (any --budget, as the CI launch gate runs).
+LAUNCH_ORDER = [
+    "first_window_frame_committed<launch.non_paint_services",
+    "first_window_frame_committed<launch.post_window_warmups",
+]
 
 # Apps given with --app, by tag; other tags are DerivedData builds.
 APPS = {}
@@ -573,6 +599,9 @@ def main():
     parser.add_argument("--json", help="write every run's marks here")
     parser.add_argument("--budget", action="append", default=[], metavar="MARK=MS",
                         help="exit 1 when a mark's median (any tag, mode) is over MS or never arrives")
+    parser.add_argument("--order", action="append", default=[], metavar="FIRST<SECOND",
+                        help="exit 1 when, in any run, mark SECOND is missing or comes before mark FIRST "
+                             "(for example first_window_frame_committed<launch.non_paint_services)")
     parser.add_argument("--hangs", type=int, metavar="MS",
                         help="record main-thread stalls over MS during each launch (debug.hangs) and print the worst")
     args = parser.parse_args()
@@ -625,7 +654,8 @@ def main():
     if args.json:
         with open(args.json, "w") as out:
             json.dump(results, out, indent=1)
-    over = check_budgets(results, args.budget)
+    orders = args.order + (LAUNCH_ORDER if args.budget else [])
+    over = check_budgets(results, args.budget) + check_orders(results, orders)
     for line in over:
         print(f"over budget: {line}", file=sys.stderr)
     if over:
@@ -645,6 +675,21 @@ def check_budgets(results, budgets):
                 elif values and statistics.median(values) > float(limit):
                     over.append(f"{tag} {mode}: {mark} median {statistics.median(values):.0f} ms > {limit} ms")
     return over
+
+
+def check_orders(results, orders):
+    """Every `FIRST<SECOND` where some run lacks SECOND or has it before FIRST."""
+    out = []
+    for order in orders:
+        first, _, second = order.partition("<")
+        for tag, modes in results.items():
+            for mode, runs in modes.items():
+                for index, run in enumerate(runs):
+                    if second not in run:
+                        out.append(f"{tag} {mode} run {index + 1}: {second} missing")
+                    elif first in run and run[second] < run[first]:
+                        out.append(f"{tag} {mode} run {index + 1}: {second} at {run[second]:.0f} ms, before {first} at {run[first]:.0f} ms")
+    return out
 
 
 if __name__ == "__main__":

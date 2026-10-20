@@ -257,13 +257,14 @@ export interface ViewCallbacks {
 }
 
 /** The page commands the shared find pill runs. */
-export type FindCommand = "find" | "findNext" | "findPrevious" | "useSelectionForFind" | "hideFind";
+export type FindCommand = "find" | "findNext" | "findPrevious" | "useSelectionForFind" | "hideFind" | "replace";
 const FIND_COMMANDS: ReadonlySet<string> = new Set<FindCommand>([
   "find",
   "findNext",
   "findPrevious",
   "useSelectionForFind",
   "hideFind",
+  "replace",
 ]);
 
 export interface ViewStatus {
@@ -379,6 +380,7 @@ export class MonacoView implements CodeView {
           ["findNext", monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyG],
           ["findPrevious", monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyG],
           ["useSelectionForFind", monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyE],
+          ["replace", monaco.KeyMod.CtrlCmd | monaco.KeyMod.Alt | monaco.KeyCode.KeyF],
         ] as const
       ).map(([command, key]) =>
         this.editor.addAction({
@@ -687,6 +689,19 @@ export class MonacoView implements CodeView {
     if (action?.isSupported()) await action.run();
   }
 
+  /** The selection's text and lines (viewer comments, viewer-comments-DESIGN.md), null with nothing
+   * selected. A selection that ends at the start of a line does not count that line. */
+  selectionQuote(): { text: string; startLine: number; endLine: number } | null {
+    const selection = this.editor.getSelection();
+    const model = this.editor.getModel();
+    if (!selection || !model || selection.isEmpty()) return null;
+    const text = model.getValueInRange(selection);
+    if (!text.trim()) return null;
+    let endLine = selection.endLineNumber;
+    if (selection.endColumn === 1 && endLine > selection.startLineNumber) endLine--;
+    return { text, startLine: selection.startLineNumber, endLine };
+  }
+
   focus(): void {
     this.editor.focus();
   }
@@ -697,7 +712,10 @@ export class MonacoView implements CodeView {
     return {
       findMatches: (query, matchCase) =>
         this.model?.findMatches(query, false, false, matchCase, null, false).map((match) => match.range) ?? [],
-      caret: () => this.editor.getPosition() ?? { lineNumber: 1, column: 1 },
+      // The selection's start, not the cursor: a selected match leaves the cursor at its end, and
+      // the next letter typed would skip to the match after it.
+      caret: () =>
+        this.editor.getSelection()?.getStartPosition() ?? this.editor.getPosition() ?? { lineNumber: 1, column: 1 },
       selectedText: () => {
         const selection = this.editor.getSelection();
         if (!selection || !this.model || selection.isEmpty()) return "";
@@ -722,6 +740,17 @@ export class MonacoView implements CodeView {
         this.editor.revealRangeInCenterIfOutsideViewport(range, monaco.editor.ScrollType.Smooth);
       },
       focus: () => this.editor.focus(),
+      readOnly: () => this.documentInfo?.readOnly ?? true,
+      replace: (ranges, text) => {
+        if (!this.model || this.documentInfo?.readOnly) return;
+        // One undo step, as Monaco's Replace All.
+        this.editor.pushUndoStop();
+        this.editor.executeEdits(
+          "cmux.find.replace",
+          ranges.map((range) => ({ range, text, forceMoveMarkers: true })),
+        );
+        this.editor.pushUndoStop();
+      },
     };
   }
 

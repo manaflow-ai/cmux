@@ -16,7 +16,10 @@ export interface FindRange {
 export interface FindTarget {
   /** Every match of `query` in the document, in order (literal text, not a pattern). */
   findMatches(query: string, matchCase: boolean): FindRange[];
-  /** The caret, to start from the first match at or after it. */
+  /**
+   * Where the search starts: the start of the selection (the caret when nothing is selected), so
+   * the match the pill selected stays the first candidate as the query grows a letter at a time.
+   */
   caret(): { lineNumber: number; column: number };
   /** The selected text (one line), or empty. */
   selectedText(): string;
@@ -24,6 +27,10 @@ export interface FindTarget {
   show(matches: readonly FindRange[], active: number): void;
   /** Gives the keyboard back to the editor. */
   focus(): void;
+  /** The document cannot change (no replace row). Absent: editable. */
+  readOnly?(): boolean;
+  /** Writes `text` over every range as one undo step. Absent: replace is unavailable. */
+  replace?(ranges: readonly FindRange[], text: string): void;
 }
 
 export interface EditorFindState {
@@ -35,9 +42,22 @@ export interface EditorFindState {
   active: number;
   /** Increments each time the field should take the keyboard with its text selected. */
   focusRequest: number;
+  /** The replace row shows (Replace, Opt-Cmd-F). */
+  replaceOpen: boolean;
+  /** The replace field's text. Kept after the pill closes. */
+  replacement: string;
 }
 
-const CLOSED: EditorFindState = { open: false, query: "", matchCase: false, matches: [], active: 0, focusRequest: 0 };
+const CLOSED: EditorFindState = {
+  open: false,
+  query: "",
+  matchCase: false,
+  matches: [],
+  active: 0,
+  focusRequest: 0,
+  replaceOpen: false,
+  replacement: "",
+};
 
 const before = (a: FindRange, line: number, column: number) =>
   a.startLineNumber < line || (a.startLineNumber === line && a.startColumn < column);
@@ -65,6 +85,44 @@ export class EditorFind {
     this.search({ ...this.state, open: true, query, focusRequest: this.state.focusRequest + 1 }, true);
   }
 
+  /** Replace (Opt-Cmd-F): the pill with its replace row; a read-only file gets the find row only. */
+  showReplace(seed?: string): void {
+    const replaceOpen = this.canReplace();
+    const query = seed ? seed : this.state.query;
+    this.search({ ...this.state, open: true, query, replaceOpen, focusRequest: this.state.focusRequest + 1 }, true);
+  }
+
+  setReplacement = (replacement: string) => {
+    if (replacement !== this.state.replacement) this.set({ ...this.state, replacement });
+  };
+
+  /** The pill's chevron: shows or hides the replace row. */
+  toggleReplace = () => {
+    if (this.state.replaceOpen) this.set({ ...this.state, replaceOpen: false });
+    else if (this.canReplace()) this.set({ ...this.state, replaceOpen: true });
+  };
+
+  /** Writes the replacement over the active match, then the next match is active. */
+  replace = () => {
+    const match = this.state.matches[this.state.active];
+    if (!match || !this.canReplace() || !this.state.replaceOpen) return;
+    const index = this.state.active;
+    this.target?.replace?.([match], this.state.replacement);
+    // The replaced match is gone; the one after it takes its index.
+    this.search({ ...this.state, active: index }, false);
+  };
+
+  /** Writes the replacement over every match, as one undo step. */
+  replaceAll = () => {
+    if (!this.state.matches.length || !this.canReplace() || !this.state.replaceOpen) return;
+    this.target?.replace?.(this.state.matches, this.state.replacement);
+    this.search({ ...this.state, active: 0 }, false);
+  };
+
+  private canReplace(): boolean {
+    return Boolean(this.target?.replace) && !this.target?.readOnly?.();
+  }
+
   /** Use Selection for Find (Cmd-E): the selection becomes the query. */
   useSelection(): void {
     const text = this.target?.selectedText() ?? "";
@@ -85,7 +143,7 @@ export class EditorFind {
   /** Escape or the close button: highlights go and the editor gets the keyboard back. */
   hide = () => {
     if (!this.state.open) return;
-    this.set({ ...this.state, open: false, matches: [], active: 0 });
+    this.set({ ...this.state, open: false, replaceOpen: false, matches: [], active: 0 });
     this.target?.show([], 0);
     this.target?.focus();
   };

@@ -5,7 +5,10 @@ struct ShortcutHintModifierPolicy {
     static let intentionalHoldDelay: Duration = .milliseconds(300)
     private var suppressed = false
     private var held = false
-    mutating func keyDown() { suppressed = held }
+    /// A key while held suppresses the hints until release, unless it `keepsHints` (a pane-navigation key).
+    mutating func keyDown(keepsHints: Bool = false) {
+        if !keepsHints { suppressed = held }
+    }
 
     /// The held set a hold may show hints for: Cmd, Ctrl or Option, alone or together, with or without Shift.
     static func armed(_ flags: NSEvent.ModifierFlags) -> NSEvent.ModifierFlags? {
