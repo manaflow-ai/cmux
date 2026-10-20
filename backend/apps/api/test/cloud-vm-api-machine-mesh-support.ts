@@ -15,6 +15,8 @@ export interface MeshOptions { lostCreate?: boolean; lostAttach?: boolean; lostM
 export const withMeshMachine = async (options: MeshOptions, run: (world: {
   team: string; tenant: string; user: string; session: string; calls: string[]; creates: () => number; bindFile: () => Record<string, any> | undefined;
   create: () => ReturnType<CloudDO["submit"]>; retry: () => Promise<void>; restart: (change?: Partial<Env>) => Promise<void>;
+  power: (machine: string, phase: "pause" | "start") => ReturnType<CloudDO["submit"]>;
+  vmSelf: (principal: Principal, machine: string) => ReturnType<CloudDO["readOp"]>;
   connect: () => Promise<unknown>; owner: () => CloudDO; pendingMachine: () => Promise<string>; remove: (id: string) => ReturnType<CloudDO["submit"]>;
   readyReceiver: () => Promise<void>;
   setMeshes: (values: Array<ReturnType<typeof mesh>>) => void; setNetworkHook: (hook: () => Promise<void>) => void; setAttachHook: (hook: () => Promise<void>) => void;
@@ -135,6 +137,10 @@ export const withMeshMachine = async (options: MeshOptions, run: (world: {
           const ready = await lifecycle({ phase: "ready", expected: (first.value as { generation: string }).generation })
           expect(ready.ok).toBe(true)
         },
+        power: (machine, phase) => inDO(e.CLOUD_DO.get(e.CLOUD_DO.idFromName(t.team)), async (_instance, state) =>
+          new CloudDO(state, e).submit(t.team, p, { t: "op", op: `cloud.machine.${phase}`, params: { machine }, idempotency_key: crypto.randomUUID(), origin: "cli" })),
+        vmSelf: (principal, machine) => inDO(e.CLOUD_DO.get(e.CLOUD_DO.idFromName(t.team)), async (_instance, state) =>
+          new CloudDO(state, e).readOp(t.team, principal, "cloud.vm.self.get", { machine })),
         setMeshes: (values) => { meshes = values }, setNetworkHook: (hook) => { networkHook = hook }, setAttachHook: (hook) => { attachHook = hook }
       })
     })

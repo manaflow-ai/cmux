@@ -65,19 +65,25 @@ it.each(["before", "during"] as const)("requires a fresh receiving attempt after
   expect(first.json.ok).toBe(true)
   expect((await f.lifecycleHttp({ phase: "ready", expected: first.json.value.generation })).json.ok).toBe(true)
   expect(refusal(await f.mint())).toMatchObject({ ok: true })
+  let powerStep = "not called"
   const cycle = async () => {
+    powerStep = "pause"
     const paused = await f.power("pause")
     expect(paused.frames.find((frame) => frame.t === "reject")).toBeUndefined()
     expect(paused.frames.some((frame) => frame.t === "result")).toBe(true)
     expect(await f.self()).toMatchObject({ ok: true, value: { machine: { status: "paused" } } })
+    powerStep = "start"
     const started = await f.power("start")
     expect(started.frames.find((frame) => frame.t === "reject")).toBeUndefined()
     expect(started.frames.some((frame) => frame.t === "result")).toBe(true)
     expect(await f.self()).toMatchObject({ ok: true, value: { machine: { status: "running" } } })
+    powerStep = "complete"
   }
   if (when === "before") await cycle()
   else f.onDial(cycle)
-  expect(refusal(await f.mint())).toMatchObject({ ok: false, code: "auth.forbidden" })
+  const reply = await f.mint()
+  expect(powerStep).toBe("complete")
+  expect(refusal(reply)).toMatchObject({ ok: false, code: "auth.forbidden" })
   const policy = await f.readHttp()
   expect(policy.status).toBe(200)
   expect(policy.json.op).toBe("cloud.vm.network_policy")
