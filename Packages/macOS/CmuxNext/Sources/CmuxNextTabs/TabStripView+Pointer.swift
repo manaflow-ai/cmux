@@ -28,6 +28,16 @@ extension TabStripView {
         return rect.insetBy(dx: -2, dy: -2).contains(inCell)
     }
 
+    /// Whether `point` (strip coordinates) is on tab `id`'s speaker, with a
+    /// little slack around the small glyph.
+    func isInAudioButton(_ id: TabID, _ point: CGPoint) -> Bool {
+        // The close button wins where the slack reaches it.
+        guard let cell = cells[id], let rect = cell.audioButtonRect, !isInCloseButton(id, point) else { return false }
+        let local = convert(point, to: tabsClip)
+        let inCell = CGPoint(x: local.x - cell.frame.minX, y: local.y - cell.frame.minY)
+        return rect.insetBy(dx: -3, dy: -4).contains(inCell)
+    }
+
     func isInNewTabButton(_ point: CGPoint) -> Bool {
         !newTabButton.isHidden && newTabButton.frame.contains(convert(point, to: contentView))
     }
@@ -39,6 +49,7 @@ extension TabStripView {
         if let hoveredID { cells[hoveredID]?.isHovered = false }
         hoveredID = id
         if let id { cells[id]?.isHovered = true }
+        onHoverTab?(id)
         TabSeparatorVisibility.apply(to: self)
     }
 
@@ -58,10 +69,22 @@ extension TabStripView {
             closeHoveredID = closeID
             if let closeID { cells[closeID]?.isCloseHovered = true }
         }
+        setAudioHovered(id.flatMap { isInAudioButton($0, point) ? $0 : nil })
         newTabButton.isHovered = !dragging && isInNewTabButton(point)
 
         // The coordinator hit-tests the pointer itself (`TabHoverCardController.target`).
         if moved, let window { hoverCards.pointerMoved(to: window.convertPoint(toScreen: convert(point, to: nil))) }
+    }
+
+    /// The speaker under the pointer: its fill, and a tooltip naming what a click does.
+    func setAudioHovered(_ id: TabID?) {
+        if id != audioHoveredID {
+            if let audioHoveredID { cells[audioHoveredID]?.isAudioHovered = false }
+            audioHoveredID = id
+            if let id { cells[id]?.isAudioHovered = true }
+        }
+        let tip = id.flatMap { cells[$0]?.item.audio }.map { $0 == .muted ? Strings.unmuteTab : Strings.muteTab }
+        if toolTip != tip { toolTip = tip }
     }
 
     /// Shows tab `id`'s hover card now (with its CPU and memory) until the
@@ -133,6 +156,13 @@ extension TabStripView {
                 cells[id]?.isClosePressed = true
                 return
             }
+            // The speaker is a button: the press neither selects nor drags the
+            // tab, and the release on it mutes or unmutes (Chrome).
+            if isInAudioButton(id, point) {
+                pressedAudioID = id
+                cells[id]?.isAudioPressed = true
+                return
+            }
             if event.clickCount == 2, renamesOnDoubleClick, Self.selectionClick(event.modifierFlags) == .plain {
                 beginInlineRename(id)
                 return
@@ -161,6 +191,10 @@ extension TabStripView {
             newTabButton.isPressed = isInNewTabButton(point)
             return
         }
+        if let id = pressedAudioID {
+            cells[id]?.isAudioPressed = isInAudioButton(id, point)
+            return
+        }
         if drag != nil {
             updateDrag(at: point, event: event)
             return
@@ -186,6 +220,13 @@ extension TabStripView {
             pressedCloseID = nil
             cells[id]?.isClosePressed = false
             if isInCloseButton(id, point) || arrivingCloseTab(at: point) == id { close(id, source: .mouse, at: point) }
+            return
+        }
+        if let id = pressedAudioID {
+            pressedAudioID = nil
+            cells[id]?.isAudioPressed = false
+            if isInAudioButton(id, point) { model.send(.toggleAudioMute(id)) }
+            updateHover(at: point, moved: false)
             return
         }
         if endNewTabPress(at: point, modifiers: event.modifierFlags) { return }

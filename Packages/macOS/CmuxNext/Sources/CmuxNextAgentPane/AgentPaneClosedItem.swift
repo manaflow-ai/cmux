@@ -1,4 +1,4 @@
-import CmuxNextSettings
+public import CmuxNextSettings
 public import Foundation
 
 /// One recently closed tab, screen or workspace as the New Tab page's Recently Closed section
@@ -34,7 +34,8 @@ public nonisolated struct AgentPaneClosedItem: Hashable, Sendable {
     /// The most items one push carries (the section shows the newest few).
     public static let maximumPushed = 8
 
-    var json: JSONValue {
+    /// The item as the page reads it.
+    public var json: JSONValue {
         var object: [String: JSONValue] = [
             "id": .string(id), "kind": .string(kind.rawValue), "title": .string(title), "available": .bool(isAvailable),
             "closedAt": .number((closedAt.timeIntervalSince1970 * 1000).rounded()),
@@ -45,17 +46,9 @@ public nonisolated struct AgentPaneClosedItem: Hashable, Sendable {
     }
 }
 
-extension AgentPageEvent {
-    /// The newest recently closed items for the New Tab page (`recentlyClosed`).
-    public static func recentlyClosed(_ items: [AgentPaneClosedItem]) -> AgentPageEvent {
-        AgentPageEvent(kind: "recentlyClosed", value: .array(items.prefix(AgentPaneClosedItem.maximumPushed).map(\.json)))
-    }
-}
-
 extension AgentPaneClosedItem {
-    /// Pushes `items` to `view`'s page (not an AgentPaneView extension: that type is at its size limit).
-    @MainActor static func push(_ items: [AgentPaneClosedItem], to view: AgentPaneView) {
-        let event = AgentPageEvent.recentlyClosed(items)
-        view.deliver([event], scripts: ["window.cmuxAcpmuxBridge?.applyRecentlyClosed?.(\(event.value.compactText));"])
+    /// Pushes `list` to `view`'s page, already encoded (not an AgentPaneView extension: that type is at its size limit).
+    @MainActor static func push(_ list: AgentPaneClosedList, to view: AgentPaneView) {
+        view.deliver([list.event], scripts: [list.script])
     }
 }

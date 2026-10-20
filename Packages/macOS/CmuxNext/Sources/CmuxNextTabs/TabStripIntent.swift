@@ -42,6 +42,9 @@ public enum TabStripIntent: Equatable, Sendable {
     /// `name` (trimmed; empty clears the custom name).
     case renameCommitted(TabID, name: String)
     case duplicate(TabID)
+    /// The speaker of a tab playing sound (or muted) was clicked: mute the
+    /// tab, or unmute it (Chrome's tab alert button). The App runs Mute Tab.
+    case toggleAudioMute(TabID)
     case moveToNewSplit(TabID, TabSplitDirection)
     case moveToNewColumn(TabID)
     /// A tab was dragged out of the strip. The App's drag session takes over

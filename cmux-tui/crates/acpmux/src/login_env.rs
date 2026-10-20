@@ -655,6 +655,45 @@ pub(crate) fn nested_overrides(family: Option<&str>) -> Vec<(String, String)> {
     nested.into_iter().filter(|(k, v)| allowed(k, v, family)).collect()
 }
 
+/// The environment a harness of `family` with the profile env `profile`
+/// starts with, as `harness_health::probe::run_for` prepares it: the
+/// daemon's own (less a nested Claude Code session's keys), the
+/// allow-listed login values over it, then `profile`. For sign-in checks
+/// that read the environment instead of spawning; the values stay in this
+/// process's memory.
+pub fn effective_for(
+    family: Option<&str>,
+    profile: &BTreeMap<String, String>,
+) -> BTreeMap<String, String> {
+    let nested = std::env::var_os("CLAUDECODE").is_some();
+    layered(
+        std::env::vars(),
+        nested,
+        pairs_for(family, Some(profile)),
+        nested_overrides(family),
+        profile,
+    )
+}
+
+/// `effective_for`'s layering, pure: `daemon` (its nested Claude keys
+/// dropped when `nested`), then `login`, then `restored`, then `profile`.
+pub(crate) fn layered(
+    daemon: impl IntoIterator<Item = (String, String)>,
+    nested: bool,
+    login: Vec<(String, String)>,
+    restored: Vec<(String, String)>,
+    profile: &BTreeMap<String, String>,
+) -> BTreeMap<String, String> {
+    let mut env: BTreeMap<String, String> = daemon.into_iter().collect();
+    env.extend(login);
+    if nested {
+        env.retain(|k, _| !crate::config::is_nested_claude_key(k));
+    }
+    env.extend(restored);
+    env.extend(profile.iter().map(|(k, v)| (k.clone(), v.clone())));
+    env
+}
+
 /// Apply the allow-listed login environment every child gets (PATH,
 /// version managers, proxies, CA) to a command.
 pub fn apply_std(cmd: &mut std::process::Command) {
@@ -678,6 +717,13 @@ pub fn apply_tokio_for(
     if let Some(path) = agent_path() {
         cmd.env("PATH", path);
     }
+    if let Some((layer, user)) = agent_shell_env() {
+        cmd.env("ZDOTDIR", layer);
+        match user {
+            Some(user) => cmd.env(AGENT_USER_ZDOTDIR_ENV, user),
+            None => cmd.env_remove(AGENT_USER_ZDOTDIR_ENV),
+        };
+    }
 }
 
 /// Same, for std's process builder.
@@ -690,6 +736,52 @@ pub fn apply_std_for(
     if let Some(path) = agent_path() {
         cmd.env("PATH", path);
     }
+    if let Some((layer, user)) = agent_shell_env() {
+        cmd.env("ZDOTDIR", layer);
+        match user {
+            Some(user) => cmd.env(AGENT_USER_ZDOTDIR_ENV, user),
+            None => cmd.env_remove(AGENT_USER_ZDOTDIR_ENV),
+        };
+    }
+}
+
+/// The app's agent zsh layer, `<Resources>/cmux-cli-path/zsh-agent`, next to
+/// the bundled CLI (`<Resources>/bin/cmux`).
+const AGENT_ZSH_LAYER: &str = "cmux-cli-path/zsh-agent";
+/// The user's ZDOTDIR while the agent layer stands in for it.
+pub const AGENT_USER_ZDOTDIR_ENV: &str = "CMUX_CLI_AGENT_ZDOTDIR";
+
+/// The variables that keep the app's `cmux` first in the shells an agent
+/// starts for its commands. [`agent_path`] puts it first in the agent's own
+/// PATH, but Codex and Claude Code run each command in a fresh `zsh -lc`,
+/// which reads the user's `.zprofile` again; that often prepends
+/// `~/.local/bin`, where an old PyPI `cmux` lives (0.13.4 lacks this app's
+/// verbs). `ZDOTDIR` names the app's agent layer
+/// (Resources/cmux-cli-path/zsh-agent/.zshenv), which runs the user's files
+/// from the user's ZDOTDIR, saved in [`AGENT_USER_ZDOTDIR_ENV`], and moves the
+/// bundled CLI back to the front after each. Returns (the layer for
+/// `ZDOTDIR`, the user's ZDOTDIR or none); `None` without a bundled CLI or
+/// without the layer next to it (an older app). Other shells ignore ZDOTDIR.
+pub fn agent_shell_env() -> Option<(OsString, Option<OsString>)> {
+    let resources = std::env::var_os(BUNDLED_CLI_ENV)
+        .map(PathBuf::from)
+        .filter(|cli| cli.is_absolute())
+        .and_then(|cli| cli.parent()?.parent().map(std::path::Path::to_path_buf))?;
+    let layer = resources.join(AGENT_ZSH_LAYER);
+    if !layer.join(".zshenv").is_file() {
+        return None;
+    }
+    // The user's ZDOTDIR: the daemon's, else the login shell's. A daemon
+    // started from an agent's shell already has the layer: keep its saved one.
+    let current = std::env::var_os("ZDOTDIR").or_else(|| var("ZDOTDIR").map(OsString::from));
+    let user = match current {
+        Some(dir) if std::path::Path::new(&dir) == layer => {
+            std::env::var_os(AGENT_USER_ZDOTDIR_ENV)
+        }
+        other => other,
+    }
+    .filter(|dir| !dir.is_empty());
+    Some((layer.into_os_string(), user))
 }
 
 /// Parse `env -0` output: (variables worth importing, the login PATH).
@@ -907,4 +999,44 @@ fn startup_files() -> Vec<PathBuf> {
     }
     files.push(PathBuf::from(&shell));
     files
+}
+
+#[cfg(test)]
+mod effective_tests {
+    use super::layered;
+    use std::collections::BTreeMap;
+
+    fn pairs(list: &[(&str, &str)]) -> Vec<(String, String)> {
+        list.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+    }
+
+    /// A sign-in check reads what the agent would get (hq#2569 #2): a token or
+    /// a `CODEX_HOME` exported only in the login shell counts, the profile's
+    /// env wins, and a nested Claude Code session's keys do not leak in.
+    #[test]
+    fn layers_daemon_login_and_profile_like_a_spawn() {
+        let profile = BTreeMap::from([("CODEX_HOME".to_owned(), "/profile/codex".to_owned())]);
+        let env = layered(
+            pairs(&[("HOME", "/u"), ("CODEX_HOME", "/daemon/codex"), ("OPENAI_BASE_URL", "d")]),
+            false,
+            pairs(&[("CLAUDE_CODE_OAUTH_TOKEN", "login"), ("OPENAI_BASE_URL", "login")]),
+            Vec::new(),
+            &profile,
+        );
+        assert_eq!(env["HOME"], "/u");
+        assert_eq!(env["CODEX_HOME"], "/profile/codex");
+        assert_eq!(env["OPENAI_BASE_URL"], "login");
+        assert_eq!(env["CLAUDE_CODE_OAUTH_TOKEN"], "login");
+
+        let nested = layered(
+            pairs(&[("CLAUDECODE", "1"), ("ANTHROPIC_API_KEY", "session"), ("HOME", "/u")]),
+            true,
+            Vec::new(),
+            pairs(&[("CLAUDE_CODE_OAUTH_TOKEN", "login")]),
+            &BTreeMap::new(),
+        );
+        assert!(!nested.contains_key("ANTHROPIC_API_KEY"));
+        assert_eq!(nested["CLAUDE_CODE_OAUTH_TOKEN"], "login");
+        assert_eq!(nested["HOME"], "/u");
+    }
 }

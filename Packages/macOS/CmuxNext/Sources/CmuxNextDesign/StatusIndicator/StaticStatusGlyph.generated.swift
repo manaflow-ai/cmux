@@ -11,7 +11,7 @@ public nonisolated enum StaticStatusGlyph: String, CaseIterable, Hashable, Senda
     case idle
     /// An agent works: the ring with its right half filled.
     case working
-    /// Waiting on you (a question, or blocked with no reason): an empty speech bubble.
+    /// Waiting on you (a question, or no reason): the attention dot, no talk bubble.
     case waiting
     /// Needs permission or a sign-in: a shield.
     case permission
@@ -94,35 +94,11 @@ public nonisolated enum StaticStatusGlyph: String, CaseIterable, Hashable, Senda
             path.addRect(CGRect(x: 7, y: 8, width: 2, height: 1))
             path.addRect(CGRect(x: 3, y: 9, width: 4, height: 1))
         case (.waiting, false):
-            path.move(to: CGPoint(x: 5, y: 2))
-            path.addLine(to: CGPoint(x: 15, y: 2))
-            path.addArc(center: CGPoint(x: 15, y: 6), radius: 4, startAngle: -.pi * 0.5, endAngle: 0, clockwise: false)
-            path.addLine(to: CGPoint(x: 19, y: 11))
-            path.addArc(center: CGPoint(x: 15, y: 11), radius: 4, startAngle: 0, endAngle: .pi * 0.5, clockwise: false)
-            path.addLine(to: CGPoint(x: 10, y: 15))
-            path.addLine(to: CGPoint(x: 4, y: 19))
-            path.addLine(to: CGPoint(x: 5, y: 15))
-            path.addArc(center: CGPoint(x: 5, y: 11), radius: 4, startAngle: .pi * 0.5, endAngle: .pi, clockwise: false)
-            path.addLine(to: CGPoint(x: 1, y: 6))
-            path.addArc(center: CGPoint(x: 5, y: 6), radius: 4, startAngle: .pi, endAngle: .pi * 1.5, clockwise: false)
-            path.closeSubpath()
-            path.move(to: CGPoint(x: 5, y: 4))
-            path.addLine(to: CGPoint(x: 15, y: 4))
-            path.addArc(center: CGPoint(x: 15, y: 6), radius: 2, startAngle: -.pi * 0.5, endAngle: 0, clockwise: false)
-            path.addLine(to: CGPoint(x: 17, y: 11))
-            path.addArc(center: CGPoint(x: 15, y: 11), radius: 2, startAngle: 0, endAngle: .pi * 0.5, clockwise: false)
-            path.addLine(to: CGPoint(x: 5, y: 13))
-            path.addArc(center: CGPoint(x: 5, y: 11), radius: 2, startAngle: .pi * 0.5, endAngle: .pi, clockwise: false)
-            path.addLine(to: CGPoint(x: 3, y: 6))
-            path.addArc(center: CGPoint(x: 5, y: 6), radius: 2, startAngle: .pi, endAngle: .pi * 1.5, clockwise: false)
-            path.closeSubpath()
+            path.addEllipse(in: CGRect(x: 4, y: 4, width: 12, height: 12))
         case (.waiting, true):
-            path.addRect(CGRect(x: 2, y: 1, width: 6, height: 1))
-            path.addRect(CGRect(x: 1, y: 2, width: 1, height: 5))
-            path.addRect(CGRect(x: 8, y: 2, width: 1, height: 5))
-            path.addRect(CGRect(x: 2, y: 7, width: 6, height: 1))
-            path.addRect(CGRect(x: 2, y: 8, width: 2, height: 1))
-            path.addRect(CGRect(x: 2, y: 9, width: 1, height: 1))
+            path.addRect(CGRect(x: 3, y: 2, width: 4, height: 1))
+            path.addRect(CGRect(x: 2, y: 3, width: 6, height: 4))
+            path.addRect(CGRect(x: 3, y: 7, width: 4, height: 1))
         case (.permission, false):
             path.move(to: CGPoint(x: 10, y: 1))
             path.addLine(to: CGPoint(x: 18, y: 4))

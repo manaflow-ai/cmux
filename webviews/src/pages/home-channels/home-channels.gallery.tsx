@@ -202,8 +202,11 @@ export default componentEntry<Props>({
     "pages/home-channels/PeoplePicker.tsx#PeoplePicker",
     "pages/home-channels/ConversationSheets.tsx#NewMessageSheet",
     "pages/home-channels/ConversationSheets.tsx#InviteSheet",
-    "pages/home-channels/ChiefSheet.tsx#ChiefSheet",
+    "pages/home-channels/ChiefPage.tsx#ChiefPage",
+    "pages/home-channels/ChiefBackendPicker.tsx#ChiefBackendPicker",
+    "pages/home-channels/ChiefHistory.tsx#ChiefHistory",
     "pages/home-channels/RouteSheets.tsx#RouteSheets",
+    "pages/home-channels/RouteSheets.tsx#ChiefRoutePage",
     "pages/home-channels/MessageRow.tsx#DraftRow",
     "pages/home-channels/icons.tsx#HomeIcon",
     "pages/home-channels/RunCard.tsx",
@@ -548,8 +551,8 @@ export default componentEntry<Props>({
       props: { select: "c-chief", route: { kind: "newChief" } },
       checks: { longFrameFailMs: openFrame },
       play: async (ctx) => {
-        await ctx.waitFor(() => ctx.document.querySelector(".lg-form .lg-chief-identity input:disabled"));
-        await ctx.waitFor(() => ctx.document.querySelector(".lg-form .lg-grant:disabled"));
+        await ctx.waitFor(() => ctx.document.querySelector(".chief-editor .lg-chief-identity input:disabled"));
+        await ctx.waitFor(() => ctx.document.querySelector(".chief-editor .lg-grant:disabled"));
       },
     },
     "new-chief-grants": {
@@ -557,11 +560,13 @@ export default componentEntry<Props>({
       props: { select: "c-chief", route: { kind: "newChief" }, hostGrants: true },
       checks: { longFrameFailMs: openFrame },
       play: async (ctx) => {
-        await ctx.waitFor(() => ctx.document.querySelector(".lg-form .lg-grant:not(:disabled)"));
-        await ctx.type("Release Chief", { selector: ".lg-form .lg-chief-identity input" });
+        await ctx.waitFor(() => ctx.document.querySelector(".chief-editor .lg-grant:not(:disabled)"));
+        await ctx.type("Release Chief", { selector: ".chief-editor .lg-chief-identity input" });
         // The default tools and every harness show checked (the owner's default means every harness).
         const checked = DEFAULT_CHIEF_TOOLS.length + CHIEF_HARNESSES.length;
-        await ctx.waitFor(() => ctx.document.querySelectorAll(".lg-form .lg-grant input:checked").length === checked);
+        await ctx.waitFor(
+          () => ctx.document.querySelectorAll(".chief-editor .lg-grant input:checked").length === checked,
+        );
       },
     },
     "primary-hover": {
@@ -569,9 +574,9 @@ export default componentEntry<Props>({
       props: { select: "c-chief", route: { kind: "newChief" }, hostGrants: true },
       checks: { longFrameFailMs: openFrame },
       play: async (ctx) => {
-        const primary = ".lg-form-actions .primary";
-        await ctx.waitFor(() => ctx.document.querySelector(".lg-form .lg-grant:not(:disabled)"));
-        await ctx.type("Docs Chief", { selector: ".lg-form .lg-chief-identity input" });
+        const primary = ".chief-editor .lg-form-actions .primary";
+        await ctx.waitFor(() => ctx.document.querySelector(".chief-editor .lg-grant:not(:disabled)"));
+        await ctx.type("Docs Chief", { selector: ".chief-editor .lg-chief-identity input" });
         await ctx.waitFor(() => ctx.document.querySelector(`${primary}:not(:disabled)`));
         const look = () => {
           const button = ctx.document.querySelector<HTMLElement>(primary)!;
@@ -612,9 +617,9 @@ export default componentEntry<Props>({
         },
       },
       play: async (ctx) => {
-        await ctx.waitFor(() => ctx.document.querySelector(".lg-form .lg-grant:not(:disabled)"));
-        await ctx.type("Docs Chief", { selector: ".lg-form .lg-chief-identity input" });
-        await ctx.click({ selector: ".lg-form-actions .primary" });
+        await ctx.waitFor(() => ctx.document.querySelector(".chief-editor .lg-grant:not(:disabled)"));
+        await ctx.type("Docs Chief", { selector: ".chief-editor .lg-chief-identity input" });
+        await ctx.click({ selector: ".chief-editor .lg-form-actions .primary" });
         await ctx.waitFor(() => {
           const sent = ctx.document.documentElement.dataset.mockChiefCreate ?? "";
           return sent.includes("display_name") && !sent.includes("tools") && !sent.includes("harnesses");
@@ -629,8 +634,32 @@ export default componentEntry<Props>({
         await ctx.waitFor(() => ctx.find({ role: "button", name: "Edit Chief" }));
         await ctx.click({ role: "button", name: "Edit Chief" });
         await ctx.waitFor(
-          () => ctx.document.querySelector<HTMLInputElement>(".lg-form .lg-chief-identity input")?.value === "Chief",
+          () =>
+            ctx.document.querySelector<HTMLInputElement>(".chief-editor .lg-chief-identity input")?.value === "Chief",
         );
+      },
+    },
+    "chief-backend": {
+      note: "Edit Chief's Backend: the installed acpmux harnesses, a model and its effort from the harness's capabilities, and History with Undo.",
+      props: { select: "c-chief", route: { kind: "editChief", chief: "agent_chief" }, hostGrants: true },
+      checks: { longFrameFailMs: openFrame },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".chief-editor [data-chief-backend] option").length > 3);
+        await ctx.waitFor(() => ctx.document.querySelector(".chief-editor [data-chief-history] .ce-history-row"));
+      },
+    },
+    "chief-bring-your-own": {
+      note: "Bring your own…: an Anthropic-compatible endpoint with its key; the check fails at the hello turn and shows the fix.",
+      props: { select: "c-chief", route: { kind: "editChief", chief: "agent_chief" }, hostGrants: true },
+      checks: { longFrameFailMs: openFrame },
+      play: async (ctx) => {
+        const picker = ".chief-editor [data-chief-backend] select";
+        await ctx.waitFor(() => ctx.document.querySelectorAll(`${picker} option`).length > 3);
+        const select = ctx.document.querySelector<HTMLSelectElement>(picker)!;
+        select.value = select.options[select.options.length - 1]!.value;
+        select.dispatchEvent(new Event("change", { bubbles: true }));
+        await ctx.waitFor(() => ctx.document.querySelector(".chief-editor [data-chief-byo]"));
+        await ctx.type("Broken endpoint", { selector: ".chief-editor [data-chief-byo] input[aria-label='Name']" });
       },
     },
     invite: {

@@ -6,6 +6,8 @@
 // daemon, `createPageClient` builds a protocol `Session` over the handshake transport and resolves
 // the namespace instead. No page file changes.
 
+import { holdPaintForClaim } from "./paintGate";
+
 export interface PageError extends Error {
   code: string;
   retryable: boolean;
@@ -225,6 +227,8 @@ export class BridgePageClient implements PageClient {
     const held = this.held;
     this.held = [];
     for (const { envelope, resolve, reject } of held) this.handler.postMessage(envelope).then(resolve, reject);
+    // The host's next paint report (its pane's hold) waits for the claimed page's first screen.
+    holdPaintForClaim();
     return { claimed: true };
   }
 
@@ -238,7 +242,12 @@ export class BridgePageClient implements PageClient {
     const message = reply as Partial<Envelope> | null;
     if (message?.t === "ok" && message.id === envelope.id) return (message as { value?: unknown }).value;
     if (message?.t === "err") {
-      const err = message as { code?: string; message?: string; retryable?: boolean; details?: unknown };
+      const err = message as {
+        code?: string;
+        message?: string;
+        retryable?: boolean;
+        details?: unknown;
+      };
       throw pageError(
         err.code ?? "cmux.protocol.error",
         err.message ?? "request failed",
@@ -278,7 +287,12 @@ export class BridgePageClient implements PageClient {
   receive(message: unknown): void {
     const envelope = message as Partial<Envelope> | null;
     if (envelope?.t === "ev") {
-      const { sub, seq, data, opid } = envelope as { sub: number; seq: number; data: unknown; opid?: unknown };
+      const { sub, seq, data, opid } = envelope as {
+        sub: number;
+        seq: number;
+        data: unknown;
+        opid?: unknown;
+      };
       const meta: PageEventMeta = typeof opid === "string" ? { opid } : {};
       const listener = this.listeners.get(sub);
       if (!listener) {

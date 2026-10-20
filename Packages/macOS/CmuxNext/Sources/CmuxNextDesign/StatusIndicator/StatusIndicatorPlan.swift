@@ -28,11 +28,10 @@ public nonisolated struct StatusIndicatorPlan: Hashable, Sendable {
     }
 
     public enum Animation: Hashable, Sendable {
-        /// Continuous rotation (Motion `spinner` period).
+        /// Continuous clockwise rotation (Motion `spinner` period). The only
+        /// direction: every spinner turns the same way (Lawrence 2026-10-20), so
+        /// there is no backward case to reach for.
         case spin
-        /// `spin` the other way: a page waiting for its first response (Chromium's
-        /// waiting throbber turns counter-clockwise, its loading one clockwise).
-        case spinBackward
         /// Rotation in discrete steps, one spoke at a time, like the native
         /// control.
         case step
