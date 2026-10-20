@@ -24,6 +24,8 @@ export class LimitsUnavailable extends Data.TaggedError("LimitsUnavailable")<{ r
 
 export interface TenantLimitsService {
   readonly beginCreateSend: (tenantId: TenantId, key: string, vmId: string, token: string) => Effect.Effect<boolean, LimitsUnavailable>;
+  readonly settleAbsentCancellation: (tenantId: TenantId, key: string, vmId: string) => Effect.Effect<boolean, LimitsUnavailable>;
+  readonly readmitCreation: (tenantId: TenantId, key: string, vmId: string, limit: number, liveCount: number) => Effect.Effect<"readmitted" | "over_quota" | "none", LimitsUnavailable>;
   readonly rejectCreateSend: (tenantId: TenantId, key: string, vmId: string, token: string) => Effect.Effect<void, LimitsUnavailable>;
   readonly creationActive: (tenantId: TenantId, key: string, vmId: string) => Effect.Effect<boolean, LimitsUnavailable>;
   readonly cancelCreation: (tenantId: TenantId, key: string, vmId: string) => Effect.Effect<CancelCreationDecision, LimitsUnavailable>;
@@ -47,7 +49,9 @@ export class TenantLimits extends Context.Tag("cmux-vm/TenantLimits")<TenantLimi
 
 /** The ledger operations, whether a Durable Object stub or an in-process ledger. */
 interface LedgerHandle {
-  beginCreateSend(key: string, vmId: string, token: string): Promise<boolean>;
+  beginCreateSend(key: string, vmId: string, token: string, nowMs: number): Promise<boolean>;
+  settleAbsentCancellation(key: string, vmId: string, nowMs: number): Promise<boolean>;
+  readmitCreation(key: string, vmId: string, limit: number, liveCount: number, nowMs: number): Promise<"readmitted" | "over_quota" | "none">;
   rejectCreateSend(key: string, vmId: string, token: string): Promise<boolean>;
   creationActive(key: string, vmId: string): Promise<boolean>;
   cancelCreation(key: string, vmId: string): Promise<CancelCreationDecision>;
@@ -72,7 +76,9 @@ const makeService = (ledgerFor: (tenantId: TenantId) => LedgerHandle): TenantLim
     );
   const confirmed = (value: boolean) => value ? Effect.void : Effect.fail(new LimitsUnavailable({ cause: "creation write was not confirmed" }));
   return {
-    beginCreateSend: (tenantId, key, vmId, token) => call((ledger) => ledger.beginCreateSend(key, vmId, token))(tenantId),
+    beginCreateSend: (tenantId, key, vmId, token) => call((ledger, now) => ledger.beginCreateSend(key, vmId, token, now))(tenantId),
+    settleAbsentCancellation: (tenantId, key, vmId) => call((ledger, now) => ledger.settleAbsentCancellation(key, vmId, now))(tenantId),
+    readmitCreation: (tenantId, key, vmId, limit, liveCount) => call((ledger, now) => ledger.readmitCreation(key, vmId, limit, liveCount, now))(tenantId),
     rejectCreateSend: (tenantId, key, vmId, token) => call((ledger) => ledger.rejectCreateSend(key, vmId, token))(tenantId).pipe(Effect.flatMap(confirmed)),
     creationActive: (tenantId, key, vmId) => call((ledger) => ledger.creationActive(key, vmId))(tenantId),
     cancelCreation: (tenantId, key, vmId) => call((ledger) => ledger.cancelCreation(key, vmId))(tenantId),
@@ -107,7 +113,9 @@ export const durableObjectLimitsLayer = (namespace: DurableObjectNamespace<Tenan
     makeService((tenantId): LedgerHandle => {
       const stub = namespace.get(namespace.idFromName(tenantId));
       return {
-        beginCreateSend: (key, vmId, token) => decoded(Schema.Boolean)(stub.beginCreateSend(key, vmId, token)),
+        beginCreateSend: (key, vmId, token, nowMs) => decoded(Schema.Boolean)(stub.beginCreateSend(key, vmId, token, nowMs)),
+        settleAbsentCancellation: (key, vmId, nowMs) => decoded(Schema.Boolean)(stub.settleAbsentCancellation(key, vmId, nowMs)),
+        readmitCreation: (key, vmId, limit, liveCount, nowMs) => decoded(Schema.Literal("readmitted", "over_quota", "none"))(stub.readmitCreation(key, vmId, limit, liveCount, nowMs)),
         rejectCreateSend: (key, vmId, token) => decoded(Schema.Boolean)(stub.rejectCreateSend(key, vmId, token)),
         creationActive: (key, vmId) => decoded(Schema.Boolean)(stub.creationActive(key, vmId)),
         cancelCreation: (key, vmId) => decoded(CancelCreationDecision)(stub.cancelCreation(key, vmId)),

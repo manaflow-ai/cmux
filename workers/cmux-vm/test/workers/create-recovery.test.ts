@@ -126,3 +126,20 @@ it("preserves the admitted creator when another key in the tenant resumes the sa
   expect(t.resources[0]?.createdBy).toBe(creator);
   expect(allocation(t)).toHaveLength(1);
 });
+
+it.each([429, 400])("frees the intent and its quota slot when the provider definitely rejects a keyed create (%i)", async (status) => {
+  const t = await harness({ maxVms: 1 }), key = await t.addKey("team_alpha", ["vm:write"]);
+  t.upstream.fail("create", status);
+  expect((await create(t, key)).status).toBe(status);
+  expect(t.upstream.vms.size).toBe(0);
+  // Another key is not blocked by a slot the rejected create can never use.
+  expect((await create(t, key, "after-rejection")).status).toBe(201);
+  expect(t.upstream.vms.size).toBe(1);
+});
+
+it("still retains the slot after a provider 503, which proves nothing about the allocation", async () => {
+  const t = await harness({ maxVms: 1 }), key = await t.addKey("team_alpha", ["vm:write"]);
+  t.upstream.fail("create", 503);
+  expect((await create(t, key)).status).toBe(503);
+  expect((await create(t, key, "after-uncertain")).status).toBe(429);
+});
