@@ -211,10 +211,10 @@ impl Grant {
         }
     }
 
-    /// Whether the model tool `tool` is granted (zoom and date always are).
+    /// Whether the model tool `tool` is granted (zoom, date and version always are).
     pub fn allows(&self, tool: &str) -> bool {
         match &self.tools {
-            _ if matches!(tool, "zoom" | "date") => true,
+            _ if matches!(tool, "zoom" | "date" | "version") => true,
             // No record: no profile and no chiefs (both need the registry).
             None => !matches!(tool, "profile" | "chiefs"),
             Some(set) => set.contains(tool),

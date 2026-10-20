@@ -294,6 +294,21 @@ enum AttachmentMedia {
         return HomeAttachmentPolicy.canonicalMimeType(mimeType(for: UTType(filenameExtension: ext)))
     }
 
+    /// `text/plain` or the generic type for a file with no listed type, from
+    /// its first ``HomeAttachmentPolicy/sniffBytes`` bytes.
+    static func sniffedMimeType(ofFile url: URL) throws -> String {
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+        let prefix = try handle.read(upToCount: HomeAttachmentPolicy.sniffBytes) ?? Data()
+        let complete: Bool
+        if prefix.count < HomeAttachmentPolicy.sniffBytes {
+            complete = true
+        } else {
+            complete = try (handle.read(upToCount: 1) ?? Data()).isEmpty
+        }
+        return HomeAttachmentPolicy.sniffedMimeType(prefix, complete: complete)
+    }
+
     /// Checks the policy, then copies the bytes into the cache and fills the
     /// ref. Opens a security-scoped URL (the iOS file importer's) for the
     /// copy. Removes location metadata unless `keepLocation`. `name`
@@ -304,19 +319,22 @@ enum AttachmentMedia {
         let scoped = fileURL.startAccessingSecurityScopedResource()
         defer { if scoped { fileURL.stopAccessingSecurityScopedResource() } }
         let name = HomeAttachmentPolicy.sendableName(name ?? fileURL.lastPathComponent)
+        if HomeAttachmentPolicy.isFolder(fileURL) { throw HomeAttachmentError.folder(name: name) }
         let mime: String
         switch HomeAttachmentPolicy.decision(forFileExtension: fileURL.pathExtension) {
         case .send(let owned):
             mime = owned
         case .convert:
+            // An image ImageIO cannot read goes as its bytes (text or a generic file).
             guard let converted = try convertedImage({ CGImageSourceCreateWithURL(fileURL as CFURL, nil) }) else {
-                throw HomeAttachmentError.typeRefused(mimeType: mimeType(forExtension: fileURL.pathExtension), name: name)
+                mime = try sniffedMimeType(ofFile: fileURL)
+                break
             }
             let base = (name as NSString).deletingPathExtension
             return try await prepare(data: converted.data, typeIdentifier: converted.type.identifier, root: root,
                                      name: "\(base).\(converted.fileExtension)", keepLocation: keepLocation)
-        case .refuse:
-            mime = mimeType(forExtension: fileURL.pathExtension)
+        case .sniff:
+            mime = try sniffedMimeType(ofFile: fileURL)
         }
         let size = try fileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
         try HomeAttachmentPolicy.check(mimeType: mime, byteCount: size, name: name)
@@ -357,7 +375,7 @@ enum AttachmentMedia {
         let type = UTType(typeIdentifier)
         let fileExtension = type?.preferredFilenameExtension ?? ""
         let mime: String
-        switch type.map(HomeAttachmentPolicy.decision(for:)) ?? .refuse {
+        switch type.map(HomeAttachmentPolicy.decision(for:)) ?? .sniff {
         case .send(let owned):
             mime = owned
         case .convert:
@@ -365,9 +383,10 @@ enum AttachmentMedia {
                 return try await prepare(data: converted.data, typeIdentifier: converted.type.identifier, root: root,
                                          name: name ?? "attachment.\(converted.fileExtension)", keepLocation: keepLocation)
             }
-            mime = HomeAttachmentPolicy.canonicalMimeType(mimeType(for: type)) // unreadable bytes: refused below
-        case .refuse:
-            mime = HomeAttachmentPolicy.canonicalMimeType(mimeType(for: type))
+            fallthrough // bytes ImageIO cannot read go as text or a generic file
+        case .sniff:
+            let prefix = data.prefix(HomeAttachmentPolicy.sniffBytes)
+            mime = HomeAttachmentPolicy.sniffedMimeType(prefix, complete: prefix.count == data.count)
         }
         let name = HomeAttachmentPolicy.sendableName(name ?? (fileExtension.isEmpty ? "attachment" : "attachment.\(fileExtension)"))
         try HomeAttachmentPolicy.check(mimeType: mime, byteCount: data.count, name: name)
