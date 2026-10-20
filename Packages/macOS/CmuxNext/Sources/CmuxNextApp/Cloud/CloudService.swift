@@ -177,11 +177,13 @@ final class CloudService {
         observers.append(Task { [weak self] in
             guard let self else { return }
             await auth.awaitRestored()
-            for await signedIn in ObservationStream({ self.auth.isSignedIn }) {
-                if signedIn {
+            // The account, not only signed-in: Switch Account stays signed in.
+            for await account in ObservationStream({ self.auth.isSignedIn ? (self.auth.user?.id ?? "") : nil }) {
+                if account != nil {
                     // Sign-out revoked the WireGuard peer and parked the hub.
                     await self.hub?.resume()
-                    await self.link.sessionBegan(user: self.auth.user?.id)
+                    // Another account's machines and connections end first.
+                    if await self.link.sessionBegan(user: self.auth.user?.id) { self.dropAllMachines() }
                     // The install first: the app server path's first list goes
                     // through the credential relay, which sends the install token.
                     await self.installSignedIn()

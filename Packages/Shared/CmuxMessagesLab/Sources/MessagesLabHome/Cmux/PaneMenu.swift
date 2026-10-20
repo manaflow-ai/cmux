@@ -44,6 +44,11 @@ extension ChatController {
         menu.addItem(MenuAction(title: Strings.menuTapbackDetails, symbol: "plus.magnifyingglass") { [weak self] in self?.showTapbackDetails(hit) })
         // cmux: Reply… only when the owner can take a reply (HomeOp has none yet, as SwipeReply).
         if intents?.canReply == true {
+            // cmux: Reply to Selection (plans/cmux-next/reply-to-selection-DESIGN.md): text selected in this
+            // message is the reply's quote; Reply… still answers the whole message.
+            if let quote = selectionQuote(at: hit) {
+                menu.addItem(MenuAction(title: CmuxStrings.replyToSelection, symbol: "text.quote") { [weak self] in self?.replyToSelection(quote) })
+            }
             menu.addItem(MenuAction(title: Strings.menuReplyEllipsis, symbol: "arrowshape.turn.up.left") { [weak self] in self?.dispatch(.reply(ref)); self?.focusCompose() })
         }
         // Attach Sticker…: opens the tapback picker with its emoji (no image stickers).
@@ -58,6 +63,10 @@ extension ChatController {
         // cmux: the message's permalink, the form the Channels page copies (conversation-link-resolve opens it).
         if let link = intents?.messageLink(ref.messageId) {
             menu.addItem(MenuAction(title: CmuxStrings.copyLink, symbol: "link") { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(link, forType: .string) })
+        }
+        // cmux: Forward… (u5402): the text goes to another chat or agent the host asks for.
+        if case let .text(text, _) = hit.row.part, intents?.canForward == true {
+            menu.addItem(MenuAction(title: CmuxStrings.forward, symbol: "arrowshape.turn.up.right") { [weak self] in self?.intents?.forward(text) })
         }
         if menu.items.last.map({ !$0.isSeparatorItem }) == true { menu.addItem(.separator()) }
         // cmux: a video plays in place; opening it in an app is only here.

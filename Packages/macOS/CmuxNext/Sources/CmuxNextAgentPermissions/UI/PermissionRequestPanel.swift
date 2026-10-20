@@ -25,7 +25,7 @@ public final class PermissionRequestPanel: NSPanel {
         level = .floating
         becomesKeyOnlyIfNeeded = true
         hidesOnDeactivate = false
-        animationBehavior = .utilityWindow
+        animationBehavior = Motion.overlays.animatesMovement ? .utilityWindow : .none
         collectionBehavior = [.canJoinAllSpaces, .ignoresCycle, .fullScreenAuxiliary]
         surface.translatesAutoresizingMaskIntoConstraints = true
         contentView = surface
