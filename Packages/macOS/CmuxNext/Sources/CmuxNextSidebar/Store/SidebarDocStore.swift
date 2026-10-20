@@ -166,11 +166,12 @@ public final class SidebarDocStore {
     }
 
     /// Group item `item` sits in Pinned as the sidebar draws it, pending changes included, so a second
-    /// Pin/Unpin before the daemon answers undoes the first; nil while the document is not shown.
+    /// Pin/Unpin before the daemon answers undoes the first; nil while the document is not shown. It reads
+    /// the projection over the live set `show` used, so the mirror's rows (a drag reads them) stay as shown.
     public func showsPinned(group item: String) -> Bool? {
         guard isActive, shown != nil else { return nil }
-        let row = rows(SidebarViewRequest(live: Array(lastLive)))?.first { $0.kind == SidebarDocProjection.groupKind && $0.item == item }
-        return row.map { $0.section == Self.pinnedSection } ?? records.isPinned(group: item)
+        let projection = projection(live: projectionCache?.live ?? Array(lastLive))
+        return projection.map { $0.bandGroups.contains { $0.id == item && $0.isPinned } } ?? records.isPinned(group: item)
     }
 
     /// What a drop of `items` may do beside each row (one FFI call per drag).

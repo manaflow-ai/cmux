@@ -42,7 +42,7 @@ public final class PersonalStore {
     }
     /// The group a sidebar-document group item `itm_g_<id>` names (the daemon's `legacy_group_id`):
     /// a group migrated or synced from this store. A group the document made keeps its own id.
-    nonisolated static func legacyGroupID(item: String) -> WorkspaceGroupID? {
+    public nonisolated static func legacyGroupID(item: String) -> WorkspaceGroupID? {
         item.hasPrefix("itm_g_") ? WorkspaceGroupID(rawValue: String(item.dropFirst(6))) : nil
     }
 
