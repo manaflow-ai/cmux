@@ -124,6 +124,38 @@ await requireBrowserLane("settings-search-results.test.ts", async () => {
         }
       });
 
+      test("a search card draws its edges like a section card", async () => {
+        const browser = await engine.launch({ headless: true });
+        try {
+          const page = await browser.newPage({ viewport: { width: 1100, height: 800 } });
+          await search(page, "font");
+          const cards = await page.evaluate(() =>
+            [...document.querySelectorAll(".result-section[data-open] .group.collapse[data-open] .rows")].map(
+              (card) => {
+                const shown = [...card.querySelectorAll(":scope > .collapse[data-open] > .collapse-body > .row")];
+                const style = (row: Element) => getComputedStyle(row);
+                return {
+                  group: card.closest("[data-group]")?.getAttribute("data-group"),
+                  shown: shown.length,
+                  firstTopRadius: style(shown[0]!).borderTopLeftRadius,
+                  lastBottomRadius: style(shown.at(-1)!).borderBottomLeftRadius,
+                  lastDivider: style(shown.at(-1)!).boxShadow,
+                  innerDividers: shown.slice(0, -1).filter((row) => style(row).boxShadow === "none").length,
+                };
+              },
+            ),
+          );
+          expect(cards.length).toBeGreaterThan(0);
+          expect(cards.some((card) => card.shown > 1)).toBe(true);
+          // The divider under the last shown row drew a second line under the card's rounded edge.
+          expect(cards.filter((card) => card.lastDivider !== "none")).toEqual([]);
+          expect(cards.filter((card) => card.innerDividers > 0)).toEqual([]);
+          expect(cards.filter((card) => card.firstTopRadius === "0px" || card.lastBottomRadius === "0px")).toEqual([]);
+        } finally {
+          await browser.close();
+        }
+      });
+
       test("a query without a match says No Results", async () => {
         const browser = await engine.launch({ headless: true });
         try {
