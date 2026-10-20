@@ -42,7 +42,8 @@ jobs:
   # Same script as the hook, so the two cannot drift.
   web-lint:
     name: web lint (fast)
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # GitHub-hosted (free for this public repo), not Blacksmith: the job is small.
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - name: Checkout
