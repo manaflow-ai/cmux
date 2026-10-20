@@ -2526,6 +2526,50 @@ pre.cv-math-source {
   outline-offset: 1px;
 }
 
+/* ---------- A paused agent pair (AgentPairNote.tsx) ---------- */
+/* Its sentence wraps; the held count and Resume sit under it, indented to the text. */
+.cv-agent-pair[data-state="paused"] {
+  align-items: flex-start;
+  padding-top: 3px;
+}
+.cv-agent-pair[data-state="paused"] .cv-tool__icon {
+  margin-top: 2px;
+}
+.cv-agent-pair__text {
+  white-space: normal;
+}
+.cv-agent-pair__detail {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 24px;
+  padding-left: 22.5px;
+  font-size: var(--text-detail);
+  color: var(--cv-text-dim);
+}
+.cv-agent-pair__failed {
+  color: var(--agent-danger);
+}
+.cv-agent-pair__resume {
+  all: unset;
+  padding: 1px 8px;
+  border: 1px solid var(--agent-border);
+  border-radius: 5px;
+  cursor: pointer;
+  color: var(--agent-text);
+}
+.cv-agent-pair__resume:hover:not(:disabled) {
+  background: var(--cv-card-fill);
+}
+.cv-agent-pair__resume:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+.cv-agent-pair__resume:focus-visible {
+  outline: 2px solid var(--agent-accent, currentColor);
+  outline-offset: 1px;
+}
+
 /* ---------- A compaction (CompactionNote.tsx) ---------- */
 .cv-compaction[data-state="failed"] .cv-tool__icon {
   color: var(--agent-danger);

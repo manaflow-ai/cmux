@@ -45,6 +45,7 @@ import { WORKSPACE_CONTEXT } from "./workspaceContext";
 import { BOOKMARKS_KIND, bookmarksHeard } from "./threadMinimap/bookmarks";
 import { type StartMode, startModeChanged } from "./startMode";
 import { sameSessionStart, sessionStartOf } from "./conversation/sessionStart";
+import { AGENT_PAIR_RESUME_METHOD, reduceAgentPair } from "./conversation/agentPairs";
 
 export type AcpmuxHostConfig = {
   protocolVersion: number;
@@ -1935,7 +1936,7 @@ export class AcpmuxDirectClient {
         this.streamingAssistant = undefined;
         this.streamingAssistantMessageId = undefined;
         this.streamingActivity = undefined;
-      } else this.reduceLiveState(event);
+      } else if (!reduceAgentPair(this.rows, event)) this.reduceLiveState(event);
       return;
     }
     if (!update) return;
@@ -2574,6 +2575,12 @@ export class AcpmuxDirectClient {
   async removeQueued(promptId: string): Promise<{ removed: boolean }> {
     if (!this.selectedSessionId) return { removed: false };
     return this.request("_acpmux/queue_remove", { sessionId: this.selectedSessionId, promptId });
+  }
+  /// Resumes the selected chat's paused messages with `peer` (conversation/agentPairs.ts); its
+  /// `agent_pair_resumed` record collapses the pause's row.
+  resumeAgentPair(peer: string): Promise<{ resumed?: number; delivered?: number }> {
+    if (!this.selectedSessionId) return Promise.reject(new Error(translate("error.notOpen")));
+    return this.request(AGENT_PAIR_RESUME_METHOD, { sessionId: this.selectedSessionId, peerSessionId: peer });
   }
   /// Archive has acpmux tag the selected chat `archived` (the lists hide it; acpmux values it with
   /// when); Unarchive removes the tag. The page sends it on its own connection (cx-jlzsf).

@@ -68,6 +68,7 @@
     "agent-session/acpmux/conversation/icons.tsx#Lock",
     "agent-session/acpmux/conversation/icons.tsx#Magnifier",
     "agent-session/acpmux/conversation/icons.tsx#OpenBook",
+    "agent-session/acpmux/conversation/icons.tsx#PauseCircle",
     "agent-session/acpmux/conversation/icons.tsx#Pencil",
     "agent-session/acpmux/conversation/icons.tsx#PlayTriangle",
     "agent-session/acpmux/conversation/icons.tsx#Plus",

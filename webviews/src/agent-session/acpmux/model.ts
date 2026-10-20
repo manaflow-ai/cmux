@@ -36,6 +36,18 @@ export type AcpmuxCompaction = {
 /// acpmux moved the chat onto its fallback harness after a usage limit (a `failover` record).
 export type AcpmuxFailover = { from: string; to: string };
 
+/// acpmux paused messages between this chat and another agent's (an `agent_pair_paused` record,
+/// conversation/agentPairs.ts): why, how many messages it holds, and whether it resumed since.
+export type AcpmuxAgentPair = {
+  peer: string;
+  peerName: string;
+  reason: "alternating" | "repeating";
+  count: number;
+  /// Messages to this chat held while paused (`agent_pair_held`).
+  held: number;
+  resumed?: boolean;
+};
+
 /// What the chat's agent runs on, from its own start line (Claude Code's system/init, acpmux's
 /// `session_info_update._meta.claude`): drawn once, where the session started
 /// (conversation/SessionStartNote.tsx). `harness` and `cwd` are the chat's when the line came.
@@ -71,6 +83,8 @@ export type AcpmuxRow = {
   compaction?: AcpmuxCompaction;
   /// A failover row's harnesses.
   failover?: AcpmuxFailover;
+  /// An agent pair row's pause (conversation/AgentPairNote.tsx).
+  agentPair?: AcpmuxAgentPair;
   /// A session start row's agent, version, model, route and folder.
   sessionStart?: AcpmuxSessionStart;
   /// A suggested tasks card's offers (offer/SuggestedTasks.tsx): the offers of one group, in the
@@ -510,6 +524,8 @@ function fallbackRowHeight(row: AcpmuxRow, width: number): number {
     const started = row.offers.filter((offer) => offer.outcome === "accepted").length;
     return 8 + 8 + 28 + open * 84 + started * 30;
   }
+  // A paused agent pair: its sentence over the held count and Resume; resumed, one line.
+  if (row.kind === "agentPair") return row.agentPair?.resumed ? 37 : 37 + 24;
   // A session start: its facts line, and the compaction note under it until it is dismissed.
   if (row.kind === "sessionStart") return 37 + 44;
   // The plan's 20px progress line over its 22px items, inside 8px margins (conversation/PlanList.tsx).
