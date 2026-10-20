@@ -522,6 +522,17 @@ export class MockSettingsProvider {
 
   /** The Accounts part as the app serves it (texts already localized). */
   accounts: AccountsState = {
+    teams: {
+      title: "Active Team",
+      help: "Cloud machines, CodeRouter and phone access use this team.",
+      options: [
+        { id: "team-personal", name: "Personal", active: true },
+        { id: "team-acme", name: "Acme", active: false },
+      ],
+      disabled: false,
+      note: null,
+      error: null,
+    },
     refresh: "Refresh",
     refreshing: false,
     signIn: null,
@@ -602,6 +613,12 @@ export class MockSettingsProvider {
         this.accounts = rows((row) =>
           row.provider === run.provider ? { ...row, paste: null, status: "Key found", statusKind: "success" } : row,
         );
+    } else if (run.action === "selectTeam" && this.accounts.teams) {
+      const teams = this.accounts.teams;
+      this.accounts = {
+        ...this.accounts,
+        teams: { ...teams, options: teams.options.map((team) => ({ ...team, active: team.id === run.team })) },
+      };
     } else if (run.action === "remove") {
       this.accounts = rows((row) => ({ ...row, linked: row.linked.filter((account) => account.id !== run.account) }));
     }
