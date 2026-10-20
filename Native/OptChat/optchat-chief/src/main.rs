@@ -136,6 +136,16 @@ fn main() -> std::process::ExitCode {
                 1
             }
         },
+        Some("usage") => match optchat_chief::usage::run(&args[1..]) {
+            Ok(out) => {
+                print!("{out}");
+                0
+            }
+            Err(e) => {
+                eprintln!("optchat-chief usage: {e}");
+                1
+            }
+        },
         Some("workspace") => match optchat_chief::home_view::HomeView::from_env().read() {
             Some(block) => {
                 println!("{block}");
