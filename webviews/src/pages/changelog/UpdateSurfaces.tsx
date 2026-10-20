@@ -5,13 +5,15 @@
 //    3845050"), the update's lead change as its headline (else "What's new in this build"), how
 //    many more changes came with it, and one button. Share cmux is the palette's (app.shareCmux).
 //  - UpdateReadyHighlights (hovering the staged "Restart to Update" card): only what the card lacks
-//    (Leo 2026-10-13; the card has Update Ready, the short version and the date): the full build,
-//    the top three changes numbered, each a title and one line, and "See all changes", once.
+//    (Leo 2026-10-13; the card has Update Ready, the short version and the date): a quiet "What's
+//    new in nightly 3845050" (the full build in its tooltip, Leo 2026-10-19), the top three changes
+//    numbered, each a title, one line and its picture when it has one, and "See all changes", once.
 // Data: UpdateHighlights (updateHighlights.ts); the host mounts these and wires the actions.
-import { useId } from "react";
+import { useId, useSyncExternalStore } from "react";
+import { getColorScheme, subscribeColorScheme } from "./colorScheme";
 import { distinctSummary } from "./model";
 import type { Strings } from "../shared/i18n";
-import type { UpdateHighlights, UpdateSurfaceActions } from "./updateHighlights";
+import type { UpdateHighlightMedia, UpdateHighlights, UpdateSurfaceActions } from "./updateHighlights";
 
 /** "1.0.0-nightly.3845050428001" reads "nightly 3845050", as the native Update Ready card
  * (UpdateChangelog.cardVersion): every nightly is 1.0.0. Any other version reads as itself. */
@@ -73,8 +75,8 @@ export function UpdateReadyHighlights({
   const titleId = useId();
   return (
     <section className="wn-pop" aria-labelledby={titleId}>
-      <div className="wn-pop-title" id={titleId}>
-        {data.version}
+      <div className="wn-pop-title" id={titleId} title={data.version}>
+        {strings.format("updates.popover.title", cardVersion(data.version))}
       </div>
       {data.items.length > 0 && (
         <ol className="wn-pop-list">
@@ -88,6 +90,7 @@ export function UpdateReadyHighlights({
                 {item.summary && distinctSummary(item.title, item.summary) && (
                   <span className="wn-pop-line">{item.summary}</span>
                 )}
+                {item.media && <PopMedia media={item.media} onOpen={actions.openChangelog} />}
               </div>
             </li>
           ))}
@@ -103,5 +106,18 @@ export function UpdateReadyHighlights({
         </button>
       </div>
     </section>
+  );
+}
+
+/** A change's picture at the popover's width, in the theme's scheme; a click opens the change's
+ * notes, where it shows at the page's width. Only `data:` pictures reach it (the host inlines
+ * and checks each file, ReleaseMediaStore). */
+function PopMedia({ media, onOpen }: { media: UpdateHighlightMedia; onOpen: () => void }) {
+  const scheme = useSyncExternalStore(subscribeColorScheme, getColorScheme, () => "light" as const);
+  const src = scheme === "dark" ? media.dark : media.light;
+  return (
+    <button type="button" className="wn-pop-media" onClick={onOpen} aria-label={media.alt}>
+      <img key={src} src={src} alt="" decoding="async" />
+    </button>
   );
 }

@@ -28,9 +28,11 @@ public protocol SidebarUpdateSurfaces: AnyObject {
     func island(_ kind: SidebarUpdateSurfaceKind) -> any SidebarSurfaceIsland
 }
 
-/// The popover's content: the ready surface, and the pointer leaving it
-/// (the popover then closes unless the pointer is back on the card).
+/// The popover's content: the ready surface, and the pointer coming into it
+/// (a pending close is called off) and leaving it (the popover then closes
+/// after a short delay unless the pointer is back on it or the card).
 final class SidebarPopoverIslandHost: NSView {
+    var onPointerEnter: (() -> Void)?
     var onPointerExit: (() -> Void)?
     private var tracking: NSTrackingArea?
 
@@ -58,6 +60,10 @@ final class SidebarPopoverIslandHost: NSView {
         let area = NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self)
         addTrackingArea(area)
         tracking = area
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        onPointerEnter?()
     }
 
     override func mouseExited(with event: NSEvent) {

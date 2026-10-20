@@ -71,20 +71,57 @@
 }
 .wn-card-primary:hover { background: var(--page-selection); }
 
+/* The update-ready popover: the type of every cmux popover and hover card (Leo 2026-10-19: it was
+   "tonka toys big"): 13 px change titles at the regular weight, 12 px secondary lines, small tertiary
+   numbers, tight rows. The host makes it 340 pt wide and at most 60% of the window tall. */
 .wn-pop {
-  width: 300px;
-  padding: 14px 14px 10px;
+  width: 340px;
+  padding: 10px 12px 8px;
   color: var(--page-text);
   font-size: var(--text-body);
   line-height: var(--text-body--line-height);
 }
-.wn-pop-title { font-weight: 600; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
-.wn-pop-list { list-style: none; margin: 10px 0 0; padding: 0; }
-.wn-pop-list li { display: grid; grid-template-columns: 14px 1fr; gap: 8px; padding: 5px 0; }
-.wn-pop-n { color: var(--page-text-3); font-size: var(--text-caption); line-height: var(--text-body--line-height); font-variant-numeric: tabular-nums; }
-.wn-pop-item { display: block; font-weight: 600; }
+.wn-pop-title {
+  color: var(--page-text-2);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  font-weight: var(--weight-regular);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wn-pop-list { list-style: none; margin: 6px 0 0; padding: 0; }
+.wn-pop-list li { display: grid; grid-template-columns: 12px minmax(0, 1fr); gap: 6px; padding: 3px 0; }
+.wn-pop-n {
+  color: var(--page-text-3);
+  font-size: var(--text-caption);
+  line-height: var(--text-body--line-height);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.wn-pop-item { display: block; font-weight: var(--weight-regular); }
 .wn-pop-line { display: block; color: var(--page-text-2); font-size: var(--text-detail); line-height: var(--text-detail--line-height); }
-.wn-pop-foot { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--page-separator); }
+/* A change's picture: the popover's width, inline with the text, scrolling with it; a click opens
+   the change's notes, where it shows at the page's width. */
+.wn-pop-media {
+  display: block;
+  width: 100%;
+  margin: 6px 0 2px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  overflow: hidden;
+  cursor: zoom-in;
+}
+.wn-pop-media img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 6px;
+  box-shadow: inset 0 0 0 1px var(--page-separator);
+}
+.wn-pop-foot { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--page-separator); }
 .wn-pop-more { color: var(--page-text-3); font-size: var(--text-detail); line-height: var(--text-detail--line-height); }
 .wn-pop-all {
   margin-left: auto;
@@ -98,7 +135,7 @@
   cursor: default;
 }
 .wn-pop-all:hover { text-decoration: underline; text-underline-offset: 3px; }
-:is(.wn-card-close, .wn-card-primary, .wn-pop-all):focus-visible { outline: 2px solid var(--cmux-accent, currentColor); outline-offset: 2px; }
+:is(.wn-card-close, .wn-card-primary, .wn-pop-all, .wn-pop-media):focus-visible { outline: 2px solid var(--cmux-accent, currentColor); outline-offset: 2px; }
 @media (prefers-reduced-transparency: reduce) {
   .wn-card { background: var(--page-elevated); box-shadow: inset 0 0 0 1px var(--page-separator); }
 }
