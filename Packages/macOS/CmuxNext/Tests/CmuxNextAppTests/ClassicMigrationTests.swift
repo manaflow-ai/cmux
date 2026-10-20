@@ -208,6 +208,11 @@ struct ClassicMigrationTests {
             }
             let merge = try await Self.relaunch(services)
             #expect(merge.decision == .merge && merge.opened.count == 1, "\(merge)")
+            // The new workspace's group lands with the daemon's next events, after the run returns.
+            let deadline = ContinuousClock.now + .seconds(5)
+            while Self.read(services).groups["made while downgraded"] == nil, ContinuousClock.now < deadline {
+                try? await Task.sleep(for: .milliseconds(50))
+            }
         }
         #expect(tree.names.filter { $0 == "made while downgraded" }.count == 1, "\(tree.names)")
         #expect(tree.names.filter { $0 == "split api" }.count == 1 && !tree.names.contains("renamed in classic"), "\(tree.names)")

@@ -481,6 +481,7 @@
       "terminal-history",
       "terminal-read-range",
       "terminal-resources",
+      "terminal-resume-command",
       "undo-layout",
       "ungroup-screen-group",
       "ungroup-tab-group",

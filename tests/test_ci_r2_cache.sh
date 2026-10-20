@@ -170,6 +170,18 @@ echo "PASS: a corrupt archive is a miss and leaves no partial directory"
 if output_of restore "$WORK/dst" 'bad/key' >/dev/null; then fail "a key with a slash must be rejected"; fi
 echo "PASS: keys outside [A-Za-z0-9._-] are rejected"
 
+# A platform-independent cache (web bundles a Linux job saves and a Mac
+# restores) lives under one shared namespace, whatever runner wrote it.
+rm -rf "$WORK/src" "$WORK/dst"; mkdir -p "$WORK/src"; echo shared > "$WORK/src/bundle.js"
+CI_CACHE_R2_NAMESPACE=any output_of save "$WORK/src" shared-bundle-one >/dev/null || fail "a namespaced save must succeed"
+ls "$WORK/store/bucket/v1/any/objects/shared-bundle-one.tar."* >/dev/null 2>&1 || fail "a namespaced save must land under v1/any"
+out="$(RUNNER_OS=OtherOS RUNNER_ARCH=OtherArch CI_CACHE_R2_NAMESPACE=any output_of restore "$WORK/dst" shared-bundle-one)"
+[[ "$out" == *"cache-hit=true"* && "$(cat "$WORK/dst/bundle.js")" == shared ]] || fail "another OS must restore the shared namespace, got: $out"
+out="$(output_of restore "$WORK/dst2" shared-bundle-one)"
+[[ "$out" == *"cache-hit=false"* ]] || fail "the runner namespace must not see the shared one, got: $out"
+if CI_CACHE_R2_NAMESPACE='../x' output_of restore "$WORK/dst" shared-bundle-one >/dev/null; then fail "a namespace with a slash must be rejected"; fi
+echo "PASS: CI_CACHE_R2_NAMESPACE shares one cache across runner platforms"
+
 unset AWS_SECRET_ACCESS_KEY
 output_of save "$WORK/src" family-tool-four >/dev/null || fail "a save without credentials must not fail the job"
 ls "$NS/objects/" | grep -q '^family-tool-four' && fail "a save without credentials must upload nothing"
