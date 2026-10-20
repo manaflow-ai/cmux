@@ -35,6 +35,7 @@ removed there.
 cmux harness add acme --command acme-agent      # ACP harness: writes ~/.config/cmux/harnesses/acme.toml
 cmux harness add acme --command acme --protocol terminal   # a CLI/TUI without ACP
 cmux harness add --example codex                # start from a shipped example
+cmux harness add acme --example anthropic-endpoint --base-url https://llm.example.com --model m1
 $EDITOR ~/.config/cmux/harnesses/acme.toml
 cmux harness doctor acme                        # repeat until every step passes
 cmux harness list                               # every harness, its source and its problems
@@ -46,7 +47,8 @@ starts the harness in a fresh temporary folder and runs the ACP handshake: `init
 `session/new` and one prompt ("Reply with the single word OK."). Each step prints PASS, WARN or
 FAIL with a `fix:` line. `--no-prompt` stops before the prompt (no model call); `--timeout S`
 sets the wait per step (default 120). For a `terminal` harness the doctor only checks that the
-program starts.
+program starts. For a `claude-stdio` harness (Claude Code through acpmux's own adapter) the prompt
+is one `claude -p` turn with the profile's env.
 
 Examples ship in `cmux-tui/crates/acpmux/harnesses/`: `claude.toml`, `codex.toml`,
 `opencode.toml`, `pi.toml`, `gemini.toml` and `aider.toml` (terminal).
@@ -144,6 +146,50 @@ starts. A literal value under a secret-looking key (`KEY`, `TOKEN`, `SECRET`,
 `PASSWORD`, `PASSWD`, `CREDENTIAL`, `AUTH`, `COOKIE` in the name) is a warning in your own file and an error in managed and
 folder files. The doctor and every diagnostic show env key names and their source kind, never
 values; harness output that the doctor prints has every resolved env value masked.
+
+## Your own model endpoint
+
+An Anthropic-compatible or OpenAI-compatible endpoint (a company gateway, a local model server)
+becomes a harness with one command. A Chief can then use it as its backend.
+
+```sh
+cmux harness add acme --example anthropic-endpoint --base-url https://llm.example.com \
+    --model acme-large [--keychain-item ITEM] [--name "Acme"]
+cmux harness add local --example openai-endpoint --base-url http://127.0.0.1:11434/v1 \
+    --model qwen3 [--keychain-item ITEM]
+cmux harness secret set acme ANTHROPIC_AUTH_TOKEN     # openai-endpoint: CMUX_BYO_API_KEY
+cmux harness doctor acme                              # one real hello turn
+```
+
+- `anthropic-endpoint` writes a `claude-stdio` profile (acpmux's own Claude Code adapter,
+  command `claude`) with `ANTHROPIC_BASE_URL` (the URL before `/v1/messages`), `ANTHROPIC_MODEL`,
+  `ANTHROPIC_SMALL_FAST_MODEL` and `ANTHROPIC_DEFAULT_HAIKU_MODEL` set to the model, and
+  `ANTHROPIC_AUTH_TOKEN = { keychain = ITEM }` (sent as `Authorization: Bearer`). Every other
+  `ANTHROPIC_*` and Claude provider switch from your login shell or the daemon
+  (`ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN`, `CLAUDE_CODE_USE_BEDROCK`, ...) is removed
+  from its environment, so your own Claude login never redirects it.
+- `openai-endpoint` writes an `opencode acp` profile with `OPENCODE_CONFIG_CONTENT` (OpenCode's
+  inline config, which wins over your global and project config): provider `byo` on
+  `@ai-sdk/openai-compatible` with `options.baseURL` (the URL before `/chat/completions`, usually
+  ending in `/v1`), `options.apiKey = "{env:CMUX_BYO_API_KEY}"` and your model, and
+  `"model": "byo/<model>"`; `CMUX_BYO_API_KEY = { keychain = ITEM }`.
+- The base URL is https; plain http only to `localhost`, `127.0.0.1` or `::1`. A URL with a user,
+  password or key, a Keychain item name that looks like a key, and a key passed as a parameter are
+  refused: the key goes only into the Keychain.
+- Without `--keychain-item` the item is `cmux-harness/<id>/<KEY>`, which `cmux harness secret set`
+  writes. With it, the profile reads the item you name (`service` or `service/account`).
+- A family or global route (`cmux route use`) never rewrites an endpoint harness; a chat's or
+  workspace's route still does.
+- `cmux harness doctor ID` (and `_acpmux/harness/doctor {id, prompt: true}`) sends one real prompt:
+  `claude -p` with the profile's env for `anthropic-endpoint` (at least 60 s), the ACP prompt for
+  `openai-endpoint`. A failure names the fix: **check the key**, **check the base URL** or
+  **model not found**. Env values are masked in everything it prints.
+
+From the app (the unix socket): `_acpmux/harness/add {example: "anthropic-endpoint" |
+"openai-endpoint", id, displayName, baseUrl, model, keychainItem?}` answers with `secret: {key,
+keychainItem}`; `_acpmux/harness/secret/set {id, key, value}` stores the value (service
+`cmux-harness`, account `<id>/<key>`, through `security -i` on stdin) and points the profile at
+it, never echoing the value; then `_acpmux/harness/doctor {id, prompt: true}`.
 
 ## Terminal harnesses (no ACP)
 

@@ -9,31 +9,24 @@ import CmuxNextBrowser
 /// The artwork loads through the tab's own context (`fetchFavicon`), the
 /// tab's favicon meanwhile.
 enum BrowserMediaMenu {
-    static func menu(_ services: AppServices) -> NSMenu {
-        let menu = NSMenu()
-        menu.autoenablesItems = false
+    /// The hub's menu; `rows` keeps each tab's card between opens.
+    static func menu(_ services: AppServices, rows: BrowserMediaRows) -> NSMenu {
         let sessions = services.cache.pageRequests.media.sessions(in: services.cache)
-        if sessions.isEmpty {
-            let empty = NSMenuItem(title: BrowserHitStrings.mediaNothingPlaying, action: nil, keyEquivalent: "")
-            empty.isEnabled = false
-            menu.addItem(empty)
-        }
-        for (index, session) in sessions.enumerated() {
-            if index > 0 { menu.addItem(.separator()) }
-            let item = NSMenuItem()
-            item.view = row(session.entry.tab, session.media, registry: services.registry)
-            menu.addItem(item)
+        let cards = sessions.map { card($0.entry.tab, $0.media, registry: services.registry) }
+        let menu = rows.menu(cards, empty: BrowserHitStrings.mediaNothingPlaying)
+        for (view, session) in zip(menu.items.compactMap { $0.view as? BrowserMediaRowView }, sessions) {
+            loadArtwork(view, tab: session.entry.tab, url: session.media.artworkURL)
         }
         return menu
     }
 
-    private static func row(_ tab: any BrowserTab, _ media: BrowserMediaState, registry: ActionRegistry) -> BrowserMediaRowView {
+    private static func card(_ tab: any BrowserTab, _ media: BrowserMediaState, registry: ActionRegistry) -> BrowserMediaRows.Card {
         let site = tab.state.url?.host() ?? ""
         let title = media.title.isEmpty ? (tab.state.title ?? site) : media.title
         let subtitle = [media.artist, site].filter { !$0.isEmpty }.joined(separator: " · ")
         let target = ActionTargetRef(kind: .tab, id: tab.id.rawValue)
-        let row = BrowserMediaRowView(
-            title: title, subtitle: subtitle, media: media, artwork: tab.favicon,
+        return BrowserMediaRows.Card(
+            key: tab.id.rawValue, title: title, subtitle: subtitle, media: media, artwork: tab.favicon,
             onCommand: { [weak tab] command in
                 guard let tab else { return }
                 // A muted tab's media stays muted until the tab unmutes.
@@ -45,12 +38,15 @@ enum BrowserMediaMenu {
             onReveal: { [weak registry] in
                 registry?.perform("tab.focus", invocation: ActionInvocation(target: target, origin: .user))
             })
-        if let url = media.artworkURL {
-            Task { [weak row, weak tab] in
-                guard let image = await tab?.fetchFavicon(url) else { return }
-                row?.setArtwork(image)
-            }
+    }
+
+    /// Loads the artwork through the tab's own context (`fetchFavicon`) once per address.
+    private static func loadArtwork(_ row: BrowserMediaRowView, tab: any BrowserTab, url: URL?) {
+        guard let url, row.artworkURL != url else { return }
+        Task { [weak row, weak tab] in
+            guard let image = await tab?.fetchFavicon(url) else { return }
+            row?.setArtwork(image)
+            row?.artworkURL = url
         }
-        return row
     }
 }

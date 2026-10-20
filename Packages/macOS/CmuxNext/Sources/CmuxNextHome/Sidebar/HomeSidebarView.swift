@@ -13,6 +13,10 @@ import MessagesLabSidebar
 /// after every change and handles the choices.
 public final class HomeSidebarView: NSView {
     public var onSelect: (ConversationID) -> Void = { _ in }
+    /// The person opened a conversation: a plain click on its row or pinned tile (the selected one
+    /// too) or Return on the highlighted one. Called after ``onSelect``; Up/Down and Command- or
+    /// Shift-clicks only select. The page moves the keyboard into its message box.
+    public var onOpen: (ConversationID) -> Void = { _ in }
     public var onSetPinned: (Bool, ConversationID) -> Void = { _, _ in }
     /// A drag put a conversation at an index of the pinned grid (a new place, or a row pinned
     /// there); call `update` before returning so the tiles land smoothly.
@@ -57,6 +61,11 @@ public final class HomeSidebarView: NSView {
     /// "Message Requests (2)" under the list while there are requests (DESIGN 2.3); hidden otherwise.
     let requestsButton = NSButton(title: "", target: nil, action: nil)
     public private(set) var model = HomeSidebarModel(rows: [], pins: HomePins(), me: nil)
+    /// The New Message draft's row title (Messages' "New Message" row at
+    /// the top of the list while a draft is open or kept), or nil for none.
+    public private(set) var draftRowTitle: String?
+    /// The draft row's id in `onSelect` (the New Message page's).
+    public static let draftRowID = HomeNewMessageComposerSource.conversation
 
     public override init(frame: NSRect) {
         HomeReduceMotion.install()
@@ -86,6 +95,7 @@ public final class HomeSidebarView: NSView {
         // names, as Messages' pinned grid.
         list.neutralSelection = true
         list.onSelect = { [weak self] id in if let id { self?.onSelect(ConversationID(id)) } }
+        list.onOpen = { [weak self] id in self?.onOpen(ConversationID(id)) }
         list.onSetPinned = { [weak self] on, id in self?.onSetPinned(on, ConversationID(id)) }
         list.onPlacePinned = { [weak self] id, index in self?.onPlacePinned(ConversationID(id), index) }
         list.onSetRead = { [weak self] read, id in
@@ -118,12 +128,30 @@ public final class HomeSidebarView: NSView {
     public func update(_ model: HomeSidebarModel) {
         guard model != self.model else { return }
         self.model = model
-        list.show((model.pinned + model.rows).map(Self.entry), pinned: model.pinned.map(\.id.rawValue))
+        reshow()
         noteLabel.stringValue = model.note ?? ""
         if noteLabel.isHidden != (model.note == nil) {
             noteLabel.isHidden = model.note == nil
             needsLayout = true
         }
+    }
+
+    /// Shows or removes the New Message draft row (first under the pinned
+    /// grid, no time, as in Messages).
+    public func setDraftRow(_ title: String?) {
+        guard title != draftRowTitle else { return }
+        draftRowTitle = title
+        reshow()
+    }
+
+    private func reshow() {
+        var entries = (model.pinned + model.rows).map(Self.entry)
+        if let draftRowTitle {
+            entries.insert(CmuxSidebarEntry(id: Self.draftRowID.rawValue, title: draftRowTitle, people: [], preview: "", previewSender: nil,
+                                            lastAt: .distantPast, unreadCount: 0, pinned: false, muted: false, avatar: nil),
+                           at: model.pinned.count)
+        }
+        list.show(entries, pinned: model.pinned.map(\.id.rawValue))
     }
 
     /// Each pinned tile's and row's frame in window points from the top-left (`debug.home page`).
@@ -138,7 +166,7 @@ public final class HomeSidebarView: NSView {
         CmuxSidebarEntry(id: item.id.rawValue, title: item.title,
                          people: item.people.map { CmuxSidebarEntry.Person(id: $0.id, name: $0.name, initials: $0.initials) },
                          preview: item.preview, previewSender: nil, lastAt: item.lastAt, unreadCount: item.unreadCount,
-                         pinned: item.isPinned, muted: item.isMuted, avatar: item.chiefAvatar.map(avatar), badge: item.backendBadge)
+                         pinned: item.isPinned, muted: item.isMuted, avatar: item.chiefAvatar.map(avatar), badge: item.listBadge ?? item.backendBadge)
     }
 
     /// The Chief's avatar as the list draws it: the picture, else its text

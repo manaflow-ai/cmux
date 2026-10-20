@@ -19,7 +19,7 @@ struct TabSwitchPathBench {
         let page = InternalPageID(rawValue: "switch-path-bench")
         var title: String { "Notes" }
         var symbol: String { "doc" }
-        var made: [NSView] = []
+        var made: [MoveCounting] = []
         func makeView(for key: String, in window: WindowController?) -> NSView {
             let view = MoveCounting(frame: NSRect(x: 0, y: 0, width: 900, height: 460))
             view.wantsLayer = true
@@ -84,7 +84,10 @@ struct TabSwitchPathBench {
         let snapshotsBefore = DebugLayoutCounters.paneSnapshots
         var apply: [Double] = [], turn: [Double] = []
         let rounds = max(3, 120 / count)
+        var spans: [String: [Double]] = [:]
         for _ in 0..<rounds {
+            BenchSpans.begin()
+            defer { for span in BenchSpans.end() { spans[span.name, default: []].append(span.milliseconds) } }
             for (index, key) in keys.enumerated() {
                 let start = CACurrentMediaTime()
                 pane.applySelection(StripTabID(key))
@@ -103,6 +106,9 @@ struct TabSwitchPathBench {
         func q(_ values: [Double], _ p: Double) -> Double { let s = values.sorted(); return s[min(s.count - 1, Int(Double(s.count) * p))] }
         print(String(format: "TAB-SWITCH-PATH n=%d apply p50 %.3f p90 %.3f max %.3f ms turn p50 %.3f p90 %.3f max %.3f ms snapshots/switch %.2f moves %d switches %d",
                      count, q(apply, 0.5), q(apply, 0.9), apply.max() ?? 0, q(turn, 0.5), q(turn, 0.9), turn.max() ?? 0, snapshots, moves, switches))
+        // Where a switch's main-thread time goes, mean µs per switch by stage.
+        let stages = spans.map { name, values in (name, values.reduce(0, +) * 1_000 / Double(switches)) }.sorted { $0.1 > $1.1 }
+        print("TAB-SWITCH-PATH-STAGES n=\(count) " + stages.map { String(format: "%@=%.1fus", $0.0, $0.1) }.joined(separator: " "))
         #expect(moves == 0, "\(moves) content view moves in \(switches) warm switches over \(count) tabs")
         #expect(shown == 1, "\(shown) tab views shown after the switches (want only the selected one)")
         #expect(snapshots == 0, "a warm switch mapped the strip \(snapshots) times (want 0)")
