@@ -29,7 +29,6 @@ public final class ResizeCoordinator {
     private var settle = ResizeSettle<ObjectIdentifier, CellSize>(stableFrames: 1)
     private var targets: [ObjectIdentifier: any ResizeTarget] = [:]
     private var waited: [ObjectIdentifier: Int] = [:]
-<<<<<<< HEAD
     /// Whether every size waits: a full screen enter or exit
     /// (`Motion.isFullScreenTransitioning`). AppKit animates a snapshot to
     /// the final size, so no in-between size shows; each one the daemon
@@ -37,11 +36,9 @@ public final class ResizeCoordinator {
     /// main thread the animation needs (fullscreen-lag). The newest size
     /// goes the frame after it ends. A drag stays real time (it does not hold).
     private let holds: () -> Bool
-=======
     /// Who holds every grid now (a layout's pane close, `LayoutRootView.onTerminalGridHold`).
     /// Weak: a holder that goes away lets go.
     private var holders: [ObjectIdentifier: WeakHolder] = [:]
->>>>>>> eb81f2bac95 (cmux-next close motion: a whole pane leaves in the key's frame, a whole window fades out)
     /// Pane sizes span windows, so the frames run on the app scheduler.
     /// - Parameter holds: Whether sizes wait this frame; nil (the app) holds
     ///   during full screen transitions, tests pass their own.
@@ -90,12 +87,9 @@ public final class ResizeCoordinator {
     /// One frame; false once every size went, or while the grids are held (letting go starts
     /// the frames again).
     public func tick() -> Bool {
-<<<<<<< HEAD
         // Held sizes keep waiting; the frames keep running until it ends.
         if holds() { return !settle.isIdle }
-=======
         guard !isHeld else { return false }
->>>>>>> eb81f2bac95 (cmux-next close motion: a whole pane leaves in the key's frame, a whole window fades out)
         for (key, size) in settle.tick() {
             if targets[key]?.awaitsEcho == true, waited[key, default: 0] < Self.echoWaitFrames {
                 waited[key, default: 0] += 1

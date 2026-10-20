@@ -54,6 +54,7 @@ impl ResourceOperation {
                 | Self::ChiefProfileList
                 | Self::ChiefProfileGet
                 | Self::ChiefProfileAvatarGet
+                | Self::ChiefProfileHistory
                 | Self::ParticipantAvatarGet
                 | Self::CredentialVerify
                 | Self::CredentialMint
