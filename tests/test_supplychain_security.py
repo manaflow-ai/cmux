@@ -126,6 +126,7 @@ def test_cloud_dogfood_keeps_the_public_installer_out_of_the_secret_job() -> Non
 
     assert installer.get("environment") is None
     assert installer.get("needs") == "public-installer-smoke"
+    assert (installer.get("permissions") or {}).get("attestations") == "read"
     assert "secrets." not in yaml.dump(installer)
     assert "vars." not in installer["runs-on"]
     installer_script = run_text(installer)
@@ -150,6 +151,30 @@ def test_cloud_dogfood_keeps_the_public_installer_out_of_the_secret_job() -> Non
     ]
     assert len(secret_steps) == 1
     assert secret_steps[0].get("name") == "Journey"
+
+
+def test_environment_secret_rollout_keeps_untrusted_jobs_secretless() -> None:
+    reachability = workflow("cloud-vm-image-reachability.yml")["jobs"]["reachable"]
+    reachability_environment = reachability.get("environment", "")
+    assert "cloud-vm-image-reachability" in reachability_environment
+    assert "pull_request" in reachability_environment
+    assert "'cloud-vm-image-reachability' || ''" in reachability_environment
+
+    promotion = workflow("cloud-vm-image-contract.yml")["jobs"]["promote"]
+    assert promotion.get("environment") == "cloud-vm-image-promotion"
+
+    docs_caller = workflow("docs-channels.yml")["jobs"]
+    assert "secrets" not in docs_caller["nightly"]
+    assert "secrets" not in docs_caller["release"]
+    docs_deploy = workflow("docs-deploy-reusable.yml")["jobs"]["deploy"]
+    assert docs_deploy.get("environment") == "docs-${{ inputs.channel }}"
+    docs_run = run_text(docs_deploy)
+    for secret in ("VERCEL_ORG_ID", "VERCEL_PROJECT_ID", "VERCEL_TOKEN"):
+        assert secret in yaml.dump(docs_deploy)
+    assert "secrets.vercel_" not in yaml.dump(docs_deploy)
+
+    namespace = workflow("namespace-autofix.yml")["jobs"]["autofix"]
+    assert namespace.get("environment") == "ci-routing-agent"
 
 
 def test_ci_and_deployment_container_images_are_digest_pinned() -> None:
