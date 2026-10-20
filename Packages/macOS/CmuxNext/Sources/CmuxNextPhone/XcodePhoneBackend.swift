@@ -31,7 +31,7 @@ public struct XcodePhoneBackend: PhoneBackend {
     public func capabilities(for device: PhoneDevice) -> PhoneCapabilities {
         switch device.mode {
         case .simulator:
-            [.boot, .screenshot, .recordVideo, .deviceLog, .openURL, .pasteboard, .appearance, .location, .locale, .apps]
+            PhoneCapabilities([.boot, .screenshot, .recordVideo, .deviceLog, .openURL, .pasteboard, .appearance, .location, .locale, .apps])
                 .union(hid == nil ? [] : [.touch, .keyboard, .buttons, .liveScreen])
         case .device: [.screenshot, .recordVideo]
         case .virtualMachine, .emulator, .androidDevice: []

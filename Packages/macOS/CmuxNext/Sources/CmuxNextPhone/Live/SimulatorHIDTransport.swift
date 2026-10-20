@@ -41,7 +41,8 @@ final class SimulatorHIDTransport {
                        button: runtime.symbol("IndigoHIDMessageForButton").map { unsafeBitCast($0, to: ButtonFunction.self) })
     }
 
-    deinit {
+    /// Closes the XPC connection (the simulator rebooted or the transport is replaced).
+    func close() {
         if case .dtuhid(let connection) = path { xpc_connection_cancel(connection) }
     }
 

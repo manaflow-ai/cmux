@@ -1,5 +1,5 @@
 public import CoreGraphics
-import Foundation
+public import Foundation
 import IOSurface
 
 /// The real ``SimulatorHIDSending`` and the source of live simulator screens:
@@ -128,7 +128,7 @@ public final class SimulatorKitHID: SimulatorHIDSending {
 
     /// Drops the input transport (after a reboot the old XPC connection is dead).
     func reset(_ udid: String) {
-        transports[udid] = nil
+        transports.removeValue(forKey: udid)?.close()
         stopScreen(udid)
     }
 }
