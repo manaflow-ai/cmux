@@ -9,12 +9,13 @@ import Foundation
 import os
 
 /// The device hub for this app (docs/device-hub/PROTOCOL.md): made when
-/// `deviceHub.url` is set (DEV builds read it) and the cmux account is
-/// signed in, started on sign-in (registers this Mac as a device and keeps
-/// the User DO socket open) and stopped on sign-out, after ending this
-/// Mac's sessions. Mac Screen and Settings > Devices read it through
-/// `MacScreenPages.hub`. This Mac's name is the computer name unless the
-/// person renamed it in Settings > Devices.
+/// the cmux account is signed in, at the build's built-in hub address (DEV
+/// builds: the dev hub, unless `deviceHub.url` overrides it), started on
+/// sign-in (registers this Mac as a device and keeps the User DO socket
+/// open) and stopped on sign-out, after ending this Mac's sessions. Mac
+/// Screen and Settings > Devices read it through `MacScreenPages.hub`.
+/// This Mac's name is the computer name unless the person renamed it in
+/// Settings > Devices.
 @MainActor
 final class DeviceHubService {
     private let pages: MacScreenPages
@@ -64,7 +65,7 @@ final class DeviceHubService {
             await self?.pages.store.load()
             for await (address, user) in ObservationStream({ (Self.address(settings), auth.isSignedIn ? (auth.user?.id ?? "") : nil) }) {
                 guard let self else { return }
-                url = address.flatMap { URL(string: $0) }
+                url = address
                 self.user = user
                 pages.hubConfigured = url != nil
                 reconcile()
@@ -72,13 +73,10 @@ final class DeviceHubService {
         }
     }
 
-    /// `deviceHub.url` as the hub's address; only DEV builds read the setting.
-    private static func address(_ settings: SettingsController?) -> String? {
-        #if DEBUG
-        return settings?.snapshot.deviceHub.baseURL?.absoluteString
-        #else
-        return nil
-        #endif
+    /// The hub's address: the build's built-in hub, or a DEV build's valid
+    /// `deviceHub.url` override; nil only when that override is not valid.
+    private static func address(_ settings: SettingsController) -> URL? {
+        settings.snapshot.deviceHub.resolvedBaseURL(isDebugBuild: ControlService.isDebugBuild)
     }
 
     private func reconcile() {
@@ -162,7 +160,7 @@ final class DeviceHubService {
 }
 
 extension AppServices {
-    /// The device hub follows `deviceHub.url` and the cmux account.
+    /// The device hub follows the hub address (`deviceHub.url` in DEV builds) and the cmux account.
     func startDeviceHub(_ settings: SettingsController) {
         deviceHub.start(settings: settings)
         cloud.willSignOut.append { [weak self] in self?.deviceHub.willSignOut() }

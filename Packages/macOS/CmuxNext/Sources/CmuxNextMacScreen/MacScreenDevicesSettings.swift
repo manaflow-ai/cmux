@@ -218,7 +218,7 @@ public final class MacScreenDevicesSettings {
     public var state: State {
         let labels = Labels.current
         guard box.configured else {
-            return State(available: false, status: .init(text: L.t("devices.status.off", "The device hub is not set up in this build."), tone: "neutral"),
+            return State(available: false, status: .init(text: L.t("devices.status.invalidHubAddress", "The Device Hub Address in Settings › Development is not a valid web address. Fix it, or clear it to use the built-in hub."), tone: "neutral"),
                          signIn: nil, error: nil, labels: labels, thisDevice: nil, others: [], sharing: nil, relays: [], history: [])
         }
         guard let hub else {

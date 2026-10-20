@@ -138,7 +138,7 @@ final class AppServices {
     private(set) lazy var macScreenPages = AppServices.makeMacScreenPages(self)
     /// Mac Screen page tabs (`InternalPageID.macScreen`).
     private(set) lazy var macScreenTabs = MacScreenPageService(services: self)
-    /// The device hub (`deviceHub.url`, DEV builds): the user's devices for Mac Screen and Settings > Devices.
+    /// The device hub (built in; `deviceHub.url` overrides it in DEV builds): the user's devices for Mac Screen and Settings > Devices.
     private(set) lazy var deviceHub = DeviceHubService(pages: macScreenPages, auth: cloud.auth, bundleIdentifier: environment.launch.bundleID)
     /// Bookmarks of every browser profile (plans/cmux-next/bookmarks.md).
     private(set) lazy var bookmarks = BookmarkService(services: self)

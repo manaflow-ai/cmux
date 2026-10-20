@@ -30,7 +30,7 @@ public enum DeviceHubError: Error, Sendable, Equatable, CustomStringConvertible 
         }
     }
 
-    /// `deviceHub.url` is empty: the feature is off.
+    /// No usable hub address (a DEV build's `deviceHub.url` override is not valid): the feature is off.
     case notConfigured
     /// No account token (signed out), or the server refused it.
     case notSignedIn

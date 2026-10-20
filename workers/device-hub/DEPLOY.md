@@ -3,13 +3,22 @@
 The device hub (`docs/device-hub/PROTOCOL.md`) is one Worker with two SQLite
 Durable Object classes, `UserDO` and `SessionDO`. It deploys to Lawrence's
 Cloudflare account. `wrangler.toml` commits no `account_id`; the deploy shell
-provides it. Bindings, vars and migrations are repeated under `[env.dev]`,
-because environments do not inherit them.
+provides it. The top level of `wrangler.toml` is production; `[env.dev]` is
+dev. Bindings, vars and migrations are repeated under `[env.dev]`, because
+environments do not inherit them. The two are separate Workers, so their
+Durable Objects, storage and secrets are separate too.
 
 | Environment | Worker | URL |
 |---|---|---|
 | dev | `cmux-device-hub-dev` | `https://cmux-device-hub-dev.debussy.workers.dev` |
-| production | `cmux-device-hub` | not deployed yet |
+| production | `cmux-device-hub` | `https://cmux-device-hub.debussy.workers.dev` |
+
+The cmux-next app builds both addresses in (`DeviceHubSettings` in
+`Packages/macOS/CmuxNext/Sources/CmuxNextSettings`): DEV builds use the dev
+hub, every other build the production hub. A DEV build's Settings ›
+Development › Device Hub Address overrides it; empty means the built-in hub.
+Both are on workers.dev: a custom domain (as `workers/presence` uses) would
+add a DNS record, which this hub does not need.
 
 ## Dev deploy
 
@@ -49,11 +58,42 @@ Rotating `SESSION_KEY` signs every device out (their hub sessions stop
 verifying; the apps exchange their Stack token again). Rotating `TICKET_KEY`
 invalidates tickets that are less than 60 s old. Neither touches stored data.
 
+## Production deploy
+
+The same steps without `--env dev`. Wrangler asks for an explicit target on
+the top level, so pass `--env=""`. Production generates its own keys; never
+copy the dev keys.
+
+```bash
+export CLOUDFLARE_ACCOUNT_ID=0c1675e0def6de1ab3a50a4e17dc5656
+npx wrangler deploy --env=""
+node scripts/gen-key.mjs | npx wrangler secret put SESSION_KEY --env=""
+node scripts/gen-key.mjs | npx wrangler secret put TICKET_KEY --env=""
+
+# TURN: read each value into a variable first, so a failed or unapproved
+# `op read` stores nothing (piping it straight in stores an empty secret).
+tok=$(op read "op://Shared/lqvg75d4awzbveq7ny5gyfeyd4/credential")
+kid=$(op read "op://Shared/lqvg75d4awzbveq7ny5gyfeyd4/notesPlain" | grep -oE '[0-9a-f]{32}' | head -1)
+[ -n "$tok" ] && [ ${#kid} -eq 32 ] \
+  && printf %s "$tok" | npx wrangler secret put TURN_KEY_API_TOKEN --env="" \
+  && printf %s "$kid" | npx wrangler secret put TURN_KEY_ID --env=""
+unset tok kid
+
+npx wrangler secret list --env=""      # names only
+curl -fsS https://cmux-device-hub.debussy.workers.dev/v1/health
+```
+
+Check that production refuses a Stack development-project token: POST
+`{"token": "<dev access token>"}` to `/v1/auth/stack` returns 401 "access
+token is not for an accepted project" (the dev hub returns 200 for the same
+token).
+
 ### Paid users
 
 `PAID_USER_IDS` is a plain var: a comma list of hub user ids, each
 `<stackProjectId>:<stackUserId>` (the `userId` that `/v1/auth/stack` and
-`/v1/me` return). Set it in `[env.dev.vars]` and redeploy.
+`/v1/me` return). Set it in `[vars]` (production) or `[env.dev.vars]` (dev)
+and redeploy.
 
 ### Stack projects
 

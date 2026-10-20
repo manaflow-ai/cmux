@@ -13494,133 +13494,133 @@
         }
       }
     },
-    "devices.status.off": {
+    "devices.status.invalidHubAddress": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "مركز الأجهزة غير مُعدّ في هذا الإصدار."
+            "value": "عنوان مركز الأجهزة في الإعدادات › التطوير ليس عنوان ويب صالحًا. صحّحه، أو امسحه لاستخدام المركز المدمج."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Čvorište uređaja nije postavljeno u ovoj verziji."
+            "value": "Adresa centra uređaja u Postavke › Razvoj nije ispravna web adresa. Ispravite je ili je obrišite da koristite ugrađeni centar."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Enhedshubben er ikke konfigureret i denne version."
+            "value": "Enhedshubbens adresse i Indstillinger › Udvikling er ikke en gyldig webadresse. Ret den, eller ryd den for at bruge den indbyggede hub."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Der Geräte-Hub ist in diesem Build nicht eingerichtet."
+            "value": "Die Geräte-Hub-Adresse unter Einstellungen › Entwicklung ist keine gültige Webadresse. Korrigiere sie oder leere sie, um den eingebauten Hub zu verwenden."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The device hub is not set up in this build."
+            "value": "The Device Hub Address in Settings › Development is not a valid web address. Fix it, or clear it to use the built-in hub."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "El centro de dispositivos no está configurado en esta compilación."
+            "value": "La dirección del centro de dispositivos en Ajustes › Desarrollo no es una dirección web válida. Corrígela o bórrala para usar el centro integrado."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le hub des appareils n’est pas configuré dans cette version."
+            "value": "L’adresse du hub d’appareils dans Réglages › Développement n’est pas une adresse web valide. Corrigez-la ou effacez-la pour utiliser le hub intégré."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "L’hub dei dispositivi non è configurato in questa build."
+            "value": "L’indirizzo dell’hub dispositivi in Impostazioni › Sviluppo non è un indirizzo web valido. Correggilo o cancellalo per usare l’hub integrato."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このビルドではデバイスハブが設定されていません。"
+            "value": "設定 › 開発 のデバイスハブのアドレスが有効な Web アドレスではありません。修正するか、空にして内蔵のハブを使ってください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "មជ្ឈមណ្ឌលឧបករណ៍មិនត្រូវបានរៀបចំក្នុងកំណែនេះទេ។"
+            "value": "អាសយដ្ឋានមជ្ឈមណ្ឌលឧបករណ៍នៅក្នុង ការកំណត់ › ការអភិវឌ្ឍ មិនមែនជាអាសយដ្ឋានគេហទំព័រត្រឹមត្រូវទេ។ កែវា ឬសម្អាតវាដើម្បីប្រើមជ្ឈមណ្ឌលដែលភ្ជាប់មកជាមួយ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 빌드에는 기기 허브가 설정되어 있지 않습니다."
+            "value": "설정 › 개발의 기기 허브 주소가 올바른 웹 주소가 아닙니다. 주소를 고치거나 비워서 내장 허브를 사용하십시오."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Enhetshuben er ikke konfigurert i denne versjonen."
+            "value": "Adressen til enhetshuben i Innstillinger › Utvikling er ikke en gyldig nettadresse. Rett den, eller tøm den for å bruke den innebygde huben."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Centrum urządzeń nie jest skonfigurowane w tej kompilacji."
+            "value": "Adres centrum urządzeń w Ustawienia › Programowanie nie jest prawidłowym adresem internetowym. Popraw go lub wyczyść, aby używać wbudowanego centrum."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "A central de dispositivos não está configurada nesta compilação."
+            "value": "O endereço da central de dispositivos em Ajustes › Desenvolvimento não é um endereço web válido. Corrija-o ou apague-o para usar a central integrada."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Центр устройств не настроен в этой сборке."
+            "value": "Адрес центра устройств в Настройки › Разработка не является допустимым веб-адресом. Исправьте его или очистите, чтобы использовать встроенный центр."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ยังไม่ได้ตั้งค่าศูนย์กลางอุปกรณ์ในบิลด์นี้"
+            "value": "ที่อยู่ฮับอุปกรณ์ใน การตั้งค่า › การพัฒนา ไม่ใช่ที่อยู่เว็บที่ถูกต้อง แก้ไข หรือล้างออกเพื่อใช้ฮับในตัว"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aygıt merkezi bu derlemede ayarlanmamış."
+            "value": "Ayarlar › Geliştirme’deki Cihaz Merkezi Adresi geçerli bir web adresi değil. Düzeltin ya da yerleşik merkezi kullanmak için temizleyin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Центр пристроїв не налаштовано в цій збірці."
+            "value": "Адреса центру пристроїв у Параметри › Розробка не є дійсною вебадресою. Виправте її або очистьте, щоб використовувати вбудований центр."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Trung tâm thiết bị chưa được thiết lập trong bản dựng này."
+            "value": "Địa chỉ trung tâm thiết bị trong Cài đặt › Phát triển không phải là địa chỉ web hợp lệ. Hãy sửa lại hoặc xóa đi để dùng trung tâm tích hợp sẵn."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "此版本未设置设备中心。"
+            "value": "设置 › 开发 中的设备中心地址不是有效的网址。请修正，或清空以使用内置的设备中心。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "此版本未設定裝置中心。"
+            "value": "設定 › 開發 中的裝置中心位址不是有效的網址。請修正，或清空以使用內建的裝置中心。"
           }
         }
       }
@@ -21092,264 +21092,133 @@
         }
       }
     },
-    "macScreen.home.setupHub": {
+    "macScreen.home.invalidHubAddress": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يعمل Mac Screen عبر مركز الأجهزة، وهو غير متوفر في هذا الإصدار بعد."
+            "value": "يعمل Mac Screen عبر مركز الأجهزة. عنوان مركز الأجهزة في الإعدادات › التطوير ليس عنوان ويب صالحًا؛ صحّحه، أو امسحه لاستخدام المركز المدمج."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac Screen radi preko čvorišta uređaja, koje ova verzija još nema."
+            "value": "Mac Screen radi preko centra uređaja. Adresa centra uređaja u Postavke › Razvoj nije ispravna web adresa; ispravite je ili je obrišite da koristite ugrađeni centar."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac Screen virker gennem enhedshubben, som denne version ikke har endnu."
+            "value": "Mac Screen virker gennem enhedshubben. Enhedshubbens adresse i Indstillinger › Udvikling er ikke en gyldig webadresse; ret den, eller ryd den for at bruge den indbyggede hub."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac Screen funktioniert über den Geräte-Hub, den diese Version noch nicht hat."
+            "value": "Mac Screen funktioniert über den Geräte-Hub. Die Geräte-Hub-Adresse unter Einstellungen › Entwicklung ist keine gültige Webadresse; korrigiere sie oder leere sie, um den eingebauten Hub zu verwenden."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac Screen works through the device hub, which this build doesn’t have yet."
+            "value": "Mac Screen works through the device hub. The Device Hub Address in Settings › Development is not a valid web address; fix it, or clear it to use the built-in hub."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac Screen funciona a través del centro de dispositivos, que esta versión aún no tiene."
+            "value": "Mac Screen funciona a través del centro de dispositivos. La dirección del centro de dispositivos en Ajustes › Desarrollo no es una dirección web válida; corrígela o bórrala para usar el centro integrado."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac Screen passe par le hub d’appareils, que cette version n’a pas encore."
+            "value": "Mac Screen passe par le hub d’appareils. L’adresse du hub d’appareils dans Réglages › Développement n’est pas une adresse web valide ; corrigez-la ou effacez-la pour utiliser le hub intégré."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac Screen funziona tramite l’hub dei dispositivi, che questa versione non ha ancora."
+            "value": "Mac Screen funziona tramite l’hub dei dispositivi. L’indirizzo dell’hub dispositivi in Impostazioni › Sviluppo non è un indirizzo web valido; correggilo o cancellalo per usare l’hub integrato."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac Screen はデバイスハブを介して動作しますが、このビルドにはまだありません。"
+            "value": "Mac Screen はデバイスハブを介して動作します。設定 › 開発 のデバイスハブのアドレスが有効な Web アドレスではありません。修正するか、空にして内蔵のハブを使ってください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac Screen ដំណើរការតាមរយៈមជ្ឈមណ្ឌលឧបករណ៍ ដែលកំណែនេះមិនទាន់មាន។"
+            "value": "Mac Screen ដំណើរការតាមរយៈមជ្ឈមណ្ឌលឧបករណ៍។ អាសយដ្ឋានមជ្ឈមណ្ឌលឧបករណ៍នៅក្នុង ការកំណត់ › ការអភិវឌ្ឍ មិនមែនជាអាសយដ្ឋានគេហទំព័រត្រឹមត្រូវទេ។ កែវា ឬសម្អាតវាដើម្បីប្រើមជ្ឈមណ្ឌលដែលភ្ជាប់មកជាមួយ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac Screen은 기기 허브를 통해 작동하지만, 이 빌드에는 아직 없습니다."
+            "value": "Mac Screen은 기기 허브를 통해 작동합니다. 설정 › 개발의 기기 허브 주소가 올바른 웹 주소가 아닙니다. 주소를 고치거나 비워서 내장 허브를 사용하십시오."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac Screen fungerer via enhetshuben, som denne versjonen ikke har ennå."
+            "value": "Mac Screen fungerer via enhetshuben. Adressen til enhetshuben i Innstillinger › Utvikling er ikke en gyldig nettadresse; rett den, eller tøm den for å bruke den innebygde huben."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac Screen działa przez hub urządzeń, którego ta wersja jeszcze nie ma."
+            "value": "Mac Screen działa przez centrum urządzeń. Adres centrum urządzeń w Ustawienia › Programowanie nie jest prawidłowym adresem internetowym; popraw go lub wyczyść, aby używać wbudowanego centrum."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "O Mac Screen funciona pelo hub de dispositivos, que esta versão ainda não tem."
+            "value": "O Mac Screen funciona pela central de dispositivos. O endereço da central de dispositivos em Ajustes › Desenvolvimento não é um endereço web válido; corrija-o ou apague-o para usar a central integrada."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac Screen работает через центр устройств, которого в этой сборке пока нет."
+            "value": "Mac Screen работает через центр устройств. Адрес центра устройств в Настройки › Разработка не является допустимым веб-адресом; исправьте его или очистите, чтобы использовать встроенный центр."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac Screen ทำงานผ่านฮับอุปกรณ์ ซึ่งบิลด์นี้ยังไม่มี"
+            "value": "Mac Screen ทำงานผ่านฮับอุปกรณ์ ที่อยู่ฮับอุปกรณ์ใน การตั้งค่า › การพัฒนา ไม่ใช่ที่อยู่เว็บที่ถูกต้อง แก้ไข หรือล้างออกเพื่อใช้ฮับในตัว"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac Screen aygıt merkezi üzerinden çalışır; bu sürümde henüz yok."
+            "value": "Mac Screen cihaz merkezi üzerinden çalışır. Ayarlar › Geliştirme’deki Cihaz Merkezi Adresi geçerli bir web adresi değil; düzeltin ya da yerleşik merkezi kullanmak için temizleyin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac Screen працює через центр пристроїв, якого в цій збірці ще немає."
+            "value": "Mac Screen працює через центр пристроїв. Адреса центру пристроїв у Параметри › Розробка не є дійсною вебадресою; виправте її або очистьте, щоб використовувати вбудований центр."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac Screen hoạt động qua trung tâm thiết bị, mà bản dựng này chưa có."
+            "value": "Mac Screen hoạt động qua trung tâm thiết bị. Địa chỉ trung tâm thiết bị trong Cài đặt › Phát triển không phải là địa chỉ web hợp lệ; hãy sửa lại hoặc xóa đi để dùng trung tâm tích hợp sẵn."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac Screen 通过设备中心工作，而此版本还没有设备中心。"
+            "value": "Mac Screen 通过设备中心工作。设置 › 开发 中的设备中心地址不是有效的网址；请修正，或清空以使用内置的设备中心。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac Screen 透過裝置中樞運作，但此版本尚未提供。"
-          }
-        }
-      }
-    },
-    "macScreen.home.setupHubDev": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "يعمل Mac Screen عبر مركز الأجهزة. عيّن عنوان مركز الأجهزة في الإعدادات › التطوير، ثم سجّل الدخول إلى cmux."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mac Screen radi preko čvorišta uređaja. Postavite adresu čvorišta uređaja u Postavke › Razvoj, zatim se prijavite u cmux."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mac Screen virker gennem enhedshubben. Angiv enhedshubbens adresse i Indstillinger › Udvikling, og log derefter ind på cmux."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mac Screen funktioniert über den Geräte-Hub. Lege die Geräte-Hub-Adresse unter Einstellungen › Entwicklung fest und melde dich dann bei cmux an."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mac Screen works through the device hub. Set Device Hub Address in Settings › Development, then sign in to cmux."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mac Screen funciona a través del centro de dispositivos. Define la dirección del centro de dispositivos en Ajustes › Desarrollo y luego inicia sesión en cmux."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mac Screen passe par le hub d’appareils. Indiquez l’adresse du hub d’appareils dans Réglages › Développement, puis connectez-vous à cmux."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mac Screen funziona tramite l’hub dei dispositivi. Imposta l’indirizzo dell’hub dei dispositivi in Impostazioni › Sviluppo, poi accedi a cmux."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mac Screen はデバイスハブを介して動作します。設定 › 開発 でデバイスハブのアドレスを設定してから、cmux にサインインしてください。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mac Screen ដំណើរការតាមរយៈមជ្ឈមណ្ឌលឧបករណ៍។ កំណត់អាសយដ្ឋានមជ្ឈមណ្ឌលឧបករណ៍នៅក្នុង ការកំណត់ › ការអភិវឌ្ឍ រួចចូលទៅ cmux។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mac Screen은 기기 허브를 통해 작동합니다. 설정 › 개발에서 기기 허브 주소를 설정한 다음 cmux에 로그인하십시오."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mac Screen fungerer via enhetshuben. Angi adressen til enhetshuben i Innstillinger › Utvikling, og logg deretter på cmux."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mac Screen działa przez hub urządzeń. Ustaw adres hubu urządzeń w Ustawienia › Programowanie, a potem zaloguj się do cmux."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "O Mac Screen funciona pelo hub de dispositivos. Defina o endereço do hub de dispositivos em Ajustes › Desenvolvimento e depois inicie sessão no cmux."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mac Screen работает через центр устройств. Укажите адрес центра устройств в Настройки › Разработка, затем войдите в cmux."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mac Screen ทำงานผ่านฮับอุปกรณ์ ตั้งที่อยู่ฮับอุปกรณ์ใน การตั้งค่า › การพัฒนา แล้วลงชื่อเข้าใช้ cmux"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mac Screen aygıt merkezi üzerinden çalışır. Ayarlar › Geliştirme’de Aygıt Merkezi Adresi’ni ayarlayın, ardından cmux’a giriş yapın."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mac Screen працює через центр пристроїв. Укажіть адресу центру пристроїв у Параметри › Розробка, потім увійдіть у cmux."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mac Screen hoạt động qua trung tâm thiết bị. Đặt địa chỉ trung tâm thiết bị trong Cài đặt › Phát triển, rồi đăng nhập cmux."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mac Screen 通过设备中心工作。请在 设置 › 开发 中设置设备中心地址，然后登录 cmux。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mac Screen 透過裝置中樞運作。請在 設定 › 開發 中設定裝置中樞位址，然後登入 cmux。"
+            "value": "Mac Screen 透過裝置中心運作。設定 › 開發 中的裝置中心位址不是有效的網址；請修正，或清空以使用內建的裝置中心。"
           }
         }
       }

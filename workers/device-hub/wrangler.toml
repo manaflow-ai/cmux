@@ -2,7 +2,9 @@
 # WebRTC signaling. Contract: docs/device-hub/PROTOCOL.md.
 #
 # No account_id here: the account comes from the deploy environment
-# (CLOUDFLARE_ACCOUNT_ID). The production target is Lawrence's account.
+# (CLOUDFLARE_ACCOUNT_ID). Both targets are in Lawrence's account.
+# The top level is production (cmux-device-hub on workers.dev, deploy with
+# --env=""); [env.dev] is dev. The app builds both addresses in. DEPLOY.md.
 #
 # Secrets (wrangler secret put, or .dev.vars for wrangler dev):
 #   SESSION_KEY        private P-256 JWK (JSON) that signs account session JWTs
