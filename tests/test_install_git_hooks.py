@@ -462,6 +462,44 @@ class InstallGitHooksTests(unittest.TestCase):
         result = self.check_remotes()
         self.assertIn("fetches from a local path", result.stderr)
 
+    def test_different_ports_and_local_directories_are_different_repositories(self):
+        self.git("remote", "add", "ports", "ssh://git@example.com:2222/team/repo.git")
+        self.git("remote", "set-url", "--push", "ports", "ssh://git@example.com:2223/team/repo.git")
+        self.git("remote", "add", "suffix", str(self.root / "mirror"))
+        self.git("remote", "set-url", "--push", "suffix", str(self.root / "mirror.git"))
+        self.git("remote", "add", "case", str(self.root / "Mirror.git"))
+        self.git("remote", "set-url", "--push", "case", str(self.root / "mirror.git"))
+        result = self.check_remotes("--strict")
+        self.assertEqual(result.returncode, 1)
+        for remote in ("ports", "suffix", "case"):
+            self.assertIn(f"warning: git remote {remote} fetches and pushes different repositories", result.stderr)
+
+    def test_default_ports_and_relative_paths_name_the_same_repository(self):
+        self.git("remote", "add", "ssh", "ssh://git@example.com:22/team/repo.git")
+        self.git("remote", "set-url", "--push", "ssh", "git@example.com:team/repo.git")
+        self.git("remote", "add", "rel", "../mirror.git")
+        self.git("remote", "set-url", "--push", "rel", str(self.root / "mirror.git"))
+        result = self.check_remotes("--strict")
+        self.assertEqual((result.returncode, result.stderr), (0, ""))
+
+    def test_an_insteadof_rewrite_is_named_in_the_fix(self):
+        mirror = self.root / "mirror.git"
+        self.git("config", f"url.{mirror}.insteadOf", "https://github.com/manaflow-ai/cmux")
+        self.git("config", "url.https://github.com/manaflow-ai/cmux.pushInsteadOf",
+                 "https://github.com/manaflow-ai/cmux")
+        self.git("remote", "add", "origin", "https://github.com/manaflow-ai/cmux.git")
+        result = self.check_remotes()
+        self.assertIn("rewritten by url.*.insteadOf", result.stderr)
+        self.assertIn(f"--unset url.{mirror}.insteadof https://github.com/manaflow-ai/cmux", result.stderr)
+        self.assertNotIn("git remote set-url", result.stderr)
+
+    def test_repair_commands_are_shell_quoted(self):
+        self.git("remote", "add", "dev&ops", str(self.root / "mirror.git"))
+        self.git("remote", "set-url", "--push", "dev&ops", "https://github.com/manaflow-ai/cmux.git")
+        result = self.check_remotes()
+        self.assertIn("git remote set-url dev\\&ops https://github.com/manaflow-ai/cmux.git", result.stderr)
+        self.assertIn("git config remote.dev\\&ops.cmuxSplitOk true", result.stderr)
+
     def test_pre_commit_hook_warns_but_commits(self):
         install = self.install()
         self.assertEqual(install.returncode, 0, install.stderr)
