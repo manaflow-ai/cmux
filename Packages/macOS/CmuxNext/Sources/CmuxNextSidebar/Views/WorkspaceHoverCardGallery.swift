@@ -5,7 +5,7 @@ import CmuxNextIcons
 import CmuxNextResources
 
 /// DEBUG ONLY: the workspace hover card in each of its kinds over fixture data, for the hover card
-/// gallery (`debug.hover_card_gallery`, the macOS tour's `hover-card` shots; Leo 2026-10-19, the
+/// gallery (`debug.hover_cards {gallery}`, HoverCardGallery, the macOS tour's `hover-card` shots; Leo 2026-10-19, the
 /// Codex sidebar card and Claude desktop's PR list). The words are fixture data, like a mock's.
 public struct WorkspaceHoverCardGallery {
     public init() {}

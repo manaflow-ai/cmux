@@ -325,7 +325,7 @@ public final class HoverCardAccessoryView: NSView {
 #if DEBUG
 /// DEBUG ONLY: a gallery's hover card body on the shared overlay glass, outside the hover card
 /// panel: it recolors the body when it joins a window and on every theme change, as the panel
-/// does for a shown card (`debug.hover_card_gallery`).
+/// does for a shown card (`debug.hover_cards {gallery}`, HoverCardGallery).
 @MainActor
 public final class HoverCardGalleryHost: NSView, ThemeResponsive {
     private let recolor: () -> Void

@@ -5,7 +5,7 @@ import CmuxNextIcons
 import CmuxNextResources
 
 /// DEBUG ONLY: the tab hover card in each of its kinds over fixture data, for the hover card
-/// gallery (`debug.hover_card_gallery`, the macOS tour's `hover-card` shots). No thumbnails: the
+/// gallery (`debug.hover_cards {gallery}`, HoverCardGallery, the macOS tour's `hover-card` shots). No thumbnails: the
 /// rows are what the gallery shows.
 public struct TabHoverCardGallery {
     public init() {}
