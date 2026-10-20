@@ -40,6 +40,21 @@ class TourFilePathTests(unittest.TestCase):
         self.assertEqual(
             path_map.tours_for_path("Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/WorkspaceHoverCard.swift"),
             ["hover-card"])
+        self.assertEqual(
+            path_map.tours_for_path("Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarUpdateCardView.swift"),
+            ["update-card"])
+        # The popup's page is webview UI: the gallery captures it (popover-media, popover-scroll).
+        self.assertEqual(path_map.tours_for_path("webviews/src/pages/changelog/updateSurfaces.css"), [])
+        self.assertTrue(path_map.is_gallery_path("webviews/src/pages/changelog/updateSurfaces.css"))
+
+    def test_the_home_list_routes_to_the_home_tour(self) -> None:
+        for path in ("Packages/macOS/CmuxNext/Sources/CmuxNextHome/Sidebar/HomeSidebarView.swift",
+                     "Packages/Shared/CmuxMessagesLab/Sources/MessagesLabSidebar/Vendor/appkit-native/SidebarView.swift",
+                     "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Home/DebugHomeSidebarFixture.swift"):
+            with self.subTest(path=path):
+                self.assertEqual(path_map.tours_for_path(path), ["home"])
+        # The transcript side of Home is not the list's tour.
+        self.assertEqual(path_map.tours_for_path("Packages/Shared/CmuxMessagesLab/Sources/MessagesLabHome/Cmux/PaneHost.swift"), [])
 
 
 class WebviewPathTests(unittest.TestCase):

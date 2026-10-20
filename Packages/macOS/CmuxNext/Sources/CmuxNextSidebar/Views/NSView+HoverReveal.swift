@@ -2,13 +2,14 @@ import AppKit
 import CmuxNextDesign
 import QuartzCore
 
-/// Leo 2026-10-13 (cosmic-gray): moving between rows snapped their hover
-/// state. The row's hover controls (the x, the menu button, the pin, the tab
-/// chevron and the unread badge they replace) now reveal in their own slots
-/// immediately and clear with the short hover-out transition. The marks they
-/// cover stay in place, so nothing moves or resizes. Layouts that hover did
-/// not cause (reloads, recycling, theme) apply at once.
-extension WorkspaceRowView {
+/// The sidebar's one hover-reveal (Leo 2026-10-13, cosmic-gray): a hover
+/// control (a row's x, menu button, pin, tab chevron and the unread badge they
+/// replace; the Now Playing card's x) reveals in its own slot with the
+/// `.hover` fade and clears with the same short transition, instant under
+/// Reduce Motion (the token's duration is 0 there). The marks it covers stay
+/// in place, so nothing moves or resizes. Layouts that hover did not cause
+/// (reloads, recycling, theme) apply at once.
+extension NSView {
     /// Shows or hides `view` in its slot, fading when `fades`. A control
     /// fading out keeps its frame and takes no clicks (`hitTest` skips clear
     /// buttons); it hides once the fade ends, unless it came back.
