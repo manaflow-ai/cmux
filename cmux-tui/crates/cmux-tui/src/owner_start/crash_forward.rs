@@ -1,11 +1,13 @@
-//! Crash forwarding for a standalone cmux-tui (plans/cmux-next/tui-tester-rollout.md #7).
+//! Crash forwarding for a standalone cmux-tui (plans/cmux-next/tui-tester-rollout.md #7, #9).
 //!
 //! The owner's panic hook (`owner_panic.rs`) writes `owner-panics-<session>.jsonl`.
 //! The cmux-next app sends those lines to Sentry for the cmux-tui it bundles;
 //! a Linux, npm or PyPI cmux-tui had nobody to send them. At owner start this
 //! sends the lines not sent yet (a main-thread panic ends the process, so its
 //! line goes on the next start) to the app's Sentry project, tagged
-//! `process=cmux-tui`, each line once (a byte offset in `<log>.sent`).
+//! `process=cmux-tui`, each line once (a byte offset in `<log>.sent`). The
+//! memory guard's `owner-memory-<session>.jsonl` goes the same way, at start
+//! and right after each alert.
 //!
 //! It sends nothing when: the binary is inside the cmux app (the app sends
 //! them), a managed policy disables telemetry, `DO_NOT_TRACK` or
@@ -139,6 +141,32 @@ pub(super) fn event_for(line: &str, home: Option<&str>) -> Option<Value> {
     }
     let version = text("version").unwrap_or_else(|| DISTRIBUTION_VERSION.to_string());
     let at_ms = record.get("at_ms").and_then(Value::as_u64).unwrap_or_default();
+    if record.get("kind").and_then(Value::as_str) == Some("memory") {
+        // A memory guard line (memory_guard.rs): a warning, one issue per
+        // release, with the figures as extra data.
+        tags.insert("crash_source".into(), json!("owner_memory_log"));
+        return Some(json!({
+            "event_id": uuid::Uuid::new_v4().simple().to_string(),
+            "timestamp": at_ms as f64 / 1000.0,
+            "platform": "native",
+            "level": "warning",
+            "logger": "cmux-tui",
+            "release": format!("cmux-tui@{version}"),
+            "exception": {"values": [{
+                "type": "MemoryGrowth",
+                "value": message,
+                "mechanism": {"type": "memory_guard", "handled": true},
+            }]},
+            "message": {"formatted": message},
+            "fingerprint": ["owner-memory"],
+            "tags": tags,
+            "extra": {
+                "memory_bytes": record.get("memory_bytes"),
+                "threshold_bytes": record.get("threshold_bytes"),
+                "uptime_seconds": record.get("uptime_seconds"),
+            },
+        }));
+    }
     Some(json!({
         "event_id": uuid::Uuid::new_v4().simple().to_string(),
         "timestamp": at_ms as f64 / 1000.0,
@@ -239,15 +267,44 @@ pub(super) fn state_path(log: &Path) -> PathBuf {
     log.with_file_name(name)
 }
 
-/// Starts the forwarder for this owner's log on its own thread. It logs one
-/// `crash-forward:` outcome line to the client log.
-#[cfg(unix)]
-pub(super) fn spawn(log: Option<PathBuf>) {
+/// Where and how this process sends: built once at owner start when consent
+/// allows, then shared with the memory guard.
+#[derive(Clone, Debug)]
+pub(super) struct Forwarder {
+    dsn: Dsn,
+    home: Option<String>,
+    /// One send at a time: the start thread and the memory guard share each
+    /// log's offset file, and two readers of one offset would send a line twice.
+    sending: std::sync::Arc<std::sync::Mutex<()>>,
+}
+
+impl Forwarder {
+    /// Sends `log`'s unsent lines (see ``forward_new``).
+    #[cfg(unix)]
+    pub(super) fn forward(&self, log: &Path) -> Result<usize, String> {
+        let _sending = self.sending.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        send_all(log, &self.dsn, self.home.as_deref())
+    }
+
+    #[cfg(not(unix))]
+    pub(super) fn forward(&self, _log: &Path) -> Result<usize, String> {
+        Ok(0)
+    }
+}
+
+/// Decides consent once and, when it allows, sends the unsent lines of every
+/// log in `logs` on a thread of its own. Logs one `crash-forward:` outcome
+/// line to the client log; returns the forwarder for later sends.
+pub(super) fn start(logs: Vec<PathBuf>) -> Option<Forwarder> {
     let env = |name: &str| std::env::var(name).ok();
     #[cfg(debug_assertions)]
     let test_dsn = env(TEST_DSN_ENV).filter(|dsn| !dsn.is_empty());
     #[cfg(not(debug_assertions))]
     let test_dsn: Option<String> = None;
+    if cfg!(not(unix)) {
+        crate::client_log::info(LOG_AREA, "crash-forward: off (unsupported platform)");
+        return None;
+    }
     let executable = std::env::current_exe().ok().and_then(|path| std::fs::canonicalize(path).ok());
     let managed = cmux_config::managed::default_reader(env).read();
     let settings = std::fs::read_to_string(cmux_config::config_path())
@@ -262,30 +319,31 @@ pub(super) fn spawn(log: Option<PathBuf>) {
     });
     if let Consent::Off(reason) = decision {
         crate::client_log::info(LOG_AREA, &format!("crash-forward: off ({reason})"));
-        return;
+        return None;
     }
-    let Some(log) = log else {
-        crate::client_log::info(LOG_AREA, "crash-forward: off (no state directory)");
-        return;
-    };
     let Some(dsn) = Dsn::parse(test_dsn.as_deref().unwrap_or(DSN)) else {
         crate::client_log::warn(LOG_AREA, "crash-forward: off (bad DSN)");
-        return;
+        return None;
     };
-    let home = env("HOME");
+    let forwarder = Forwarder { dsn, home: env("HOME"), sending: Default::default() };
+    let worker = forwarder.clone();
     let _ = std::thread::Builder::new().name("crash-forward".into()).spawn(move || {
-        let outcome = send_all(&log, &dsn, home.as_deref());
-        let line = match outcome {
-            Ok(sent) => format!("crash-forward: sent={sent}"),
-            Err(error) => format!("crash-forward: failed {error}"),
+        let mut sent = 0;
+        let mut failures = Vec::new();
+        for log in &logs {
+            match worker.forward(log) {
+                Ok(count) => sent += count,
+                Err(error) => failures.push(error),
+            }
+        }
+        let line = if failures.is_empty() {
+            format!("crash-forward: sent={sent}")
+        } else {
+            format!("crash-forward: failed sent={sent} {}", failures.join("; "))
         };
         crate::client_log::info(LOG_AREA, &line);
     });
-}
-
-#[cfg(not(unix))]
-pub(super) fn spawn(_log: Option<PathBuf>) {
-    crate::client_log::info(LOG_AREA, "crash-forward: off (unsupported platform)");
+    Some(forwarder)
 }
 
 #[cfg(unix)]
