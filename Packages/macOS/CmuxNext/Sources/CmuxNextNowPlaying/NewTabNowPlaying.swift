@@ -31,8 +31,8 @@ enum NewTabNowPlaying {
     /// The App's actions for the page's menu (`followNowPlaying(_:settings:registry:)` sets them, `liveActions`).
     static var page = Page()
 
-    static func show(_ shown: SidebarNowPlaying?, from source: any NowPlayingSource) {
-        let player = AgentPaneNowPlaying.shared
+    /// Pushes `shown` to `player`'s pages (every agent page's, but a test's own player in tests).
+    static func show(_ shown: SidebarNowPlaying?, from source: any NowPlayingSource, to player: AgentPaneNowPlaying = .shared) {
         player.onCommand = { [weak source] command in
             guard let source else { return }
             perform(command, on: source)

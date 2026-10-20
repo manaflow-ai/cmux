@@ -76,17 +76,18 @@ public final class SystemNowPlaying: NowPlayingSource {
             app: Self.app(report.parentBundleIdentifier ?? report.bundleIdentifier))
     }
 
-    /// The names of the apps that played, by bundle identifier (nil: not installed as an app).
-    private static var appNames: [String: String?] = [:]
+    /// The names of the apps that played, by bundle identifier. An app not found is looked up again
+    /// next time (it may be installed since).
+    private static var appNames: [String: String] = [:]
 
     /// The app that plays as the New Tab player's Open in names it: a browser's media helper
     /// names its browser. Looked up once per app (one Launch Services read).
     static func app(_ bundleIdentifier: String) -> SidebarNowPlaying.App? {
-        if appNames[bundleIdentifier] == nil {
-            let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleIdentifier)
-            appNames[bundleIdentifier] = .some(url.map { FileManager.default.displayName(atPath: $0.path) }.map(appName))
+        if appNames[bundleIdentifier] == nil,
+           let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleIdentifier) {
+            appNames[bundleIdentifier] = appName(FileManager.default.displayName(atPath: url.path))
         }
-        guard let name = appNames[bundleIdentifier] ?? nil, !name.isEmpty else { return nil }
+        guard let name = appNames[bundleIdentifier], !name.isEmpty else { return nil }
         return SidebarNowPlaying.App(bundleIdentifier: bundleIdentifier, name: name)
     }
 

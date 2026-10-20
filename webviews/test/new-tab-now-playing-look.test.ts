@@ -186,9 +186,9 @@ await requireBrowserLane("new-tab-now-playing-look.test.ts", async () => {
         card: rect.height + margin + gap,
       };
     });
-    if (shift === null) return; // Nothing below the card on this stage: nothing can shift.
-    expect(shift.gone).toBe(true);
-    expect(shift.moved, "space was kept for the hidden card").toBeCloseTo(shift.card, 0);
     await page.close();
+    expect(shift, "nothing below the card on the stage to measure").not.toBeNull();
+    expect(shift!.gone).toBe(true);
+    expect(shift!.moved, "space was kept for the hidden card").toBeCloseTo(shift!.card, 0);
   });
 });

@@ -1,4 +1,5 @@
 public import CmuxNextActions
+public import CmuxNextAgentPane
 import CmuxNextCompat
 public import CmuxNextSettings
 public import CmuxNextSidebar
@@ -45,14 +46,15 @@ extension SidebarModel {
     /// gets nil, so it draws no player and keeps no space. The source runs while either shows it
     /// (`NowPlayingSource.run`); with both off nothing reads what plays.
     public func followNowPlaying(_ source: any NowPlayingSource, enabled: @escaping @MainActor () -> Bool,
-                                 onNewTab: @escaping @MainActor () -> Bool = { false }) -> Task<Void, Never> {
+                                 onNewTab: @escaping @MainActor () -> Bool = { false },
+                                 player: AgentPaneNowPlaying = .shared) -> Task<Void, Never> {
         Task { [weak self] in
             for await followed in ObservationStream({ NowPlayingFollowed(card: enabled(), newTab: onNewTab(), source: source) }) {
                 guard let self else { return }
                 source.run(followed.card || followed.newTab)
                 let card = followed.card ? followed.nowPlaying : nil
                 if self.nowPlaying != card { self.nowPlaying = card }
-                NewTabNowPlaying.show(followed.newTab ? followed.nowPlaying : nil, from: source)
+                NewTabNowPlaying.show(followed.newTab ? followed.nowPlaying : nil, from: source, to: player)
             }
         }
     }

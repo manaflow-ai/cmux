@@ -96,15 +96,13 @@ import UniformTypeIdentifiers
     /// still shows what plays; on again, the page gets the track back. Off before the first push,
     /// the page never gets one.
     @Test func theNewTabSettingHidesOnlyThePagesPlayer() async throws {
-        let player = AgentPaneNowPlaying.shared
-        let saved = (player.track, player.onCommand)
-        defer { (player.track, player.onCommand) = saved }
-        player.track = nil
+        // Its own player: other suites' follows push to the shared one at the same time.
+        let player = AgentPaneNowPlaying()
         let source = FakeSource()
         source.nowPlaying = Self.shown()
         let newTab = Flag(false)
         let model = SidebarModel()
-        let feed = model.followNowPlaying(source, enabled: { true }, onNewTab: { newTab.on })
+        let feed = model.followNowPlaying(source, enabled: { true }, onNewTab: { newTab.on }, player: player)
         defer { feed.cancel() }
         try await Self.until { model.nowPlaying != nil }
         #expect(model.nowPlaying?.title == "Weightless", "the sidebar card lost the track")
@@ -120,15 +118,13 @@ import UniformTypeIdentifiers
     /// The sidebar card off (its default) and the New Tab player on (its default): the page gets
     /// the track and the source runs; both off, the source stops and nothing is read.
     @Test func theNewTabPlayerShowsWithTheSidebarCardOff() async throws {
-        let player = AgentPaneNowPlaying.shared
-        let saved = (player.track, player.onCommand)
-        defer { (player.track, player.onCommand) = saved }
-        player.track = nil
+        // Its own player: other suites' follows push to the shared one at the same time.
+        let player = AgentPaneNowPlaying()
         let source = RunningSource()
         source.nowPlaying = Self.shown()
         let newTab = Flag(true)
         let model = SidebarModel()
-        let feed = model.followNowPlaying(source, enabled: { false }, onNewTab: { newTab.on })
+        let feed = model.followNowPlaying(source, enabled: { false }, onNewTab: { newTab.on }, player: player)
         defer { feed.cancel() }
         try await Self.until { player.track != nil }
         #expect(player.track?.title == "Weightless")

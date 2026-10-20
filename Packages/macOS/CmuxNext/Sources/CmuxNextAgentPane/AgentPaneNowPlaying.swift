@@ -10,6 +10,9 @@ public import Foundation
 public final class AgentPaneNowPlaying {
     public static let shared = AgentPaneNowPlaying()
 
+    /// One player; the App uses `shared`, a test its own (its pages are only the views it pushes to).
+    init() {}
+
     /// What plays, nil while nothing does or the player is hidden (`tabs.newTabNowPlaying`).
     public var track: Track? {
         didSet {
