@@ -13,7 +13,9 @@
 //!   in the Keychain (`cmux harness secret set`).
 //!
 //! Claude Code (acpmux's own adapter) has no ACP sign-in: its login runs
-//! `claude auth login` in this terminal.
+//! `claude auth login` in this terminal. Neither has Codex through `codex
+//! app-server` (the in-process bridge, which speaks app-server, not ACP):
+//! its login runs `codex login` here, and `--status` asks `codex login status`.
 //!
 //! Sign-in types and the terminal hand-off follow the ACP auth methods that
 //! t3code's ACP Registry auth uses (apps/server/src/provider/acp/
@@ -199,11 +201,46 @@ fn not_acp(id: &str, profile: &HarnessProfile) -> Option<String> {
     }
 }
 
+/// Whether a profile runs `codex app-server` through the in-process bridge:
+/// `session/new` and `authenticate` are not app-server methods, so its
+/// sign-in goes through the codex CLI.
+fn codex_bridge(profile: &HarnessProfile) -> bool {
+    matches!(profile.kind, HarnessKind::Acp)
+        && crate::codex_app_server::is_profile_launch(&profile.argv)
+}
+
+/// The codex binary the bridge runs: the profile's `CODEX_PATH`, as the
+/// launch picks it (`agent::command`), else its command.
+fn codex_program(profile: &HarnessProfile, env: &BTreeMap<String, String>) -> String {
+    env.get("CODEX_PATH")
+        .filter(|p| !p.is_empty())
+        .cloned()
+        .unwrap_or_else(|| profile.argv[0].clone())
+}
+
 /// Whether harness `id` is signed in.
 pub async fn auth_state(cfg: &Config, id: &str, timeout: Duration) -> Result<AuthState> {
     let profile = profile(cfg, id)?;
     if let Some(hint) = not_acp(id, profile) {
         return Ok(AuthState::NotAcp { hint });
+    }
+    if codex_bridge(profile) {
+        let env = resolved(profile)?.env;
+        let codex = codex_program(profile, &env);
+        let status = tokio::task::spawn_blocking(move || {
+            crate::harness_health::probe::codex_login_status_of(&codex, &env)
+        })
+        .await?;
+        return match status {
+            Some(true) => Ok(AuthState::SignedIn { methods: vec![] }),
+            Some(false) => Ok(AuthState::Required {
+                methods: vec![],
+                message: "`codex login status`: not logged in".into(),
+            }),
+            None => Err(anyhow!(
+                "`codex login status` did not say: a custom provider, a config error or an older codex"
+            )),
+        };
     }
     let mut started = start(id, profile, timeout).await?;
     let methods = auth_methods(&started.init);
@@ -284,6 +321,19 @@ pub async fn login(
             };
         }
         _ => bail!("{}", not_acp(id, profile).unwrap_or_default()),
+    }
+    if codex_bridge(profile) {
+        if let Some(m) = method {
+            bail!("{id} signs in with `codex login`; it has no sign-in method {m:?}");
+        }
+        let env = resolved(profile)?.env;
+        let argv = vec![codex_program(profile, &env), "login".into()];
+        let code = terminal(&argv, &env)?;
+        return if code == 0 {
+            Ok(format!("{id}: signed in"))
+        } else {
+            Err(anyhow!("`codex login` exited {code}"))
+        };
     }
     let mut started = start(id, profile, timeout).await?;
     let methods = auth_methods(&started.init);
