@@ -90,8 +90,8 @@ import Testing
         rig.view.collection.layoutIfNeeded()
     }
 
-    /// The widest width a shown row of the transcript was laid out for.
-    static func widestRow(_ view: MessagesWindowView) -> CGFloat { view.model.rows.map(\.spec.width).max() ?? 0 }
+    /// The widest width a shown row of the transcript was laid out for (a ghost is a row fading out at its old place).
+    static func widestRow(_ view: MessagesWindowView) -> CGFloat { view.model.rows.filter { !$0.ghost }.map(\.spec.width).max() ?? 0 }
 
     /// My bubbles' right edges past the view's width.
     static func clipped(_ view: MessagesWindowView) -> [CGFloat] {
@@ -158,8 +158,10 @@ import Testing
         let st = rig.store.state
         let fresh = RowBuilder.rows(st, messages: st.conversation.messages, now: rig.store.date(at: rig.view.clock()),
                                     width: rig.view.bounds.width, scale: Fixture.renderScale)
-        let shown = rig.view.model.rows.map(\.spec)
-        #expect(shown.map(\.key) == fresh.map(\.key), "the kept rows are not the rows of the current state")
+        // The trailing rows (typing, the stream, the notice) follow their own transitions; the message rows must match.
+        let shown = rig.view.model.rows.filter { !$0.ghost }.map(\.spec)
+        let keys = { (rows: [RowSpec]) in rows.map(\.key).filter { !RowBuilder.isTrailing($0) } }
+        #expect(keys(shown) == keys(fresh), "the kept rows are not the rows of the current state")
         #expect(shown.allSatisfy { $0.width == rig.view.bounds.width })
     }
 }
