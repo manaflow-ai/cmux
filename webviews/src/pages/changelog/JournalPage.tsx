@@ -8,21 +8,34 @@
 //    build numbers are small and selectable, never a headline.
 //  - A run of builds with no human change says "Maintenance and fixes", never a blank row.
 // J and K move between sections. Notes load as a day nears the viewport (the span at once).
+// The Ledger (u5099, the default) is this page laid out as conductor.build/changelog: each day's
+// newest version as a small tag and its date sit sticky in the left margin, the changes beside them.
 import type { KeyboardEvent } from "react";
 import { KeyboardScope } from "../../ui/KeyboardScope";
 import type { Strings } from "../shared/i18n";
 import { dayLabel, groupByDay, mergedView } from "./model";
+import { cardVersion } from "./UpdateSurfaces";
 import { BuildNumbers, ChangesFold, Groups, Hero, Maintenance, type PartsContext } from "./ReleaseParts";
 import type { ChangelogSnapshot, ChangelogStore } from "./store";
 import type { IndexEntry, ReleaseNotes } from "./types";
 
-export function JournalPage({ store, strings, s }: { store: ChangelogStore; strings: Strings; s: ChangelogSnapshot }) {
+export function JournalPage({
+  store,
+  strings,
+  s,
+  ledger = false,
+}: {
+  store: ChangelogStore;
+  strings: Strings;
+  s: ChangelogSnapshot;
+  ledger?: boolean;
+}) {
   const ctx: PartsContext = { strings, onTry: (id) => void store.tryIt(id) };
   const span = new Set(s.inSpan);
   const fresh = s.builds.filter((b) => span.has(b.build));
   const earlier = s.span ? s.builds.filter((b) => !span.has(b.build)) : s.builds;
   return (
-    <KeyboardScope className="clj" handleKeyDown={journalKeys}>
+    <KeyboardScope className={ledger ? "clj cll" : "clj"} handleKeyDown={journalKeys}>
       <main aria-label={strings.t("changelog.page.title")}>
         {s.failed && <p className="cl-error">{s.failed}</p>}
         {s.span && <SpanSection s={s} fresh={fresh} ctx={ctx} />}
@@ -37,6 +50,7 @@ export function JournalPage({ store, strings, s }: { store: ChangelogStore; stri
             s={s}
             store={store}
             ctx={ctx}
+            ledger={ledger}
           />
         ))}
       </main>
@@ -77,12 +91,14 @@ function DaySection({
   s,
   store,
   ctx,
+  ledger = false,
 }: {
   day: string;
   builds: IndexEntry[];
   s: ChangelogSnapshot;
   store: ChangelogStore;
   ctx: PartsContext;
+  ledger?: boolean;
 }) {
   const loaded = builds.map((b) => s.loaded[b.build]).filter((n): n is ReleaseNotes => !!n);
   const pending = builds.some((b) => !s.loaded[b.build] && !s.unavailable[b.build]);
@@ -103,15 +119,30 @@ function DaySection({
     return () => observer.disconnect();
   };
   const view = mergedView(loaded, ctx.strings.language);
+  const installed = builds.some((b) => b.build === s.current);
+  if (ledger)
+    return (
+      <section className="clj-section cll-release" ref={near} aria-label={dayLabel(day, ctx.strings.language)}>
+        <div className="cll-gutter">
+          <div className="cll-gutter-in">
+            <span className="cll-version">{cardVersion(builds[0]!.shortVersion)}</span>
+            <time dateTime={day}>{dayLabel(day, ctx.strings.language)}</time>
+            {installed && <span className="cl-installed">{ctx.strings.t("changelog.page.current")}</span>}
+          </div>
+        </div>
+        <div className="cll-body">
+          <SectionBody view={view} pending={pending} ctx={ctx} />
+          {builds.length > 1 && <BuildNumbers builds={builds} />}
+        </div>
+      </section>
+    );
   return (
     <section className="clj-section" ref={near} aria-label={dayLabel(day, ctx.strings.language)}>
       <div className="clj-day-row">
         <h2 className="clj-day">
           <time dateTime={day}>{dayLabel(day, ctx.strings.language)}</time>
         </h2>
-        {builds.some((b) => b.build === s.current) && (
-          <span className="cl-installed">{ctx.strings.t("changelog.page.current")}</span>
-        )}
+        {installed && <span className="cl-installed">{ctx.strings.t("changelog.page.current")}</span>}
       </div>
       <BuildNumbers builds={builds} />
       <SectionBody view={view} pending={pending} ctx={ctx} />

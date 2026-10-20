@@ -93,10 +93,8 @@ final class SidebarListView: NSView {
     /// Main-thread milliseconds of the last drag move (`SidebarMotionFrame.dragWorkMs`).
     var lastDragWorkMs: Double = 0
     var external: ExternalDrag?
-    /// The active row the last reload laid out (close-focus.md: reveal on change).
+    /// The selection the last reload or selection patch revealed (`selectionRevealKey`; close-focus.md: reveal on change).
     var revealedActive: SidebarRowKey?
-    /// The selection the last reload or patch took (`takeTopReveal`): the top reveal scrolls once per change.
-    var revealedSelection: SidebarItem?
     /// The row that stands for the selection (`SidebarLayout.selectedRowKey`).
     internal(set) var selectedRowKey: SidebarRowKey?
     /// The anchor step moves the offset; rows wait for the new layout.
@@ -123,6 +121,11 @@ final class SidebarListView: NSView {
     /// Builds the right-click menu for a target (filled by the App from the
     /// action registry). Nil means no context menu.
     var contextMenuProvider: ((SidebarContextTarget) -> NSMenu?)?
+    /// Opens a menu a row's button asked for at `anchor` (the button's frame in `view`):
+    /// under the button, on the anchor's edge. Tests inject a recorder (popUp tracks modally).
+    var menuPresenter: (NSMenu, PopupAnchor, NSView) -> Void = { menu, anchor, view in
+        _ = menu.popUp(positioning: nil, at: anchor.menuOrigin(size: menu.size, flipped: view.isFlipped), in: view)
+    }
     init(model: SidebarModel) {
         self.model = model
         super.init(frame: .zero)

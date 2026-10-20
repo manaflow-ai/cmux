@@ -18,7 +18,7 @@ acpmux). It needs no root. GPU and display energy are not in it; with
 
 Usage (a fleet mini, never a laptop; launches the app with a scratch HOME):
   bench_power.py --app BUNDLE [--settle 120] [--measure 60]
-      [--scenarios terminal,tab1,tab1-hidden,tabs20,tabs20-hidden,scroll,video,switch,minimized]
+      [--scenarios terminal,tab1,tab1-hidden,tabs20,tabs20-hidden,title,scroll,video,switch,minimized]
       [--out FILE.json]
 Prints one PERF-POWER line per scenario and kind, plus a total line.
 """
@@ -154,7 +154,17 @@ def measure(app_pid: int, bundle: str, label: str, seconds: float, during=None):
               f"wakeups_per_s={entry['wakeups_per_s']} footprint_mb={round(entry['footprint_mb'], 1)}")
     print(f"PERF-POWER-TOTAL {label} mw={total['mw']} cpu_pct={total['cpu_pct']} wakeups_per_s={total['wakeups_per_s']} "
           f"footprint_mb={round(total['footprint_mb'], 1)} powermetrics={json.dumps(pm_result)}", flush=True)
+    app_mw = result["kinds"].get("app", {}).get("mw", 0.0)
+    if not during and app_mw > IDLE_APP_MW_GUARD:
+        # An idle app above the guard (20 hidden tabs once read 2.6 to 4.4 mW against 0.24): keep its stacks.
+        out = os.path.abspath(f"app-{label}.sample")
+        subprocess.run(["sample", str(app_pid), "10", "-mayDie", "-file", out], capture_output=True, timeout=60)
+        print(f"PERF-POWER-GUARD {label} app_mw={app_mw} above {IDLE_APP_MW_GUARD}: sample {out}", flush=True)
     return result
+
+
+# App energy (mW) above which an idle scenario samples the app's stacks (msg 2654).
+IDLE_APP_MW_GUARD = 1.0
 
 
 def wipe_state(bundle: str):
@@ -189,7 +199,7 @@ def main():
     # minutes after tabs open or hide; shorter settles measure that, not idle.
     parser.add_argument("--settle", type=float, default=120)
     parser.add_argument("--measure", type=float, default=60)
-    parser.add_argument("--scenarios", default="terminal,tab1,tab1-hidden,tabs20,tabs20-hidden,scroll,video,switch,minimized")
+    parser.add_argument("--scenarios", default="terminal,tab1,tab1-hidden,tabs20,tabs20-hidden,title,scroll,video,switch,minimized")
     parser.add_argument("--config", default="{}", help="extra cmux.json settings (JSON)")
     parser.add_argument("--env", action="append", default=[], metavar="NAME=VALUE",
                         help="extra app environment, e.g. CMUX_NEXT_CEF_EXTRA_SWITCHES=... (repeatable)")
@@ -265,6 +275,11 @@ def main():
                     index += 1
                     time.sleep(0.5)  # test script: two tab switches a second
             settle_measure("switch", during=switch, settle=10)
+        if "title" in scenarios:
+            # A page in view that changes its title every frame (a timer, a counter).
+            open_tab("/busy.html?n=0")
+            settle_measure("title", settle=10)
+            run("closeTab")
         if "scroll" in scenarios:
             open_tab("/long.html")
             settle_measure("scroll", settle=10)

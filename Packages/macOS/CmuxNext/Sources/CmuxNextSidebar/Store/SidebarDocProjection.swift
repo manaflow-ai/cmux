@@ -27,6 +27,9 @@ public nonisolated struct SidebarDocProjection: Hashable, Sendable {
         public var members: [SidebarDocWorkspaceRef]
         /// The document section that holds it.
         public var section: String = ""
+        /// It sits in the Pinned band (Pin Group put it there): it lists above every machine
+        /// section, and its header and menu read as pinned (plans/cmux-next/sidebar-ordering-DESIGN.md).
+        public var pinned = false
         /// The document item ids of the workspace members, in order (`members`).
         public var memberItems: [String] = []
         /// The url, tab and app members (any item that is not a workspace or a group), in order.
@@ -112,7 +115,8 @@ public nonisolated struct SidebarDocProjection: Hashable, Sendable {
             guard let id = row.item, let item = records.items[id], let index = sectionIndex[record.id] else { continue }
             if let ref = item.body.workspace { items[ref] = id } // members of a pinned group too: they list once
             if case let .group(name, color, icon, collapsed) = item.body, row.depth == 0 {
-                bandGroups.append(Group(id: id, name: name, color: color, icon: icon, collapsed: collapsed, members: [], section: record.id))
+                bandGroups.append(Group(id: id, name: name, color: color, icon: icon, collapsed: collapsed, members: [], section: record.id,
+                                         pinned: record.kind == .pinned))
             } else if row.depth > 0, let last = bandGroups.indices.last, bandGroups[last].id == (row.parent ?? item.parent) {
                 bandGroups[last].add(id, item) // a workspace, link, tab or app member: a member row in the list
             } else if row.depth == 0 {
