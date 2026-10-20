@@ -7,7 +7,7 @@
 //!
 //! Timings go to `<repo>/.build/tell-delivery.jsonl` (the fleet step returns it).
 
-use super::busy_prompt::{client, harnesses, hub_with, text_prompt};
+use super::busy_prompt::{Inbox, client, harnesses, hub_with, text_prompt};
 use super::*;
 use std::io::Write;
 use std::time::Instant;
@@ -43,6 +43,7 @@ async fn tells_during_a_long_tool_run_are_read_within_a_second_in_order_none_los
         .await;
 
         // Five tells, as the Chief sends them, each once acpmux took the one before.
+        let mut inbox = Inbox::default();
         let mut sent = Vec::new();
         for k in 0..5 {
             let pid = format!("tell-{k}");
@@ -58,19 +59,16 @@ async fn tells_during_a_long_tool_run_are_read_within_a_second_in_order_none_los
                     ),
                 )
                 .await;
-            let p2 = pid.clone();
-            let acc = c
-                .wait_for(method::MUX_PROMPT_ACCEPTED, move |p| p["promptId"] == p2.as_str())
-                .await;
+            let acc = inbox.accepted(&mut c, &pid).await;
             assert_eq!(acc["steer"], true, "{name} {pid}: went into the turn: {acc}");
             sent.push((pid, rid, at, at.elapsed()));
         }
         // Each is answered "steered" once the agent read it.
         let mut read = Vec::new();
         for (pid, rid, at, accepted) in &sent {
-            let (r, _) = c.response(*rid).await;
+            let (arrived, r) = inbox.answer(&mut c, *rid).await;
             let r = r.unwrap_or_else(|e| panic!("{name} {pid}: not delivered: {e}"));
-            let took = at.elapsed();
+            let took = arrived.duration_since(*at);
             assert_eq!(r["stopReason"], "steered", "{name} {pid}: {r}");
             assert!(took <= DELIVERY_BUDGET, "{name} {pid}: read {took:?} after its send");
             timings(
@@ -100,7 +98,7 @@ async fn tells_during_a_long_tool_run_are_read_within_a_second_in_order_none_los
         if hub.resolve(&id).unwrap().turn().is_some() {
             let _ = hub.cancel(&hub.resolve(&id).unwrap()).await;
         }
-        let _ = c.response(turn).await;
+        let _ = inbox.answer(&mut c, turn).await;
         let worst = read.iter().max().unwrap();
         eprintln!("TELL-DELIVERY {name}: worst {worst:?}");
     }
