@@ -58,6 +58,8 @@ public struct TabStripMetrics: Equatable, Sendable {
     public var tearOffDistance: CGFloat
 
     public var cornerRadius: CGFloat
+    /// Corner of the close button's hover and pressed fill.
+    public var closeCornerRadius: CGFloat
 
     // MARK: Groups
 
@@ -158,6 +160,7 @@ public struct TabStripMetrics: Equatable, Sendable {
         tabBackgroundInset = Metrics.tabBackgroundInset
         tearOffDistance = TabTunables.tearOffDistance.value
         cornerRadius = Metrics.itemCornerRadius
+        closeCornerRadius = max(0, Metrics.itemCornerRadius - Metrics.space1)
         groupChipOuterInset = Metrics.space1
         groupChipPadding = TabTunables.groupChipPadding.value
         groupChipHeight = max(Metrics.space6, Metrics.tabHeight - 2 * Metrics.space2)
