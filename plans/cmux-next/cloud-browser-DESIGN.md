@@ -235,6 +235,24 @@ floor they would reach.
 | CB-7 | Stage B: Linux build of `cmux-remote-browser-host` (CEF fork headless Ozone + Viz capture): native menus, damage, no X | weeks (r7) |
 | CB-8 | Stage C: split compositor (RT3) for local scroll | months |
 
+## 4a. Contract for cloud subagents (B10 in cloud-subagents-DESIGN.md, a306)
+
+A cloud subagent on a Freestyle VM uses the cloud browser on its own VM. The API stays usable from there:
+
+1. Start: `cmux-rd host --browser URL --owner OWNER --display :99 --token-fd N` (flag off by default;
+   `experiments/cloud-browser/vm/start.sh` is the reference). It binds 127.0.0.1 only, so an agent on
+   the same VM reaches it with no network setup, and a human reaches it through a tunnel.
+2. Drive: the agent controls the same Chrome through CDP on the VM's loopback, never through the video
+   stream (CB1). Gap: `--browser` does not yet open a CDP port; CB-2 adds `--browser-cdp-port N`
+   (loopback only, off by default) so the agent's CDP driver and the human's stream share one Chrome.
+3. Watch and take over: the user's Mac opens a `remote_view` pane on that VM's host (today the
+   DEBUG-only `CMUX_NEXT_RD_DEBUG_PORT` path; CB-3 makes it a normal action). One controller at a time:
+   the automation lease decides between the agent and the person.
+4. Lifetime: Chrome outlives viewers and restarts after a crash (tested); it stops with the host, so
+   the subagent's VM teardown also ends the browser.
+
+Changes to these four points must keep a VM subagent able to start, drive and hand off the browser.
+
 ## 5. Open questions for Lawrence
 
 1. Freestyle account: this prototype used the HQ key (`freestyle-beta.env`). Tenant cloud browsers
