@@ -18,6 +18,9 @@ prompts the conversation holds (a resumed or forked transcript's included).
 "hold: PATH" answers once PATH exists, so a test can act while a turn runs.
 A prompt ending in "settings-probe" replies with the prompt text as Claude
 read it, every `apply_flag_settings` it got, and its argv.
+"long-tool" runs a tool for 30 s: user lines written meanwhile (steers) are not read until the
+tool ends, as Claude Code reads them only at a tool boundary. An interrupt ends the tool at
+once; each waiting line is then read in order (echoed) and answered "read: <text>".
 "until-interrupt" streams "working" and ends at once on the interrupt, as
 Claude Code does (error_during_execution).
 "slow-stop" runs until the interrupt, then echoes the next prompt line it
@@ -160,6 +163,46 @@ def slow_stop():
             break
     send({"type": "result", "subtype": "error_during_execution", "is_error": True, "result": None,
           "num_turns": 1, "duration_api_ms": 5})
+
+
+def long_tool(prompt):
+    """The "long-tool" turn (module docs). Claude Code echoes the turn's own prompt first."""
+    import time
+    send({"type": "user", "isReplay": True, "uuid": prompt.get("uuid"), "message": prompt.get("message")})
+    send({"type": "stream_event", "event": {"type": "content_block_delta", "index": 0,
+                                             "delta": {"type": "text_delta", "text": "running a long tool\n"}}})
+    waiting = []
+    interrupted = False
+    deadline = time.monotonic() + 30
+    while True:
+        try:
+            got = LINES.get(timeout=max(0.0, deadline - time.monotonic()))
+        except queue.Empty:
+            break
+        if got is None:
+            sys.exit(0)
+        try:
+            msg = json.loads(got)
+        except ValueError:
+            continue
+        if msg.get("type") == "control_request":
+            send({"type": "control_response", "response": {"subtype": "success",
+                  "request_id": msg.get("request_id"), "response": {}}})
+            if (msg.get("request") or {}).get("subtype") == "interrupt":
+                interrupted = True
+                break
+            continue
+        if msg.get("type") == "user":
+            waiting.append(msg)
+    if interrupted:
+        send({"type": "result", "subtype": "error_during_execution", "is_error": True, "result": None,
+              "num_turns": 1, "duration_api_ms": 5})
+    for msg in waiting:
+        send({"type": "user", "isReplay": True, "uuid": msg.get("uuid"), "message": msg.get("message")})
+        said = "".join(b.get("text", "") for b in (msg.get("message") or {}).get("content") or [] if isinstance(b, dict))
+        send({"type": "stream_event", "event": {"type": "content_block_delta", "index": 0,
+                                                 "delta": {"type": "text_delta", "text": "read: " + said + "\n"}}})
+    send({"type": "result", "subtype": "success", "result": "done", "num_turns": 1, "duration_api_ms": 5})
 
 
 def until_interrupt():
@@ -357,6 +400,9 @@ while True:
             continue
         if said.strip() == "slow-stop":
             slow_stop()
+            continue
+        if said.strip() == "long-tool":
+            long_tool(msg)
             continue
         if said.strip() == "until-interrupt":
             until_interrupt()
