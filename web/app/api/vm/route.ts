@@ -765,7 +765,11 @@ async function resolveCreateAccount(input: {
     try {
       if (await reconcileProPlan(true)) {
         const reconciledUser = await measureVmAsync(timing, "auth", () =>
-          verifyRequest(request, { requestedTeamId: requestedBillingTeamId })
+          verifyRequest(request, {
+            requestedTeamId: requestedBillingTeamId,
+            requireFreshTeamMembership: true,
+            forceCompleteTeamList: true,
+          })
         );
         if (reconciledUser) user = reconciledUser;
         account = await measureVmAsync(timing, "entitlements", () =>
