@@ -442,6 +442,72 @@ await requireBrowserLane("editor-page.test.ts", async () => {
         if (shots && name === "chromium") await page.screenshot({ path: path.join(shots, "editor-large.png") });
       });
 
+      // PANE-FOCUS (user 2026-10-20, "monaco editor on focus does not get focus"): the app gives
+      // the page's web view the keyboard (pane click, Cmd-Opt-Arrow, tab switch, new tab) and sends
+      // `focusContent`; with nothing focused in the page, typing must land in Monaco, not the body.
+      const focusContent = (page: Page) =>
+        page.evaluate(() =>
+          (
+            window as unknown as { __cmuxEditorDev: { emit: (stream: string, data: unknown) => boolean } }
+          ).__cmuxEditorDev.emit("cmux.page.command", { command: "focusContent" }),
+        );
+      const editorHasFocus = (page: Page) =>
+        page.evaluate(() => window.__cmuxEditor!.view()!.monacoEditor.hasTextFocus());
+
+      test("the host's focusContent puts the keyboard in Monaco without a click", async () => {
+        await fresh();
+        const target = file("focus.ts", "const a = 1;\n");
+        await openEditor(page, target);
+        await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+        expect(await editorHasFocus(page)).toBe(false);
+        expect(await focusContent(page)).toBe(true);
+        await page.waitForFunction(() => window.__cmuxEditor!.view()!.monacoEditor.hasTextFocus(), null, {
+          timeout: 5_000,
+        });
+        await page.keyboard.type("x");
+        expect(await editorText(page)).toBe("xconst a = 1;\n");
+      });
+
+      test("focusContent that arrives before Monaco mounts focuses the editor once it mounts", async () => {
+        await fresh();
+        const target = file("early.ts", "let b = 2;\n");
+        await page.goto(`${base}/editor?file=${encodeURIComponent(target)}`);
+        // As soon as the page subscribes to its commands (before the Monaco chunk loads).
+        await page.waitForFunction(
+          () =>
+            (
+              window as unknown as { __cmuxEditorDev?: { emit: (stream: string, data: unknown) => boolean } }
+            ).__cmuxEditorDev?.emit("cmux.page.command", { command: "focusContent" }) === true,
+          null,
+          { timeout: 60_000, polling: 10 },
+        );
+        await openEditor(page, target);
+        await page.waitForFunction(() => window.__cmuxEditor!.view()!.monacoEditor.hasTextFocus(), null, {
+          timeout: 5_000,
+        });
+        await page.keyboard.type("y");
+        expect(await editorText(page)).toBe("ylet b = 2;\n");
+      });
+
+      test("the page getting the keyboard back focuses Monaco only when nothing in it has focus", async () => {
+        await fresh();
+        const target = file("keep.ts", "find me\nfind me\n");
+        await openEditor(page, target);
+        // The find field has focus: getting the keyboard back keeps it there.
+        await page.keyboard.press("Meta+f");
+        await page.waitForFunction(() => document.activeElement?.closest(".find-widget") != null);
+        await page.evaluate(() => window.dispatchEvent(new FocusEvent("focus")));
+        expect(await focusContent(page)).toBe(true);
+        await page.waitForTimeout(100);
+        expect(await page.evaluate(() => document.activeElement?.closest(".find-widget") != null)).toBe(true);
+        // Nothing has focus: the window's focus (WebKit's first responder) lands in Monaco.
+        await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+        await page.evaluate(() => window.dispatchEvent(new FocusEvent("focus")));
+        await page.waitForFunction(() => window.__cmuxEditor!.view()!.monacoEditor.hasTextFocus(), null, {
+          timeout: 5_000,
+        });
+      });
+
       test("screen reader mode works from the keyboard alone", async () => {
         await fresh();
         fs.writeFileSync(
