@@ -15,8 +15,8 @@ enum TerminalHandlers {
         TerminalHandlers.bindInput(into: registry, context: ctx)
         bindKeep(registry, ctx)
         bindCopyMode(registry, ctx)
-        bindUnported(registry)
         TerminalResumeCommandHandlers.bind(into: registry, context: ctx)
+        TextBoxHandlers.bind(into: registry, context: ctx)
     }
 
     /// Runs a Ghostty binding action on the targeted or focused terminal.
@@ -137,12 +137,5 @@ enum TerminalHandlers {
             guard let entry = ctx.terminal(invocation) else { return }
             if !entry.session.surfaceView.toggleCopyMode() { ctx.refuse(RefusalStrings.ghosttyRejected("keyboard_copy_cursor_set")) }
         })
-    }
-
-    private static func bindUnported(_ registry: ActionRegistry) {
-        let textBox = RefusalStrings.textBoxUnported
-        for id: ActionID in ["focusTextBoxInput", "palette.terminalToggleTextBoxInput", "cycleTextBoxSubmitAction", "attachTextBoxFile"] {
-            registry.bindUnavailable(id, reason: textBox)
-        }
     }
 }
