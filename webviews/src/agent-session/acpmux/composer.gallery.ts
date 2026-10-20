@@ -974,6 +974,8 @@ export default agentPaneEntry({
         await ctx.waitFor(
           () => ctx.document.querySelector(".acpmux-mention-row[data-mention-kind='session']") !== null,
         );
+        // A chat is the pick once the word's files are in (none here), not while they are on their way.
+        await ctx.waitFor(() => ctx.find(prompt).getAttribute("aria-activedescendant") === "acpmux-mention-0");
         await ctx.press("Enter");
         await ctx.waitFor(() => ctx.find(prompt).getAttribute("aria-expanded") === "false");
         const written = ctx.find(prompt).textContent ?? "";
@@ -983,6 +985,38 @@ export default agentPaneEntry({
           )
         )
           throw new Error(`the chat pick wrote ${written}`);
+      },
+    },
+    "mention-file-over-prompt-chat": {
+      note: "Play: type @app beside a chat named for a long prompt; the prompt's letters do not list the chat, and Return writes the file.",
+      snapshot: (() => {
+        const base = chat(finished);
+        return {
+          ...base,
+          sessions: [
+            ...base.sessions,
+            session({
+              sessionId: "5e6f7a8b-9c0d-4e1f-8a2b-3c4d5e6f7a8b",
+              title:
+                "Can you add a parser for the plist files and make sure the tests pass on every platform we support, then update the app docs",
+              updatedAt: minutesAgo(5),
+            }),
+          ],
+        };
+      })(),
+      native: { "file.search": { root: CWD, results: [{ path: "src/app.ts", matches: [4, 5, 6] }] } },
+      play: async (ctx) => {
+        const prompt = { selector: "[contenteditable='true']" } as const;
+        await ctx.focus(prompt);
+        await ctx.type("Open @app");
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-mention-row[data-mention-kind='file']") !== null);
+        if (ctx.document.querySelector(".acpmux-mention-row[data-mention-kind='session']"))
+          throw new Error("a chat matched @app by its prompt's letters");
+        await ctx.waitFor(() => ctx.find(prompt).getAttribute("aria-activedescendant") === "acpmux-mention-0");
+        await ctx.press("Enter");
+        await ctx.waitFor(() => ctx.find(prompt).getAttribute("aria-expanded") === "false");
+        if (!ctx.find(prompt).textContent?.includes("Open @src/app.ts"))
+          throw new Error(`the pick wrote ${ctx.find(prompt).textContent}`);
       },
     },
     "mention-recent-chats": {

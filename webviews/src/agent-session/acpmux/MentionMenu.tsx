@@ -81,7 +81,8 @@ export const mentionResults = (state: MentionState): FileMatch[] =>
 /// The picker under the prompt, styled as the slash menu: other chats, folders, then files
 /// (mentionItems.ts), each with its icon, its name with the matched letters bold and its project or
 /// folder muted beside it. The prompt keeps focus and its keys (Composer.tsx): arrows move, Return
-/// or Tab picks, Esc closes.
+/// or Tab picks, Esc closes. `state` is the file search's, undefined in a chat whose folder cannot be
+/// searched (a remote chat), which lists chats only and says nothing of files. `active` -1: no row.
 export function MentionMenu({
   state,
   items,
@@ -89,33 +90,33 @@ export function MentionMenu({
   onHover,
   onPick,
 }: {
-  state: MentionState;
+  state: MentionState | undefined;
   items: readonly MentionItem[];
   active: number;
   onHover(index: number): void;
   onPick(item: MentionItem): void;
 }) {
   const t = useT();
-  const files = mentionResults(state);
   // Above the composer, or past the window's edge when the pane has no room there (cx-6k6cg).
   const escape = useEscapingList("top", 6);
   useEffect(() => {
     document.getElementById(`acpmux-mention-${active}`)?.scrollIntoView?.({ block: "nearest" });
   }, [active]);
   // Chats can list before a word is typed; the files' state still says what the search is doing.
-  const note =
-    state.kind === "idle"
+  const note = !state
+    ? undefined
+    : state.kind === "idle"
       ? t("files.hint")
       : state.kind === "failed"
         ? t("files.failed")
-        : files.length === 0 && items.length === 0
+        : items.length === 0
           ? t(state.kind === "searching" ? "files.searching" : "files.none")
           : undefined;
   return (
     <PickerOptionList
       ref={escape}
       aria-label={t("files.search")}
-      aria-busy={state.kind === "searching"}
+      aria-busy={state?.kind === "searching"}
       className="ui-popup acpmux-slash-menu acpmux-mention-menu"
       id="acpmux-mention-menu"
     >

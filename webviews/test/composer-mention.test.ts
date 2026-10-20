@@ -105,6 +105,12 @@ await requireBrowserLane("composer-mention.test.ts", async () => {
     expect(playFailures(result.report)).toEqual([]);
   });
 
+  test("a chat named for a long prompt does not take @app from the file", async () => {
+    const result = await play("mention-file-over-prompt-chat");
+    expect(playFailures(result.report)).toEqual([]);
+    expect(result.searches).toContain("app");
+  });
+
   test("a bare @ lists the most recent other chats", async () => {
     const result = await play("mention-recent-chats");
     expect(playFailures(result.report)).toEqual([]);

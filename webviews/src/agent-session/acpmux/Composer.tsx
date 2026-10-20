@@ -27,8 +27,8 @@ import {
 import { FileSearch } from "./FileSearch";
 import { FastToggle, SpeedToggleHost, type SpeedTiers } from "./FastToggle";
 import { Icon } from "./icons/Icon";
-import { MentionMenu, mentionQuery, mentionResults, useMentionSearch, type MentionState } from "./MentionMenu";
-import { mentionInsert, mentionItems, type MentionItem } from "./mentionItems";
+import { MentionMenu, mentionQuery, mentionResults, useMentionSearch } from "./MentionMenu";
+import { hasOtherChats, mentionInsert, mentionItems, mentionSelection, type MentionItem } from "./mentionItems";
 import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
 import { openChipMenu } from "./composerChipMenu";
 import type { Choice } from "./ComposerPickers";
@@ -101,10 +101,6 @@ export const COMPOSER_LABELS = {
   attachFiles: "composer.menu.attachFiles",
   insertMention: "composer.menu.insertMention",
 } as const satisfies Record<string, StringKey>;
-
-/// The @ picker's files in a chat whose folder cannot be searched (a remote chat): none, and no
-/// "type to search" hint.
-const NO_FILES: MentionState = { kind: "done", results: [] };
 
 /// What the pane can do to the composer from outside it.
 export type ComposerHandle = {
@@ -307,8 +303,8 @@ export function Composer({
   const [caret, setCaret] = useState(0);
   const [active, setActive] = useState(0);
   const [dismissed, setDismissed] = useState<string | undefined>();
-  // The @ file picker (MentionMenu.tsx): its highlight, and the prompt text Esc closed it on.
-  const [mentionActive, setMentionActive] = useState(0);
+  // The @ picker (MentionMenu.tsx): the row moved to, by its key, and the prompt text Esc closed it on.
+  const [mentionActive, setMentionActive] = useState<string | undefined>();
   const [mentionDismissed, setMentionDismissed] = useState<string | undefined>();
   const field = useRef<MarkdownFieldHandle>(null);
   const fieldRef = useCallback(
@@ -537,16 +533,15 @@ export function Composer({
   useEffect(() => setActive(0), [query]);
   // Typing @ at a word start lists other chats, then the chat's folders and files that match what
   // follows (cx-ncc.68, mentionItems.ts).
-  const mentionAt =
-    !open && !recalling && (searchFiles || snapshot.sessions.length > 0) && mentionDismissed !== text
+  const chatId = snapshot.summary?.sessionId;
+  const otherChats = useMemo(() => hasOtherChats(snapshot.sessions, chatId), [snapshot.sessions, chatId]);
+  const mentionTyped =
+    !open && !recalling && (searchFiles || otherChats) && mentionDismissed !== text
       ? mentionQuery(text, markdownOffset(text, caret))
       : undefined;
-  const mentionSearch = useMentionSearch(searchFiles, mentionAt?.query);
-  // A chat whose folder cannot be searched still lists chats; it never hints at a file search.
-  const mentionState = searchFiles ? mentionSearch : NO_FILES;
-  const mentionFiles = mentionResults(mentionState);
-  const chatId = snapshot.summary?.sessionId;
-  const mentionWord = mentionAt?.query;
+  const mentionWord = mentionTyped?.query;
+  const mentionSearch = useMentionSearch(searchFiles, mentionWord);
+  const mentionFiles = mentionResults(mentionSearch);
   const mentions = useMemo(
     () =>
       mentionWord === undefined
@@ -554,8 +549,14 @@ export function Composer({
         : mentionItems({ query: mentionWord, files: mentionFiles, sessions: snapshot.sessions, chatId }),
     [mentionWord, mentionFiles, snapshot.sessions, chatId],
   );
-  const mentionSelected = Math.min(mentionActive, Math.max(mentions.length - 1, 0));
-  useEffect(() => setMentionActive(0), [mentionAt?.query]);
+  // A chat whose folder cannot be searched (a remote chat) opens the picker only on a matching
+  // chat; it never hints at a file search.
+  const mentionAt = searchFiles || mentions.length > 0 ? mentionTyped : undefined;
+  // The word's files are still on their way: asked, or about to be once typing settles.
+  const mentionPending =
+    !!searchFiles && !!mentionWord?.trim() && (mentionSearch.kind === "idle" || mentionSearch.kind === "searching");
+  const mentionSelected = mentionSelection(mentions, mentionActive, mentionPending);
+  useEffect(() => setMentionActive(undefined), [mentionWord]);
   // A live command update can shrink the list under the selection.
   const selected = Math.min(active, Math.max(matches.length - 1, 0));
   useLayoutEffect(() => {
@@ -821,7 +822,8 @@ export function Composer({
             : 0;
       if (step && mentions.length > 0) {
         event.preventDefault();
-        setMentionActive((mentionSelected + step + mentions.length) % mentions.length);
+        const next = mentionSelected < 0 ? (step > 0 ? 0 : mentions.length - 1) : mentionSelected + step;
+        setMentionActive(mentions[(next + mentions.length) % mentions.length]!.key);
         return;
       }
       if ((event.key === "Enter" || event.key === "Tab") && plain && mentions[mentionSelected]) {
@@ -1149,10 +1151,10 @@ export function Composer({
         )}
         {mentionAt && (
           <MentionMenu
-            state={mentionState}
+            state={searchFiles ? mentionSearch : undefined}
             items={mentions}
             active={mentionSelected}
-            onHover={setMentionActive}
+            onHover={(index) => setMentionActive(mentions[index]?.key)}
             onPick={pickMention}
           />
         )}
@@ -1184,7 +1186,7 @@ export function Composer({
               "aria-activedescendant":
                 open && matches.length > 0
                   ? `acpmux-slash-${selected}`
-                  : mentionAt && mentions.length > 0
+                  : mentionAt && mentionSelected >= 0
                     ? `acpmux-mention-${mentionSelected}`
                     : undefined,
             }}

@@ -1,7 +1,8 @@
 // What the composer's @ picker lists (MentionMenu.tsx), the way Claude desktop's does: other chats
 // by title, then folders, then files of the chat's folder. Files come from the host's search
-// (`file.search`, fileSearchModel.ts) with its ranking and matched letters; chats and folders are
-// matched here, as the path picker's fuzzy filter ranks a name (viewer-empty/fuzzy.ts).
+// (`file.search`, fileSearchModel.ts) with its ranking and matched letters; folders are matched
+// here as the path picker's fuzzy filter ranks a name (viewer-empty/fuzzy.ts), and chats by a word
+// of their title (titleMatch).
 import { fuzzyScore } from "../../viewer-empty/fuzzy";
 import { matchRuns, type FileMatch, type Run } from "./fileSearchModel";
 import { mentionText } from "./MentionMenu";
@@ -15,26 +16,91 @@ export type MentionItem =
 export const MENTION_SESSIONS = 5;
 export const MENTION_FOLDERS = 3;
 
+/// How much of a chat's title a word is matched against: a chat named for its first prompt has the
+/// whole prompt as its title, and a word deep in it says little about the chat.
+export const MENTION_TITLE_CHARS = 100;
+
+/// `text` lowercased a character at a time, with the string index in `text` of the character each
+/// of its units comes from. Some characters lowercase to more units than they take (`İ` is one
+/// unit, `i̇` two), so an index into `text.toLowerCase()` is not one into `text`.
+function folded(text: string): { text: string; at: number[] } {
+  let out = "";
+  const at: number[] = [];
+  let index = 0;
+  for (const char of text) {
+    const lower = char.toLowerCase();
+    out += lower;
+    for (let unit = 0; unit < lower.length; unit++) at.push(index);
+    index += char.length;
+  }
+  return { text: out, at };
+}
+
+/// Adds to `out` the string indexes in `text` of the characters that units `start` to `end` of its
+/// fold come from, every unit of each, so a row bolds a character outside the BMP (an emoji) whole.
+function unfold(text: string, fold: { at: number[] }, start: number, end: number, out: Set<number>) {
+  for (let unit = start; unit < end; unit++) {
+    const first = fold.at[unit]!;
+    out.add(first);
+    if (text.codePointAt(first)! > 0xffff) out.add(first + 1);
+  }
+}
+
+const ascending = (indexes: Set<number>) => [...indexes].sort((a, b) => a - b);
+
 /// The string indexes of `text` that `query` matches, case aside: its first run as written, else
-/// its characters in order (greedy, the way the host's file search marks a path). A character
-/// outside the BMP (an emoji) covers both of its string units, so a row bolds it whole and the
-/// letters after it stay where they are. Undefined when it does not match; an empty query
-/// matches with none.
+/// its characters in order (greedy, the way the host's file search marks a path). An emoji covers
+/// both of its string units, so a row bolds it whole and the letters after it stay where they are.
+/// Undefined when it does not match; an empty query matches with none.
 export function fuzzyIndices(query: string, text: string): number[] | undefined {
-  const q = query.toLowerCase();
-  const t = text.toLowerCase();
+  const q = folded(query).text;
   if (!q) return [];
-  const at = t.indexOf(q);
-  if (at >= 0) return Array.from({ length: q.length }, (_, offset) => at + offset);
-  const out: number[] = [];
+  const t = folded(text);
+  const out = new Set<number>();
+  const at = t.text.indexOf(q);
+  if (at >= 0) {
+    unfold(text, t, at, at + q.length, out);
+    return ascending(out);
+  }
   let from = 0;
   for (const char of q) {
-    const index = t.indexOf(char, from);
+    const index = t.text.indexOf(char, from);
     if (index < 0) return undefined;
-    for (let unit = 0; unit < char.length; unit++) out.push(index + unit);
+    unfold(text, t, index, index + char.length, out);
     from = index + char.length;
   }
-  return out;
+  return ascending(out);
+}
+
+/// Whether a word starts at string index `index` of `text`: at its start, after a character that
+/// is not a letter or digit, or at a lower-to-upper case change (`fileSearch`).
+function wordStart(text: string, index: number): boolean {
+  if (index === 0) return true;
+  const before = text[index - 1]!;
+  if (!/[\p{L}\p{N}]/u.test(before)) return true;
+  const char = text[index]!;
+  return before !== before.toUpperCase() && char !== char.toLowerCase();
+}
+
+/// How well `query` names a chat titled `title`, and its letters there. It matches only as one run
+/// that starts a word in the title's first MENTION_TITLE_CHARS: a chat named for its first prompt
+/// holds most short queries (`app`, `ts`) as letters in order, which says nothing of the chat. A
+/// title that starts with the query ranks first, then one with it in an earlier word. Undefined
+/// when it does not match.
+export function titleMatch(query: string, title: string): { score: number; indexes: number[] } | undefined {
+  const q = folded(query).text;
+  if (!q) return { score: 0, indexes: [] };
+  const head = title.slice(0, MENTION_TITLE_CHARS);
+  const t = folded(head);
+  for (let at = t.text.indexOf(q); at >= 0; at = t.text.indexOf(q, at + 1)) {
+    const index = t.at[at]!;
+    // Not from the middle of one character's lowercase (the dot of `i̇`), and at a word's start.
+    if ((at > 0 && t.at[at - 1] === index) || !wordStart(head, index)) continue;
+    const indexes = new Set<number>();
+    unfold(head, t, at, at + q.length, indexes);
+    return { score: index === 0 ? MENTION_TITLE_CHARS : MENTION_TITLE_CHARS - 1 - index, indexes: ascending(indexes) };
+  }
+  return undefined;
 }
 
 /// A chat's title on one line: a custom name may hold newlines, which would turn the inserted
@@ -50,27 +116,32 @@ function sessionItems(
 ): MentionItem[] {
   // One pass that keeps only the best MENTION_SESSIONS (ties keep history order): typing runs this
   // on every key over the whole chat history, so it never sorts the history.
-  const ranked: { entry: AcpmuxSessionEntry; title: string; score: number }[] = [];
+  const ranked: { entry: AcpmuxSessionEntry; title: string; score: number; indexes: number[] }[] = [];
   for (const entry of sessions) {
     if (entry.sessionId === chatId || !listed(entry)) continue;
     const title = titleOf(entry);
-    const score = query ? fuzzyScore(query, title) : (entry.updatedAt ?? 0);
-    if (score == null) continue;
+    const match = query ? titleMatch(query, title) : { score: entry.updatedAt ?? 0, indexes: [] };
+    if (!match) continue;
+    const { score, indexes } = match;
     if (ranked.length === MENTION_SESSIONS && score <= ranked[ranked.length - 1]!.score) continue;
     let at = ranked.length;
     while (at > 0 && ranked[at - 1]!.score < score) at--;
-    ranked.splice(at, 0, { entry, title, score });
+    ranked.splice(at, 0, { entry, title, score, indexes });
     if (ranked.length > MENTION_SESSIONS) ranked.pop();
   }
-  return ranked.map(({ entry, title }) => ({
+  return ranked.map(({ entry, title, indexes }) => ({
     kind: "session",
     key: `session:${entry.sessionId}`,
     sessionId: entry.sessionId,
     title,
     project: entry.cwd && !isAgentHome(entry.cwd) ? projectLabel(entry.cwd) : undefined,
-    name: textRuns(title, fuzzyIndices(query, title)),
+    name: textRuns(title, indexes),
   }));
 }
+
+/// Whether any chat other than `chatId` can be offered.
+export const hasOtherChats = (sessions: readonly AcpmuxSessionEntry[], chatId: string | undefined) =>
+  sessions.some((entry) => entry.sessionId !== chatId && listed(entry));
 
 /// `text` as runs marked matched or not, without splitting it at a slash as a path is.
 function textRuns(text: string, indexes: readonly number[] = []): Run[] {
@@ -108,7 +179,8 @@ function folderItems(files: readonly FileMatch[], query: string): MentionItem[] 
   });
 }
 
-/// The picker's rows for `query`: chats, then folders, then the host's files in its order.
+/// The picker's rows for `query`: chats, then folders, then the host's files in its order. A query
+/// with a `.` or `/` is a path (`app.ts`, `src/`), so its folders and files come before the chats.
 export function mentionItems({
   query,
   files,
@@ -121,8 +193,8 @@ export function mentionItems({
   chatId?: string;
 }): MentionItem[] {
   const text = query.trim();
-  return [
-    ...sessionItems(sessions, chatId, text),
+  const chats = sessionItems(sessions, chatId, text);
+  const paths = [
     ...folderItems(files, text),
     ...files.map((file): MentionItem => ({
       kind: "file",
@@ -131,13 +203,24 @@ export function mentionItems({
       ...matchRuns(file.path, file.matches),
     })),
   ];
+  return /[./]/.test(text) ? [...paths, ...chats] : [...chats, ...paths];
+}
+
+/// The row Return or Tab picks: the one the person moved to (by key, so it stays put when the
+/// files land around it), else the first. While the files for the word are still on their way, a
+/// chat is not picked unasked: a quick `@app⏎` means the file, which lists a moment later. -1: none.
+export function mentionSelection(items: readonly MentionItem[], activeKey: string | undefined, pending: boolean) {
+  const chosen = activeKey === undefined ? -1 : items.findIndex((item) => item.key === activeKey);
+  if (chosen >= 0) return chosen;
+  return pending ? items.findIndex((item) => item.kind !== "session") : items.length > 0 ? 0 : -1;
 }
 
 /// What a pick writes in place of the `@word`: a file's or folder's `@path ` (a folder's with its
-/// slash), which the agent CLIs read as a path in the chat's folder; a chat's title and full id,
-/// which an agent can look up with cmux and the transcript links (#22055).
+/// slash), which the agent CLIs read as a path in the chat's folder; a chat's title, quoted as a
+/// JSON string so a `"` in it does not end it, and full id, which an agent can look up with cmux
+/// and the transcript links (#22055).
 export function mentionInsert(item: MentionItem): { markdown: string; shown: string } {
   if (item.kind !== "session") return mentionText(item.kind === "folder" ? `${item.path}/` : item.path);
-  const shown = `cmux session "${item.title}" (${item.sessionId}) `;
+  const shown = `cmux session ${JSON.stringify(item.title)} (${item.sessionId}) `;
   return { markdown: shown.replace(/[\\`*_[\]~<&]/g, "\\$&"), shown };
 }

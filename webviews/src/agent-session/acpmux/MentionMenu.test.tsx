@@ -6,8 +6,9 @@ import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
+import { bundledIconPack, resolveIcon } from "./icons/iconPack";
 import { MentionMenu, type MentionState } from "./MentionMenu";
-import { mentionInsert, mentionItems, type MentionItem } from "./mentionItems";
+import { fuzzyIndices, mentionInsert, mentionItems, mentionSelection, type MentionItem } from "./mentionItems";
 import type { AcpmuxSessionEntry } from "./sessionList";
 
 let dom: JSDOM | undefined;
@@ -113,8 +114,12 @@ test("@proje lists other chats, then folders, then files, each with its icon, bo
   expect(bold(session!)).toBe("proje");
   expect(bold(folder!)).toBe("proje");
   expect(bold(file!)).toBe("proje");
-  // Every row has an icon: a chat, a folder, and a file's type.
-  for (const row of rows(container)) expect(row.querySelector("[data-mention-icon]")).not.toBeNull();
+  // Every row draws its own icon (a chat, a folder, a file), not the pack's stand-in for a missing one.
+  for (const row of rows(container)) {
+    const icon = row.querySelector<SVGElement>("[data-mention-icon] svg");
+    expect(icon?.querySelector("path")?.getAttribute("d")).toBeTruthy();
+    expect(resolveIcon(bundledIconPack, icon!.dataset.icon!, "line", "none")).not.toBeNull();
+  }
   expect(file!.querySelector("[data-mention-icon]")?.getAttribute("data-mention-icon")).toBe("file");
 });
 
@@ -161,14 +166,15 @@ test("a long history lists its five best chats, best first and ties in history o
   const names = (query: string) =>
     mentionItems({ query, files: [], sessions: history }).map((item) => (item.kind === "session" ? item.title : ""));
   expect(names("")).toEqual(["Chat 699", "Chat 1399", "Chat 698", "Chat 1398", "Chat 697"]);
-  expect(names("chat 1999")).toEqual(["Chat 1999"]);
+  // The composer never sends a space (it ends the @word), so a chat is found by one word of it.
+  expect(names("1999")).toEqual(["Chat 1999"]);
 });
 
 test("an emoji in a chat's name bolds whole, and the letters after it bold where they are", async () => {
   const container = installDom();
-  const sessions: AcpmuxSessionEntry[] = [{ sessionId: "emoji-chat", title: "😀 launch" }];
-  await render(container, mentionItems({ query: "😀l", files: [], sessions }));
-  expect(bold(rows(container)[0]!)).toBe("😀l");
+  const sessions: AcpmuxSessionEntry[] = [{ sessionId: "emoji-chat", title: "Ship 😀launch" }];
+  await render(container, mentionItems({ query: "😀la", files: [], sessions }));
+  expect(bold(rows(container)[0]!)).toBe("😀la");
   await render(container, mentionItems({ query: "😀", files: [], sessions }));
   expect(bold(rows(container)[0]!)).toBe("😀");
 });
@@ -182,4 +188,83 @@ test("a chat named across lines is offered and written on one line", async () =>
   const { markdown, shown } = mentionInsert(items[0]!);
   expect(shown).toBe('cmux session "Task # heading - item" (multi-line) ');
   expect(markdown).not.toContain("\n");
+});
+
+// A chat named for its first prompt has the whole prompt as its title (sessionList.ts sessionTitle):
+// its letters hold most short queries in order, and Return would write the chat for a file.
+const PROMPT_CHAT: AcpmuxSessionEntry = {
+  sessionId: "prompt-chat",
+  displayTitle:
+    "Can you add a parser for the plist files and make sure the tests pass on every platform we support, then update the app docs",
+  updatedAt: 5,
+};
+
+test("a chat named for a long prompt does not take @app from the files", () => {
+  const files = [{ path: "src/app.ts", matches: [4, 5, 6] }];
+  const items = mentionItems({ query: "app", files, sessions: [PROMPT_CHAT] });
+  // Its letters a…p…p are in order, and `app` is a word only past the first hundred characters.
+  expect(items.map((item) => item.key)).toEqual(["file:src/app.ts"]);
+  expect(items[mentionSelection(items, undefined, false)]!.key).toBe("file:src/app.ts");
+  expect(mentionItems({ query: "ts", files: [], sessions: [PROMPT_CHAT] })).toEqual([]);
+});
+
+test("a chat whose title has the word lists first; a path-like word lists the files first", () => {
+  const sessions: AcpmuxSessionEntry[] = [
+    PROMPT_CHAT,
+    { sessionId: "app-store", title: "App Store review notes", updatedAt: 1 },
+    { sessionId: "web-app", title: "Fix the web app login", updatedAt: 2 },
+    { sessionId: "mid-word", title: "Wrapped lines", updatedAt: 3 },
+  ];
+  const files = [{ path: "src/app.ts", matches: [4, 5, 6] }];
+  const keys = (query: string) => mentionItems({ query, files, sessions }).map((item) => item.key);
+  // A title starting with it first, then by how early the word is; `wrApped` is not a word start.
+  expect(keys("app")).toEqual(["session:app-store", "session:web-app", "file:src/app.ts"]);
+  expect(keys("app.")).toEqual(["file:src/app.ts"]);
+  expect(keys("src/")).toEqual(["file:src/app.ts"]);
+  const pathFirst = mentionItems({ query: "app.", files, sessions: [{ sessionId: "a", title: "app.ts crash" }] });
+  expect(pathFirst.map((item) => item.kind)).toEqual(["file", "session"]);
+});
+
+test("while the files are on their way a chat is listed but not picked unasked", () => {
+  const sessions: AcpmuxSessionEntry[] = [{ sessionId: "app-store", title: "App Store review notes" }];
+  const before = mentionItems({ query: "app", files: [], sessions });
+  expect(mentionSelection(before, undefined, true)).toBe(-1);
+  // Moving to it picks it; once the files land, the first row is the pick.
+  expect(mentionSelection(before, "session:app-store", true)).toBe(0);
+  const after = mentionItems({ query: "app", files: [{ path: "src/app.ts", matches: [4, 5, 6] }], sessions });
+  expect(mentionSelection(after, undefined, true)).toBe(1);
+  expect(mentionSelection(after, undefined, false)).toBe(0);
+});
+
+test("the row moved to stays picked when the files land around it", () => {
+  const sessions: AcpmuxSessionEntry[] = [
+    { sessionId: "app-store", title: "App Store review notes" },
+    { sessionId: "web-app", title: "Fix the web app login" },
+  ];
+  const before = mentionItems({ query: "app", files: [], sessions });
+  const after = mentionItems({ query: "app", files: [{ path: "app/main.ts", matches: [0, 1, 2] }], sessions });
+  expect(before[mentionSelection(before, "session:web-app", false)]!.key).toBe("session:web-app");
+  expect(after[mentionSelection(after, "session:web-app", false)]!.key).toBe("session:web-app");
+  // A row that is gone falls back to the first.
+  expect(mentionSelection(after, "file:gone.ts", false)).toBe(0);
+});
+
+test("a letter that lowercases longer does not move the bold letters after it", async () => {
+  const container = installDom();
+  // `İ` is one string unit and lowercases to two (`i̇`).
+  const sessions: AcpmuxSessionEntry[] = [{ sessionId: "istanbul", title: "İstanbul trip plan" }];
+  await render(container, mentionItems({ query: "trip", files: [], sessions }));
+  expect(bold(rows(container)[0]!)).toBe("trip");
+  await render(container, mentionItems({ query: "i̇stan", files: [], sessions }));
+  expect(bold(rows(container)[0]!)).toBe("İstan");
+  // A folder's name is matched the same way.
+  expect(fuzzyIndices("pl", "İ-pl")).toEqual([2, 3]);
+  expect(fuzzyIndices("ipl", "İxpxl")).toEqual([0, 2, 4]);
+});
+
+test("a chat title with a quote is written as one quoted string", () => {
+  const [item] = mentionItems({ query: "say", files: [], sessions: [{ sessionId: "q", title: 'Say "hi" \\ bye' }] });
+  const { shown } = mentionInsert(item!);
+  expect(shown).toBe('cmux session "Say \\"hi\\" \\\\ bye" (q) ');
+  expect(JSON.parse(shown.slice("cmux session ".length, shown.lastIndexOf(" (")))).toBe('Say "hi" \\ bye');
 });
