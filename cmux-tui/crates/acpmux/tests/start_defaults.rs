@@ -418,3 +418,41 @@ async fn codex_runs_the_model_its_config_names_even_one_the_catalog_does_not_lis
     assert_eq!(take_calls(&calls), set("gpt-6.1-sol", "high"));
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// cnx-ios full verify D4 (2026-10-19): an account whose Codex does not offer
+/// the catalog default (GPT-6.1 Sol) failed every prompt of a new chat. The
+/// catalog default applies only when the harness lists it; otherwise the chat
+/// starts on the harness's own default (its config's model).
+#[tokio::test]
+async fn a_catalog_default_the_harness_does_not_offer_is_not_used() {
+    let (dir, calls) = home("not-offered");
+    let mut config: Value =
+        serde_json::from_slice(&std::fs::read(dir.join("config.json")).unwrap()).unwrap();
+    config["harnesses"]["codex"]["env"]["FAKE_MODELS"] = json!("gpt-5.5,gpt-6-astra");
+    // Claude Code lists aliases, not the catalog's ids: the catalog default still applies.
+    config["harnesses"]["claude"]["env"]["FAKE_MODELS"] = json!("default,opus");
+    std::fs::write(dir.join("config.json"), serde_json::to_vec_pretty(&config).unwrap()).unwrap();
+    let daemon = hub(&dir);
+    let mut app = client(&daemon);
+
+    // The first chat learns the list; it never sets the model the account lacks.
+    app.new_chat("codex").await;
+    assert!(!take_calls(&calls).iter().any(|(k, v)| k == "model" && v == "gpt-6.1-sol"));
+    // Now the list is known: New Agent Chat says no start model, and none is set.
+    let harnesses = app.call("_acpmux/harnesses", json!({})).await;
+    assert!(
+        harnesses["harnesses"]["codex"]["start"]["model"].is_null(),
+        "{}",
+        harnesses["harnesses"]["codex"]["start"]
+    );
+    app.new_chat("codex").await;
+    assert!(!take_calls(&calls).iter().any(|(k, _)| k == "model"));
+    // A harness whose ids are not the catalog's (Claude Code's aliases) still starts on the catalog default.
+    app.new_chat("claude").await;
+    app.new_chat("claude").await;
+    assert_eq!(
+        take_calls(&calls).first(),
+        Some(&("model".to_owned(), "claude-opus-5-5".to_owned()))
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}

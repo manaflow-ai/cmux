@@ -783,6 +783,10 @@ def main():
                     result["modes"] = {"currentModeId": "default", "availableModes": [
                         {"id": "default", "name": "Default"}, {"id": "acceptEdits", "name": "Accept Edits"},
                         {"id": "plan", "name": "Plan Mode"}, {"id": "bypassPermissions", "name": "Bypass Permissions"}]}
+                # FAKE_MODELS=<id,id>: the models this account offers (ACP `models`), as Codex reports them.
+                if os.environ.get("FAKE_MODELS"):
+                    ids = os.environ["FAKE_MODELS"].split(",")
+                    result["models"] = {"currentModelId": ids[0], "availableModels": [{"modelId": i, "name": i} for i in ids]}
                 send({"jsonrpc": "2.0", "id": rid, "result": result})
             elif m == "session/set_model" and params.get("modelId") == os.environ.get("FAKE_REFUSE_ID"):
                 send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32602, "message": "model not available"}})
