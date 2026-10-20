@@ -10801,6 +10801,37 @@
         "required": true
       }
     },
+    "request:search-opened": {
+      "/target": {
+        "ty": "string",
+        "required": true
+      }
+    },
+    "request:search-query": {
+      "/budget_ms": {
+        "ty": "uint32",
+        "nullable": true
+      },
+      "/limit": {
+        "ty": "uint32",
+        "nullable": true
+      },
+      "/query": {
+        "ty": "string",
+        "required": true
+      },
+      "/scopes": {
+        "ty": "array"
+      },
+      "/scopes/*": {
+        "ty": "string"
+      },
+      "/workspace": {
+        "ty": "string",
+        "nullable": true
+      }
+    },
+    "request:search-stats": {},
     "request:select-screen": {
       "/delta": {
         "ty": "int64",
@@ -18802,6 +18833,130 @@
       }
     },
     "response:scroll-surface": {},
+    "response:search-opened": {},
+    "response:search-query": {
+      "/data/hits": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/hits/*": {
+        "ty": "object"
+      },
+      "/data/hits/*/at_ms": {
+        "ty": "int64",
+        "required": true
+      },
+      "/data/hits/*/highlights": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/hits/*/highlights/*": {
+        "ty": "object"
+      },
+      "/data/hits/*/highlights/*/end": {
+        "ty": "uint32",
+        "required": true
+      },
+      "/data/hits/*/highlights/*/start": {
+        "ty": "uint32",
+        "required": true
+      },
+      "/data/hits/*/is_name": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/hits/*/kind": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/hits/*/line": {
+        "ty": "uint32",
+        "required": true
+      },
+      "/data/hits/*/position": {
+        "ty": "int64",
+        "required": true,
+        "nullable": true
+      },
+      "/data/hits/*/score": {
+        "ty": "float64",
+        "required": true
+      },
+      "/data/hits/*/snippet": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/hits/*/source": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/hits/*/subtitle": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/hits/*/target": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/hits/*/tier": {
+        "ty": "uint16",
+        "required": true
+      },
+      "/data/hits/*/title": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/partial": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/took_us": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
+    "response:search-stats": {
+      "/data/blocks": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/contexts": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/docs": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/dropped": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/index_bytes": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/names": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/read_errors": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/resident_bytes": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/segments": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/text_bytes": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
     "response:select-screen": {},
     "response:select-tab": {},
     "response:select-workspace": {},
