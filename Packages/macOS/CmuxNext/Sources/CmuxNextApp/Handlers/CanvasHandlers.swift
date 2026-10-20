@@ -18,6 +18,26 @@ enum CanvasHandlers {
             guard let (content, pane) = canvasTarget(invocation, ctx) else { return }
             if !content.layoutModel.resetCanvasZoom(containing: pane) { ctx.refuseQuietly(RefusalStrings.canvasZoomLimit) }
         })
+        registry.bind("canvasOverview", invoke: { invocation in
+            guard let (content, pane) = canvasTarget(invocation, ctx) else { return }
+            if !content.layoutModel.toggleCanvasOverview(containing: pane) { ctx.refuseQuietly(RefusalStrings.canvasNothingToArrange) }
+        })
+        registry.bind("canvasRevealFocusedPane", invoke: { invocation in
+            guard let (content, pane) = canvasTarget(invocation, ctx) else { return }
+            content.layoutModel.revealCanvasPane(pane)
+        })
+        let arrangements: [(ActionID, CanvasArrangement)] = [
+            ("canvasTidy", .tidy), ("canvasAlignLeft", .alignLeft), ("canvasAlignRight", .alignRight), ("canvasAlignTop", .alignTop),
+            ("canvasAlignBottom", .alignBottom), ("canvasEqualizeWidths", .equalizeWidths), ("canvasEqualizeHeights", .equalizeHeights),
+            ("canvasDistributeHorizontally", .distributeHorizontally), ("canvasDistributeVertically", .distributeVertically),
+        ]
+        for (id, arrangement) in arrangements {
+            registry.bind(id, invoke: { invocation in
+                guard let (content, pane) = canvasTarget(invocation, ctx) else { return }
+                // The targeted (or focused) pane is the reference the equalize commands copy.
+                if !content.layoutModel.arrangeCanvas(arrangement, reference: pane) { ctx.refuseQuietly(RefusalStrings.canvasNothingToArrange) }
+            })
+        }
     }
 
     /// Shows the pane's screen as a canvas that starts where its panes show

@@ -60,6 +60,7 @@ extension LayoutModel {
     public func setCanvasCamera(_ camera: CanvasCamera, for screen: ScreenID) {
         guard var canvas = canvases[screen], canvas.camera != camera else { return }
         canvas.camera = camera
+        canvas.overviewReturn = nil
         canvases[screen] = canvas
     }
 
@@ -80,6 +81,47 @@ extension LayoutModel {
         return changeCamera(id, to: camera.zoomed(to: 1))
     }
 
+    /// Fits every pane of the canvas holding `pane` in its viewport, or,
+    /// from that overview, returns to the camera before it. Returns false
+    /// when there is no canvas.
+    @discardableResult
+    public func toggleCanvasOverview(containing pane: PaneID? = nil) -> Bool {
+        guard let id = canvasScreenID(containing: pane), var canvas = canvases[id] else { return false }
+        if let back = canvas.overviewReturn {
+            canvas.camera = back
+            canvas.overviewReturn = nil
+        } else {
+            guard let content = canvas.contentBounds, let viewport = canvasViewports[id] else { return false }
+            canvas.overviewReturn = canvas.camera
+            canvas.camera = canvas.camera.fitting(content, viewport: viewport, padding: CanvasScreen.gap * 2)
+        }
+        canvases[id] = canvas
+        return true
+    }
+
+    /// Pans the canvas the least that shows `pane` whole (default: the
+    /// focused pane). Returns false when the pane is not on a canvas.
+    @discardableResult
+    public func revealCanvasPane(_ pane: PaneID? = nil) -> Bool {
+        guard let pane = pane ?? focusedPane, let id = canvasScreenID(containing: pane), canvases[id]?.frames[pane] != nil else { return false }
+        revealOnCanvas(pane, screen: id)
+        return true
+    }
+
+    /// Arranges every pane of the canvas holding `pane` (`CanvasArranger`);
+    /// `pane` (default: the focused pane) is the equalize reference. Returns
+    /// false when there is no canvas or nothing moved.
+    @discardableResult
+    public func arrangeCanvas(_ arrangement: CanvasArrangement, reference pane: PaneID? = nil) -> Bool {
+        let reference = pane ?? focusedPane
+        guard let id = canvasScreenID(containing: reference), var canvas = canvases[id] else { return false }
+        let moved = CanvasArranger().frames(arrangement, in: canvas, reference: reference)
+        guard !moved.isEmpty else { return false }
+        canvas.setFrames(moved)
+        canvases[id] = canvas
+        return true
+    }
+
     /// The view of `screen` measured its viewport.
     public func reportCanvasViewport(_ size: CGSize, for screen: ScreenID) {
         guard canvases[screen] != nil else { return }
@@ -95,6 +137,7 @@ extension LayoutModel {
     private func changeCamera(_ id: ScreenID, to camera: CanvasCamera) -> Bool {
         guard var canvas = canvases[id], canvas.camera != camera else { return false }
         canvas.camera = camera
+        canvas.overviewReturn = nil
         canvases[id] = canvas
         return true
     }

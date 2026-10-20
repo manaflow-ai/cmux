@@ -23,6 +23,9 @@ public nonisolated struct CanvasScreen: Hashable, Sendable {
     public private(set) var order: [PaneID]
     /// What the screen shows of the canvas.
     public var camera: CanvasCamera
+    /// The camera before Canvas Overview fitted every pane: a second overview
+    /// returns to it. Nil when the canvas is not in its overview.
+    public var overviewReturn: CanvasCamera?
 
     /// A canvas with `frames`, stacked in `order` (default: by pane id) and
     /// shown through `camera`.

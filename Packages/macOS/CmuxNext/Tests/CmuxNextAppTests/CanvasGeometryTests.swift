@@ -76,4 +76,22 @@ struct CanvasGeometryTests {
         #expect(handles.hit(CGPoint(x: 300, y: 200)) == nil, "inside the pane is the pane's")
         #expect(handles.hit(CGPoint(x: 20, y: 20)) == nil, "the empty canvas pans")
     }
+
+    @Test func tidyRowsPanesByCenterAndKeepsTheirSizes() {
+        // a and b share a row (b's center is above a's bottom); c starts the next one.
+        let canvas = CanvasScreen(frames: [a: CGRect(x: 50, y: 50, width: 300, height: 200), b: CGRect(x: 700, y: 90, width: 200, height: 200),
+                                           c: CGRect(x: 10, y: 600, width: 100, height: 100)])
+        let moved = CanvasArranger().frames(.tidy, in: canvas)
+        // The grid starts at the leftmost and topmost edges (c's x, a's y).
+        #expect(moved[a] == CGRect(x: 10, y: 50, width: 300, height: 200))
+        #expect(moved[b] == CGRect(x: 326, y: 50, width: 200, height: 200))
+        #expect(moved[c] == CGRect(x: 10, y: 266, width: 100, height: 100))
+    }
+
+    @Test func equalizeCopiesTheReferenceElseTheLargest() {
+        let canvas = CanvasScreen(frames: [a: CGRect(x: 0, y: 0, width: 300, height: 100), b: CGRect(x: 400, y: 0, width: 500, height: 200)])
+        #expect(CanvasArranger().frames(.equalizeWidths, in: canvas, reference: a) == [b: CGRect(x: 400, y: 0, width: 300, height: 200)])
+        #expect(CanvasArranger().frames(.equalizeHeights, in: canvas) == [a: CGRect(x: 0, y: 0, width: 300, height: 200)])
+        #expect(CanvasArranger().frames(.alignTop, in: CanvasScreen(frames: [a: .zero])).isEmpty, "one pane has nothing to arrange")
+    }
 }

@@ -263,137 +263,6 @@
         }
       }
     },
-    "handlers.refusal.canvasUnported": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "needs canvas layout, which cmux-next does not have yet"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "キャンバスレイアウトが必要ですが、cmux-next にはまだありません"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "يتطلب تخطيط اللوحة، وهو غير متوفر في cmux-next بعد"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "potreban je raspored platna, koji cmux-next još nema"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "kræver lærredslayout, som cmux-next endnu ikke har"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "erfordert Canvas-Layout, das cmux-next noch nicht hat"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "requiere la disposición de lienzo, que cmux-next aún no tiene"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "nécessite la disposition en canevas, absente de cmux-next pour l’instant"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "richiede il layout canvas, non ancora presente in cmux-next"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ត្រូវការប្លង់ Canvas ដែល cmux-next មិនទាន់មាន"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "캔버스 레이아웃이 필요하지만 cmux-next에는 아직 없음"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "krever lerretoppsett, som cmux-next ikke har ennå"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "wymaga układu kanwy, którego cmux-next jeszcze nie ma"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "requer layout de canvas, que o cmux-next ainda não tem"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "нужен макет холста, которого в cmux-next пока нет"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ต้องใช้เลย์เอาต์แคนวาส ซึ่ง cmux-next ยังไม่มี"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "kanvas yerleşimi gerekiyor; cmux-next’te henüz yok"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "потрібен макет полотна, якого cmux-next ще не має"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cần bố cục canvas, cmux-next chưa có"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "需要画布布局，但 cmux-next 尚不支持"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "需要畫布佈局，但 cmux-next 尚未提供"
-          }
-        }
-      }
-    },
     "handlers.refusal.closedTabPaneGone": {
       "extractionState": "manual",
       "localizations": {
@@ -27379,6 +27248,137 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "畫布已是該縮放比例"
+          }
+        }
+      }
+    },
+    "handlers.refusal.canvasNothingToArrange": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "nothing to arrange: the canvas needs two panes that this would move"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "整列するものがありません。この操作で動くペインが 2 つ以上必要です"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا شيء لترتيبه: تحتاج اللوحة إلى جزأين يحركهما هذا الأمر"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "nema šta da se rasporedi: platnu trebaju dva okna koja bi ovo pomjerilo"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "intet at arrangere: lærredet skal have to ruder, som dette ville flytte"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "nichts anzuordnen: der Canvas braucht zwei Bereiche, die dies verschieben würde"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "nada que ordenar: el lienzo necesita dos paneles que esto movería"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "rien à disposer : le canevas doit avoir deux volets que cette commande déplacerait"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "niente da disporre: il canvas deve avere due riquadri che questo sposterebbe"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "គ្មានអ្វីត្រូវរៀបចំទេ៖ Canvas ត្រូវការផ្ទាំងពីរដែលពាក្យបញ្ជានេះនឹងផ្លាស់ទី"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "정렬할 항목 없음: 캔버스에 이 명령으로 이동할 창이 두 개 필요함"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ingenting å ordne: lerretet trenger to ruter som dette ville flytte"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "nic do uporządkowania: kanwa potrzebuje dwóch paneli, które to przesunie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "nada para organizar: o canvas precisa de dois painéis que isto moveria"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "нечего упорядочивать: на холсте нужны две панели, которые это сдвинет"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่มีอะไรให้จัด: แคนวาสต้องมีสองบานที่คำสั่งนี้จะย้าย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "düzenlenecek bir şey yok: kanvasta bunun taşıyacağı iki bölme olmalı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "нічого впорядковувати: на полотні потрібні дві панелі, які це перемістить"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "không có gì để sắp xếp: canvas cần hai ô mà lệnh này sẽ di chuyển"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "没有可排列的内容：画布需要两个会被移动的窗格"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "沒有可排列的內容：畫布需要兩個會被移動的窗格"
           }
         }
       }

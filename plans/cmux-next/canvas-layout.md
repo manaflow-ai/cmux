@@ -1,6 +1,6 @@
 # Canvas layout (cmux-next)
 
-Status: in progress (INVENTORY row 31). Owner slug: `canvas-layout`.
+Status: slices 1 to 3 landed (INVENTORY row 31): every canvas action works. Slice 4 is open. Owner slug: `canvas-layout`.
 
 Classic cmux has a freeform canvas (#5987, `docs/canvas-layout-design.md` on
 `main`, packages `CmuxCanvas` and `CmuxCanvasUI`): every pane of a workspace is
@@ -16,7 +16,8 @@ strip's scroll offset: the App keeps it, the daemon does not know it.
 
 - `LayoutModel.canvases: [ScreenID: CanvasScreen]` holds, per screen in canvas
   mode, each pane's frame in canvas points, the z-order and the camera
-  (`CanvasCamera`: the canvas point at the viewport center and the zoom).
+  (`CanvasCamera`: the canvas point at the viewport center and the zoom), and the
+  camera to return to from Canvas Overview.
 - Panes still come from the daemon. Every `apply(screens:)` reconciles each
   canvas with its screen's panes: a pane that left drops its frame, a new pane
   (a split, a tab moved out, another client's change) gets a free frame next to
@@ -101,6 +102,11 @@ target on a canvas screen implies it (`registry.targetContext`).
 
 ## Not done (yet)
 
+- Persistence across relaunch (slice 4): a relaunch shows the daemon layout.
 - Snapping guides while dragging (classic had them).
 - A canvas minimap.
 - Sync of the arrangement between clients (`canvas-v1`).
+- Chromium pages are child windows: at a zoom other than 1 they keep their
+  size in points while their pane scales (WebKit pages and terminals scale).
+- Pane chrome on a canvas is the gap band (cursor rects show where); there is
+  no drawn title bar.
