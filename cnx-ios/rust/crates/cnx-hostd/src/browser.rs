@@ -789,6 +789,57 @@ mod tests {
         assert_eq!(stop, serde_json::json!({"type": "browser_stop", "tab": "s6"}));
     }
 
+    struct Alive;
+    impl HostGuard for Alive {
+        fn alive(&mut self) -> bool {
+            true
+        }
+    }
+
+    fn fake_launcher() -> Launcher {
+        Arc::new(|_request: LaunchRequest| {
+            Box::pin(async {
+                Ok(RunningHost {
+                    addr: "127.0.0.1:9".parse().unwrap(),
+                    secret: "s".into(),
+                    guard: Box::new(Alive),
+                })
+            })
+        })
+    }
+
+    /// transport-verify-20261019.md defect 7: the host limit stopped the
+    /// shown tab's page. A host the phone shows is stopped last, and its
+    /// viewer hears `evicted` (the page reopens), not `replaced`.
+    #[tokio::test]
+    async fn the_host_limit_stops_a_hidden_tab_before_the_shown_one() {
+        let config = BrowserConfig::new(Some(fake_launcher()), 2);
+        let shown = config.claim("s1", "about:blank").await.unwrap();
+        let mut hidden = config.claim("s2", "about:blank").await.unwrap();
+        // s2 opened last (it was used more recently), but the phone hides it.
+        hidden.visible.store(false, std::sync::atomic::Ordering::SeqCst);
+        let _third = config.claim("s3", "about:blank").await.unwrap();
+        assert_eq!(config.running_tabs().await, vec!["s1".to_owned(), "s3".to_owned()]);
+        assert_eq!(hidden.stopped.try_recv(), Ok(Stop::Evicted));
+        drop(shown);
+    }
+
+    #[tokio::test]
+    async fn a_second_viewer_of_a_tab_replaces_the_first() {
+        let config = BrowserConfig::new(Some(fake_launcher()), 2);
+        let mut first = config.claim("s1", "about:blank").await.unwrap();
+        let _second = config.claim("s1", "about:blank").await.unwrap();
+        assert_eq!(first.stopped.try_recv(), Ok(Stop::Replaced));
+    }
+
+    #[test]
+    fn the_phone_says_which_tab_is_shown() {
+        assert_eq!(visibility(&rb(serde_json::json!({"t": "rb.visibility", "visible": true}))), Some(true));
+        assert_eq!(visibility(&rb(serde_json::json!({"t": "rb.visibility", "visible": false}))), Some(false));
+        assert_eq!(visibility(&rb(serde_json::json!({"t": "rb.screen", "visible": true}))), None);
+        assert_eq!(visibility(b"not json"), None);
+    }
+
     #[test]
     fn tabs_and_urls() {
         assert!(valid_tab("s12"));

@@ -39,4 +39,17 @@ import Testing
         #expect(TransportKind.webrtc.pickerTitle == "WebRTC only")
         #expect(TransportKind.webrtc.title == "WebRTC only")
     }
+
+    /// transport-verify-20261019.md defect 4: Block UDP is a WireGuard dial
+    /// policy (WebRTC ignores it), so the Settings root never says a WebRTC
+    /// link has UDP blocked.
+    @Test func theSettingsValueNamesOnlyTheDebugPoliciesThatApply() {
+        #expect(TransportKind.webrtc.settingsValue(blockUDP: true, relayOnly: false) == "WebRTC only")
+        #expect(TransportKind.webrtc.settingsValue(blockUDP: true, relayOnly: true) == "WebRTC only, relay only")
+        #expect(TransportKind.webrtc.settingsValue(blockUDP: false, relayOnly: true) == "WebRTC only, relay only")
+        #expect(TransportKind.wireguard.settingsValue(blockUDP: true, relayOnly: false) == "WireGuard, UDP blocked")
+        #expect(TransportKind.wireguard.settingsValue(blockUDP: true, relayOnly: true) == "WireGuard, UDP blocked")
+        #expect(TransportKind.wireguard.settingsValue(blockUDP: false, relayOnly: true) == "WireGuard, relay only")
+        #expect(TransportKind.wireguard.settingsValue(blockUDP: false, relayOnly: false) == "WireGuard")
+    }
 }
