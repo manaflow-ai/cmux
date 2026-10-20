@@ -10,8 +10,9 @@ nonisolated extension AcpmuxPaneMethods {
         // `noProject` is the pane's own (Do not work in a project): AcpmuxPathPolicy reads and strips it.
         "session/new": (["cwd", "mcpServers", "_meta"], ["harness", "adopt", "peer", "noProject"]),
         // `context`: a chat's workspace context on its first prompt (cx-ihyx2); acpmux sends it to the
-        // agent and keeps it out of the transcript text.
-        "session/prompt": (["sessionId", "prompt", "_meta"], ["promptId", "steer", "interrupt", "context"]),
+        // agent and keeps it out of the transcript text. `queue`: Enter mid-turn waits behind the turn
+        // (acpmux stops a running turn for a prompt that does not ask to queue).
+        "session/prompt": (["sessionId", "prompt", "_meta"], ["promptId", "steer", "interrupt", "queue", "context"]),
         "session/set_model": (["sessionId", "modelId"], []),
         "session/cancel": (["sessionId"], []),
         // `limit`: the newest page of the session list, the rest by `_acpmux/sessions` `cursor` (cx-2lv1k).
