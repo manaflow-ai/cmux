@@ -23,10 +23,17 @@ nonisolated enum ContextMenuEssentials {
                                   .action("workspace.newBelow"), .folder(.move, [])],
                             group: [.choices("moveWorkspaceToGroup"), .action("groupSelectedWorkspaces"), .action("removeWorkspaceFromGroup")],
                             close: ["closeWorkspace"]),
-        .tab: Rows(top: [.action("tab.restart"), .action("renameTab"), .action("palette.toggleTabPin"), .action("newTab.toRight"),
-                         .action("duplicateTab")],
-                   group: [.action("tabGroup.create"), .action("tabGroup.addTab"), .action("tabGroup.removeTab")],
-                   close: ["closeTab"]),
+        // Chrome's tab menu, in its order (`TabMenuModel::Build`, Leo 2026-10-19: "make sure that
+        // chrome right click tab situation works"): New Tab to the Right and the group rows; Reload,
+        // Duplicate, Pin, Mute; More; then Close Tab, Close Other Tabs and Close Tabs to the Right.
+        // A page-only row (Reload, Mute) leaves a terminal's menu. The 12-row cap
+        // (everyMenuKeepsAShortTopLevel, Lawrence 2026-10-01) leaves Chrome's Move Tab to New
+        // Window in More > Move, with cmux's Rename, Back to Pinned Page and Restart (the dead
+        // tab's overlay also has Restart).
+        .tab: Rows(top: [.action("newTab.toRight"), .action("tabGroup.create"), .action("tabGroup.addTab"), .action("tabGroup.removeTab"),
+                         .separator,
+                         .action("reloadTab"), .action("duplicateTab"), .action("palette.toggleTabPin"), .action("toggleTabAudioMute")],
+                   close: ["closeTab", "closeOtherTabsInPane", "closeTabsToRight"]),
         // Split Left and Split Up sit in Split beside Split Right and Split Down (menu audit S1).
         .pane: Rows(top: [.action("splitRight"), .action("splitDown"), .folder(.split, []), .action("toggleSplitZoom"), .action("renamePane")],
                     close: ["closePane"]),

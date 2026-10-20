@@ -56,11 +56,13 @@ public nonisolated struct PublicSuffixList: Sendable {
 
     /// The registrable domain of `host`: its public suffix plus one label,
     /// lowercased. Nil for a public suffix itself, a single label, an IP
-    /// literal, a non-ASCII host (pass punycode), or a malformed host.
+    /// literal, a non-ASCII host (pass punycode), a malformed host, or any
+    /// host when the list is empty.
     /// - Parameter host: A host name, any case, with or without a trailing dot.
     /// - Returns: The registrable domain, or nil.
     public func registrableDomain(of host: String) -> String? {
-        guard let labels = Self.labels(of: host) else { return nil }
+        // An empty list (a missing resource) decides nothing: without it "co.uk" would be a site.
+        guard ruleCount > 0, let labels = Self.labels(of: host) else { return nil }
         let suffixLength = publicSuffixLength(labels)
         guard labels.count > suffixLength else { return nil }
         return labels.suffix(suffixLength + 1).joined(separator: ".")

@@ -38,8 +38,7 @@
               "appearance.metrics.tabMinInactiveWidth",
               "appearance.metrics.tabPinnedWidth",
               "tabs.cmdWClosesPinnedTabs",
-              "tabs.swapCmdTAndCmdN",
-              "tabs.newTabNowPlaying"
+              "tabs.swapCmdTAndCmdN"
             ],
             "title" : {
               "key" : "settings.group.tabs",
@@ -630,24 +629,6 @@
               "key" : "settings.group.editorSaving",
               "text" : "Saving"
             }
-          },
-          {
-            "key" : "settings.group.markdownViewer",
-            "rows" : [
-              "markdown.layout.width",
-              "markdown.layout.fullWidth",
-              "markdown.font.size",
-              "markdown.font.preset",
-              "markdown.font.lineHeight",
-              "markdown.spacing.paragraph",
-              "markdown.code.scale",
-              "markdown.tables",
-              "markdown.theme"
-            ],
-            "title" : {
-              "key" : "settings.group.markdownViewer",
-              "text" : "Markdown Viewer"
-            }
           }
         ],
         "id" : "editor",
@@ -915,6 +896,16 @@
             }
           },
           {
+            "key" : "settings.group.agentInput",
+            "rows" : [
+              "browser.showAgentCursor"
+            ],
+            "title" : {
+              "key" : "settings.group.agentInput",
+              "text" : "Agent Input"
+            }
+          },
+          {
             "key" : "settings.group.extensions",
             "rows" : [
               "browser.builtInAdBlocker"
@@ -955,7 +946,8 @@
             "rows" : [
               "browser.passwords.offerToSave",
               "browser.passwords.generate",
-              "browser.passwords.allowExport"
+              "browser.passwords.allowExport",
+              "browser.verificationAutofill.enabled"
             ],
             "title" : {
               "key" : "settings.group.passwords",
@@ -19448,7 +19440,7 @@
       },
       "help" : {
         "key" : "settings.sidebar.nowPlaying.enabled.help",
-        "text" : "A player for what is playing, at the bottom of the sidebar."
+        "text" : "A player for what is playing, at the bottom of the sidebar and on the new chat page."
       },
       "kept_on_reset_all" : false,
       "key" : "sidebar.nowPlaying.enabled",
@@ -19478,57 +19470,6 @@
       "title" : {
         "key" : "settings.sidebar.nowPlaying.enabled",
         "text" : "Show Now Playing"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        true,
-        false
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : true,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.tabs",
-        "text" : "Tabs"
-      },
-      "help" : {
-        "key" : "settings.tabs.newTabNowPlaying.help",
-        "text" : "A player for what is playing, on the New Tab page."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "tabs.newTabNowPlaying",
-      "keywords" : [
-        "music",
-        "now playing",
-        "player",
-        "media",
-        "spotify",
-        "song",
-        "new tab",
-        "new chat"
-      ],
-      "kind" : "toggle",
-      "page_hidden" : false,
-      "path" : [
-        "tabs",
-        "newTabNowPlaying"
-      ],
-      "refuses" : [
-        "true",
-        1,
-        null
-      ],
-      "section" : "general",
-      "summary" : null,
-      "title" : {
-        "key" : "settings.tabs.newTabNowPlaying",
-        "text" : "Show Now Playing on New Tab"
       },
       "validation" : "portable"
     },
@@ -26272,7 +26213,7 @@
         "magic link"
       ],
       "kind" : "toggle",
-      "page_hidden" : true,
+      "page_hidden" : false,
       "path" : [
         "browser",
         "verificationAutofill",
