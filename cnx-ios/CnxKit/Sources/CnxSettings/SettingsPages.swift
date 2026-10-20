@@ -399,7 +399,7 @@ struct TransportPage: View {
                     } label: {
                         HStack(spacing: 12) {
                             VStack(alignment: .leading, spacing: 2) {
-                                UnbrokenText(kind.title).foregroundStyle(theme.colors.label)
+                                UnbrokenText(kind.pickerTitle).foregroundStyle(theme.colors.label)
                                 UnbrokenText(Self.subtitle(kind), style: .footnote).foregroundStyle(theme.colors.label2)
                             }
                             Spacer(minLength: 8)
@@ -453,8 +453,8 @@ struct TransportPage: View {
 
     static func subtitle(_ kind: TransportKind) -> String {
         switch kind {
-        case .webrtc: String(localized: "Direct when possible, relay otherwise. Recommended.")
-        case .wireguard: String(localized: "Encrypted tunnel to your Mac, relay when needed.")
+        case .wireguard: String(localized: "Encrypted tunnel to your Mac. Browser tabs stream over WebRTC when that is faster.")
+        case .webrtc: String(localized: "Everything over one WebRTC connection, direct when possible.")
         }
     }
 }

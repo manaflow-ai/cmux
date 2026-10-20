@@ -54,7 +54,11 @@ public struct StreamedBrowserPage: View {
         .padding(.top, insets.top)
         .padding(.bottom, insets.bottom)
         .background(Color.black)
-        .onAppear { model.reconnect() }
+        .onAppear {
+            model.setVisible(true)
+            model.reconnect()
+        }
+        .onDisappear { model.setVisible(false) }
     }
 
     /// An honest state, with the page in Safari on this iPhone when it has a web address.

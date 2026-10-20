@@ -16,6 +16,7 @@ public final class StreamedBrowserDirectory {
     }
 
     private var models: [String: StreamedBrowserModel] = [:]
+    private var lastWarm: ContinuousClock.Instant?
 
     public init() {}
 
@@ -25,13 +26,29 @@ public final class StreamedBrowserDirectory {
     /// first page), or nil when not linked.
     public func model(tab: String, url: URL?) -> StreamedBrowserModel? {
         guard let opener else { return nil }
-        if let model = models[tab] { return model }
+        if let model = models[tab] {
+            warmMedia()
+            return model
+        }
         let model = StreamedBrowserModel(tab: tab, url: url) { sink in
             guard let link = await opener() else { throw LinkError(code: "no-link", message: "Not connected to the Mac") }
             return try await link.openBrowser(tab: tab, url: url?.absoluteString, sink: sink)
         }
         models[tab] = model
+        warmMedia()
         return model
+    }
+
+    /// A workspace with browser tabs is shown: the WebRTC media session
+    /// beside a WireGuard link opens before the first tab needs it.
+    private func warmMedia() {
+        // A warm-up lasts a minute on the link; at most one ask per 20 s.
+        let now = ContinuousClock.now
+        if let lastWarm, now - lastWarm < .seconds(20) { return }
+        lastWarm = now
+        guard let opener else { return }
+        // task-owner: fire and forget; the link ignores it without a media session
+        Task { await opener()?.warmMedia() }
     }
 
     /// The tab closed on the phone.
@@ -42,6 +59,8 @@ public final class StreamedBrowserDirectory {
     /// A new link: dropped streams come back.
     public func linkChanged() {
         for model in models.values { model.reconnect() }
+        lastWarm = nil
+        if !models.isEmpty { warmMedia() }
     }
 
     public func reset() {

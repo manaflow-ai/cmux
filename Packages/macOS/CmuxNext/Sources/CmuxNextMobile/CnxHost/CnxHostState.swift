@@ -60,6 +60,13 @@ public struct CnxHostState: Sendable, Equatable {
                 moved.path = path
                 return moved
             }
+        case .phoneMedia(let session, let media):
+            phones = phones.map { link in
+                guard link.sessionID == session else { return link }
+                var moved = link
+                moved.mediaPath = media
+                return moved
+            }
         case .phoneDown(let session, _):
             phones.removeAll { $0.sessionID == session }
         }

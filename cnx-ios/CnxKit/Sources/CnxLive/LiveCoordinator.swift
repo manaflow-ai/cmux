@@ -1216,6 +1216,7 @@ public final class LiveCoordinator {
     private func observeLink() {
         withObservationTracking {
             _ = link.phase
+            _ = link.media
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 self?.phaseChanged()
@@ -1259,7 +1260,7 @@ public final class LiveCoordinator {
         updateMacState(phase, target: target)
         var status = store.macLinkStatus
         status = [:]
-        if let target, let line = phase.statusLine(macName: target.name) {
+        if let target, let line = phase.statusLine(macName: target.name, media: link.media) {
             var parts = [line]
             if phase.isConnected, let chatsError { parts.append("Chats: \(chatsError)") }
             if outdatedMacs.contains(target.macID) { parts.append("Update cmux on this Mac") }

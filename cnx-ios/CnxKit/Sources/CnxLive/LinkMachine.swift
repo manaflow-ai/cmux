@@ -45,6 +45,8 @@ public struct LinkMachine: Sendable {
         case dialFailed(generation: Int, reason: String)
         /// The link reported a new path or RTT.
         case linkUpdated(generation: Int, path: LinkPathKind, rttMillis: UInt32?)
+        /// The WebRTC media session beside a WireGuard link changed.
+        case mediaUpdated(generation: Int, VideoMediaState)
         case linkDropped(generation: Int, reason: String)
         case retryDue(generation: Int)
         /// The app came to the foreground (or the network came back).
@@ -69,6 +71,8 @@ public struct LinkMachine: Sendable {
     /// Debug "simulate a network that blocks UDP": WireGuard rides TURN over TLS.
     public private(set) var blockUDP: Bool
     public private(set) var generation = 0
+    /// The current link's WebRTC media session (browser video), `off` between links.
+    public private(set) var media: VideoMediaState = .off
     /// Retry delays in seconds after the silent retries; the last one repeats.
     public var backoff: [Int] = [1, 2, 4, 8, 15, 30]
     /// Failed dials retried at once, before any failure shows.
@@ -120,6 +124,10 @@ public struct LinkMachine: Sendable {
             guard gen == generation, case .connected(let kind, _, let oldRTT) = phase else { return [] }
             phase = .connected(kind, path, rttMillis: rtt ?? oldRTT)
             return []
+        case .mediaUpdated(let gen, let state):
+            guard gen == generation, phase.isConnected else { return [] }
+            media = state
+            return []
         case .linkDropped(let gen, _), .probeFailed(let gen, _):
             guard gen == generation, case .connected = phase else { return [] }
             // Redial at once; a failure then takes the usual retry path.
@@ -146,6 +154,7 @@ public struct LinkMachine: Sendable {
     private mutating func reset(to next: Phase) -> [Effect] {
         let wasActive = isActive
         generation += 1
+        media = .off
         phase = next
         return wasActive ? [.close] : []
     }
@@ -154,6 +163,7 @@ public struct LinkMachine: Sendable {
         guard let target else { return [] }
         let wasActive = isActive
         generation += 1
+        media = .off
         phase = .connecting(transport, attempt: attempt)
         let effects: [Effect] = [.dial(generation: generation, macID: target.macID, transport: transport)]
         return closing && wasActive ? [.close] + effects : effects
@@ -161,6 +171,7 @@ public struct LinkMachine: Sendable {
 
     private mutating func wait(attempt: Int, reason: String) -> [Effect] {
         generation += 1
+        media = .off
         let seconds = backoff[min(max(attempt - 1 - Self.silentRetries, 0), backoff.count - 1)]
         phase = .waiting(transport, attempt: attempt, reason: reason, retryIn: .seconds(seconds))
         return [.scheduleRetry(generation: generation, after: .seconds(seconds))]
@@ -168,15 +179,18 @@ public struct LinkMachine: Sendable {
 }
 
 extension LinkMachine.Phase {
-    /// One line for the Mac's section header and Settings ("Connected · WireGuard relay · 27 ms").
-    public func statusLine(macName: String) -> String? {
+    /// One line for the Mac's section header and Settings ("Connected ·
+    /// WireGuard direct · video WebRTC (TURN) · 27 ms"); `media` is the
+    /// WebRTC media session beside a WireGuard link.
+    public func statusLine(macName: String, media: VideoMediaState = .off) -> String? {
         switch self {
         case .idle: nil
         case .macOffline: "\(macName) is offline"
         case .connecting(let transport, let attempt):
             attempt > 1 ? "Reconnecting over \(transport.displayName)…" : "Connecting over \(transport.displayName)…"
         case .connected(let transport, let path, let rtt):
-            ["Connected", "\(transport.displayName) \(path.displayName)", rtt.map { "\($0) ms" }].compactMap { $0 }.joined(separator: " · ")
+            ["Connected", "\(transport.displayName) \(path.displayName)", media.statusLabel, rtt.map { "\($0) ms" }]
+                .compactMap { $0 }.joined(separator: " · ")
         case .waiting(let transport, _, let reason, let retryIn):
             "\(transport.displayName) failed: \(reason) · retrying in \(retryIn.components.seconds) s"
         }
