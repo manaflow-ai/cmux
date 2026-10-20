@@ -17,10 +17,11 @@
 //!   (`<folder>/.cmux/harnesses/<id>.toml`) other than the caller's own
 //!   counts as full access: its command is the folder's, not the caller's.
 //! - The folder: resolved once, then allowed under the person's own
-//!   `trusted` decision (the nearest one wins over anything farther up), or
-//!   inside the caller's own folder or under a folder Claude Code and Codex
-//!   both trust when no folder from it up to `/` is untrusted. A trust record
-//!   that cannot be read refuses.
+//!   `trusted` decision in cmux (the nearest one wins over anything farther
+//!   up), or inside the caller's own folder when no folder from it up to `/`
+//!   is untrusted. Trust the person did not decide (Claude Code's and
+//!   Codex's, or another chat's agent-home folder) counts only for a caller
+//!   in full access. A trust record that cannot be read refuses.
 
 use super::*;
 use std::path::Path;
@@ -107,29 +108,33 @@ pub(super) fn asks_less(why: &str) -> RpcError {
 }
 
 /// Whether `folder` passes the trust walk (module docs) for a caller in
-/// `mine` (its own folder, resolved). Reads files: run off the runtime.
+/// `mine` (its own folder, resolved), `caller_full` when it runs in full
+/// access. Reads files: run off the runtime.
 fn folder_allowed(
     paths: &crate::trust::Paths,
     folder: &Path,
     mine: Option<&Path>,
+    caller_full: bool,
 ) -> Result<(), RpcError> {
-    let mut allowed = false;
+    let unreadable = |shown: &str, why: String| {
+        refusal(
+            "subsessions.trust_unreadable",
+            format!(
+                "start_session refused: the trust of {shown} could not be read ({why}), so no session starts in {}",
+                folder.display()
+            ),
+            json!({"cwd": folder}),
+        )
+    };
+    let why = |e: crate::trust::Failure| match e {
+        crate::trust::Failure::Invalid(m) | crate::trust::Failure::Record(m) => m,
+    };
+    let (mut inside_own, mut inherited) = (false, false);
     for dir in folder.ancestors() {
         let shown = dir.to_string_lossy();
-        let trust = crate::trust::get(paths, &shown).map_err(|e| {
-            let why = match e {
-                crate::trust::Failure::Invalid(m) | crate::trust::Failure::Record(m) => m,
-            };
-            refusal(
-                "subsessions.trust_unreadable",
-                format!(
-                    "start_session refused: the trust of {shown} could not be read ({why}), so no session starts in {}",
-                    folder.display()
-                ),
-                json!({"cwd": folder}),
-            )
-        })?;
-        let decided = trust["decided"].as_bool() == Some(true);
+        let trust = crate::trust::get(paths, &shown).map_err(|e| unreadable(&shown, why(e)))?;
+        let person =
+            crate::trust::person_decision(paths, &shown).map_err(|e| unreadable(&shown, why(e)))?;
         match trust["level"].as_str() {
             Some("untrusted") => {
                 return Err(refusal(
@@ -141,21 +146,23 @@ fn folder_allowed(
                     json!({"cwd": folder, "untrusted": shown}),
                 ));
             }
-            Some("trusted") if decided => return Ok(()),
-            Some("trusted") => allowed = true,
+            // The person's own decision, the nearest one, ends the walk.
+            _ if person == Some(crate::trust::Level::Trusted) => return Ok(()),
+            // Claude Code's and Codex's, or an agent-home folder's.
+            Some("trusted") => inherited = true,
             _ => {}
         }
         if mine == Some(dir) {
-            allowed = true;
+            inside_own = true;
         }
     }
-    if allowed {
+    if inside_own || (caller_full && inherited) {
         return Ok(());
     }
     Err(refusal(
         "subsessions.folder_unknown",
         format!(
-            "start_session refused: {} is outside this session's folder, and the user has not trusted it. Ask the user to trust it in cmux or to start the session there.",
+            "start_session refused: {} is outside this session's folder, and the user has not trusted it in cmux. Ask the user to trust it in cmux or to start the session there.",
             folder.display()
         ),
         json!({"cwd": folder}),
@@ -243,7 +250,8 @@ impl Hub {
         };
         let folder = folder.to_path_buf();
         let mine = std::fs::canonicalize(&pm.cwd).ok();
-        tokio::task::spawn_blocking(move || folder_allowed(&paths, &folder, mine.as_deref()))
+        let full = self.caller_access(pm) == Access::Full;
+        tokio::task::spawn_blocking(move || folder_allowed(&paths, &folder, mine.as_deref(), full))
             .await
             .map_err(|e| RpcError::internal(e.to_string()))?
     }

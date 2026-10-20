@@ -32,9 +32,11 @@
 //! - Its folder is resolved once (a path that does not resolve is refused);
 //!   that folder is what is checked and what the session (or its worktree)
 //!   gets, and a child that reports another folder is closed. It must be
-//!   inside the parent's folder or trusted: the trust walk reads every
-//!   folder up to `/`, and an untrusted one refuses unless the person's own
-//!   nearer `trusted` decision ended the walk.
+//!   inside the parent's folder or one the person trusted in cmux: the
+//!   trust walk reads every folder up to `/`, and an untrusted one refuses
+//!   unless the person's own nearer `trusted` decision ended the walk.
+//!   Claude Code's or Codex's trust, or an agent-home folder, counts only
+//!   for a parent in full access.
 //! - It runs the parent's effective permission policy (one the parent does
 //!   not name is the daemon default; one acpmux cannot parse is `ask`).
 //! - On the same harness family it starts in the parent's current mode (the

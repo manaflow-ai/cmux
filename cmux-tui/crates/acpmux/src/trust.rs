@@ -176,6 +176,13 @@ pub fn get(paths: &Paths, cwd: &str) -> Result<Value, Failure> {
     }))
 }
 
+/// The person's own decision for `cwd` in acpmux's record, or None: never an
+/// agent's level, and never the agent-home rule.
+pub fn person_decision(paths: &Paths, cwd: &str) -> Result<Option<Level>, Failure> {
+    let cwd = normalize_cwd(cwd).map_err(Failure::Invalid)?;
+    Ok(read_record(&paths.record)?.get(&cwd).and_then(|level| Level::parse(level)))
+}
+
 /// Whether `cwd` (normalized: canonical when it exists) is an agent-home folder the app made: a
 /// real folder that is a direct child of the canonical `root`, holding the app's marker as a
 /// regular file. A symlink in agent-home resolves to its target, which is then no child of the
