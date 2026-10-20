@@ -28,6 +28,14 @@ nonisolated enum AcpmuxDaemonLauncher {
     /// closes it before it starts any agent; the key never goes into argv or the environment.
     static let personKeyDescriptor: Int32 = 4
 
+    /// Process basics that are safe for a Team-signed helper to inherit. Its
+    /// login-environment loader supplies user tool and credential variables
+    /// after start; the app process's unrelated capabilities never cross the
+    /// unverified launch boundary.
+    private static let signedInheritedKeys: Set<String> = [
+        "HOME", "LANG", "LOGNAME", "PATH", "SHELL", "TMPDIR", "USER", "__CF_USER_TEXT_ENCODING",
+    ]
+
     static func arguments(for environment: AcpmuxEnvironment) -> [String] {
         ["-c", script, "acpmux-launch", environment.executable.path, "daemon", "run", "--ready-fd", "3"]
             + (environment.passesPersonKeyAtSpawn ? ["--person-key-fd", String(personKeyDescriptor)] : [])
@@ -40,7 +48,13 @@ nonisolated enum AcpmuxDaemonLauncher {
     /// (``AcpmuxEnvironment/offersSessionTools``), and the launch knobs.
     static func spawnEnvironment(_ environment: AcpmuxEnvironment, inherited: [String: String]) -> [String: String] {
         let computerUse = Set(AcpmuxEnvironment.computerUseKeys + [AcpmuxEnvironment.computerUseHostKey])
-        var variables = inherited.filter { !computerUse.contains($0.key) }.merging(environment.childEnvironment) { $1 }
+        let safeInherited = inherited.filter { key, _ in
+            !computerUse.contains(key)
+                && (environment.passesPersonKeyAtSpawn
+                    || signedInheritedKeys.contains(key)
+                    || key.hasPrefix("LC_"))
+        }
+        var variables = safeInherited.merging(environment.childEnvironment) { $1 }
         for (key, value) in environment.computerUse where !computerUse.contains(key) && !value.isEmpty {
             variables[key] = value
         }

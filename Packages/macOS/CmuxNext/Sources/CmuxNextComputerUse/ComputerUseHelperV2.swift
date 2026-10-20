@@ -3,6 +3,7 @@ public import Darwin
 public import Foundation
 import os
 import Security
+import CmuxNextWakeups
 
 private let helperV2Logger = Logger(subsystem: "com.cmuxterm.app.next", category: "computer-use-v2")
 
@@ -54,6 +55,20 @@ public final class ComputerUseHelperV2 {
     /// Logs the helper's control lines after `ready` (``logControlLines(_:pid:)``).
     private var controlLog: Task<Void, Never>?
     private var generation = 0
+
+    /// This app's signing team. Ad-hoc development builds have no team and
+    /// retain the same-executable-path peer rule.
+    nonisolated static let ownTeam: String? = {
+        var code: SecCode?
+        guard SecCodeCopySelf([], &code) == errSecSuccess, let code else { return nil }
+        var staticCode: SecStaticCode?
+        guard SecCodeCopyStaticCode(code, [], &staticCode) == errSecSuccess, let staticCode else { return nil }
+        var info: CFDictionary?
+        guard SecCodeCopySigningInformation(staticCode, SecCSFlags(rawValue: kSecCSSigningInformation), &info)
+                == errSecSuccess, let info = info as? [String: Any] else { return nil }
+        let team = info[kSecCodeInfoTeamIdentifier as String] as? String
+        return team?.isEmpty == false ? team : nil
+    }()
 
     init(directory: String = ComputerUseHelperV2.defaultDirectory(),
          helperApp: @escaping @Sendable () -> URL? = { ComputerUseHelperV2.embeddedHelperApp() },
@@ -267,9 +282,12 @@ public final class ComputerUseHelperV2 {
         return true
     }
 
-    /// pid + start time of the process listening on `socketPath`, when it
-    /// runs `executable`.
-    @concurrent nonisolated static func daemonStamp(socketPath: String, executable: URL) async -> (pid: pid_t, startSeconds: UInt64, startMicroseconds: UInt64)? {
+    /// pid + start time of the process listening on `socketPath`, when the
+    /// connected peer runs `executable` and, in a signed build, its audit token
+    /// identifies code signed by this app's team.
+    @concurrent nonisolated static func daemonStamp(socketPath: String, executable: URL,
+                                                    teamIdentifier: String? = ownTeam) async
+        -> (pid: pid_t, startSeconds: UInt64, startMicroseconds: UInt64)? {
         var address = sockaddr_un()
         address.sun_family = sa_family_t(AF_UNIX)
         guard socketPath.utf8.count < MemoryLayout.size(ofValue: address.sun_path) else { return nil }
@@ -290,17 +308,14 @@ public final class ComputerUseHelperV2 {
             }
         }
         guard connected == 0 else { return nil }
-        var pid: pid_t = 0
-        var size = socklen_t(MemoryLayout<pid_t>.size)
-        guard getsockopt(descriptor, SOL_LOCAL, LOCAL_PEERPID, &pid, &size) == 0, pid > 1 else { return nil }
-        var path = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))
-        guard proc_pidpath(pid, &path, UInt32(path.count)) > 0,
-              URL(fileURLWithPath: String(cString: path)).resolvingSymlinksInPath().path
-                == executable.resolvingSymlinksInPath().path else { return nil }
+        guard let peer = UnixSocketPeer(descriptor: descriptor), peer.uid == getuid(), peer.runs(executable) else {
+            return nil
+        }
+        if let teamIdentifier, !peer.signed(team: teamIdentifier) { return nil }
         var info = proc_bsdinfo()
         let infoSize = Int32(MemoryLayout<proc_bsdinfo>.size)
-        guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, infoSize) == infoSize else { return nil }
-        return (pid, info.pbi_start_tvsec, info.pbi_start_tvusec)
+        guard proc_pidinfo(peer.pid, PROC_PIDTBSDINFO, 0, &info, infoSize) == infoSize else { return nil }
+        return (peer.pid, info.pbi_start_tvsec, info.pbi_start_tvusec)
     }
 
     /// Logs each control line the helper writes after `ready` (the
