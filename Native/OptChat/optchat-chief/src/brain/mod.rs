@@ -357,6 +357,12 @@ pub struct Settings {
     pub home_view: Option<crate::home_view::HomeView>,
     /// Who this Chief is in the conversations and which messages wake it.
     pub membership: crate::membership::Membership,
+    /// Keep a Claude turn's Claude Code session after the turn and prompt it
+    /// again with only the next turn's new messages while the frozen view
+    /// holds (the Unii baseline's one process: no spawn, a fully cached
+    /// prefix). The session runs with Claude Code's own cache marks.
+    /// `CHIEF_KEEP_TURN_SESSION=0` turns it off.
+    pub keep_turn_session: bool,
 }
 
 /// The longest a turn waits for view lines that are still building
