@@ -48,6 +48,10 @@ public final class SettingsApplier {
         if design.enabledAnimations != snapshot.animationKinds.enabled { design.enabledAnimations = snapshot.animationKinds.enabled }
         if design.animationBounce != snapshot.animationKinds.bounce { design.animationBounce = snapshot.animationKinds.bounce }
         if design.paneAnimations != snapshot.paneAnimations { design.paneAnimations = snapshot.paneAnimations }
+        if design.animationsEnabled != snapshot.motionCategories.enabled { design.animationsEnabled = snapshot.motionCategories.enabled }
+        if design.disabledAnimationCategories != snapshot.motionCategories.disabled {
+            design.disabledAnimationCategories = snapshot.motionCategories.disabled
+        }
         if design.classicHome != snapshot.classicHome { design.classicHome = snapshot.classicHome }
         if design.homeChannelsEnabled != snapshot.homeChannelsEnabled { design.homeChannelsEnabled = snapshot.homeChannelsEnabled }
         let chiefBubblesThemed = snapshot.homeChiefBubbleStyle == HomeChiefBubbleStyleSetting.theme

@@ -45,9 +45,9 @@ final class SidebarNoticeCardView: NSView {
     /// The card plays its exit: the slot keeps it in place until it has gone.
     var isLeaving: Bool { presence.isLeaving }
 
-    /// - Parameter motionPolicy: The motion settings the card's transitions follow (`Motion.policy`).
+    /// - Parameter motionPolicy: The motion settings the card's transitions follow (`Motion.overlays.policy`).
     init(frame: NSRect = .zero, reduceTransparency: ReduceTransparency = .shared,
-         motionPolicy: @escaping @MainActor () -> MotionPolicy = { Motion.policy }) {
+         motionPolicy: @escaping @MainActor () -> MotionPolicy = { Motion.overlays.policy }) {
         surface = CardSurfaceView(cornerRadius: Metrics.space3, reduceTransparency: reduceTransparency)
         self.motionPolicy = motionPolicy
         super.init(frame: frame)
@@ -348,7 +348,7 @@ final class SidebarNoticeCardView: NSView {
             bar.position = .zero
             if let shown = shownFraction, shown != value, motionPolicy().animatesFades, !isHidden {
                 // Fills toward the new value instead of jumping (a download reports often and unevenly).
-                Motion.set(bar, "bounds.size.width", to: target.width, fade: .highlight)
+                Motion.overlays.set(bar, "bounds.size.width", to: target.width, fade: .highlight)
                 bar.bounds.size.height = target.height
             } else {
                 bar.removeAnimation(forKey: "bounds.size.width")
@@ -367,7 +367,7 @@ final class SidebarNoticeCardView: NSView {
                 return
             }
             if bar.animation(forKey: Self.sweepKey) != nil, sweptTravel == frame.width { return }
-            guard let sweep = Motion.sweepAnimation(segment: segment, travel: frame.width, policy: motionPolicy()) else {
+            guard let sweep = Motion.indicators.sweepAnimation(segment: segment, travel: frame.width, policy: motionPolicy()) else {
                 bar.isHidden = true
                 return
             }

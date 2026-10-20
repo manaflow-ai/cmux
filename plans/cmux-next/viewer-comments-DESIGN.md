@@ -68,6 +68,23 @@ viewer quote and a design highlight make the same card in every chat:
   (`ChatQuoteFile`, like design mode's `BrowserDesignModeCardFiles`), given to the Home composer
   through `attachFiles(paths:via: .drop)`, so it shows as a file chip.
 
+## Comments in the viewer
+
+A comment made with Comment… on the Markdown page also stays in the viewer:
+
+- **Kept with the file**: `ViewerCommentList` (`{"v":1,"comments":[{id, startLine, endLine,
+  quoted, comment}]}`, at most 100 comments, oldest out) in the file's `com.cmux.markdown.comments`
+  extended attribute, with an app-side copy under Application Support `MarkdownComments` (the
+  table widths store, `MarkdownTableWidthRepository(name:maxBytes:)`). It survives a relaunch, a
+  rename and a Finder copy, and changes neither the file's bytes nor its modification time.
+- **Shown**: the config carries `comments`; every change comes as the `comments` page command.
+  Each comment is a margin marker just before the block that holds its first line
+  (`comments.ts`, a ProseMirror widget decoration, mapped through edits, drawn again after each
+  load). The marker opens a card with the quoted text, the comment and Delete Comment
+  (`cmux.markdown.deleteComment {path, id}`).
+- **Not in v1**: the code editor page (its comments still go to the chat), editing a comment, and
+  moving a comment when an outside edit moves its lines (it stays on the same line numbers).
+
 ## Line ranges
 
 - **Editor page (Monaco)**: exact, from `editor.getSelection()` (`cmux.editor.selection`).

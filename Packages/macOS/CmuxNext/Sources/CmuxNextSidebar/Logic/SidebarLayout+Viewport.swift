@@ -76,8 +76,8 @@ extension NSScrollView {
     func scrollContent(toY y: CGFloat, animated: Bool, moved: @escaping @MainActor () -> Void) {
         let clip = contentView
         let origin = NSPoint(x: clip.bounds.minX, y: y)
-        if animated, Motion.animatesMovement {
-            Motion.animate(.move, in: clip, { clip.animator().setBoundsOrigin(origin) }, completion: { [weak self] in
+        if animated, Motion.sidebar.animatesMovement {
+            Motion.sidebar.animate(.move, in: clip, { clip.animator().setBoundsOrigin(origin) }, completion: { [weak self] in
                 self?.reflectScrolledClipView(clip)
                 moved()
             })
