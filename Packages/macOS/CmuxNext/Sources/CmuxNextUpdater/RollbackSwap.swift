@@ -21,7 +21,11 @@ nonisolated public struct RollbackSwap {
             // 3. Atomic swap on the same volume.
             _ = try files.replaceItemAt(current, withItemAt: staged)
         } catch {
-            try? files.removeItem(at: staged)
+            // Put the kept build back where it was: a failed swap must not cost the user the
+            // only build they can drop back to. Should that move fail too, the bundle stays
+            // at `staged` rather than being deleted.
+            try? files.createDirectory(at: target.bundle.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try? files.moveItem(at: staged, to: target.bundle)
             throw error
         }
         return current

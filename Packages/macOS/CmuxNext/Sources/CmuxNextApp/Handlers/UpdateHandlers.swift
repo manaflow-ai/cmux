@@ -1,12 +1,14 @@
 import CmuxNextActions
 import CmuxNextUpdater
+import Foundation
 
 /// Update actions (menu, palette, shortcut, CLI `settings check-for-updates`
 /// etc.) over the one `UpdaterService`. Checks always run: release builds
 /// use Sparkle, DEV builds probe the feed read-only. Install and channel
 /// switch are disabled, with the reason, where they cannot run.
 enum UpdateHandlers {
-    static func bind(into registry: ActionRegistry, updater: UpdaterService, openWhatsNew: @escaping @MainActor () -> Bool = { false }) {
+    static func bind(into registry: ActionRegistry, updater: UpdaterService, openWhatsNew: @escaping @MainActor () -> Bool = { false },
+                     stateDirectories: @escaping @MainActor () -> [URL?] = { [nil] }) {
         // The What's New top page (WHATS-NEW-AFTER-UPDATE): palette, Help menu, CLI.
         registry.bind("updates.whatsNew", run: { _ in _ = openWhatsNew() })
         // announcements.enabled through the one setting path (palette.toggleSetting).
@@ -24,6 +26,21 @@ enum UpdateHandlers {
                 do { try updater.installAvailableUpdate() } catch { registry?.refuse(String(describing: error)) }
             })
         }
+        // Drop back to the previous build (destructive: every entrypoint confirms first; the
+        // CLI passes --confirm). A refusal (nothing kept, a store too new) is the action's failure.
+        registry.bind("updates.rollback", run: { [weak registry] invocation in
+            let build = invocation["build"]?.stringValue, directories = stateDirectories()
+            registry?.track(Task {
+                do {
+                    try await updater.dropBack(to: build, stateDirectories: directories)
+                    return nil
+                } catch let refusal as RollbackRefusal {
+                    return ActionWorkFailure(refusal.message)
+                } catch {
+                    return ActionWorkFailure(String(describing: error))
+                }
+            })
+        })
         registry.bind("palette.switchAppChannel", unavailable: { updater.channelSwitchUnavailableReason }, invoke: { [weak registry] invocation in
             do {
                 let work = try updater.switchChannel(named: invocation["channel"]?.stringValue)
