@@ -23,6 +23,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[3]
 MANIFEST = ROOT / "art/manifest.json"
 FULL = ROOT / "art/full"
+FRAMING = ROOT / "scripts/cmux-next/art/framing.json"
 DESIGN = ROOT / "Packages/macOS/CmuxNext/Sources/CmuxNextDesign"
 SWIFT = DESIGN / "BackdropArt.swift"
 SWIFT_ENTRIES = DESIGN / "BackdropArt+Entries.swift"
@@ -130,7 +131,9 @@ def render_entries(works: list[dict]) -> str:
             f"source: {swift_string(work['source'])}, license: {swift_string(work['license'])}, "
             f"sha256: {swift_string(work['sha256'])}, bundled: {'true' if work['bundled'] else 'false'}, "
             f"focal: ({work['focal'][0]}, {work['focal'][1]}), "
-            f"subject: ({', '.join(str(v) for v in work['subject'])}), tone: .{work['tone']}, palette: [{palette}], "
+            f"subject: ({', '.join(str(v) for v in work['subject'])}), "
+            + (f"panel: ({', '.join(str(v) for v in work['panel'])}), " if work.get("panel") else "")
+            + f"tone: .{work['tone']}, palette: [{palette}], "
             f"quietLeft: {'true' if work['quiet'] == 'left' else 'false'}, tint: {work['tint']}, "
             f"darkest: {hex_literal(work['darkest'])}, lightest: {hex_literal(work['lightest'])})"
         )
@@ -178,6 +181,13 @@ def main() -> int:
     parser.add_argument("--check", action="store_true", help="report stale generated files without writing")
     args = parser.parse_args()
     works = json.loads(MANIFEST.read_text())["works"]
+    framing = json.loads(FRAMING.read_text())
+    # A side render (the whole work over a blurred fill of itself) names the painting's own part of
+    # the image as `panel`, the only part the window covers itself with. A crop has no fill.
+    cropped = [w["id"] for w in works if w.get("panel") and framing.get(w["id"], {}).get("mode") == "crop"]
+    if cropped:
+        print("a crop render has no side fill; drop the panel of: " + ", ".join(cropped), file=sys.stderr)
+        return 1
     stale = []
 
     for path, text in [(SWIFT, render_swift(works)), (SWIFT_ENTRIES, render_entries(works))]:

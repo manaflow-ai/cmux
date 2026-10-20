@@ -7,7 +7,7 @@ import Testing
 
 /// After any resize the window's background and its columns hold two invariants (dogfood
 /// 2026-10-19, "after resizing I got the background to be kind of weird"): the art is placed for
-/// the window's size now, never left at an earlier size over its stretched blurred fill, and every
+/// the window's size now and covers it, never left at an earlier size, and every
 /// column keeps a width its content can use (the Home chat wrapped one word per line at ~60 pt).
 @MainActor @Suite(.serialized) struct ResizeInvariantTests {
     /// Sizes a window goes through: live resize steps, a narrow window, fullscreen-like, back.
@@ -45,9 +45,8 @@ import Testing
             #expect(backdrop.artPlacement == wanted, "the art keeps an earlier size's placement at \(size)")
             #expect(backdrop.artView.frame == wanted.frame, "the art layer's frame is stale at \(size)")
             #expect(backdrop.artView.layer?.contentsRect == wanted.contentsRect, "the art shows a stale crop at \(size)")
-            #expect(backdrop.artFillView.frame == backdrop.bounds)
+            #expect(backdrop.artView.frame == backdrop.bounds, "the art does not cover the window at \(size)")
             #expect(backdrop.videoView.frame == backdrop.bounds)
-            #expect(backdrop.artFillView.isHidden == !wanted.fills, "the blurred fill shows without shrunk art at \(size)")
         }
     }
 

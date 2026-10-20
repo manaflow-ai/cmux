@@ -34,12 +34,12 @@ import Testing
         #expect(covered == art.metadata.placement(forViewSize: frame.size, imageSize: try #require(images.cached(.art(art))).size,
                                                   visible: visible))
         #expect(backdrop.artView.layer?.contentsRect == covered.contentsRect, "the art layer does not show the new placement")
-        #expect(backdrop.artFillView.isHidden == !covered.fills, "the blurred fill does not follow the placement")
+        #expect(backdrop.artView.frame == backdrop.bounds, "the art does not cover the window beside the columns")
 
         backdrop.setCover(nil, for: "agentChat.1")
         backdrop.setCover(nil, for: "sidebar")
         #expect(backdrop.coveredColumns.isEmpty)
         #expect(backdrop.artPlacement == open, "the art does not go back when the column closes")
-        #expect(backdrop.artFillView.isHidden)
+        #expect(backdrop.artView.frame == backdrop.bounds)
     }
 }

@@ -26,21 +26,19 @@ public nonisolated struct BackdropSubjectBox: Equatable, Sendable {
 }
 
 /// How the art lies in the window: the part of the image shown (`contentsRect`, bottom-left
-/// origin as Core Animation reads it) and the part of the view it fills (bottom-left origin, in
-/// view points). The frame is the whole view unless the art had to shrink to keep its subject
-/// whole, and then ``fills`` asks for the blurred fill behind it.
+/// origin as Core Animation reads it) over the whole view (`frame`). The art always covers the
+/// window at its own aspect, so no desktop, letterbox or blurred band shows beside it (Leo,
+/// 2026-10-19: "it should resize better... it is able to fill more").
 public nonisolated struct BackdropArtPlacement: Equatable, Sendable {
     public var contentsRect: CGRect
     public var frame: CGRect
-    /// The art does not cover the view: a blurred copy fills the rest.
-    public var fills: Bool
     /// The subject lies wholly in the visible span.
     public var keepsSubject: Bool
 
     /// The whole image over the whole view.
     public nonisolated static func whole(_ viewSize: CGSize) -> Self {
         .init(contentsRect: CGRect(x: 0, y: 0, width: 1, height: 1), frame: CGRect(origin: .zero, size: viewSize),
-              fills: false, keepsSubject: true)
+              keepsSubject: true)
     }
 }
 
@@ -88,75 +86,80 @@ extension BackdropArtMetadata {
     /// How far past a cover fit the art may zoom in to keep its subject in view: past this the
     /// 1600-pixel art goes soft.
     public nonisolated static let maximumZoom = 1.4
-    /// How far below a cover fit the art may shrink (over its blurred fill) to keep its subject
-    /// whole; past this it covers the window and lets the subject's edges go.
-    public nonisolated static let minimumShrink = 0.7
+    /// Where down a side render's subject the window centers when it cannot show all of it.
+    public nonisolated static let portraitAnchor = 1.0 / 3
 
-    /// Places the art in a view of `viewSize` so its subject sits whole in the `visible` span:
-    /// the least zoom that does it, the subject centered in the span as far as the edges allow.
-    /// When no zoom up to ``maximumZoom`` does, it shrinks the art (down to ``minimumShrink``)
-    /// over a blurred fill; when even that cannot, it covers the window around the subject.
+    /// Places the art so it covers a view of `viewSize` (aspect fill, never letterboxed or
+    /// shrunk): of a side render only its ``panel``, the painting, never the blurred fill beside
+    /// it. Within that cover the subject sits whole in the `visible` span with the least zoom
+    /// (up to ``maximumZoom``) that does it, centered in the span as far as the edges allow; when
+    /// no zoom does, the art covers the window centered on the subject across, and down with its
+    /// top kept (a side render: its upper third, ``portraitAnchor``).
     public nonisolated func placement(forViewSize viewSize: CGSize, imageSize: CGSize,
                                       visible: BackdropVisibleSpan = .whole) -> BackdropArtPlacement {
         guard viewSize.width > 0, viewSize.height > 0, imageSize.width > 0, imageSize.height > 0 else {
             return .whole(viewSize)
         }
-        let box = subject
+        let panel = self.panel ?? BackdropSubjectBox(minX: 0, minY: 0, maxX: 1, maxY: 1)
         let (vw, vh) = (Double(viewSize.width), Double(viewSize.height))
-        let (iw, ih) = (Double(imageSize.width), Double(imageSize.height))
+        // The painting's part of the image, in image pixels: the art is laid out as if it were all.
+        let (pw, ph) = (Double(imageSize.width) * max(panel.maxX - panel.minX, 0.01),
+                        Double(imageSize.height) * max(panel.maxY - panel.minY, 0.01))
+        let box = subject(in: panel)
         let span = (visible.minX * vw)...(visible.maxX * vw)
-        let cover = max(vw / iw, vh / ih)
+        let cover = max(vw / pw, vh / ph)
         // The columns over art are full height, so the whole height is visible.
-        let x = Axis(view: vw, image: iw, subject: box.minX...box.maxX, span: span)
-        let y = Axis(view: vh, image: ih, subject: box.minY...box.maxY, span: 0...vh)
-        let check = (box: box, span: span, height: vh)
+        let x = Axis(view: vw, image: pw, subject: box.minX...box.maxX, span: span)
+        let y = Axis(view: vh, image: ph, subject: box.minY...box.maxY, span: 0...vh)
 
         let steps = 16
         for step in 0...steps {
             let scale = cover * (1 + (Self.maximumZoom - 1) * Double(step) / Double(steps))
             if let ox = x.covering(scale), let oy = y.covering(scale) {
-                return place(scale: scale, origin: CGPoint(x: ox, y: oy), viewSize: viewSize, imageSize: imageSize, check: check)
+                return place(scale: scale, origin: (ox, oy), painting: (pw, ph), panel: panel, box: box, viewSize: viewSize, span: span)
             }
         }
-        // The subject fits the span but not while the art covers the window, or only smaller:
-        // the art slides (and shrinks) off an edge, which the panes over it mostly hide, over
-        // the blurred fill.
-        let fit = min((span.upperBound - span.lowerBound) / (iw * max(box.maxX - box.minX, 0.01)),
-                      vh / (ih * max(box.maxY - box.minY, 0.01)), cover)
-        if fit >= cover * Self.minimumShrink {
-            return place(scale: fit, origin: CGPoint(x: x.shrunk(fit), y: y.shrunk(fit)), viewSize: viewSize, imageSize: imageSize,
-                         check: check)
-        }
-        // Too big to keep whole: cover the window, centered on the subject across, its top kept.
-        return place(scale: cover, origin: CGPoint(x: x.nearest(cover), y: y.nearest(cover, keepingLeading: true)),
-                     viewSize: viewSize, imageSize: imageSize, check: check)
+        // Too big to keep whole in the span: cover the window, centered on the subject across, its
+        // top kept. A side render's subject is the whole tall painting, so there the window centers
+        // on its upper third, where a portrait's face is: its top is the sky or the hat.
+        let oy = self.panel == nil ? y.nearest(cover, keepingLeading: true) : y.nearest(cover, at: Self.portraitAnchor)
+        return place(scale: cover, origin: (x.nearest(cover), oy), painting: (pw, ph),
+                     panel: panel, box: box, viewSize: viewSize, span: span)
     }
 
     /// The subject box: the authored one, else a small box around the focal anchor.
     nonisolated var subject: BackdropSubjectBox { subjectBox ?? BackdropSubjectBox(around: focalAnchor) }
 
-    /// The image at `scale` with its top-left corner at `origin` (top-left view coordinates).
-    /// Whether the subject is kept is measured on the result, never assumed: its box must lie in
-    /// the visible span across and in the window top to bottom.
-    private nonisolated func place(scale: Double, origin: CGPoint, viewSize: CGSize, imageSize: CGSize,
-                                   check: (box: BackdropSubjectBox, span: ClosedRange<Double>, height: Double)) -> BackdropArtPlacement {
-        let image = CGRect(x: origin.x, y: origin.y, width: Double(imageSize.width) * scale, height: Double(imageSize.height) * scale)
+    /// The subject as fractions of `panel` (clamped to it).
+    private nonisolated func subject(in panel: BackdropSubjectBox) -> BackdropSubjectBox {
+        let box = subject, width = max(panel.maxX - panel.minX, 0.01), height = max(panel.maxY - panel.minY, 0.01)
+        return BackdropSubjectBox(minX: (box.minX - panel.minX) / width, minY: (box.minY - panel.minY) / height,
+                                  maxX: (box.maxX - panel.minX) / width, maxY: (box.maxY - panel.minY) / height)
+    }
+
+    /// The painting at `scale` with its top-left corner at `origin` (top-left view coordinates),
+    /// which covers the view. Whether the subject is kept is measured on the result, never
+    /// assumed: its box must lie in the visible span across and in the window top to bottom.
+    private nonisolated func place(scale: Double, origin: (x: Double, y: Double), painting: (width: Double, height: Double),
+                                   panel: BackdropSubjectBox, box: BackdropSubjectBox, viewSize: CGSize,
+                                   span: ClosedRange<Double>) -> BackdropArtPlacement {
+        let (vw, vh) = (Double(viewSize.width), Double(viewSize.height))
+        let (width, height) = (painting.width * scale, painting.height * scale)
         let slack = 0.5
-        let keeps = image.minX + check.box.minX * image.width >= check.span.lowerBound - slack
-            && image.minX + check.box.maxX * image.width <= check.span.upperBound + slack
-            && image.minY + check.box.minY * image.height >= -slack
-            && image.minY + check.box.maxY * image.height <= check.height + slack
-        let shown = image.intersection(CGRect(origin: .zero, size: viewSize))
-        guard !shown.isNull, shown.width > 0, shown.height > 0 else { return .whole(viewSize) }
-        // Normalized in the image, then flipped: contentsRect and the view frame count from the bottom.
-        let left = (shown.minX - image.minX) / image.width
-        let top = (shown.minY - image.minY) / image.height
-        let contents = CGRect(x: left, y: 1 - top - shown.height / image.height,
-                              width: shown.width / image.width, height: shown.height / image.height)
-        let frame = CGRect(x: shown.minX, y: viewSize.height - shown.maxY, width: shown.width, height: shown.height)
-        let covers = shown.width >= viewSize.width - 0.5 && shown.height >= viewSize.height - 0.5
-        return .init(contentsRect: contents, frame: covers ? CGRect(origin: .zero, size: viewSize) : frame,
-                     fills: !covers, keepsSubject: keeps)
+        let keeps = origin.x + box.minX * width >= span.lowerBound - slack
+            && origin.x + box.maxX * width <= span.upperBound + slack
+            && origin.y + box.minY * height >= -slack
+            && origin.y + box.maxY * height <= vh + slack
+        // The view's part of the painting, then of the whole image; flipped, since contentsRect
+        // counts from the bottom.
+        // Snapped, so a window of the painting's own shape shows exactly all of it.
+        let snap = { (value: Double) in abs(value - value.rounded()) < 1e-9 ? value.rounded() : value }
+        let fx = snap(min(vw / width, 1)), fy = snap(min(vh / height, 1))
+        let left = snap(min(max(-origin.x / width, 0), 1 - fx)), top = snap(min(max(-origin.y / height, 0), 1 - fy))
+        let (panelWidth, panelHeight) = (panel.maxX - panel.minX, panel.maxY - panel.minY)
+        let contents = CGRect(x: panel.minX + left * panelWidth, y: 1 - (panel.minY + (top + fy) * panelHeight),
+                              width: fx * panelWidth, height: fy * panelHeight)
+        return .init(contentsRect: contents, frame: CGRect(origin: .zero, size: viewSize), keepsSubject: keeps)
     }
 }
 
@@ -197,15 +200,11 @@ private nonisolated struct Axis {
         return min(max(wanted, view - image * scale), 0)
     }
 
-    /// The origin for an image shrunk so the subject fits the span: the subject in the span
-    /// first, then as much of the view covered, then centered.
-    func shrunk(_ scale: Double) -> Double {
-        let extent = image * scale
-        guard let keeps = keeping(scale) else { return nearest(scale, keepingLeading: true) }
-        let centered = min(max(centered(scale), keeps.lowerBound), keeps.upperBound)
-        // Toward covering, as far as the subject allows: an image wider than the view slides
-        // only as far as its edges reach the view's.
-        let covering = extent >= view ? min(max(centered, view - extent), 0) : centered
-        return min(max(covering, keeps.lowerBound), keeps.upperBound)
+    /// The origin at which the image covers the view with the point `fraction` of the way along
+    /// the subject as near the middle of the span as the edges allow.
+    func nearest(_ scale: Double, at fraction: Double) -> Double {
+        let point = subject.lowerBound + (subject.upperBound - subject.lowerBound) * fraction
+        let wanted = (span.lowerBound + span.upperBound) / 2 - point * image * scale
+        return min(max(wanted, view - image * scale), 0)
     }
 }

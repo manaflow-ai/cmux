@@ -1,5 +1,4 @@
 public import AppKit
-import CoreImage
 
 /// The one material behind a window's content (``WindowMaterial``) and the
 /// one theme tint, as the window root's bottom subview.
@@ -33,9 +32,6 @@ public final class WindowMaterialView: NSView {
     private var resignedKey = false
     /// The art layer (tests read what it shows).
     let artView = NSView()
-    /// A blurred copy of the art behind it, shown while the art shrinks to keep its subject whole
-    /// (``BackdropArtPlacement/fills``).
-    let artFillView = NSView()
     /// Where the art lies now (tests).
     private(set) var artPlacement: BackdropArtPlacement?
     /// The x ranges, in this view's points, that the sidebar and a docked agent chat cover: the
@@ -85,17 +81,10 @@ public final class WindowMaterialView: NSView {
         self.images = images
         videoView = BackdropVideoView(frame: frameRect, players: videos)
         super.init(frame: frameRect)
-        artFillView.wantsLayer = true
-        artFillView.layerUsesCoreImageFilters = true
-        artFillView.frame = bounds
-        artFillView.autoresizingMask = [.width, .height]
-        artFillView.layer?.contentsGravity = .resizeAspectFill
-        artFillView.layer?.masksToBounds = true
-        artFillView.isHidden = true
-        addSubview(artFillView)
         artView.wantsLayer = true
         artView.frame = bounds
-        // The placement sets the frame and the part of the image shown, at the image's own aspect.
+        // The placement sets the part of the image shown, at the window's aspect: the art always
+        // covers the window (aspect fill), so nothing shows beside it.
         artView.layer?.contentsGravity = .resize
         artView.layer?.masksToBounds = true
         artView.isHidden = true
@@ -127,7 +116,7 @@ public final class WindowMaterialView: NSView {
     /// The art is the only layer whose frame is computed, not autoresized: every size change
     /// places it again at once. `layout()` alone is not enough, since a superview's autoresize
     /// can change this frame without asking for layout, which left the art at the old window's
-    /// frame over a stretched blurred fill after a resize.
+    /// frame after a resize.
     override public func setFrameSize(_ newSize: NSSize) {
         let changed = frame.size != newSize
         super.setFrameSize(newSize)
@@ -260,13 +249,11 @@ public final class WindowMaterialView: NSView {
             }
         }
         artView.isHidden = hidesArt || artImage == nil
-        artFillView.isHidden = artView.isHidden || artPlacement?.fills != true
         videoView.show(hidesArt || shown?.isVideo != true ? nil : shown?.resolvedImageURL(dark: dark))
         // Window Glass: the desktop shows through the art. The model value only, so a fade-in in
         // flight runs on to it.
         artOpacity = Float(backdrop.artOpacity)
         if artView.layer?.opacity != artOpacity { artView.layer?.opacity = artOpacity }
-        if artFillView.layer?.opacity != artOpacity { artFillView.layer?.opacity = artOpacity }
         if videoView.layer?.opacity != artOpacity { videoView.layer?.opacity = artOpacity }
         if backdrop.material != material {
             material = backdrop.material
@@ -304,18 +291,8 @@ public final class WindowMaterialView: NSView {
     private func showArt(_ image: NSImage?) {
         artImage = image
         artView.layer?.contents = artImage
-        artFillView.layer?.contents = artImage
         artView.isHidden = hidesArt || artImage == nil
         updateArtCrop()
-    }
-
-    /// The blur of the fill behind shrunk art: enough that it reads as the art's own light, never
-    /// as a second picture, in the art's own tone. Made for each view: filters are mutable objects.
-    static func fillFilters() -> [CIFilter] {
-        // Blur only: a dimmed fill read as a darker sidebar beside the art (Lawrence 2026-10-19,
-        // "not a different color"), so the fill keeps the art's own tone.
-        let blur = CIFilter(name: "CIGaussianBlur", parameters: [kCIInputRadiusKey: 48])
-        return [blur].compactMap { $0 }
     }
 
     /// Places the art (``BackdropArtMetadata/placement(forViewSize:imageSize:visible:)``): on a
@@ -325,7 +302,6 @@ public final class WindowMaterialView: NSView {
             artPlacement = nil
             artView.layer?.contentsRect = CGRect(x: 0, y: 0, width: 1, height: 1)
             artView.frame = bounds
-            artFillView.isHidden = true
             return
         }
         let metadata: BackdropArtMetadata
@@ -345,9 +321,6 @@ public final class WindowMaterialView: NSView {
         }
         let visible = BackdropVisibleSpan.uncovered(width: bounds.width, by: coveredColumns)
         let placement = metadata.placement(forViewSize: bounds.size, imageSize: image.size, visible: visible)
-        let fills = placement.fills && !artView.isHidden
-        if fills, artFillView.layer?.filters == nil { artFillView.layer?.filters = Self.fillFilters() }
-        artFillView.isHidden = !fills
         guard placement != artPlacement else { return }
         artPlacement = placement
         if animated, window != nil {

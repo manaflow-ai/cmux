@@ -10,7 +10,9 @@ art/manifest.json). framing.json maps slug -> one of:
       box in source fractions; it is widened/narrowed to 16:10 around its centre.
   {"mode": "side", "side": "left"|"right", "scale": 1.0}
       the whole work at canvas height on that side, over a blurred, darkened
-      cover-fill of itself; the text sits on the other side.
+      cover-fill of itself; the text sits on the other side. Its metadata names the
+      painting's part of the image as "panel" (copy it to art/manifest.json): the app
+      covers the window with that part alone.
 Optional per slug: "quality" (AVIF, default 50), "darken" (side backdrop, default 0.32),
 "inset" [l, t, r, b] fractions trimmed first (frames, arched tops), "circle" (round works),
 "trim": false (keep near-uniform margins, which are otherwise trimmed).
@@ -88,7 +90,11 @@ def render_side(img, spec):
     back.paste(front, (x, y), mask)
     focal = [(x + fw / 2) / W, 0.45]
     quiet = "left" if side == "right" else "right"
-    return back, focal, quiet
+    # The painting's own part, inside its feather: the window covers itself with this alone
+    # (art/manifest.json `panel`, BackdropArtMetadata.panel), never the darkened fill.
+    left, right = (x + feather, x + fw) if side == "right" else (x, x + fw - feather)
+    panel = [round(left / W, 3), round(y / H, 3), round(right / W, 3), round((y + fh) / H, 3)]
+    return back, focal, quiet, panel
 
 
 def extremes(img):
@@ -173,10 +179,11 @@ def main():
                             round(img.width * (1 - r)), round(img.height * (1 - b))))
         if spec.get("mode", "auto") == "auto":
             spec = {**auto_spec(img), **{k: v for k, v in spec.items() if k != "mode"}}
+        panel = None
         if spec["mode"] == "crop":
             rendered, focal, quiet = render_crop(img, spec)
         else:
-            rendered, focal, quiet = render_side(img, spec)
+            rendered, focal, quiet, panel = render_side(img, spec)
         path = out / f"{slug}.avif"
         rendered.save(path, "AVIF", quality=spec.get("quality", 50), speed=4)
         rendered.resize((480, 300), Image.LANCZOS).save(out / "preview" / f"{slug}.jpg", quality=80)
@@ -185,6 +192,8 @@ def main():
                      "bytes": path.stat().st_size})
         meta[slug] = info
         info["mode"] = spec["mode"]
+        if panel:
+            info["panel"] = panel
         print(slug, info["bytes"], info["tone"], info["mean_luminance"], flush=True)
     (out / "metadata.json").write_text(json.dumps(meta, indent=1))
 

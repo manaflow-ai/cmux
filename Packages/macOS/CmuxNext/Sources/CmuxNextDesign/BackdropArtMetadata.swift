@@ -27,6 +27,10 @@ public struct BackdropArtMetadata: Equatable, Sendable {
     /// The subject to keep whole and clear of the panes over the art; nil for art that names
     /// only its focal anchor (``placement(forViewSize:imageSize:visible:)``).
     public let subjectBox: BackdropSubjectBox?
+    /// The part of the image that is the painting, from the top-left: a side render sets a tall
+    /// work beside a blurred, darkened fill of itself, and the window covers itself with the
+    /// painting alone, never that fill. Nil when the whole image is the painting.
+    public let panel: BackdropSubjectBox?
     public let tone: BackdropArtTone
     public let dominantPalette: [BackdropPaletteColor]
     public let quietZone: BackdropQuietZone
@@ -43,9 +47,11 @@ public struct BackdropArtMetadata: Equatable, Sendable {
     public nonisolated init(focalAnchor: BackdropFocalAnchor, tone: BackdropArtTone,
                 dominantPalette: [BackdropPaletteColor], quietZone: BackdropQuietZone,
                 minimumTintOpacity: Double = 0, preferredTintOpacity: Double? = nil,
-                range: BackdropArtRange? = nil, subjectBox: BackdropSubjectBox? = nil) {
+                range: BackdropArtRange? = nil, subjectBox: BackdropSubjectBox? = nil,
+                panel: BackdropSubjectBox? = nil) {
         self.focalAnchor = focalAnchor
         self.subjectBox = subjectBox
+        self.panel = panel
         self.tone = tone
         self.dominantPalette = dominantPalette
         self.quietZone = quietZone

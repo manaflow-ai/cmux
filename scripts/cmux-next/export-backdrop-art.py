@@ -72,6 +72,7 @@ def works() -> list[dict]:
     entry_re = re.compile(r'^        case \.(\w+): BackdropArtEntry\(artist: ' + STRING + r', year: ' + STRING + r', museum: ' + STRING
                           + r', collection: \.(\w+), source: ' + STRING + r', license: ' + STRING + r', sha256: "([0-9a-f]{64})", bundled: (true|false), focal: \(([0-9.]+), ([0-9.]+)\), '
                           + r'subject: \(([0-9.]+), ([0-9.]+), ([0-9.]+), ([0-9.]+)\), '
+                          + r'(?:panel: \([0-9.]+, [0-9.]+, [0-9.]+, [0-9.]+\), )?'
                           + r'tone: \.\w+, palette: \[[^\]]*\], quietLeft: (?:true|false), tint: ([0-9.]+), '
                           + r'darkest: 0x([0-9A-F]{6}), lightest: 0x([0-9A-F]{6})\)$', re.M)
     for (case, artist, year, museum, collection, source, license, sha, bundled,

@@ -22,6 +22,9 @@ public nonisolated struct BackdropArtEntry: Sendable {
     /// What to keep whole and clear of the panes over the art, as fractions of the image from its
     /// top-left corner (`subject` in the manifest).
     let subject: (minX: Double, minY: Double, maxX: Double, maxY: Double)
+    /// The painting's own part of a side render, which sets the whole work beside a blurred,
+    /// darkened fill of itself (`panel` in the manifest); nil when the image is all painting.
+    var panel: (minX: Double, minY: Double, maxX: Double, maxY: Double)? = nil
     let tone: BackdropArtTone
     /// The dominant colors, most common first, as 0xRRGGBB.
     let palette: [UInt32]
@@ -46,7 +49,8 @@ public nonisolated struct BackdropArtEntry: Sendable {
                 : .init(x: 0.56, y: 0.06, width: 0.42, height: 0.88),
             preferredTintOpacity: tint,
             range: BackdropArtRange(darkest: ThemeRGB(hex: darkest), lightest: ThemeRGB(hex: lightest)),
-            subjectBox: BackdropSubjectBox(minX: subject.minX, minY: subject.minY, maxX: subject.maxX, maxY: subject.maxY)
+            subjectBox: BackdropSubjectBox(minX: subject.minX, minY: subject.minY, maxX: subject.maxX, maxY: subject.maxY),
+            panel: panel.map { BackdropSubjectBox(minX: $0.minX, minY: $0.minY, maxX: $0.maxX, maxY: $0.maxY) }
         )
     }
 }
