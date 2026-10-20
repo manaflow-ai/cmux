@@ -120,7 +120,7 @@ impl Translator {
                     }
                     // A tool call is named as its block starts (early_calls.rs).
                     Some("content_block_start") => {
-                        if let Some(call) = self.announce_tool(&ev, &sid).await {
+                        if let Some(call) = self.announce_tool(&ev, &sid, parent).await {
                             out.push(upd(call));
                         }
                     }

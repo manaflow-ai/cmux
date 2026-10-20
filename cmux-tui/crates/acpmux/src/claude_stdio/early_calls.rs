@@ -14,8 +14,14 @@ const OWN_FLOW: &[&str] =
 
 impl Translator {
     /// The pending `tool_call` for a `content_block_start` that opens a tool
-    /// call in session `sid`, or None for any other block.
-    pub(super) async fn announce_tool(&self, event: &Value, sid: &str) -> Option<Value> {
+    /// call in session `sid` (of subagent `parent`, if any), or None for any
+    /// other block.
+    pub(super) async fn announce_tool(
+        &self,
+        event: &Value,
+        sid: &str,
+        parent: Option<&str>,
+    ) -> Option<Value> {
         let block = event.get("content_block")?;
         if block.get("type").and_then(Value::as_str) != Some("tool_use") {
             return None;
@@ -25,7 +31,10 @@ impl Translator {
         if OWN_FLOW.contains(&name) {
             return None;
         }
-        self.announced.lock().await.insert(id.to_owned(), sid.to_owned());
+        self.announced
+            .lock()
+            .await
+            .insert(id.to_owned(), (sid.to_owned(), parent.map(str::to_owned)));
         Some(json!({
             "sessionUpdate": "tool_call",
             "toolCallId": id,
@@ -42,12 +51,21 @@ impl Translator {
     }
 
     /// The calls named early whose whole call never came (the turn ended while
-    /// their input streamed): each ends failed, so none runs on in the chat.
+    /// their input streamed): each ends failed, so none runs on in the chat. A
+    /// background subagent runs on past the turn, and so do its calls.
     pub(super) async fn end_announced(&self) -> Vec<Message> {
-        self.announced
-            .lock()
-            .await
-            .drain()
+        let background = self.background_subagents.lock().await;
+        let mut announced = self.announced.lock().await;
+        let ended: Vec<(String, String)> = announced
+            .iter()
+            .filter(|(_, (_, parent))| !parent.as_ref().is_some_and(|p| background.contains(p)))
+            .map(|(id, (sid, _))| (id.clone(), sid.clone()))
+            .collect();
+        for (id, _) in &ended {
+            announced.remove(id);
+        }
+        ended
+            .into_iter()
             .map(|(id, sid)| {
                 Message::notification(
                     method::SESSION_UPDATE,
