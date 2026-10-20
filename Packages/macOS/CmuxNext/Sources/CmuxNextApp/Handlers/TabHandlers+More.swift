@@ -108,7 +108,6 @@ extension TabHandlers {
         })
         registry.bindUnavailable("palette.toggleFullWidthTab", reason: RefusalStrings.fullWidthTabUnported)
         registry.bind("toggleTabAudioMute", invoke: { BrowserTabAudio.toggleMute(ctx, $0) })
-        registry.bindUnavailable("disconnectRemoteTab", reason: RefusalStrings.needsDaemonCapability("remote-ssh-tabs"))
     }
 
     private static func bindIdentifiers(_ registry: ActionRegistry, _ ctx: AppActionContext) {

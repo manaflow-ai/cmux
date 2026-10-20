@@ -253,8 +253,10 @@ extension PaneController {
     /// A tab's menu, the same wherever it is opened (its strip, its row in
     /// the sidebar): a browser tab drops what does not apply to a page.
     /// New <Kind> Tab reads as the kind `sameKind` names ("New Browser Tab").
-    static func tabMenu(_ id: String, tab: TabModel?, workspaceKind: String?, sameKind: NewTabKind, registry: ActionRegistry) -> NSMenu {
-        let menu = tabMenuEntries(id, tab: tab, workspaceKind: workspaceKind, registry: registry)
+    /// `hiding`: rows the caller knows do not apply to this tab (Disconnect SSH Tab off an SSH machine).
+    static func tabMenu(_ id: String, tab: TabModel?, workspaceKind: String?, sameKind: NewTabKind, registry: ActionRegistry,
+                        hiding: Set<ActionID> = []) -> NSMenu {
+        let menu = tabMenuEntries(id, tab: tab, workspaceKind: workspaceKind, registry: registry, hiding: hiding)
         // It sits in a submenu (More > New).
         func all(_ menu: NSMenu) -> [NSMenuItem] { menu.items + menu.items.compactMap(\.submenu).flatMap(all) }
         if let item = all(menu).first(where: { ActionRegistry.menuRun(of: $0)?.id == "newTab.ofKind" }),
@@ -264,10 +266,11 @@ extension PaneController {
         return menu
     }
 
-    private static func tabMenuEntries(_ id: String, tab: TabModel?, workspaceKind: String?, registry: ActionRegistry) -> NSMenu {
+    private static func tabMenuEntries(_ id: String, tab: TabModel?, workspaceKind: String?, registry: ActionRegistry,
+                                       hiding: Set<ActionID>) -> NSMenu {
         let target = ActionTargetRef(kind: .tab, id: id)
         // Home keeps its tabs: no promote entries.
-        let kept = Set(TabPromotion.menuRemovals(kind: workspaceKind))
+        let kept = Set(TabPromotion.menuRemovals(kind: workspaceKind)).union(hiding)
         guard let tab, tab.kind == .browser else {
             // Hibernation discards a page; a terminal has none (Restart only once its shell ended).
             // Reload and Mute are a page's rows (Chrome's Reload, Mute Site).
@@ -287,7 +290,8 @@ extension PaneController {
         case .tab(let id, _):
             select(id)
             return Self.tabMenu(id.rawValue, tab: tab(id), workspaceKind: workspace?.workspace.kind,
-                                sameKind: NewTabKind.of(id.rawValue, tab: tab(id), services: services), registry: registry).themeRows(in: view.themeScope.fullStrength)
+                                sameKind: NewTabKind.of(id.rawValue, tab: tab(id), services: services), registry: registry,
+                                hiding: RemoteWorkspaceHandlers.hiddenTabMenuItems(tab(id), services.machines)).themeRows(in: view.themeScope.fullStrength)
         case .group(let group), .savedGroup(let group):
             let saved = daemon.store.savedTabGroups.contains { $0.openGroup?.rawValue == group.rawValue }
             return registry.makeContextMenu(for: .tabGroup, target: ActionTargetRef(kind: .tabGroup, id: group.rawValue),

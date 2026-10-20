@@ -51,7 +51,7 @@ Declare its placements (menu, group, rank) and whether the CLI offers it, or nam
 
 ## Counts (978 actions)
 
-Palette 942, CLI verbs 535, right-click 502, MCP tools 460.
+Palette 942, CLI verbs 536, right-click 502, MCP tools 461.
 
 ## Menus
 
@@ -118,7 +118,7 @@ Palette 942, CLI verbs 535, right-click 502, MCP tools 460.
 
 **familyMember** (53): `cycleWorkspaceStatus`, `toggleFocusedWorkspaceGroupCollapsed`, `workspaceGroup.color.grey`, `workspaceGroup.color.blue`, `workspaceGroup.color.red`, `workspaceGroup.color.yellow`, `workspaceGroup.color.green`, `workspaceGroup.color.pink`, `workspaceGroup.color.purple`, `workspaceGroup.color.cyan`, `workspaceGroup.color.orange`, `space.color.grey`, `space.color.blue`, `space.color.red`, `space.color.yellow`, `space.color.green`, `space.color.pink`, `space.color.purple`, `space.color.cyan`, `space.color.orange`, `tabGroup.toggleCollapsed`, `tabGroup.color.grey`, `tabGroup.color.blue`, `tabGroup.color.red`, `tabGroup.color.yellow`, `tabGroup.color.green`, `tabGroup.color.pink`, `tabGroup.color.purple`, `tabGroup.color.cyan`, `tabGroup.color.orange`, `screen.color.grey`, `screen.color.blue`, `screen.color.red`, `screen.color.yellow`, `screen.color.green`, `screen.color.pink`, `screen.color.purple`, `screen.color.cyan`, `screen.color.orange`, `screenGroup.toggleCollapsed`, `screenGroup.color.grey`, `screenGroup.color.blue`, `screenGroup.color.red`, `screenGroup.color.yellow`, `screenGroup.color.green`, `screenGroup.color.pink`, `screenGroup.color.purple`, `screenGroup.color.cyan`, `screenGroup.color.orange`, `resumeCommandEdit`, `browser.findPrevious`, `palette.startAgentFromAnyApp`, `palette.attemptUpdate`
 
-**unimplemented** (9): `palette.openFilesPane`, `palette.openFindPane`, `palette.openVaultPane`, `palette.openCloudPane`, `toggleTabAudioMute`, `disconnectRemoteTab`, `palette.enableBrowser`, `palette.disableBrowser`, `agentChat.toggleNotificationMute`
+**unimplemented** (8): `palette.openFilesPane`, `palette.openFindPane`, `palette.openVaultPane`, `palette.openCloudPane`, `toggleTabAudioMute`, `palette.enableBrowser`, `palette.disableBrowser`, `agentChat.toggleNotificationMute`
 
 **duplicateOfDefault** (3): `newTab.ofKind`, `newTab.toRight`, `newTab.horizontal`
 

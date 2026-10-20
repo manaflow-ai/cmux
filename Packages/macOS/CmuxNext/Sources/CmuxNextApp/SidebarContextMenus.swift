@@ -15,7 +15,8 @@ enum SidebarContextMenus {
             // The tab's own menu, as on its strip; the row is not selected by the right-click.
             let model = services.locateTab(tab.rawValue)?.0
             let menu = PaneController.tabMenu(tab.rawValue, tab: model, workspaceKind: services.workspace(id: workspace.rawValue)?.kind,
-                                              sameKind: NewTabKind.of(tab.rawValue, tab: model, services: services), registry: registry)
+                                              sameKind: NewTabKind.of(tab.rawValue, tab: model, services: services), registry: registry,
+                                              hiding: RemoteWorkspaceHandlers.hiddenTabMenuItems(model, services.machines))
             menu.themeRows(in: scope)
             return menu
         case .workspaces(let ids):
@@ -27,7 +28,10 @@ enum SidebarContextMenus {
             guard let first = ids.first, !ids.contains(where: { model.isPlaceholder($0) || CloudCreationRows.isRow($0, services) }) else { return nil }
             // Dismiss Highlight shows only while the row's workspace draws an attention ring (cx-epgo).
             let highlighted = services.daemon.store.workspaces.first { $0.id == first.rawValue }.map(services.notifications.hasHighlight) ?? false
-            let entries = highlighted ? nil : ContextMenuCatalog.shared.entries(for: .workspaceRow, removing: ["notifications.dismissHighlight"])
+            // Reconnect, Disconnect and Copy SSH Error only on an SSH machine's workspace.
+            let ssh = RemoteWorkspaceHandlers.hiddenWorkspaceMenuItems(first.rawValue, services.machines)
+            let entries = highlighted && ssh.isEmpty ? nil
+                : ContextMenuCatalog.shared.entries(for: .workspaceRow, removing: ssh.union(highlighted ? [] : ["notifications.dismissHighlight"]))
             let menu = registry.makeContextMenu(for: .workspaceRow, target: ActionTargetRef(kind: .workspace, id: first.rawValue), entries: entries)
             WorkspaceColorSwatchRow.inline(in: menu)
             menu.themeRows(in: scope)

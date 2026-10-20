@@ -57,7 +57,7 @@ nonisolated extension ActionSurfaceCatalog {
         "moveSurfaceToPaneLeft", "moveSurfaceToPaneRight", "moveSurfaceToPaneUp", "moveSurfaceToPaneDown",
         "palette.moveTabToNewWorkspace", "palette.toggleTabPin", "palette.toggleTabUnread", "duplicateTab",
         "tab.setIcon", "tab.clearIcon",
-        "reloadTab", "reopenClosedBrowserPanel", "tabGroup.create",
+        "reloadTab", "disconnectRemoteTab", "reopenClosedBrowserPanel", "tabGroup.create",
         "tabGroup.addTab", "tabGroup.removeTab", "tabGroup.rename", "tabGroup.setColor", "tabGroup.setIcon", "tabGroup.clearIcon", "tabGroup.collapse",
         "tabGroup.expand", "tabGroup.ungroup", "tabGroup.close", "tabGroup.moveToNewSplit", "tabGroup.moveToNewColumn",
         "tabGroup.moveToNewWorkspace", "tabGroup.moveToWorkspace", "tabGroup.moveToNewWindow", "tabGroup.newTab",
@@ -146,7 +146,6 @@ nonisolated extension ActionSurfaceCatalog {
         .unimplemented: [
             "palette.disableBrowser",
             "palette.enableBrowser",
-            "disconnectRemoteTab",
             "toggleTabAudioMute",
             "agentChat.toggleNotificationMute",
             "palette.openCloudPane",

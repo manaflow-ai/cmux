@@ -8495,7 +8495,7 @@
       "title_table" : "ActionCatalog"
     },
     {
-      "cli" : "unimplemented",
+      "cli" : "offered",
       "cli_name" : "tab disconnect-ssh",
       "context_menu" : "offered",
       "context_menus" : [
@@ -8508,7 +8508,7 @@
       "default_shortcut" : null,
       "id" : "disconnectRemoteTab",
       "main_menu" : null,
-      "mcp" : "unimplemented",
+      "mcp" : "offered",
       "palette" : "offered",
       "palette_section" : {
         "id" : "category.tab",
