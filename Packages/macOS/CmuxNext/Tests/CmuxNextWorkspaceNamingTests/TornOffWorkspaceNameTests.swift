@@ -79,6 +79,25 @@ struct TornOffWorkspaceNameTests {
         #expect(reader.displayName(try Self.workspace("workspace-41"), front: Self.chatTab("s1")) == "Fix the sidebar drag")
     }
 
+    @Test func aTitlebarNamesADefaultNamedWorkspaceForItsWorkTabWhileAPageIsFocused() throws {
+        // A PR opened in a split beside the chat and focused after it: the sidebar row keeps the
+        // chat's title (#22249), so the titlebar does too.
+        var chat = TabSnapshot(surface: 1, kind: .conversation, name: nil, cwd: nil)
+        chat.conversation = ConversationTabRef(agentSession: AgentSessionRef(host: Self.host, session: "s1", harness: "claude"))
+        let panes = [
+            PaneSnapshot(id: 1, focusedAt: 1, tabs: [chat]),
+            PaneSnapshot(id: 2, focusedAt: 2, tabs: [TabSnapshot(surface: 2, kind: .browser, title: "PR #22249", url: "https://github.com")]),
+        ]
+        let screen = ScreenSnapshot(id: 1, layout: .split(id: nil, resourceID: nil, direction: .right, ratio: 0.5, a: .leaf(1), b: .leaf(2)),
+                                    panes: panes)
+        let store = DaemonStore()
+        store.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: nil, name: "workspace-41", screens: [screen])]))
+        let workspace = try #require(store.workspaces.first)
+        #expect(Self.reader(Self.turns(["s1": "Fix the sidebar drag"])).titlebarName(workspace) { _ in nil } == "Fix the sidebar drag")
+        // With no work tab beside it, the page names it.
+        #expect(Self.reader(Self.turns([:])).displayName(try Self.workspace("workspace-41"), front: TabModel(panes[1].tabs[0])) == "PR #22249")
+    }
+
     @Test func aTitlebarKeepsAWorkspacesOwnName() throws {
         let reader = Self.reader(Self.turns(["s1": "Fix the sidebar drag"]))
         #expect(reader.displayName(try Self.workspace("Sidebar"), front: Self.chatTab("s1")) == "Sidebar")
