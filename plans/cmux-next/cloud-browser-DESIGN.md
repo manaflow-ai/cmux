@@ -226,7 +226,7 @@ floor they would reach.
 | Step | Content | Size |
 | --- | --- | --- |
 | CB-1 | Done here: `cmux-rd host --browser` (supervised Chrome that outlives viewers), bench click/scroll, fleet bench artifact | landed |
-| CB-1b | Seen in the app: a Debug cmux-next `remote_view` pane (`CMUX_NEXT_RD_DEBUG_PORT` / `_TOKEN_FILE`) on the tunnel; not done in this change (the fleet app build failed on an unrelated optchat-chief compile error) | next |
+| CB-1b | Seen in the app: fleet Debug build `cmux DEV cloud-browser-v2` (job a3eedbb24e00020f5eaf7f65, 4fd8b20dee9) with `CMUX_NEXT_RD_DEBUG_PORT=14103` / `_TOKEN_FILE`; `debug.remote_view` open + connect streamed the cloud Chrome page into a pane (hardware decode, 0 decode errors). Gaps: the tab came up in `mode=view` (the pane does not forward input in view mode, so in-app keyboard and mouse were not tried; the bench proved input on the same wire), and text was blocky (stream scaled into the pane, bitrate backed off on the Wi-Fi tunnel). | partly done |
 | CB-2 | Cloud image role: `cmux-rd` + Chrome + Xvfb in the Cloud VM snapshot, started by `cmux host run --browser`; idle pause | 1-2 days |
 | CB-3 | App: a non-debug `remote_view` connection to a cloud VM (today only `RemoteViewDebugRdHost`, DEBUG, loopback env vars): "Open Cloud Browser" in Cmd+Shift+P, CLI and MCP, the token through the server API | 2-3 days |
 | CB-4 | UDP path: Freestyle tunnel (WireGuard) from the app's `cmux link`, so media rides datagrams with FEC | 2-4 days |
