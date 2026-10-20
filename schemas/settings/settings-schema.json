@@ -38,8 +38,7 @@
               "appearance.metrics.tabMinInactiveWidth",
               "appearance.metrics.tabPinnedWidth",
               "tabs.cmdWClosesPinnedTabs",
-              "tabs.swapCmdTAndCmdN",
-              "tabs.newTabNowPlaying"
+              "tabs.swapCmdTAndCmdN"
             ],
             "title" : {
               "key" : "settings.group.tabs",
@@ -313,7 +312,6 @@
           {
             "key" : "settings.group.windowBackground",
             "rows" : [
-              "appearance.backdropArt",
               "appearance.background",
               "appearance.backgroundOpacity",
               "appearance.backgroundBlur"
@@ -1202,7 +1200,6 @@
           {
             "key" : "settings.group.appearanceTuning",
             "rows" : [
-              "appearance.glassTransparency",
               "appearance.hue",
               "appearance.saturation"
             ],
@@ -8598,7 +8595,7 @@
         "legacy"
       ],
       "kind" : "choice",
-      "page_hidden" : false,
+      "page_hidden" : true,
       "path" : [
         "appearance",
         "backdropArt"
@@ -10285,7 +10282,10 @@
         true
       ],
       "section" : "appearance",
-      "summary" : null,
+      "summary" : {
+        "key" : "settings.appearance.backgroundBlur.summary",
+        "text" : "Clear Glass shows the desktop through the wallpaper"
+      },
       "title" : {
         "key" : "settings.appearance.backgroundBlur",
         "text" : "Material"
@@ -10322,7 +10322,7 @@
         "clear"
       ],
       "kind" : "number",
-      "page_hidden" : false,
+      "page_hidden" : true,
       "path" : [
         "appearance",
         "glassTransparency"
@@ -20171,7 +20171,7 @@
       },
       "help" : {
         "key" : "settings.sidebar.nowPlaying.enabled.help",
-        "text" : "A player for what is playing, at the bottom of the sidebar."
+        "text" : "A player for what is playing, at the bottom of the sidebar and on the new chat page."
       },
       "kept_on_reset_all" : false,
       "key" : "sidebar.nowPlaying.enabled",
@@ -20201,57 +20201,6 @@
       "title" : {
         "key" : "settings.sidebar.nowPlaying.enabled",
         "text" : "Show Now Playing"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        true,
-        false
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : true,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.tabs",
-        "text" : "Tabs"
-      },
-      "help" : {
-        "key" : "settings.tabs.newTabNowPlaying.help",
-        "text" : "A player for what is playing, on the New Tab page."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "tabs.newTabNowPlaying",
-      "keywords" : [
-        "music",
-        "now playing",
-        "player",
-        "media",
-        "spotify",
-        "song",
-        "new tab",
-        "new chat"
-      ],
-      "kind" : "toggle",
-      "page_hidden" : false,
-      "path" : [
-        "tabs",
-        "newTabNowPlaying"
-      ],
-      "refuses" : [
-        "true",
-        1,
-        null
-      ],
-      "section" : "general",
-      "summary" : null,
-      "title" : {
-        "key" : "settings.tabs.newTabNowPlaying",
-        "text" : "Show Now Playing on New Tab"
       },
       "validation" : "portable"
     },
