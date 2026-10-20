@@ -24,7 +24,10 @@ nonisolated enum ChiefInspectorPlacement<Pane: Hashable>: Equatable {
     /// `nil`: the home workspace has no scrolling column; the caller then
     /// uses a user workspace.
     static func resolve(focused: Pane, inHome: Bool, columns: [Column]) -> ChiefInspectorPlacement? {
-        // The behavior before a243: always a new column, Home or not.
-        .newColumn(rightOf: focused)
+        guard inHome else { return .newColumn(rightOf: focused) }
+        let scrolling = columns.filter { !$0.isDock }
+        if scrolling.contains(where: { $0.panes.contains(focused) }) { return .tab(in: focused) }
+        guard let right = scrolling.first?.panes.first else { return nil }
+        return .tab(in: right)
     }
 }
