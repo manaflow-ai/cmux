@@ -338,6 +338,24 @@ test("dragging on the rail scrubs: each row crossed jumps the transcript to it, 
   }
 });
 
+test("a press released off the rail ends there: a later hover does not scrub", async () => {
+  const view = await mount(12);
+  try {
+    const list = document.querySelector<HTMLElement>(".acpmux-minimap__list")!;
+    const before = view.scroller.scrollTop;
+    await pointer("pointerdown", tick(1), { clientY: 15 });
+    // Slid sideways off the rail and released over the transcript.
+    await pointer("pointerup", document.body, { clientY: 15 });
+    await pointer("pointermove", list, { clientY: 45 });
+    await pointer("pointermove", list, { clientY: 75 });
+    await view.scrolled();
+    expect(list.closest("nav")!.hasAttribute("data-scrubbing")).toBe(false);
+    expect(view.scroller.scrollTop).toBe(before);
+  } finally {
+    await view.unmount();
+  }
+});
+
 test("a bookmark shows as the tick's dot and in the prompt's row; the dot, the card and the row toggle it", async () => {
   const view = await mount(8);
   const rowButton = (index: number) =>

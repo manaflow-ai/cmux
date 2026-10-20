@@ -206,8 +206,8 @@ export function ThreadMinimap({
   }, [placed, scroller]);
 
   // A jump still under way belongs to the chat it started in: another chat in the reused scroller,
-  // or the rail going away, ends it.
-  useEffect(() => {
+  // or the rail going away, ends it. In the commit itself, before the jump's next frame can run.
+  useLayoutEffect(() => {
     const node = scroller.current;
     return () => {
       if (node) stopScroll(node);
@@ -504,7 +504,22 @@ export function ThreadMinimap({
             if (event.button !== 0 || event.pointerType === "touch") return;
             pressing.current = true;
             swallowClick.current = false;
-            scrub.current = { pointer: event.pointerId, y: event.clientY, moved: false };
+            const state = { pointer: event.pointerId, y: event.clientY, moved: false };
+            scrub.current = state;
+            // A press released off the rail (before it moved far enough to capture the pointer) sends
+            // its pointerup elsewhere: the window sees it bubble (after the list's own, which ends a drag)
+            // and ends the press, so a later hover cannot scrub.
+            const page = event.currentTarget.ownerDocument.defaultView ?? window;
+            const released = () => {
+              page.removeEventListener("pointerup", released);
+              page.removeEventListener("pointercancel", released);
+              if (scrub.current !== state) return;
+              scrub.current = undefined;
+              pressing.current = false;
+              if (state.moved) setScrubbing(false);
+            };
+            page.addEventListener("pointerup", released);
+            page.addEventListener("pointercancel", released);
           }}
           onPointerMove={(event) => {
             const state = scrub.current;
