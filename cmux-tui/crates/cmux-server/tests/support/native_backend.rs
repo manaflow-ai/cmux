@@ -137,7 +137,7 @@ pub(super) fn post(
                     .filter(|(p, _)| p == "/v1/ops" || p == "/v1/read")
                     .all(|(_, prior)| prior["params"]["proof"]["nonce"] != proof["nonce"])
             );
-            let mut answer = json!({"ok":true,"value":{"schema_version":1,"host":host,"team":team,"user":user,"install":install,
+            let mut answer = json!({"op":"host.network.policy","stream":format!("team:{team}"),"revision":"1","value":{"schema_version":1,"host":host,"team":team,"user":user,"install":install,
                 "origin":NATIVE,"tenant":"native_team","mesh":MESH,"device":DEVICE,"wg_public_key":state.begin["wg_public_key"],"install_public_key":point,
                 "authority_version":"a".repeat(64),"checked_at":state.now,"expires_at":state.now+30_000,"acl_version":1,"policy_digest":"b".repeat(64),"peers":[],"accountCredential":"private-fixture-token"}});
             if let Some(pointer) = state.backend_fault.filter(|s| s.starts_with('/')) {

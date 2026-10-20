@@ -591,6 +591,9 @@ fn host_network_policy_reads_current_backend_identity_without_changing_pairing_o
 #[test]
 fn host_network_policy_refuses_a_response_for_another_original_identity_or_network() {
     for pointer in [
+        "/op",
+        "/stream",
+        "/revision",
         "/value/host",
         "/value/team",
         "/value/user",

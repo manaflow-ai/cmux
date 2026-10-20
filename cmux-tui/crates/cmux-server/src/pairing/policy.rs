@@ -2,6 +2,7 @@
 use std::path::Path;
 use std::time::Instant;
 
+use cmux_cloud_wire::ReadResponse;
 use cmux_server_core::install_key::SystemRandom;
 use cmux_server_core::network_policy::{Expected, HostNetworkPolicy};
 use serde_json::{Value, json};
@@ -42,11 +43,15 @@ pub fn network_policy(path: &Path, transport: &dyn Transport) -> Result<Value> {
         }),
         Some(bearer.as_str()),
     )?;
-    if answer["ok"] != true {
-        return Err(Error::unreachable("server.pair.network_policy_unavailable"));
+    let answer: ReadResponse<Value> = serde_json::from_value(answer).map_err(|_| invalid())?;
+    if answer.op != "host.network.policy"
+        || answer.stream != format!("team:{}", paired.team)
+        || answer.revision.parse::<u64>().is_err()
+    {
+        return Err(invalid());
     }
     let parsed = HostNetworkPolicy::parse(
-        &answer["value"],
+        &answer.value,
         &Expected {
             host: &paired.host,
             user: &paired.user,

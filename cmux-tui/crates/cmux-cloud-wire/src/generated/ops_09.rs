@@ -4,6 +4,43 @@
 #[allow(unused_imports)]
 use super::*;
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamVmJournalAppendParams {
+    pub stream: TeamJournalStream,
+    pub epoch: i64,
+    pub first_seq: i64,
+    pub last_seq: i64,
+    pub bytes: String,
+    pub sha256: String,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamVmJournalAppendResult {
+    pub stream: TeamJournalStream,
+    pub first_seq: i64,
+    pub last_seq: i64,
+    pub epoch: i64,
+    pub high_water: i64,
+    pub replayed: bool,
+}
+
+wire_errors! {
+    /// The error codes team_vm.journal.append declares.
+    TeamVmJournalAppendError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        JournalConflict = "journal.conflict",
+        JournalFull = "journal.full",
+        JournalGap = "journal.gap",
+        JournalStaleEpoch = "journal.stale_epoch",
+        JournalTooLarge = "journal.too_large",
+        RevisionConflict = "revision.conflict",
+        TeamVmNotBound = "team_vm.not_bound",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
 wire_op! {
     /// The last seq a team journal stream holds. Only the team VM's own install for the current epoch may call it (plans/cmux-next/team-vm-plan.md 3b).
     TeamVmJournalHighWaterOp {
@@ -863,44 +900,5 @@ wire_op! {
         params: UserEnsureParams,
         result: UserProfile,
         error: UserEnsureError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct UserEnsureParams {}
-
-wire_errors! {
-    /// The error codes user.ensure declares.
-    UserEnsureError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        RevisionConflict = "revision.conflict",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// The owner's presence keys with their public P-256 parts, platform, App Attest flag, usable_from and install state. Only an owner Mac install without an agent claim reads it: the Mac checks a phone's signed feed answers (cx-aocz).
-    UserPresenceKeyListOp {
-        name: "user.presence_key.list",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:UserDO",
-        risk: "read",
-        principals: [Install],
-        params: UserPresenceKeyListParams,
-        result: Value,
-        error: UserPresenceKeyListError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct UserPresenceKeyListParams {}
-
-wire_errors! {
-    /// The error codes user.presence_key.list declares.
-    UserPresenceKeyListError {
-        AuthForbidden = "auth.forbidden",
     }
 }
