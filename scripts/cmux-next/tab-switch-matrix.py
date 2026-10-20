@@ -37,6 +37,7 @@ parser.add_argument("--idle", type=float, default=5.0)
 parser.add_argument("--budget-ms", type=float, default=16.7, help="end-to-end p90 budget (gate)")
 parser.add_argument("--json", help="write the report here")
 parser.add_argument("--out", default="/tmp")
+parser.add_argument("--profile", default="", help="kind:count scenarios (comma list) whose Ctrl-Tab phase runs under a Time Profiler")
 opts, _unknown = parser.parse_known_args()
 TAG, APP = opts.tag, os.path.abspath(opts.app.rstrip("/"))
 SOCKET = f"/tmp/cmux-debug-{TAG}.sock"
@@ -178,10 +179,54 @@ def footprint():
             "by_process": {k: {"cpu_percent": round(v[0], 2), "footprint_mb": round(v[1], 1)} for k, v in by_kind.items()}}
 
 
-def time_switches(label, step, count):
+def profile_summary(trace, label):
+    """Heaviest main-thread frames of the app in `trace` (self and inclusive ms)."""
+    import collections, xml.etree.ElementTree as ET
+    xml = trace + ".xml"
+    with open(xml, "w") as handle:
+        subprocess.run(["xcrun", "xctrace", "export", "--input", trace, "--xpath",
+                        '/trace-toc/run[@number="1"]/data/table[@schema="time-profile"]'], stdout=handle, timeout=600)
+    byid, selfw, incl, total = {}, collections.Counter(), collections.Counter(), 0
+    def resolve(e):
+        r = e.get("ref")
+        return byid.get(r, e) if r else e
+    for _, e in ET.iterparse(xml, events=("end",)):
+        if e.get("id"):
+            byid[e.get("id")] = e
+        if e.tag != "row":
+            continue
+        thread = resolve(e.find("thread")) if e.find("thread") is not None else None
+        if thread is None or "Main Thread" not in thread.get("fmt", ""):
+            continue
+        w = e.find("weight"); w = resolve(w) if w is not None else None
+        weight = int(w.text) if w is not None and w.text and w.text.isdigit() else 1000000
+        bt = e.find("backtrace"); bt = resolve(bt) if bt is not None else None
+        if bt is None:
+            continue
+        names = [resolve(f).get("name", "?") for f in bt.findall("frame")]
+        if not names:
+            continue
+        total += weight
+        selfw[names[0]] += weight
+        for n in set(names):
+            incl[n] += weight
+    lines = [f"PROFILE {label} main-thread total_ms={total / 1e6:.1f}"]
+    lines += [f"PROFILE {label} self {w / 1e6:8.1f} ms  {n[:170]}" for n, w in selfw.most_common(30)]
+    lines += [f"PROFILE {label} incl {w / 1e6:8.1f} ms  {n[:170]}" for n, w in incl.most_common(70)]
+    print("\n".join(lines), flush=True)
+    return {"total_ms": round(total / 1e6, 1), "self": [[n, round(w / 1e6, 1)] for n, w in selfw.most_common(30)],
+            "incl": [[n, round(w / 1e6, 1)] for n, w in incl.most_common(70)]}
+
+
+def time_switches(label, step, count, profile=None):
     rpc("debug.frames", {"action": "start"})  # keeps the display link ticking: a commit's frame is the next vsync
     rpc("debug.tab_switch", {"action": "start"})
     rpc("debug.hangs", {"clear": True})
+    recorder = None
+    if profile:
+        recorder = subprocess.Popen(["xcrun", "xctrace", "record", "--template", "Time Profiler", "--attach", str(app.pid),
+                                     "--output", profile, "--no-prompt"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        time.sleep(4)  # test harness: the recorder attaches
     kinds = classify(app.pid, APP)
     start = {pid: usage(pid) for pid in kinds}
     t0 = time.monotonic()
@@ -190,6 +235,17 @@ def time_switches(label, step, count):
         time.sleep(opts.interval)  # test harness pacing: one switch per interval
     time.sleep(0.8)  # test harness: the last commit lands
     wall = time.monotonic() - t0
+    profiled = None
+    if recorder:
+        recorder.send_signal(signal.SIGINT)
+        try:
+            recorder.wait(timeout=120)
+        except subprocess.TimeoutExpired:
+            recorder.kill()
+        try:
+            profiled = profile_summary(profile, label)
+        except Exception as error:  # a failed export must not lose the timings
+            print(f"profile export failed: {error!r}", flush=True)
     cpu = sum(100.0 * (usage(p)[0] - start[p][0]) / (wall * 1e9) for p in kinds if start.get(p) and usage(p))
     own = rpc("debug.tab_switch", {"action": "stop"}) or {}
     rpc("debug.frames", {"action": "stop"})
@@ -217,7 +273,7 @@ def time_switches(label, step, count):
         frames = [f for f in record.get("frames", []) if "CmuxNext" in f or "Ghostty" in f][:8]
         print(f"    stall {record.get('duration_ms', 0):.1f} ms: " + " < ".join(str(f)[:90] for f in frames), flush=True)
     return {"table": table, "switches": switches, "stalls": stalls, "cpu_percent_during": round(cpu, 1),
-            "timed": len(switches), "asked": count}
+            "timed": len(switches), "asked": count, "profile": profiled}
 
 
 def scenario(kind, count, baseline):
@@ -256,7 +312,11 @@ def scenario(kind, count, baseline):
     print(f"  idle {idle['cpu_percent']}% {idle['footprint_mb']} MB; per hidden tab {per_tab}", flush=True)
     n = min(opts.switches, max(total * 2, 8))
     result = {"kind": kind, "count": count, "tabs": total, "idle": idle, "per_tab": per_tab}
+    profile = os.path.join(opts.out, f"{name}.trace") if f"{kind}:{count}" in opts.profile.split(",") else None
     result["ctrl_tab"] = time_switches("Ctrl-Tab", lambda i: rpc("debug.key", {"key": "tab", "modifiers": ["control"]}), n)
+    if profile:  # a separate pass, so the profiler's cost stays out of the timed numbers
+        result["profile"] = time_switches("Ctrl-Tab profiled", lambda i: rpc("debug.key", {"key": "tab", "modifiers": ["control"]}),
+                                          max(n, 120), profile=profile)["profile"]
     result["cmd_shift_bracket"] = time_switches("Cmd-Shift-]", lambda i: rpc("debug.key", {"key": "]", "modifiers": ["command", "shift"]}), n)
     tabs = [t for t in strip_tabs() if t[2] >= 24]  # clickable: drawn wide enough
     if len(tabs) >= 2:
