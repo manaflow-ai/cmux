@@ -337,12 +337,68 @@ struct MacScreenHubViewerTests {
         #expect(viewer.phase == .streaming(sessionID: "s1", scope: .full))
     }
 
+    /// A dropped stream waits before telling the hub "failed", so a host's
+    /// cause (signed_out, sharing_off) that is on its way wins at the hub too.
+    @Test func aDroppedStreamWaitsBeforeEndingAsFailed() async {
+        let hub = testHub()
+        let viewer = MacScreenHubViewer(deviceID: hostID) { hub }
+        let ends = CallLog()
+        viewer.endSession = { _, id, reason in ends.items.append("\(id) \(reason)") }
+        viewer.failureGrace = .milliseconds(30)
+        viewer.phase = .streaming(sessionID: "s1", scope: .view)
+        viewer.streamFailed()
+        #expect(ends.items.isEmpty)
+        viewer.revoked(reason: "signed_out")
+        await viewer.failureEnd?.value
+        #expect(ends.items.isEmpty)
+        #expect(viewer.phase == .revoked(reason: "signed_out"))
+        // No push comes: the hub hears "failed" after the grace.
+        viewer.phase = .streaming(sessionID: "s2", scope: .view)
+        viewer.streamFailed()
+        await viewer.failureEnd?.value
+        #expect(ends.items == ["s2 failed"])
+    }
+
+    /// A stream that failed while this Mac's hub link was down keeps saying so after the link returns.
+    @Test func aLostLinkFailureStaysExplained() {
+        let viewer = MacScreenHubViewer(deviceID: hostID) { testHub() }
+        viewer.endSession = { _, _, _ in }
+        viewer.failureGrace = .seconds(60)
+        viewer.phase = .streaming(sessionID: "s1", scope: .view)
+        viewer.streamFailed()
+        #expect(viewer.failedWhileOffline)
+        viewer.request(.view)
+        #expect(!viewer.failedWhileOffline)
+    }
+
+    /// Connect Again asks for what the host now allows: Full re-granted means Full, View means View.
+    @Test func connectAgainFollowsTheCurrentPermission() {
+        #expect(MacScreenHubViewer.scopeToRequest(last: .view, access: .full) == .full)
+        #expect(MacScreenHubViewer.scopeToRequest(last: .full, access: .view) == .view)
+        #expect(MacScreenHubViewer.scopeToRequest(last: .full, access: .ask) == .full)
+        #expect(MacScreenHubViewer.scopeToRequest(last: .view, access: nil) == .view)
+    }
+
+    /// A permission raised again after a revocation never reads as removed access.
+    @Test func reGrantedAccessIsNotRemoved() {
+        #expect(MacScreenPaneModel.hubCard(.revoked(reason: "permission_revoked"), access: .full) == .hubRevoked(.accessChanged))
+        #expect(MacScreenPaneModel.hubCard(.revoked(reason: "permission_revoked"), access: .ask) == .hubRevoked(.accessChanged))
+        #expect(!MacScreenEndReason.accessChanged.removesAccess && MacScreenEndReason.accessChanged.canReconnect)
+    }
+
+    /// A device that left the user's devices: no Try Again.
+    @Test func notFoundOffersNoRetry() {
+        #expect(!MacScreenHubRefusal.notFound.canRetry)
+        #expect(MacScreenHubRefusal.hostOffline.canRetry && MacScreenHubRefusal.notShared.canRetry)
+    }
+
     /// The host's reason wins over a stream that dropped a moment before it arrived (View scope too).
     @Test func theHostsReasonWinsOverTheDroppedStream() {
         for scope: SessionScope in [.view, .full] {
             let hub = testHub()
             let viewer = MacScreenHubViewer(deviceID: hostID) { hub }
             viewer.endSession = { _, _, _ in }
+            viewer.failureGrace = .seconds(60)
             viewer.phase = .streaming(sessionID: "s1", scope: scope)
             viewer.streamFailed()
             viewer.revoked(reason: "sharing_off")

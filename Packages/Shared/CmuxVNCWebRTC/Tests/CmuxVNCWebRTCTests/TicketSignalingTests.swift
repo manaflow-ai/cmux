@@ -189,7 +189,10 @@ struct TicketSignalingTests {
         await #expect(throws: ScreenSignalingError.missingFingerprint) { _ = try await messages.next() }
     }
 
-    @Test(.timeLimit(.minutes(1))) func aClosedSocketEndsTheSession() async throws {
+    /// A dropped Session DO socket (this device's network) ends signaling,
+    /// not the session: a live peer connection lives on, and the hub's
+    /// pushes or WebRTC itself end it. Only a `bye` frame is the session's end.
+    @Test(.timeLimit(.minutes(1))) func aClosedSocketEndsSignalingNotTheSession() async throws {
         let socket = FakeSignalSocket()
         let signaling = try TicketSignaling(ticket: Self.jws(role: "viewer", peerKey: SoftwareTicketSigner().publicKey),
                                             signalURL: URL(string: "wss://hub.example/v1/sessions/s1/ws")!,
@@ -197,7 +200,6 @@ struct TicketSignalingTests {
         var messages = signaling.messages().makeAsyncIterator()
         _ = try await messages.next()
         socket.close()
-        #expect(try await messages.next() == .bye)
         #expect(try await messages.next() == nil)
     }
 
