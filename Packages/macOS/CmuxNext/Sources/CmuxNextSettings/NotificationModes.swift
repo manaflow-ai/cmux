@@ -16,6 +16,15 @@ public nonisolated enum NotificationDismissal: String, Hashable, Sendable, CaseI
     case never
 }
 
+/// `notifications.showPreviews`: when a banner shows what the agent said (its last message),
+/// named like macOS's own Show Previews.
+public nonisolated enum NotificationPreviews: String, Hashable, Sendable, CaseIterable {
+    case always
+    /// Not while the screen is locked (default).
+    case whenUnlocked
+    case never
+}
+
 /// When a macOS notification banner is posted (`notifications.desktop`).
 public nonisolated enum DesktopNotificationMode: String, Hashable, Sendable, CaseIterable {
     /// Unless the notifying pane is the focused pane of the key window

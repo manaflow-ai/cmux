@@ -2521,6 +2521,17 @@
       "title" : "Quiet Hours",
       "type" : "object"
     },
+    "notifications.showPreviews" : {
+      "default" : "whenUnlocked",
+      "description" : "A finished turn's banner shows the agent's last message.",
+      "enum" : [
+        "always",
+        "whenUnlocked",
+        "never"
+      ],
+      "title" : "Show Previews",
+      "type" : "string"
+    },
     "notifications.sound" : {
       "default" : "default",
       "description" : "notifications.sound",

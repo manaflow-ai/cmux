@@ -1,2108 +1,6 @@
 {
   "sourceLanguage": "en",
   "strings": {
-    "settings.group.chiefChat": {
-      "comment": "Settings group in Agents: how the Chief chat looks.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chief Chat"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "دردشة Chief"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief razgovor"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief-chat"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief-Chat"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chat de Chief"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Discussion avec Chief"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chat di Chief"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief チャット"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ការជជែក Chief"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief 채팅"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief-chat"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Czat z Chiefem"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chat do Chief"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Чат с Chief"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "แชท Chief"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief Sohbeti"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Чат із Chief"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Trò chuyện với Chief"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief 聊天"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief 聊天"
-          }
-        }
-      }
-    },
-    "settings.home.chiefBubbleStyle": {
-      "comment": "Title of the Chief chat's bubble style setting (home.chiefBubbleStyle): iMessage or Theme.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bubble Style"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "نمط الفقاعات"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Stil oblačića"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Boblestil"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Blasenstil"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Estilo de burbujas"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Style des bulles"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Stile dei fumetti"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "吹き出しのスタイル"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "រចនាប័ទ្មពពុះ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "말풍선 스타일"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Boblestil"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Styl dymków"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Estilo dos balões"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Стиль пузырей"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "สไตล์บับเบิล"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Baloncuk Stili"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Стиль бульбашок"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Kiểu bong bóng"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "气泡样式"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "泡泡樣式"
-          }
-        }
-      }
-    },
-    "settings.home.chiefBubbleStyle.help": {
-      "comment": "Help of the Chief chat's bubble style setting (home.chiefBubbleStyle). iMessage is Apple's product name; keep it.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "iMessage shows your messages in blue and the Chief's in gray. Theme uses your theme's accent and surface colors."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "يعرض iMessage رسائلك باللون الأزرق ورسائل Chief باللون الرمادي. يستخدم خيار السمة ألوان التمييز والسطح في سمتك."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "iMessage prikazuje tvoje poruke plavo, a Chiefove sivo. Tema koristi boju naglaska i površine tvoje teme."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "iMessage viser dine beskeder i blå og Chiefs i grå. Tema bruger dit temas accent- og overfladefarver."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "iMessage zeigt deine Nachrichten in Blau und die von Chief in Grau. Theme nutzt die Akzent- und Flächenfarben deines Themes."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "iMessage muestra tus mensajes en azul y los de Chief en gris. Tema usa los colores de acento y superficie de tu tema."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "iMessage affiche vos messages en bleu et ceux de Chief en gris. Thème utilise les couleurs d'accent et de surface de votre thème."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "iMessage mostra i tuoi messaggi in blu e quelli di Chief in grigio. Tema usa i colori di accento e di superficie del tuo tema."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "iMessage では自分のメッセージが青、Chief のメッセージがグレーで表示されます。テーマでは、テーマのアクセントカラーと面の色が使われます。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "iMessage បង្ហាញសាររបស់អ្នកជាពណ៌ខៀវ និងសាររបស់ Chief ជាពណ៌ប្រផេះ។ រចនាប័ទ្មប្រើពណ៌សង្កត់ និងពណ៌ផ្ទៃនៃរចនាប័ទ្មរបស់អ្នក។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "iMessage는 내 메시지를 파란색, Chief의 메시지를 회색으로 표시합니다. 테마는 테마의 강조 색상과 표면 색상을 사용합니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "iMessage viser meldingene dine i blått og Chiefs i grått. Tema bruker temaets aksent- og overflatefarger."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "iMessage pokazuje Twoje wiadomości na niebiesko, a wiadomości Chiefa na szaro. Motyw używa koloru akcentu i powierzchni Twojego motywu."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "O iMessage mostra suas mensagens em azul e as do Chief em cinza. Tema usa as cores de destaque e de superfície do seu tema."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "iMessage показывает ваши сообщения синим, а сообщения Chief серым. Тема использует акцентный цвет и цвет поверхности вашей темы."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "iMessage แสดงข้อความของคุณเป็นสีน้ำเงินและข้อความของ Chief เป็นสีเทา ธีมใช้สีเน้นและสีพื้นผิวของธีมของคุณ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "iMessage mesajlarını mavi, Chief'inkileri gri gösterir. Tema, temanın vurgu ve yüzey renklerini kullanır."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "iMessage показує ваші повідомлення синім, а повідомлення Chief сірим. Тема використовує акцентний колір і колір поверхні вашої теми."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "iMessage hiển thị tin nhắn của bạn màu xanh và của Chief màu xám. Chủ đề dùng màu nhấn và màu nền của chủ đề."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "iMessage 将你的消息显示为蓝色，Chief 的消息显示为灰色。主题使用你的主题的强调色和表面颜色。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "iMessage 將你的訊息顯示為藍色，Chief 的訊息顯示為灰色。主題使用你的主題的強調色和表面顏色。"
-          }
-        }
-      }
-    },
-    "settings.choice.chiefBubbleStyle.theme": {
-      "comment": "The Chief chat's bubble style choice that uses the theme's colors (home.chiefBubbleStyle = theme).",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Theme"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "السمة"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tema"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tema"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Theme"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tema"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Thème"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tema"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "テーマ"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "រចនាប័ទ្ម"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "테마"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tema"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Motyw"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tema"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Тема"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ธีม"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tema"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Тема"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chủ đề"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "主题"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "主題"
-          }
-        }
-      }
-    },
-    "settings.markdown.codeBlockSize": {
-      "comment": "Settings title for the hidden fixed code block size (markdown.code.blockSize)",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Code Block Size"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "حجم كتلة التعليمات البرمجية"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Veličina bloka koda"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Størrelse på kodeblok"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Größe von Codeblöcken"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tamaño de bloque de código"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Taille des blocs de code"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dimensione blocchi di codice"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "コードブロックのサイズ"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ទំហំប្លុកកូដ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "코드 블록 크기"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Størrelse på kodeblokk"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Rozmiar bloków kodu"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tamanho do bloco de código"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Размер блоков кода"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ขนาดบล็อกโค้ด"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kod bloğu boyutu"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Розмір блоків коду"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cỡ khối mã"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "代码块大小"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "程式碼區塊大小"
-          }
-        }
-      }
-    },
-    "settings.markdown.codeScale.help": {
-      "comment": "Settings help for Code Font Size (markdown.code.scale)",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Code as a share of the text size. A monospaced font looks bigger than the text font at the same size, so code is a little smaller by default."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "حجم التعليمات البرمجية كنسبة من حجم النص. يبدو الخط أحادي المسافة أكبر من خط النص بالحجم نفسه، لذا تكون التعليمات البرمجية أصغر قليلًا افتراضيًا."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kod kao udio veličine teksta. Font fiksne širine izgleda veći od fonta teksta iste veličine, pa je kod po zadanom malo manji."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kode som en andel af tekststørrelsen. En skrift med fast bredde ser større ud end tekstskriften i samme størrelse, så kode er som standard lidt mindre."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Code als Anteil der Textgröße. Eine Festbreitenschrift wirkt bei gleicher Größe größer als die Textschrift, daher ist Code standardmäßig etwas kleiner."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "El código como proporción del tamaño del texto. Una fuente monoespaciada parece más grande que la del texto al mismo tamaño, así que el código es algo más pequeño por omisión."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Le code en proportion de la taille du texte. Une police à chasse fixe paraît plus grande que celle du texte à taille égale, donc le code est un peu plus petit par défaut."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Il codice come quota della dimensione del testo. Un font a spaziatura fissa sembra più grande del font del testo alla stessa dimensione, quindi il codice è un po’ più piccolo per impostazione predefinita."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "本文サイズに対するコードの比率。等幅フォントは同じサイズでも本文フォントより大きく見えるため、デフォルトではコードを少し小さくします。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "កូដជាសមាមាត្រនៃទំហំអត្ថបទ។ ពុម្ពអក្សរទទឹងថេរមើលទៅធំជាងពុម្ពអក្សរអត្ថបទក្នុងទំហំដូចគ្នា ដូច្នេះកូដតូចជាងបន្តិចតាមលំនាំដើម។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "본문 크기에 대한 코드 크기의 비율입니다. 고정폭 글꼴은 같은 크기에서도 본문 글꼴보다 커 보이므로 기본적으로 코드가 조금 더 작습니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kode som en andel av tekststørrelsen. En skrift med fast bredde ser større ut enn tekstskriften i samme størrelse, så kode er litt mindre som standard."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kod jako część rozmiaru tekstu. Czcionka o stałej szerokości wygląda na większą niż czcionka tekstu w tym samym rozmiarze, więc kod jest domyślnie nieco mniejszy."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "O código como proporção do tamanho do texto. Uma fonte monoespaçada parece maior que a do texto no mesmo tamanho, então o código fica um pouco menor por padrão."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Код как доля размера текста. Моноширинный шрифт выглядит крупнее шрифта текста того же размера, поэтому по умолчанию код немного меньше."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "โค้ดเป็นสัดส่วนของขนาดข้อความ ฟอนต์ความกว้างคงที่ดูใหญ่กว่าฟอนต์ข้อความที่ขนาดเดียวกัน โค้ดจึงเล็กกว่าเล็กน้อยตามค่าเริ่มต้น"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Metin boyutunun bir oranı olarak kod. Eş aralıklı yazı tipi aynı boyutta metin yazı tipinden büyük görünür, bu yüzden kod varsayılan olarak biraz daha küçüktür."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Код як частка розміру тексту. Моноширинний шрифт виглядає більшим за шрифт тексту того самого розміру, тому типово код трохи менший."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mã theo tỷ lệ với cỡ chữ văn bản. Phông chữ đơn cách trông to hơn phông văn bản ở cùng cỡ, nên mặc định mã nhỏ hơn một chút."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "代码相对正文大小的比例。等宽字体在同样大小下看起来比正文字体大，所以代码默认稍小一些。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "程式碼相對內文大小的比例。等寬字體在相同大小下看起來比內文字體大，所以程式碼預設會稍小一些。"
-          }
-        }
-      }
-    },
-    "settings.sidebar.nowPlaying.enabled": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Show Now Playing"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "إظهار قيد التشغيل الآن"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Prikaži Sada se reproducira"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vis Afspilles nu"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "„Aktuelle Wiedergabe“ anzeigen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostrar Reproduciendo ahora"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Afficher À l’écoute"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostra In riproduzione"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "再生中を表示"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "បង្ហាញ​អ្វី​ដែល​កំពុង​ចាក់"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "지금 재생 중 보기"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vis Spilles nå"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pokaż Teraz odtwarzane"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostrar Tocando Agora"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Показывать «Сейчас играет»"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "แสดงกำลังเล่น"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Şimdi Çalıyor’u Göster"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Показувати «Зараз грає»"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hiện Đang phát"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "显示正在播放"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "顯示正在播放"
-          }
-        }
-      }
-    },
-    "settings.sidebar.nowPlaying.enabled.help": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "A player for what is playing, at the bottom of the sidebar and on the new chat page."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "مشغّل لما يتم تشغيله الآن، أسفل الشريط الجانبي وفي صفحة الدردشة الجديدة."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Plejer za ono što se reproducira, na dnu bočne trake i na stranici novog chata."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "En afspiller til det, der afspilles, nederst i sidepanelet og på siden til ny chat."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ein Player für die aktuelle Wiedergabe, unten in der Seitenleiste und auf der Seite für einen neuen Chat."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Un reproductor de lo que está sonando, en la parte inferior de la barra lateral y en la página de chat nuevo."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Un lecteur pour ce qui est en cours de lecture, en bas de la barre latérale et sur la page de nouvelle discussion."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Un player per ciò che è in riproduzione, in fondo alla barra laterale e nella pagina della nuova chat."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "再生中のメディアのプレーヤー。サイドバーの下部と新しいチャットのページに表示されます。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "កម្មវិធី​ចាក់​សម្រាប់​អ្វី​ដែល​កំពុង​ចាក់ នៅ​ផ្នែក​ខាង​ក្រោម​របារ​ចំហៀង និង​នៅ​លើ​ទំព័រ​ជជែក​ថ្មី។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "재생 중인 항목의 플레이어로, 사이드바 하단과 새 채팅 페이지에 표시됩니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "En spiller for det som spilles, nederst i sidepanelet og på siden for ny chat."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Odtwarzacz tego, co gra, na dole paska bocznego i na stronie nowego czatu."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Um player do que está tocando, na parte inferior da barra lateral e na página de novo chat."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Плеер для того, что сейчас играет, внизу боковой панели и на странице нового чата."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "เครื่องเล่นสำหรับสิ่งที่กำลังเล่น ที่ด้านล่างของแถบด้านข้างและในหน้าแชทใหม่"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Çalan içerik için bir oynatıcı; kenar çubuğunun altında ve yeni sohbet sayfasında."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Плеєр для того, що зараз грає, унизу бічної панелі та на сторінці нового чату."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Trình phát cho nội dung đang phát, ở cuối thanh bên và trên trang trò chuyện mới."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "正在播放内容的播放器，位于边栏底部和新聊天页面。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "正在播放內容的播放器，位於側邊欄底部和新聊天頁面。"
-          }
-        }
-      }
-    },
-    "settings.group.openingLinks": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Opening Links"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "فتح الروابط"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Otvaranje linkova"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Åbning af links"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Links öffnen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Apertura de enlaces"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ouverture des liens"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Apertura dei link"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "リンクを開く"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ការបើកតំណ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "링크 열기"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Åpning av lenker"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Otwieranie linków"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Abertura de links"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Открытие ссылок"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "การเปิดลิงก์"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Bağlantıları Açma"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Відкриття посилань"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mở liên kết"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "打开链接"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "開啟連結"
-          }
-        }
-      }
-    },
-    "settings.browser.openLinks": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Open Links in cmux Browser"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "فتح الروابط في متصفح cmux"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Otvaraj linkove u cmux pregledniku"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Åbn links i cmux-browser"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Links im cmux-Browser öffnen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Abrir enlaces en el navegador de cmux"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ouvrir les liens dans le navigateur cmux"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Apri i link nel browser di cmux"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "リンクを cmux ブラウザで開く"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "បើកតំណក្នុងកម្មវិធីរុករក cmux"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux 브라우저에서 링크 열기"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Åpne lenker i cmux-nettleser"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Otwieraj linki w przeglądarce cmux"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Abrir links no navegador do cmux"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Открывать ссылки в браузере cmux"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "เปิดลิงก์ในเบราว์เซอร์ cmux"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Bağlantıları cmux Tarayıcısında Aç"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Відкривати посилання в браузері cmux"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mở liên kết trong trình duyệt cmux"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "在 cmux 浏览器中打开链接"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "在 cmux 瀏覽器中開啟連結"
-          }
-        }
-      }
-    },
-    "settings.browser.openLinks.help": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "When off, links you click in terminals, agent chats, Home and cmux pages open in your default browser. Shift-Command-click opens a link in the other browser."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "عند إيقافه، تُفتح الروابط التي تنقر عليها في الطرفيات ومحادثات الوكلاء والصفحة الرئيسية وصفحات cmux في متصفحك الافتراضي. يفتح النقر مع Shift-Command الرابط في المتصفح الآخر."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Kada je isključeno, linkovi na koje kliknete u terminalima, chatovima s agentima, na Početnoj i na cmux stranicama otvaraju se u zadanom pregledniku. Shift-Command-klik otvara link u drugom pregledniku."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Når det er slået fra, åbnes links, du klikker på i terminaler, agentchats, Hjem og cmux-sider, i din standardbrowser. Shift-Command-klik åbner et link i den anden browser."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Wenn deaktiviert, öffnen sich Links, die du in Terminals, Agent-Chats, Home und cmux-Seiten anklickst, in deinem Standardbrowser. Shift-Command-Klick öffnet einen Link im jeweils anderen Browser."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Si está desactivado, los enlaces en los que haces clic en terminales, chats de agentes, Inicio y páginas de cmux se abren en tu navegador predeterminado. Mayúsculas-Comando-clic abre un enlace en el otro navegador."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Désactivé, les liens sur lesquels vous cliquez dans les terminaux, les discussions d'agents, l'Accueil et les pages cmux s'ouvrent dans votre navigateur par défaut. Maj-Commande-clic ouvre un lien dans l'autre navigateur."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Se disattivato, i link su cui fai clic nei terminali, nelle chat degli agenti, nella Home e nelle pagine di cmux si aprono nel browser predefinito. Maiusc-Comando-clic apre un link nell'altro browser."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "オフにすると、ターミナル、エージェントチャット、ホーム、cmux ページでクリックしたリンクはデフォルトのブラウザで開きます。Shift-Command-クリックすると、もう一方のブラウザでリンクを開きます。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ពេលបិទ តំណដែលអ្នកចុចក្នុងទែមីណាល់ ការជជែកជាមួយភ្នាក់ងារ ទំព័រដើម និងទំព័រ cmux បើកក្នុងកម្មវិធីរុករកលំនាំដើមរបស់អ្នក។ Shift-Command-ចុច បើកតំណក្នុងកម្មវិធីរុករកផ្សេងទៀត។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "끄면 터미널, 에이전트 채팅, 홈 및 cmux 페이지에서 클릭한 링크가 기본 브라우저에서 열립니다. Shift-Command-클릭하면 다른 브라우저에서 링크를 엽니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Når dette er av, åpnes lenker du klikker i terminaler, agentchatter, Hjem og cmux-sider i standardnettleseren. Shift-Command-klikk åpner en lenke i den andre nettleseren."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Po wyłączeniu linki klikane w terminalach, czatach z agentami, na stronie głównej i na stronach cmux otwierają się w domyślnej przeglądarce. Shift-Command-kliknięcie otwiera link w drugiej przeglądarce."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Quando desativado, os links em que você clica em terminais, chats de agentes, Início e páginas do cmux abrem no navegador padrão. Shift-Command-clique abre um link no outro navegador."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Если выключено, ссылки, по которым вы щёлкаете в терминалах, чатах с агентами, на главной и на страницах cmux, открываются в браузере по умолчанию. Shift-Command-щелчок открывает ссылку в другом браузере."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "เมื่อปิด ลิงก์ที่คุณคลิกในเทอร์มินัล แชทเอเจนต์ หน้าหลัก และหน้า cmux จะเปิดในเบราว์เซอร์เริ่มต้น การคลิกพร้อม Shift-Command จะเปิดลิงก์ในเบราว์เซอร์อีกตัว"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Kapalıyken terminallerde, ajan sohbetlerinde, Ana Sayfa'da ve cmux sayfalarında tıkladığınız bağlantılar varsayılan tarayıcınızda açılır. Shift-Command ile tıklamak bağlantıyı diğer tarayıcıda açar."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Якщо вимкнено, посилання, на які ви клацаєте в терміналах, чатах з агентами, на головній і на сторінках cmux, відкриваються в типовому браузері. Shift-Command-клацання відкриває посилання в іншому браузері."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Khi tắt, các liên kết bạn nhấp trong terminal, trò chuyện với tác nhân, Trang chủ và các trang cmux sẽ mở trong trình duyệt mặc định. Shift-Command-nhấp mở liên kết trong trình duyệt còn lại."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "关闭后，你在终端、代理聊天、主页和 cmux 页面中点击的链接会在默认浏览器中打开。按住 Shift-Command 点按会在另一个浏览器中打开链接。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "關閉後，你在終端機、代理聊天、首頁和 cmux 頁面中點按的連結會在預設瀏覽器中開啟。按住 Shift-Command 點按會在另一個瀏覽器中開啟連結。"
-          }
-        }
-      }
-    },
-    "settings.browser.externalLinkPatterns.help": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Links that match open in your default browser. Text matches anywhere in the URL, * and ? are wildcards, and re: starts a regular expression."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "تُفتح الروابط المطابقة في متصفحك الافتراضي. يطابق النص أي جزء من عنوان URL، و* و? أحرف بدل، وre: تبدأ تعبيرًا نمطيًا."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Linkovi koji se podudaraju otvaraju se u zadanom pregledniku. Tekst se podudara bilo gdje u URL-u, * i ? su zamjenski znakovi, a re: započinje regularni izraz."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Links, der matcher, åbnes i din standardbrowser. Tekst matcher hvor som helst i URL'en, * og ? er jokertegn, og re: starter et regulært udtryk."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Passende Links öffnen sich in deinem Standardbrowser. Text passt an jeder Stelle der URL, * und ? sind Platzhalter, und re: beginnt einen regulären Ausdruck."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Los enlaces que coinciden se abren en tu navegador predeterminado. El texto coincide en cualquier parte de la URL, * y ? son comodines, y re: inicia una expresión regular."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Les liens correspondants s'ouvrent dans votre navigateur par défaut. Le texte correspond n'importe où dans l'URL, * et ? sont des jokers, et re: commence une expression régulière."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "I link corrispondenti si aprono nel browser predefinito. Il testo corrisponde in qualsiasi punto dell'URL, * e ? sono caratteri jolly e re: inizia un'espressione regolare."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "一致するリンクはデフォルトのブラウザで開きます。テキストは URL のどこにでも一致し、* と ? はワイルドカード、re: は正規表現の開始です。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "តំណដែលត្រូវគ្នាបើកក្នុងកម្មវិធីរុករកលំនាំដើម។ អត្ថបទត្រូវគ្នានៅកន្លែងណាក៏បានក្នុង URL, * និង ? ជាតួអក្សរជំនួស ហើយ re: ចាប់ផ្ដើមកន្សោមធម្មតា។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "일치하는 링크는 기본 브라우저에서 열립니다. 텍스트는 URL의 어느 부분과도 일치하며, *와 ?는 와일드카드이고 re:는 정규 표현식을 시작합니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Lenker som samsvarer åpnes i standardnettleseren. Tekst samsvarer hvor som helst i URL-en, * og ? er jokertegn, og re: starter et regulært uttrykk."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Pasujące linki otwierają się w domyślnej przeglądarce. Tekst pasuje w dowolnym miejscu adresu URL, * i ? to symbole wieloznaczne, a re: rozpoczyna wyrażenie regularne."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Links correspondentes abrem no navegador padrão. O texto corresponde a qualquer parte da URL, * e ? são curingas, e re: inicia uma expressão regular."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Подходящие ссылки открываются в браузере по умолчанию. Текст совпадает в любом месте URL, * и ? — подстановочные знаки, а re: начинает регулярное выражение."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ลิงก์ที่ตรงกันจะเปิดในเบราว์เซอร์เริ่มต้น ข้อความตรงกับส่วนใดก็ได้ของ URL, * และ ? เป็นไวลด์การ์ด และ re: เริ่มนิพจน์ทั่วไป"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Eşleşen bağlantılar varsayılan tarayıcınızda açılır. Metin URL'nin herhangi bir yerinde eşleşir, * ve ? joker karakterdir, re: bir düzenli ifade başlatır."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Відповідні посилання відкриваються в типовому браузері. Текст збігається будь-де в URL, * і ? — символи підстановки, а re: починає регулярний вираз."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Các liên kết khớp sẽ mở trong trình duyệt mặc định. Văn bản khớp ở bất kỳ đâu trong URL, * và ? là ký tự đại diện, còn re: bắt đầu một biểu thức chính quy."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "匹配的链接会在默认浏览器中打开。文本可匹配 URL 中的任意位置，* 和 ? 为通配符，re: 表示正则表达式。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "符合的連結會在預設瀏覽器中開啟。文字可符合 URL 中的任何位置，* 和 ? 為萬用字元，re: 表示正規表示式。"
-          }
-        }
-      }
-    },
-    "settings.browser.externalLinkPatterns.summary": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Links that open in your default browser"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "روابط تُفتح في متصفحك الافتراضي"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Linkovi koji se otvaraju u zadanom pregledniku"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Links, der åbnes i din standardbrowser"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Links, die sich im Standardbrowser öffnen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Enlaces que se abren en tu navegador predeterminado"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Liens qui s'ouvrent dans votre navigateur par défaut"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Link che si aprono nel browser predefinito"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "デフォルトのブラウザで開くリンク"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "តំណដែលបើកក្នុងកម្មវិធីរុករកលំនាំដើម"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "기본 브라우저에서 열리는 링크"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Lenker som åpnes i standardnettleseren"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Linki otwierane w domyślnej przeglądarce"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Links que abrem no navegador padrão"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ссылки, открываемые в браузере по умолчанию"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ลิงก์ที่เปิดในเบราว์เซอร์เริ่มต้น"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Varsayılan tarayıcıda açılan bağlantılar"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Посилання, що відкриваються в типовому браузері"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Liên kết mở trong trình duyệt mặc định"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "在默认浏览器中打开的链接"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "在預設瀏覽器中開啟的連結"
-          }
-        }
-      }
-    },
-    "settings.group.files": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Files"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "الملفات"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Datoteke"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Filer"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Dateien"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Archivos"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Fichiers"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "File"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ファイル"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ឯកសារ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "파일"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Filer"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Pliki"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Arquivos"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Файлы"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ไฟล์"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Dosyalar"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Файли"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tệp"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "文件"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "檔案"
-          }
-        }
-      }
-    },
-    "settings.files.textEditor": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Text Editor"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "محرر النصوص"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Uređivač teksta"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Teksteditor"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Texteditor"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Editor de texto"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Éditeur de texte"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Editor di testo"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "テキストエディタ"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "កម្មវិធីកែអត្ថបទ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "텍스트 편집기"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tekstredigerer"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Edytor tekstu"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Editor de texto"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Текстовый редактор"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "โปรแกรมแก้ไขข้อความ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Metin Düzenleyici"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Текстовий редактор"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Trình soạn thảo văn bản"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "文本编辑器"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "文字編輯器"
-          }
-        }
-      }
-    },
-    "settings.files.textEditor.help": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The app Open in Text Editor uses for a path: an app name, a bundle ID or the path of an app. Empty uses the app that opens source code."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "التطبيق الذي يستخدمه «فتح في محرر النصوص» لمسار: اسم تطبيق أو معرّف حزمة أو مسار تطبيق. الفارغ يستخدم التطبيق الذي يفتح الشفرة المصدرية."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Aplikacija koju Otvori u uređivaču teksta koristi za putanju: naziv aplikacije, ID paketa ili putanja aplikacije. Prazno koristi aplikaciju koja otvara izvorni kod."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Appen, som Åbn i teksteditor bruger til en sti: et appnavn, et bundle-id eller stien til en app. Tom bruger den app, der åbner kildekode."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Die App, die „Im Texteditor öffnen“ für einen Pfad verwendet: ein App-Name, eine Bundle-ID oder der Pfad einer App. Leer verwendet die App, die Quellcode öffnet."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "La app que usa Abrir en el editor de texto para una ruta: un nombre de app, un ID de paquete o la ruta de una app. Vacío usa la app que abre código fuente."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "L'app qu'utilise Ouvrir dans l'éditeur de texte pour un chemin : un nom d'app, un identifiant de bundle ou le chemin d'une app. Vide utilise l'app qui ouvre le code source."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "L'app che Apri nell'editor di testo usa per un percorso: un nome di app, un ID bundle o il percorso di un'app. Vuoto usa l'app che apre il codice sorgente."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "パスの「テキストエディタで開く」に使うアプリ: アプリ名、バンドル ID、またはアプリのパス。空の場合はソースコードを開くアプリを使います。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "កម្មវិធីដែល «បើកក្នុងកម្មវិធីកែអត្ថបទ» ប្រើសម្រាប់ផ្លូវ៖ ឈ្មោះកម្មវិធី លេខសម្គាល់បណ្ដុំ ឬផ្លូវរបស់កម្មវិធី។ ទទេប្រើកម្មវិធីដែលបើកកូដប្រភព។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "경로의 텍스트 편집기에서 열기가 사용하는 앱: 앱 이름, 번들 ID 또는 앱 경로. 비워 두면 소스 코드를 여는 앱을 사용합니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Appen Åpne i tekstredigerer bruker for en bane: et appnavn, en pakke-ID eller banen til en app. Tom bruker appen som åpner kildekode."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Aplikacja, której używa Otwórz w edytorze tekstu dla ścieżki: nazwa aplikacji, identyfikator pakietu lub ścieżka aplikacji. Puste używa aplikacji otwierającej kod źródłowy."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "O app que Abrir no editor de texto usa para um caminho: um nome de app, um ID de pacote ou o caminho de um app. Vazio usa o app que abre código-fonte."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Приложение, которое «Открыть в текстовом редакторе» использует для пути: имя приложения, идентификатор пакета или путь к приложению. Пусто — приложение, открывающее исходный код."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "แอปที่ «เปิดในโปรแกรมแก้ไขข้อความ» ใช้กับพาธ: ชื่อแอป Bundle ID หรือพาธของแอป ว่างไว้จะใช้แอปที่เปิดซอร์สโค้ด"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Metin Düzenleyicide Aç'ın bir yol için kullandığı uygulama: bir uygulama adı, paket kimliği veya bir uygulamanın yolu. Boş bırakılırsa kaynak kodu açan uygulama kullanılır."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Програма, яку «Відкрити в текстовому редакторі» використовує для шляху: назва програми, ідентифікатор пакета або шлях до програми. Порожньо — програма, що відкриває вихідний код."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ứng dụng mà Mở trong trình soạn thảo văn bản dùng cho một đường dẫn: tên ứng dụng, ID gói hoặc đường dẫn của ứng dụng. Để trống sẽ dùng ứng dụng mở mã nguồn."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "“在文本编辑器中打开”用于路径的 App：App 名称、Bundle ID 或 App 的路径。留空则使用打开源代码的 App。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "「在文字編輯器中打開」用於路徑的 App：App 名稱、Bundle ID 或 App 的路徑。留空則使用開啟原始碼的 App。"
-          }
-        }
-      }
-    },
     "settings.group.freeModel": {
       "extractionState": "manual",
       "localizations": {
@@ -17034,6 +14932,399 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "在 Dock 圖像上顯示未讀數"
+          }
+        }
+      }
+    },
+    "settings.notifications.showPreviews": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Previews"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عرض المعاينات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prikaži preglede"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis eksempler"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vorschauen anzeigen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostrar previsualizaciones"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Afficher les aperçus"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostra anteprime"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "プレビューを表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បង្ហាញការមើលជាមុន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "미리보기 표시"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis forhåndsvisninger"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokazuj podglądy"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostrar Pré-visualizações"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показывать превью"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แสดงตัวอย่าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Önizlemeleri Göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показувати попередній перегляд"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hiển thị bản xem trước"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "显示预览"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "顯示預覽"
+          }
+        }
+      }
+    },
+    "settings.notifications.showPreviews.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A finished turn's banner shows the agent's last message."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعرض لافتة الدور المكتمل آخر رسالة من الوكيل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Baner završenog kruga prikazuje posljednju poruku agenta."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Banneret for en færdig runde viser agentens sidste besked."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Das Banner einer abgeschlossenen Runde zeigt die letzte Nachricht des Agenten."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El aviso de un turno terminado muestra el último mensaje del agente."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La bannière d’un tour terminé affiche le dernier message de l’agent."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il banner di un turno concluso mostra l’ultimo messaggio dell’agente."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "完了したターンのバナーにエージェントの最後のメッセージを表示します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បដានៃវេនដែលបានបញ្ចប់បង្ហាញសារចុងក្រោយរបស់ភ្នាក់ងារ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "완료된 턴의 배너에 에이전트의 마지막 메시지를 표시합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Banneret for en ferdig runde viser agentens siste melding."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Baner zakończonej tury pokazuje ostatnią wiadomość agenta."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O banner de um turno concluído mostra a última mensagem do agente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Баннер завершённого хода показывает последнее сообщение агента."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แบนเนอร์ของรอบที่เสร็จแล้วจะแสดงข้อความล่าสุดของเอเจนต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Biten bir turun bildirimi, ajanın son mesajını gösterir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Банер завершеного ходу показує останнє повідомлення агента."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Biểu ngữ của lượt đã xong hiển thị tin nhắn cuối cùng của tác tử."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "完成一轮后的横幅显示代理的最后一条消息。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "完成一輪後的橫幅顯示代理的最後一則訊息。"
+          }
+        }
+      }
+    },
+    "settings.choice.whenUnlocked": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When Unlocked"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عند إلغاء القفل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kad je otključano"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Når ulåst"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wenn entsperrt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Si está desbloqueado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Si déverrouillé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Se sbloccato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ロック解除時"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "នៅពេលដោះសោ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "잠금 해제 시"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Når ulåst"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gdy odblokowany"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Quando Desbloqueado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Без блокировки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เมื่อปลดล็อก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kilit Açıkken"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Коли розблоковано"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Khi được mở khóa"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "解锁时"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "解鎖時"
           }
         }
       }
@@ -92876,6 +91167,137 @@
         }
       }
     },
+    "settings.choice.chromeStyle.floating": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Floating Panes"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أجزاء عائمة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plutajuća okna"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Svævende ruder"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schwebende Bereiche"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paneles flotantes"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Panneaux flottants"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Riquadri flottanti"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フローティングペイン"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ទាំងអណ្ដែត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "떠 있는 창 분할"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Flytende ruter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pływające panele"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Painéis flutuantes"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Плавающие панели"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บานหน้าต่างลอย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yüzen Bölmeler"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Плаваючі панелі"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ngăn nổi"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "浮动窗格"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "浮動窗格"
+          }
+        }
+      }
+    },
     "settings.ui.animations.newTab": {
       "extractionState": "manual",
       "localizations": {
@@ -93662,137 +92084,6 @@
         }
       }
     },
-    "settings.choice.chromeStyle.floating": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Floating Panes"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "أجزاء عائمة"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Plutajuća okna"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Svævende ruder"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Schwebende Bereiche"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Paneles flotantes"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Panneaux flottants"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Riquadri flottanti"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "フローティングペイン"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ផ្ទាំងអណ្ដែត"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "떠 있는 창 분할"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Flytende ruter"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pływające panele"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Painéis flutuantes"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Плавающие панели"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "บานหน้าต่างลอย"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Yüzen Bölmeler"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Плаваючі панелі"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ngăn nổi"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "浮动窗格"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "浮動窗格"
-          }
-        }
-      }
-    },
     "settings.labs.classicHome": {
       "extractionState": "manual",
       "localizations": {
@@ -94444,6 +92735,2108 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "完整版 uBlock Origin 會封鎖 Chromium 分頁中的廣告和追蹤器。重新啟動 cmux 後生效。"
+          }
+        }
+      }
+    },
+    "settings.group.chiefChat": {
+      "comment": "Settings group in Agents: how the Chief chat looks.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief Chat"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "دردشة Chief"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief razgovor"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief-chat"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief-Chat"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chat de Chief"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Discussion avec Chief"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chat di Chief"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief チャット"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការជជែក Chief"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief 채팅"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief-chat"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Czat z Chiefem"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chat do Chief"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Чат с Chief"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แชท Chief"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief Sohbeti"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Чат із Chief"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trò chuyện với Chief"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief 聊天"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief 聊天"
+          }
+        }
+      }
+    },
+    "settings.home.chiefBubbleStyle": {
+      "comment": "Title of the Chief chat's bubble style setting (home.chiefBubbleStyle): iMessage or Theme.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bubble Style"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "نمط الفقاعات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Stil oblačića"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Boblestil"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Blasenstil"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Estilo de burbujas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Style des bulles"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Stile dei fumetti"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "吹き出しのスタイル"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "រចនាប័ទ្មពពុះ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "말풍선 스타일"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Boblestil"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Styl dymków"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Estilo dos balões"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Стиль пузырей"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "สไตล์บับเบิล"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Baloncuk Stili"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Стиль бульбашок"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kiểu bong bóng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "气泡样式"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "泡泡樣式"
+          }
+        }
+      }
+    },
+    "settings.home.chiefBubbleStyle.help": {
+      "comment": "Help of the Chief chat's bubble style setting (home.chiefBubbleStyle). iMessage is Apple's product name; keep it.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iMessage shows your messages in blue and the Chief's in gray. Theme uses your theme's accent and surface colors."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يعرض iMessage رسائلك باللون الأزرق ورسائل Chief باللون الرمادي. يستخدم خيار السمة ألوان التمييز والسطح في سمتك."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iMessage prikazuje tvoje poruke plavo, a Chiefove sivo. Tema koristi boju naglaska i površine tvoje teme."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iMessage viser dine beskeder i blå og Chiefs i grå. Tema bruger dit temas accent- og overfladefarver."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iMessage zeigt deine Nachrichten in Blau und die von Chief in Grau. Theme nutzt die Akzent- und Flächenfarben deines Themes."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iMessage muestra tus mensajes en azul y los de Chief en gris. Tema usa los colores de acento y superficie de tu tema."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iMessage affiche vos messages en bleu et ceux de Chief en gris. Thème utilise les couleurs d'accent et de surface de votre thème."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iMessage mostra i tuoi messaggi in blu e quelli di Chief in grigio. Tema usa i colori di accento e di superficie del tuo tema."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iMessage では自分のメッセージが青、Chief のメッセージがグレーで表示されます。テーマでは、テーマのアクセントカラーと面の色が使われます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iMessage បង្ហាញសាររបស់អ្នកជាពណ៌ខៀវ និងសាររបស់ Chief ជាពណ៌ប្រផេះ។ រចនាប័ទ្មប្រើពណ៌សង្កត់ និងពណ៌ផ្ទៃនៃរចនាប័ទ្មរបស់អ្នក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iMessage는 내 메시지를 파란색, Chief의 메시지를 회색으로 표시합니다. 테마는 테마의 강조 색상과 표면 색상을 사용합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iMessage viser meldingene dine i blått og Chiefs i grått. Tema bruker temaets aksent- og overflatefarger."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iMessage pokazuje Twoje wiadomości na niebiesko, a wiadomości Chiefa na szaro. Motyw używa koloru akcentu i powierzchni Twojego motywu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O iMessage mostra suas mensagens em azul e as do Chief em cinza. Tema usa as cores de destaque e de superfície do seu tema."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iMessage показывает ваши сообщения синим, а сообщения Chief серым. Тема использует акцентный цвет и цвет поверхности вашей темы."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iMessage แสดงข้อความของคุณเป็นสีน้ำเงินและข้อความของ Chief เป็นสีเทา ธีมใช้สีเน้นและสีพื้นผิวของธีมของคุณ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iMessage mesajlarını mavi, Chief'inkileri gri gösterir. Tema, temanın vurgu ve yüzey renklerini kullanır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iMessage показує ваші повідомлення синім, а повідомлення Chief сірим. Тема використовує акцентний колір і колір поверхні вашої теми."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iMessage hiển thị tin nhắn của bạn màu xanh và của Chief màu xám. Chủ đề dùng màu nhấn và màu nền của chủ đề."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iMessage 将你的消息显示为蓝色，Chief 的消息显示为灰色。主题使用你的主题的强调色和表面颜色。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iMessage 將你的訊息顯示為藍色，Chief 的訊息顯示為灰色。主題使用你的主題的強調色和表面顏色。"
+          }
+        }
+      }
+    },
+    "settings.choice.chiefBubbleStyle.theme": {
+      "comment": "The Chief chat's bubble style choice that uses the theme's colors (home.chiefBubbleStyle = theme).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Theme"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "السمة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tema"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tema"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Theme"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tema"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thème"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tema"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "テーマ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "រចនាប័ទ្ម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "테마"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tema"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Motyw"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tema"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Тема"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ธีม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tema"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Тема"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chủ đề"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "主题"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "主題"
+          }
+        }
+      }
+    },
+    "settings.markdown.codeBlockSize": {
+      "comment": "Settings title for the hidden fixed code block size (markdown.code.blockSize)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Code Block Size"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حجم كتلة التعليمات البرمجية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Veličina bloka koda"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Størrelse på kodeblok"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Größe von Codeblöcken"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tamaño de bloque de código"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Taille des blocs de code"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dimensione blocchi di codice"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コードブロックのサイズ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទំហំប្លុកកូដ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "코드 블록 크기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Størrelse på kodeblokk"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rozmiar bloków kodu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tamanho do bloco de código"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Размер блоков кода"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ขนาดบล็อกโค้ด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kod bloğu boyutu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Розмір блоків коду"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cỡ khối mã"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代码块大小"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "程式碼區塊大小"
+          }
+        }
+      }
+    },
+    "settings.markdown.codeScale.help": {
+      "comment": "Settings help for Code Font Size (markdown.code.scale)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Code as a share of the text size. A monospaced font looks bigger than the text font at the same size, so code is a little smaller by default."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حجم التعليمات البرمجية كنسبة من حجم النص. يبدو الخط أحادي المسافة أكبر من خط النص بالحجم نفسه، لذا تكون التعليمات البرمجية أصغر قليلًا افتراضيًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kod kao udio veličine teksta. Font fiksne širine izgleda veći od fonta teksta iste veličine, pa je kod po zadanom malo manji."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kode som en andel af tekststørrelsen. En skrift med fast bredde ser større ud end tekstskriften i samme størrelse, så kode er som standard lidt mindre."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Code als Anteil der Textgröße. Eine Festbreitenschrift wirkt bei gleicher Größe größer als die Textschrift, daher ist Code standardmäßig etwas kleiner."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El código como proporción del tamaño del texto. Una fuente monoespaciada parece más grande que la del texto al mismo tamaño, así que el código es algo más pequeño por omisión."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le code en proportion de la taille du texte. Une police à chasse fixe paraît plus grande que celle du texte à taille égale, donc le code est un peu plus petit par défaut."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il codice come quota della dimensione del testo. Un font a spaziatura fissa sembra più grande del font del testo alla stessa dimensione, quindi il codice è un po’ più piccolo per impostazione predefinita."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本文サイズに対するコードの比率。等幅フォントは同じサイズでも本文フォントより大きく見えるため、デフォルトではコードを少し小さくします。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កូដជាសមាមាត្រនៃទំហំអត្ថបទ។ ពុម្ពអក្សរទទឹងថេរមើលទៅធំជាងពុម្ពអក្សរអត្ថបទក្នុងទំហំដូចគ្នា ដូច្នេះកូដតូចជាងបន្តិចតាមលំនាំដើម។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "본문 크기에 대한 코드 크기의 비율입니다. 고정폭 글꼴은 같은 크기에서도 본문 글꼴보다 커 보이므로 기본적으로 코드가 조금 더 작습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kode som en andel av tekststørrelsen. En skrift med fast bredde ser større ut enn tekstskriften i samme størrelse, så kode er litt mindre som standard."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kod jako część rozmiaru tekstu. Czcionka o stałej szerokości wygląda na większą niż czcionka tekstu w tym samym rozmiarze, więc kod jest domyślnie nieco mniejszy."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O código como proporção do tamanho do texto. Uma fonte monoespaçada parece maior que a do texto no mesmo tamanho, então o código fica um pouco menor por padrão."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Код как доля размера текста. Моноширинный шрифт выглядит крупнее шрифта текста того же размера, поэтому по умолчанию код немного меньше."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "โค้ดเป็นสัดส่วนของขนาดข้อความ ฟอนต์ความกว้างคงที่ดูใหญ่กว่าฟอนต์ข้อความที่ขนาดเดียวกัน โค้ดจึงเล็กกว่าเล็กน้อยตามค่าเริ่มต้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Metin boyutunun bir oranı olarak kod. Eş aralıklı yazı tipi aynı boyutta metin yazı tipinden büyük görünür, bu yüzden kod varsayılan olarak biraz daha küçüktür."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Код як частка розміру тексту. Моноширинний шрифт виглядає більшим за шрифт тексту того самого розміру, тому типово код трохи менший."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mã theo tỷ lệ với cỡ chữ văn bản. Phông chữ đơn cách trông to hơn phông văn bản ở cùng cỡ, nên mặc định mã nhỏ hơn một chút."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代码相对正文大小的比例。等宽字体在同样大小下看起来比正文字体大，所以代码默认稍小一些。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "程式碼相對內文大小的比例。等寬字體在相同大小下看起來比內文字體大，所以程式碼預設會稍小一些。"
+          }
+        }
+      }
+    },
+    "settings.sidebar.nowPlaying.enabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Now Playing"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إظهار قيد التشغيل الآن"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikaži Sada se reproducira"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis Afspilles nu"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "„Aktuelle Wiedergabe“ anzeigen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar Reproduciendo ahora"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher À l’écoute"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra In riproduzione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再生中を表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្ហាញ​អ្វី​ដែល​កំពុង​ចាក់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "지금 재생 중 보기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis Spilles nå"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokaż Teraz odtwarzane"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar Tocando Agora"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показывать «Сейчас играет»"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดงกำลังเล่น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Şimdi Çalıyor’u Göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показувати «Зараз грає»"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hiện Đang phát"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示正在播放"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顯示正在播放"
+          }
+        }
+      }
+    },
+    "settings.sidebar.nowPlaying.enabled.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A player for what is playing, at the bottom of the sidebar and on the new chat page."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مشغّل لما يتم تشغيله الآن، أسفل الشريط الجانبي وفي صفحة الدردشة الجديدة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plejer za ono što se reproducira, na dnu bočne trake i na stranici novog chata."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En afspiller til det, der afspilles, nederst i sidepanelet og på siden til ny chat."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Player für die aktuelle Wiedergabe, unten in der Seitenleiste und auf der Seite für einen neuen Chat."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un reproductor de lo que está sonando, en la parte inferior de la barra lateral y en la página de chat nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un lecteur pour ce qui est en cours de lecture, en bas de la barre latérale et sur la page de nouvelle discussion."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un player per ciò che è in riproduzione, in fondo alla barra laterale e nella pagina della nuova chat."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再生中のメディアのプレーヤー。サイドバーの下部と新しいチャットのページに表示されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កម្មវិធី​ចាក់​សម្រាប់​អ្វី​ដែល​កំពុង​ចាក់ នៅ​ផ្នែក​ខាង​ក្រោម​របារ​ចំហៀង និង​នៅ​លើ​ទំព័រ​ជជែក​ថ្មី។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "재생 중인 항목의 플레이어로, 사이드바 하단과 새 채팅 페이지에 표시됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En spiller for det som spilles, nederst i sidepanelet og på siden for ny chat."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odtwarzacz tego, co gra, na dole paska bocznego i na stronie nowego czatu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um player do que está tocando, na parte inferior da barra lateral e na página de novo chat."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Плеер для того, что сейчас играет, внизу боковой панели и на странице нового чата."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เครื่องเล่นสำหรับสิ่งที่กำลังเล่น ที่ด้านล่างของแถบด้านข้างและในหน้าแชทใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Çalan içerik için bir oynatıcı; kenar çubuğunun altında ve yeni sohbet sayfasında."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Плеєр для того, що зараз грає, унизу бічної панелі та на сторінці нового чату."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trình phát cho nội dung đang phát, ở cuối thanh bên và trên trang trò chuyện mới."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在播放内容的播放器，位于边栏底部和新聊天页面。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在播放內容的播放器，位於側邊欄底部和新聊天頁面。"
+          }
+        }
+      }
+    },
+    "settings.group.openingLinks": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opening Links"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "فتح الروابط"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otvaranje linkova"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Åbning af links"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Links öffnen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Apertura de enlaces"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ouverture des liens"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Apertura dei link"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "リンクを開く"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការបើកតំណ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "링크 열기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Åpning av lenker"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otwieranie linków"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abertura de links"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Открытие ссылок"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การเปิดลิงก์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bağlantıları Açma"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Відкриття посилань"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mở liên kết"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "打开链接"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "開啟連結"
+          }
+        }
+      }
+    },
+    "settings.browser.openLinks": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Links in cmux Browser"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "فتح الروابط في متصفح cmux"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otvaraj linkove u cmux pregledniku"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Åbn links i cmux-browser"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Links im cmux-Browser öffnen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abrir enlaces en el navegador de cmux"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ouvrir les liens dans le navigateur cmux"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Apri i link nel browser di cmux"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "リンクを cmux ブラウザで開く"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បើកតំណក្នុងកម្មវិធីរុករក cmux"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 브라우저에서 링크 열기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Åpne lenker i cmux-nettleser"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otwieraj linki w przeglądarce cmux"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abrir links no navegador do cmux"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Открывать ссылки в браузере cmux"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เปิดลิงก์ในเบราว์เซอร์ cmux"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bağlantıları cmux Tarayıcısında Aç"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Відкривати посилання в браузері cmux"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mở liên kết trong trình duyệt cmux"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在 cmux 浏览器中打开链接"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在 cmux 瀏覽器中開啟連結"
+          }
+        }
+      }
+    },
+    "settings.browser.openLinks.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When off, links you click in terminals, agent chats, Home and cmux pages open in your default browser. Shift-Command-click opens a link in the other browser."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عند إيقافه، تُفتح الروابط التي تنقر عليها في الطرفيات ومحادثات الوكلاء والصفحة الرئيسية وصفحات cmux في متصفحك الافتراضي. يفتح النقر مع Shift-Command الرابط في المتصفح الآخر."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kada je isključeno, linkovi na koje kliknete u terminalima, chatovima s agentima, na Početnoj i na cmux stranicama otvaraju se u zadanom pregledniku. Shift-Command-klik otvara link u drugom pregledniku."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Når det er slået fra, åbnes links, du klikker på i terminaler, agentchats, Hjem og cmux-sider, i din standardbrowser. Shift-Command-klik åbner et link i den anden browser."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wenn deaktiviert, öffnen sich Links, die du in Terminals, Agent-Chats, Home und cmux-Seiten anklickst, in deinem Standardbrowser. Shift-Command-Klick öffnet einen Link im jeweils anderen Browser."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Si está desactivado, los enlaces en los que haces clic en terminales, chats de agentes, Inicio y páginas de cmux se abren en tu navegador predeterminado. Mayúsculas-Comando-clic abre un enlace en el otro navegador."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Désactivé, les liens sur lesquels vous cliquez dans les terminaux, les discussions d'agents, l'Accueil et les pages cmux s'ouvrent dans votre navigateur par défaut. Maj-Commande-clic ouvre un lien dans l'autre navigateur."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Se disattivato, i link su cui fai clic nei terminali, nelle chat degli agenti, nella Home e nelle pagine di cmux si aprono nel browser predefinito. Maiusc-Comando-clic apre un link nell'altro browser."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "オフにすると、ターミナル、エージェントチャット、ホーム、cmux ページでクリックしたリンクはデフォルトのブラウザで開きます。Shift-Command-クリックすると、もう一方のブラウザでリンクを開きます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ពេលបិទ តំណដែលអ្នកចុចក្នុងទែមីណាល់ ការជជែកជាមួយភ្នាក់ងារ ទំព័រដើម និងទំព័រ cmux បើកក្នុងកម្មវិធីរុករកលំនាំដើមរបស់អ្នក។ Shift-Command-ចុច បើកតំណក្នុងកម្មវិធីរុករកផ្សេងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "끄면 터미널, 에이전트 채팅, 홈 및 cmux 페이지에서 클릭한 링크가 기본 브라우저에서 열립니다. Shift-Command-클릭하면 다른 브라우저에서 링크를 엽니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Når dette er av, åpnes lenker du klikker i terminaler, agentchatter, Hjem og cmux-sider i standardnettleseren. Shift-Command-klikk åpner en lenke i den andre nettleseren."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Po wyłączeniu linki klikane w terminalach, czatach z agentami, na stronie głównej i na stronach cmux otwierają się w domyślnej przeglądarce. Shift-Command-kliknięcie otwiera link w drugiej przeglądarce."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Quando desativado, os links em que você clica em terminais, chats de agentes, Início e páginas do cmux abrem no navegador padrão. Shift-Command-clique abre um link no outro navegador."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Если выключено, ссылки, по которым вы щёлкаете в терминалах, чатах с агентами, на главной и на страницах cmux, открываются в браузере по умолчанию. Shift-Command-щелчок открывает ссылку в другом браузере."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เมื่อปิด ลิงก์ที่คุณคลิกในเทอร์มินัล แชทเอเจนต์ หน้าหลัก และหน้า cmux จะเปิดในเบราว์เซอร์เริ่มต้น การคลิกพร้อม Shift-Command จะเปิดลิงก์ในเบราว์เซอร์อีกตัว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kapalıyken terminallerde, ajan sohbetlerinde, Ana Sayfa'da ve cmux sayfalarında tıkladığınız bağlantılar varsayılan tarayıcınızda açılır. Shift-Command ile tıklamak bağlantıyı diğer tarayıcıda açar."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Якщо вимкнено, посилання, на які ви клацаєте в терміналах, чатах з агентами, на головній і на сторінках cmux, відкриваються в типовому браузері. Shift-Command-клацання відкриває посилання в іншому браузері."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Khi tắt, các liên kết bạn nhấp trong terminal, trò chuyện với tác nhân, Trang chủ và các trang cmux sẽ mở trong trình duyệt mặc định. Shift-Command-nhấp mở liên kết trong trình duyệt còn lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "关闭后，你在终端、代理聊天、主页和 cmux 页面中点击的链接会在默认浏览器中打开。按住 Shift-Command 点按会在另一个浏览器中打开链接。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "關閉後，你在終端機、代理聊天、首頁和 cmux 頁面中點按的連結會在預設瀏覽器中開啟。按住 Shift-Command 點按會在另一個瀏覽器中開啟連結。"
+          }
+        }
+      }
+    },
+    "settings.browser.externalLinkPatterns.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Links that match open in your default browser. Text matches anywhere in the URL, * and ? are wildcards, and re: starts a regular expression."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تُفتح الروابط المطابقة في متصفحك الافتراضي. يطابق النص أي جزء من عنوان URL، و* و? أحرف بدل، وre: تبدأ تعبيرًا نمطيًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Linkovi koji se podudaraju otvaraju se u zadanom pregledniku. Tekst se podudara bilo gdje u URL-u, * i ? su zamjenski znakovi, a re: započinje regularni izraz."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Links, der matcher, åbnes i din standardbrowser. Tekst matcher hvor som helst i URL'en, * og ? er jokertegn, og re: starter et regulært udtryk."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Passende Links öffnen sich in deinem Standardbrowser. Text passt an jeder Stelle der URL, * und ? sind Platzhalter, und re: beginnt einen regulären Ausdruck."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Los enlaces que coinciden se abren en tu navegador predeterminado. El texto coincide en cualquier parte de la URL, * y ? son comodines, y re: inicia una expresión regular."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Les liens correspondants s'ouvrent dans votre navigateur par défaut. Le texte correspond n'importe où dans l'URL, * et ? sont des jokers, et re: commence une expression régulière."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "I link corrispondenti si aprono nel browser predefinito. Il testo corrisponde in qualsiasi punto dell'URL, * e ? sono caratteri jolly e re: inizia un'espressione regolare."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "一致するリンクはデフォルトのブラウザで開きます。テキストは URL のどこにでも一致し、* と ? はワイルドカード、re: は正規表現の開始です。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "តំណដែលត្រូវគ្នាបើកក្នុងកម្មវិធីរុករកលំនាំដើម។ អត្ថបទត្រូវគ្នានៅកន្លែងណាក៏បានក្នុង URL, * និង ? ជាតួអក្សរជំនួស ហើយ re: ចាប់ផ្ដើមកន្សោមធម្មតា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "일치하는 링크는 기본 브라우저에서 열립니다. 텍스트는 URL의 어느 부분과도 일치하며, *와 ?는 와일드카드이고 re:는 정규 표현식을 시작합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lenker som samsvarer åpnes i standardnettleseren. Tekst samsvarer hvor som helst i URL-en, * og ? er jokertegn, og re: starter et regulært uttrykk."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pasujące linki otwierają się w domyślnej przeglądarce. Tekst pasuje w dowolnym miejscu adresu URL, * i ? to symbole wieloznaczne, a re: rozpoczyna wyrażenie regularne."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Links correspondentes abrem no navegador padrão. O texto corresponde a qualquer parte da URL, * e ? são curingas, e re: inicia uma expressão regular."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Подходящие ссылки открываются в браузере по умолчанию. Текст совпадает в любом месте URL, * и ? — подстановочные знаки, а re: начинает регулярное выражение."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ลิงก์ที่ตรงกันจะเปิดในเบราว์เซอร์เริ่มต้น ข้อความตรงกับส่วนใดก็ได้ของ URL, * และ ? เป็นไวลด์การ์ด และ re: เริ่มนิพจน์ทั่วไป"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eşleşen bağlantılar varsayılan tarayıcınızda açılır. Metin URL'nin herhangi bir yerinde eşleşir, * ve ? joker karakterdir, re: bir düzenli ifade başlatır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Відповідні посилання відкриваються в типовому браузері. Текст збігається будь-де в URL, * і ? — символи підстановки, а re: починає регулярний вираз."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Các liên kết khớp sẽ mở trong trình duyệt mặc định. Văn bản khớp ở bất kỳ đâu trong URL, * và ? là ký tự đại diện, còn re: bắt đầu một biểu thức chính quy."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "匹配的链接会在默认浏览器中打开。文本可匹配 URL 中的任意位置，* 和 ? 为通配符，re: 表示正则表达式。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "符合的連結會在預設瀏覽器中開啟。文字可符合 URL 中的任何位置，* 和 ? 為萬用字元，re: 表示正規表示式。"
+          }
+        }
+      }
+    },
+    "settings.browser.externalLinkPatterns.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Links that open in your default browser"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "روابط تُفتح في متصفحك الافتراضي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Linkovi koji se otvaraju u zadanom pregledniku"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Links, der åbnes i din standardbrowser"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Links, die sich im Standardbrowser öffnen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Enlaces que se abren en tu navegador predeterminado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Liens qui s'ouvrent dans votre navigateur par défaut"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Link che si aprono nel browser predefinito"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "デフォルトのブラウザで開くリンク"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "តំណដែលបើកក្នុងកម្មវិធីរុករកលំនាំដើម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "기본 브라우저에서 열리는 링크"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lenker som åpnes i standardnettleseren"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Linki otwierane w domyślnej przeglądarce"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Links que abrem no navegador padrão"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ссылки, открываемые в браузере по умолчанию"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ลิงก์ที่เปิดในเบราว์เซอร์เริ่มต้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Varsayılan tarayıcıda açılan bağlantılar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Посилання, що відкриваються в типовому браузері"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Liên kết mở trong trình duyệt mặc định"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在默认浏览器中打开的链接"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在預設瀏覽器中開啟的連結"
+          }
+        }
+      }
+    },
+    "settings.group.files": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Files"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الملفات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Datoteke"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Filer"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dateien"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Archivos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fichiers"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "File"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ファイル"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ឯកសារ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "파일"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Filer"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pliki"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arquivos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Файлы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไฟล์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dosyalar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Файли"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tệp"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "文件"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "檔案"
+          }
+        }
+      }
+    },
+    "settings.files.textEditor": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Text Editor"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "محرر النصوص"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uređivač teksta"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Teksteditor"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Texteditor"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Editor de texto"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Éditeur de texte"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Editor di testo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "テキストエディタ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កម្មវិធីកែអត្ថបទ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "텍스트 편집기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tekstredigerer"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Edytor tekstu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Editor de texto"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Текстовый редактор"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "โปรแกรมแก้ไขข้อความ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Metin Düzenleyici"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Текстовий редактор"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trình soạn thảo văn bản"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "文本编辑器"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "文字編輯器"
+          }
+        }
+      }
+    },
+    "settings.files.textEditor.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The app Open in Text Editor uses for a path: an app name, a bundle ID or the path of an app. Empty uses the app that opens source code."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "التطبيق الذي يستخدمه «فتح في محرر النصوص» لمسار: اسم تطبيق أو معرّف حزمة أو مسار تطبيق. الفارغ يستخدم التطبيق الذي يفتح الشفرة المصدرية."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aplikacija koju Otvori u uređivaču teksta koristi za putanju: naziv aplikacije, ID paketa ili putanja aplikacije. Prazno koristi aplikaciju koja otvara izvorni kod."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Appen, som Åbn i teksteditor bruger til en sti: et appnavn, et bundle-id eller stien til en app. Tom bruger den app, der åbner kildekode."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die App, die „Im Texteditor öffnen“ für einen Pfad verwendet: ein App-Name, eine Bundle-ID oder der Pfad einer App. Leer verwendet die App, die Quellcode öffnet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La app que usa Abrir en el editor de texto para una ruta: un nombre de app, un ID de paquete o la ruta de una app. Vacío usa la app que abre código fuente."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L'app qu'utilise Ouvrir dans l'éditeur de texte pour un chemin : un nom d'app, un identifiant de bundle ou le chemin d'une app. Vide utilise l'app qui ouvre le code source."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L'app che Apri nell'editor di testo usa per un percorso: un nome di app, un ID bundle o il percorso di un'app. Vuoto usa l'app che apre il codice sorgente."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "パスの「テキストエディタで開く」に使うアプリ: アプリ名、バンドル ID、またはアプリのパス。空の場合はソースコードを開くアプリを使います。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កម្មវិធីដែល «បើកក្នុងកម្មវិធីកែអត្ថបទ» ប្រើសម្រាប់ផ្លូវ៖ ឈ្មោះកម្មវិធី លេខសម្គាល់បណ្ដុំ ឬផ្លូវរបស់កម្មវិធី។ ទទេប្រើកម្មវិធីដែលបើកកូដប្រភព។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "경로의 텍스트 편집기에서 열기가 사용하는 앱: 앱 이름, 번들 ID 또는 앱 경로. 비워 두면 소스 코드를 여는 앱을 사용합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Appen Åpne i tekstredigerer bruker for en bane: et appnavn, en pakke-ID eller banen til en app. Tom bruker appen som åpner kildekode."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aplikacja, której używa Otwórz w edytorze tekstu dla ścieżki: nazwa aplikacji, identyfikator pakietu lub ścieżka aplikacji. Puste używa aplikacji otwierającej kod źródłowy."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O app que Abrir no editor de texto usa para um caminho: um nome de app, um ID de pacote ou o caminho de um app. Vazio usa o app que abre código-fonte."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Приложение, которое «Открыть в текстовом редакторе» использует для пути: имя приложения, идентификатор пакета или путь к приложению. Пусто — приложение, открывающее исходный код."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แอปที่ «เปิดในโปรแกรมแก้ไขข้อความ» ใช้กับพาธ: ชื่อแอป Bundle ID หรือพาธของแอป ว่างไว้จะใช้แอปที่เปิดซอร์สโค้ด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Metin Düzenleyicide Aç'ın bir yol için kullandığı uygulama: bir uygulama adı, paket kimliği veya bir uygulamanın yolu. Boş bırakılırsa kaynak kodu açan uygulama kullanılır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Програма, яку «Відкрити в текстовому редакторі» використовує для шляху: назва програми, ідентифікатор пакета або шлях до програми. Порожньо — програма, що відкриває вихідний код."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ứng dụng mà Mở trong trình soạn thảo văn bản dùng cho một đường dẫn: tên ứng dụng, ID gói hoặc đường dẫn của ứng dụng. Để trống sẽ dùng ứng dụng mở mã nguồn."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“在文本编辑器中打开”用于路径的 App：App 名称、Bundle ID 或 App 的路径。留空则使用打开源代码的 App。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "「在文字編輯器中打開」用於路徑的 App：App 名稱、Bundle ID 或 App 的路徑。留空則使用開啟原始碼的 App。"
           }
         }
       }
