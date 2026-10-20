@@ -431,6 +431,39 @@ import Testing
         #expect(invocation.environment["CMUX_AGENT_RESTORE_LAUNCH"] == "codex:\(sessionID)")
     }
 
+    @Test func structuredCodexRestoreDoesNotDuplicateAnOuterLauncherExecutable() throws {
+        let request = AgentRestoreRequest(
+            mode: .resumeAgent,
+            kind: "codex",
+            checkpointID: sessionID,
+            source: "agent-hook",
+            workingDirectory: "/tmp/project",
+            environment: [:],
+            launchCommand: AgentLaunchCommand(
+                launcher: "codex",
+                executablePath: "/opt/bin/codex",
+                arguments: ["/opt/bin/codex"],
+                workingDirectory: "/tmp/project",
+                environment: [:],
+                launcherPrefix: ["/usr/bin/caffeinate", "-i", "/opt/bin/codex"]
+            ),
+            preparedArguments: nil,
+            observedPermissionMode: nil
+        )
+
+        let invocation = try #require(
+            AgentRestorePlanner(isExecutableFile: { _ in false }).invocation(
+                for: request,
+                ambientEnvironment: ["PATH": "/usr/bin:/bin"]
+            )
+        )
+
+        #expect(invocation.arguments == [
+            "/usr/bin/caffeinate", "-i", "/opt/bin/codex", "resume", sessionID,
+            "-c", "check_for_update_on_startup=false",
+        ])
+    }
+
     @Test func repeatedStructuredSubrouterRestoreKeepsTheCapturedRealCodexExecutable() throws {
         let request = AgentRestoreRequest(
             mode: .resumeAgent,

@@ -194,8 +194,11 @@ public struct AgentRestorePlanner: Sendable {
            let prefix = request.launchCommand?.launcherPrefix,
            AgentLauncherPrefix.isReplayable(prefix),
            !routedArguments.starts(with: prefix),
-           let first = routedArguments.first {
-            routedArguments = prefix + [first] + routedArguments.dropFirst()
+           !routedArguments.isEmpty {
+            // The prefix already contains the captured agent executable (for
+            // example `caffeinate -i codex`). Append only the fresh resume
+            // arguments so the executable is not passed twice.
+            routedArguments = prefix + routedArguments.dropFirst()
         }
         guard !routedArguments.isEmpty else { return nil }
 
