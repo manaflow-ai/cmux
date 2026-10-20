@@ -1526,9 +1526,11 @@ final class SessionIndexStore: ObservableObject {
             } else {
                 cwdFilter = nil
             }
-            // Session filters come from the current folder's project config
-            // for every agent, even those whose listing is not folder-scoped.
-            let registry = await Self.vaultAgentRegistry(workingDirectory: scopedCwd)
+            // A folder-scoped listing takes that folder's project filters, the
+            // same rule `searchAllSessions` follows for the folder scope.
+            let registry = await Self.vaultAgentRegistry(
+                workingDirectory: cwdFilter ?? (scopeToCurrentDirectory ? scopedCwd : nil)
+            )
             return await Self.searchAgent(
                 needle: needle, agent: a, cwdFilter: cwdFilter,
                 offset: 0, limit: limit, errorBag: bag, registry: registry,
@@ -1659,6 +1661,7 @@ final class SessionIndexStore: ObservableObject {
             offset: safeOffset,
             limit: safeLimit,
             ceiling: max(safeOffset + safeLimit, searchMaxFiles),
+            shortReadMeansExhausted: agent != .claude,
             load: { sourceLimit in
                 await loadRawAgentEntries(
                     needle: needle,
@@ -1681,10 +1684,15 @@ final class SessionIndexStore: ObservableObject {
     /// double until `offset + limit` sessions survive the filter, the source
     /// runs out, or `ceiling` is reached, so the first page of a lightly
     /// filtered agent reads a few dozen sessions rather than the whole cap.
+    /// `shortReadMeansExhausted` is true for loaders that keep scanning until
+    /// they fill the request; Claude's loader parses a fixed window and then
+    /// drops sessions outside the folder or search, so its short read is not
+    /// the end of the source.
     nonisolated static func filteredSourcePage(
         offset: Int,
         limit: Int,
         ceiling: Int,
+        shortReadMeansExhausted: Bool,
         load: (Int) async -> [SessionEntry],
         isIncluded: (SessionEntry) -> Bool
     ) async -> [SessionEntry] {
@@ -1695,7 +1703,8 @@ final class SessionIndexStore: ObservableObject {
             let sourcePage = await load(sourceLimit)
             if Task.isCancelled { return [] }
             let matches = sourcePage.filter(isIncluded)
-            if matches.count >= target || sourcePage.count < sourceLimit || sourceLimit >= ceiling {
+            let exhausted = shortReadMeansExhausted && sourcePage.count < sourceLimit
+            if matches.count >= target || exhausted || sourceLimit >= ceiling {
                 return Array(matches.dropFirst(offset).prefix(limit))
             }
             sourceLimit = sourceLimit >= ceiling / 2 ? ceiling : sourceLimit * 2
