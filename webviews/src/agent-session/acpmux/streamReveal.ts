@@ -137,3 +137,20 @@ export class StreamReveal {
     return code >= 0xd800 && code <= 0xdbff ? end + 1 : end;
   }
 }
+
+/// A word longer than this (a URL, a hash) shows as it arrives instead of waiting for its end.
+export const LONG_WORD_CHARS = 48;
+
+/// Where a streaming reply's visible text may end: at the end of a whole word, never inside one
+/// and never inside the last word while more may still arrive (it can still grow), so text grows a
+/// word at a time and nothing trails the last word. `raw` is the reveal's length; `shown` what
+/// already shows (the result never shrinks it); `done` once the stream ended, when all of it shows.
+export function wordEdge(text: string, raw: number, done: boolean, shown: number): number {
+  const limit = Math.min(raw, text.length);
+  if (done && limit >= text.length) return text.length;
+  let end = limit;
+  // The word ending at `end` is whole only when what follows it has arrived and is a space.
+  while (end > shown && !(end < text.length && /\s/.test(text[end]!) && !/\s/.test(text[end - 1]!))) end -= 1;
+  if (limit - end > LONG_WORD_CHARS) return limit;
+  return Math.max(end, Math.min(shown, text.length));
+}

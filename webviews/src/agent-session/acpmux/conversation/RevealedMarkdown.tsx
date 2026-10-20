@@ -2,7 +2,7 @@
 // bursts, one per acpmux delta. The same element shows the reply before and after the stream
 // ends, so nothing remounts when it settles.
 import { useLayoutEffect, useRef, useState } from "react";
-import { StreamReveal } from "../streamReveal";
+import { StreamReveal, wordEdge } from "../streamReveal";
 import { Markdown } from "./Markdown";
 import { MessageBoundary } from "./MessageBoundary";
 
@@ -56,7 +56,11 @@ export function useStreamReveal(
       // Text that arrived while the page was hidden shows at once; nobody watched it arrive.
       if (typeof document !== "undefined" && document.visibilityState === "hidden") current.flush();
       const before = latest.current.shown;
-      const length = current.advance(latest.current.text, now, !latest.current.streaming);
+      const raw = current.advance(latest.current.text, now, !latest.current.streaming);
+      // Whole words only: a word fades in once it is complete, never a letter at a time.
+      const length = reduce.current
+        ? raw
+        : wordEdge(latest.current.text, raw, !latest.current.streaming, before.length);
       const fresh = before.fresh.filter((step) => now - step.born < FADE_MS);
       if (length > before.length && !reduce.current)
         fresh.push({ id: (nextId.current += 1), count: length - before.length, born: now });
@@ -105,9 +109,9 @@ function Revealed({
   streaming: boolean;
   githubRepository?: string;
 }) {
-  const { visible, fresh, now, settled } = useStreamReveal(text, streaming);
+  const { visible, fresh, now } = useStreamReveal(text, streaming);
   return (
-    <Markdown streaming={streaming} fresh={fresh} now={now} waiting={settled} githubRepository={githubRepository}>
+    <Markdown streaming={streaming} fresh={fresh} now={now} githubRepository={githubRepository}>
       {visible}
     </Markdown>
   );
