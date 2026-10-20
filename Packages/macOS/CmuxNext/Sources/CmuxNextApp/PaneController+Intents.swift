@@ -55,7 +55,8 @@ extension PaneController {
     /// the focus coordinator, which selects and focuses (`applySelection`).
     /// An action run without view-change permission selects nothing.
     func select(_ id: StripTabID, source: FocusEvent.Source = .intent) {
-        if DebugTabSwitch.isRecording, stripModel.selectedID != id { DebugTabSwitch.began(self) }
+        // Only a switch this action may show is timed (a refused one never ends its interval).
+        if stripModel.selectedID != id, workspace != nil || ActionRunScope.viewChangeAllowed() { DebugTabSwitch.began(self) }
         // A user's tab switch may end link-tab opener relations (Chrome's rule).
         if source.isUserIntent, stripModel.selectedID != id {
             services.cache.pageRequests.openers.userActivated(from: selectedTab?.surface, to: tab(id)?.surface)
@@ -70,11 +71,15 @@ extension PaneController {
     /// Selects `id` and shows it; called by the focus applier, never moves focus.
     func applySelection(_ id: StripTabID) {
         guard stripModel.selectedID != id || currentTabKey != id.rawValue, let state else { return }
+        DebugTabSwitch.mark(self, "focus")
         state.selection.select(id.rawValue, in: paneKey)
         setStripSelection(id)
+        DebugTabSwitch.mark(self, "strip")
         presentSelection()
+        DebugTabSwitch.mark(self, "present")
         remapViewedTab()
         services.windows.recordSaver.stateDidChange(state)
+        DebugTabSwitch.mark(self, "record")
         DebugTabSwitch.shown(self, in: view.window)
     }
 

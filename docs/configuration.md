@@ -288,6 +288,21 @@ Where a new terminal or browser opens when you create it (New Terminal, Cmd-T, t
 
 The CLI and MCP always open a tab, so scripts get a predictable result; a command that names a pane opens in that pane. Change these in **Settings > General > Columns** or with `cmux settings set layout.newPanePlacement split`.
 
+## `layout.focusPaneOnScroll`
+
+Scrolling over a pane focuses it, as a click does: a terminal, browser, Markdown viewer, agent chat or Home. The scroll still reaches the pane.
+
+```json
+{
+  "layout": { "focusPaneOnScroll": false }
+}
+```
+
+- `true` (default): the first scroll of a gesture, or a mouse-wheel notch, focuses the pane under the pointer.
+- `false`: only a click or the keyboard moves focus.
+
+Focus stays where it is for momentum (the coast after a flick that started in another pane), for a scroll that moves columns or rows, within a second of typing, and over a window that is not active. Change it in **Settings > General > Columns** or with `cmux settings set layout.focusPaneOnScroll false`.
+
 ## `workspaces.newPlacement`
 
 Where a new workspace goes in the sidebar when you do not pick a place: Cmd-N, New Workspace in the palette or menu, the sidebar's +, `cmux workspace new`, Home, a tab moved to a new workspace, a link opened in a new workspace, and a workspace an agent opens.

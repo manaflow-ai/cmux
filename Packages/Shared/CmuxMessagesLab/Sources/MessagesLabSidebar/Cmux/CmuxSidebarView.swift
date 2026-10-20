@@ -47,11 +47,15 @@ public struct CmuxSidebarEntry: Hashable, Sendable {
     public var spam: Bool
     /// Sidebar v1.2: deleted at this time (only Recently Deleted shows it).
     public var deletedAt: Date?
+    /// A short tag after the name (the engine a Home Chief runs on, "UniiChat"); nil shows none.
+    /// The vendored row draws only the name, so the tag is part of the name it is given.
+    public var badge: String?
 
     public init(id: String, title: String, people: [Person], preview: String, previewSender: String?, lastAt: Date,
                 unreadCount: Int, pinned: Bool, muted: Bool = false, typing: Bool = false,
-                knownSender: Bool = true, spam: Bool = false, deletedAt: Date? = nil, avatar: Avatar? = nil) {
+                knownSender: Bool = true, spam: Bool = false, deletedAt: Date? = nil, avatar: Avatar? = nil, badge: String? = nil) {
         self.avatar = avatar
+        self.badge = badge
         self.knownSender = knownSender
         self.spam = spam
         self.deletedAt = deletedAt
@@ -67,6 +71,12 @@ public struct CmuxSidebarEntry: Hashable, Sendable {
         self.typing = typing
     }
 
+    /// The name the row draws: the title, then the badge after a middle dot.
+    var shownTitle: String {
+        guard let badge, !badge.isEmpty else { return title }
+        return title + " \u{00B7} " + badge
+    }
+
     /// MessagesLab's summary. `version` comes from the content, so a changed
     /// conversation gets a new bitmap and an unchanged one keeps its own.
     var summary: ConversationSummary {
@@ -79,7 +89,7 @@ public struct CmuxSidebarEntry: Hashable, Sendable {
         }
         let avatar: AvatarSpec = own ?? (members.count > 1 ? .group(members.prefix(4).map(\.avatar))
             : members.first?.avatar ?? .monogram(String(title.prefix(1)).uppercased()))
-        var s = ConversationSummary(id: id, title: title, participants: members, avatar: avatar, preview: preview,
+        var s = ConversationSummary(id: id, title: shownTitle, participants: members, avatar: avatar, preview: preview,
                                     previewSender: previewSender, lastAt: lastAt, unreadCount: unreadCount, pinned: pinned,
                                     muted: muted, typing: typing, lastReaction: nil, version: hashValue)
         s.knownSender = knownSender

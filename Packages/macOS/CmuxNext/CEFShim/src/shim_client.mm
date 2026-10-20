@@ -339,6 +339,9 @@ class Client : public CefClient,
       item->SetString("label", model->GetLabelAt(i));
       item->SetBool("enabled", model->IsEnabledAt(i));
       item->SetBool("checked", model->IsCheckedAt(i));
+      // Chromium keeps hidden rows in the model (an extension item with
+      // visible: false); the host drops them as Chrome's menu does.
+      item->SetBool("visible", model->IsVisibleAt(i));
       switch (model->GetTypeAt(i)) {
         case MENUITEMTYPE_SEPARATOR: item->SetString("type", "separator"); break;
         case MENUITEMTYPE_CHECK: item->SetString("type", "check"); break;

@@ -173,9 +173,13 @@ extension SidebarListViewComponents {
         // A dragged group moves by its edges (u2455): its bottom past the middle of the block below moves it down,
         // its top past the middle of the block above moves it up (`SidebarGroupReorder`), for tall and short groups.
         if drag.groupHeadHeight != nil, drag.blockTarget == nil, let gapY = displayed.gapY, !drag.groupBlocks.isEmpty {
-            let reorder = SidebarGroupReorder(blocks: drag.groupBlocks, shift: displayed.gapShift)
+            var reorder = SidebarGroupReorder(blocks: drag.groupBlocks, shift: displayed.gapShift)
+            let current = reorder.index(ofGapAt: gapY)
+            // The blocks below the gap as drawn: the gap plus the spacing between groups (6 pt more than `gapShift`).
+            let shown = SidebarGroupReorder.blocks(of: displayed.rows.filter { !drag.hiddenKeys.contains($0.key) })
+            if current < min(shown.count, drag.groupBlocks.count) { reorder.shift = shown[current].lowerBound - drag.groupBlocks[current].lowerBound }
             let card = drag.lift.frame
-            let index = reorder.index(top: card.minY, bottom: card.maxY, current: reorder.index(ofGapAt: gapY))
+            let index = reorder.index(top: card.minY, bottom: card.maxY, current: current)
             if let probe = reorder.probeY(for: index) { y = probe }
         }
         guard let hit = geometry.hit(CGPoint(x: point.x, y: y)) else {

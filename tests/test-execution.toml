@@ -961,6 +961,10 @@ path = "tests/test_install_git_hooks.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_web_lint_prepush.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_bead_autoclose.py"
 lane = "linux-guard"
 
@@ -1491,4 +1495,8 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_risk_tier.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_target_graph.py"
 lane = "linux-guard"
