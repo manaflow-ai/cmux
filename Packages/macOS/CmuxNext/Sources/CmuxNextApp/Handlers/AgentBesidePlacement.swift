@@ -103,6 +103,12 @@ enum AgentBesidePlacement {
                 services.paneController(for: anchor)?.selectWhenReportedKeepingFocus(surface: surface)
                 return nil
             }
+            // Home's pinned dock alone takes no tab: the daemon made it in a new column right of
+            // the dock (`pinned-dock-alone-v1`), so there is nothing to move.
+            if services.locateTab(tab.id).map({ $0.1 !== anchor }) == true {
+                await revealMoved(tab.id, from: anchor, services: services)
+                return nil
+            }
             let after = newColumn(beside: anchor, in: services.daemon(for: anchor).store)
             let moved = await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
                 TabMoves.toNewColumn(tab, anchor: anchor, afterColumn: after, services: services) { done.resume(returning: $0) }

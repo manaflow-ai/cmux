@@ -113,8 +113,11 @@ final class KeyRouter: BrowserKeyRouting {
         guard keyWindow == .content else { return .panel }
         if Self.belongsToInputMethod(event, facts: facts) { return .deliver }
         guard Self.isChord(event.modifierFlags) else {
-            guard Self.isPrintable(event), Self.mayHavePrimaryInput(focus.resolved) else { return .deliver }
-            if facts.pageInputPending, Self.mayQueueTyping(focus.resolved) { return .typeAhead }
+            // Printable keys, and the keys the primary input claims (a dead key composes where the key
+            // after it goes; Home's history arrows), go to the primary input; only printable keys queue.
+            let printable = Self.isPrintable(event)
+            guard printable || facts.primaryInputClaimsKey, Self.mayHavePrimaryInput(focus.resolved) else { return .deliver }
+            if printable, facts.pageInputPending, Self.mayQueueTyping(focus.resolved) { return .typeAhead }
             return facts.primaryInputReady ? .primaryInput : .deliver
         }
         return decide(event, focus: focus, context: keyContext(for: focus, facts: facts), facts: facts)
@@ -181,7 +184,7 @@ final class KeyRouter: BrowserKeyRouting {
             trace?("recorder: the Keyboard Shortcuts recorder took the key")
             return true
         }
-        if closesPopup(event, in: window) {
+        if routesPopupKey(event, in: window) {
             cancelChord()
             return true
         }
@@ -192,6 +195,11 @@ final class KeyRouter: BrowserKeyRouting {
         }
         // Window hints are showing (Click by Hint): the same keys.
         if let hints = services?.windowHints, hints.isActive, hints.interceptKeyDown(event, in: window) {
+            cancelChord()
+            return true
+        }
+        // Cmd-P / Cmd-Shift-P (as bound) in a web view outside a main window: the native palette.
+        if routesNativePaletteKey(event, in: window) {
             cancelChord()
             return true
         }
@@ -235,7 +243,8 @@ final class KeyRouter: BrowserKeyRouting {
         trace?("dispatcher: \(decision)")
         switch decision {
         case .run(let candidate):
-            run(candidate, context: context, window: controller.state.id)
+            // The key's own time starts a tab switch's input stage (debug.tab_switch).
+            DebugTabSwitch.handling(input: event.timestamp) { run(candidate, context: context, window: controller.state.id) }
             // A refusal (no neighbor) is reported by the registry; the chord
             // was still a cmux shortcut and never reaches the page or terminal.
             return true
@@ -256,7 +265,7 @@ final class KeyRouter: BrowserKeyRouting {
         return true
     }
 
-    private func run(_ candidate: Candidate, context: KeyContext, window: String) {
+    func run(_ candidate: Candidate, context: KeyContext, window: String) {
         lastInterception = (candidate.id, window, true)
         // A New Tab key predicts a browser tab: warm Chromium before its tab opens (ChromiumWarmup).
         if candidate.id.rawValue.hasPrefix("newTab") { services?.chromiumWarmup.tabSignal(.newTabKey) }
@@ -274,18 +283,31 @@ final class KeyRouter: BrowserKeyRouting {
         lastInterception = (candidate.id, window, ran)
     }
 
-    /// A popup window (or its Chromium page window) has the keyboard: a key
-    /// whose binding is a close action (Cmd-W) closes the popup, never the
-    /// opener's tab. The binding table decides which key that is, with the
-    /// popup's own context (no main-window focus).
-    private func closesPopup(_ event: NSEvent, in window: NSWindow?) -> Bool {
+    /// A popup window (or its Chromium page window) has the keyboard: the
+    /// binding table decides, with the popup's own context (a browser page,
+    /// its omnibar while editing; no main-window focus), and the popup takes
+    /// the keys that act on it. A close action (Cmd-W) closes the popup,
+    /// never the opener's tab; Focus Location Bar / Focus Address Bar
+    /// (Cmd-L) reach the popup's omnibar, never the opener's. Other keys
+    /// (Opt-Cmd-F: Search All Windows) go on as before.
+    private func routesPopupKey(_ event: NSEvent, in window: NSWindow?) -> Bool {
         guard let services, let popup = services.popups.window(containing: window), Self.isChord(event.modifierFlags) else { return false }
-        var context = KeyContext(bits: registry.context.subtracting(ActionContext.focusBits))
+        var bits = registry.context.subtracting(ActionContext.focusBits).union(.browserFocused)
+        if popup.addressBar.isEditing { bits.insert(.omnibarFocused) }
+        var context = KeyContext(bits: bits)
         context[KeyContext.windowKind] = .string(KeyContext.WindowKindValue.browserPopup)
         guard let winner = resolve(event, context: context) else { return false }
-        guard WindowKeyTable.isClose(winner.command) else { return false }
-        services.popups.close(popup.page)
-        return true
+        if WindowKeyTable.isClose(winner.command) {
+            services.popups.close(popup.page)
+            return true
+        }
+        switch winner.command {
+        case "focusLocation", "focusBrowserAddressBar":
+            popup.focusAddressBar()
+            return true
+        default:
+            return false
+        }
     }
 
     /// Printable keys typed before a page could take them, and the page

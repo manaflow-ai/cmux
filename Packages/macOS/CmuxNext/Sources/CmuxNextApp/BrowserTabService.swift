@@ -1,6 +1,7 @@
 import CmuxNextBrowser
 import CmuxNextBrowserHistory
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import Foundation
 
 /// The daemon's engine tag (the browser module has an engine protocol of the same name).
@@ -35,6 +36,8 @@ final class BrowserTabService {
     /// installs and finds hosts). None is yet, so a new tab in a machine's
     /// workspace opens on this Mac (`BrowserPlacement`).
     var browserHostAvailable: @MainActor (String) -> Bool = { _ in false }
+    /// `browser.enabled` (the App: the settings snapshot): off, only cmux's own pages open as tabs.
+    var browserEnabled: @MainActor () -> Bool = { true }
     /// A machine's name for the user (`MachineRegistry.machineName`).
     var machineName: @MainActor (DaemonService) -> String = { $0.machineID }
     /// Shows `text` on the page of `daemon`'s tab on `surface` when that page
@@ -154,11 +157,11 @@ final class BrowserTabService {
             return cef.unavailableReason
         }
         keepsState = { [weak self] tab in self?.daemonForTab(tab).store.servesStateResources ?? false }
+        // Each store's tab index: called per tab and per sidebar row (favicons, profiles), so a scan of
+        // every tab here made those passes quadratic in the tabs (space-switch-fast).
         tabModel = { [weak self] id in
             for daemon in self?.daemons() ?? [] {
-                if let tab = daemon.store.workspaces.lazy.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).first(where: { $0.id == id }) {
-                    return tab
-                }
+                if let tab = daemon.store.tab(id: id) { return tab }
             }
             return nil
         }
@@ -187,6 +190,11 @@ final class BrowserTabService {
         let daemon = daemonForPane(pane)
         guard !daemon.isLocal, daemon.connection == nil else { return nil }
         return RemoteStrings.browserMachineNotConnected(machineName(daemon))
+    }
+
+    /// Why no browser tab may open for `url` now (`browser.enabled` off and not a cmux page), or nil.
+    func refusal(for url: URL?) -> String? {
+        BrowserAvailability(enabled: browserEnabled()).allows(url?.absoluteString) ? nil : MiscHandlerStrings.browserOff
     }
 
     /// The notice for the page of session-local tab `key` (no daemon record).
@@ -268,6 +276,7 @@ final class BrowserTabService {
 
     private func open(_ choice: BrowserEngineChoice, in pane: PaneID, on daemon: DaemonService, url: String, offTheRecord: Bool,
                       profile: String?, notice: String?, activate: Bool, after: SurfaceID?) async throws -> SurfaceID {
+        guard BrowserAvailability(enabled: browserEnabled()).allows(url) else { throw ActionFailure(message: MiscHandlerStrings.browserOff) }
         let surface = try await create(daemon, pane, offTheRecord ? Self.incognitoPlaceholderURL : url, choice.engine, profile, activate, after)
         let key = key(daemon, surface)
         if offTheRecord { incognitoURLs[key] = url }

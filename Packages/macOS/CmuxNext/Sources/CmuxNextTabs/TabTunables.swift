@@ -68,6 +68,13 @@ public nonisolated enum TabTunables {
     public static let separatorOpacity = Tunable<CGFloat>.number(
         "tabs.separatorOpacity", .tabs, "Separator strength", help: "Opacity of the theme's separator tone in the line between tabs.",
         default: 0.2, range: 0...1, step: 0.02, unit: .fraction, code: "TabTunables.separatorOpacity")
+    // @intent Lawrence 2026-10-20 ("the plus and dropdown and 3 dots [must] not appear unless hovered in
+    // tabbar area") over Leo 2026-10-19 (muted at rest): hidden at rest, shown on tab bar hover. A value
+    // above 0 shows them muted at rest again.
+    public static let restingControlOpacity = Tunable<CGFloat>.number(
+        "tabs.restingControlOpacity", .tabs, "Tab bar controls at rest",
+        help: "Opacity of the tab bar's plus and More while the pointer is elsewhere; hover shows them fully. 0 hides them.",
+        default: 0, range: 0...1, step: 0.05, unit: .fraction, code: "TabTunables.restingControlOpacity")
     public static let groupUnderlineHeight = points("groupUnderlineHeight", "Group underline", help: "Height of the line under a tab group's tabs.", range: 0...8) { Metrics.space1 }
 
     // MARK: Drag and hover
@@ -100,7 +107,7 @@ public nonisolated enum TabTunables {
         [compactTabWidth, scrollTabMinWidth, pinnedGroupGap, contentTrailingInset, closeButtonSize, closeGlyphSize, iconTitleSpacing, titleCloseSpacing,
          titleFadeWidth, badgeSize, closeMinContentsWidth, titleMinVisibleWidth, scrollFadeWidth,
          separatorHeight, groupChipPadding, groupUnderlineHeight, tearOffDistance, dragStartDistance].map(\.descriptor)
-            + [separators.descriptor, separatorOpacity.descriptor, groupJoinHysteresis.descriptor, autoscrollGain.descriptor,
+            + [separators.descriptor, separatorOpacity.descriptor, restingControlOpacity.descriptor, groupJoinHysteresis.descriptor, autoscrollGain.descriptor,
                hoverPreviews.descriptor, loadingAnimation.descriptor]
     }
 }

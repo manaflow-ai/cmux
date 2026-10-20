@@ -469,6 +469,7 @@ session <selector> window title set|clear
 session <selector> terminal defaults set
 
 agent list [--needs-me] [--state <state>] [--terminal <id>] [--sort needs-me|recent|none] [--limit <n>] [--counts]
+agent <agent_id|term_id> focus
 agent message <agent> [--from <name>] [--thread <id>] [--] <text...|->
 agent message --reply-to <message-id> [--from <name>] [--] <text...|->
 agent message release <message-id> --recipient <agent> --approve|--decline
@@ -561,7 +562,7 @@ conversation <conv_id> send --text <text> | --parts-json <json> [--reply-to <msg
 conversation <conv_id> events [--tail <0..500>] [--cursor-rev <rev>]
 chief [-p <text>] [--timeout <seconds>] [--history <n>]   (also `cmux chief`)
 chief engine [--harness <h>] [--model <m>] [--effort <e>] [--speed <s>] [--compactor-speed <s>] [--compactor-harness <h>] [--compactor-model <m>] | chief stop [<subagent>]
-chief list | chief new --name <name> [<profile>] | chief edit <chief> [<profile>] [--clear-avatar] | chief delete <chief>
+chief list | chief new --name <name> [<profile>] | chief edit <chief> [<profile>] [--clear-avatar] | chief delete <chief> | chief history <chief> [--limit <n>] | chief undo <chief> [--to-rev <n>]
 agent list|message|inbox|report
 agent plugin list|install|use|update|remove
 pairing request list
@@ -716,10 +717,15 @@ person's Chiefs with the Chief registry (`chief.profile.list`, `chief.profile.cr
 Chief's display name; `<profile>` is `--name`, `--role`, `--personality`,
 `--instructions` or `--instructions-file`, `--avatar <png|jpeg|gif|webp file>`,
 `--tools`, `--harnesses`, `--self-edit` (comma lists) and `--harness`,
-`--model`, `--effort`. `chief adopt <agent> [<profile>]` (`chief.profile.adopt`)
+`--model`, `--effort` (the Chief's backend, written into its brain's engine
+file), `--lock` / `--unlock` (the person's lock: no Chief may change it).
+`chief adopt <agent> [<profile>]` (`chief.profile.adopt`)
 makes an agent already in the person's conversations a Chief under its own
-id; its conversations and history stay. Every write (new, adopt, edit,
-delete) is refused for an agent caller (`origin.forbidden`, reason
+id; its conversations and history stay. `chief history <chief>`
+(`chief.profile.history`) lists the kept revisions (rev, time, actor,
+operation); `chief undo <chief> [--to-rev <n>]` (`chief.profile.undo`)
+restores the one before the current rev, or rev `n`, as a new rev. Every
+write (new, adopt, edit, delete, undo) is refused for an agent caller (`origin.forbidden`, reason
 `agent_caller`). `--json` prints the record. It refuses a socket under
 `~/.cmux/brains/` (a Chief brain's own session, where a client acts as the
 Chief) and `--machine`. Exit codes: 0, 1 refused, 2 usage, 3 transport, 124

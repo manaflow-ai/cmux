@@ -7,6 +7,16 @@
 // owner and the per-row refusals. Components read both through useSettingsState (context.ts).
 import { MutationObserver, type QueryClient } from "@tanstack/react-query";
 import type { GhosttyTheme } from "../../theme/ghosttyTheme";
+import { AppearanceHistory, diff, type HistoryEntry, type TargetState } from "./appearanceHistory";
+import {
+  appearanceKeys,
+  captureAppearance,
+  captureKeys,
+  captureThemes,
+  changeLabel,
+  tracksAppearance,
+  withLinked,
+} from "./appearanceUndo";
 import type { PageCommand } from "./keyboard";
 import {
   createSettingsQueryClient,
@@ -93,6 +103,9 @@ export type WriteResult = { ok: true } | { ok: false; error: WireError };
 /** Where the page opens things it does not edit itself (catalog actions). */
 export type NativeTarget = "cmuxJSON";
 
+/** `appearance.background`, which the picker's host ops set. */
+const BACKGROUND = "appearance.background";
+
 const emptyDomains: Domains = { themes: [], font_families: [], sounds: [] };
 
 /** The page's state from the cache and the UI state (one function for hooks and getSnapshot). */
@@ -131,6 +144,12 @@ export class SettingsStore {
   private composed: { ui: UiState; cache: CacheView; state: SettingsState } | null = null;
   /** The newest revision a finished or running read of the scope is sure to show. */
   private covered = 0;
+  /** Settings > Appearance's undo stack (appearanceHistory.ts): page state, never written. */
+  readonly appearance = new AppearanceHistory();
+  /** Every appearance target as it was when Appearance first showed in this visit. */
+  private appearanceOpened: TargetState[] | null = null;
+  /** How many appearance steps are running (`trackAppearance`); inner ones record nothing. */
+  private tracking = 0;
 
   constructor(
     private readonly client: SettingsClient,
@@ -139,8 +158,12 @@ export class SettingsStore {
     this.transport = options.transport ?? pageTransport(client);
     this.queryClient = options.queryClient ?? createSettingsQueryClient();
     // Each key's read, so a cache observer (useSettingsState) and a refetch know how to read it.
-    this.queryClient.setQueryDefaults(settingsKeys.scope("user"), { queryFn: this.scopeQuery().queryFn });
-    this.queryClient.setQueryDefaults(settingsKeys.host, { queryFn: () => this.native("cmux.settings.host.lists") });
+    this.queryClient.setQueryDefaults(settingsKeys.scope("user"), {
+      queryFn: this.scopeQuery().queryFn,
+    });
+    this.queryClient.setQueryDefaults(settingsKeys.host, {
+      queryFn: () => this.native("cmux.settings.host.lists"),
+    });
     this.queryClient.setQueryDefaults(settingsKeys.accounts, {
       queryFn: () => this.native("cmux.settings.accounts.state"),
     });
@@ -157,6 +180,20 @@ export class SettingsStore {
 
   /** Subscribes to changes and the connection, then reads everything once. */
   async start(): Promise<void> {
+    // Every subscription at once (one round trip, not two), then the reads, so no change can land
+    // between a read and its subscription.
+    const listening = Promise.all([
+      this.listen("cmux.settings.host.changed", (host) => this.queryClient.setQueryData(settingsKeys.host, host)),
+      this.listen("cmux.settings.accounts.changed", (accounts) =>
+        this.queryClient.setQueryData(settingsKeys.accounts, accounts),
+      ),
+      this.listen("cmux.settings.harnesses.changed", (harnesses) =>
+        this.queryClient.setQueryData(settingsKeys.harnesses, harnesses),
+      ),
+      this.listen("cmux.page.command", (event) => {
+        for (const listener of this.commandListeners) listener(event.command);
+      }),
+    ]);
     const stopTransport = await this.transport.subscribe({
       changed: (event) => {
         if (this.disposed) return;
@@ -177,18 +214,7 @@ export class SettingsStore {
     });
     if (this.disposed) stopTransport();
     else this.unsubscribers.push(stopTransport);
-    await Promise.all([
-      this.listen("cmux.settings.host.changed", (host) => this.queryClient.setQueryData(settingsKeys.host, host)),
-      this.listen("cmux.settings.accounts.changed", (accounts) =>
-        this.queryClient.setQueryData(settingsKeys.accounts, accounts),
-      ),
-      this.listen("cmux.settings.harnesses.changed", (harnesses) =>
-        this.queryClient.setQueryData(settingsKeys.harnesses, harnesses),
-      ),
-      this.listen("cmux.page.command", (event) => {
-        for (const listener of this.commandListeners) listener(event.command);
-      }),
-    ]);
+    await listening;
     await Promise.all([this.refresh(), this.refreshHost()]);
   }
 
@@ -249,8 +275,14 @@ export class SettingsStore {
 
   /** Sets one theme level of the active window, then re-reads the lists (the current theme). */
   async setTheme(level: string, spec: string | null): Promise<void> {
-    await this.request("cmux.settings.theme.set", { level, spec });
-    await this.refreshHost();
+    await this.trackAppearance(
+      [],
+      async () => {
+        await this.request("cmux.settings.theme.set", { level, spec });
+        await this.refreshHost();
+      },
+      { themes: true },
+    );
   }
 
   /** Save as Ghostty Theme (cx-wqn5.1): the host writes `base` with its edits as the user theme `name`. */
@@ -299,18 +331,22 @@ export class SettingsStore {
   /** Opens the cmux picker for an image of the person's own; the host copies it into the
    * backgrounds folder and sets it as the background. */
   async chooseBackdropImage(): Promise<void> {
-    const reply = await this.request("cmux.settings.backdrop.choose_image", {});
-    if (!reply.ok) this.setError("appearance.background", rowError(reply.error));
-    else await Promise.all([this.refresh(), this.refreshHost()]);
+    await this.trackAppearance([BACKGROUND], async () => {
+      const reply = await this.request("cmux.settings.backdrop.choose_image", {});
+      if (!reply.ok) this.setError(BACKGROUND, rowError(reply.error));
+      else await Promise.all([this.refresh(), this.refreshHost()]);
+    });
   }
 
   /** Downloads the image or movie at `url` and sets it (backgrounds plan phase 3). Resolves to the
    * refusal code the picker words, or null once it is the background. */
   async addBackdropLink(url: string): Promise<string | null> {
-    const reply = await this.request("cmux.settings.backdrop.image.link", { url });
-    if (!reply.ok) return reply.error.code || "cmux.settings.backdrop.download_failed";
-    await Promise.all([this.refresh(), this.refreshHost()]);
-    return null;
+    return this.trackAppearance([BACKGROUND], async () => {
+      const reply = await this.request("cmux.settings.backdrop.image.link", { url });
+      if (!reply.ok) return reply.error.code || "cmux.settings.backdrop.download_failed";
+      await Promise.all([this.refresh(), this.refreshHost()]);
+      return null;
+    });
   }
 
   /** Deletes one of the person's own images; resolves to the bytes the rest take, or null. */
@@ -348,14 +384,20 @@ export class SettingsStore {
 
   /** Saves the workspace `id`'s own background; null follows appearance.background again. */
   async setWorkspaceBackground(id: string, value: string | null): Promise<boolean> {
-    const reply = await this.request("cmux.settings.backdrop.workspace.set", { workspace: id, value });
+    const reply = await this.request("cmux.settings.backdrop.workspace.set", {
+      workspace: id,
+      value,
+    });
     if (!reply.ok) this.setError("appearance.background", rowError(reply.error));
     return reply.ok;
   }
 
   /** Saves the workspace `id`'s own glass tint over art; null follows the work's own tint. */
   async setWorkspaceOpacity(id: string, opacity: number | null): Promise<boolean> {
-    const reply = await this.request("cmux.settings.backdrop.workspace.set", { workspace: id, opacity });
+    const reply = await this.request("cmux.settings.backdrop.workspace.set", {
+      workspace: id,
+      opacity,
+    });
     if (!reply.ok) this.setError("appearance.backgroundOpacity", rowError(reply.error));
     return reply.ok;
   }
@@ -380,9 +422,11 @@ export class SettingsStore {
 
   /** Downloads the work `key` and sets it as the background; false when that failed. */
   async useMuseumArt(key: string): Promise<boolean> {
-    const reply = await this.request("cmux.settings.art.use", { key });
-    if (reply.ok) await Promise.all([this.refresh(), this.refreshHost()]);
-    return reply.ok;
+    return this.trackAppearance([BACKGROUND], async () => {
+      const reply = await this.request("cmux.settings.art.use", { key });
+      if (reply.ok) await Promise.all([this.refresh(), this.refreshHost()]);
+      return reply.ok;
+    });
   }
 
   /** Writes `text` to the pasteboard (a row's Copy Setting Key) through the host. */
@@ -394,6 +438,24 @@ export class SettingsStore {
     void this.request("cmux.settings.file.reveal", {});
   }
 
+  /** Settings > Mobile: remove one of the account's phones, then re-read the host lists. */
+  async removePhone(id: string): Promise<void> {
+    await this.request("cmux.settings.mobile.remove_phone", { id });
+    await this.refreshHost();
+  }
+
+  /** Settings > Mobile: answer a phone's pairing request, then re-read the host lists. */
+  async answerPair(id: string, allow: boolean): Promise<void> {
+    await this.request("cmux.settings.mobile.answer_pair", { id, allow });
+    await this.refreshHost();
+  }
+
+  /** Settings > Mobile: this Mac was removed; allow iPhone connections again, then re-read the host lists. */
+  async allowPhonesAgain(): Promise<void> {
+    await this.request("cmux.settings.mobile.allow_again", {});
+    await this.refreshHost();
+  }
+
   /** One Accounts gesture; answers the failure text of a Keychain save, else null. */
   async runAccounts(run: AccountsRun): Promise<string | null> {
     const reply = await this.request("cmux.settings.accounts.run", run);
@@ -401,6 +463,12 @@ export class SettingsStore {
     if (!reply.ok) return reply.error.message;
     return reply.value.error ?? null;
   }
+
+  /** The host's calls for Agents > Chiefs (`cmux.chief.profile.*`, `cmux.chief.backend.*`): the
+   * Chief editor reaches the Chief owner through the host's page relay, as Home does. */
+  readonly chiefCalls = {
+    call: <R,>(op: string, params: unknown): Promise<R> => this.client.call<R>(op, params),
+  };
 
   /** Settings > Agents' state; null when the host has no Agents part. */
   async agentsState(): Promise<AgentsState | null> {
@@ -493,11 +561,140 @@ export class SettingsStore {
   }
 
   set(key: string, value: unknown): Promise<WriteResult> {
-    return this.write({ kind: "set", key, value });
+    const write = () => this.write({ kind: "set", key, value });
+    return tracksAppearance(key) ? this.trackAppearance([key], write) : write();
   }
 
   reset(key: string): Promise<WriteResult> {
-    return this.write({ kind: "reset", key });
+    const write = () => this.write({ kind: "reset", key });
+    return tracksAppearance(key) ? this.trackAppearance([key], write) : write();
+  }
+
+  /**
+   * Runs `work` (a write, a host op that sets the background, a theme level) as one step of
+   * Appearance's undo stack: the states of `keys` (and the keys their writes also change, and with
+   * `themes` the theme levels) are read before and after it, and what changed is recorded, named
+   * `label` or by the first change ("Background → Shuffle Daily"). Other parts of Appearance (the
+   * Theme pane's rotation) call it to make their changes undoable too.
+   */
+  async trackAppearance<T>(
+    keys: readonly string[],
+    work: () => Promise<T>,
+    options: { label?: string; themes?: boolean } = {},
+  ): Promise<T> {
+    // A step inside a step (a preset's writes, the Theme pane's rotation) is part of the outer one.
+    if (this.tracking > 0) return work();
+    const linked = withLinked(keys);
+    const read = () => [
+      ...captureKeys(this.getSnapshot(), linked),
+      ...(options.themes ? captureThemes(this.getSnapshot()) : []),
+    ];
+    const before = read();
+    this.tracking += 1;
+    let result: T;
+    try {
+      result = await work();
+    } finally {
+      this.tracking -= 1;
+    }
+    const changes = diff(before, read());
+    if (changes.length > 0)
+      this.appearance.record({ label: options.label ?? changeLabel(this.getSnapshot(), changes[0]!.after), changes });
+    return result;
+  }
+
+  /** Records an appearance step its caller applied itself (states it read before and after). */
+  recordAppearanceChange(entry: HistoryEntry): boolean {
+    return this.appearance.record(entry);
+  }
+
+  /** Undo: puts the last appearance step's earlier states back. False when there was none or the
+   * owner refused (the step stays where it was). */
+  async undoAppearance(): Promise<boolean> {
+    const step = this.appearance.takeUndo();
+    if (!step) return false;
+    const ok = await this.applyAppearance(step.apply);
+    if (!ok) this.appearance.restore("undo", step.entry);
+    return ok;
+  }
+
+  /** Redo: puts the last undone step's states back. */
+  async redoAppearance(): Promise<boolean> {
+    const step = this.appearance.takeRedo();
+    if (!step) return false;
+    const ok = await this.applyAppearance(step.apply);
+    if (!ok) this.appearance.restore("redo", step.entry);
+    return ok;
+  }
+
+  /** Remembers every appearance target the first time Appearance shows in this visit, for
+   * Restore How It Was. Later calls keep the first snapshot. */
+  noteAppearanceOpened(): void {
+    const state = this.getSnapshot();
+    if (this.appearanceOpened || !state.readable) return;
+    this.appearanceOpened = captureAppearance(state);
+  }
+
+  /** Whether Restore How It Was would change anything. */
+  appearanceChangedSinceOpened(): boolean {
+    return (
+      this.appearanceOpened !== null && diff(captureAppearance(this.getSnapshot()), this.appearanceOpened).length > 0
+    );
+  }
+
+  /** Puts every appearance target back as it was when Appearance first showed: one undoable step. */
+  async restoreAppearanceOpened(): Promise<boolean> {
+    if (!this.appearanceOpened) return false;
+    return this.applyAppearanceStep(t("settingsPage.history.restoreOpened"), this.appearanceOpened);
+  }
+
+  /** Whether Reset to Defaults would change anything (an appearance key the person set). */
+  appearanceCustomized(): boolean {
+    const state = this.getSnapshot();
+    return appearanceKeys().some((key) => {
+      const row = state.rows.get(key);
+      return row !== undefined && row.customized && !row.managed;
+    });
+  }
+
+  /** Resets every appearance key the person set to its shipped default: one undoable step. */
+  async resetAppearanceToDefaults(): Promise<boolean> {
+    const state = this.getSnapshot();
+    const defaults = captureKeys(state, appearanceKeys())
+      .filter((target) => target.customized && !state.rows.get(target.key)?.managed)
+      .map((target) => ({ ...target, value: state.rows.get(target.key)?.default, customized: false }));
+    return this.applyAppearanceStep(t("settingsPage.history.resetDefaults"), defaults);
+  }
+
+  /** Applies `targets` as one recorded step named `label`; true when the owner took every write. */
+  private async applyAppearanceStep(label: string, targets: readonly TargetState[]): Promise<boolean> {
+    const state = this.getSnapshot();
+    const current = [...captureAppearance(state)];
+    const changes = diff(current, [...targets]);
+    if (changes.length === 0) return true;
+    const ok = await this.applyAppearance(changes.map((change) => change.after));
+    this.appearance.record({ label, changes });
+    return ok;
+  }
+
+  /** Writes each state (outside the undo stack): a set, a reset or a theme level. */
+  private async applyAppearance(states: readonly TargetState[]): Promise<boolean> {
+    let ok = true;
+    let themes = false;
+    for (const state of states) {
+      if (state.kind === "theme") {
+        themes = true;
+        const reply = await this.request("cmux.settings.theme.set", { level: state.level, spec: state.spec });
+        ok &&= reply.ok;
+      } else {
+        const result = state.customized
+          ? await this.write({ kind: "set", key: state.key, value: state.value })
+          : await this.write({ kind: "reset", key: state.key });
+        ok &&= result.ok;
+      }
+    }
+    if (themes) await this.refreshHost();
+    return ok;
   }
 
   resetAll(): Promise<WriteResult> {
@@ -528,7 +725,10 @@ export class SettingsStore {
    */
   private async write(write: Write): Promise<WriteResult> {
     if (!this.ui.connected) {
-      return { ok: false, error: { code: "cmux.page.unavailable", message: "cmux is not connected" } };
+      return {
+        ok: false,
+        error: { code: "cmux.page.unavailable", message: "cmux is not connected" },
+      };
     }
     const key = settingsKeys.scope("user");
     const queryClient = this.queryClient;

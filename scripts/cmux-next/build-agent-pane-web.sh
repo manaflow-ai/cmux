@@ -73,7 +73,7 @@ cat "$ROOT/webviews/src/theme/messages.css" "$SRC/acpmux/styles.css" "$SRC/acpmu
 # style file), so inline it where the import stood.
 cat "$SRC/acpmux/changes/git.css" >> "$WORK/styles.css"
 grep -v '^@import ' "$SRC/acpmux/changes/changes.css" >> "$WORK/styles.css"
-cat "$SRC/acpmux/handoff/styles.css" "$SRC/acpmux/checkpoints/styles.css" "$SRC/acpmux/composerControls.css" "$SRC/acpmux/composerStates.css" "$SRC/acpmux/composerLocation.css" "$SRC/acpmux/composerAttachments.css" "$SRC/acpmux/markdownField.css" \
+cat "$SRC/acpmux/handoff/styles.css" "$SRC/acpmux/checkpoints/styles.css" "$SRC/acpmux/composerControls.css" "$SRC/acpmux/composerStates.css" "$SRC/acpmux/composerLocation.css" "$SRC/acpmux/bottomStack.css" "$SRC/acpmux/composerAttachments.css" "$SRC/acpmux/markdownField.css" \
   "$SRC/acpmux/modelPicker.css" "$SRC/acpmux/keys.css" "$SRC/acpmux/summary/summary.css" "$SRC/acpmux/subagents/subagents.css" "$SRC/acpmux/header/header.css" "$SRC/acpmux/newtab/screen.css" "$SRC/acpmux/newtab/history.css" "$SRC/acpmux/threadMinimap/threadMinimap.css" >> "$WORK/styles.css"
 cat "$SRC/acpmux/turnChanges/turnChanges.css" "$SRC/acpmux/Inspector.css" >> "$WORK/styles.css"
 cat "$SRC/acpmux/addProject.css" "$SRC/acpmux/harnesses/harnesses.css" "$SRC/acpmux/replay/replay.css" "$SRC/acpmux/offer/suggestedTasks.css" "$ROOT/webviews/src/markdown-task-checkbox.css" >> "$WORK/styles.css"
@@ -92,12 +92,12 @@ fi
 # Tailwind utilities last (acpmux/tailwind.css): compiled over the classes the pane's sources use.
 bun scripts/agent-pane/tailwind-css.mjs "$SRC/acpmux/tailwind.css" >> "$WORK/styles.css"
 
-# Same-origin script files only (no inline script, no eval) and inline style. No connection of its own: the
+# Same-origin script files only (no inline script, no eval; WebAssembly compiles for Ondine's Mermaid diagrams) and inline style. No connection of its own: the
 # host's native transport (AgentPaneTransport) carries acpmux. No remote loads. Frames show only loopback web
 # pages (a turn's preview card; URL+AgentPanePreview.swift keeps the same hosts) and the render frame
 # (a render card; AgentPaneRenderFrame.swift). The page host sends the same
 # script-src (PageDescriptor.agent, test/fixtures/agent-page-csp.txt).
-CSP="default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; img-src data:; media-src 'self'; font-src data:; connect-src 'none'; frame-src cmux-agent://render http://localhost:* http://127.0.0.1:* https://localhost:* https://127.0.0.1:*"
+CSP="default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'unsafe-inline'; img-src data:; media-src 'self'; font-src data:; connect-src 'none'; frame-src cmux-agent://render http://localhost:* http://127.0.0.1:* https://localhost:* https://127.0.0.1:*"
 
 {
   printf '<!doctype html>\n<html lang="en">\n<head>\n'

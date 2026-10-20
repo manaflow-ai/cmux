@@ -38,16 +38,37 @@ fn resolved_session(
     }
 }
 
-pub(super) async fn handle_notification(hub: &Arc<Hub>, conn: &Arc<Conn>, m: &str, params: Value) {
+pub(super) async fn handle_notification(
+    hub: &Arc<Hub>,
+    conn: &Arc<Conn>,
+    m: &str,
+    mut params: Value,
+) {
     match m {
         method::SESSION_CANCEL => {
+            // Notifications have no response channel, but they still cross
+            // the same origin/ownership boundary as request-form cancels.
+            if conn.origin != Origin::Local
+                && let Err(e) =
+                    super::remote_guard::check(hub, conn.origin, conn.auth, m, &mut params).await
+            {
+                tracing::debug!(conn = %conn.id, "cancel refused: {e}");
+                return;
+            }
             if let Ok(key) = session_key(&params) {
                 if let Ok(s) = hub.resolve(key) {
                     if let Err(e) = hub.cancel(&s).await {
                         tracing::debug!(conn = %conn.id, "cancel: {e}");
                     }
                 } else if let Some((peer, id, _)) = hub.resolve_remote(key) {
-                    let _ = peer.notify(method::SESSION_CANCEL, json!({"sessionId": id})).await;
+                    let mut forwarded = json!({"sessionId": id});
+                    super::remote_guard::mark_forwarded(
+                        conn.origin,
+                        conn.auth,
+                        &params,
+                        &mut forwarded,
+                    );
+                    let _ = peer.notify(method::SESSION_CANCEL, forwarded).await;
                 }
             }
         }
@@ -160,7 +181,7 @@ async fn dispatch_request(
                     method::MUX_DRAFT_GET, method::MUX_DRAFT_SET, method::MUX_BOOKMARK_GET, method::MUX_BOOKMARK_SET, method::MUX_ASK, method::MUX_BTW, method::MUX_VIEW, method::MUX_MARK_UNREAD, method::MUX_ARCHIVE, method::MUX_SIDE,
                     method::MUX_SET_POLICY, method::MUX_SET_TOOLS, method::MUX_EXPORT, method::MUX_IMPORT, method::MUX_SHUTDOWN,
                 ], "operations": crate::hub::HANDOFF_OPERATIONS.iter().chain(crate::hub::PERMISSION_GROUP_OPERATIONS.iter()).chain(super::fork_through::FORK_OPERATIONS.iter()).collect::<Vec<_>>(), "handoff": {"maxCapsuleBytes": crate::hub::MAX_CAPSULE_BYTES},
-                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", "personChallenge", "queueEdit", "steerInterrupt", "personHolds", "sessionTransfer", "toolInventory", "promptWithdraw", "processes", "harnessInventory", super::inventory_watch::FEATURE, crate::harness_health::INVENTORY_REFRESH_FEATURE, crate::harness_health::UPDATE_PLAN_FEATURE, crate::harness_health::UPDATE_PREPARE_FEATURE], "trustGate": true}}
+                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", "personChallenge", "queueEdit", "steerInterrupt", "personHolds", "sessionTransfer", "approverDecisions", "toolInventory", "promptWithdraw", "processes", "harnessInventory", super::inventory_watch::FEATURE, crate::harness_health::INVENTORY_REFRESH_FEATURE, crate::harness_health::UPDATE_PLAN_FEATURE, crate::harness_health::UPDATE_PREPARE_FEATURE], "trustGate": true}}
             }))
         }
         method::AUTHENTICATE => Ok(json!({})),
@@ -175,6 +196,24 @@ async fn dispatch_request(
                 )
                 .with_data(json!({"reason": crate::hub::person::PROOF_REFUSED})))
             }
+        }
+        // The person only (`Hub::person_check`): never reached otherwise.
+        method::MUX_APPROVERS_SET if conn.is_person() => hub.person.approvers.set(&params),
+        method::MUX_APPROVERS if conn.is_person() => Ok(hub.person.approvers.list()),
+        method::MUX_APPROVERS_SET | method::MUX_APPROVERS => {
+            Err(crate::hub::person::person_required("changing or reading trusted approvers"))
+        }
+        method::MUX_WORKSPACE_ROOTS_SET if conn.is_person() => {
+            hub.person.set_workspace_roots(&params)
+        }
+        method::MUX_WORKSPACE_ROOTS_SET => {
+            Err(crate::hub::person::person_required("changing the workspace folders"))
+        }
+        method::MUX_NEW_CHAT_PICKS_SET if conn.is_person() => {
+            hub.person.set_new_chat_picks(&params)
+        }
+        method::MUX_NEW_CHAT_PICKS_SET => {
+            Err(crate::hub::person::person_required("changing the new chat picks"))
         }
         method::MUX_PERSON_HOLDS => {
             // The unix socket only: the app reaches a daemon it started over
@@ -297,6 +336,7 @@ async fn dispatch_request(
             {
                 return Err(RpcError::invalid_params(format!("route {r:?} is not a route id")));
             }
+            let asked_policy = policy.is_some();
             let req = crate::hub::NewRequest {
                 harness: pick("harness"),
                 preset: pick("preset"),
@@ -319,6 +359,20 @@ async fn dispatch_request(
             let s = hub.new_session(req).await?;
             if conn.origin.web_class() {
                 super::remote_guard::settle_web_session_mode(hub, &s).await?;
+                // A dedicated agent VM (vmHost): a session its owner's peer
+                // daemon starts with no policy runs approve-all; the VM is the
+                // sandbox (hub/remote_sandbox.rs). Web clients still ask.
+                let vm_host = hub.config.read().await.vm_host;
+                if !asked_policy
+                    && crate::hub::vm_host_peer_approves(
+                        vm_host,
+                        cfg!(target_os = "macos"),
+                        super::remote_guard::control_of(conn.origin, conn.auth, &params)
+                            == crate::hub::Control::Peer,
+                    )
+                {
+                    hub.set_policy(&s, crate::config::PermissionPolicy::ApproveAll).await;
+                }
             } else {
                 hub.start_in_mode(conn.is_person(), conn.caller(), &params, &s, adopting).await?;
             }

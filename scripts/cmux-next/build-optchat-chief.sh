@@ -23,6 +23,8 @@ Usage: build-optchat-chief.sh [--output PATH] [--cached-only] [--print-path] [--
 Environment:
   CMUX_NEXT_OPTCHAT_CHIEF_ARCHS  arm64 and/or x86_64 (default: ARCHS, else the host)
   CMUX_NEXT_OPTCHAT_CHIEF_CACHE  cache root (default: <crate>/target/hosted)
+  CMUX_NEXT_OPTCHAT_CHIEF_TARGET_DIR  Cargo target dir (default: <crate>/target/app);
+                                 a CI job whose checkout is cleaned each run keeps it warm here
 USAGE
 }
 
@@ -113,7 +115,7 @@ slices=()
 for target in "${targets[@]}"; do
   echo "==> building optchat-chief ($commit, $target)"
   # A persistent target dir under the crate keeps later fleet builds incremental.
-  target_dir="$crate/target/app"
+  target_dir="${CMUX_NEXT_OPTCHAT_CHIEF_TARGET_DIR:-$crate/target/app}"
   if [[ -n "$fleet_target_helper" ]]; then
     target_dir="$(fleet_rust_target_dir chief "$target" "$repo_root/cmux-tui")"
     mkdir -p "$target_dir"

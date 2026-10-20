@@ -10,7 +10,7 @@ import { createPageClient, type PageClient } from "../shared/pageClient";
 import { createStrings, type Strings } from "../shared/i18n";
 import { subscribePageStreams } from "../shared/pageStreams";
 import { DiagramLibraries, renderDiagram } from "./diagrams";
-import { MarkdownEditor, type EditorLabel, type MarkdownEditorHost } from "./editor";
+import { MarkdownEditor, markdownRemoteImagePlaceholder, type EditorLabel, type MarkdownEditorHost } from "./editor";
 import table from "./generated/strings.json";
 import type { ThemeRegistrationAny } from "shiki/core";
 import { CodeHighlighter, codeThemes, preloadHighlighter } from "./highlight";
@@ -26,6 +26,7 @@ import type { ReadingSettingsActions } from "./ReadingSettings";
 import { MARKDOWN_READING, bindMarkdownLook, markdownCodeTheme } from "./settings";
 import { MarkdownFontZoom, isMarkdownZoomCommand } from "./fontZoom";
 import { L } from "./strings";
+import { storedTableWidths } from "./tables";
 import { UiProvider, languageDirection } from "../../ui/UiProvider";
 import "../shared/pageBase.css";
 import "../../ui/ui.css";
@@ -40,6 +41,8 @@ const LABELS: Record<EditorLabel, string> = {
   source: L.rawSource,
   plainText: L.plainText,
   document: L.title,
+  remoteImageBlocked: L.remoteImageBlocked,
+  remoteImageLoad: L.remoteImageLoad,
 };
 
 /** The editor's host: links, images, code colors and diagrams, from the page config. */
@@ -55,6 +58,18 @@ const LINK_LABELS: Record<LinkLabel, string> = {
   opensMail: L.opensMail,
   linkPlaceholder: L.linkPlaceholder,
   footnote: L.footnote,
+  bubble: L.linkBubble,
+  open: L.linkOpen,
+  copy: L.linkCopy,
+  copied: L.linkCopied,
+  edit: L.linkEdit,
+  remove: L.linkRemove,
+  text: L.linkText,
+  textPlaceholder: L.linkTextPlaceholder,
+  url: L.linkURL,
+  apply: L.linkApply,
+  insertTitle: L.linkInsertTitle,
+  editTitle: L.linkEditTitle,
 };
 
 function editorHost(
@@ -72,7 +87,18 @@ function editorHost(
     return base ? `${base}${name}.js` : null;
   });
   const imageURL = (src: string) => resolveImageURL(src, config()?.assetBase, config()?.remoteImageBase);
-  return {
+  const imageListeners = new Set<() => void>();
+  let remoteImageBase = config()?.remoteImageBase;
+  store.subscribe(() => {
+    const next = config()?.remoteImageBase;
+    if (next === remoteImageBase) return;
+    remoteImageBase = next;
+    for (const listener of imageListeners) listener();
+  });
+  let blockedImage = (_src: string, _alt: string): HTMLElement => document.createElement("span");
+  const host: MarkdownEditorHost & {
+    setCodeThemes(themes: Promise<ThemeRegistrationAny[]>): Promise<void> | undefined;
+  } = {
     openLink: follow,
     get githubRepository() {
       return config()?.githubRepository;
@@ -91,6 +117,12 @@ function editorHost(
       linkLabel: (key) => strings.t(LINK_LABELS[key]),
     },
     imageURL,
+    loadRemoteImages: () => store.loadRemoteImages(),
+    observeRemoteImages(refresh) {
+      imageListeners.add(refresh);
+      return () => imageListeners.delete(refresh);
+    },
+    tableWidths: storedTableWidths(() => config()?.path),
     highlight(code, language, refresh) {
       const look = store.getState().look;
       highlighter ??= new CodeHighlighter(codeThemes(markdownCodeTheme(look.settings), look.appearance));
@@ -100,12 +132,17 @@ function editorHost(
       renderDiagram(libraries, language, source, target, strings.t(L.diagramFailed));
     },
     label: (key) => strings.t(LABELS[key]),
-    htmlPreview: (html) => htmlPreview(html, imageURL),
+    htmlPreview: (html) => htmlPreview(html, imageURL, blockedImage),
     setCodeThemes(themes) {
       return highlighter?.setThemes(themes);
     },
   };
+  blockedImage = (src, alt) => markdownRemoteImagePlaceholder(host, src, alt);
+  return host;
 }
+
+/** The code block size in pixels the Reading Settings wrote before code became a share of the text. */
+const LEGACY_CODE_BLOCK_SIZE_KEY = "markdown.code.blockSize";
 
 /**
  * The Reading Settings popover's writes: each option is its `markdown.*` key through the store's one
@@ -116,10 +153,13 @@ function readingActions(store: MarkdownStore, zoom: MarkdownFontZoom): ReadingSe
   return {
     set(option, value) {
       store.setPreference(MARKDOWN_READING[option].key, value);
+      // A fixed code block size (cmux.json, or the old Reading Settings row) would hide the change.
+      if (option === "codeScale") store.setPreference(LEGACY_CODE_BLOCK_SIZE_KEY, null);
       if (option === "fontSize") zoom.run("zoomReset");
     },
     reset() {
       for (const option of Object.values(MARKDOWN_READING)) store.setPreference(option.key, null);
+      store.setPreference(LEGACY_CODE_BLOCK_SIZE_KEY, null);
       zoom.run("zoomReset");
     },
   };

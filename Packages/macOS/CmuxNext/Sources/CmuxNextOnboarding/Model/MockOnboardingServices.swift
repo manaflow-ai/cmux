@@ -65,5 +65,21 @@ public final class MockOnboardingServices: OnboardingServices {
 
     public func openExternal(_ url: URL) { opened.append(url) }
 
+    /// Browsers listed as needing a folder grant, and what the open panel answers.
+    public var awaitingAccess: [ImportBrowser] = []
+    public var grantsAccess = true
+    public private(set) var accessRequests: [ImportBrowser] = []
+    public func browsersAwaitingAccess() async -> [ImportBrowser] { awaitingAccess }
+    public var accessFolders: [ImportBrowser: URL] = [:]
+    public func accessFolder(for browser: ImportBrowser) -> URL? { accessFolders[browser] }
+    public func requestFolderAccess(for browser: ImportBrowser) async -> Bool {
+        accessRequests.append(browser)
+        return grantsAccess
+    }
+
+    /// The profiles each Import Passwords from CSV… was opened for.
+    public private(set) var csvImports: [String?] = []
+    public func importPasswordsFromCSV(into profile: String?) { csvImports.append(profile) }
+
     public var computerUsePermissions: (any ComputerUsePermissionSource)? { computerUseSource }
 }
