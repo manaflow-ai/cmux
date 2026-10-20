@@ -137,13 +137,11 @@ struct ChiefHomeView: View {
                     ))
                 }
             }
-            // The Mac-owned Chief inbox has no push event topic yet. Keep the
-            // Home list current while it is visible, and restart the loop on
-            // foreground so a reply received while the app was backgrounded
-            // appears without requiring a manual pull-to-refresh.
+            // The Mac-owned Chief inbox has no push event topic yet. Refresh
+            // when Home becomes active; the list also supports pull-to-refresh.
             .task(id: scenePhase) {
                 guard scenePhase == .active else { return }
-                await refreshLoop()
+                await load()
             }
             .navigationDestination(for: MobileChiefConversation.self) { conversation in
                 ChiefConversationDestination(client: client, conversation: conversation)
@@ -179,7 +177,11 @@ struct ChiefHomeView: View {
                 } else if status?.started == true,
                           let id = status?.defaultConversation,
                           !id.isEmpty {
-                    rows = [MobileChiefConversation(id: id, title: "Chief", pinned: true)]
+                    rows = [MobileChiefConversation(
+                        id: id,
+                        title: L10n.string("mobile.chief.name", defaultValue: "Chief"),
+                        pinned: true
+                    )]
                 }
             }
             conversations = rows.sorted {
@@ -192,16 +194,6 @@ struct ChiefHomeView: View {
         }
     }
 
-    private func refreshLoop() async {
-        while !Task.isCancelled {
-            await load()
-            do {
-                try await Task.sleep(nanoseconds: 3_000_000_000)
-            } catch {
-                return
-            }
-        }
-    }
 }
 
 private struct ChiefPinnedConversationCard: View {
@@ -230,7 +222,9 @@ private struct ChiefPinnedConversationCard: View {
             Text(conversation.title)
                 .font(.footnote.weight(.semibold))
                 .foregroundStyle(.primary)
-            Text(conversation.preview.isEmpty ? "Ask Chief anything" : conversation.preview)
+            Text(conversation.preview.isEmpty
+                ? L10n.string("mobile.chief.home.ask", defaultValue: "Ask Chief anything")
+                : conversation.preview)
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .lineLimit(2)
@@ -314,6 +308,12 @@ private struct ChiefAvatarView: View {
 private struct ChiefConversationRow: View {
     let conversation: MobileChiefConversation
 
+    private static let relativeDateFormatter: RelativeDateTimeFormatter = {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .abbreviated
+        return formatter
+    }()
+
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
             ZStack(alignment: .bottomTrailing) {
@@ -344,7 +344,9 @@ private struct ChiefConversationRow: View {
                     .accessibilityHidden(true)
                 }
                 HStack(alignment: .top, spacing: 6) {
-                    Text(conversation.preview.isEmpty ? "No messages yet" : conversation.preview)
+                    Text(conversation.preview.isEmpty
+                        ? L10n.string("mobile.chief.home.noMessages", defaultValue: "No messages yet")
+                        : conversation.preview)
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .lineLimit(2)
@@ -353,7 +355,7 @@ private struct ChiefConversationRow: View {
                             .fill(.blue)
                             .frame(width: 7, height: 7)
                             .padding(.top, 6)
-                            .accessibilityLabel("Unread")
+                            .accessibilityLabel(L10n.string("mobile.chief.unread", defaultValue: "Unread"))
                     }
                 }
             }
@@ -379,9 +381,7 @@ private struct ChiefConversationRow: View {
 
     private func relativeDate(_ date: Date) -> String? {
         guard date != .distantPast else { return nil }
-        let formatter = RelativeDateTimeFormatter()
-        formatter.unitsStyle = .abbreviated
-        return formatter.localizedString(for: date, relativeTo: Date())
+        return Self.relativeDateFormatter.localizedString(for: date, relativeTo: Date())
     }
 }
 
@@ -424,13 +424,19 @@ private struct ChiefConversationControllerRepresentable: UIViewControllerReprese
         let controller = ConversationViewController(
             store: store,
             options: ConversationPresentationOptions(
-                placeholder: "Message Chief",
+                placeholder: L10n.string("mobile.chief.conversation.placeholder", defaultValue: "Message Chief"),
                 serviceTitle: conversation.title,
-                serviceSubtitle: "Runs your agents on your Mac",
+                serviceSubtitle: L10n.string(
+                    "mobile.chief.conversation.subtitle",
+                    defaultValue: "Runs your agents on your Mac"
+                ),
                 avatarImage: UIImage(named: "ChiefAvatar", in: .module, compatibleWith: nil),
                 unreadCount: conversation.unread,
                 trailingSymbol: "stop.fill",
-                trailingAccessibilityLabel: "Stop Chief",
+                trailingAccessibilityLabel: L10n.string(
+                    "mobile.chief.conversation.stop",
+                    defaultValue: "Stop Chief"
+                ),
                 supportsReactions: false,
                 supportsEditing: false,
                 supportsUnsend: false,
@@ -488,6 +494,10 @@ private struct ChiefConversationControllerRepresentable: UIViewControllerReprese
 }
 
 private struct ChiefQuestionSheet: View {
+    /// Matches `ChiefQuestionAnswer.qualifiedChoiceSeparator` on the Mac.
+    /// Qualifying ids prevents identical option ids in different items from
+    /// being assigned to the first matching question.
+    private static let choiceSeparator = "\u{001F}"
     let question: MobileChiefQuestion
     let submit: ([String], String?) async throws -> Void
     @Environment(\.dismiss) private var dismiss
@@ -542,7 +552,9 @@ private struct ChiefQuestionSheet: View {
     private var choices: [String] {
         question.items.flatMap { item in
             item.options.compactMap { option in
-                selections[item.id]?.contains(option.id) == true ? option.id : nil
+                selections[item.id]?.contains(option.id) == true
+                    ? item.id + Self.choiceSeparator + option.id
+                    : nil
             }
         }
     }
@@ -552,13 +564,22 @@ private struct ChiefQuestionSheet: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
                     VStack(alignment: .leading, spacing: 6) {
-                        Label("Chief needs your input", systemImage: "sparkles")
+                        Label(
+                            L10n.string("mobile.chief.question.needsInput", defaultValue: "Chief needs your input"),
+                            systemImage: "sparkles"
+                        )
                             .font(.headline)
-                        Text("Choose an answer for each question before sending it back to your Mac.")
+                        Text(L10n.string(
+                            "mobile.chief.question.instructions",
+                            defaultValue: "Choose an answer for each question before sending it back to your Mac."
+                        ))
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                         if otherTargetItem != nil {
-                            Text("You can type one custom answer; it is sent to the first question that accepts it.")
+                            Text(L10n.string(
+                                "mobile.chief.question.otherHint",
+                                defaultValue: "You can type one custom answer; it is sent to the first question that accepts it."
+                            ))
                                 .font(.footnote)
                                 .foregroundStyle(.secondary)
                         }
@@ -577,14 +598,14 @@ private struct ChiefQuestionSheet: View {
                 }
                 .padding(20)
             }
-            .navigationTitle("Answer Chief")
+            .navigationTitle(L10n.string("mobile.chief.question.title", defaultValue: "Answer Chief"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
+                    Button(L10n.string("mobile.chief.cancel", defaultValue: "Cancel")) { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(question.submitLabel ?? "Send") {
+                    Button(question.submitLabel ?? L10n.string("mobile.chief.send", defaultValue: "Send")) {
                         Task { await submitAnswer() }
                     }
                     .disabled(!canSubmit || isSubmitting)
@@ -607,7 +628,10 @@ private struct ChiefQuestionSheet: View {
                 .font(.title3.weight(.semibold))
                 .fixedSize(horizontal: false, vertical: true)
             if item.multiSelect {
-                Text("Select all that apply")
+                Text(L10n.string(
+                    "mobile.chief.question.selectAll",
+                    defaultValue: "Select all that apply"
+                ))
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
@@ -647,7 +671,11 @@ private struct ChiefQuestionSheet: View {
             .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
 
             if item.id == otherTargetItem?.id {
-                TextField("Other answer (optional)", text: $otherText, axis: .vertical)
+                TextField(
+                    L10n.string("mobile.chief.question.otherPlaceholder", defaultValue: "Other answer (optional)"),
+                    text: $otherText,
+                    axis: .vertical
+                )
                     .textFieldStyle(.roundedBorder)
                     .onChange(of: otherText) { _, value in
                         if !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, !item.multiSelect {

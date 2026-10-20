@@ -1,5 +1,6 @@
 import AppKit
 
+#if DEBUG
 // cmux: automation evidence for the per-view render scale (MessagesLab 258b385; scripts/cmux-next/home-scale-change.py).
 extension MessagesLabHomeView {
     /// The pane's render scale and the scale of what its visible rows show, for `debugGeometry`:
@@ -40,3 +41,4 @@ extension MessagesLabHomeView {
                 "colorSpaceIsScreen": controller.host.window?.screen?.colorSpace?.cgColorSpace.map { $0 == DisplayScale.colorSpace } == true ? 1 : 0]
     }
 }
+#endif

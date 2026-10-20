@@ -183,8 +183,13 @@ extension TerminalController {
                     hasMore = page.messages.first.map { $0.seq > 1 } ?? false
                 }
                 let working = await owner.isWorking(id)
+                let readCursor = summary.conversation.readCursors[owner.me.id] ?? 0
+                let headSeq = summary.conversation.lastSeq
+                let unreadCount = summary.conversation.unreadCount(me: owner.me.id)
                 return .ok(["conversation": id.rawValue, "working": working,
-                            "messages": messages.map { Self.chiefPayload($0) }, "has_more": hasMore] as [String: Any])
+                            "messages": messages.map { Self.chiefPayload($0) }, "has_more": hasMore,
+                            "last_read_seq": readCursor, "unread_count": unreadCount,
+                            "head_seq": headSeq] as [String: Any])
             case .markRead(let conversation, let upToSeq):
                 let owner = try await chiefOwner()
                 let id = conversation.map(ConversationID.init(_:)) ?? ChiefConversationOwner.defaultConversationID

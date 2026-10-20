@@ -133,17 +133,19 @@ actor EventRecorder {
 /// Test fixtures: a temp Chief home and an owner over it.
 struct ChiefFixture {
     let home: ChiefHome
+    let allowRules: ChiefAllowRules
 
     init() {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-chief-tests", isDirectory: true)
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         home = ChiefHome(root: root)
+        allowRules = ChiefAllowRules()
     }
 
     func owner(_ brain: FakeBrain) throws -> ChiefConversationOwner {
         let home = self.home
-        return try ChiefConversationOwner(home: home, brain: brain, userDisplayName: "Tester",
+        return try ChiefConversationOwner(home: home, brain: brain, userDisplayName: "Tester", allowRules: allowRules,
                                           now: { Date() }) { _ in
             ChiefTurnContext(systemPrompt: "You are Chief.", workingDirectory: home.root, environment: ["CHIEF": "1"])
         }

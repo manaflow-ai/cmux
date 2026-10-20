@@ -289,6 +289,12 @@ public struct MobileChiefReadResult: Codable, Equatable, Sendable {
     public let conversation: String
     public let working: Bool
     public let messages: [MobileChiefMessage]
+    /// The Mac owner's read cursor, when the host supports read-state fields.
+    /// Older hosts omit these fields; callers then fall back to a conservative
+    /// zero cursor rather than treating the transcript head as read.
+    public let lastReadSeq: UInt64?
+    public let unreadCount: Int?
+    public let headSeq: UInt64?
     /// True when another page exists before the oldest returned message.
     /// Older hosts omit this field and therefore remain a bounded, newest-page
     /// reader to older phones.
@@ -298,16 +304,23 @@ public struct MobileChiefReadResult: Codable, Equatable, Sendable {
         conversation: String,
         working: Bool = false,
         messages: [MobileChiefMessage] = [],
-        hasMore: Bool = false
+        hasMore: Bool = false,
+        lastReadSeq: UInt64? = nil,
+        unreadCount: Int? = nil,
+        headSeq: UInt64? = nil
     ) {
         self.conversation = conversation
         self.working = working
         self.messages = messages
         self.hasMore = hasMore
+        self.lastReadSeq = lastReadSeq
+        self.unreadCount = unreadCount
+        self.headSeq = headSeq
     }
 
     private enum CodingKeys: String, CodingKey {
         case conversation, working, messages, hasMore = "has_more"
+        case lastReadSeq = "last_read_seq", unreadCount = "unread_count", headSeq = "head_seq"
     }
 
     public init(from decoder: any Decoder) throws {
@@ -316,6 +329,9 @@ public struct MobileChiefReadResult: Codable, Equatable, Sendable {
         working = try c.decodeIfPresent(Bool.self, forKey: .working) ?? false
         messages = try c.decodeIfPresent([MobileChiefMessage].self, forKey: .messages) ?? []
         hasMore = try c.decodeIfPresent(Bool.self, forKey: .hasMore) ?? false
+        lastReadSeq = try c.decodeIfPresent(UInt64.self, forKey: .lastReadSeq)
+        unreadCount = try c.decodeIfPresent(Int.self, forKey: .unreadCount)
+        headSeq = try c.decodeIfPresent(UInt64.self, forKey: .headSeq)
     }
 }
 

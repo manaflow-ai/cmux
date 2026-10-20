@@ -19,9 +19,6 @@ import Foundation
 /// The brains put a card's rule in its options (``ChiefToolPolicy/approvalOptions(command:)``);
 /// Home's card offers exactly that rule and never derives one itself.
 public final class ChiefAllowRules: @unchecked Sendable {
-    /// The process's rules (the brains' policy checks are static).
-    public static let shared = ChiefAllowRules()
-
     private let lock = NSLock()
     private var file: URL?
     private var rules: [[String]] = []

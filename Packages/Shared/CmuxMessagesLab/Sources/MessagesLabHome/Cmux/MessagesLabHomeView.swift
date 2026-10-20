@@ -298,6 +298,7 @@ public final class MessagesLabHomeView: NSView {
     @discardableResult
     public func sendDraft() -> String? { projection.send() }
 
+    #if DEBUG
     /// Automation (DEBUG socket): a love tapback on the newest incoming (or,
     /// with `mine`, my newest) message through the picker's path (`ChatIntents.react`).
     public func debugTapbackNewestIncoming(mine: Bool = false) -> Bool {
@@ -502,6 +503,8 @@ public final class MessagesLabHomeView: NSView {
         controller.host.scrollView.scroll(toModelOffset: y)
         controller.host.noteChosenPlace()
     }
+
+    #endif
 
     /// `y` within `min ... max` (`min` when the range is empty or not finite). Pure, for tests.
     static func clampedScrollOffset(_ y: CGFloat, min lo: CGFloat, max hi: CGFloat) -> CGFloat {

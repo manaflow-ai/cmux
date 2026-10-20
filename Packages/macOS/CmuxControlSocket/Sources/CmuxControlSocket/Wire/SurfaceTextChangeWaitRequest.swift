@@ -75,7 +75,15 @@ public struct SurfaceTextChangeWaitRequest: Sendable, Equatable {
 
     /// The opaque revision of a terminal's text: equal texts give equal revisions.
     public static func revision(of text: String) -> String {
-        SHA256.hash(data: Data(text.utf8)).prefix(16).map { String(format: "%02x", $0) }.joined()
+        let digest = SHA256.hash(data: Data(text.utf8))
+        let hex = Array("0123456789abcdef".utf8)
+        var bytes: [UInt8] = []
+        bytes.reserveCapacity(32)
+        for byte in digest.prefix(16) {
+            bytes.append(hex[Int(byte >> 4)])
+            bytes.append(hex[Int(byte & 0x0f)])
+        }
+        return String(decoding: bytes, as: UTF8.self)
     }
 
     /// Whether text with `revision` answers this wait: the caller saw nothing

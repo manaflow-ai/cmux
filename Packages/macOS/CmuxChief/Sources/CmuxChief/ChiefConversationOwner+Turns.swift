@@ -36,8 +36,8 @@ extension ChiefConversationOwner {
         let next = queue.removeFirst()
         pending[conversation] = queue.isEmpty ? nil : queue
         guard let state = conversations[conversation], let chief = state.chief else { return }
-        // The user's "Always Allow" rules, for the brain's approval checks (ChiefToolPolicy).
-        ChiefAllowRules.shared.load(home)
+        // The user's "Always Allow" rules belong to this owner/home.
+        allowRules.load(home)
         if let seq = next.readSeq { moveReadCursor(conversation, of: chief.id, to: seq) }
         running[conversation] = ChiefRunningTurn(chief: chief.id, threadRoot: next.threadRoot, startedAt: now())
         guard let turnID = running[conversation]?.id else { return }
@@ -90,8 +90,12 @@ extension ChiefConversationOwner {
         case .session(let session):
             guard var state = conversations[conversation], state.cliSession != session else { return }
             state.cliSession = session
+            do {
+                try persist(conversation, [.session(session)])
+            } catch {
+                return
+            }
             conversations[conversation] = state
-            persist(conversation, [.session(session)])
         case .textDelta(let text):
             guard !text.isEmpty else { return }
             let fresh = turn.segmentKey == nil

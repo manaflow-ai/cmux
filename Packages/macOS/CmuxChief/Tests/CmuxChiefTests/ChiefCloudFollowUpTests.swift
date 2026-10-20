@@ -48,6 +48,20 @@ import Testing
         }
     }
 
+    @Test func qualifiedChoicesStayWithTheirQuestionWhenOptionIDsRepeat() throws {
+        let first = AgentQuestion.Item(
+            id: "first", prompt: "First?",
+            options: [AgentQuestion.Option(id: "yes", label: "No")])
+        let second = AgentQuestion.Item(
+            id: "second", prompt: "Second?",
+            options: [AgentQuestion.Option(id: "yes", label: "Yes")])
+        let card = Self.question([first, second])
+        let separator = ChiefQuestionAnswer.qualifiedChoiceSeparator
+        let answer = try ChiefQuestionAnswer(choices: ["second\(separator)yes"], text: nil).answer(for: card)
+        #expect(answer.selections["first"]?.optionIDs == ["yes"])
+        #expect(answer.selections["second"]?.optionIDs == ["yes"])
+    }
+
     @Test func textFillsTheFirstItemThatTakesItAndMultiChoiceItemsNeedAChoice() throws {
         // "Machine" takes no Other text, so the text goes to "Name".
         let typed = try ChiefQuestionAnswer(choices: [], text: "billing").answer(for: Self.question([Self.machine, Self.name]))

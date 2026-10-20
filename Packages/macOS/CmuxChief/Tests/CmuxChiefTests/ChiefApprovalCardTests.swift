@@ -114,11 +114,11 @@ import Testing
         }
         try await owner.submit(HomeIntent(op: .answerQuestion(message: card.id, conversation: conversation, partIndex: 0,
                                                               answer: Self.answer("Allow", always: true))))
-        #expect(ChiefAllowRules.shared.all.contains(["acme-deploy", "ship"]))
-        #expect(ChiefToolPolicy.autoAllowsCommand("acme-deploy ship --prod"))
+        #expect(fixture.allowRules.all.contains(["acme-deploy", "ship"]))
+        #expect(ChiefToolPolicy.autoAllowsCommand("acme-deploy ship --prod", allowRules: fixture.allowRules))
         // Only that subcommand, one simple command at a time.
-        #expect(!ChiefToolPolicy.autoAllowsCommand("acme-deploy destroy"))
-        #expect(!ChiefToolPolicy.autoAllowsCommand("acme-deploy ship $(whoami)"))
+        #expect(!ChiefToolPolicy.autoAllowsCommand("acme-deploy destroy", allowRules: fixture.allowRules))
+        #expect(!ChiefToolPolicy.autoAllowsCommand("acme-deploy ship $(whoami)", allowRules: fixture.allowRules))
         let file = fixture.home.stateDirectory.appendingPathComponent("allow-rules.json")
         #expect(FileManager.default.fileExists(atPath: file.path))
         await gate.open()

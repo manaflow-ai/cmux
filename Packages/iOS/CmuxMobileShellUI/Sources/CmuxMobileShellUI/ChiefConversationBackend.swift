@@ -14,6 +14,7 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
     private let client: MobileChiefClient
     private let conversationID: String
     private let fallbackTitle: String
+    private let clock: any Clock<Duration>
     // Concurrency carve-out: ConversationBackend exposes synchronous lifecycle
     // methods while its polling task is asynchronous, so state needs one small
     // critical section instead of an actor hop from every callback.
@@ -38,6 +39,7 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
         // from.
         var meID = "me"
         var publishedMeID: String?
+        var eventSeq = 0
         var pollTask: Task<Void, Never>?
         var continuation: AsyncStream<ConversationBackendEvent>.Continuation?
         var closed = false
@@ -55,10 +57,16 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
         let continuation: AsyncStream<ConversationBackendEvent>.Continuation?
     }
 
-    init(client: MobileChiefClient, conversationID: String, title: String) {
+    init(
+        client: MobileChiefClient,
+        conversationID: String,
+        title: String,
+        clock: any Clock<Duration> = ContinuousClock()
+    ) {
         self.client = client
         self.conversationID = conversationID
         self.fallbackTitle = title
+        self.clock = clock
     }
 
     func events() -> AsyncStream<ConversationBackendEvent> {
@@ -249,12 +257,12 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
             refreshed = try await client.read(conversation: conversationID, limit: 200)
         } catch {
             if let previous = withState({ $0.previousMessagesByID[messageID] }) {
-                return map(previous, clientMessageID: clientMessageID(for: previous))
+                return publishUpdatedMessage(previous)
             }
             throw error
         }
         if let message = refreshed.messages.first(where: { $0.id == messageID }) {
-            return map(message, clientMessageID: clientMessageID(for: message))
+            return publishUpdatedMessage(message)
         }
         // A card loaded from an older history page may be outside the newest
         // 200-message tail. Read the page ending at that message so an
@@ -269,14 +277,14 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
            ),
            let message = targeted.messages.first(where: { $0.id == messageID }) {
             withState { $0.previousMessagesByID[messageID] = message }
-            return map(message, clientMessageID: clientMessageID(for: message))
+            return publishUpdatedMessage(message)
         }
         // The answer RPC commits before the transcript snapshot necessarily
         // includes the changed card. Return the last known row so the store
         // does not show a false vote failure; the next poll will collapse it
         // to the server's receipt.
         if let previous = withState({ $0.previousMessagesByID[messageID] }) {
-            return map(previous, clientMessageID: clientMessageID(for: previous))
+            return publishUpdatedMessage(previous)
         }
         throw ConversationBackendError(code: -1, message: "Chief did not return the answered card")
     }
@@ -332,13 +340,13 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
             // closes without asking the user to submit the same answer again;
             // the next poll will replace its pending card with the receipt.
             if let previous = withState({ $0.previousMessagesByID[messageID] }) {
-                return map(previous, clientMessageID: clientMessageID(for: previous))
+                return publishUpdatedMessage(previous)
             }
             throw error
         }
         withState { state in mergeMessages(refreshed.messages, into: &state) }
         if let message = refreshed.messages.first(where: { $0.id == messageID }) {
-            return map(message, clientMessageID: clientMessageID(for: message))
+            return publishUpdatedMessage(message)
         }
         if let previous = withState({ $0.previousMessagesByID[messageID] }),
            previous.seq < UInt64.max,
@@ -349,10 +357,10 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
            ),
            let message = targeted.messages.first(where: { $0.id == messageID }) {
             withState { $0.previousMessagesByID[messageID] = message }
-            return map(message, clientMessageID: clientMessageID(for: message))
+            return publishUpdatedMessage(message)
         }
         if let previous = withState({ $0.previousMessagesByID[messageID] }) {
-            return map(previous, clientMessageID: clientMessageID(for: previous))
+            return publishUpdatedMessage(previous)
         }
         throw ConversationBackendError(code: -1, message: "Chief did not return the answered question")
     }
@@ -382,14 +390,14 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
         var connected = false
         var reportedFailure = false
         var lastSeq: UInt64 = 0
-        var eventSeq = 0
         var publishedInfo: ConversationInfo?
         var publishedMeID: String?
         while !Task.isCancelled && !isClosed {
             do {
                 let result = try await client.read(conversation: conversationID, limit: 200)
                 guard !Task.isCancelled, !isClosed else { return }
-                let mappedInfo = info(from: result.messages)
+                let pollMessages = try await messagesCoveringGap(result, afterSeq: lastSeq)
+                let mappedInfo = info(from: pollMessages)
                 if first {
                     first = false
                     // A send may commit before this initial poll observes the
@@ -397,7 +405,7 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
                     // baseline so a failed send follow-up can still take the
                     // server row instead of returning a duplicate optimistic
                     // message.
-                    for message in result.messages {
+                    for message in pollMessages {
                         _ = clientMessageID(for: message)
                     }
                     // History may have loaded an older page before the first
@@ -405,9 +413,9 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
                     // from that page remains answerable and can be reread by
                     // `before_seq` after the RPC commits.
                     withState { state in
-                        mergeMessages(result.messages, into: &state)
+                        mergeMessages(pollMessages, into: &state)
                     }
-                    lastSeq = result.messages.map(\.seq).max() ?? 0
+                    lastSeq = pollMessages.map(\.seq).max() ?? 0
                     continuation.yield(.connected(
                         info: mappedInfo.info,
                         meID: mappedInfo.meID,
@@ -416,13 +424,9 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
                     publishedInfo = mappedInfo.info
                     publishedMeID = mappedInfo.meID
                     withState { $0.publishedMeID = mappedInfo.meID }
-                    continuation.yield(.readState(ConversationReadState(
-                        lastReadSeq: safeInt(lastSeq),
-                        unreadCount: 0,
-                        headSeq: safeInt(lastSeq)
-                    )))
+                    continuation.yield(.readState(readState(from: result, fallbackHead: lastSeq)))
                     continuation.yield(.typing(
-                        participantID: participantID(in: result.messages),
+                        participantID: participantID(in: pollMessages),
                         isTyping: result.working
                     ))
                     connected = true
@@ -451,32 +455,22 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
                         publishedMeID = mappedInfo.meID
                         withState { $0.publishedMeID = mappedInfo.meID }
                     }
-                    for message in result.messages {
+                    for message in pollMessages {
                         let previous = withState { $0.previousMessagesByID[message.id] }
                         guard previous != message else { continue }
-                        if eventSeq < Int.max {
-                            eventSeq = max(eventSeq + 1, safeInt(message.seq))
-                        }
-                        continuation.yield(.message(
-                            map(message, clientMessageID: clientMessageID(for: message)),
-                            eventSeq: eventSeq
-                        ))
+                        publish(message, on: continuation)
                     }
                     // Keep messages loaded from older history pages. A user
                     // can answer a card after polling has advanced past its
                     // newest-page window, and `votePoll` needs its sequence to
                     // perform the targeted reread.
                     withState { state in
-                        mergeMessages(result.messages, into: &state)
+                        mergeMessages(pollMessages, into: &state)
                     }
-                    lastSeq = max(lastSeq, result.messages.map(\.seq).max() ?? 0)
-                    continuation.yield(.readState(ConversationReadState(
-                        lastReadSeq: safeInt(lastSeq),
-                        unreadCount: 0,
-                        headSeq: safeInt(lastSeq)
-                    )))
+                    lastSeq = max(lastSeq, pollMessages.map(\.seq).max() ?? 0)
+                    continuation.yield(.readState(readState(from: result, fallbackHead: lastSeq)))
                     continuation.yield(.typing(
-                        participantID: participantID(in: result.messages),
+                        participantID: participantID(in: pollMessages),
                         isTyping: result.working
                     ))
                 }
@@ -489,11 +483,40 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
                 }
             }
             do {
-                try await Task.sleep(nanoseconds: 3_000_000_000)
+                try await clock.sleep(for: .seconds(3))
             } catch {
                 return
             }
         }
+    }
+
+    /// `chief.read` is a newest-page API. If more than one page arrived
+    /// between polls, walk older pages until the previous cursor is covered so
+    /// the transcript does not silently skip messages or card updates.
+    private func messagesCoveringGap(
+        _ result: MobileChiefReadResult,
+        afterSeq: UInt64
+    ) async throws -> [MobileChiefMessage] {
+        guard afterSeq > 0,
+              let first = result.messages.first,
+              first.seq > afterSeq,
+              first.seq - afterSeq > 1 else {
+            return result.messages
+        }
+        var pages = [result.messages]
+        var beforeSeq = first.seq
+        var hasMore = result.hasMore
+        while hasMore, let oldest = pages.first?.first, oldest.seq > afterSeq + 1 {
+            guard !Task.isCancelled else { return pages.flatMap { $0 } }
+            let page = try await client.read(conversation: conversationID, beforeSeq: beforeSeq, limit: 200)
+            guard !page.messages.isEmpty else { break }
+            pages.insert(page.messages, at: 0)
+            beforeSeq = page.messages[0].seq
+            hasMore = page.hasMore
+        }
+        var byID: [String: MobileChiefMessage] = [:]
+        for message in pages.joined() { byID[message.id] = message }
+        return byID.values.sorted { $0.seq < $1.seq }
     }
 
     private func info(from messages: [MobileChiefMessage]) -> (info: ConversationInfo, meID: String) {
@@ -560,9 +583,7 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
             state.structuredPartsByMessageID[message.id] = message.partPayloads
         }
         let poll = Self.pendingPoll(from: message)
-        let text = Self.receiptText(from: message) ?? (message.text.isEmpty && !message.parts.isEmpty
-            ? message.parts.map { $0.replacingOccurrences(of: "_", with: " ").capitalized }.joined(separator: " · ")
-            : message.text)
+        let text = Self.receiptText(from: message) ?? Self.displayText(from: message)
         return ConversationMessage(
             id: message.id,
             seq: safeInt(message.seq),
@@ -602,7 +623,11 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
                 question: question.summary,
                 options: [ConversationPollOption(
                     id: Self.questionComposerOptionID,
-                    text: "Answer questions"
+                    text: String(
+                        localized: "mobile.chief.question.answer",
+                        defaultValue: "Answer questions",
+                        bundle: .module
+                    )
                 )]
             )
         }
@@ -667,6 +692,29 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
         return nil
     }
 
+    /// Structured Chief parts are available on newer hosts even when the
+    /// legacy text field is empty. Keep work progress visible in the generic
+    /// transcript instead of reducing it to an unhelpful "Work" label.
+    static func displayText(from message: MobileChiefMessage) -> String {
+        if !message.text.isEmpty { return message.text }
+        guard !message.partPayloads.isEmpty else {
+            return message.parts.map { $0.replacingOccurrences(of: "_", with: " ").capitalized }
+                .joined(separator: " · ")
+        }
+        return message.partPayloads.map { part in
+            if let work = part.work {
+                let detail = [work.status, work.preview].compactMap { value in
+                    let value = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                    return value.isEmpty ? nil : value
+                }.joined(separator: " · ")
+                return detail.isEmpty ? work.title : "\(work.title) · \(detail)"
+            }
+            if let approval = part.approval { return approval.prompt }
+            if let question = part.question { return question.summary }
+            return part.kind.replacingOccurrences(of: "_", with: " ").capitalized
+        }.joined(separator: " · ")
+    }
+
     private func map(_ messages: [MobileChiefMessage]) -> [ConversationMessage] {
         messages.map { map($0) }
     }
@@ -710,6 +758,37 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
         withState { state in
             state.correlatedMessagesByClientID.removeValue(forKey: clientMessageID)
         }
+    }
+
+    private func publishUpdatedMessage(_ message: MobileChiefMessage) -> ConversationMessage {
+        withState { state in mergeMessages([message], into: &state) }
+        let mapped = map(message, clientMessageID: clientMessageID(for: message))
+        let continuation = withState { $0.continuation }
+        if let continuation { publish(mapped, on: continuation) }
+        return mapped
+    }
+
+    private func publish(_ message: MobileChiefMessage, on continuation: AsyncStream<ConversationBackendEvent>.Continuation) {
+        let mapped = map(message, clientMessageID: clientMessageID(for: message))
+        publish(mapped, on: continuation)
+    }
+
+    private func publish(_ message: ConversationMessage, on continuation: AsyncStream<ConversationBackendEvent>.Continuation) {
+        let eventSeq = withState { state -> Int in
+            if state.eventSeq < Int.max { state.eventSeq += 1 }
+            state.eventSeq = max(state.eventSeq, message.seq ?? 0)
+            return state.eventSeq
+        }
+        continuation.yield(.message(message, eventSeq: eventSeq))
+    }
+
+    private func readState(from result: MobileChiefReadResult, fallbackHead: UInt64) -> ConversationReadState {
+        let head = result.headSeq ?? max(fallbackHead, result.messages.map(\.seq).max() ?? 0)
+        return ConversationReadState(
+            lastReadSeq: safeInt(result.lastReadSeq ?? 0),
+            unreadCount: max(0, result.unreadCount ?? 0),
+            headSeq: safeInt(head)
+        )
     }
 
     /// A send can discover the first human message before the next poll tick.

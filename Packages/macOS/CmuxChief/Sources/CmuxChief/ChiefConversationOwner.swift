@@ -34,6 +34,15 @@ public import Foundation
 /// let store = HomeStore(source: ChiefLocalSource(owner: owner))
 /// ```
 public actor ChiefConversationOwner {
+    /// A conversation mutation could not be durably written. The owner keeps
+    /// the diagnostic on `lastPersistenceError` and does not publish the
+    /// failed mutation as a successful operation.
+    public struct PersistenceError: Error, Hashable, Sendable, CustomStringConvertible {
+        public let message: String
+
+        public init(message: String) { self.message = message }
+        public var description: String { message }
+    }
     /// The participant id of the signed-in user.
     public static let userID = ParticipantID("me")
     /// The participant id of the default Chief.
@@ -49,6 +58,7 @@ public actor ChiefConversationOwner {
     public nonisolated let chief: Participant
 
     let brain: any ChiefBrain
+    let allowRules: ChiefAllowRules
     let contextProvider: ChiefTurnContextProvider
     let now: @Sendable () -> Date
     let blobs: ChiefBlobStore
@@ -66,8 +76,7 @@ public actor ChiefConversationOwner {
     var lastTurns: [ConversationID: ChiefTurnStats] = [:]
     /// Conversations whose stopped turn waits for the brain's interrupt; no turn starts there meanwhile.
     var stopping: Set<ConversationID> = []
-    /// The last persistence failure, for diagnostics. Writes never fail an op:
-    /// the commit is already published.
+    /// The last persistence failure, for diagnostics.
     public private(set) var lastPersistenceError: String?
 
     /// What the load found wrong with the home's conversation files (damaged
@@ -86,19 +95,26 @@ public actor ChiefConversationOwner {
     ///   - context: Builds each turn's prompt, working directory and environment.
     /// - Throws: A file system error when the home's directories cannot be created. A
     ///   damaged or unreadable conversation file never throws (``loadProblems``).
-    public init(home: ChiefHome, brain: any ChiefBrain, userDisplayName: String? = nil,
+    public init(
+                home: ChiefHome,
+                brain: any ChiefBrain,
+                userDisplayName: String? = nil,
+                allowRules: ChiefAllowRules = ChiefAllowRules(),
                 now: @escaping @Sendable () -> Date = { Date() },
                 context: @escaping ChiefTurnContextProvider) throws {
+        allowRules.load(home)
         let people = Self.participants(userDisplayName: userDisplayName)
         let loaded = try Self.loadConversations(home: home, me: people.me, chief: people.chief, now: now)
-        self.init(home: home, brain: brain, me: people.me, chief: people.chief, now: now, context: context, loaded: loaded)
+        self.init(home: home, brain: brain, allowRules: allowRules, me: people.me, chief: people.chief,
+                  now: now, context: context, loaded: loaded)
     }
 
-    init(home: ChiefHome, brain: any ChiefBrain, me: Participant, chief: Participant,
+    init(home: ChiefHome, brain: any ChiefBrain, allowRules: ChiefAllowRules = ChiefAllowRules(), me: Participant, chief: Participant,
          now: @escaping @Sendable () -> Date, context: @escaping ChiefTurnContextProvider,
          loaded: ChiefLoadedConversations) {
         self.home = home
         self.brain = brain
+        self.allowRules = allowRules
         self.contextProvider = context
         self.now = now
         self.blobs = ChiefBlobStore(root: home.blobsDirectory)
@@ -199,8 +215,8 @@ public actor ChiefConversationOwner {
             state.summary.readCursors[me.id] = message.seq
             state.summary.readCursorTimes[me.id] = created
         }
+        try persist(id, [.message(message), .summary(state.summary)])
         conversations[id] = state
-        persist(id, [.message(message), .summary(state.summary)])
         publish(.message(message, rev: state.summary.rev))
         return message
     }
@@ -213,8 +229,8 @@ public actor ChiefConversationOwner {
         try change(&message)
         state.upsert(message)
         state.summary.rev += 1
+        try persist(id, [.message(message), .summary(state.summary)])
         conversations[id] = state
-        persist(id, [.message(message), .summary(state.summary)])
         publish(.message(message, rev: state.summary.rev))
         return message
     }
@@ -225,8 +241,8 @@ public actor ChiefConversationOwner {
         var state = try conversationState(id)
         change(&state.summary)
         state.summary.rev += 1
+        try persist(id, [.summary(state.summary)])
         conversations[id] = state
-        persist(id, [.summary(state.summary)])
         publish(.conversationChanged(state.summary, stream: .conversation(id), rev: state.summary.rev))
         return state.summary.rev
     }
@@ -235,9 +251,10 @@ public actor ChiefConversationOwner {
     func updateInbox(_ id: ConversationID, _ change: (inout ConversationSummary) -> Void) throws -> HomeOpResult {
         var state = try conversationState(id)
         change(&state.summary)
+        let nextInboxRev = inboxRev + 1
+        try persist(id, [.summary(state.summary)])
+        inboxRev = nextInboxRev
         conversations[id] = state
-        inboxRev += 1
-        persist(id, [.summary(state.summary)])
         publish(.conversationChanged(state.summary, stream: .inbox, rev: inboxRev))
         return HomeOpResult(rev: inboxRev)
     }
@@ -254,23 +271,35 @@ public actor ChiefConversationOwner {
     }
 
     /// Adds a new conversation to the inbox.
-    func insertConversation(_ summary: ConversationSummary) {
+    func insertConversation(_ summary: ConversationSummary) throws {
         let state = ChiefConversationState(summary: summary)
-        conversations[summary.id] = state
         let log = ChiefConversationLog(url: Self.file(for: summary.id, in: home))
+        do {
+            try log.rewrite(state)
+        } catch {
+            let message = String(describing: error)
+            lastPersistenceError = message
+            throw PersistenceError(message: message)
+        }
+        conversations[summary.id] = state
         logs[summary.id] = log
-        record { try log.rewrite(state) }
         inboxRev += 1
         publish(.conversationChanged(summary, stream: .inbox, rev: inboxRev))
     }
 
-    func persist(_ id: ConversationID, _ records: [ChiefLogRecord]) {
-        guard let log = logs[id] else { return }
-        record { try log.append(records) }
-    }
-
-    private func record(_ write: () throws -> Void) {
-        do { try write() } catch { lastPersistenceError = String(describing: error) }
+    func persist(_ id: ConversationID, _ records: [ChiefLogRecord]) throws {
+        guard let log = logs[id] else {
+            let message = "missing log for \(id.rawValue)"
+            lastPersistenceError = message
+            throw PersistenceError(message: message)
+        }
+        do {
+            try log.append(records)
+        } catch {
+            let message = String(describing: error)
+            lastPersistenceError = message
+            throw PersistenceError(message: message)
+        }
     }
 
     static func mintMessageID() -> MessageID {

@@ -50,11 +50,13 @@ public final class ChiefScriptedBrain: ChiefBrain {
     public static let approvalCommand = "cmux chief dispatch --agent codex --name Scratch --wait-working -- 'Run the test suite and report what fails.'"
 
     private let clock: any Clock<Duration>
+    private let allowRules: ChiefAllowRules?
     private let state = ScriptedBrainState()
 
     /// - Parameter clock: Paces the script; tests pass a clock that returns at once.
-    public init(clock: any Clock<Duration> = ContinuousClock()) {
+    public init(clock: any Clock<Duration> = ContinuousClock(), allowRules: ChiefAllowRules? = nil) {
         self.clock = clock
+        self.allowRules = allowRules
     }
 
     // MARK: Script

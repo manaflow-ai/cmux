@@ -64,7 +64,12 @@ enum ChiefToolPolicy {
     ///   - tool: The tool name from the permission request.
     ///   - input: The tool's input.
     ///   - home: The user's home folder (tests pass a fixed one).
-    static func autoAllowsClaudeTool(_ tool: String, input: ChiefJSON, home: String = NSHomeDirectory()) -> Bool {
+    static func autoAllowsClaudeTool(
+        _ tool: String,
+        input: ChiefJSON,
+        home: String = NSHomeDirectory(),
+        allowRules: ChiefAllowRules? = nil
+    ) -> Bool {
         let paths = ChiefSensitivePaths(home: home)
         switch tool {
         case "WebSearch", "ToolSearch":
@@ -79,7 +84,7 @@ enum ChiefToolPolicy {
             return !filters.contains(where: paths.patternNamesSecrets)
         case "Bash":
             guard let command = input["command"]?.string else { return false }
-            return autoAllowsCommand(command)
+            return autoAllowsCommand(command, allowRules: allowRules, home: home)
         default:
             return false
         }
@@ -88,7 +93,11 @@ enum ChiefToolPolicy {
     /// Whether a shell command line runs without asking.
     ///
     /// - Parameter command: The command line, possibly wrapped in `sh -lc '…'`.
-    static func autoAllowsCommand(_ command: String) -> Bool {
+    static func autoAllowsCommand(
+        _ command: String,
+        allowRules: ChiefAllowRules? = nil,
+        home: String = NSHomeDirectory()
+    ) -> Bool {
         let line = unwrapShell(command)
         guard let stages = ChiefShellLexer.stages(of: line), !stages.isEmpty else { return false }
         for stage in stages {
@@ -96,7 +105,7 @@ enum ChiefToolPolicy {
             if stage.contains(where: \.expands) { return false }
             let words = stage.map(\.text)
             // The user's "Always Allow" rules (an approval card's menu) cover their program and subcommand.
-            guard autoAllowsSimpleCommand(words) || ChiefAllowRules.shared.allows(words) else { return false }
+            guard autoAllowsSimpleCommand(words, home: home) || (allowRules?.allows(words) ?? false) else { return false }
         }
         return true
     }
@@ -169,7 +178,7 @@ enum ChiefToolPolicy {
     ]
 
     /// Whether one simple command (quotes removed) runs without asking.
-    static func autoAllowsSimpleCommand(_ words: [String]) -> Bool {
+    static func autoAllowsSimpleCommand(_ words: [String], home: String = NSHomeDirectory()) -> Bool {
         // A bare program name only: `/tmp/x/cmux` is not the cmux CLI.
         guard let program = words.first else { return false }
         let args = Array(words.dropFirst())
@@ -177,7 +186,7 @@ enum ChiefToolPolicy {
         case "cmux":
             return autoAllowsCmux(args)
         case _ where plainReadOnlyPrograms.contains(program):
-            return true
+            return autoAllowsPlainReadOnly(program, args: args, home: home)
         case "date":
             return !args.contains { $0 == "-s" || $0.hasPrefix("--set") }
         case "rg":
@@ -197,6 +206,41 @@ enum ChiefToolPolicy {
             return autoAllowsGitHub(args)
         default:
             return false
+        }
+    }
+
+    /// Plain readers must still refuse credential paths. A shell command such
+    /// as `cat ~/.aws/credentials` must receive the same protection as Claude's
+    /// structured `Read` tool.
+    private static func autoAllowsPlainReadOnly(_ program: String, args: [String], home: String) -> Bool {
+        guard ["cat", "head", "tail", "wc", "ls"].contains(program) else { return true }
+        let paths = ChiefSensitivePaths(home: home)
+        var pathArguments: [String] = []
+        var expectsValue = false
+        for (index, arg) in args.enumerated() {
+            if expectsValue {
+                expectsValue = false
+                continue
+            }
+            if arg == "--" {
+                pathArguments.append(contentsOf: args.dropFirst(index + 1))
+                break
+            }
+            if ["-n", "--lines", "-c", "--bytes"].contains(arg) {
+                expectsValue = true
+                continue
+            }
+            if arg.hasPrefix("-") { continue }
+            pathArguments.append(arg)
+        }
+        return !pathArguments.contains { path in
+            if path.hasPrefix("/") || path.hasPrefix("~") {
+                // `ls` reveals directory entries, so use the stricter search
+                // policy; listing `~` would otherwise expose credential-store
+                // names even though the directory itself is not a secret file.
+                return !(program == "ls" ? paths.allowsSearch(path) : paths.allowsRead(path))
+            }
+            return paths.patternNamesSecrets(path)
         }
     }
 
