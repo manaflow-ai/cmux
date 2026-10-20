@@ -304,10 +304,13 @@ struct NotificationFeedHistoryTests {
         let history = NotificationFeedHistoryStore(fileURL: fileURL)
         await history.loadingTask?.value
 
-        #expect(Set(history.notifications.map(\.subtitle)) == [
+        let retainedSubtitles: Set<String> = [
             "User message",
             "Hidden renderers and browsers were released",
-        ])
+        ]
+        #expect(Set(history.notifications.map(\.subtitle)) == retainedSubtitles)
+        let persisted = try await waitForPersistedSnapshot(at: fileURL, revision: 8)
+        #expect(Set(persisted.notifications.map(\.subtitle)) == retainedSubtitles)
     }
 
     @Test func oversizedHistoryFileIsQuarantinedWithMonotonicRevisionAndWritesRecover() async throws {
