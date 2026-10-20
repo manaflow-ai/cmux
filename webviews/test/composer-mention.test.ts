@@ -1,4 +1,5 @@
-// Typing @ in the agent chat composer offers the chat's files (cx-ncc.68, Codex desktop app parity).
+// Typing @ in the agent chat composer offers other chats and the chat's folders and files (cx-ncc.68,
+// Codex and Claude desktop app parity).
 // The composer gallery's plays type into the real prompt in Chromium against the gallery host's
 // `file.search` answer; this checks each play passed and what the page asked the host.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -91,6 +92,28 @@ await requireBrowserLane("composer-mention.test.ts", async () => {
     const result = await play("mention-escaped-path");
     expect(playFailures(result.report)).toEqual([]);
     expect(result.searches).toEqual(["ini"]);
+  });
+
+  test("@proje lists other chats, then folders, then the chat folder's files", async () => {
+    const result = await play("mention-mixed");
+    expect(playFailures(result.report)).toEqual([]);
+    expect(result.searches).toContain("proje");
+  });
+
+  test("picking another chat writes its title and full id", async () => {
+    const result = await play("mention-session-pick");
+    expect(playFailures(result.report)).toEqual([]);
+  });
+
+  test("a chat named for a long prompt does not take @app from the file", async () => {
+    const result = await play("mention-file-over-prompt-chat");
+    expect(playFailures(result.report)).toEqual([]);
+    expect(result.searches).toContain("app");
+  });
+
+  test("a bare @ lists the most recent other chats", async () => {
+    const result = await play("mention-recent-chats");
+    expect(playFailures(result.report)).toEqual([]);
   });
 
   test("an @ inside a word opens nothing and asks the host for nothing", async () => {
